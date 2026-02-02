@@ -1,7 +1,8 @@
 # Observations
 
-Last updated: 2026-01-28
+Last updated: 2026-02-01
 
+- Added worktree setup automation to copy `.env.example` and run `bun install` because the initial worktree script omitted these steps.
 - Added `.env.example` and Tailwind token config for the design system.
 - Gallery UI now consumes Convex assets/tags/search instead of mock data.
 - Local dev ingest seeds Convex storage from `public/images-test` with thumbnails.

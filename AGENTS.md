@@ -88,6 +88,15 @@ Use idempotency keys for AI operations to prevent duplicate charges
 
 - Test single function: bun convex run functions/myFunction
 
+- Create worktrees for parallel work (branches live under .worktrees/):
+  - `scripts/worktree-create.sh --copy-env --install palette-hazard palette-acid palette-brass`
+  - Optional: `--convex-dev` to run `bunx convex dev` in each worktree (requires network)
+  - `git worktree list` to view all worktrees
+  - `cd .worktrees/<branch>` to work inside a specific branch
+- Remove worktrees:
+  - `scripts/worktree-remove.sh .worktrees/palette-hazard`
+  - `scripts/worktree-remove.sh --branch .worktrees/palette-hazard`
+
 
 ## Documentation
 
