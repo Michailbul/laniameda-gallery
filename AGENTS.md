@@ -5,6 +5,7 @@ use linters to avoid unused code/functions.
 
 Always read the /agent-docs repository first where we have teh Progress, TODO, Observations files
 Always approach a new task with Test Driven Developement, when starting new task from todo list.
+
 # Project Configuration - Convex AI Stack
 
 ## 🚨 CRITICAL RULES
@@ -13,14 +14,14 @@ Always approach a new task with Test Driven Developement, when starting new task
 - **Use ConvexError** for user-facing error messages, never throw raw errors
 - **Make mutations idempotent** to handle retries gracefully
 - **Use indexes** for all queries that filter or sort data
-- **when starting clean and answering user's first message/instruciton, read the PRD.md, PROGRESS.md, TODO.md to iunderstand the stage of the project**
+- **when starting clean and answering user's first message/instruciton, read the PRD.md, PROGRESS.md, TODO.md to understand the stage of the project**
 - **Update TODO.md and PROGRESS.md when finished with feature and asked user to verify this feature - when user responds positive - free to mark the feature done**
 - **When there is a mistake from your side, that something was forgottent or done improperly, address this in the OBSERVATION.md file.** for example, if you run tests, they were passing, but the bun dev is erroring - meaning that something is off. 
 
 ## 🎯 PROJECT CONTEXT
-- **Stack**: Convex backend with TypeScript, AI SDK integration (OpenAI/Anthropic)
+- **Stack**: Convex backend with TypeScript, AI SDK integration, Agents SDK from anthropic.
 - **Architecture**: Real-time database with reactive queries, server-side AI processing
-- **Goal**: Build type-safe AI agents with persistent memory and real-time sync
+- **Goal**: Build a AI UGC influencer agent platform.
 
 ## Prime directive
 - Keep code celan, no more then 300 Line of code.
@@ -73,11 +74,6 @@ Always approach a new task with Test Driven Developement, when starting new task
 - Use named exports for all functions
 - Keep functions in `convex/` directory with `.ts` extension
 - Use internal functions for sensitive operations
-
-Store AI responses in Convex database for real-time sync
-
-Use idempotency keys for AI operations to prevent duplicate charges
-
 
 ## 📋 COMMON COMMANDS
 - npx convex dev - Start local Convex dev environment
