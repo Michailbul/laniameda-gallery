@@ -32,30 +32,45 @@ export function UploadModal({ open, onClose, availableTags, folders }: UploadMod
       aria-modal="true"
       role="dialog"
     >
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity" onClick={onClose} />
       <div
-        className="relative z-10 w-full max-w-5xl rounded-3xl border border-border/60 bg-background/90 p-6 shadow-2xl shadow-muted/50 backdrop-blur"
+        className="absolute inset-0 transition-opacity"
+        style={{
+          background: "radial-gradient(ellipse at center, rgba(74, 30, 10, 0.1) 0%, rgba(0,0,0,0.85) 65%)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+        }}
+        onClick={onClose}
+      />
+      <div
+        className="relative z-10 flex h-[82vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-border/60 shadow-2xl shadow-black/70 backdrop-blur grain-overlay"
+        style={{
+          background: "linear-gradient(180deg, rgba(17,10,6,0.95) 0%, rgba(8,4,2,0.98) 100%)",
+        }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.5em] text-muted-foreground">
+        <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-[0.4em] text-muted-foreground">
               Manual ingest
-            </p>
-            <h2 className="text-2xl font-semibold text-foreground">Add a prompt</h2>
-            <p className="text-sm text-muted-foreground">
-              Drag files, paste a URL, add tags/folder metadata, and push straight to the gallery.
-            </p>
+            </span>
+            <h2 className="text-sm font-medium text-foreground">Add a prompt</h2>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close upload modal">
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
-        <UploadPanel
-          availableTags={availableTags}
-          folders={folders}
-          className="bg-background/90 shadow-inner"
-        />
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex min-h-full flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              Drag files, paste a URL, add tags/folder metadata, and push straight to the gallery.
+            </p>
+            <UploadPanel
+              availableTags={availableTags}
+              folders={folders}
+              className="bg-background/80 shadow-inner flex-1 min-h-0"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

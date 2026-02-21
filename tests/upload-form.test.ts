@@ -23,9 +23,9 @@ describe("buildUploadFormData", () => {
         promptText: "Test prompt",
         url: "https://example.com/image.png",
         fileName: "image.png",
-      }),
+      })!,
     );
-    expect(formData.get("promptIngestKey")).toBe(buildIngestKey({ promptText: "Test prompt" }));
+    expect(formData.get("promptIngestKey")).toBe(buildIngestKey({ promptText: "Test prompt" })!);
     const fileEntry = formData.get("file");
     expect(fileEntry).toBeInstanceOf(File);
     expect((fileEntry as File).name).toBe("image.png");

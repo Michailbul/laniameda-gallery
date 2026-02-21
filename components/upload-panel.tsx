@@ -1,15 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -63,9 +56,10 @@ export function UploadPanel({
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<StatusMessage>(null);
-  const statusTimerRef = useRef<number>();
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounterRef = useRef(0);
+  const highlightRef = useRef<HTMLPreElement | null>(null);
 
   const canSubmit = Boolean(
     promptText.trim().length > 0 || urlInput.trim().length > 0 || selectedFiles.length > 0,
@@ -106,13 +100,14 @@ export function UploadPanel({
 
   useEffect(() => {
     if (!status) return;
-    if (statusTimerRef.current) {
-      window.clearTimeout(statusTimerRef.current);
+    if (statusTimerRef.current !== null) {
+      clearTimeout(statusTimerRef.current);
     }
-    statusTimerRef.current = window.setTimeout(() => setStatus(null), 5000);
+    statusTimerRef.current = setTimeout(() => setStatus(null), 5000);
     return () => {
-      if (statusTimerRef.current) {
-        window.clearTimeout(statusTimerRef.current);
+      if (statusTimerRef.current !== null) {
+        clearTimeout(statusTimerRef.current);
+        statusTimerRef.current = null;
       }
     };
   }, [status]);
@@ -224,6 +219,36 @@ export function UploadPanel({
     }
   };
 
+  const promptHighlight = useMemo(() => {
+    const trimmed = promptText.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      const pretty = JSON.stringify(parsed, null, 2);
+      const escaped = pretty
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const keys: string[] = [];
+      let staged = escaped.replace(/"(.*?)"(?=\\s*:)/g, (_, key) => {
+        const index = keys.push(key) - 1;
+        return `@@KEY${index}@@`;
+      });
+      staged = staged.replace(/"(.*?)"/g, '<span class="text-amber-200">"$1"</span>');
+      staged = staged.replace(/\b(true|false|null)\b/g, '<span class="text-purple-200">$1</span>');
+      staged = staged.replace(/\b-?\d+(?:\.\d+)?\b/g, '<span class="text-sky-200">$&</span>');
+      staged = staged.replace(/@@KEY(\d+)@@/g, (_, index) => {
+        const key = keys[Number(index)] ?? "";
+        return `<span class="text-emerald-200">"${key}"</span>`;
+      });
+      return staged;
+    } catch {
+      return null;
+    }
+  }, [promptText]);
+
   const dropzoneClasses = cn(
     "relative flex min-h-[160px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border/60 bg-background/50 p-6 text-center transition",
     isDragActive ? "border-primary bg-primary/10" : "hover:border-border/80",
@@ -238,143 +263,154 @@ export function UploadPanel({
   const descriptionId = "upload-dropzone-description";
 
   return (
-    <Card
-      className={cn(
-        "relative mx-auto w-full max-w-6xl border border-border/40 bg-background/80 p-4 shadow-2xl shadow-muted/30 backdrop-blur",
-        className,
-      )}
-    >
-      <CardHeader>
-        <CardTitle>Capture a new prompt</CardTitle>
-        <CardDescription>Drag or paste media, add tags, and push to the gallery.</CardDescription>
-      </CardHeader>
+    <div className={cn("relative mx-auto flex h-full w-full max-w-6xl flex-col min-h-0", className)}>
       {status && (
         <div
           role="status"
           aria-live={status.type === "error" ? "assertive" : "polite"}
-          className={cn(
-            "mb-4 rounded-2xl px-4 py-2 text-xs font-medium",
-            statusClasses[status.type],
-          )}
+          className={cn("mb-4 rounded-xl px-4 py-2 text-xs font-medium", statusClasses[status.type])}
         >
           {status.message}
         </div>
       )}
-      <CardContent>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleSubmit();
-          }}
-          className="flex flex-col gap-4"
-        >
-          <div
-            data-testid="upload-dropzone"
-            role="button"
-            aria-label="Drag files here or click to browse"
-            aria-describedby={descriptionId}
-            tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            onDrop={handleDrop}
-            onDragOver={(event) => {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "copy";
-              handleDragEnter(event);
-            }}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            className={dropzoneClasses}
-          >
-            {isUploading && (
-              <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-background/80">
-                <span className="animate-pulse text-xs uppercase tracking-[0.4em] text-muted-foreground">
-                  Uploading...
-                </span>
-              </div>
-            )}
-            {previews.length > 0 ? (
-              <div className="relative flex w-full flex-1 items-center justify-center">
-                {previews[activePreviewIndex]?.file.type.startsWith("image/") ? (
-                  <img
-                    src={previews[activePreviewIndex].url}
-                    alt={previews[activePreviewIndex].file.name}
-                    className="max-h-40 w-full rounded-2xl object-contain"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <span className="text-xs font-semibold text-muted-foreground">
-                      {previews[activePreviewIndex].file.name}
-                    </span>
-                    <span className="text-[10px] uppercase tracking-[0.4em] text-muted-foreground">
-                      No preview
-                    </span>
-                  </div>
-                )}
-                <div className="absolute bottom-3 flex gap-1">
-                  {previews.map((preview, index) => (
-                    <span
-                      key={`${preview.file.name}-${index}`}
-                      className={cn(
-                        "h-1.5 w-1.5 rounded-full",
-                        index === activePreviewIndex
-                          ? "bg-primary"
-                          : "bg-border/60",
-                      )}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="text-xs uppercase tracking-[0.4em] text-muted-foreground">
-                  Drag &amp; drop
-                </p>
-                <p className="text-sm font-semibold text-foreground">
-                  Drop files or click to browse
-                </p>
-                <p id={descriptionId} className="text-xs text-muted-foreground">
-                  Support for images + video (multi-file sends first file only for now).
-                </p>
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,video/*"
-              className="sr-only"
-              onChange={(event) => {
-                if (event.target.files) {
-                  handleIncomingFiles(event.target.files);
-                }
-                event.target.value = "";
-              }}
-            />
-          </div>
-          {selectedFiles.length > 1 && (
-            <p className="text-[11px] text-muted-foreground">
-              We currently upload the first file in multi-file batches. Extra files stay queued for future syncs.
-            </p>
-          )}
-          <div className="grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
-            <div className="flex flex-col gap-2">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSubmit();
+        }}
+        className="grid h-full min-h-0 gap-6 lg:grid-cols-[1.25fr_0.75fr] lg:items-stretch"
+      >
+          <div className="flex flex-col gap-2 lg:h-full min-h-0">
               <Label htmlFor="prompt-text">Prompt</Label>
-              <Textarea
-                id="prompt-text"
-                placeholder="Describe the scene or instructions"
-                value={promptText}
-                onChange={(event) => setPromptText(event.target.value)}
-                maxLength={2000}
-              />
+              <div className="relative flex min-h-[420px] flex-1 flex-col min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-background/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                {promptHighlight && (
+                  <pre
+                    ref={highlightRef}
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 overflow-auto px-4 py-3 text-sm font-mono leading-relaxed text-foreground/90"
+                    dangerouslySetInnerHTML={{ __html: promptHighlight }}
+                  />
+                )}
+                <Textarea
+                  id="prompt-text"
+                  placeholder="Describe the scene or instructions"
+                  value={promptText}
+                  onChange={(event) => setPromptText(event.target.value)}
+                  onScroll={(event) => {
+                    if (highlightRef.current) {
+                      highlightRef.current.scrollTop = event.currentTarget.scrollTop;
+                      highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+                    }
+                  }}
+                  maxLength={2000}
+                  className={cn(
+                    "min-h-[360px] flex-1 resize-none border-0 bg-transparent px-4 py-3 text-sm font-mono leading-relaxed focus-visible:ring-0",
+                    promptHighlight
+                      ? "text-transparent caret-foreground selection:bg-foreground/20 selection:text-transparent"
+                      : "text-foreground"
+                  )}
+                />
+              </div>
               <div className="text-xs text-muted-foreground">
                 {promptText.length}/2000 characters
               </div>
+          </div>
+          <div className="flex flex-col gap-4 lg:h-full">
+            <div className="flex flex-col gap-2">
+              <Label>Media</Label>
+              <div
+                data-testid="upload-dropzone"
+                role="button"
+                aria-label="Drag files here or click to browse"
+                aria-describedby={descriptionId}
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDrop={handleDrop}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  handleDragEnter(event);
+                }}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                className={cn(dropzoneClasses, "min-h-[200px]")}
+              >
+                {isUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-background/80">
+                    <span className="animate-pulse text-xs uppercase tracking-[0.4em] text-muted-foreground">
+                      Uploading...
+                    </span>
+                  </div>
+                )}
+                {previews.length > 0 ? (
+                  <div className="relative flex w-full flex-1 items-center justify-center">
+                    {previews[activePreviewIndex]?.file.type.startsWith("image/") ? (
+                      <Image
+                        src={previews[activePreviewIndex].url}
+                        alt={previews[activePreviewIndex].file.name}
+                        width={640}
+                        height={320}
+                        unoptimized
+                        className="max-h-40 w-full rounded-2xl object-contain"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-xs font-semibold text-muted-foreground">
+                          {previews[activePreviewIndex].file.name}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-[0.4em] text-muted-foreground">
+                          No preview
+                        </span>
+                      </div>
+                    )}
+                    <div className="absolute bottom-3 flex gap-1">
+                      {previews.map((preview, index) => (
+                        <span
+                          key={`${preview.file.name}-${index}`}
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            index === activePreviewIndex ? "bg-primary" : "bg-border/60",
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs uppercase tracking-[0.4em] text-muted-foreground">
+                      Drag &amp; drop
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">Upload media</p>
+                    <p id={descriptionId} className="text-xs text-muted-foreground">
+                      Images + video supported. Multi-file sends the first file for now.
+                    </p>
+                  </>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,video/*"
+                  className="sr-only"
+                  onChange={(event) => {
+                    if (event.target.files) {
+                      handleIncomingFiles(event.target.files);
+                    }
+                    event.target.value = "";
+                  }}
+                />
+              </div>
+              {selectedFiles.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  We currently upload the first file in multi-file batches. Extra files stay queued for future syncs.
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="prompt-url">Prompt URL</Label>
@@ -386,8 +422,6 @@ export function UploadPanel({
               />
               <p className="text-[11px] text-muted-foreground">Fetch media from URLs you trust.</p>
             </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
             <div className="flex flex-col gap-2">
               <Label htmlFor="tag-input">Tags</Label>
               <Input
@@ -463,27 +497,27 @@ export function UploadPanel({
                 <p className="text-[10px] text-muted-foreground">No folders sync yet.</p>
               )}
             </div>
+            <div className="mt-auto flex flex-wrap items-center justify-end gap-3 pt-2">
+              <Button
+                type="submit"
+                disabled={!canSubmit || isUploading}
+                size="lg"
+                className="px-6 text-sm font-semibold"
+              >
+                Save to gallery
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={isUploading}
+                onClick={clearForm}
+                className="text-xs"
+              >
+                Clear form
+              </Button>
+            </div>
           </div>
-          <CardFooter className="flex flex-wrap gap-3">
-            <Button
-              type="submit"
-              disabled={!canSubmit || isUploading}
-              className="rounded-full px-4 text-[11px]"
-            >
-              Save to gallery
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isUploading}
-              onClick={clearForm}
-              className="rounded-full px-4 text-[11px]"
-            >
-              Clear form
-            </Button>
-          </CardFooter>
-        </form>
-      </CardContent>
-    </Card>
+      </form>
+    </div>
   );
 }

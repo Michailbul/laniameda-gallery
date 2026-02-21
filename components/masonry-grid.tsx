@@ -17,6 +17,7 @@ interface GalleryImage {
 interface MasonryGridProps {
   images: GalleryImage[];
   onImageSelect?: (image: {
+    id: string;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -26,27 +27,31 @@ interface MasonryGridProps {
   onImageLoad?: (imageId: string) => void;
 }
 
-export function MasonryGrid({ images, onImageSelect, onImageLoad }: MasonryGridProps) {
+export function MasonryGrid({
+  images,
+  onImageSelect,
+  onImageLoad,
+}: MasonryGridProps) {
   return (
-    <div className="px-4 pb-8">
-      <div
-        className="columns-2 gap-0 sm:columns-3 md:columns-4 lg:columns-5"
-        style={{
-          columnGap: 0,
-          columnFill: "auto",
-        }}
-      >
-        {images.map((image, index) => (
-          <ImageCard
-            key={image.id}
-            image={image}
-            eager={index < 12}
-            onSelect={onImageSelect}
-            initiallyLoaded={image.initiallyLoaded}
-            onLoad={() => onImageLoad?.(image.id)}
-          />
-        ))}
-      </div>
+    <div
+      className="columns-2 sm:columns-2 md:columns-3 lg:columns-4 2xl:columns-5"
+      style={{
+        columnGap: "12px",
+        columnFill: "balance",
+        padding: "12px",
+      }}
+    >
+      {images.map((image, index) => (
+        <ImageCard
+          key={image.id}
+          image={image}
+          eager={index < 12}
+          onSelect={onImageSelect}
+          initiallyLoaded={image.initiallyLoaded}
+          onLoad={() => onImageLoad?.(image.id)}
+          index={index}
+        />
+      ))}
     </div>
   );
 }
