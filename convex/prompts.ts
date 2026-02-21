@@ -4,6 +4,7 @@ import { bumpTagUsage, dedupeIds } from "./helpers";
 
 export const createPrompt = mutation({
   args: {
+    ownerUserId: v.string(),
     text: v.string(),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
@@ -14,6 +15,11 @@ export const createPrompt = mutation({
     created: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const text = args.text.trim();
     if (!text) {
       throw new ConvexError("Prompt text is required.");
@@ -22,7 +28,9 @@ export const createPrompt = mutation({
     if (args.ingestKey) {
       const existing = await ctx.db
         .query("prompts")
-        .withIndex("by_ingestKey", (q) => q.eq("ingestKey", args.ingestKey))
+        .withIndex("by_owner_ingestKey", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
+        )
         .unique();
       if (existing) {
         return { promptId: existing._id, created: false };
@@ -32,6 +40,7 @@ export const createPrompt = mutation({
     const createdAt = Date.now();
     const tagIds = dedupeIds(args.tagIds);
     const promptId = await ctx.db.insert("prompts", {
+      ownerUserId,
       text,
       tagIds,
       folderId: args.folderId,
@@ -55,6 +64,7 @@ export const createPrompt = mutation({
 
 export const updatePrompt = mutation({
   args: {
+    ownerUserId: v.string(),
     id: v.id("prompts"),
     text: v.string(),
     tagIds: v.array(v.id("tags")),
@@ -62,6 +72,11 @@ export const updatePrompt = mutation({
   },
   returns: v.id("prompts"),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const text = args.text.trim();
     if (!text) {
       throw new ConvexError("Prompt text is required.");
@@ -70,6 +85,9 @@ export const updatePrompt = mutation({
     const existing = await ctx.db.get(args.id);
     if (!existing) {
       throw new ConvexError("Prompt not found.");
+    }
+    if (existing.ownerUserId !== ownerUserId) {
+      throw new ConvexError("Prompt does not belong to this user.");
     }
 
     const tagIds = dedupeIds(args.tagIds);
@@ -102,12 +120,16 @@ export const updatePrompt = mutation({
 });
 
 export const getPrompt = query({
-  args: { id: v.id("prompts") },
+  args: {
+    id: v.id("prompts"),
+    ownerUserId: v.optional(v.string()),
+  },
   returns: v.union(
     v.null(),
     v.object({
       _id: v.id("prompts"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       text: v.string(),
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
@@ -116,12 +138,20 @@ export const getPrompt = query({
     }),
   ),
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const prompt = await ctx.db.get(args.id);
+    if (!prompt) {
+      return null;
+    }
+    if (args.ownerUserId && prompt.ownerUserId !== args.ownerUserId) {
+      return null;
+    }
+    return prompt;
   },
 });
 
 export const listPrompts = query({
   args: {
+    ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     limit: v.optional(v.number()),
@@ -130,6 +160,7 @@ export const listPrompts = query({
     v.object({
       _id: v.id("prompts"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       text: v.string(),
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
@@ -138,6 +169,11 @@ export const listPrompts = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const limit = Math.min(args.limit ?? 50, 200);
     const tagId = args.tagId;
     if (tagId) {
@@ -151,7 +187,7 @@ export const listPrompts = query({
       const results = [];
       for (const link of links) {
         const prompt = await ctx.db.get(link.promptId);
-        if (prompt) {
+        if (prompt && prompt.ownerUserId === ownerUserId) {
           results.push(prompt);
         }
       }
@@ -160,8 +196,8 @@ export const listPrompts = query({
     if (args.folderId) {
       return await ctx.db
         .query("prompts")
-        .withIndex("by_folder_createdAt", (q) =>
-          q.eq("folderId", args.folderId).gte("createdAt", 0),
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
         )
         .order("desc")
         .take(limit);
@@ -169,18 +205,19 @@ export const listPrompts = query({
 
     return await ctx.db
       .query("prompts")
-      .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+      .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
       .order("desc")
       .take(limit);
   },
 });
 
 export const searchPrompts = query({
-  args: { query: v.string(), limit: v.optional(v.number()) },
+  args: { ownerUserId: v.string(), query: v.string(), limit: v.optional(v.number()) },
   returns: v.array(
     v.object({
       _id: v.id("prompts"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       text: v.string(),
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
@@ -189,13 +226,19 @@ export const searchPrompts = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const query = args.query.trim();
     if (!query) return [];
     const limit = Math.min(args.limit ?? 20, 50);
-
-    return await ctx.db
+    const rows = await ctx.db
       .query("prompts")
       .withSearchIndex("search_text", (q) => q.search("text", query))
-      .take(limit);
+      .take(limit * 3);
+    const results = rows.filter((row) => row.ownerUserId === ownerUserId);
+    return results.slice(0, limit);
   },
 });

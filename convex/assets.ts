@@ -1,10 +1,11 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 
 export const createAsset = mutation({
   args: {
+    ownerUserId: v.string(),
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),
@@ -27,10 +28,17 @@ export const createAsset = mutation({
     created: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     if (args.ingestKey) {
       const existing = await ctx.db
         .query("assets")
-        .withIndex("by_ingestKey", (q) => q.eq("ingestKey", args.ingestKey))
+        .withIndex("by_owner_ingestKey", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
+        )
         .unique();
       if (existing) {
         return { assetId: existing._id, created: false };
@@ -40,6 +48,7 @@ export const createAsset = mutation({
     const createdAt = Date.now();
     const tagIds = dedupeIds(args.tagIds);
     const assetId = await ctx.db.insert("assets", {
+      ownerUserId,
       kind: args.kind,
       storageId: args.storageId,
       thumbStorageId: args.thumbStorageId,
@@ -74,12 +83,16 @@ export const createAsset = mutation({
 });
 
 export const getAsset = query({
-  args: { id: v.id("assets") },
+  args: {
+    id: v.id("assets"),
+    ownerUserId: v.optional(v.string()),
+  },
   returns: v.union(
     v.null(),
     v.object({
       _id: v.id("assets"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       kind: v.union(v.literal("image"), v.literal("video")),
       storageId: v.optional(v.id("_storage")),
       thumbStorageId: v.optional(v.id("_storage")),
@@ -100,12 +113,20 @@ export const getAsset = query({
     }),
   ),
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const asset = await ctx.db.get(args.id);
+    if (!asset) {
+      return null;
+    }
+    if (args.ownerUserId && asset.ownerUserId !== args.ownerUserId) {
+      return null;
+    }
+    return asset;
   },
 });
 
 export const listAssets = query({
   args: {
+    ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -116,6 +137,7 @@ export const listAssets = query({
     v.object({
       _id: v.id("assets"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       kind: v.union(v.literal("image"), v.literal("video")),
       storageId: v.optional(v.id("_storage")),
       thumbStorageId: v.optional(v.id("_storage")),
@@ -136,12 +158,17 @@ export const listAssets = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const limit = Math.min(args.limit ?? 50, 200);
     if (args.promptId) {
       return await ctx.db
         .query("assets")
-        .withIndex("by_prompt_createdAt", (q) =>
-          q.eq("promptId", args.promptId).gte("createdAt", 0),
+        .withIndex("by_owner_prompt_createdAt", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("promptId", args.promptId).gte("createdAt", 0),
         )
         .order("desc")
         .take(limit);
@@ -158,7 +185,7 @@ export const listAssets = query({
       const results = [];
       for (const link of links) {
         const asset = await ctx.db.get(link.assetId);
-        if (asset) {
+        if (asset && asset.ownerUserId === ownerUserId) {
           results.push(asset);
         }
       }
@@ -167,8 +194,8 @@ export const listAssets = query({
     if (args.folderId) {
       return await ctx.db
         .query("assets")
-        .withIndex("by_folder_createdAt", (q) =>
-          q.eq("folderId", args.folderId).gte("createdAt", 0),
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
         )
         .order("desc")
         .take(limit);
@@ -177,14 +204,16 @@ export const listAssets = query({
     if (kind) {
       return await ctx.db
         .query("assets")
-        .withIndex("by_kind_createdAt", (q) => q.eq("kind", kind).gte("createdAt", 0))
+        .withIndex("by_owner_kind_createdAt", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
+        )
         .order("desc")
         .take(limit);
     }
 
     return await ctx.db
       .query("assets")
-      .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+      .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
       .order("desc")
       .take(limit);
   },
@@ -192,8 +221,10 @@ export const listAssets = query({
 
 export const listGalleryAssets = query({
   args: {
+    ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    folderId: v.optional(v.id("folders")),
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -201,6 +232,7 @@ export const listGalleryAssets = query({
     v.object({
       _id: v.id("assets"),
       _creationTime: v.number(),
+      ownerUserId: v.optional(v.string()),
       kind: v.union(v.literal("image"), v.literal("video")),
       storageId: v.optional(v.id("_storage")),
       thumbStorageId: v.optional(v.id("_storage")),
@@ -224,6 +256,11 @@ export const listGalleryAssets = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const limit = Math.min(args.limit ?? 100, 200);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
@@ -232,8 +269,14 @@ export const listGalleryAssets = query({
     const assets = await (kind
       ? ctx.db
           .query("assets")
-          .withIndex("by_kind_createdAt", (q) => q.eq("kind", kind).gte("createdAt", 0))
-      : ctx.db.query("assets").withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+          .withIndex("by_owner_kind_createdAt", (q) =>
+            q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
+          )
+      : ctx.db
+          .query("assets")
+          .withIndex("by_owner_createdAt", (q) =>
+            q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
+          )
     )
       .order("desc")
       .take(limit);
@@ -261,6 +304,9 @@ export const listGalleryAssets = query({
     const results = [];
     for (const asset of assets) {
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+        continue;
+      }
+      if (args.folderId && asset.folderId !== args.folderId) {
         continue;
       }
 
@@ -294,6 +340,7 @@ export const listGalleryAssets = query({
       results.push({
         _id: asset._id,
         _creationTime: asset._creationTime,
+        ownerUserId: asset.ownerUserId,
         kind: asset.kind,
         storageId: asset.storageId,
         thumbStorageId: asset.thumbStorageId,
@@ -322,21 +369,44 @@ export const listGalleryAssets = query({
 });
 
 export const hasAssetForIngestKey = query({
-  args: { ingestKey: v.string() },
+  args: {
+    ownerUserId: v.string(),
+    ingestKey: v.string(),
+  },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     const existing = await ctx.db
       .query("assets")
-      .withIndex("by_ingestKey", (q) => q.eq("ingestKey", args.ingestKey))
+      .withIndex("by_owner_ingestKey", (q) =>
+        q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
+      )
       .unique();
     return Boolean(existing);
   },
 });
 
 export const countAssets = query({
-  args: {},
+  args: {
+    ownerUserId: v.optional(v.string()),
+  },
   returns: v.number(),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
+    if (args.ownerUserId) {
+      const ownerUserId = args.ownerUserId.trim();
+      if (!ownerUserId) {
+        throw new ConvexError("ownerUserId is required when provided.");
+      }
+      return await ctx.db
+        .query("assets")
+        .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
+        .collect()
+        .then((rows) => rows.length);
+    }
     return await ctx.db.query("assets").collect().then((rows) => rows.length);
   },
 });

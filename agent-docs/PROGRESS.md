@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-02-01
+Last updated: 2026-02-19
 
 ## Done
 - Drafted PRD, TODO, and PROGRESS documents
@@ -20,17 +20,126 @@ Last updated: 2026-02-01
 - Replaced the server-side thumbnail resize code with the pure-JS `jimp` helper so Convex’s linux-arm64 runtimes can bundle the ingest action without native sharp dependencies.
 - Reworked `convex/ingest.ts` to use Jimp’s modern resize/getBuffer API and to create thumbnail blobs from safe ArrayBuffers so TypeScript/edge runtimes stop erroring.
 - Added WorkOS AuthKit integration, new middleware/auth routes, and Convex auth config so the gallery is gated behind authenticated users.
-- Allowed the masonry gallery to render for everyone while showing the new `AuthBanner` CTA so visitors can browse before signing in.
+- Allowed the masonry gallery to render for everyone in guest mode, with authentication reserved for protected interactions.
 - Built the manual upload experience (drag-and-drop dropzone, prompt/URL inputs, tags/folder metadata, and API wiring) along with focused tests that validate the ingestion payload.
+- Reframed product direction to frontend/design-first delivery with backend/agent work as an enablement track.
+- Updated PRD and TODO to focus on UGC/influencer image workflows and image-only scope.
+- Rewrote `AGENTS.md` with explicit maintenance rules so each task records high-value repo facts and avoids repeated mistakes.
+- Added external worker foundation for long-running agent runs:
+  - new Convex run tables (`runs`, `run_events`, `run_artifacts`)
+  - run lifecycle functions (`createRun`, `claimRun`, `setRunRunning`, `appendRunEvent`, `completeRun`, `failRun`, `cancelRun`, `resumeRun`)
+  - run read/cancel endpoint contracts and signed worker dispatch integration
+  - signed dispatch/cancel contract to worker (`x-agent-signature`, `x-agent-timestamp`)
+  - new Railway worker service with health/dispatch/cancel endpoints
+  - Daytona sandbox lifecycle wiring + cleanup in worker
+  - Claude Agent SDK runtime integration with streamed event persistence to Convex
+- Added backend documentation set: `BACKEND_PRD.md`, `BACKEND_CONVEX_SETUP.md`, `DEPLOYMENT_AGENT_WORKER.md`.
+- Added `.env.example` with app/worker/daytona/agent runtime variables.
+- Added helper tests for worker signature and run contract utils.
+- Implemented dual-path backend runtime foundation:
+  - Added canonical AI endpoints (`/api/ai/runs/stream`, `/api/ai/images/generate`, `/api/ai/runs/:id`, `/api/ai/runs/:id/cancel`)
+  - Added dual-path runtime switch (`ai_sdk` default, optional `agent_worker` when enabled)
+  - Added AI model alias mapping (`nano_banana_pro`, `nano_banana_fast`) and allowlist validation
+  - Added API-level per-user rate limiting and in-memory cancellation registry for active AI runs
+  - Extended Convex run schema/contracts with runtime metadata (`runtime`, `provider`, `model`, `mode`, `usage`)
+  - standardized on canonical `/api/ai/*` run endpoints for active runtime flows
+- Wired first frontend “few-click” action flow from image modal into streaming prompt-package panel (`Transfer Style`, `Transfer Pose`, `Replace Character`).
+- Added AI runtime documentation (`AI_RUNTIME.md`) and updated backend/README docs to reflect dual-path architecture.
+- Added Telegram integration documentation set:
+  - `TELEGRAM_AGENT_ENGINEERING_PRD.md` (build-ready architecture/contracts/phases)
+  - `TELEGRAM_AGENT_DIAGRAMS.md` (editable Mermaid diagrams for structure, flow, media staging, lifecycle, and deployment)
+  - updated `AGENTS.md` startup reads + active docs index for Telegram agent loop
+  - updated `PRD.md`, `BACKEND_PRD.md`, and `AI_RUNTIME.md` to align runtime and Telegram requirements
+- Consolidated documentation to reduce redundancy:
+  - promoted `PRD.md` to canonical product foundation
+  - removed duplicate docs (`VISION.md`, `TELEGRAM_AGENT_PRODUCT_SPEC.md`)
+  - updated cross-links in `README.md`, `AGENTS.md`, and Telegram engineering docs
+- Removed unreferenced legacy feature spec (`docs/features/ingest-v0.md`) to keep product/engineering docs centralized under `agent-docs/`.
+- Added `TECHNICAL_OVERVIEW.md` as the canonical engineering map (runtime topology, code map, data contracts, quality baseline, refactor priorities).
+- Rewrote `AGENTS.md` as the primary project operating manual with:
+  - mandatory startup doc order,
+  - strict quality gates (`lint`, `test`, `tsc`),
+  - explicit Convex and Telegram/Agent SDK rules,
+  - active docs index including technical overview.
+- Reprioritized `TODO.md` with a phased execution plan:
+  - P0 baseline stabilization (typecheck/lint hygiene),
+  - P1 Telegram + Agent SDK prototype,
+  - P2 runtime refactor/removal cleanup.
+- Completed P2 seed cleanup for API surface:
+  - removed redundant `/api/runs*` route handlers
+  - updated docs/contracts to treat `/api/ai/*` as the only run API surface
+- Audited OpenClaw Telegram implementation and documented reusable patterns for:
+  - webhook hardening,
+  - update dedupe/idempotency,
+  - resilient media retrieval,
+  - thread/topic routing.
+- Prepared restart-ready planning docs for next build session:
+  - added immediate build kickoff section to `PRD.md`,
+  - added build session checklist to `TODO.md`,
+  - aligned `BACKEND_PRD.md` with explicit implementation sequence,
+  - updated `PROGRESS.md` next-up section to backend execution order.
+- Completed P0 engineering baseline stabilization:
+  - fixed WorkOS/AuthKit + Convex provider typings in `components/ConvexClientProvider.tsx`,
+  - replaced remaining upload preview `<img>` with `next/image` and fixed timer typings in `components/upload-panel.tsx`,
+  - fixed local ingest script upload typing (`Id<"_storage">`, request bodies) in `scripts/ingest-local-assets.ts`,
+  - added Bun test type declarations (`@types/bun`) and adjusted strict test typings,
+  - updated ESLint ignore policy for generated Convex files (`convex/_generated/**`),
+  - reran quality gates successfully (`bun run lint`, `bun test`, `bunx tsc --noEmit`).
+- Delivered P1 Telegram ingress/run-creation slice:
+  - added Telegram webhook route `POST /api/telegram/webhook` with secret-token verification and body-size guardrails,
+  - added Telegram inbound normalization contract (`lib/telegram/inbound.ts`) for text, links, media, and routing metadata,
+  - persisted Telegram routing metadata (`chatId`, `threadId`, `messageId`) in `runs.input` for deterministic reply routing,
+  - created Telegram-triggered runs with `source=telegram`, `runtime=agent_worker`, and dispatched via existing signed worker path,
+  - added deterministic update-level idempotency keys (`telegram:update:<update_id>`),
+  - added unit coverage for normalization/idempotency helpers (`tests/telegram-inbound.test.ts`).
+- Added sprint execution and ops setup guardrails for Telegram MVP:
+  - updated `AGENTS.md` with sprint-lock/TDD/env-discipline instructions,
+  - added `scripts/env-doctor.ts` for local env consistency checks,
+  - added `scripts/telegram-webhook.ts` for webhook set/info/delete flows,
+  - updated `README.md` and `.env.example` with bot/env setup checklist and required vars.
+- Delivered Agent SDK worker Telegram bridge slice:
+  - added worker Telegram helpers (`agent-worker/telegram.ts`) for run-input routing extraction, staged media path generation, media staging, and Telegram delivery,
+  - added tests for worker Telegram contracts (`tests/telegram-worker.test.ts`),
+  - wired orchestrator to stage Telegram attachments into `media/inbound/<messageId>/...` before execution,
+  - wired worker terminal replies back to Telegram chat/thread using persisted routing metadata,
+  - added worker execution controls (`AGENT_DUMMY_MODE`, `AGENT_WORKSPACE_CWD`, `AGENT_ADDITIONAL_DIRECTORIES`, `TELEGRAM_MEDIA_MAX_BYTES`) with env docs.
+- Delivered streaming-first Telegram runtime slice:
+  - added streaming runtime adapter executing Agent SDK inside Daytona sessions,
+  - added Telegram streaming message builder with direct image/PDF blocks and staged-media tool instructions,
+  - extended run events with stable phase taxonomy (`stream_init`, `stream_chunk`, `tool_progress`, `media_stage_failed`, `sandbox_agent_started`, `sandbox_agent_finished`),
+  - enforced fail-run policy when required media staging fails,
+  - added webhook dedupe fallback (`update_id` primary, `chatId:messageId` fallback) and request body timeout guard.
+- Added Telegram integration harness tests covering:
+  - webhook -> run create -> worker dispatch -> streaming -> complete,
+  - duplicate update suppression,
+  - media-stage failure handling,
+  - direct multimodal block path for image/document.
+- Completed worker maintainability refactor:
+  - decomposed orchestrator into focused helpers,
+  - centralized run phase constants in shared module,
+  - deduplicated Agent SDK runtime execution loop.
+- Added first domain-persistence slice from worker output:
+  - worker now materializes prompt-package output into `prompts` table (idempotent ingest key per run),
+  - default tags for materialized prompts are created/linked (`agent-worker`, `prompt-package`, source),
+  - prompt materialization emits run events (`prompt_materialized` / `prompt_materialization_failed`).
+- Current quality gates are green:
+  - `bun run lint` pass
+  - `bun test` pass (37 tests)
+  - `bunx tsc --noEmit` pass
 
 ## In Progress
+- UI/theme refinements across dashboard, upload panel, and shared UI components.
+- Designing the next sprint write-path: agent tool-calls persisting extracted outputs into Convex library tables.
 
-## Next Up
-- Add copy‑prompt button with feedback
-- Extract image dimensions and richer metadata for remote ingestion
-- Add pagination/infinite scroll to the gallery
+## Next Up (Backend Build Start)
+- Implement agent tool-calling that writes prompt/media/tag/folder outputs to Convex domain tables.
+- Extend multimodal processing depth for audio/video/voice attachments.
+- Add worker HTTP integration tests for signed dispatch/cancel paths.
+- Optimize Daytona startup by reducing per-run SDK sync overhead.
 
 ## Risks / Questions
 - Which external sources must the URL fetcher support first?
 - Do we need hard limits on file size or type at MVP?
-- Should prompts be editable in place or only in a detail view?
+- Should prompt editing stay in detail view only, or also be inline in cards/workspace?
+- Which execution provider should power the first in-app “Execute” path?
+- Should worker-side run mutations require additional signed/admin auth at the Convex layer (beyond API/worker boundary controls)?

@@ -40,6 +40,7 @@ const blobFromBase64 = (base64: string, contentType?: string) => {
 
 export const ingestFromApi: ReturnType<typeof action> = action({
   args: {
+    ownerUserId: v.string(),
     promptText: v.optional(v.string()),
     url: v.optional(v.string()),
     file: v.optional(
@@ -62,6 +63,11 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     ctx,
     args,
   ): Promise<{ assetId?: Id<"assets">; promptId?: Id<"prompts"> }> => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
     if (!args.promptText && !args.url && !args.file) {
       throw new ConvexError("Provide a prompt, URL, or file.");
     }
@@ -79,6 +85,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     const promptId: Id<"prompts"> | undefined = args.promptText
       ? (
           (await ctx.runMutation(api.prompts.createPrompt, {
+            ownerUserId,
             text: args.promptText,
             tagIds,
             folderId: args.folderId,
@@ -159,6 +166,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       const storageBlob = new Blob([fileBuffer], { type: normalizedContentType });
       const storageId = await ctx.storage.store(storageBlob);
       const result = (await ctx.runMutation(api.assets.createAsset, {
+        ownerUserId,
         kind: normalizedContentType.startsWith("video/") ? "video" : "image",
         storageId,
         thumbStorageId,

@@ -1,94 +1,158 @@
-# Agent Prompter — Product Requirements Document
+# Laniameda AI UGC — Product Foundation PRD
 
-## 1) Summary
-Agent Prompter is a desktop‑first web app for creative AI studios to store, organize, and reuse prompts and media. It pairs a Convex backend with an ingestion agent (Vercel AI SDK) and a gallery‑style UI. The system ingests images, videos, and prompt text, extracts metadata, suggests tags, and makes everything searchable and shareable.
+Last updated: 2026-02-19
 
-## 2) Goals
-- Centralize prompts, reference media, and generated assets in one place.
-- Automate ingestion: download remote media, extract metadata, and store files.
-- Enable fast browse, filter, and search by tags and prompt text.
-- Deliver a clean, gallery‑first UI optimized for desktop.
-- Use an architecture that can evolve to new model providers and tools.
+## 1) Product Summary
+Laniameda AI UGC is a desktop-first repository and workflow workspace for **UGC / AI influencer image creation**.
+The product removes context switching between folders, chat apps, and generation tools by combining:
+- a reference-image dashboard,
+- fast smart filters,
+- one-click creative transforms (style, pose, character swap),
+- agent-assisted prompt construction,
+- optional in-app execution and organized outputs.
 
-## 3) Non‑Goals (MVP)
-- Mobile‑first experience.
-- End‑to‑end generation pipeline editor (yet) 
+## 2) Product Principles
+1. **Frontend and UX are the moat.** Speed, clarity, and low click count win.
+2. **Backend supports UX, not the other way around.** Build only the backend needed to unlock the next UX milestone.
+3. **Agentic workflows are the core backend strategy.** Use AI SDK (AI Gateway) for short web jobs and Agent SDK worker for heavy Telegram jobs.
+4. **Images only for MVP.** Video is out of scope.
+5. **Telegram is a required integration surface.** Users must be able to trigger agent workflows from Telegram.
 
-## 4) Target Users
-- Creative AI teams storing prompts and reference media.
-- Producers curating inspiration boards.
-- AI developers testing prompts and assets.
+## 3) In Scope (MVP+)
+- UGC/influencer reference image library.
+- Gallery dashboard with fast browse and smart filtering.
+- “Few-click aha” actions on reference cards:
+  - Transfer style
+  - Transfer pose
+  - Replace character
+- Prompt package output (text + referenced files) for export to external tools.
+- Optional in-app execute flow in a separate working panel/sidebar.
+- Ingestion from user uploads, pasted URLs, and integrations (Telegram first).
+- Telegram as bidirectional channel: inbound trigger + outbound agent response.
 
-## 5) User Stories (MVP)
-- As a user, I can drag‑and‑drop images and paste prompts into the app.
-- As a user, I can paste a URL and have the agent fetch the media.
-- As a user, I can view assets in a gallery, filter by tag, and search by text.
-- As a user, I can open a detail view and copy the full prompt.
-- As a user, I can tag and organize assets into folders.
-- As a user, i can text to telegram bot iwth the video/url/image/prompt or image+prompt, with description /instructions and then see the sorted data in the dashbord frontend web app
+## 4) Out of Scope (Current)
+- Video ingestion, tagging, generation, or editing.
+- Full node-based pipeline builder.
+- Mobile-first UI.
 
-## 6) Functional Requirements
-### 6.1 Ingestion
-- Accept file uploads, prompt text, and URLs.
-- Detect input type and download remote media when needed.
-- Extract metadata: file type, dimensions, size, source URL, and timestamps.
-- Store media using Convex file storage and link to metadata.
-- Store prompts as first‑class records that can exist without media.
+## 5) Primary User Jobs
+- Find high-quality reference images quickly.
+- Turn references into usable generation instructions with minimal thought overhead.
+- Reuse their own character assets consistently.
+- Collect references from external channels and auto-organize them in one library.
 
-### 6.2 Organization & Search
-- Tagging for assets and prompts.
-- Folder‑like groupings (manual assignment).
-- Full‑text substring search on prompt text and tags.
-- Filters: tag, folder, type, date added.
+## 6) Core User Flows
+### Flow A: Reference-to-Prompt (Few Clicks)
+1. User opens dashboard and filters references.
+2. User selects an image and clicks one transform action.
+3. User selects target character (from saved characters/assets).
+4. Agent constructs a structured prompt package.
+5. User either:
+   - downloads prompt + files for external tools, or
+   - clicks execute and continues in the in-app work panel.
 
-### 6.3 UI & UX
-- Gallery view with cards (thumbnail, prompt snippet, tags, copy button).
-- Detail view (modal or side panel) with full prompt, media, and metadata.
-- Clean, minimal layout with generous spacing and subtle hover states.
-- Desktop‑first responsiveness; mobile not required.
+### Flow B: External Ingest (Telegram First)
+1. User sends image/URL/prompt to Telegram bot.
+2. Ingest agent classifies content, extracts metadata, and tags/folders it.
+3. User logs into dashboard and sees organized assets in the correct library context.
 
-## 7) Non‑Functional Requirements
-- Real‑time updates via Convex reactive queries.
-- Type‑safe APIs with validators for all Convex functions.
-- Secure uploads and file validation (type/size limits).
-- Accessible UI (keyboard navigation, labels, focus states).
+### Flow C: Save Any Reference From Chat
+1. User sees a good prompt, tutorial, or image reference somewhere online.
+2. User forwards/shares it to Telegram bot with optional instruction text.
+3. Agent decides ingestion strategy:
+   - extract prompt + media bundle from tutorial source, or
+   - extract image description/style metadata for inspiration/recreation.
+4. Agent stores normalized results in Convex with tags/style metadata.
+5. User opens dashboard and can browse/copy/reuse immediately.
 
-## 8) Architecture & Tech Decisions
-- Frontend: Next.js 16.1 (App Router), TypeScript, Tailwind CSS.
-- Backend: Convex (queries, mutations, actions) with file storage.
-- Agent: Vercel AI SDK for tool calling and model abstraction.
-- Design system: shadcn/ui with class‑variance‑authority variants.
-- Package manager/runtime: Bun.
+## 7) Functional Requirements
+### 7.1 Frontend/UX (Priority Track)
+- Gallery-first dashboard optimized for rapid visual scanning.
+- Smart filter UX with low friction and high discoverability.
+- Card-level quick actions for style/pose/character workflows.
+- Sidebar or split-panel workspace for generated results and run history.
+- Minimal-click export of prompt package (prompt + file references).
 
-## 9) Data Model (High‑Level)
-- assets: media records (fileId, type, dimensions, sourceUrl, promptId, tags, folderId).
-- prompts: prompt text records (text, tags, folderId, linked asset ids).
-- tags: reusable tag records (name, usageCount).
-- folders: folder records (name, description).
+### 7.2 Backend/Agents (Enablement Track)
+- Prompt construction agent using Anthropic Agents SDK and skill-driven tasks.
+- Ingestion agent that accepts uploads/URLs/integration payloads.
+- Metadata extraction and deterministic tagging/folder placement.
+- Execution pipeline adapters for in-app generation providers.
+- Telegram-connected agent that can crawl/extract from media and links, then persist structured records via tool calls into Convex.
 
-## 10) API Surface (MVP)
-- POST /api/ingest — accepts files, prompt text, or URLs; enqueues ingestion.
-- Convex queries for gallery, filters, and search.
-- Convex mutations for tags, folders, and prompt edits.
+### 7.3 Data and Library
+- Asset records with metadata, tags, folders, and provenance.
+- Prompt records linked to references and output artifacts.
+- User-specific character library for reusable identity consistency.
 
-## 11) Success Metrics (MVP)
-- Ingestion succeeds for common image types and URLs.
-- Users can find assets via tags or text search in under 3 steps.
-- Copy‑prompt interaction works on all cards.
+## 8) Non-Functional Requirements
+- Fast first interaction on dashboard and filters.
+- Idempotent ingest and agent operations.
+- Observable agent runs (status, errors, source payload, outputs).
+- Accessible keyboard navigation and screen-reader-friendly controls.
 
-## 12) Risks & Open Questions
-- Remote media download reliability (rate limits, blocked sources).
-- Tag suggestion quality with simple heuristics.
-- File size and storage cost management.
+## 9) Tech Stack
+- Frontend: Next.js App Router, TypeScript, Tailwind, shadcn/ui.
+- Backend: Convex (queries/mutations/actions, storage).
+- AI runtime:
+  - AI SDK + AI Gateway for short-lived web workflows.
+  - Anthropic Agents SDK in external worker for heavy Telegram workflows.
+- Runtime/package tooling: Bun.
 
-## 13) Milestones (Draft)
-- M1: Schema + ingestion action + file storage.
-- M2: Gallery UI + search + tags.
-- M3: Detail view + edit flow + polish.
-- M4: Basic tests + deployment docs.
+## 10) Implementation Foundation
+1. Telegram inbound update is normalized to a common internal envelope.
+2. Media is downloaded, validated, and staged into run sandbox workspace.
+3. Run is persisted in Convex (`runs`, `run_events`, `run_artifacts`) with source `telegram`.
+4. Agent SDK run executes in worker with sandbox enabled and scoped tool access.
+5. Agent uses tool calls to store extracted prompts/references/tags in Convex.
+6. User sees real-time run status and resulting data in dashboard.
+7. Bot returns final response to Telegram thread.
 
-## 14) Status Notes (2026-01-31)
-- Gallery UI shell integrated with a dark theme and masonry grid layout (mock data).
-- Image loading UX/performance improved by switching gallery cards and the preview modal to `next/image`, responsive sizing, and stronger skeleton/progressive loading states that guard the masonry layout plus memoized “loaded” tracking so revisiting the tab doesn’t reshow skeletons.
-- Ingestion now normalizes uploaded images with `sharp`, records dimensions/size metadata, and stores 520px thumbnails (Convex records keep `thumbStorageId`/`thumbUrl` so the gallery always serves lightweight previews without an external CDN yet).
-- Verified lint/test/UX changes locally but `bun run build` remains blocked inside this environment because Turbopack cannot spawn its CSS worker (it attempts to bind a port and is denied with `Operation not permitted (os error 1)`); rerun once a less-restricted host is available.
+Current state against this foundation:
+- Implemented now: 1, 2, 3, 4, 7.
+- Partial: 6 (backend run ledger is ready; full dashboard work-panel integration still in progress).
+- Not yet implemented: 5 (agent tool-calls that persist extracted data into library tables).
+
+## 11) OpenClaw Patterns To Reuse
+1. Provider-specific payload -> normalized inbound context.
+2. Attachment staging into sandbox-local paths before execution.
+3. Session/thread mapping strategy for DM/group/topic continuity.
+4. Event-driven run pipeline with terminal-state guarantees.
+5. Runtime separation between transport (Telegram) and agent execution.
+
+## 12) Success Metrics
+- User can go from reference discovery to ready prompt package in a few clicks.
+- User can find useful references in under 3 interactions with filters/search.
+- Ingested external assets are auto-organized with high precision.
+- Reduced tab switching compared with baseline current workflow.
+
+## 13) Known Gaps and Open Questions
+- Ranking quality for “best references first” in smart filters.
+- Tagging taxonomy drift across users and content styles.
+- Quality and reliability of source integrations (Telegram first).
+- Execution provider abstraction design (single provider vs pluggable).
+- Source ownership/licensing policy for crawled references and tutorial extraction.
+- Conflict-resolution policy when agent is unsure whether content should be stored as prompt, reference, tutorial set, or both.
+- Definition of “free user browse limits” (if any) and gating points for paid features.
+
+## 14) Delivery Strategy
+We deliver in two explicit tracks:
+1. **Track A: Frontend/UX and Design System**
+2. **Track B: Backend/Agents and Integrations**
+
+Rule: Track B work should be scoped to unblock Track A milestones.
+
+## 15) Linked Specs
+- Technical architecture map: `agent-docs/TECHNICAL_OVERVIEW.md`
+- Backend runtime baseline: `agent-docs/BACKEND_PRD.md`
+- Convex setup/runtime map: `agent-docs/BACKEND_CONVEX_SETUP.md`
+- Worker deployment runbook: `agent-docs/DEPLOYMENT_AGENT_WORKER.md`
+- Telegram engineering contract: `agent-docs/TELEGRAM_AGENT_ENGINEERING_PRD.md`
+- Editable diagrams: `agent-docs/TELEGRAM_AGENT_DIAGRAMS.md`
+
+## 16) Immediate Build Focus (Current)
+Primary focus for the next build session:
+1. Implement agent tool-calling that writes extracted content into Convex domain tables (`prompts`, `assets`, tags/folders).
+2. Keep Telegram streaming path stable while adding richer multimodal handling for audio/video/voice.
+3. Connect run ledger outputs to dashboard workspace UX (realtime status + artifact rendering).
+4. Optimize worker startup latency (reduce repeated sandbox bootstrapping overhead).

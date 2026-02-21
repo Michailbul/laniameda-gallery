@@ -1,5 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import path from "node:path";
 import { readdir, readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
@@ -26,6 +27,10 @@ const guessContentType = (ext: string) => {
 
 const getConvexUrl = () =>
   process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
+
+type StorageUploadResponse = {
+  storageId: Id<"_storage">;
+};
 
 const listFiles = async (dir: string) => {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -75,7 +80,8 @@ const main = async () => {
   }
 
   const client = new ConvexHttpClient(convexUrl);
-  const existingCount = await client.query(api.assets.countAssets, {});
+  const ownerUserId = process.env.LOCAL_INGEST_OWNER_USER_ID || "seed:local";
+  const existingCount = await client.query(api.assets.countAssets, { ownerUserId });
   if (existingCount > 0) {
     console.log("Local ingest skipped: assets already present in Convex.");
     return;
@@ -90,6 +96,7 @@ const main = async () => {
     const ingestKey = `local:${relativePath}`;
 
     const exists = await client.query(api.assets.hasAssetForIngestKey, {
+      ownerUserId,
       ingestKey,
     });
     if (exists) {
@@ -97,40 +104,43 @@ const main = async () => {
     }
 
     const buffer = await readFile(filePath);
+    const originalBytes = Uint8Array.from(buffer);
     const image = sharp(buffer, { animated: true });
     const metadata = await image.metadata();
     const originalUploadUrl = await client.mutation(api.files.generateUploadUrl, {});
+    const originalBlob = new Blob([originalBytes], { type: contentType });
     const originalResponse = await fetch(originalUploadUrl, {
       method: "POST",
       headers: { "Content-Type": contentType },
-      body: buffer,
+      body: originalBlob,
     });
 
     if (!originalResponse.ok) {
       throw new Error(await originalResponse.text());
     }
 
-    const { storageId } = (await originalResponse.json()) as { storageId: string };
+    const { storageId } = (await originalResponse.json()) as StorageUploadResponse;
     const thumbBuffer = await image
       .resize({ width: THUMB_MAX_WIDTH, withoutEnlargement: true })
       .toBuffer();
+    const thumbBytes = Uint8Array.from(thumbBuffer);
     const thumbUploadUrl = await client.mutation(api.files.generateUploadUrl, {});
+    const thumbBlob = new Blob([thumbBytes], { type: contentType });
     const thumbResponse = await fetch(thumbUploadUrl, {
       method: "POST",
       headers: { "Content-Type": contentType },
-      body: thumbBuffer,
+      body: thumbBlob,
     });
 
     if (!thumbResponse.ok) {
       throw new Error(await thumbResponse.text());
     }
 
-    const { storageId: thumbStorageId } = (await thumbResponse.json()) as {
-      storageId: string;
-    };
+    const { storageId: thumbStorageId } = (await thumbResponse.json()) as StorageUploadResponse;
     const thumbMeta = await sharp(thumbBuffer, { animated: true }).metadata();
     const promptResult = promptText
       ? await client.mutation(api.prompts.createPrompt, {
+          ownerUserId,
           text: promptText,
           tagIds: [],
           ingestKey: `${ingestKey}:prompt`,
@@ -138,6 +148,7 @@ const main = async () => {
       : undefined;
 
     await client.mutation(api.assets.createAsset, {
+      ownerUserId,
       kind: "image",
       storageId,
       thumbStorageId,

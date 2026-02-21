@@ -1,21 +1,24 @@
 # Design System & UI Direction
 
-Last updated: 2026-02-01
+Last updated: 2026-02-20
+
+> **Detailed frontend design specification**: See `agent-docs/FRONTEND_DESIGN_PRD.md`
+> **Implementation sprint**: See `agent-docs/FRONTEND_TODO.md`
 
 ## Product UI Summary (PM View)
-We are running a dark, gallery-first interface optimized for creative people. The visual language is editorial + luxury: quiet, cinematic surfaces, high-contrast text, and a single warm accent for primary actions. The UI prioritizes content density (small type, tight controls) and reduces chrome so imagery remains the hero, while still feeling smooth and modern.
+We are running a dark, gallery-first interface optimized for creative people. The visual language is **monochrome editorial**: black-on-black surfaces, high-contrast white CTAs, and a minimal palette that feels cinematic, precise, and premium. The UI reduces chrome so imagery remains the hero, with **pill-shaped navigation** and **soft-glass surfaces** that feel modern and controlled.
 
-This is a deliberate “studio console” aesthetic with refinement over flash. It should feel expensive, precise, and calm.
+This is a deliberate “studio console” aesthetic with refinement over flash—quiet, high-contrast, and unmistakably premium.
 
 ## Current Theme Identity
 - **Audience**: Creative professionals; visually literate users.
 - **Mode**: Dark-only (no light mode planned yet).
 - **Workspace**: Single workspace for now.
-- **Palette**: Low-saturation blue/graphite surfaces with a warm, orange-red accent.
-- **Contrast**: High contrast for primary text; muted midtones for metadata.
-- **Tone**: Editorial + luxury; content-focused, minimal chrome, smooth transitions.
-- **Shape language**: Mostly sharp corners (many components use `rounded-none`), even though base radius tokens exist.
-- **Density**: Compact; most UI controls are `h-7`/`h-8` with `text-xs`.
+- **Palette**: Radix teal accent over custom gray scale (black + graphite).
+- **Contrast**: Strong; white CTAs on near-black surfaces.
+- **Tone**: Editorial + luxury; content-first, minimal chrome, smooth transitions.
+- **Shape language**: Soft geometry (pill controls, rounded cards, rounded dialogs).
+- **Density**: Compact, but with more breathing room around primary controls.
 
 ## Design Tokens (Current)
 Source of truth:
@@ -23,12 +26,12 @@ Source of truth:
 - `app/globals.css` (CSS variables + theme mapping)
 
 Key tokens:
-- **Background**: `oklch(0.12 0.01 260)`
-- **Surface/Card**: `oklch(0.16 0.01 260)`
-- **Primary Accent**: `oklch(0.70 0.18 20)` (warm orange-red)
-- **Border**: `oklch(0.28 0.01 260)`
-- **Muted Text**: `oklch(0.55 0 0)`
-- **Radius base**: `--radius: 0.5rem` (but many components override to squared)
+- **Background**: `#000000` (gray-1)
+- **Surface/Card**: `#121212` (gray-2)
+- **Primary (CTA)**: `#00fffb` (teal-9)
+- **Border**: `#3a3a3a` (gray-6)
+- **Muted Text**: `#b4b4b4` (gray-11)
+- **Radius base**: `--radius: 1.25rem` (soft, pill-friendly)
 
 Token families are already defined for:
 - `background`, `foreground`, `primary`, `secondary`, `muted`, `accent`, `destructive`
@@ -47,11 +50,11 @@ Usage pattern:
 
 ## Common Design Language (Shared Vocabulary)
 This is the style system we should carry across all new screens:
-- **Materials**: Dark, low-chroma surfaces; soft overlays; subtle blur and glass-like layers.
+- **Materials**: Black-on-black surfaces; soft overlays; subtle blur and glass-like layers.
 - **Light & shadow**: Minimal elevation; thin outlines and soft shadows instead of heavy cards.
-- **Color behavior**: One primary accent; no competing secondary accents.
+- **Color behavior**: Monochrome; primary actions go white, everything else stays graphite.
 - **Type**: Editorial labels (uppercase, tracked); restrained body sizes; no oversized UI chrome.
-- **Rhythm**: Tight spacing; consistent gaps; deliberate negative space around hero content.
+- **Rhythm**: Tight spacing with intentional whitespace around CTA rows.
 - **Motion**: Smooth, low-friction transitions; avoid busy micro-animations.
 - **Iconography**: Minimal, thin-line icons; use sparingly as supportive cues.
 - **Imagery**: High contrast, sharp detail; keep the grid clean and cinematic.
@@ -71,7 +74,7 @@ Structural patterns used today:
 - **Modal** for detail view (image focus).
 - **Manual ingest panel** with dense fields and dashed dropzones.
 
-Surfaces use `bg-background` and `bg-secondary` with low opacity overlays and subtle borders, creating a layered, quiet feel without high contrast blocks.
+Surfaces use `bg-background` and `bg-card` with low-opacity overlays and subtle borders, creating a layered, quiet feel without high contrast blocks.
 
 ## Component Library & UI Tech
 Current system:
@@ -153,35 +156,37 @@ To make the product feel like a trustworthy creative AI tool, we should standard
 - Keep **dark-only** and **single workspace** in scope for MVP.
 - Begin implementing the **AI Agent UX Foundations** on new features immediately.
 
-## Component Rules (Editorial + Luxury)
+## Component Rules (Monochrome Editorial)
 Use these rules as the shared system for all new UI work.
 
 ### Buttons
-- **Primary**: warm accent fill, minimal shadow, medium weight, no gradients.
-- **Secondary**: low-contrast surface fill, subtle border.
+- **Primary**: white fill, black text, minimal shadow, no gradients.
+- **Secondary**: graphite fill, subtle border, white text.
 - **Ghost**: no fill, hover only; avoid loud color shifts.
 - **Sizes**: default height `h-9`, compact `h-8`, avoid extra tall.
-- **Shape**: squared or gently rounded, consistent across all buttons.
+- **Shape**: pill (rounded-full) for all primary controls.
 
 ### Inputs & Textareas
 - **Background**: muted surface, no strong borders; use thin outline on focus.
 - **Text**: `text-xs` to `text-sm` only; avoid large input type.
 - **Placeholder**: low-contrast, never brighter than metadata text.
 - **Spacing**: internal padding consistent with button height.
+- **Shape**: pill for single-line inputs; rounded-2xl for textareas.
 
 ### Tags / Chips / Status
 - **Status chips**: single-line, uppercase or small caps feel.
-- **Colors**: one accent for “active/primary”; neutral for all else.
-- **Density**: very compact; no pill monsters.
+- **Colors**: monochrome (white for active, graphite for neutral).
+- **Density**: compact; always pill-shaped.
 
 ### Cards / Tiles
 - **Surface**: subtle separation using border and shadow, not heavy fills.
 - **Padding**: consistent 16–24px; avoid mixed padding sizes within a card.
-- **Corners**: same radius as buttons/inputs.
+- **Corners**: rounded-2xl, slightly softer than buttons.
 
 ### Modals / Sheets
 - **Backdrop**: dark blur overlay, not pure black.
-- **Frame**: soft border with muted shadow; avoid heavy elevation.
+- **Frame**: large, panel-like container with rounded-3xl corners and a subtle glass surface.
+- **Header**: thin top bar with title + actions; content sits on a spacious inner panel.
 - **Close actions**: top-right icon, quiet hover state.
 
 ### Tables & Lists
