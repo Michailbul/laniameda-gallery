@@ -13,9 +13,10 @@ export type TelegramRunRouting = {
 };
 
 export type TelegramRunContext = {
-  provider?: "telegram";
+  provider?: "telegram" | "dev_telegram";
   envelope?: TelegramInboundEnvelope;
   routing?: TelegramRunRouting;
+  devMediaFiles?: DevTelegramMediaFile[];
 };
 
 type TelegramSendMessageResult = {
@@ -56,6 +57,15 @@ export type DownloadedTelegramMedia = {
   fileName?: string;
   sizeBytes: number;
   buffer: Buffer;
+};
+
+export type DevTelegramMediaFile = {
+  mediaId: string;
+  kind: TelegramInboundMedia["kind"];
+  mimeType?: string;
+  fileName?: string;
+  sizeBytes?: number;
+  base64: string;
 };
 
 const TELEGRAM_CHAT_TYPES = new Set(["direct", "group", "supergroup", "channel"]);
@@ -141,6 +151,36 @@ const parseEnvelopeMedia = (value: unknown): TelegramInboundMedia[] | undefined 
   return media.length > 0 ? media : undefined;
 };
 
+const parseDevMediaFiles = (value: unknown): DevTelegramMediaFile[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const files: DevTelegramMediaFile[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const mediaId = toOptionalString(entry.mediaId);
+    const kind = parseMediaKind(entry.kind);
+    const base64 = toOptionalString(entry.base64);
+    if (!mediaId || !kind || !base64) {
+      continue;
+    }
+
+    files.push({
+      mediaId,
+      kind,
+      mimeType: toOptionalString(entry.mimeType),
+      fileName: toOptionalString(entry.fileName),
+      sizeBytes: toOptionalNumber(entry.sizeBytes),
+      base64,
+    });
+  }
+
+  return files.length > 0 ? files : undefined;
+};
+
 const parseTelegramEnvelope = (input: unknown): TelegramInboundEnvelope | undefined => {
   if (!isRecord(input) || input.provider !== "telegram") {
     return undefined;
@@ -204,15 +244,19 @@ export const extractTelegramContextFromRunInput = (input: unknown): TelegramRunC
 
   const envelope = parseTelegramEnvelope(input.envelope);
   const routing = parseTelegramRouting(input.routing);
+  const devMediaFiles = parseDevMediaFiles(input.devMediaFiles);
   const providerValue = toOptionalString(input.provider);
-  const isTelegram = providerValue === "telegram" || envelope?.provider === "telegram";
+  const isTelegram =
+    providerValue === "telegram" ||
+    providerValue === "dev_telegram" ||
+    envelope?.provider === "telegram";
 
   if (!isTelegram) {
     return {};
   }
 
   return {
-    provider: "telegram",
+    provider: providerValue === "dev_telegram" ? "dev_telegram" : "telegram",
     envelope,
     routing:
       routing && !routing.chatType && envelope
@@ -221,6 +265,7 @@ export const extractTelegramContextFromRunInput = (input: unknown): TelegramRunC
             chatType: envelope.chatType,
           }
         : routing,
+    devMediaFiles,
   };
 };
 
@@ -474,6 +519,76 @@ export const downloadTelegramMediaForIngest = async ({
   };
 };
 
+const decodeBase64MediaBuffer = ({
+  mediaId,
+  base64,
+  maxBytes,
+}: {
+  mediaId: string;
+  base64: string;
+  maxBytes: number;
+}) => {
+  const buffer = Buffer.from(base64, "base64");
+  if (buffer.byteLength <= 0) {
+    throw new Error(`empty_media_payload:${mediaId}`);
+  }
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`file exceeds ${maxBytes} bytes`);
+  }
+  return buffer;
+};
+
+export const resolveSimulatedTelegramMediaForIngest = async ({
+  simulatedMediaFiles,
+  selectedMediaIds,
+  maxBytes,
+}: {
+  simulatedMediaFiles: DevTelegramMediaFile[];
+  selectedMediaIds: string[];
+  maxBytes: number;
+}) => {
+  const mediaById = new Map(simulatedMediaFiles.map((entry) => [entry.mediaId, entry]));
+  const uniqueSelectedIds = Array.from(new Set(selectedMediaIds.map((entry) => entry.trim()).filter(Boolean)));
+
+  const downloadedMedia: DownloadedTelegramMedia[] = [];
+  const failures: StagedTelegramMediaFailure[] = [];
+  const skippedMediaIds: string[] = [];
+
+  for (const mediaId of uniqueSelectedIds) {
+    const media = mediaById.get(mediaId);
+    if (!media) {
+      skippedMediaIds.push(mediaId);
+      continue;
+    }
+    try {
+      const buffer = decodeBase64MediaBuffer({
+        mediaId: media.mediaId,
+        base64: media.base64,
+        maxBytes,
+      });
+      downloadedMedia.push({
+        mediaId: media.mediaId,
+        kind: media.kind,
+        mimeType: media.mimeType,
+        fileName: media.fileName,
+        sizeBytes: buffer.byteLength,
+        buffer,
+      });
+    } catch (error) {
+      failures.push({
+        mediaId: media.mediaId,
+        reason: error instanceof Error ? error.message : "unknown media decode error",
+      });
+    }
+  }
+
+  return {
+    downloadedMedia,
+    failures,
+    skippedMediaIds,
+  };
+};
+
 const withMediaRetry = async <T>(
   fn: () => Promise<T>,
   attempts: number = TELEGRAM_MEDIA_RETRY_ATTEMPTS,
@@ -649,6 +764,104 @@ export const stageTelegramMediaIntoSandbox = async ({
         mediaId: item.mediaId,
         reason: message,
       });
+    }
+  }
+
+  return { stagedPaths, mediaNotes, stagedMedia, failures };
+};
+
+export const stageSimulatedTelegramMediaIntoSandbox = async ({
+  sandbox,
+  envelope,
+  simulatedMediaFiles,
+  maxBytes,
+  maxDirectBlockBytes,
+  workspaceRoot,
+}: {
+  sandbox: Sandbox;
+  envelope: TelegramInboundEnvelope;
+  simulatedMediaFiles: DevTelegramMediaFile[];
+  maxBytes: number;
+  maxDirectBlockBytes: number;
+  workspaceRoot?: string;
+}) => {
+  const stagedPaths: string[] = [];
+  const mediaNotes: string[] = [];
+  const stagedMedia: StagedTelegramMedia[] = [];
+  const failures: StagedTelegramMediaFailure[] = [];
+
+  const envelopeMedia = envelope.media ?? [];
+  if (envelopeMedia.length === 0) {
+    return { stagedPaths, mediaNotes, stagedMedia, failures };
+  }
+
+  const simulatedMediaById = new Map(simulatedMediaFiles.map((entry) => [entry.mediaId, entry]));
+  await ensureSandboxFolder(
+    sandbox,
+    resolveSandboxMediaUploadPath({
+      relativePath: `media/inbound/${sanitizeSegment(envelope.messageId)}`,
+      workspaceRoot,
+    }),
+  );
+
+  for (const [index, item] of envelopeMedia.entries()) {
+    const simulated = simulatedMediaById.get(item.mediaId);
+    if (!simulated) {
+      failures.push({
+        mediaId: item.mediaId,
+        reason: "simulated_media_not_found",
+      });
+      mediaNotes.push(`[media unavailable: ${item.mediaId} (simulated_media_not_found)]`);
+      continue;
+    }
+
+    try {
+      const buffer = decodeBase64MediaBuffer({
+        mediaId: simulated.mediaId,
+        base64: simulated.base64,
+        maxBytes,
+      });
+
+      const relativePath = buildStagedMediaRelativePath({
+        messageId: envelope.messageId,
+        index,
+        kind: simulated.kind,
+        fileName: simulated.fileName,
+        mimeType: simulated.mimeType,
+      });
+      const sandboxUploadPath = resolveSandboxMediaUploadPath({
+        relativePath,
+        workspaceRoot,
+      });
+
+      await ensureSandboxFolder(sandbox, dirname(sandboxUploadPath));
+      await sandbox.fs.uploadFile(buffer, sandboxUploadPath);
+
+      const directContentBlock = maybeBuildDirectContentBlock({
+        kind: simulated.kind,
+        mimeType: simulated.mimeType,
+        fileName: simulated.fileName,
+        buffer,
+        maxDirectBytes: maxDirectBlockBytes,
+      });
+
+      stagedPaths.push(relativePath);
+      mediaNotes.push(`[media attached: ${relativePath} (${simulated.mimeType || "application/octet-stream"})]`);
+      stagedMedia.push({
+        mediaId: simulated.mediaId,
+        kind: simulated.kind,
+        mimeType: simulated.mimeType,
+        fileName: simulated.fileName,
+        relativePath,
+        directContentBlock,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown simulated media error";
+      failures.push({
+        mediaId: simulated.mediaId,
+        reason: message,
+      });
+      mediaNotes.push(`[media unavailable: ${simulated.mediaId} (${message})]`);
     }
   }
 

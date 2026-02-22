@@ -58,185 +58,133 @@ Worker endpoints:
 
 ## Scripts
 - `bun run dev` (Next.js on `APP_PORT`, default `3317`)
-- `bun run dev:telegram` (start ngrok + set webhook + app + worker)
-- `bun run dev:all` (start ngrok + set webhook + app + worker + `convex dev`)
+- `bun run worker:dev` (worker on `WORKER_PORT`, default `8797`)
+- `bun run dev:sim` (`dev-sim`: no ngrok/no real Telegram, Web simulator + worker path)
+- `bun run dev:telegram` (`dev-telegram`: ngrok + webhook + app + worker)
+- `bun run dev:all` (`dev-all`: `dev-telegram` + local `convex dev`)
+- `bun run env:doctor:sim`
+- `bun run env:doctor:telegram`
 - `bun run build`
 - `bun run lint`
 - `bun test`
-- `bun run worker:dev`
-- `bun run worker:start`
-- `bun run env:doctor`
-- `bun run telegram:webhook:set`
-- `bun run telegram:webhook:info`
-- `bun run telegram:webhook:delete`
 
-## What Should Work Now (Verification Baseline)
-After successful setup, this should work end-to-end:
-1. Telegram update reaches `/api/telegram/webhook` and passes secret/body guards.
-2. Convex run is created with:
-   - `source=telegram`
-   - `runtime=agent_worker`
-   - source metadata (`sourceChatId`, `sourceThreadId`, `sourceMessageId`, `sourceUpdateId`)
-3. Worker claims run, creates Daytona sandbox, stages media to `media/inbound/...`.
-4. Agent SDK executes in streaming-first mode inside Daytona.
-5. Run events/artifact persist in Convex (`runs`, `run_events`, `run_artifacts`).
-6. Telegram receives terminal reply message from worker.
+## Environment Profiles
+Use named templates and keep `.env.local` as the active file:
+- `.env.profile.dev-sim.example`
+- `.env.profile.dev-telegram.example`
+- `.env.profile.prod-telegram.example`
 
-## Deterministic Dev Spin-Up (Required)
-Use this exact sequence for consistent local development.
+Set `APP_ENV_PROFILE` explicitly (`dev-sim`, `dev-telegram`, `prod-telegram`) so logs are easy to separate.
 
-### Step 1) Install and sync env templates
+## Dev Sim Mode (Recommended Daily Flow)
+This mode mimics Telegram ingest without ngrok/bot webhooks.
+
+### 1) Setup
 ```bash
 bun install
 cp .env.example .env.local
 cp convex/.env.example convex/.env.local
 ```
 
-### Step 2) Fill required `.env.local` vars
-Minimum required for Telegram + worker path:
+Minimum `.env.local` additions for dev-sim:
 ```bash
-NEXT_PUBLIC_CONVEX_URL=...
-CONVEX_URL=...
+APP_ENV_PROFILE=dev-sim
+DEV_TELEGRAM_SIM_ENABLED=true
+DEV_TELEGRAM_SIM_AUTH_BYPASS=true
 ENABLE_AGENT_WORKER=true
-APP_PORT=3317
-WORKER_PORT=8797
 AGENT_WORKER_URL=http://127.0.0.1:8797
 AGENT_WORKER_SHARED_SECRET=...
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_WEBHOOK_SECRET=...
+NEXT_PUBLIC_CONVEX_URL=...
+CONVEX_URL=...
 DAYTONA_API_KEY=...
 DAYTONA_API_URL=...
 DAYTONA_TARGET=...
-```
-
-Optional but recommended:
-```bash
-TELEGRAM_WEBHOOK_MAX_BODY_BYTES=1000000
-TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS=30000
-TELEGRAM_MEDIA_MAX_BYTES=20000000
-TELEGRAM_MEDIA_DIRECT_BLOCK_MAX_BYTES=5000000
-AGENT_STREAMING_MODE=true
-AGENT_STREAMING_SINGLE_FALLBACK=true
 AGENT_DUMMY_MODE=false
+AI_GATEWAY_API_KEY=...
 ```
 
-### Step 3) Validate env health before startup
+### 2) Validate env
 ```bash
-bun run env:doctor
+bun run env:doctor:sim
 ```
-Expected: no `Errors:` block.
 
-### Step 4) Start stack (recommended one-command)
+### 3) Start stack
 ```bash
-bun run dev:all
+bun run dev:sim
 ```
-This bootstraps:
-- ngrok tunnel and `TELEGRAM_WEBHOOK_PUBLIC_URL`
-- Telegram webhook registration
-- Next.js app
-- worker
-- local `convex dev`
 
-If you already run Convex elsewhere, use:
+### 4) Test in browser
+Open:
+- `/dev/telegram-sim` for ingress simulation
+- `/api/dev/telegram/simulate/health` for simulator health
+
+Expected behavior:
+1. Run created with `source=dev_telegram` and `runtime=agent_worker`.
+2. Worker stages media and runs Agent SDK in Daytona.
+3. Ingest payload writes prompts/assets with owner scoping.
+4. Streaming/final reply is logged to worker stdout (no Telegram outbound send).
+
+## Dev Telegram Mode (Real Bot + ngrok)
+Use this for production-like Telegram ingress tests.
+
+### 1) Configure bot vars
+```bash
+APP_ENV_PROFILE=dev-telegram
+DEV_TELEGRAM_SIM_ENABLED=false
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_SECRET=...
+```
+
+### 2) Validate env
+```bash
+bun run env:doctor:telegram
+```
+
+### 3) Start stack
 ```bash
 bun run dev:telegram
 ```
+or:
+```bash
+bun run dev:all
+```
 
-### Step 5) Check service health
+### 4) Verify webhook and health
 ```bash
 curl -s http://127.0.0.1:${WORKER_PORT:-8797}/health
 bun run telegram:webhook:info
 ```
-Expected:
-- worker health returns `{ "ok": true, ... }`
-- webhook info shows your current ngrok/app URL and no recent delivery errors
 
-### Step 6) Live Telegram verification
-1. Send a plain text message to your bot.
-2. Confirm bot returns `Run <id> completed...`.
-3. Send a message with an image or PDF.
-4. Confirm run also completes and reply is posted in the same chat/thread.
+## Prod Telegram Mode
+For deployed app/worker testing:
+- Keep `APP_ENV_PROFILE=prod-telegram`
+- Keep `DEV_TELEGRAM_SIM_ENABLED=false`
+- Use deployed webhook URL in `TELEGRAM_WEBHOOK_PUBLIC_URL`
+- Run `bun run env:doctor -- --mode prod-telegram` before tests.
 
-### Step 7) Quality gates before/after changes
-```bash
-bun run lint
-bun test
-bunx tsc --noEmit
-```
+## Telegram Parity Map (dev_telegram vs telegram)
+Identical:
+1. Run lifecycle (`runs`, `run_events`, `run_artifacts`) and phases.
+2. Worker claim/start/sandbox/media staging/runtime/ingest/finalize flow.
+3. Ingest payload contract (`submit_ingest_payload`) and owner injection.
+4. Dashboard visibility and owner-scoped Convex reads.
 
-## Telegram MVP Sprint Setup
-### 1) Create Telegram bot
-Use [@BotFather](https://t.me/BotFather):
-- `/newbot` -> create bot
-- copy bot token into `TELEGRAM_BOT_TOKEN`
+Different:
+1. Ingress entrypoint: `/api/dev/telegram/simulate` vs `/api/telegram/webhook`.
+2. Outbound delivery: `dev_telegram` logs to stdout; `telegram` sends/edit messages through Bot API.
+3. No ngrok/webhook setup required in `dev-sim`.
 
-### 2) Configure local env (`.env.local`)
-Minimum for Telegram ingress MVP:
-```bash
-NEXT_PUBLIC_CONVEX_URL=...
-CONVEX_URL=...
-ENABLE_AGENT_WORKER=true
-APP_PORT=3317
-WORKER_PORT=8797
-AGENT_WORKER_URL=http://127.0.0.1:8797
-AGENT_WORKER_SHARED_SECRET=...
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_WEBHOOK_SECRET=...
-TELEGRAM_WEBHOOK_PUBLIC_URL=https://<your-public-domain-or-tunnel>
-TELEGRAM_WEBHOOK_MAX_BODY_BYTES=1000000
-TELEGRAM_MEDIA_MAX_BYTES=20000000
-AGENT_DUMMY_MODE=false
-DAYTONA_API_KEY=...
-DAYTONA_API_URL=...
-DAYTONA_TARGET=...
-```
-
-Worker execution scoping (optional, recommended when running worker outside project root):
-```bash
-AGENT_WORKSPACE_CWD=/absolute/path/to/project
-AGENT_ADDITIONAL_DIRECTORIES=/absolute/path/to/project,/absolute/path/to/project/media
-```
-
-### 3) Start services
-In terminal 1:
-```bash
-bun run dev
-```
-In terminal 2:
-```bash
-bun run worker:dev
-```
-
-Optional one-command startup (recommended for Telegram dev):
-```bash
-bun run dev:telegram
-```
-
-Full local stack one-command startup (includes local Convex process):
-```bash
-bun run dev:all
-```
-
-If you have a reserved ngrok domain and want a stable public URL:
-```bash
-NGROK_DOMAIN=your-domain.ngrok-free.app bun run dev:telegram
-```
-
-### 4) Register webhook
-```bash
-bun run telegram:webhook:set
-bun run telegram:webhook:info
-```
-
-### 5) Validate end-to-end
-1. Send a message to your bot in Telegram.
-2. Confirm webhook returns success.
-3. Confirm a run is created in Convex with:
-   - `source=telegram`
-   - `runtime=agent_worker`
-
-Current sprint acceptance target is Telegram -> backend run creation and observability.
-Current verified baseline includes Telegram ingress, streaming worker execution in Daytona, Convex run ledger updates, and terminal Telegram replies.
+## Troubleshooting
+1. `no_ingest_payload`:
+   - Ensure live mode (`AGENT_DUMMY_MODE=false`), and agent skill still calls `submit_ingest_payload` exactly once.
+2. Worker dispatch failures:
+   - Verify `AGENT_WORKER_URL` and `AGENT_WORKER_SHARED_SECRET` match in app/worker envs.
+3. Daytona failures:
+   - Re-check `DAYTONA_API_KEY`, `DAYTONA_API_URL`, `DAYTONA_TARGET`.
+4. Dev simulator rejected:
+   - Set `DEV_TELEGRAM_SIM_ENABLED=true`; use localhost unless `DEV_TELEGRAM_SIM_ALLOW_NON_LOCAL=true`.
+5. Missing owner-scoped data in dashboard:
+   - Verify run `userId` and ingest writes include `ownerUserId`.
 
 ## Deployment Split (Prod)
 - Vercel: Next.js app/API routes (`/api/telegram/webhook`, `/api/ai/*`).
@@ -249,6 +197,9 @@ Current verified baseline includes Telegram ingress, streaming worker execution 
 - `POST /api/ai/images/generate`
 - `GET /api/ai/runs/:runId`
 - `POST /api/ai/runs/:runId/cancel`
+- `POST /api/dev/telegram/simulate` (dev-sim only)
+- `GET /api/dev/telegram/simulate/health` (dev-sim only)
+- `GET /api/dev/telegram/simulate/runs/:runId` (dev-sim only)
 
 ## Documentation
 - Product foundation PRD: `agent-docs/PRD.md`

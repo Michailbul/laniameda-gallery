@@ -2,11 +2,21 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 type EnvMap = Record<string, string>;
+type Mode = "dev-sim" | "dev-telegram" | "prod-telegram";
 
 const ROOT = process.cwd();
 const APP_ENV = path.join(ROOT, ".env");
 const APP_ENV_LOCAL = path.join(ROOT, ".env.local");
 const CONVEX_ENV_LOCAL = path.join(ROOT, "convex", ".env.local");
+
+const parseMode = (): Mode => {
+  const modeIndex = process.argv.findIndex((entry) => entry === "--mode");
+  const value = modeIndex >= 0 ? process.argv[modeIndex + 1] : undefined;
+  if (value === "dev-sim" || value === "dev-telegram" || value === "prod-telegram") {
+    return value;
+  }
+  return "dev-telegram";
+};
 
 const parseEnvFile = (filePath: string): EnvMap => {
   if (!existsSync(filePath)) {
@@ -39,18 +49,27 @@ const parseEnvFile = (filePath: string): EnvMap => {
 
 const isPresent = (value: string | undefined) => Boolean(value && value.trim().length > 0);
 
-const requiredForTelegramMvp = [
+const mode = parseMode();
+
+const requiredBase = [
   "NEXT_PUBLIC_CONVEX_URL",
   "CONVEX_URL",
   "ENABLE_AGENT_WORKER",
   "AGENT_WORKER_URL",
   "AGENT_WORKER_SHARED_SECRET",
-  "TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_WEBHOOK_SECRET",
-  "TELEGRAM_WEBHOOK_PUBLIC_URL",
+  "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_TARGET",
 ] as const;
 
+const requiredByMode: Record<Mode, readonly string[]> = {
+  "dev-sim": ["DEV_TELEGRAM_SIM_ENABLED"],
+  "dev-telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_PUBLIC_URL"],
+  "prod-telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_PUBLIC_URL"],
+};
+
 const optionalButRecommended = [
+  "APP_ENV_PROFILE",
   "NEXT_PUBLIC_WORKOS_CLIENT_ID",
   "NEXT_PUBLIC_WORKOS_REDIRECT_URI",
   "WORKOS_CLIENT_ID",
@@ -81,7 +100,7 @@ for (const key of overlapKeys) {
   }
 }
 
-for (const key of requiredForTelegramMvp) {
+for (const key of requiredBase) {
   if (!isPresent(process.env[key])) {
     errors.push(`Missing required env var: ${key}`);
   } else {
@@ -89,8 +108,24 @@ for (const key of requiredForTelegramMvp) {
   }
 }
 
+for (const key of requiredByMode[mode]) {
+  if (!isPresent(process.env[key])) {
+    errors.push(`Missing required env var for ${mode}: ${key}`);
+  } else {
+    checks.push(`Loaded ${key}`);
+  }
+}
+
 if (process.env.ENABLE_AGENT_WORKER !== "true") {
-  errors.push("ENABLE_AGENT_WORKER must be 'true' for Telegram MVP sprint.");
+  errors.push("ENABLE_AGENT_WORKER must be 'true' for this workflow.");
+}
+
+if (mode === "dev-sim") {
+  if ((process.env.DEV_TELEGRAM_SIM_ENABLED || "").trim().toLowerCase() !== "true") {
+    errors.push("DEV_TELEGRAM_SIM_ENABLED must be 'true' in dev-sim mode.");
+  }
+} else if ((process.env.DEV_TELEGRAM_SIM_ENABLED || "").trim().toLowerCase() === "true") {
+  warnings.push("DEV_TELEGRAM_SIM_ENABLED is true outside dev-sim mode.");
 }
 
 const isDummyMode =
@@ -123,7 +158,7 @@ if (!existsSync(CONVEX_ENV_LOCAL)) {
   checks.push("Found convex/.env.local with WORKOS_CLIENT_ID");
 }
 
-console.log("Env Doctor: Telegram MVP");
+console.log(`Env Doctor: ${mode}`);
 for (const check of checks) {
   console.log(`  ✓ ${check}`);
 }

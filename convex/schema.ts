@@ -95,6 +95,7 @@ export default defineSchema({
     source: v.union(
       v.literal("dashboard"),
       v.literal("telegram"),
+      v.literal("dev_telegram"),
       v.literal("api"),
     ),
     sourceChatId: v.optional(v.string()),

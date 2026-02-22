@@ -1,5 +1,6 @@
 import type { Sandbox } from "@daytonaio/sdk";
 import { RUN_EVENT_PHASES } from "../lib/run-phases";
+import { createLogger } from "../lib/observability/logger";
 import { convexRuns } from "./convex-client";
 import { createRunSandbox, safeDeleteSandbox } from "./daytona";
 import {
@@ -18,7 +19,9 @@ import {
   buildDummyPromptPackage,
   downloadTelegramMediaForIngest,
   extractTelegramContextFromRunInput,
+  resolveSimulatedTelegramMediaForIngest,
   sendTelegramRunReply,
+  stageSimulatedTelegramMediaIntoSandbox,
   stageTelegramMediaIntoSandbox,
   type DownloadedTelegramMedia,
   type StagedTelegramMedia,
@@ -40,6 +43,7 @@ type AgentExecutionResult = {
 };
 
 const activeRuns = new Map<string, ActiveRun>();
+const logger = createLogger({ service: "agent-worker-orchestrator" });
 
 const getAdditionalDirectories = () => {
   return workerConfig.agentAdditionalDirectories.length > 0
@@ -104,9 +108,13 @@ const appendErrorEvent = async (runId: string, payload: Record<string, unknown>)
 const createRunEventForwarder = ({
   runId,
   telegramStreamSender,
+  logStreamToStdout,
+  runLogger,
 }: {
   runId: string;
   telegramStreamSender?: TelegramStreamSender;
+  logStreamToStdout?: boolean;
+  runLogger: ReturnType<typeof logger.withContext>;
 }) => {
   return async (type: EventType, payload: Record<string, unknown>) => {
     await convexRuns.appendRunEvent({
@@ -120,19 +128,32 @@ const createRunEventForwarder = ({
         telegramStreamSender.appendTextDelta(textDelta);
       }
     }
+    if (type === "stream_text" && logStreamToStdout) {
+      const textDelta = typeof payload.textDelta === "string" ? payload.textDelta : "";
+      if (textDelta) {
+        runLogger.info(
+          {
+            phase: "dev_telegram_stream_delta",
+            eventType: type,
+            textDelta,
+          },
+          "dev_telegram_stream_delta",
+        );
+      }
+    }
   };
 };
 
 const createTelegramSender = ({
   runId,
-  isTelegramRun,
+  isTelegramOutboundRun,
   routing,
 }: {
   runId: string;
-  isTelegramRun: boolean;
+  isTelegramOutboundRun: boolean;
   routing?: TelegramRunRouting;
 }) => {
-  if (!isTelegramRun || !routing || !workerConfig.telegramBotToken) {
+  if (!isTelegramOutboundRun || !routing || !workerConfig.telegramBotToken) {
     return undefined;
   }
   void appendSystemEvent(runId, {
@@ -255,38 +276,55 @@ const prepareTelegramMedia = async ({
   runId,
   sandbox,
   telegramContext,
-  isTelegramRun,
+  isTelegramLikeRun,
+  source,
+  runLogger,
 }: {
   runId: string;
   sandbox: Sandbox;
   telegramContext: TelegramRunContext;
-  isTelegramRun: boolean;
+  isTelegramLikeRun: boolean;
+  source: string;
+  runLogger: ReturnType<typeof logger.withContext>;
 }) => {
   const mediaCount = telegramContext.envelope?.media?.length ?? 0;
-  if (!isTelegramRun || mediaCount === 0 || !telegramContext.envelope) {
+  if (!isTelegramLikeRun || mediaCount === 0 || !telegramContext.envelope) {
     return {
       mediaNotes: [] as string[],
       stagedMedia: [] as StagedTelegramMedia[],
     };
   }
+  const envelope = telegramContext.envelope;
 
-  if (!workerConfig.telegramBotToken) {
-    await appendErrorEvent(runId, {
-      phase: RUN_EVENT_PHASES.mediaStageFailed,
-      reason: "missing_telegram_bot_token",
-      failedCount: mediaCount,
-    });
-    throw new Error("Media staging failed: TELEGRAM_BOT_TOKEN is not configured in worker.");
-  }
+  const staged =
+    source === "dev_telegram"
+      ? await stageSimulatedTelegramMediaIntoSandbox({
+          sandbox,
+          envelope,
+          simulatedMediaFiles: telegramContext.devMediaFiles ?? [],
+          maxBytes: workerConfig.telegramMediaMaxBytes,
+          maxDirectBlockBytes: workerConfig.telegramDirectBlockMaxBytes,
+          workspaceRoot: SANDBOX_WORKSPACE_ROOT,
+        })
+      : await (async () => {
+          if (!workerConfig.telegramBotToken) {
+            await appendErrorEvent(runId, {
+              phase: RUN_EVENT_PHASES.mediaStageFailed,
+              reason: "missing_telegram_bot_token",
+              failedCount: mediaCount,
+            });
+            throw new Error("Media staging failed: TELEGRAM_BOT_TOKEN is not configured in worker.");
+          }
 
-  const staged = await stageTelegramMediaIntoSandbox({
-    sandbox,
-    botToken: workerConfig.telegramBotToken,
-    envelope: telegramContext.envelope,
-    maxBytes: workerConfig.telegramMediaMaxBytes,
-    maxDirectBlockBytes: workerConfig.telegramDirectBlockMaxBytes,
-    workspaceRoot: SANDBOX_WORKSPACE_ROOT,
-  });
+          return stageTelegramMediaIntoSandbox({
+            sandbox,
+            botToken: workerConfig.telegramBotToken,
+            envelope,
+            maxBytes: workerConfig.telegramMediaMaxBytes,
+            maxDirectBlockBytes: workerConfig.telegramDirectBlockMaxBytes,
+            workspaceRoot: SANDBOX_WORKSPACE_ROOT,
+          });
+        })();
 
   if (staged.failures.length > 0) {
     await appendErrorEvent(runId, {
@@ -304,6 +342,14 @@ const prepareTelegramMedia = async ({
     mediaCount,
     stagedPaths: staged.stagedPaths,
   });
+  runLogger.info(
+    {
+      phase: "telegram_media_staged",
+      stagedCount: staged.stagedPaths.length,
+      source,
+    },
+    "telegram_media_staged",
+  );
 
   return {
     mediaNotes: staged.mediaNotes,
@@ -407,21 +453,25 @@ const runAgent = async ({
   runState,
   sandbox,
   signal,
-  isTelegramRun,
+  isTelegramLikeRun,
+  isDevTelegramRun,
   telegramContext,
   mediaNotes,
   stagedMedia,
   telegramStreamSender,
+  runLogger,
 }: {
   runId: string;
   runState: NonNullable<Awaited<ReturnType<typeof convexRuns.getRun>>>;
   sandbox: Sandbox;
   signal: AbortSignal;
-  isTelegramRun: boolean;
+  isTelegramLikeRun: boolean;
+  isDevTelegramRun: boolean;
   telegramContext: TelegramRunContext;
   mediaNotes: string[];
   stagedMedia: StagedTelegramMedia[];
   telegramStreamSender?: TelegramStreamSender;
+  runLogger: ReturnType<typeof logger.withContext>;
 }): Promise<AgentExecutionResult> => {
   const prompt = buildPromptFromRun({
     intent: runState.run.intent,
@@ -449,8 +499,10 @@ const runAgent = async ({
   const onEvent = createRunEventForwarder({
     runId,
     telegramStreamSender,
+    logStreamToStdout: isDevTelegramRun,
+    runLogger,
   });
-  const useStreamingRuntime = isTelegramRun && workerConfig.streamingMode;
+  const useStreamingRuntime = isTelegramLikeRun && workerConfig.streamingMode;
   if (useStreamingRuntime) {
     return runStreamingWithFallback({
       runId,
@@ -540,11 +592,13 @@ const applyAgentIngestPayload = async ({
   runState,
   execution,
   telegramContext,
+  runLogger,
 }: {
   runId: string;
   runState: NonNullable<Awaited<ReturnType<typeof convexRuns.getRun>>>;
   execution: AgentExecutionResult;
   telegramContext: TelegramRunContext;
+  runLogger: ReturnType<typeof logger.withContext>;
 }) => {
   if (runState.run.intent !== "ingest") {
     return {
@@ -555,11 +609,24 @@ const applyAgentIngestPayload = async ({
   }
 
   if (execution.ingestToolCallCount !== 1 || !execution.ingestPayload) {
+    runLogger.error(
+      {
+        phase: "ingest_payload_missing",
+        ingestToolCallCount: execution.ingestToolCallCount,
+      },
+      "ingest_payload_missing",
+    );
     throw new Error("no_ingest_payload");
   }
 
   const normalizedPayload = normalizePromptPayload(execution.ingestPayload);
   if (normalizedPayload.prompts.length === 0) {
+    runLogger.error(
+      {
+        phase: "ingest_payload_no_usable_prompt",
+      },
+      "ingest_payload_no_usable_prompt",
+    );
     throw new Error("no_usable_prompt");
   }
 
@@ -569,15 +636,24 @@ const applyAgentIngestPayload = async ({
     if (!telegramContext.envelope) {
       throw new Error("selected_media_requires_telegram_envelope");
     }
-    if (!workerConfig.telegramBotToken) {
-      throw new Error("selected_media_requires_bot_token");
-    }
-    const downloaded = await downloadTelegramMediaForIngest({
-      botToken: workerConfig.telegramBotToken,
-      envelope: telegramContext.envelope,
-      selectedMediaIds: normalizedPayload.selectedTelegramMediaIds,
-      maxBytes: workerConfig.telegramMediaMaxBytes,
-    });
+    const downloaded =
+      runState.run.source === "dev_telegram"
+        ? await resolveSimulatedTelegramMediaForIngest({
+            simulatedMediaFiles: telegramContext.devMediaFiles ?? [],
+            selectedMediaIds: normalizedPayload.selectedTelegramMediaIds,
+            maxBytes: workerConfig.telegramMediaMaxBytes,
+          })
+        : await (async () => {
+            if (!workerConfig.telegramBotToken) {
+              throw new Error("selected_media_requires_bot_token");
+            }
+            return downloadTelegramMediaForIngest({
+              botToken: workerConfig.telegramBotToken,
+              envelope: telegramContext.envelope!,
+              selectedMediaIds: normalizedPayload.selectedTelegramMediaIds,
+              maxBytes: workerConfig.telegramMediaMaxBytes,
+            });
+          })();
     if (downloaded.failures.length > 0) {
       const message = downloaded.failures.map((entry) => `${entry.mediaId}:${entry.reason}`).join(", ");
       throw new Error(`selected_media_download_failed:${message}`);
@@ -599,6 +675,15 @@ const applyAgentIngestPayload = async ({
     assetCount: ingestResult.assetIds.length,
     skippedMediaCount: skippedMediaIds.length,
   });
+  runLogger.info(
+    {
+      phase: "agent_ingest_applied",
+      promptCount: ingestResult.promptIds.length,
+      assetCount: ingestResult.assetIds.length,
+      skippedMediaCount: skippedMediaIds.length,
+    },
+    "agent_ingest_applied",
+  );
 
   return {
     promptIds: ingestResult.promptIds,
@@ -608,11 +693,19 @@ const applyAgentIngestPayload = async ({
 };
 
 export const dispatchRun = async (runId: string) => {
+  const runLogger = logger.withContext({ runId, workerId: workerConfig.workerId });
   const claim = await convexRuns.claimRun({
     runId,
     workerId: workerConfig.workerId,
   });
   if (!claim.claimed) {
+    runLogger.warn(
+      {
+        phase: "run_claim_rejected",
+        status: claim.status,
+      },
+      "run_claim_rejected",
+    );
     return {
       accepted: false,
       status: claim.status,
@@ -624,6 +717,13 @@ export const dispatchRun = async (runId: string) => {
   void executeRun(runId, abortController).finally(() => {
     activeRuns.delete(runId);
   });
+  runLogger.info(
+    {
+      phase: "run_claimed",
+      status: claim.status,
+    },
+    "run_claimed",
+  );
 
   return {
     accepted: true,
@@ -638,11 +738,19 @@ export const cancelDispatchedRun = async ({
   runId: string;
   reason?: string;
 }) => {
+  const runLogger = logger.withContext({ runId, workerId: workerConfig.workerId });
   const active = activeRuns.get(runId);
   if (active) {
     active.abortController.abort();
   }
   await convexRuns.cancelRun({ runId, reason });
+  runLogger.warn(
+    {
+      phase: "run_cancel_dispatched",
+      reason,
+    },
+    "run_cancel_dispatched",
+  );
 };
 
 const executeRun = async (runId: string, abortController: AbortController) => {
@@ -651,20 +759,36 @@ const executeRun = async (runId: string, abortController: AbortController) => {
   let telegramRouting: TelegramRunRouting | undefined;
   let telegramStreamSender: TelegramStreamSender | undefined;
   let telegramContext: TelegramRunContext = {};
-  let isTelegramRun = false;
+  let isTelegramLikeRun = false;
+  let isTelegramOutboundRun = false;
+  let isDevTelegramRun = false;
+  let runLogger = logger.withContext({ runId, workerId: workerConfig.workerId });
 
   try {
     const runState = await convexRuns.getRun({ runId });
     if (!runState) {
       throw new Error("Run not found before execution.");
     }
+    runLogger = runLogger.withContext({
+      source: runState.run.source,
+      runtime: runState.run.runtime,
+      userId: runState.run.userId,
+    });
+    runLogger.info({ phase: "run_execution_started" }, "run_execution_started");
 
     telegramContext = extractTelegramContextFromRunInput(runState.run.input);
     telegramRouting = telegramContext.routing;
-    isTelegramRun = runState.run.source === "telegram" || telegramContext.provider === "telegram";
+    isTelegramOutboundRun = runState.run.source === "telegram";
+    isDevTelegramRun = runState.run.source === "dev_telegram";
+    isTelegramLikeRun =
+      isTelegramOutboundRun ||
+      isDevTelegramRun ||
+      telegramContext.provider === "telegram" ||
+      telegramContext.provider === "dev_telegram";
+
     telegramStreamSender = createTelegramSender({
       runId,
-      isTelegramRun,
+      isTelegramOutboundRun,
       routing: telegramRouting,
     });
 
@@ -673,6 +797,7 @@ const executeRun = async (runId: string, abortController: AbortController) => {
       userId: runState.run.userId,
     });
     sandbox = sandboxResult.sandbox;
+    runLogger = runLogger.withContext({ sandboxId: sandbox.id });
     const active = activeRuns.get(runId);
     if (active) {
       active.sandbox = sandbox;
@@ -688,30 +813,37 @@ const executeRun = async (runId: string, abortController: AbortController) => {
       phase: "sandbox_created",
       sandboxId: sandbox.id,
     });
+    runLogger.info({ phase: "sandbox_created", sandboxId: sandbox.id }, "sandbox_created");
 
     const media = await prepareTelegramMedia({
       runId,
       sandbox,
       telegramContext,
-      isTelegramRun,
+      isTelegramLikeRun,
+      source: runState.run.source,
+      runLogger,
     });
     const execution = await runAgent({
       runId,
       runState,
       sandbox,
       signal: abortController.signal,
-      isTelegramRun,
+      isTelegramLikeRun,
+      isDevTelegramRun,
       telegramContext,
       mediaNotes: media.mediaNotes,
       stagedMedia: media.stagedMedia,
       telegramStreamSender,
+      runLogger,
     });
     sessionId = execution.sessionId;
+    runLogger = runLogger.withContext({ sessionId });
     const ingestResult = await applyAgentIngestPayload({
       runId,
       runState,
       execution,
       telegramContext,
+      runLogger,
     });
 
     await finalizeRun({
@@ -721,8 +853,16 @@ const executeRun = async (runId: string, abortController: AbortController) => {
       resultText: execution.resultText,
       ingestResult,
     });
+    runLogger.info(
+      {
+        phase: "run_completed",
+        ingestPromptCount: ingestResult.promptIds.length,
+        ingestAssetCount: ingestResult.assetIds.length,
+      },
+      "run_completed",
+    );
 
-    if (isTelegramRun) {
+    if (isTelegramOutboundRun) {
       const completedWithStream = await tryCompleteTelegramStream({
         runId,
         sender: telegramStreamSender,
@@ -737,15 +877,26 @@ const executeRun = async (runId: string, abortController: AbortController) => {
         });
       }
     }
+    if (isDevTelegramRun) {
+      runLogger.info(
+        {
+          phase: "dev_telegram_reply_stdout",
+          text: execution.resultText,
+        },
+        "dev_telegram_reply_stdout",
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown worker execution error.";
+    runLogger.error({ phase: "run_execution_failed", error }, "run_execution_failed");
+
     const wasAborted = abortController.signal.aborted;
     if (wasAborted) {
       await convexRuns.cancelRun({
         runId,
         reason: message || "Run canceled.",
       });
-      if (isTelegramRun) {
+      if (isTelegramOutboundRun) {
         const handledByStream = await tryFailTelegramStream({
           runId,
           sender: telegramStreamSender,
@@ -761,15 +912,25 @@ const executeRun = async (runId: string, abortController: AbortController) => {
           });
         }
       }
+      if (isDevTelegramRun) {
+        runLogger.warn(
+          {
+            phase: "dev_telegram_run_canceled",
+            reason: message || "Canceled.",
+          },
+          "dev_telegram_run_canceled",
+        );
+      }
       return;
     }
+
     await convexRuns.failRun({
       runId,
       workerId: workerConfig.workerId,
       sessionId,
       error: message,
     });
-    if (isTelegramRun) {
+    if (isTelegramOutboundRun) {
       const handledByStream = await tryFailTelegramStream({
         runId,
         sender: telegramStreamSender,
@@ -785,12 +946,23 @@ const executeRun = async (runId: string, abortController: AbortController) => {
         });
       }
     }
+    if (isDevTelegramRun) {
+      runLogger.error(
+        {
+          phase: "dev_telegram_failure_stdout",
+          error: message,
+          text: buildTelegramFailureReply(runId, message),
+        },
+        "dev_telegram_failure_stdout",
+      );
+    }
   } finally {
     if (sandbox) {
       await appendSystemEvent(runId, {
         phase: "sandbox_cleanup",
         sandboxId: sandbox.id,
       });
+      runLogger.info({ phase: "sandbox_cleanup", sandboxId: sandbox.id }, "sandbox_cleanup");
     }
     await safeDeleteSandbox(sandbox);
   }

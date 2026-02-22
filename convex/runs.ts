@@ -33,6 +33,7 @@ const runIntentValidator = v.union(
 const runSourceValidator = v.union(
   v.literal("dashboard"),
   v.literal("telegram"),
+  v.literal("dev_telegram"),
   v.literal("api"),
 );
 

@@ -3,6 +3,13 @@ import { URL } from "node:url";
 import { assertWorkerConfig, workerConfig } from "./config";
 import { dispatchRun, cancelDispatchedRun } from "./orchestrator";
 import { verifyWorkerSignature } from "../lib/worker-signature";
+import { createLogger, createRequestId } from "../lib/observability/logger";
+
+const logger = createLogger({
+  service: "agent-worker-server",
+}).withContext({
+  workerId: workerConfig.workerId,
+});
 
 const readBody = async (request: Request) => {
   const text = await request.text();
@@ -32,10 +39,22 @@ const parseJson = <T>(input: string): T | null => {
 };
 
 const handler = async (request: Request): Promise<Response> => {
+  const requestId = createRequestId();
+  const requestLogger = logger.withContext({
+    requestId,
+    method: request.method,
+    pathname: new URL(request.url).pathname,
+  });
   const url = new URL(request.url);
   const pathname = url.pathname;
 
   if (request.method === "GET" && pathname === "/health") {
+    requestLogger.debug(
+      {
+        phase: "health_check",
+      },
+      "worker_health_check",
+    );
     return Response.json({
       ok: true,
       service: "agent-worker",
@@ -48,6 +67,7 @@ const handler = async (request: Request): Promise<Response> => {
     const body = await readBody(request);
     const signed = await verifySignedRequest(request, body);
     if (!signed) {
+      requestLogger.warn({ phase: "dispatch_rejected" }, "worker_dispatch_invalid_signature");
       return Response.json({ error: "Invalid signature." }, { status: 401 });
     }
 
@@ -61,26 +81,52 @@ const handler = async (request: Request): Promise<Response> => {
 
     const result = await dispatchRun(payload.runId);
     if (!result.accepted) {
+      requestLogger.warn(
+        {
+          phase: "dispatch_conflict",
+          runId: payload.runId,
+          status: result.status,
+        },
+        "worker_dispatch_conflict",
+      );
       return Response.json({ ok: false, status: result.status }, { status: 409 });
     }
+
+    requestLogger.info(
+      {
+        phase: "dispatch_accepted",
+        runId: payload.runId,
+        status: result.status,
+      },
+      "worker_dispatch_accepted",
+    );
 
     return Response.json({ ok: true, status: result.status }, { status: 202 });
   }
 
   if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/cancel$/.test(pathname)) {
+    const runId = pathname.split("/")[3];
     const body = await readBody(request);
     const signed = await verifySignedRequest(request, body);
     if (!signed) {
+      requestLogger.warn({ phase: "cancel_rejected", runId }, "worker_cancel_invalid_signature");
       return Response.json({ error: "Invalid signature." }, { status: 401 });
     }
 
-    const runId = pathname.split("/")[3];
     const payload = parseJson<{ reason?: string }>(body || "{}");
     if (!payload) {
       return Response.json({ error: "Invalid JSON body." }, { status: 400 });
     }
     const reason = typeof payload.reason === "string" ? payload.reason : "Canceled by user.";
     await cancelDispatchedRun({ runId, reason });
+    requestLogger.warn(
+      {
+        phase: "cancel_accepted",
+        runId,
+        reason,
+      },
+      "worker_cancel_accepted",
+    );
     return Response.json({ ok: true, runId, status: "canceled" });
   }
 
@@ -110,7 +156,13 @@ const start = () => {
         outgoing.end(buffer);
       })
       .catch((error) => {
-        console.error("Worker handler error:", error);
+        logger.error(
+          {
+            phase: "worker_handler_error",
+            error,
+          },
+          "worker_handler_error",
+        );
         outgoing.statusCode = 500;
         outgoing.setHeader("content-type", "application/json");
         outgoing.end(JSON.stringify({ error: "Internal server error." }));
@@ -118,7 +170,11 @@ const start = () => {
   });
 
   server.listen(workerConfig.port, () => {
-    console.log(
+    logger.info(
+      {
+        phase: "worker_server_started",
+        port: workerConfig.port,
+      },
       `agent-worker listening on port ${workerConfig.port} (workerId=${workerConfig.workerId})`,
     );
   });

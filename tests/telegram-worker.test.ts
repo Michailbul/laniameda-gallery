@@ -5,6 +5,7 @@ import {
   buildStagedMediaRelativePath,
   extractTelegramContextFromRunInput,
   isRetryableTelegramMediaError,
+  resolveSimulatedTelegramMediaForIngest,
   resolveSandboxMediaUploadPath,
 } from "@/agent-worker/telegram";
 
@@ -40,6 +41,32 @@ describe("extractTelegramContextFromRunInput", () => {
     const context = extractTelegramContextFromRunInput({ foo: "bar" });
     expect(context.envelope).toBeUndefined();
     expect(context.routing).toBeUndefined();
+  });
+
+  test("extracts dev_telegram simulated media payload", () => {
+    const context = extractTelegramContextFromRunInput({
+      provider: "dev_telegram",
+      envelope: {
+        provider: "telegram",
+        chatId: "100",
+        messageId: "200",
+        chatType: "direct",
+        media: [{ mediaId: "m1", kind: "image" }],
+        receivedAt: Date.now(),
+      },
+      devMediaFiles: [
+        {
+          mediaId: "m1",
+          kind: "image",
+          mimeType: "image/png",
+          base64: Buffer.from("hello").toString("base64"),
+        },
+      ],
+    });
+
+    expect(context.provider).toBe("dev_telegram");
+    expect(context.devMediaFiles?.length).toBe(1);
+    expect(context.devMediaFiles?.[0]?.mediaId).toBe("m1");
   });
 });
 
@@ -110,5 +137,28 @@ describe("resolveSandboxMediaUploadPath", () => {
         workspaceRoot: ".agent-runtime/workspace",
       }),
     ).toBe(".agent-runtime/workspace/media/inbound/77/01-file.jpg");
+  });
+});
+
+describe("resolveSimulatedTelegramMediaForIngest", () => {
+  test("decodes selected simulated media ids and reports skipped ids", async () => {
+    const result = await resolveSimulatedTelegramMediaForIngest({
+      simulatedMediaFiles: [
+        {
+          mediaId: "m1",
+          kind: "image",
+          mimeType: "image/png",
+          fileName: "a.png",
+          base64: Buffer.from("hello").toString("base64"),
+        },
+      ],
+      selectedMediaIds: ["m1", "m2"],
+      maxBytes: 1000,
+    });
+
+    expect(result.downloadedMedia.length).toBe(1);
+    expect(result.downloadedMedia[0]?.mediaId).toBe("m1");
+    expect(result.skippedMediaIds).toEqual(["m2"]);
+    expect(result.failures.length).toBe(0);
   });
 });

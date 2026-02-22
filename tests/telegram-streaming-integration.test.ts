@@ -531,21 +531,32 @@ mock.module(agentWorkerTelegramStreamPath, () => ({
   },
 }));
 
+mock.module("@workos-inc/authkit-nextjs", () => ({
+  withAuth: async () => ({ user: null }),
+}));
+
 let routePost: (request: Request) => Promise<Response>;
+let devSimRoutePost: (request: Request) => Promise<Response>;
 let dispatchRun: (runId: string) => Promise<{ accepted: boolean; status: string }>;
 const previousEnv = {
   TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
   TELEGRAM_WEBHOOK_MAX_BODY_BYTES: process.env.TELEGRAM_WEBHOOK_MAX_BODY_BYTES,
   TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS: process.env.TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS,
+  DEV_TELEGRAM_SIM_ENABLED: process.env.DEV_TELEGRAM_SIM_ENABLED,
+  DEV_TELEGRAM_SIM_AUTH_BYPASS: process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS,
 };
 
 beforeAll(async () => {
   process.env.TELEGRAM_WEBHOOK_SECRET = "telegram-secret";
   process.env.TELEGRAM_WEBHOOK_MAX_BODY_BYTES = "1000000";
   process.env.TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS = "30000";
+  process.env.DEV_TELEGRAM_SIM_ENABLED = "true";
+  process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS = "true";
 
   const routeModule = await import("@/app/api/telegram/webhook/route");
   routePost = routeModule.POST;
+  const devSimRouteModule = await import("@/app/api/dev/telegram/simulate/route");
+  devSimRoutePost = devSimRouteModule.POST;
 
   const orchestratorModule = await import("@/agent-worker/orchestrator");
   dispatchRun = orchestratorModule.dispatchRun;
@@ -555,6 +566,8 @@ afterAll(() => {
   process.env.TELEGRAM_WEBHOOK_SECRET = previousEnv.TELEGRAM_WEBHOOK_SECRET;
   process.env.TELEGRAM_WEBHOOK_MAX_BODY_BYTES = previousEnv.TELEGRAM_WEBHOOK_MAX_BODY_BYTES;
   process.env.TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS = previousEnv.TELEGRAM_WEBHOOK_BODY_TIMEOUT_MS;
+  process.env.DEV_TELEGRAM_SIM_ENABLED = previousEnv.DEV_TELEGRAM_SIM_ENABLED;
+  process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS = previousEnv.DEV_TELEGRAM_SIM_AUTH_BYPASS;
   mock.restore();
 });
 
@@ -616,6 +629,40 @@ describe("Telegram streaming integration harness", () => {
     expect(state.replies[0]?.text).toContain("streaming-result");
     expect(state.ingestCalls.length).toBe(1);
     expect((state.ingestCalls[0]?.ownerUserId as string | undefined) ?? "").toContain("telegram:");
+  });
+
+  test("dev simulate route -> worker dispatch -> run complete without telegram reply send", async () => {
+    state.dispatchImpl = async ({ runId }) => {
+      const result = await dispatchRun(runId);
+      if (!result.accepted) {
+        return { ok: false as const, error: `Run was not accepted: ${result.status}` };
+      }
+      await state.waitForTerminal(runId);
+      return { ok: true as const };
+    };
+
+    const formData = new FormData();
+    formData.set("chatId", "dev-chat-1");
+    formData.set("messageId", "1001");
+    formData.set("text", "simulate dev telegram flow");
+
+    const response = await devSimRoutePost(
+      new Request("http://localhost/api/dev/telegram/simulate", {
+        method: "POST",
+        body: formData,
+      }),
+    );
+
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.ok).toBeTrue();
+
+    const run = state.runsById.get(body.runId);
+    expect(run?.source).toBe("dev_telegram");
+    expect(run?.status).toBe("completed");
+    expect(state.replies.length).toBe(0);
+    expect(state.ingestCalls.length).toBe(1);
+    expect(state.dispatchCalls.length).toBe(1);
   });
 
   test("duplicate Telegram update does not create a duplicate run", async () => {

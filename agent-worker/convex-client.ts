@@ -1,5 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
+import { createLogger } from "../lib/observability/logger";
 import { workerConfig } from "./config";
 
 const claimRunMutation = makeFunctionReference<"mutation">("runs:claimRun");
@@ -14,17 +15,67 @@ const ingestAgentPayloadAction = makeFunctionReference<"action">(
 );
 
 const client = new ConvexHttpClient(workerConfig.convexUrl);
+const logger = createLogger({ service: "agent-worker-convex-client" });
+
+const runTimed = async <T>({
+  op,
+  runId,
+  fn,
+}: {
+  op: string;
+  runId?: string;
+  fn: () => Promise<T>;
+}) => {
+  const startedAt = Date.now();
+  try {
+    const result = await fn();
+    logger.debug(
+      {
+        op,
+        runId,
+        durationMs: Date.now() - startedAt,
+      },
+      "convex_call_ok",
+    );
+    return result;
+  } catch (error) {
+    logger.error(
+      {
+        op,
+        runId,
+        durationMs: Date.now() - startedAt,
+        error,
+      },
+      "convex_call_failed",
+    );
+    throw error;
+  }
+};
 
 export const convexRuns = {
-  claimRun: (args: { runId: string; workerId: string }) => client.mutation(claimRunMutation, args),
+  claimRun: (args: { runId: string; workerId: string }) =>
+    runTimed({
+      op: "claimRun",
+      runId: args.runId,
+      fn: () => client.mutation(claimRunMutation, args),
+    }),
   setRunRunning: (args: {
     runId: string;
     workerId: string;
     sandboxId?: string;
     sandboxLabel?: string;
-  }) => client.mutation(setRunRunningMutation, args),
+  }) =>
+    runTimed({
+      op: "setRunRunning",
+      runId: args.runId,
+      fn: () => client.mutation(setRunRunningMutation, args),
+    }),
   appendRunEvent: (args: { runId: string; type: string; payload?: unknown; seq?: number }) =>
-    client.mutation(appendRunEventMutation, args),
+    runTimed({
+      op: "appendRunEvent",
+      runId: args.runId,
+      fn: () => client.mutation(appendRunEventMutation, args),
+    }),
   completeRun: (args: {
     runId: string;
     workerId?: string;
@@ -35,11 +86,30 @@ export const convexRuns = {
       textContent?: string;
       metadata?: unknown;
     }>;
-  }) => client.mutation(completeRunMutation, args),
+  }) =>
+    runTimed({
+      op: "completeRun",
+      runId: args.runId,
+      fn: () => client.mutation(completeRunMutation, args),
+    }),
   failRun: (args: { runId: string; workerId?: string; error: string; sessionId?: string }) =>
-    client.mutation(failRunMutation, args),
-  cancelRun: (args: { runId: string; reason?: string }) => client.mutation(cancelRunMutation, args),
-  getRun: (args: { runId: string }) => client.query(getRunQuery, args),
+    runTimed({
+      op: "failRun",
+      runId: args.runId,
+      fn: () => client.mutation(failRunMutation, args),
+    }),
+  cancelRun: (args: { runId: string; reason?: string }) =>
+    runTimed({
+      op: "cancelRun",
+      runId: args.runId,
+      fn: () => client.mutation(cancelRunMutation, args),
+    }),
+  getRun: (args: { runId: string }) =>
+    runTimed({
+      op: "getRun",
+      runId: args.runId,
+      fn: () => client.query(getRunQuery, args),
+    }),
   ingestAgentPayload: (args: {
     runId: string;
     ownerUserId: string;
@@ -61,5 +131,10 @@ export const convexRuns = {
       fileName?: string;
       base64: string;
     }>;
-  }) => client.action(ingestAgentPayloadAction, args),
+  }) =>
+    runTimed({
+      op: "ingestAgentPayload",
+      runId: args.runId,
+      fn: () => client.action(ingestAgentPayloadAction, args),
+    }),
 };

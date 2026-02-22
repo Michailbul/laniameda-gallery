@@ -3,6 +3,7 @@ import {
   buildRunIdempotencyKey,
   isRunIntent,
   RUN_INTENTS,
+  RUN_SOURCES,
 } from "@/lib/run-contract";
 
 describe("run contract", () => {
@@ -21,5 +22,9 @@ describe("run contract", () => {
       inputFingerprint: "abc123",
     });
     expect(key).toBe("user_1|transfer_style|dashboard|abc123");
+  });
+
+  test("includes dev_telegram in supported run sources", () => {
+    expect(RUN_SOURCES.includes("dev_telegram")).toBeTrue();
   });
 });

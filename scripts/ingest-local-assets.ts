@@ -81,10 +81,14 @@ const main = async () => {
 
   const client = new ConvexHttpClient(convexUrl);
   const ownerUserId = process.env.LOCAL_INGEST_OWNER_USER_ID || "seed:local";
-  const existingCount = await client.query(api.assets.countAssets, { ownerUserId });
-  if (existingCount > 0) {
-    console.log("Local ingest skipped: assets already present in Convex.");
-    return;
+  try {
+    const existingCount = await client.query(api.assets.countAssets, { ownerUserId });
+    if (existingCount > 0) {
+      console.log("Local ingest skipped: assets already present in Convex.");
+      return;
+    }
+  } catch {
+    // Convex functions may not be deployed yet; per-file deduplication handles duplicates below
   }
 
   for (const filePath of files) {

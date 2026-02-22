@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.profile.dev-sim.example
+!.env.profile.dev-telegram.example
+!.env.profile.prod-telegram.example
 !convex/.env.example
 
 # git worktrees

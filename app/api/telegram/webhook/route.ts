@@ -8,8 +8,10 @@ import {
   buildTelegramRunUserId,
   normalizeTelegramUpdate,
 } from "@/lib/telegram/inbound";
+import { createLogger, createRequestId } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
+const logger = createLogger({ service: "next-api-telegram-webhook" });
 
 const DEFAULT_MAX_BODY_BYTES = 1_000_000;
 const DEFAULT_BODY_TIMEOUT_MS = 30_000;
@@ -101,13 +103,33 @@ const readBodyWithinLimit = async (request: Request) => {
 };
 
 export async function POST(request: Request) {
+  const requestId = createRequestId();
+  const requestLogger = logger.withContext({
+    requestId,
+    phase: "telegram_ingress",
+  });
+
   const secret = verifyWebhookSecret(request.headers.get("x-telegram-bot-api-secret-token"));
   if (!secret.ok) {
+    requestLogger.warn(
+      {
+        phase: "telegram_secret_invalid",
+        status: secret.status,
+      },
+      "telegram_secret_invalid",
+    );
     return NextResponse.json({ error: secret.error }, { status: secret.status });
   }
 
   const bodyResult = await readBodyWithinLimit(request);
   if (!bodyResult.ok) {
+    requestLogger.warn(
+      {
+        phase: "telegram_body_rejected",
+        status: bodyResult.status,
+      },
+      "telegram_body_rejected",
+    );
     return NextResponse.json({ error: bodyResult.error }, { status: bodyResult.status });
   }
 
@@ -116,6 +138,12 @@ export async function POST(request: Request) {
     const envelope = normalizeTelegramUpdate(update);
 
     if (!envelope) {
+      requestLogger.info(
+        {
+          phase: "telegram_payload_ignored",
+        },
+        "telegram_payload_ignored",
+      );
       return NextResponse.json(
         {
           ok: true,
@@ -158,6 +186,7 @@ export async function POST(request: Request) {
       type: "system",
       payload: {
         phase: "telegram_ingress_normalized",
+        requestId,
         updateId: envelope.updateId,
         chatId: envelope.chatId,
         messageId: envelope.messageId,
@@ -178,6 +207,14 @@ export async function POST(request: Request) {
           workerId: "telegram-webhook",
           error: dispatched.error,
         });
+        requestLogger.error(
+          {
+            phase: "telegram_dispatch_failed",
+            runId: createdRun.runId,
+            error: dispatched.error,
+          },
+          "telegram_dispatch_failed",
+        );
         return NextResponse.json(
           {
             ok: true,
@@ -190,6 +227,17 @@ export async function POST(request: Request) {
       }
     }
 
+    requestLogger.info(
+      {
+        phase: "telegram_run_created",
+        runId: createdRun.runId,
+        duplicate: !createdRun.created,
+        chatId: envelope.chatId,
+        source: "telegram",
+      },
+      "telegram_run_created",
+    );
+
     return NextResponse.json(
       {
         ok: true,
@@ -201,6 +249,13 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid Telegram webhook payload.";
+    requestLogger.error(
+      {
+        phase: "telegram_ingress_failed",
+        error,
+      },
+      "telegram_ingress_failed",
+    );
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

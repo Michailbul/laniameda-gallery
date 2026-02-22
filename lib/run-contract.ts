@@ -16,7 +16,7 @@ export const RUN_INTENTS = [
   "execute",
 ] as const;
 
-export const RUN_SOURCES = ["dashboard", "telegram", "api"] as const;
+export const RUN_SOURCES = ["dashboard", "telegram", "dev_telegram", "api"] as const;
 export const RUN_RUNTIMES = ["ai_sdk", "agent_worker"] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
