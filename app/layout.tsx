@@ -26,6 +26,7 @@ export default function RootLayout({
     <html lang="en">
       <body
         className={`${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable} antialiased`}
+        suppressHydrationWarning
       >
         <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
