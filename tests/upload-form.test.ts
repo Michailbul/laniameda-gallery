@@ -12,11 +12,13 @@ describe("buildUploadFormData", () => {
       folderId: " folder-1 ",
       tags: ["sunset", "sunset", "dream"],
       file,
+      pillar: "designs",
     });
 
     expect(formData.get("prompt")).toBe("Test prompt");
     expect(formData.get("url")).toBe("https://example.com/image.png");
     expect(formData.get("folderId")).toBe("folder-1");
+    expect(formData.get("pillar")).toBe("designs");
     expect(formData.getAll("tags")).toEqual(["sunset", "dream"]);
     expect(formData.get("ingestKey")).toBe(
       buildIngestKey({

@@ -13,6 +13,8 @@ interface TopFilterBarProps {
   folders: Folder[];
   selectedFolderId: string | null;
   onFolderSelect: (folderId: string | null) => void;
+  selectedPillar: string | null;
+  onPillarSelect: (pillar: string | null) => void;
   availableModelNames: string[];
   selectedModelName: string | null;
   onModelNameSelect: (name: string | null) => void;
@@ -27,10 +29,19 @@ const SORT_OPTIONS: { label: string; value: SortOrder }[] = [
   { label: "Popular", value: "popular" },
 ];
 
+const PILLAR_OPTIONS = [
+  { label: "Creators", value: "creators" },
+  { label: "Cars", value: "cars" },
+  { label: "Designs", value: "designs" },
+  { label: "Dump", value: "dump" },
+] as const;
+
 export function TopFilterBar({
   folders,
   selectedFolderId,
   onFolderSelect,
+  selectedPillar,
+  onPillarSelect,
   availableModelNames,
   selectedModelName,
   onModelNameSelect,
@@ -38,6 +49,7 @@ export function TopFilterBar({
   onSortOrderChange,
   onCommandPalette: _onCommandPalette,
 }: TopFilterBarProps) {
+  const pillarScrollRef = useRef<HTMLDivElement>(null);
   const folderScrollRef = useRef<HTMLDivElement>(null);
   const modelScrollRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +64,36 @@ export function TopFilterBar({
         borderColor: "var(--border-subtle)",
       }}
     >
+      <div
+        ref={pillarScrollRef}
+        className="flex h-11 items-center gap-1.5 overflow-x-auto px-4"
+        style={{
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+        onWheel={(e) => {
+          if (pillarScrollRef.current && e.deltaY !== 0) {
+            e.preventDefault();
+            pillarScrollRef.current.scrollLeft += e.deltaY;
+          }
+        }}
+      >
+        <FolderTab
+          label="All"
+          active={selectedPillar === null}
+          onClick={() => onPillarSelect(null)}
+        />
+        {PILLAR_OPTIONS.map((pillar) => (
+          <FolderTab
+            key={pillar.value}
+            label={pillar.label}
+            active={selectedPillar === pillar.value}
+            onClick={() => onPillarSelect(pillar.value)}
+          />
+        ))}
+      </div>
+
       <div className="flex h-12 items-center justify-between">
         <div
           ref={folderScrollRef}

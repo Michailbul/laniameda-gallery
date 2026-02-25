@@ -26,6 +26,7 @@ interface GalleryDashboardProps {
 
 export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedPillar, setSelectedPillar] = useState<string | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
@@ -81,6 +82,7 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
     ownerUserId: user?.id || "__guest__",
     kind: "image",
     tagIds: selectedTagIds,
+    pillar: selectedPillar ?? undefined,
     folderId: selectedFolderId
       ? (selectedFolderId as Id<"folders">)
       : undefined,
@@ -151,6 +153,7 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
       height: asset.thumbHeight ?? asset.height ?? undefined,
       initiallyLoaded: loadedImageIds.has(asset._id),
       modelName: asset.modelName ?? undefined,
+      pillar: asset.pillar ?? undefined,
     }));
   }, [galleryAssets, loadedImageIds]);
 
@@ -284,6 +287,8 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
           folders={folders ?? []}
           selectedFolderId={selectedFolderId}
           onFolderSelect={setSelectedFolderId}
+          selectedPillar={selectedPillar}
+          onPillarSelect={setSelectedPillar}
           availableModelNames={availableModelNames}
           selectedModelName={selectedModelName}
           onModelNameSelect={setSelectedModelName}

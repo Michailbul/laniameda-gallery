@@ -65,6 +65,13 @@ const GENERATION_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
+const PILLAR_OPTIONS = [
+  { value: "creators", label: "Creators" },
+  { value: "cars", label: "Cars" },
+  { value: "designs", label: "Designs" },
+  { value: "dump", label: "Dump" },
+] as const;
+
 const PROMPT_TYPE_OPTIONS = [
   { value: "image_gen", label: "Image Gen" },
   { value: "video_gen", label: "Video Gen" },
@@ -86,6 +93,7 @@ export function UploadPanel({
   const [folderSelection, setFolderSelection] = useState(NO_FOLDER_VALUE);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
+  const [pillarSelection, setPillarSelection] = useState(NO_VALUE);
   const [generationType, setGenerationType] = useState(NO_VALUE);
   const [promptType, setPromptType] = useState(NO_VALUE);
   const [domainInput, setDomainInput] = useState("");
@@ -202,6 +210,7 @@ export function UploadPanel({
     setFolderSelection(NO_FOLDER_VALUE);
     setModelNameSelection(NO_VALUE);
     setModelNameCustom("");
+    setPillarSelection(NO_VALUE);
     setGenerationType(NO_VALUE);
     setPromptType(NO_VALUE);
     setDomainInput("");
@@ -230,6 +239,8 @@ export function UploadPanel({
             : modelNameSelection;
       const resolvedGenerationType =
         generationType === NO_VALUE ? undefined : generationType;
+      const resolvedPillar =
+        pillarSelection === NO_VALUE ? undefined : pillarSelection;
       const resolvedPromptType =
         promptType === NO_VALUE ? undefined : promptType;
       const formData = buildUploadFormData({
@@ -239,6 +250,7 @@ export function UploadPanel({
         tags,
         file: selectedFiles[0] ?? null,
         modelName: resolvedModelName,
+        pillar: resolvedPillar,
         generationType: resolvedGenerationType,
         promptType: resolvedPromptType,
         domain: domainInput.trim() || undefined,
@@ -565,6 +577,27 @@ export function UploadPanel({
                   <SelectGroup>
                     <SelectItem value={NO_VALUE}>None</SelectItem>
                     {GENERATION_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="pillar-select">Pillar</Label>
+              <Select
+                value={pillarSelection}
+                onValueChange={(value) => setPillarSelection(value)}
+              >
+                <SelectTrigger id="pillar-select">
+                  <SelectValue placeholder="Select pillar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value={NO_VALUE}>None</SelectItem>
+                    {PILLAR_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>

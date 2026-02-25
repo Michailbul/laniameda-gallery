@@ -6,6 +6,13 @@ import { v, ConvexError } from "convex/values";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
+const pillarValidator = v.optional(v.union(
+  v.literal("creators"),
+  v.literal("cars"),
+  v.literal("designs"),
+  v.literal("dump"),
+));
+
 const normalizeTags = (names: string[]) => {
   const cleaned = names
     .map((name) => name.trim())
@@ -55,6 +62,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     ingestKey: v.optional(v.string()),
     promptIngestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
+    pillar: pillarValidator,
     generationType: v.optional(v.union(
       v.literal("image_gen"),
       v.literal("video_gen"),
@@ -106,6 +114,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
             tagIds,
             folderId: args.folderId,
             ingestKey: args.promptIngestKey ?? args.ingestKey,
+            pillar: args.pillar,
             promptType: args.promptType,
             domain: args.domain,
           })) as { promptId: Id<"prompts"> }
@@ -202,6 +211,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         folderId: args.folderId,
         ingestKey: args.ingestKey,
         modelName: args.modelName,
+        pillar: args.pillar,
         generationType: args.generationType,
       })) as { assetId: Id<"assets"> };
       assetId = result.assetId;

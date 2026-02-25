@@ -7,6 +7,7 @@ export type UploadFormInput = {
   tags?: string[];
   file?: File | null;
   modelName?: string | null;
+  pillar?: string | null;
   generationType?: string | null;
   promptType?: string | null;
   domain?: string | null;
@@ -19,6 +20,7 @@ export const buildUploadFormData = ({
   tags,
   file,
   modelName,
+  pillar,
   generationType,
   promptType,
   domain,
@@ -64,6 +66,9 @@ export const buildUploadFormData = ({
 
   if (modelName) {
     formData.append("modelName", modelName);
+  }
+  if (pillar) {
+    formData.append("pillar", pillar);
   }
   if (generationType) {
     formData.append("generationType", generationType);

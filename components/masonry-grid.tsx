@@ -13,6 +13,7 @@ interface GalleryImage {
   height?: number;
   initiallyLoaded?: boolean;
   modelName?: string;
+  pillar?: string;
 }
 
 interface MasonryGridProps {

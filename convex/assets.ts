@@ -3,6 +3,20 @@ import { ConvexError, v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 
+const generationTypeValidator = v.optional(v.union(
+  v.literal("image_gen"),
+  v.literal("video_gen"),
+  v.literal("ui_design"),
+  v.literal("other"),
+));
+
+const pillarValidator = v.optional(v.union(
+  v.literal("creators"),
+  v.literal("cars"),
+  v.literal("designs"),
+  v.literal("dump"),
+));
+
 export const createAsset = mutation({
   args: {
     ownerUserId: v.string(),
@@ -23,12 +37,8 @@ export const createAsset = mutation({
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
-    generationType: v.optional(v.union(
-      v.literal("image_gen"),
-      v.literal("video_gen"),
-      v.literal("ui_design"),
-      v.literal("other"),
-    )),
+    pillar: pillarValidator,
+    generationType: generationTypeValidator,
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -73,6 +83,7 @@ export const createAsset = mutation({
       folderId: args.folderId,
       ingestKey: args.ingestKey,
       modelName: args.modelName,
+      pillar: args.pillar,
       generationType: args.generationType,
       createdAt,
     });
@@ -119,12 +130,8 @@ export const getAsset = query({
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
       modelName: v.optional(v.string()),
-      generationType: v.optional(v.union(
-        v.literal("image_gen"),
-        v.literal("video_gen"),
-        v.literal("ui_design"),
-        v.literal("other"),
-      )),
+      pillar: pillarValidator,
+      generationType: generationTypeValidator,
       createdAt: v.number(),
     }),
   ),
@@ -171,12 +178,8 @@ export const listAssets = query({
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
       modelName: v.optional(v.string()),
-      generationType: v.optional(v.union(
-        v.literal("image_gen"),
-        v.literal("video_gen"),
-        v.literal("ui_design"),
-        v.literal("other"),
-      )),
+      pillar: pillarValidator,
+      generationType: generationTypeValidator,
       createdAt: v.number(),
     }),
   ),
@@ -249,6 +252,7 @@ export const listGalleryAssets = query({
     tagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
+    pillar: pillarValidator,
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -275,6 +279,7 @@ export const listGalleryAssets = query({
       tagNames: v.array(v.string()),
       folderId: v.optional(v.id("folders")),
       modelName: v.optional(v.string()),
+      pillar: pillarValidator,
       createdAt: v.number(),
       url: v.optional(v.string()),
       thumbUrl: v.optional(v.string()),
@@ -291,18 +296,25 @@ export const listGalleryAssets = query({
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
+    const pillar = args.pillar;
     const kind = args.kind;
-    const assets = await (kind
+    const assets = await (pillar
       ? ctx.db
           .query("assets")
-          .withIndex("by_owner_kind_createdAt", (q) =>
-            q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
+          .withIndex("by_owner_pillar_createdAt", (q) =>
+            q.eq("ownerUserId", ownerUserId).eq("pillar", pillar).gte("createdAt", 0),
           )
-      : ctx.db
-          .query("assets")
-          .withIndex("by_owner_createdAt", (q) =>
-            q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
-          )
+      : kind
+        ? ctx.db
+            .query("assets")
+            .withIndex("by_owner_kind_createdAt", (q) =>
+              q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
+            )
+        : ctx.db
+            .query("assets")
+            .withIndex("by_owner_createdAt", (q) =>
+              q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
+            )
     )
       .order("desc")
       .take(limit);
@@ -336,6 +348,9 @@ export const listGalleryAssets = query({
         continue;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
+        continue;
+      }
+      if (kind && asset.kind !== kind) {
         continue;
       }
 
@@ -388,6 +403,7 @@ export const listGalleryAssets = query({
         tagNames,
         folderId: asset.folderId,
         modelName: asset.modelName,
+        pillar: asset.pillar,
         createdAt: asset.createdAt,
         url,
         thumbUrl,

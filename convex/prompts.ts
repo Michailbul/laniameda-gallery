@@ -11,6 +11,13 @@ const promptTypeValidator = v.optional(v.union(
   v.literal("other"),
 ));
 
+const pillarValidator = v.optional(v.union(
+  v.literal("creators"),
+  v.literal("cars"),
+  v.literal("designs"),
+  v.literal("dump"),
+));
+
 export const createPrompt = mutation({
   args: {
     ownerUserId: v.string(),
@@ -18,6 +25,7 @@ export const createPrompt = mutation({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    pillar: pillarValidator,
     promptType: promptTypeValidator,
     domain: v.optional(v.string()),
   },
@@ -56,6 +64,7 @@ export const createPrompt = mutation({
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
+      pillar: args.pillar,
       promptType: args.promptType,
       domain: args.domain,
       createdAt,
@@ -82,6 +91,7 @@ export const updatePrompt = mutation({
     text: v.string(),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
+    pillar: pillarValidator,
     promptType: promptTypeValidator,
     domain: v.optional(v.string()),
   },
@@ -110,6 +120,7 @@ export const updatePrompt = mutation({
       text,
       tagIds,
       folderId: args.folderId,
+      pillar: args.pillar,
       promptType: args.promptType,
       domain: args.domain,
     });
@@ -151,6 +162,7 @@ export const getPrompt = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
       createdAt: v.number(),
@@ -184,6 +196,7 @@ export const listPrompts = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
       createdAt: v.number(),
@@ -243,6 +256,7 @@ export const searchPrompts = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
       createdAt: v.number(),

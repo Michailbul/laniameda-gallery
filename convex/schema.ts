@@ -27,6 +27,12 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    pillar: v.optional(v.union(
+      v.literal("creators"),
+      v.literal("cars"),
+      v.literal("designs"),
+      v.literal("dump"),
+    )),
     promptType: v.optional(v.union(
       v.literal("image_gen"),
       v.literal("video_gen"),
@@ -42,6 +48,7 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_folder_createdAt", ["folderId", "createdAt"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
+    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .searchIndex("search_text", { searchField: "text" }),
@@ -71,6 +78,12 @@ export default defineSchema({
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
+    pillar: v.optional(v.union(
+      v.literal("creators"),
+      v.literal("cars"),
+      v.literal("designs"),
+      v.literal("dump"),
+    )),
     generationType: v.optional(v.union(
       v.literal("image_gen"),
       v.literal("video_gen"),
@@ -87,6 +100,7 @@ export default defineSchema({
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
     .index("by_kind_createdAt", ["kind", "createdAt"])
     .index("by_owner_kind_createdAt", ["ownerUserId", "kind", "createdAt"])
+    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"]),

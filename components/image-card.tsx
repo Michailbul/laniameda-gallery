@@ -15,6 +15,7 @@ interface ImageCardProps {
     width?: number;
     height?: number;
     modelName?: string;
+    pillar?: string;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -30,6 +31,13 @@ interface ImageCardProps {
   onLoad?: () => void;
   index?: number;
 }
+
+const PILLAR_META = {
+  creators: { label: "Creators", color: "#f5d0aa" },
+  cars: { label: "Cars", color: "#f97316" },
+  designs: { label: "Designs", color: "#60a5fa" },
+  dump: { label: "Dump", color: "#9ca3af" },
+} as const;
 
 export function ImageCard({
   image,
@@ -80,6 +88,9 @@ export function ImageCard({
     "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
 
   const entranceDelay = index < 12 ? `${index * 30}ms` : "0ms";
+  const pillarMeta = image.pillar
+    ? PILLAR_META[image.pillar as keyof typeof PILLAR_META]
+    : undefined;
 
   const selectImage = () =>
     onSelect?.({
@@ -170,19 +181,41 @@ export function ImageCard({
         />
       </div>
 
-      {/* Model name badge — bottom-left, always visible */}
-      {image.modelName && (
-        <div
-          className="absolute bottom-2 left-2 z-10 rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{
-            backgroundColor: "rgba(0, 0, 0, 0.6)",
-            color: "rgba(255, 255, 255, 0.85)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          {image.modelName}
+      {/* Model + pillar badges — bottom-left, always visible */}
+      {(image.modelName || pillarMeta) && (
+        <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5">
+          {image.modelName && (
+            <div
+              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.6)",
+                color: "rgba(255, 255, 255, 0.85)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              {image.modelName}
+            </div>
+          )}
+          {pillarMeta && (
+            <div
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                backgroundColor: "rgba(0, 0, 0, 0.55)",
+                color: pillarMeta.color,
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: pillarMeta.color }}
+              />
+              {pillarMeta.label}
+            </div>
+          )}
         </div>
       )}
 

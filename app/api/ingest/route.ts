@@ -38,6 +38,7 @@ export async function POST(request: Request) {
     let tagNames: string[] = [];
     let file: File | null = null;
     let modelName: string | undefined;
+    let pillar: string | undefined;
     let generationType: string | undefined;
     let promptType: string | undefined;
     let domain: string | undefined;
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
         tagNames = parseTagNames(data.tagNames as string[]);
       }
       modelName = typeof data.modelName === "string" ? data.modelName : undefined;
+      pillar = typeof data.pillar === "string" ? data.pillar : undefined;
       generationType = typeof data.generationType === "string" ? data.generationType : undefined;
       promptType = typeof data.promptType === "string" ? data.promptType : undefined;
       domain = typeof data.domain === "string" ? data.domain : undefined;
@@ -89,10 +91,12 @@ export async function POST(request: Request) {
       }
 
       const modelNameValue = form.get("modelName");
+      const pillarValue = form.get("pillar");
       const generationTypeValue = form.get("generationType");
       const promptTypeValue = form.get("promptType");
       const domainValue = form.get("domain");
       modelName = typeof modelNameValue === "string" ? modelNameValue : undefined;
+      pillar = typeof pillarValue === "string" ? pillarValue : undefined;
       generationType = typeof generationTypeValue === "string" ? generationTypeValue : undefined;
       promptType = typeof promptTypeValue === "string" ? promptTypeValue : undefined;
       domain = typeof domainValue === "string" ? domainValue : undefined;
@@ -114,6 +118,7 @@ export async function POST(request: Request) {
       promptIngestKey,
       tagNames,
       modelName: modelName || undefined,
+      pillar: pillar || undefined,
       generationType: generationType || undefined,
       promptType: promptType || undefined,
       domain: domain || undefined,
