@@ -284,72 +284,12 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
           folders={folders ?? []}
           selectedFolderId={selectedFolderId}
           onFolderSelect={setSelectedFolderId}
+          availableModelNames={availableModelNames}
+          selectedModelName={selectedModelName}
+          onModelNameSelect={setSelectedModelName}
           sortOrder={sortOrder}
           onSortOrderChange={setSortOrder}
         />
-
-        {/* ── Model Name Filter Pills ── */}
-        {availableModelNames.length > 0 && (
-          <div
-            className="flex items-center gap-1.5 overflow-x-auto px-4 py-2 border-b"
-            style={{
-              borderColor: "var(--border-subtle)",
-              scrollbarWidth: "none",
-              msOverflowStyle: "none",
-            }}
-          >
-            <span
-              className="flex-shrink-0 text-[11px] font-medium mr-1"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Model:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedModelName(null)}
-              className="flex-shrink-0 rounded-full px-3 py-1 text-[12px] transition-all"
-              style={{
-                background: !selectedModelName
-                  ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
-                  : "transparent",
-                border: !selectedModelName
-                  ? "1px solid rgba(255, 140, 66, 0.25)"
-                  : "1px solid transparent",
-                color: !selectedModelName ? "var(--amber-9)" : "var(--text-secondary)",
-                fontWeight: !selectedModelName ? 600 : 400,
-              }}
-            >
-              All
-            </button>
-            {availableModelNames.map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() =>
-                  setSelectedModelName(selectedModelName === name ? null : name)
-                }
-                className="flex-shrink-0 rounded-full px-3 py-1 text-[12px] transition-all"
-                style={{
-                  background:
-                    selectedModelName === name
-                      ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
-                      : "transparent",
-                  border:
-                    selectedModelName === name
-                      ? "1px solid rgba(255, 140, 66, 0.25)"
-                      : "1px solid transparent",
-                  color:
-                    selectedModelName === name
-                      ? "var(--amber-9)"
-                      : "var(--text-secondary)",
-                  fontWeight: selectedModelName === name ? 600 : 400,
-                }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* ── Gallery + Detail flex row ── */}
         <div className="flex flex-1 min-h-0">
