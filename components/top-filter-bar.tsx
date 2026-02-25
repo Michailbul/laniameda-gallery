@@ -225,10 +225,10 @@ function ModelNameChip({
       className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-xs transition-all"
       style={{
         background: active
-          ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
+          ? "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08))"
           : "rgba(245, 208, 168, 0.03)",
         border: active
-          ? "1px solid rgba(255, 140, 66, 0.28)"
+          ? "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.28)"
           : "1px solid var(--border-subtle)",
         color: active ? "var(--amber-9)" : "var(--text-tertiary)",
         fontWeight: active ? 600 : 500,
@@ -268,14 +268,14 @@ function FolderTab({
       className="relative flex-shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition-all"
       style={{
         background: active
-          ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
+          ? "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08))"
           : "transparent",
         border: active
-          ? "1px solid rgba(255, 140, 66, 0.25)"
+          ? "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25)"
           : "1px solid transparent",
         color: active ? "var(--amber-9)" : "var(--text-secondary)",
         fontWeight: active ? 600 : 400,
-        boxShadow: active ? "0 0 12px rgba(255, 140, 66, 0.1)" : "none",
+        boxShadow: active ? "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)" : "none",
         transitionDuration: "var(--duration-fast)",
       }}
       onMouseEnter={(e) => {
@@ -284,7 +284,7 @@ function FolderTab({
           e.currentTarget.style.color = "var(--text-primary)";
           e.currentTarget.style.borderColor = "var(--border-strong)";
         } else {
-          e.currentTarget.style.boxShadow = "0 0 16px rgba(255, 140, 66, 0.18)";
+          e.currentTarget.style.boxShadow = "0 0 16px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.18)";
         }
       }}
       onMouseLeave={(e) => {
@@ -293,7 +293,7 @@ function FolderTab({
           e.currentTarget.style.color = "var(--text-secondary)";
           e.currentTarget.style.borderColor = "transparent";
         } else {
-          e.currentTarget.style.boxShadow = "0 0 12px rgba(255, 140, 66, 0.1)";
+          e.currentTarget.style.boxShadow = "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)";
         }
       }}
     >

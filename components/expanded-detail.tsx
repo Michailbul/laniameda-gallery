@@ -82,7 +82,7 @@ export function ExpandedDetail({ image, onClose, onAction }: ExpandedDetailProps
         style={{
           aspectRatio: `${image.width ?? 1} / ${image.height ?? 1}`,
           boxShadow:
-            "0 0 0 1.5px rgba(255, 140, 66, 0.3), 0 0 30px rgba(255, 140, 66, 0.08)",
+            "0 0 0 1.5px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3), 0 0 30px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08)",
         }}
       >
         <Image
@@ -175,9 +175,9 @@ export function ExpandedDetail({ image, onClose, onAction }: ExpandedDetailProps
           <span
             className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
             style={{
-              backgroundColor: "rgba(255, 140, 66, 0.1)",
+              backgroundColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)",
               color: "var(--amber-9)",
-              border: "1px solid rgba(255, 140, 66, 0.2)",
+              border: "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2)",
             }}
           >
             {modelName}

@@ -244,7 +244,8 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
   return (
     <div
       className="min-h-screen"
-      style={{ backgroundColor: "var(--surface-0)" }}
+      data-pillar={selectedPillar ?? "creators"}
+      style={{ backgroundColor: "var(--surface-0)", transition: "background-color 400ms ease, color 400ms ease" }}
     >
       {/* ── Sidebar (desktop only) ── */}
       <div className="hidden md:block">
@@ -308,7 +309,7 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
                 left: "10%",
                 width: "45%",
                 height: "350px",
-                background: "radial-gradient(ellipse at center, rgba(255, 140, 66, 0.07) 0%, transparent 65%)",
+                background: "radial-gradient(ellipse at center, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.07) 0%, transparent 65%)",
                 filter: "blur(70px)",
               }}
             />
@@ -352,14 +353,14 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
                   className="relative flex h-20 w-20 items-center justify-center rounded-3xl animate-float-gentle"
                   style={{
                     background: "linear-gradient(145deg, var(--surface-2), var(--surface-3))",
-                    boxShadow: "0 0 40px rgba(255, 140, 66, 0.1), 0 0 80px rgba(255, 107, 53, 0.05), inset 0 1px 0 rgba(245, 208, 168, 0.06)",
+                    boxShadow: "0 0 40px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1), 0 0 80px rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.05), inset 0 1px 0 rgba(245, 208, 168, 0.06)",
                   }}
                 >
                   {/* Gradient border ring */}
                   <div
                     className="absolute inset-[-1px] rounded-3xl"
                     style={{
-                      background: "linear-gradient(135deg, rgba(255, 140, 66, 0.3), rgba(255, 107, 53, 0.1), rgba(184, 104, 52, 0.2))",
+                      background: "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.1), rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2))",
                       mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
                       maskComposite: "exclude",
                       WebkitMaskComposite: "xor",
@@ -395,15 +396,15 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
                   style={{
                     background: "linear-gradient(135deg, var(--amber-9), var(--warm-accent))",
                     color: "var(--amber-contrast)",
-                    boxShadow: "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)",
+                    boxShadow: "0 4px 24px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3), 0 1px 3px rgba(0,0,0,0.3)",
                     transitionDuration: "var(--duration-fast)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = "0 8px 40px rgba(255, 140, 66, 0.4), 0 2px 6px rgba(0,0,0,0.4)";
+                    e.currentTarget.style.boxShadow = "0 8px 40px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.4), 0 2px 6px rgba(0,0,0,0.4)";
                     e.currentTarget.style.transform = "translateY(-1px)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)";
+                    e.currentTarget.style.boxShadow = "0 4px 24px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3), 0 1px 3px rgba(0,0,0,0.3)";
                     e.currentTarget.style.transform = "translateY(0)";
                   }}
                 >

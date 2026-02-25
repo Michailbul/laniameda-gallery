@@ -114,13 +114,13 @@ export function ImageCard({
         transitionDuration: "var(--duration-normal)",
         transitionProperty: "transform, box-shadow, opacity",
         boxShadow: isSelected
-          ? "0 0 0 2px rgba(255, 140, 66, 0.5), 0 0 20px rgba(255, 140, 66, 0.15)"
+          ? "0 0 0 2px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.5), 0 0 20px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15)"
           : "0 2px 8px rgba(0, 0, 0, 0.2)",
         opacity: isSelected ? 0.6 : 1,
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-4px) scale(1.01)";
-        e.currentTarget.style.boxShadow = "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 140, 66, 0.15), 0 0 30px rgba(255, 107, 53, 0.08)";
+        e.currentTarget.style.boxShadow = "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), 0 0 30px rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = "translateY(0) scale(1)";
@@ -138,7 +138,7 @@ export function ImageCard({
             className="absolute inset-0"
             style={{
               background:
-                "linear-gradient(90deg, transparent 0%, rgba(255, 140, 66, 0.03) 50%, transparent 100%)",
+                "linear-gradient(90deg, transparent 0%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.03) 50%, transparent 100%)",
               backgroundSize: "200% 100%",
               animation: "shimmer 1.5s infinite linear",
             }}
@@ -232,7 +232,7 @@ export function ImageCard({
         <div
           className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
           style={{
-            background: "linear-gradient(135deg, rgba(255, 140, 66, 0.25), rgba(255, 107, 53, 0.1), rgba(184, 104, 52, 0.2))",
+            background: "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.1), rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2))",
             mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
             maskComposite: "exclude",
             WebkitMaskComposite: "xor",
@@ -245,7 +245,7 @@ export function ImageCard({
         <div
           className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
           style={{
-            boxShadow: "inset 0 -20px 40px rgba(255, 140, 66, 0.04)",
+            boxShadow: "inset 0 -20px 40px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.04)",
             transitionDuration: "var(--duration-normal)",
           }}
         />
@@ -289,7 +289,7 @@ export function ImageCard({
                   e.currentTarget.style.color = "var(--amber-contrast)";
                   e.currentTarget.style.background = "linear-gradient(135deg, var(--amber-9), var(--warm-accent))";
                   e.currentTarget.style.borderColor = "transparent";
-                  e.currentTarget.style.boxShadow = "0 0 12px rgba(255, 140, 66, 0.35)";
+                  e.currentTarget.style.boxShadow = "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.35)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.color = "rgba(255,255,255,0.75)";

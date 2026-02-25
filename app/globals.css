@@ -189,6 +189,14 @@
   --warm-accent: #FF6B35;
   --warm-subtle: rgba(255, 107, 53, 0.08);
 
+  /* ===== PILLAR ACCENT RGB CHANNELS (used for rgba() in components) ===== */
+  --pillar-r: 255;
+  --pillar-g: 140;
+  --pillar-b: 66;
+  --pillar-warm-r: 255;
+  --pillar-warm-g: 107;
+  --pillar-warm-b: 53;
+
   /* ===== STATUS ===== */
   --status-running: #FF8C42;
   --status-success: #34d399;
@@ -291,6 +299,120 @@
   --sidebar-accent-foreground: var(--text-secondary);
   --sidebar-border: var(--border-default);
   --sidebar-ring: var(--amber-9);
+}
+
+/* ===== PER-PILLAR ACCENT OVERRIDES ===== */
+
+/* Creators — warm amber/gold (default, no overrides needed) */
+[data-pillar="creators"] {
+  /* Inherits :root amber — editorial warmth */
+}
+
+/* Cars — deep crimson-red: speed, fire, mechanical heat */
+[data-pillar="cars"] {
+  --amber-1: #0d0200;
+  --amber-2: #1a0504;
+  --amber-3: #2e0c08;
+  --amber-4: #43120c;
+  --amber-5: #5c1a12;
+  --amber-6: #782218;
+  --amber-7: #9a2e22;
+  --amber-8: #c4382c;
+  --amber-9: #E84545;
+  --amber-10: #EF6B6B;
+  --amber-11: #F59090;
+  --amber-12: #FBBEBE;
+
+  --amber-contrast: #1a0504;
+  --amber-surface: rgba(232, 69, 69, 0.08);
+  --amber-indicator: #E84545;
+  --amber-track: #E84545;
+  --amber-subtle: rgba(232, 69, 69, 0.08);
+  --amber-glow: rgba(232, 69, 69, 0.15);
+
+  --accent-glow: rgba(232, 69, 69, 0.18);
+  --accent-subtle: rgba(232, 69, 69, 0.10);
+  --warm-accent: #D63031;
+
+  --pillar-r: 232;
+  --pillar-g: 69;
+  --pillar-b: 69;
+  --pillar-warm-r: 214;
+  --pillar-warm-g: 48;
+  --pillar-warm-b: 49;
+}
+
+/* Designs — electric indigo/blue: clean, digital, UI precision */
+[data-pillar="designs"] {
+  --amber-1: #020116;
+  --amber-2: #06041a;
+  --amber-3: #0e0a2e;
+  --amber-4: #161043;
+  --amber-5: #1e185c;
+  --amber-6: #2d2578;
+  --amber-7: #3f359a;
+  --amber-8: #5248c4;
+  --amber-9: #6366F1;
+  --amber-10: #818CF8;
+  --amber-11: #A5B4FC;
+  --amber-12: #C7D2FE;
+
+  --amber-contrast: #06041a;
+  --amber-surface: rgba(99, 102, 241, 0.08);
+  --amber-indicator: #6366F1;
+  --amber-track: #6366F1;
+  --amber-subtle: rgba(99, 102, 241, 0.08);
+  --amber-glow: rgba(99, 102, 241, 0.15);
+
+  --accent-glow: rgba(99, 102, 241, 0.18);
+  --accent-subtle: rgba(99, 102, 241, 0.10);
+  --warm-accent: #4F46E5;
+
+  --pillar-r: 99;
+  --pillar-g: 102;
+  --pillar-b: 241;
+  --pillar-warm-r: 79;
+  --pillar-warm-g: 70;
+  --pillar-warm-b: 229;
+}
+
+/* Dump — muted slate/teal: neutral catch-all with cool teal accent */
+[data-pillar="dump"] {
+  --amber-1: #020606;
+  --amber-2: #061010;
+  --amber-3: #0b1c1c;
+  --amber-4: #102828;
+  --amber-5: #163636;
+  --amber-6: #1e4848;
+  --amber-7: #2a5f5f;
+  --amber-8: #378585;
+  --amber-9: #4ECDC4;
+  --amber-10: #6FD8D1;
+  --amber-11: #98E5DF;
+  --amber-12: #C4F0ED;
+
+  --amber-contrast: #061010;
+  --amber-surface: rgba(78, 205, 196, 0.08);
+  --amber-indicator: #4ECDC4;
+  --amber-track: #4ECDC4;
+  --amber-subtle: rgba(78, 205, 196, 0.08);
+  --amber-glow: rgba(78, 205, 196, 0.15);
+
+  --accent-glow: rgba(78, 205, 196, 0.18);
+  --accent-subtle: rgba(78, 205, 196, 0.10);
+  --warm-accent: #36B5AC;
+
+  --pillar-r: 78;
+  --pillar-g: 205;
+  --pillar-b: 196;
+  --pillar-warm-r: 54;
+  --pillar-warm-g: 181;
+  --pillar-warm-b: 172;
+}
+
+/* Pillar transition class — smooth accent color shifts */
+[data-pillar] {
+  transition: color 300ms ease, background-color 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
 }
 
 @layer base {
