@@ -1,54 +1,39 @@
 # Observations
 
-Last updated: 2026-02-19
+Last updated: 2026-02
 
-- Current baseline is green: `bun run lint`, `bun test`, and `bunx tsc --noEmit` all pass.
-- Telegram heavy path is now streaming-first in worker runtime and executes Agent SDK inside Daytona sandbox sessions.
-- Centralizing stable run phase names in a shared module (`lib/run-phases.ts`) prevents drift across webhook, worker, runtime, Convex, and tests.
-- The new Telegram integration harness catches regressions across webhook ingest, dedupe behavior, media-stage failure policy, and streaming completion semantics.
-- Media-stage policy is strict for MVP: if required attachment staging fails, fail the run (`media_stage_failed`) instead of running with partial media context.
+Technical notes and lessons learned. Update this when you hit a quirk.
 
-- Added worktree setup automation to copy `.env.example` and run `bun install` because the initial worktree script omitted these steps.
-- Added `.env.example` and Tailwind token config for the design system.
-- Gallery UI now consumes Convex assets/tags/search instead of mock data.
-- Local dev ingest seeds Convex storage from `public/images-test` with thumbnails.
-- Masonry layout uses CSS columns and reserves aspect ratio to stabilize layout.
-- Added modal preview with progressive thumb → full-res swap.
-- ESLint warnings persist in `convex/_generated/*` and `<img>` usage warnings in gallery.
-- Running `bun run build` currently fails because Turbopack/Next.js cannot download the Nunito Sans font (network blocked); repeated runs also hit `Operation not permitted (os error 1)` when Turbopack tries to spawn its CSS worker, so rerun it once you can bind ports again.
-- WorkOS AuthKit integration is wired with middleware/auth routes and Convex’s `auth.config.ts`; the current product policy is guest-visible gallery with auth required only for protected actions.
-- The WorkOS redirect URI must match exactly between the dashboard, `NEXT_PUBLIC_WORKOS_REDIRECT_URI`, and the `/callback` route (e.g., `http://localhost:3000/callback` for dev). Keep local values in `.env.local` and update the hosted env when you deploy; WorkOS lets you register multiple redirect URIs so you can include both dev and prod.
-- `bun convex dev` still requires external network access (Convex hits `o1192621.ingest.sentry.io`, so re-run the push from a networked machine and set `WORKOS_CLIENT_ID` in the Convex dashboard before pushing).
-- The ingestion action uses the `Jimp` class and `JimpMime` exports (auto/resize/mime detection) rather than relying on named CommonJS exports, which keeps os-specific binaries out of the bundle.
-- The gallery now renders for everyone in guest mode; auth prompts should be triggered only by protected actions (like/save/upload), not by global page redirects or banners.
-- Manual ingestion work is next: we need a UI that accepts prompt text, uploads, URLs, and tag/meta inputs, and tests to prove `/api/ingest` handles prompt-only, file-only, and remote URL payloads before the agent automation layers on top.
-- Docs drift can cause planning confusion (`TODO.md` and `PROGRESS.md` diverged on what was done vs next). Keep `PRD.md`, `TODO.md`, and `PROGRESS.md` synchronized in the same change when priorities shift.
-- Adding new Convex tables/functions requires running `bunx convex codegen`; otherwise TypeScript/autocomplete in `convex/_generated/*` drifts and breaks route/worker references.
-- For App Router dynamic API routes in this repo, route handlers currently use `params: Promise<{ ... }>` and must `await params` to keep type checks aligned with existing Next.js setup.
-- Canonical AI execution endpoints are `/api/ai/*`; in this seed-stage codebase we removed `/api/runs*` to avoid duplicate API surfaces.
-- AI image model aliases are allowlisted (`nano_banana_pro`, `nano_banana_fast`). Reject unknown aliases in the API layer to avoid arbitrary model execution.
-- Current `bunx tsc --noEmit` failures are pre-existing in auth provider and ingest script types; lint/tests are the reliable baseline checks until the global TS baseline is repaired.
-- OpenClaw-style media handling is a strong reference: normalize Telegram updates first, then stage attachments into sandbox workspace before agent execution; passing raw host temp paths to the Agent SDK is unreliable and weakens safety boundaries.
-- A dedicated Mermaid diagrams doc (`TELEGRAM_AGENT_DIAGRAMS.md`) makes architecture updates faster; update those diagrams in the same PR whenever run lifecycle, transport boundaries, or sandbox/media contracts change.
-- Product docs become easier to maintain when there is one canonical product foundation (`PRD.md`) and one canonical Telegram technical contract (`TELEGRAM_AGENT_ENGINEERING_PRD.md`); remove overlapping docs instead of keeping parallel versions.
-- A separate `TECHNICAL_OVERVIEW.md` reduces onboarding friction for coding agents because it centralizes runtime topology, code ownership map, and current quality baseline in one place.
-- Quality-gate reality (current): tests pass, lint passes, and TypeScript passes. Keep this as a hard prerequisite before expanding scope.
-- OpenClaw Telegram implementation is a strong reference for reliability guardrails:
-  - `src/telegram/webhook.ts` for webhook secret/body/timeout hardening
-  - `src/telegram/bot-updates.ts` for update dedupe keys
-  - `src/telegram/bot/delivery.ts` (`resolveMedia`) for retry + fallback media retrieval
-  - `src/telegram/bot/helpers.ts` for DM/group/forum thread routing rules.
-- When removing App Router API routes, stale `.next/dev/types` route validator files can break `tsc`; clear `.next` before re-running type checks.
-- AuthKit v2.13 `AuthKitProvider` no longer accepts `clientId`/`redirectUri` props; those values are resolved from env/server auth config, so the client provider should be rendered without those props.
-- `@convex-dev/workos` expects a `useAuth` shape with `{ isLoading, user, getAccessToken }`; adapt WorkOS hooks (`useAuth` + `useAccessToken`) to that exact contract instead of returning Convex-auth shape directly.
-- For this repo’s lint signal quality, ignore `convex/_generated/**` in ESLint so generated-file directives do not hide actionable warnings.
-- Adding `@types/bun` enables strict `bun:test` typing in `tsc`, but it also makes timer and body-init types stricter (`Timeout` vs `number`, `BlobPart` compatibility), so expect follow-up type fixes in browser-oriented code and tests.
-- Telegram webhook ingress now expects `x-telegram-bot-api-secret-token` to match `TELEGRAM_WEBHOOK_SECRET`; fail closed when missing/mismatched.
-- Telegram webhook route should enforce request-size limits to avoid memory spikes and retry storms; current cap is controlled by `TELEGRAM_WEBHOOK_MAX_BODY_BYTES` (default `1_000_000`).
-- Normalizing Telegram updates into a stable envelope (`lib/telegram/inbound.ts`) keeps routing metadata (`chatId`, `threadId`, `messageId`) and media descriptors consistent before run creation.
-- Dedupe strategy uses `update_id` primary and `chatId:messageId` fallback for updates that omit `update_id`.
-- Environment drift (`.env` vs `.env.local` and missing `convex/.env.local`) is a recurring source of local failures; use `bun run env:doctor` before integration testing.
-- Telegram webhook registration is easiest to keep deterministic through scripts (`bun run telegram:webhook:set|info|delete`) instead of manual API calls.
-- Worker-side Telegram replies depend on `TELEGRAM_BOT_TOKEN` being available in the worker process env (not just Next.js app env).
-- For sprint demos without live Claude runs, setting `AGENT_DUMMY_MODE=true` keeps Telegram -> worker -> Convex -> Telegram roundtrips verifiable while preserving the same run lifecycle/events path.
-- Attachment staging now uses deterministic workspace paths (`media/inbound/<messageId>/<sequence>-<filename>`), making prompt references and debugging reproducible across retries.
+---
+
+## Convex
+
+- Adding new Convex tables/functions requires `bunx convex codegen` — otherwise `convex/_generated/*` drifts and breaks references.
+- Queries and mutations must NOT call external APIs; always use actions for that.
+- Jimp (not sharp) is used for thumbnail generation — keeps os-specific binaries out of the Convex action bundle (`linux-arm64` compatible).
+- `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
+- For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
+
+## Gallery / UI
+
+- Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
+- `bun run build` may fail due to Turbopack font download issues (Nunito Sans) on restricted networks — run from a network-accessible machine.
+- ESLint ignores `convex/_generated/**` — those are generated files; real lint signal comes from app code only.
+
+## Auth
+
+- Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
+- Gallery is guest-visible; auth required only for protected actions (upload, save, edit).
+- `KB_OWNER_USER_ID` env var scopes agent-ingested content to the correct owner — never hardcode this, always read from env.
+
+## Ingest
+
+- Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
+- `laniameda-kb` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
+
+## Dev workflow
+
+- Worktree automation copies `.env.example` and runs `bun install` automatically via `scripts/worktree-create.sh`.
+- Clearing `.next` before type checks avoids stale route validator files breaking `tsc`.
+- Quality gates (`bun run lint` + `bun test`) are the reliable baseline; run before every commit.

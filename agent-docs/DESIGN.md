@@ -2,9 +2,6 @@
 
 Last updated: 2026-02-20
 
-> **Detailed frontend design specification**: See `agent-docs/FRONTEND_DESIGN_PRD.md`
-> **Implementation sprint**: See `agent-docs/FRONTEND_TODO.md`
-
 ## Product UI Summary (PM View)
 We are running a dark, gallery-first interface optimized for creative people. The visual language is **monochrome editorial**: black-on-black surfaces, high-contrast white CTAs, and a minimal palette that feels cinematic, precise, and premium. The UI reduces chrome so imagery remains the hero, with **pill-shaped navigation** and **soft-glass surfaces** that feel modern and controlled.
 

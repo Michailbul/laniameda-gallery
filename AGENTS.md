@@ -1,100 +1,109 @@
-## use bun instead of node.js
+# AGENTS.md — laniameda.gallery
 
-always use bun instead of node 
-use linters to avoid unused code/functions.
+## Always use bun
+Use `bun` instead of `node` everywhere. Use linters to catch unused code/functions.
 
-Always read the /agent-docs repository first where we have teh Progress, TODO, Observations files
-Always approach a new task with Test Driven Developement, when starting new task from todo list.
+## Before starting any task
+Read these files first:
+- `agent-docs/PROGRESS.md` — what's been built
+- `agent-docs/OBSERVATIONS.md` — lessons learned, known quirks
+- `convex/schema.ts` — source of truth for the data model
 
-# Project Configuration - Convex AI Stack
+---
 
-## 🚨 CRITICAL RULES
-- **Always define return validators** for all Convex functions (queries, mutations, actions)
-- **Never run `npx convex deploy`** unless explicitly instructed
-- **Use ConvexError** for user-facing error messages, never throw raw errors
-- **Make mutations idempotent** to handle retries gracefully
-- **Use indexes** for all queries that filter or sort data
-- **when starting clean and answering user's first message/instruciton, read the PRD.md, PROGRESS.md, TODO.md to understand the stage of the project**
-- **Update TODO.md and PROGRESS.md when finished with feature and asked user to verify this feature - when user responds positive - free to mark the feature done**
-- **When there is a mistake from your side, that something was forgottent or done improperly, address this in the OBSERVATION.md file.** for example, if you run tests, they were passing, but the bun dev is erroring - meaning that something is off. 
+## What this project is
 
-## 🎯 PROJECT CONTEXT
-- **Stack**: Convex backend with TypeScript, AI SDK integration, Agents SDK from anthropic.
-- **Architecture**: Real-time database with reactive queries, server-side AI processing
-- **Goal**: Build a AI UGC influencer agent platform.
+**laniameda.gallery** — a personal AI creatorship vault.
 
-## Prime directive
-- Keep code celan, no more then 300 Line of code.
-- Always propose a quick plan before multi-file edits; then implement and verify.
+Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-kb` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 4 content pillars.
 
-## Context & repo navigation
-- Start by reading: @README.md and @package.json (scripts), and @convex/schema.ts (data model).
-- When unsure about conventions, search for an existing similar feature and copy the pattern (don’t invent a new architecture).
+### 4 content pillars
+| Pillar | Description |
+|---|---|
+| **creators** | AI influencer / fashion / portrait style prompts |
+| **cars** | Cinematic automotive references and prompts |
+| **designs** | Website, UI, component, mobile design references |
+| **dump** | Catch-all — anything useful that doesn't fit above |
 
-## Verification (required)
-- After code changes, run the fastest available checks from @package.json (prefer lint/typecheck + targeted tests). 
-- If adding a feature, add at least one automated test or a repeatable repro script/command and show its output.
-- After finishing a feature, run this full verification set to catch build/test/lint errors:
-  - `bun run lint`
-  - `bun test`
+### How ingestion works
+1. Michael sends an image or prompt to OpenClaw via Telegram
+2. OpenClaw uses the `laniameda-kb` skill to call the Convex ingest API
+3. Convex stores the prompt + asset with owner scoping
+4. Gallery displays it in the right pillar
 
-## Convex rules
-- Queries and mutations MUST NOT call external network APIs; use Convex actions for third-party calls. [web:21][web:18]
-- Use actions to call external services, then store results via a mutation (actions can orchestrate; mutations enforce invariants). [web:18]
-- Choose action runtime intentionally: default Convex environment supports `fetch`; 
-- Use `ctx.runQuery` / `ctx.runMutation` sparingly inside queries/mutations; prefer plain TS helper functions when possible. [web:11]
+### Auth
+- **Telegram login** — user authenticates with Telegram
+- `TELEGRAM_USER_ID` stored in env vars (agent never needs to guess it)
+- Gallery shows your saves + community saves when logged in
 
-## TypeScript & schema conventions (Convex)
-- Prefer validators for args (`v.*`) so argument types are inferred automatically. [page:1]
-- Use schema-backed types on server and client:
-  - `Doc<"table">`, `Id<"table">` from `./_generated/dataModel`. [page:1]
-  - `QueryCtx`, `MutationCtx`, `ActionCtx` from `./_generated/server` for helper functions. [page:1]
-- Use `Infer<typeof validator>` to share types between schema/args/helpers. [page:1]
-- When inserting/updating docs, prefer `WithoutSystemFields<Doc<"table">>` helpers to avoid `_id` / `_creationTime`. [page:1]
- - After the core set, add:
-      - If Convex schema/functions changed, run: npx convex dev (once) and bun convex run functions/<function> for a targeted
-        sanity check.
-      - If schema changed, run: npx convex push only when explicitly instructed
+### Agent worker
+- `agent-worker/` folder is preserved but **not active** in the current setup
+- Will be extracted as a standalone service later for better pricing/isolation
+- Do not rely on `ENABLE_AGENT_WORKER` being true in local dev
 
-## Vercel AI SDK conventions
-- Use Vercel AI SDK Core to generate/stream text and to define tools with schema-validated inputs. [web:17]
-- For tool calling, define tools with clear descriptions and a strict input schema; return structured results. [web:17]
-- If streaming tool calls, handle tool-call events and tool-result events explicitly in the server route. [web:16]
+---
 
-## Output expectations (how Claude should respond)
-- For any task: (1) restate goal + constraints, (2) list files to touch, (3) implement, (4) show how to verify. [page:2]
-- If something is ambiguous, ask 1–3 targeted questions before coding.
+## Stack
+- **Next.js** (App Router) + TypeScript
+- **Convex** — database, queries, mutations, actions, file storage (source of truth)
+- **Telegram auth** — login via Telegram
+- **Bun** — package manager and runtime
 
-## Safety
-- Never commit secrets; if you need env vars, document names and where they are used (don’t paste values).
-## 🔧 DEVELOPMENT PATTERNS
+---
 
-### Convex Function Organization
-- Organize functions by domain: `users.ts`, `tasks.ts`, `agents.ts`, `messages.ts`
-- Use named exports for all functions
-- Keep functions in `convex/` directory with `.ts` extension
-- Use internal functions for sensitive operations
+## 🚨 Critical Convex rules
+- Always define **return validators** for all Convex functions (queries, mutations, actions)
+- **Never run `npx convex deploy`** unless explicitly told to
+- Use `ConvexError` for user-facing errors — never throw raw errors
+- Make mutations **idempotent** to handle retries
+- Use **indexes** for all queries that filter or sort
+- Queries and mutations **must not call external APIs** — use actions for that
+- Use actions to call external services, then store results via mutation
 
-## 📋 COMMON COMMANDS
-- npx convex dev - Start local Convex dev environment
+## TypeScript & schema conventions
+- Use `v.*` validators for all Convex function args
+- Use `Doc<"table">`, `Id<"table">` from `./_generated/dataModel`
+- Use `QueryCtx`, `MutationCtx`, `ActionCtx` from `./_generated/server`
+- Use `Infer<typeof validator>` to share types across schema/args/helpers
 
-- npx convex push - Push schema and functions to production
+---
 
-- bun run typecheck - Run TypeScript type checking
+## Common commands
+```bash
+bun run dev          # Start Next.js (port 3317 by default)
+bun run lint         # Lint
+bun test             # Tests
+bun run typecheck    # TypeScript check
+bunx convex dev      # Start local Convex dev environment
+```
 
-- Test single function: bun convex run functions/myFunction
+## Verification (required after every change)
+```bash
+bun run lint
+bun test
+```
+If Convex schema changed, also run `bunx convex dev` once.
 
-- Create worktrees for parallel work (branches live under .worktrees/):
-  - `scripts/worktree-create.sh --copy-env --install palette-hazard palette-acid palette-brass`
-  - Optional: `--convex-dev` to run `bunx convex dev` in each worktree (requires network)
-  - `git worktree list` to view all worktrees
-  - `cd .worktrees/<branch>` to work inside a specific branch
-- Remove worktrees:
-  - `scripts/worktree-remove.sh .worktrees/palette-hazard`
-  - `scripts/worktree-remove.sh --branch .worktrees/palette-hazard`
+---
 
+## Repo structure
+```
+convex/          Convex backend (schema, queries, mutations, actions)
+components/      React UI components
+app/             Next.js App Router pages and API routes
+lib/             Shared utilities
+agent-docs/      Project documentation (see below)
+agent-worker/    Standalone worker (not active — future separate service)
+scripts/         Dev utility scripts
+```
 
-## Documentation
-
-- When working with convex and specific convex feature, rely on using convex skills 
-- when working with AI SDK rely on using AI sdk skill.
+## agent-docs/ index
+| File | Purpose |
+|---|---|
+| `PROGRESS.md` | What's been built |
+| `OBSERVATIONS.md` | Lessons, known quirks, things to watch |
+| `BACKEND_CONVEX_SETUP.md` | Convex setup and schema walkthrough |
+| `AUTH.md` | Telegram auth setup |
+| `DESIGN.md` | UI design system and visual direction |
+| `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
+| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the laniameda-kb skill work |
