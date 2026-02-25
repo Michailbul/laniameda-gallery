@@ -6,7 +6,7 @@ import { Plus } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 import { TopFilterBar, type SortOrder } from "./top-filter-bar";
 import { MasonryGrid } from "./masonry-grid";
-import { ImageModal } from "./image-modal";
+import { ExpandedDetail } from "./expanded-detail";
 import { UploadModal } from "./upload-modal";
 import { AiWorkspacePanel } from "./ai-workspace-panel";
 import { MobileBottomNav } from "./mobile-bottom-nav";
@@ -27,6 +27,7 @@ interface GalleryDashboardProps {
 export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -54,6 +55,16 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
     localStorage.setItem("laniameda-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  // Escape key closes expanded detail
+  useEffect(() => {
+    if (!selectedImage) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedImage(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selectedImage]);
+
   const tags = useQuery(api.tags.listTags, {});
   const folders = useQuery(api.folders.listFolders, {});
 
@@ -73,15 +84,31 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
     folderId: selectedFolderId
       ? (selectedFolderId as Id<"folders">)
       : undefined,
+    modelName: selectedModelName ?? undefined,
     limit: 120,
   });
 
-  // Separate unfiltered query for sidebar "Recent" section
+  // Separate unfiltered query for sidebar "Recent" section + model name discovery
   const recentAssets = useQuery(api.assets.listGalleryAssets, {
     ownerUserId: user?.id || "__guest__",
     kind: "image",
     limit: 6,
   });
+
+  // Unfiltered query used to discover available model names
+  const allAssets = useQuery(api.assets.listGalleryAssets, {
+    ownerUserId: user?.id || "__guest__",
+    limit: 200,
+  });
+
+  const availableModelNames = useMemo(() => {
+    if (!allAssets) return [];
+    const names = new Set<string>();
+    for (const asset of allAssets) {
+      if (asset.modelName) names.add(asset.modelName);
+    }
+    return Array.from(names).sort();
+  }, [allAssets]);
 
   const [loadedImageIds, setLoadedImageIds] = useState(() => new Set<string>());
   const markImageLoaded = useCallback((assetId: string) => {
@@ -123,6 +150,7 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
       width: asset.thumbWidth ?? asset.width ?? undefined,
       height: asset.thumbHeight ?? asset.height ?? undefined,
       initiallyLoaded: loadedImageIds.has(asset._id),
+      modelName: asset.modelName ?? undefined,
     }));
   }, [galleryAssets, loadedImageIds]);
 
@@ -260,126 +288,213 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
           onSortOrderChange={setSortOrder}
         />
 
-        {/* ── Gallery grid ── */}
-        <main className="relative grain-overlay overflow-hidden">
-          {/* Atmospheric ambient orbs — layered for depth */}
+        {/* ── Model Name Filter Pills ── */}
+        {availableModelNames.length > 0 && (
           <div
-            className="pointer-events-none absolute animate-ember-drift"
+            className="flex items-center gap-1.5 overflow-x-auto px-4 py-2 border-b"
             style={{
-              top: "-40px",
-              left: "10%",
-              width: "45%",
-              height: "350px",
-              background: "radial-gradient(ellipse at center, rgba(255, 140, 66, 0.07) 0%, transparent 65%)",
-              filter: "blur(70px)",
+              borderColor: "var(--border-subtle)",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
             }}
-          />
-          <div
-            className="pointer-events-none absolute animate-ember-drift"
-            style={{
-              top: "100px",
-              right: "5%",
-              width: "35%",
-              height: "280px",
-              background: "radial-gradient(ellipse at center, rgba(255, 69, 0, 0.05) 0%, transparent 60%)",
-              filter: "blur(80px)",
-              animationDelay: "-7s",
-              animationDuration: "25s",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute animate-ember-breathe"
-            style={{
-              bottom: "0",
-              left: "30%",
-              width: "50%",
-              height: "200px",
-              background: "radial-gradient(ellipse at center, rgba(184, 104, 52, 0.06) 0%, transparent 55%)",
-              filter: "blur(90px)",
-            }}
-          />
-
-          {hasImages ? (
-            <MasonryGrid
-              images={images}
-              onImageSelect={setSelectedImage}
-              onImageLoad={markImageLoaded}
-            />
-          ) : (
-            <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6">
-              {/* Glowing icon with gradient border ring */}
-              <div
-                className="relative flex h-20 w-20 items-center justify-center rounded-3xl animate-float-gentle"
-                style={{
-                  background: "linear-gradient(145deg, var(--surface-2), var(--surface-3))",
-                  boxShadow: "0 0 40px rgba(255, 140, 66, 0.1), 0 0 80px rgba(255, 107, 53, 0.05), inset 0 1px 0 rgba(245, 208, 168, 0.06)",
-                }}
-              >
-                {/* Gradient border ring */}
-                <div
-                  className="absolute inset-[-1px] rounded-3xl"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(255, 140, 66, 0.3), rgba(255, 107, 53, 0.1), rgba(184, 104, 52, 0.2))",
-                    mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-                    maskComposite: "exclude",
-                    WebkitMaskComposite: "xor",
-                    padding: "1px",
-                    borderRadius: "inherit",
-                  }}
-                />
-                <Plus className="h-7 w-7" style={{ color: "var(--amber-9)" }} />
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <h2
-                  className="font-display text-[42px] font-normal tracking-tight italic"
-                  style={{
-                    background: "linear-gradient(135deg, var(--text-primary) 0%, var(--amber-11) 60%, var(--amber-9) 100%)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    letterSpacing: "-0.03em",
-                  }}
-                >
-                  Start your collection
-                </h2>
-                <p
-                  className="max-w-[380px] text-center text-[14px]"
-                  style={{ color: "var(--text-tertiary)", lineHeight: "1.7" }}
-                >
-                  Add your first reference image to begin building your creative library.
-                </p>
-              </div>
+          >
+            <span
+              className="flex-shrink-0 text-[11px] font-medium mr-1"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Model:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedModelName(null)}
+              className="flex-shrink-0 rounded-full px-3 py-1 text-[12px] transition-all"
+              style={{
+                background: !selectedModelName
+                  ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
+                  : "transparent",
+                border: !selectedModelName
+                  ? "1px solid rgba(255, 140, 66, 0.25)"
+                  : "1px solid transparent",
+                color: !selectedModelName ? "var(--amber-9)" : "var(--text-secondary)",
+                fontWeight: !selectedModelName ? 600 : 400,
+              }}
+            >
+              All
+            </button>
+            {availableModelNames.map((name) => (
               <button
+                key={name}
                 type="button"
-                onClick={() => setUploadOpen(true)}
-                className="group mt-1 flex items-center gap-2 rounded-full px-7 py-3 text-[13px] font-semibold transition-all active:scale-95"
+                onClick={() =>
+                  setSelectedModelName(selectedModelName === name ? null : name)
+                }
+                className="flex-shrink-0 rounded-full px-3 py-1 text-[12px] transition-all"
                 style={{
-                  background: "linear-gradient(135deg, var(--amber-9), var(--warm-accent))",
-                  color: "var(--amber-contrast)",
-                  boxShadow: "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)",
-                  transitionDuration: "var(--duration-fast)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = "0 8px 40px rgba(255, 140, 66, 0.4), 0 2px 6px rgba(0,0,0,0.4)";
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)";
-                  e.currentTarget.style.transform = "translateY(0)";
+                  background:
+                    selectedModelName === name
+                      ? "linear-gradient(135deg, rgba(255, 140, 66, 0.15), rgba(255, 107, 53, 0.08))"
+                      : "transparent",
+                  border:
+                    selectedModelName === name
+                      ? "1px solid rgba(255, 140, 66, 0.25)"
+                      : "1px solid transparent",
+                  color:
+                    selectedModelName === name
+                      ? "var(--amber-9)"
+                      : "var(--text-secondary)",
+                  fontWeight: selectedModelName === name ? 600 : 400,
                 }}
               >
-                <Plus className="h-4 w-4" />
-                Add image
+                {name}
               </button>
-            </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Gallery + Detail flex row ── */}
+        <div className="flex flex-1 min-h-0">
+          {/* Gallery grid */}
+          <main className="relative grain-overlay flex-1 min-w-0 overflow-y-auto">
+            {/* Atmospheric ambient orbs — layered for depth */}
+            <div
+              className="pointer-events-none absolute animate-ember-drift"
+              style={{
+                top: "-40px",
+                left: "10%",
+                width: "45%",
+                height: "350px",
+                background: "radial-gradient(ellipse at center, rgba(255, 140, 66, 0.07) 0%, transparent 65%)",
+                filter: "blur(70px)",
+              }}
+            />
+            <div
+              className="pointer-events-none absolute animate-ember-drift"
+              style={{
+                top: "100px",
+                right: "5%",
+                width: "35%",
+                height: "280px",
+                background: "radial-gradient(ellipse at center, rgba(255, 69, 0, 0.05) 0%, transparent 60%)",
+                filter: "blur(80px)",
+                animationDelay: "-7s",
+                animationDuration: "25s",
+              }}
+            />
+            <div
+              className="pointer-events-none absolute animate-ember-breathe"
+              style={{
+                bottom: "0",
+                left: "30%",
+                width: "50%",
+                height: "200px",
+                background: "radial-gradient(ellipse at center, rgba(184, 104, 52, 0.06) 0%, transparent 55%)",
+                filter: "blur(90px)",
+              }}
+            />
+
+            {hasImages ? (
+              <MasonryGrid
+                images={images}
+                compactColumns={!!selectedImage}
+                selectedImageId={selectedImage?.id}
+                onImageSelect={setSelectedImage}
+                onImageLoad={markImageLoaded}
+              />
+            ) : (
+              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6">
+                {/* Glowing icon with gradient border ring */}
+                <div
+                  className="relative flex h-20 w-20 items-center justify-center rounded-3xl animate-float-gentle"
+                  style={{
+                    background: "linear-gradient(145deg, var(--surface-2), var(--surface-3))",
+                    boxShadow: "0 0 40px rgba(255, 140, 66, 0.1), 0 0 80px rgba(255, 107, 53, 0.05), inset 0 1px 0 rgba(245, 208, 168, 0.06)",
+                  }}
+                >
+                  {/* Gradient border ring */}
+                  <div
+                    className="absolute inset-[-1px] rounded-3xl"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(255, 140, 66, 0.3), rgba(255, 107, 53, 0.1), rgba(184, 104, 52, 0.2))",
+                      mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+                      maskComposite: "exclude",
+                      WebkitMaskComposite: "xor",
+                      padding: "1px",
+                      borderRadius: "inherit",
+                    }}
+                  />
+                  <Plus className="h-7 w-7" style={{ color: "var(--amber-9)" }} />
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                  <h2
+                    className="font-display text-[42px] font-normal tracking-tight italic"
+                    style={{
+                      background: "linear-gradient(135deg, var(--text-primary) 0%, var(--amber-11) 60%, var(--amber-9) 100%)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      letterSpacing: "-0.03em",
+                    }}
+                  >
+                    Start your collection
+                  </h2>
+                  <p
+                    className="max-w-[380px] text-center text-[14px]"
+                    style={{ color: "var(--text-tertiary)", lineHeight: "1.7" }}
+                  >
+                    Add your first reference image to begin building your creative library.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUploadOpen(true)}
+                  className="group mt-1 flex items-center gap-2 rounded-full px-7 py-3 text-[13px] font-semibold transition-all active:scale-95"
+                  style={{
+                    background: "linear-gradient(135deg, var(--amber-9), var(--warm-accent))",
+                    color: "var(--amber-contrast)",
+                    boxShadow: "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)",
+                    transitionDuration: "var(--duration-fast)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 8px 40px rgba(255, 140, 66, 0.4), 0 2px 6px rgba(0,0,0,0.4)";
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "0 4px 24px rgba(255, 140, 66, 0.3), 0 1px 3px rgba(0,0,0,0.3)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add image
+                </button>
+              </div>
+            )}
+          </main>
+
+          {/* Expanded detail — inline right column */}
+          {selectedImage && (
+            <aside
+              className="hidden md:block w-[380px] shrink-0 overflow-y-auto"
+              style={{
+                transition: "width var(--duration-normal) ease-out, opacity var(--duration-normal) ease-out",
+              }}
+            >
+              <ExpandedDetail
+                key={selectedImage.id}
+                image={selectedImage}
+                onClose={() => setSelectedImage(null)}
+                onAction={(intent, imageId) => {
+                  void runAction(intent, imageId);
+                }}
+              />
+            </aside>
           )}
-        </main>
+        </div>
       </div>
 
-      {/* ── Floating add (desktop only) ── */}
+      {/* ── Floating add (desktop only, hidden when detail open) ── */}
       <button
         type="button"
         onClick={() => setUploadOpen(true)}
-        className="animate-glow-pulse fixed bottom-6 right-6 z-40 hidden h-13 w-13 items-center justify-center rounded-full transition-transform hover:scale-110 active:scale-95 md:flex"
+        className={`animate-glow-pulse fixed bottom-6 right-6 z-40 hidden h-13 w-13 items-center justify-center rounded-full transition-transform hover:scale-110 active:scale-95 ${selectedImage ? "!hidden" : "md:flex"}`}
         style={{
           background: "linear-gradient(135deg, var(--amber-9), var(--warm-accent))",
           color: "var(--amber-contrast)",
@@ -399,16 +514,6 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
         onClose={() => setUploadOpen(false)}
         availableTags={allTags.map((t) => t.name)}
         folders={folders ?? []}
-      />
-
-      <ImageModal
-        key={selectedImage?.fullSrc ?? "empty"}
-        open={Boolean(selectedImage)}
-        image={selectedImage}
-        onClose={() => setSelectedImage(null)}
-        onAction={(intent, imageId) => {
-          void runAction(intent, imageId);
-        }}
       />
 
       <AiWorkspacePanel

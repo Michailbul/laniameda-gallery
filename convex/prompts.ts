@@ -2,6 +2,15 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 
+const promptTypeValidator = v.optional(v.union(
+  v.literal("image_gen"),
+  v.literal("video_gen"),
+  v.literal("ui_design"),
+  v.literal("cinematic"),
+  v.literal("ugc_ad"),
+  v.literal("other"),
+));
+
 export const createPrompt = mutation({
   args: {
     ownerUserId: v.string(),
@@ -9,6 +18,8 @@ export const createPrompt = mutation({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    promptType: promptTypeValidator,
+    domain: v.optional(v.string()),
   },
   returns: v.object({
     promptId: v.id("prompts"),
@@ -45,6 +56,8 @@ export const createPrompt = mutation({
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
+      promptType: args.promptType,
+      domain: args.domain,
       createdAt,
     });
 
@@ -69,6 +82,8 @@ export const updatePrompt = mutation({
     text: v.string(),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
+    promptType: promptTypeValidator,
+    domain: v.optional(v.string()),
   },
   returns: v.id("prompts"),
   handler: async (ctx, args) => {
@@ -95,6 +110,8 @@ export const updatePrompt = mutation({
       text,
       tagIds,
       folderId: args.folderId,
+      promptType: args.promptType,
+      domain: args.domain,
     });
 
     await bumpTagUsage(ctx, existing.tagIds, -1);
@@ -134,6 +151,8 @@ export const getPrompt = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      promptType: promptTypeValidator,
+      domain: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),
@@ -165,6 +184,8 @@ export const listPrompts = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      promptType: promptTypeValidator,
+      domain: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),
@@ -222,6 +243,8 @@ export const searchPrompts = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      promptType: promptTypeValidator,
+      domain: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),

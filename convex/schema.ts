@@ -6,7 +6,17 @@ export default defineSchema({
     name: v.string(),
     normalized: v.string(),
     usageCount: v.number(),
-  }).index("by_normalized", ["normalized"]),
+    category: v.optional(v.union(
+      v.literal("model_name"),
+      v.literal("style"),
+      v.literal("content_type"),
+      v.literal("platform"),
+      v.literal("color"),
+      v.literal("custom"),
+    )),
+  })
+    .index("by_normalized", ["normalized"])
+    .index("by_category_normalized", ["category", "normalized"]),
   folders: defineTable({
     name: v.string(),
     description: v.optional(v.string()),
@@ -17,6 +27,15 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    promptType: v.optional(v.union(
+      v.literal("image_gen"),
+      v.literal("video_gen"),
+      v.literal("ui_design"),
+      v.literal("cinematic"),
+      v.literal("ugc_ad"),
+      v.literal("other"),
+    )),
+    domain: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -51,6 +70,13 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    generationType: v.optional(v.union(
+      v.literal("image_gen"),
+      v.literal("video_gen"),
+      v.literal("ui_design"),
+      v.literal("other"),
+    )),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -62,7 +88,8 @@ export default defineSchema({
     .index("by_kind_createdAt", ["kind", "createdAt"])
     .index("by_owner_kind_createdAt", ["ownerUserId", "kind", "createdAt"])
     .index("by_createdAt", ["createdAt"])
-    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"]),
   assetTags: defineTable({
     assetId: v.id("assets"),
     tagId: v.id("tags"),

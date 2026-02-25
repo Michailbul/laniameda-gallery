@@ -22,6 +22,13 @@ export const createAsset = mutation({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    generationType: v.optional(v.union(
+      v.literal("image_gen"),
+      v.literal("video_gen"),
+      v.literal("ui_design"),
+      v.literal("other"),
+    )),
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -65,6 +72,8 @@ export const createAsset = mutation({
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
+      modelName: args.modelName,
+      generationType: args.generationType,
       createdAt,
     });
 
@@ -109,6 +118,13 @@ export const getAsset = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      modelName: v.optional(v.string()),
+      generationType: v.optional(v.union(
+        v.literal("image_gen"),
+        v.literal("video_gen"),
+        v.literal("ui_design"),
+        v.literal("other"),
+      )),
       createdAt: v.number(),
     }),
   ),
@@ -154,6 +170,13 @@ export const listAssets = query({
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
+      modelName: v.optional(v.string()),
+      generationType: v.optional(v.union(
+        v.literal("image_gen"),
+        v.literal("video_gen"),
+        v.literal("ui_design"),
+        v.literal("other"),
+      )),
       createdAt: v.number(),
     }),
   ),
@@ -225,6 +248,7 @@ export const listGalleryAssets = query({
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
+    modelName: v.optional(v.string()),
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -250,6 +274,7 @@ export const listGalleryAssets = query({
       tagIds: v.array(v.id("tags")),
       tagNames: v.array(v.string()),
       folderId: v.optional(v.id("folders")),
+      modelName: v.optional(v.string()),
       createdAt: v.number(),
       url: v.optional(v.string()),
       thumbUrl: v.optional(v.string()),
@@ -265,6 +290,7 @@ export const listGalleryAssets = query({
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
     const search = args.search?.trim().toLowerCase();
+    const modelNameFilter = args.modelName?.trim() || null;
     const kind = args.kind;
     const assets = await (kind
       ? ctx.db
@@ -307,6 +333,9 @@ export const listGalleryAssets = query({
         continue;
       }
       if (args.folderId && asset.folderId !== args.folderId) {
+        continue;
+      }
+      if (modelNameFilter && asset.modelName !== modelNameFilter) {
         continue;
       }
 
@@ -358,6 +387,7 @@ export const listGalleryAssets = query({
         tagIds: asset.tagIds,
         tagNames,
         folderId: asset.folderId,
+        modelName: asset.modelName,
         createdAt: asset.createdAt,
         url,
         thumbUrl,

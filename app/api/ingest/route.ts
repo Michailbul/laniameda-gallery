@@ -37,6 +37,10 @@ export async function POST(request: Request) {
     let promptIngestKey: string | undefined;
     let tagNames: string[] = [];
     let file: File | null = null;
+    let modelName: string | undefined;
+    let generationType: string | undefined;
+    let promptType: string | undefined;
+    let domain: string | undefined;
 
     if (contentType.includes("application/json")) {
       const data = await readJson(request);
@@ -52,6 +56,10 @@ export async function POST(request: Request) {
       if (Array.isArray(data.tagNames)) {
         tagNames = parseTagNames(data.tagNames as string[]);
       }
+      modelName = typeof data.modelName === "string" ? data.modelName : undefined;
+      generationType = typeof data.generationType === "string" ? data.generationType : undefined;
+      promptType = typeof data.promptType === "string" ? data.promptType : undefined;
+      domain = typeof data.domain === "string" ? data.domain : undefined;
     } else {
       const form = await request.formData();
       const promptValue = form.get("prompt");
@@ -79,6 +87,15 @@ export async function POST(request: Request) {
       if (fileValue instanceof File) {
         file = fileValue;
       }
+
+      const modelNameValue = form.get("modelName");
+      const generationTypeValue = form.get("generationType");
+      const promptTypeValue = form.get("promptType");
+      const domainValue = form.get("domain");
+      modelName = typeof modelNameValue === "string" ? modelNameValue : undefined;
+      generationType = typeof generationTypeValue === "string" ? generationTypeValue : undefined;
+      promptType = typeof promptTypeValue === "string" ? promptTypeValue : undefined;
+      domain = typeof domainValue === "string" ? domainValue : undefined;
     }
 
     const finalIngestKey = buildIngestKey({
@@ -96,6 +113,10 @@ export async function POST(request: Request) {
       ingestKey: finalIngestKey,
       promptIngestKey,
       tagNames,
+      modelName: modelName || undefined,
+      generationType: generationType || undefined,
+      promptType: promptType || undefined,
+      domain: domain || undefined,
     };
 
     if (file) {

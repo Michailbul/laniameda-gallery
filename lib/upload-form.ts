@@ -6,6 +6,10 @@ export type UploadFormInput = {
   folderId?: string | null;
   tags?: string[];
   file?: File | null;
+  modelName?: string | null;
+  generationType?: string | null;
+  promptType?: string | null;
+  domain?: string | null;
 };
 
 export const buildUploadFormData = ({
@@ -14,6 +18,10 @@ export const buildUploadFormData = ({
   folderId,
   tags,
   file,
+  modelName,
+  generationType,
+  promptType,
+  domain,
 }: UploadFormInput) => {
   const trimmedPrompt = promptText?.trim() ?? "";
   const trimmedUrl = url?.trim();
@@ -52,6 +60,19 @@ export const buildUploadFormData = ({
 
   if (file) {
     formData.append("file", file);
+  }
+
+  if (modelName) {
+    formData.append("modelName", modelName);
+  }
+  if (generationType) {
+    formData.append("generationType", generationType);
+  }
+  if (promptType) {
+    formData.append("promptType", promptType);
+  }
+  if (domain) {
+    formData.append("domain", domain);
   }
 
   return formData;

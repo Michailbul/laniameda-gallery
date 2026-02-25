@@ -56,6 +56,44 @@ export const getOrCreateTags = mutation({
   },
 });
 
+const tagCategoryValidator = v.optional(v.union(
+  v.literal("model_name"),
+  v.literal("style"),
+  v.literal("content_type"),
+  v.literal("platform"),
+  v.literal("color"),
+  v.literal("custom"),
+));
+
+export const getOrCreateTagWithCategory = mutation({
+  args: { name: v.string(), category: tagCategoryValidator },
+  returns: v.id("tags"),
+  handler: async (ctx, args) => {
+    const normalized = normalizeTagName(args.name);
+    if (!normalized) {
+      throw new ConvexError("Tag name is required.");
+    }
+
+    const existing = await ctx.db
+      .query("tags")
+      .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
+      .unique();
+    if (existing) {
+      if (args.category && !existing.category) {
+        await ctx.db.patch(existing._id, { category: args.category });
+      }
+      return existing._id;
+    }
+
+    return await ctx.db.insert("tags", {
+      name: args.name.trim(),
+      normalized,
+      usageCount: 0,
+      category: args.category,
+    });
+  },
+});
+
 export const listTags = query({
   args: {},
   returns: v.array(
@@ -65,6 +103,7 @@ export const listTags = query({
       name: v.string(),
       normalized: v.string(),
       usageCount: v.number(),
+      category: tagCategoryValidator,
     }),
   ),
   handler: async (ctx) => {

@@ -14,7 +14,6 @@ interface ImageCardProps {
     likes: number;
     width?: number;
     height?: number;
-    modelName?: string;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -25,7 +24,6 @@ interface ImageCardProps {
     width?: number;
     height?: number;
   }) => void;
-  selectedId?: string;
   initiallyLoaded?: boolean;
   onLoad?: () => void;
   index?: number;
@@ -35,12 +33,10 @@ export function ImageCard({
   image,
   eager = false,
   onSelect,
-  selectedId,
   initiallyLoaded = false,
   onLoad,
   index = 0,
 }: ImageCardProps) {
-  const isSelected = image.id === selectedId;
   const [isLoading, setIsLoading] = useState(!initiallyLoaded);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
@@ -100,20 +96,16 @@ export function ImageCard({
         animationDelay: entranceDelay,
         animationFillMode: "backwards",
         marginBottom: "12px",
-        transitionDuration: "var(--duration-normal)",
-        transitionProperty: "transform, box-shadow, opacity",
-        boxShadow: isSelected
-          ? "0 0 0 2px rgba(255, 140, 66, 0.5), 0 0 20px rgba(255, 140, 66, 0.15)"
-          : "0 2px 8px rgba(0, 0, 0, 0.2)",
-        opacity: isSelected ? 0.6 : 1,
+        transitionDuration: "var(--duration-fast)",
+        transitionProperty: "transform, box-shadow",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px) scale(1.01)";
-        e.currentTarget.style.boxShadow = "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 140, 66, 0.15), 0 0 30px rgba(255, 107, 53, 0.08)";
+        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.06)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0) scale(1)";
-        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.2)";
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "none";
       }}
       onClick={selectImage}
     >
@@ -127,7 +119,7 @@ export function ImageCard({
             className="absolute inset-0"
             style={{
               background:
-                "linear-gradient(90deg, transparent 0%, rgba(255, 140, 66, 0.03) 50%, transparent 100%)",
+                "linear-gradient(90deg, transparent 0%, rgba(230, 255, 42, 0.02) 50%, transparent 100%)",
               backgroundSize: "200% 100%",
               animation: "shimmer 1.5s infinite linear",
             }}
@@ -170,50 +162,21 @@ export function ImageCard({
         />
       </div>
 
-      {/* Model name badge — bottom-left, always visible */}
-      {image.modelName && (
-        <div
-          className="absolute bottom-2 left-2 z-10 rounded-full px-2 py-0.5 text-[10px] font-medium"
-          style={{
-            backgroundColor: "rgba(0, 0, 0, 0.6)",
-            color: "rgba(255, 255, 255, 0.85)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          {image.modelName}
-        </div>
-      )}
-
-      {/* Hover overlay — cinematic warm gradient */}
+      {/* Hover overlay — cinematic gradient */}
       <div
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
         style={{
           background:
-            "linear-gradient(to top, rgba(8,4,2,0.92) 0%, rgba(17,10,6,0.5) 25%, rgba(8,4,2,0.1) 50%, transparent 100%)",
-          transitionDuration: "var(--duration-normal)",
+            "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 35%, rgba(0,0,0,0.05) 60%, transparent 100%)",
+          transitionDuration: "var(--duration-fast)",
         }}
       >
-        {/* Gradient border ring on hover */}
+        {/* Soft teal border glow */}
         <div
           className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
           style={{
-            background: "linear-gradient(135deg, rgba(255, 140, 66, 0.25), rgba(255, 107, 53, 0.1), rgba(184, 104, 52, 0.2))",
-            mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-            maskComposite: "exclude",
-            WebkitMaskComposite: "xor",
-            padding: "1.5px",
-            borderRadius: "inherit",
-            transitionDuration: "var(--duration-normal)",
-          }}
-        />
-        {/* Warm inner glow from bottom */}
-        <div
-          className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
-          style={{
-            boxShadow: "inset 0 -20px 40px rgba(255, 140, 66, 0.04)",
-            transitionDuration: "var(--duration-normal)",
+            boxShadow: "inset 0 0 0 1.5px rgba(230, 255, 42, 0.3), inset 0 0 20px rgba(230, 255, 42, 0.05)",
+            transitionDuration: "var(--duration-fast)",
           }}
         />
 
@@ -245,23 +208,20 @@ export function ImageCard({
                 type="button"
                 className="flex h-7 w-7 items-center justify-center rounded-lg transition-all"
                 style={{
-                  color: "rgba(255,255,255,0.75)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  transitionDuration: "var(--duration-fast)",
+                  color: "rgba(255,255,255,0.7)",
+                  backgroundColor: "rgba(255,255,255,0.08)",
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                  transitionDuration: "var(--duration-instant)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--amber-contrast)";
-                  e.currentTarget.style.background = "linear-gradient(135deg, var(--amber-9), var(--warm-accent))";
-                  e.currentTarget.style.borderColor = "transparent";
-                  e.currentTarget.style.boxShadow = "0 0 12px rgba(255, 140, 66, 0.35)";
+                  e.currentTarget.style.color = "var(--lime-9)";
+                  e.currentTarget.style.backgroundColor = "rgba(230, 255, 42, 0.12)";
+                  e.currentTarget.style.boxShadow = "0 0 8px rgba(230, 255, 42, 0.2)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "rgba(255,255,255,0.75)";
-                  e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+                  e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.08)";
                   e.currentTarget.style.boxShadow = "none";
                 }}
                 onClick={(e) => {

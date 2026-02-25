@@ -41,38 +41,6 @@ type FilePreview = {
 };
 
 const NO_FOLDER_VALUE = "__none";
-const NO_VALUE = "__none";
-
-const MODEL_NAME_OPTIONS = [
-  "Midjourney",
-  "FLUX",
-  "DALL-E 3",
-  "Stable Diffusion",
-  "Nano Banana Pro",
-  "CDANCe",
-  "Runway",
-  "Kling",
-  "Sora",
-  "Ideogram",
-  "Firefly",
-  "Imagen",
-] as const;
-
-const GENERATION_TYPE_OPTIONS = [
-  { value: "image_gen", label: "Image" },
-  { value: "video_gen", label: "Video" },
-  { value: "ui_design", label: "UI Design" },
-  { value: "other", label: "Other" },
-] as const;
-
-const PROMPT_TYPE_OPTIONS = [
-  { value: "image_gen", label: "Image Gen" },
-  { value: "video_gen", label: "Video Gen" },
-  { value: "ui_design", label: "UI Design" },
-  { value: "cinematic", label: "Cinematic" },
-  { value: "ugc_ad", label: "UGC Ad" },
-  { value: "other", label: "Other" },
-] as const;
 
 export function UploadPanel({
   availableTags = [],
@@ -84,11 +52,6 @@ export function UploadPanel({
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [folderSelection, setFolderSelection] = useState(NO_FOLDER_VALUE);
-  const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
-  const [modelNameCustom, setModelNameCustom] = useState("");
-  const [generationType, setGenerationType] = useState(NO_VALUE);
-  const [promptType, setPromptType] = useState(NO_VALUE);
-  const [domainInput, setDomainInput] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -200,11 +163,6 @@ export function UploadPanel({
     setTags([]);
     setSelectedFiles([]);
     setFolderSelection(NO_FOLDER_VALUE);
-    setModelNameSelection(NO_VALUE);
-    setModelNameCustom("");
-    setGenerationType(NO_VALUE);
-    setPromptType(NO_VALUE);
-    setDomainInput("");
     setIsDragActive(false);
     setStatus(null);
   };
@@ -222,26 +180,12 @@ export function UploadPanel({
         folderSelection === NO_FOLDER_VALUE || !folderSelection
           ? undefined
           : folderSelection;
-      const resolvedModelName =
-        modelNameSelection === "__custom"
-          ? modelNameCustom.trim() || undefined
-          : modelNameSelection === NO_VALUE
-            ? undefined
-            : modelNameSelection;
-      const resolvedGenerationType =
-        generationType === NO_VALUE ? undefined : generationType;
-      const resolvedPromptType =
-        promptType === NO_VALUE ? undefined : promptType;
       const formData = buildUploadFormData({
         promptText,
         url: urlInput,
         folderId: resolvedFolderId,
         tags,
         file: selectedFiles[0] ?? null,
-        modelName: resolvedModelName,
-        generationType: resolvedGenerationType,
-        promptType: resolvedPromptType,
-        domain: domainInput.trim() || undefined,
       });
 
       const response = await fetch("/api/ingest", {
@@ -522,87 +466,6 @@ export function UploadPanel({
                   ))}
                 </div>
               )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="model-name-select">Model Name</Label>
-              <Select
-                value={modelNameSelection}
-                onValueChange={(value) => setModelNameSelection(value)}
-              >
-                <SelectTrigger id="model-name-select">
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value={NO_VALUE}>None</SelectItem>
-                    {MODEL_NAME_OPTIONS.map((model) => (
-                      <SelectItem key={model} value={model}>
-                        {model}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="__custom">Other (type below)</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {modelNameSelection === "__custom" && (
-                <Input
-                  placeholder="Enter model name"
-                  value={modelNameCustom}
-                  onChange={(event) => setModelNameCustom(event.target.value)}
-                />
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="generation-type-select">Generation Type</Label>
-              <Select
-                value={generationType}
-                onValueChange={(value) => setGenerationType(value)}
-              >
-                <SelectTrigger id="generation-type-select">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value={NO_VALUE}>None</SelectItem>
-                    {GENERATION_TYPE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="prompt-type-select">Prompt Type</Label>
-              <Select
-                value={promptType}
-                onValueChange={(value) => setPromptType(value)}
-              >
-                <SelectTrigger id="prompt-type-select">
-                  <SelectValue placeholder="Select prompt type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value={NO_VALUE}>None</SelectItem>
-                    {PROMPT_TYPE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="domain-input">Domain</Label>
-              <Input
-                id="domain-input"
-                placeholder="e.g. fashion, architecture, gaming"
-                value={domainInput}
-                onChange={(event) => setDomainInput(event.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">Optional freeform domain tag.</p>
             </div>
             <div className="flex min-h-fit flex-col gap-2">
               <Label htmlFor="folder-select">Optional folder</Label>

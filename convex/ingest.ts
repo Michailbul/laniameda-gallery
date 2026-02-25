@@ -54,6 +54,22 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     promptIngestKey: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    generationType: v.optional(v.union(
+      v.literal("image_gen"),
+      v.literal("video_gen"),
+      v.literal("ui_design"),
+      v.literal("other"),
+    )),
+    promptType: v.optional(v.union(
+      v.literal("image_gen"),
+      v.literal("video_gen"),
+      v.literal("ui_design"),
+      v.literal("cinematic"),
+      v.literal("ugc_ad"),
+      v.literal("other"),
+    )),
+    domain: v.optional(v.string()),
   },
   returns: v.object({
     assetId: v.optional(v.id("assets")),
@@ -90,6 +106,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
             tagIds,
             folderId: args.folderId,
             ingestKey: args.promptIngestKey ?? args.ingestKey,
+            promptType: args.promptType,
+            domain: args.domain,
           })) as { promptId: Id<"prompts"> }
         ).promptId
       : undefined;
@@ -183,6 +201,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         tagIds,
         folderId: args.folderId,
         ingestKey: args.ingestKey,
+        modelName: args.modelName,
+        generationType: args.generationType,
       })) as { assetId: Id<"assets"> };
       assetId = result.assetId;
     }
