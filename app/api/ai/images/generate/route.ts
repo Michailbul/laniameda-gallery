@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
 import { consumeRateLimit } from "@/lib/ai/rate-limit";
 import {
@@ -30,13 +30,10 @@ const createInputFingerprint = (input: unknown) => {
 export async function POST(request: Request) {
   let runId: string | undefined;
   try {
-    const session = await withAuth({ ensureSignedIn: true });
-    if (!session.user?.id) {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-    }
+    const authUser = await requireAuth();
 
     const rateLimit = consumeRateLimit({
-      key: `ai:images:generate:${session.user.id}`,
+      key: `ai:images:generate:${authUser.id}`,
       limit: 6,
       windowMs: 60_000,
     });
@@ -83,14 +80,14 @@ export async function POST(request: Request) {
     });
 
     const idempotencyKey = buildRunIdempotencyKey({
-      userId: session.user.id,
+      userId: authUser.id,
       intent: "execute",
       source,
       inputFingerprint,
     });
 
     const createdRun = await convexRuns.createRun({
-      userId: session.user.id,
+      userId: authUser.id,
       intent: "execute",
       source,
       input: {

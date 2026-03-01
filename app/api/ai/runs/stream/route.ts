@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
 import { dispatchRunToWorker } from "@/lib/ai/worker-dispatch";
 import { consumeRateLimit } from "@/lib/ai/rate-limit";
@@ -58,13 +58,10 @@ const ndjson = (payload: unknown) => encoder.encode(`${JSON.stringify(payload)}\
 export async function POST(request: Request) {
   let runId: string | undefined;
   try {
-    const session = await withAuth({ ensureSignedIn: true });
-    if (!session.user?.id) {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-    }
+    const authUser = await requireAuth();
 
     const rateLimit = consumeRateLimit({
-      key: `ai:runs:stream:${session.user.id}`,
+      key: `ai:runs:stream:${authUser.id}`,
       limit: 12,
       windowMs: 60_000,
     });
@@ -105,7 +102,7 @@ export async function POST(request: Request) {
       runtime,
     });
     const idempotencyKey = buildRunIdempotencyKey({
-      userId: session.user.id,
+      userId: authUser.id,
       intent: body.intent,
       source,
       inputFingerprint,
@@ -115,7 +112,7 @@ export async function POST(request: Request) {
     const model = runtime === "ai_sdk" ? getDefaultTextModel() : process.env.AGENT_MODEL || "claude-sonnet-4-5";
 
     const createdRun = await convexRuns.createRun({
-      userId: session.user.id,
+      userId: authUser.id,
       intent: body.intent,
       source,
       input: {
@@ -135,7 +132,7 @@ export async function POST(request: Request) {
     if (runtime === "agent_worker") {
       const payload: RunDispatchPayload = {
         runId: createdRunId,
-        userId: session.user.id,
+        userId: authUser.id,
         intent: body.intent,
         source,
       };
@@ -245,7 +242,7 @@ export async function POST(request: Request) {
             if (abortController.signal.aborted) {
               await convexRuns.cancelRun({
                 runId: createdRunId,
-                userId: session.user.id,
+                userId: authUser.id,
                 reason: message,
               });
               controller.enqueue(ndjson({ type: "canceled", runId: createdRunId, message }));

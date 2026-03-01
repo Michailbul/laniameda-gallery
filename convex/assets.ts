@@ -17,6 +17,25 @@ const pillarValidator = v.optional(v.union(
   v.literal("dump"),
 ));
 
+const resolveOwnerUserIdCandidates = (ownerUserId: string) => {
+  const normalized = ownerUserId.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = [normalized];
+  if (normalized.startsWith("telegram:")) {
+    const unprefixed = normalized.slice("telegram:".length).trim();
+    if (unprefixed) {
+      candidates.push(unprefixed);
+    }
+  } else if (/^\d+$/.test(normalized)) {
+    candidates.push(`telegram:${normalized}`);
+  }
+
+  return Array.from(new Set(candidates));
+};
+
 export const createAsset = mutation({
   args: {
     ownerUserId: v.string(),
@@ -292,32 +311,47 @@ export const listGalleryAssets = query({
     }
 
     const limit = Math.min(args.limit ?? 100, 200);
+    const ownerUserIds = resolveOwnerUserIdCandidates(ownerUserId);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
     const kind = args.kind;
-    const assets = await (pillar
-      ? ctx.db
-          .query("assets")
-          .withIndex("by_owner_pillar_createdAt", (q) =>
-            q.eq("ownerUserId", ownerUserId).eq("pillar", pillar).gte("createdAt", 0),
-          )
-      : kind
+    const ownerScopedAssets = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const assetsForOwner = await (pillar
         ? ctx.db
             .query("assets")
-            .withIndex("by_owner_kind_createdAt", (q) =>
-              q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
+            .withIndex("by_owner_pillar_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
             )
-        : ctx.db
-            .query("assets")
-            .withIndex("by_owner_createdAt", (q) =>
-              q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
-            )
-    )
-      .order("desc")
-      .take(limit);
+        : kind
+          ? ctx.db
+              .query("assets")
+              .withIndex("by_owner_kind_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+              )
+          : ctx.db
+              .query("assets")
+              .withIndex("by_owner_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+              )
+      )
+        .order("desc")
+        .take(limit);
+      ownerScopedAssets.push(...assetsForOwner);
+    }
+
+    ownerScopedAssets.sort((a, b) => b.createdAt - a.createdAt);
+    const seenAssetIds = new Set<Id<"assets">>();
+    const assets = ownerScopedAssets.filter((asset) => {
+      if (seenAssetIds.has(asset._id)) {
+        return false;
+      }
+      seenAssetIds.add(asset._id);
+      return true;
+    });
     const tagNameCache = new Map<Id<"tags">, string>();
     const promptCache = new Map<Id<"prompts">, string>();
 
@@ -408,6 +442,9 @@ export const listGalleryAssets = query({
         url,
         thumbUrl,
       });
+      if (results.length >= limit) {
+        break;
+      }
     }
 
     return results;
@@ -481,7 +518,7 @@ export const bulkDeleteAssets = mutation({
     for (const id of args.ids) {
       const links = await ctx.db
         .query("assetTags")
-        .withIndex("by_asset", (q) => q.eq("assetId", args.id))
+        .withIndex("by_asset", (q) => q.eq("assetId", id))
         .collect();
       for (const link of links) {
         await ctx.db.delete(link._id);

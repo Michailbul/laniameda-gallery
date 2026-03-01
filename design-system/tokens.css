@@ -1,0 +1,266 @@
+/**
+ * Laniameda Design Tokens — Portable CSS Custom Properties
+ *
+ * Drop this file into any project to get the full laniameda palette,
+ * typography scale, spacing, shadows, timing, and easing curves.
+ *
+ * Usage:
+ *   @import "./design-system/tokens.css";
+ *   — or —
+ *   Copy the :root block into your project's global stylesheet.
+ *
+ * Last updated: 2026-03-01
+ */
+
+:root {
+  /* ═══════════════════════════════════════════
+     SURFACES  (Paper Stack)
+     ═══════════════════════════════════════════ */
+  --paper: #fffaf5;
+  --paper-muted: #f5eee7;
+  --surface-0: #fffaf5;
+  --surface-1: #fff4ea;
+  --surface-2: #f7ede2;
+  --surface-3: #efe2d4;
+  --surface-4: #e4d4c4;
+
+  /* ═══════════════════════════════════════════
+     TEXT HIERARCHY  (Ink Scale)
+     ═══════════════════════════════════════════ */
+  --ink: #201710;
+  --text-primary: #201710;
+  --text-secondary: #4c3a2d;
+  --text-tertiary: #7d6755;
+  --text-ghost: #ab9381;
+
+  /* ═══════════════════════════════════════════
+     BORDERS
+     ═══════════════════════════════════════════ */
+  --border-subtle: rgba(32, 23, 16, 0.08);
+  --border-default: rgba(32, 23, 16, 0.16);
+  --border-strong: rgba(32, 23, 16, 0.24);
+  --border-accent: rgba(255, 122, 100, 0.35);
+
+  /* ═══════════════════════════════════════════
+     AMBER / CORAL  ACCENT RAMP  (12 steps)
+     ═══════════════════════════════════════════ */
+  --amber-1: #fff7f3;
+  --amber-2: #ffece4;
+  --amber-3: #ffe2d8;
+  --amber-4: #ffd6ca;
+  --amber-5: #ffc9ba;
+  --amber-6: #ffbaa9;
+  --amber-7: #ffa791;
+  --amber-8: #f2977b;
+  --amber-9: #ff7a64;          /* Primary accent — Ember Coral */
+  --amber-10: #ff917d;
+  --amber-11: #ffb7a8;
+  --amber-12: #ffe0d6;
+  --amber-contrast: #ffffff;
+  --amber-surface: rgba(255, 122, 100, 0.12);
+  --amber-subtle: rgba(255, 122, 100, 0.10);
+  --amber-glow: rgba(255, 122, 100, 0.18);
+
+  /* ── Accent aliases ── */
+  --coral: var(--amber-9);
+  --coral-hover: var(--amber-10);
+  --accent-subtle: rgba(255, 122, 100, 0.10);
+  --accent-glow: rgba(255, 122, 100, 0.18);
+  --warm-accent: #e8614f;
+  --warm-subtle: rgba(232, 97, 79, 0.12);
+
+  /* ── Pillar RGB triplets (default = creators) ── */
+  --pillar-r: 255;
+  --pillar-g: 122;
+  --pillar-b: 100;
+  --pillar-warm-r: 232;
+  --pillar-warm-g: 97;
+  --pillar-warm-b: 79;
+
+  /* ═══════════════════════════════════════════
+     SEMANTIC MAPPINGS  (shadcn-compatible)
+     ═══════════════════════════════════════════ */
+  --background: var(--surface-0);
+  --foreground: var(--text-primary);
+  --card: var(--paper);
+  --card-foreground: var(--text-primary);
+  --popover: #fffaf7;
+  --popover-foreground: var(--text-primary);
+  --primary: var(--coral);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text-secondary);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--text-primary);
+  --destructive: oklch(0.62 0.2 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: var(--border-default);
+  --input: #ffffff;
+  --ring: var(--coral);
+
+  /* ── Sidebar ── */
+  --sidebar: var(--paper);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--coral);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--text-secondary);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--coral);
+
+  /* ── Charts ── */
+  --chart-1: var(--coral);
+  --chart-2: var(--amber-8);
+  --chart-3: #6d7bff;
+  --chart-4: #3db7b0;
+  --chart-5: #d55b53;
+
+  /* ── Status ── */
+  --status-running: var(--coral);
+  --status-success: #16a34a;
+  --status-error: #dc2626;
+  --status-queued: var(--text-tertiary);
+
+  /* ── Inverse (dark panels) ── */
+  --bg-inverse: #18181b;
+  --text-inverse: #fafafa;
+
+  /* ═══════════════════════════════════════════
+     TYPOGRAPHY SCALE
+     ═══════════════════════════════════════════ */
+  --text-micro: 10px;
+  --text-size-xs: 11px;
+  --text-size-sm: 13px;
+  --text-size-base: 15px;
+  --text-size-lg: 18px;
+  --text-size-xl: 24px;
+  --text-size-2xl: 32px;
+  --text-size-3xl: 48px;
+
+  /* ── Font stacks ── */
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --font-display: Georgia, "Times New Roman", serif;
+
+  /* ═══════════════════════════════════════════
+     LAYOUT DIMENSIONS
+     ═══════════════════════════════════════════ */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 64px;
+  --mobile-bottom-nav-height: 56px;
+  --radius: 1.25rem;
+
+  /* ═══════════════════════════════════════════
+     TIMING
+     ═══════════════════════════════════════════ */
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --duration-glacial: 600ms;
+
+  /* ═══════════════════════════════════════════
+     EASING CURVES
+     ═══════════════════════════════════════════ */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ═══════════════════════════════════════════
+     SHADOWS / ELEVATION
+     ═══════════════════════════════════════════ */
+  --shadow-sm: 0 1px 3px rgba(32,23,16,0.06), 0 1px 2px rgba(32,23,16,0.04);
+  --shadow-md: 0 4px 12px rgba(32,23,16,0.08), 0 2px 4px rgba(32,23,16,0.04);
+  --shadow-lg: 0 12px 40px rgba(32,23,16,0.12), 0 4px 8px rgba(32,23,16,0.06);
+  --shadow-sharp: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-elevated: 0 20px 40px -10px rgba(0,0,0,0.12);
+
+  /* ── Brutalist offset shadows ── */
+  --shadow-brutal: 4px 4px 0 0 var(--ink);
+  --shadow-brutal-sm: 2px 2px 0 0 var(--ink);
+  --shadow-brutal-accent: 4px 4px 0 0 rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.5);
+
+  /* ── Pillar glow ── */
+  --shadow-pillar-glow: 0 0 0 1.5px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3),
+                         0 0 20px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1);
+}
+
+/* ═══════════════════════════════════════════
+   PILLAR OVERRIDES
+   Set data-pillar="creators|cars|designs|dump"
+   on a parent element to shift the accent.
+   ═══════════════════════════════════════════ */
+
+[data-pillar="cars"] {
+  --amber-8: #d7665e;
+  --amber-9: #e5534b;
+  --amber-10: #f0726b;
+  --amber-11: #f5a39f;
+  --amber-12: #fbd2cf;
+  --amber-surface: rgba(229, 83, 75, 0.12);
+  --amber-subtle: rgba(229, 83, 75, 0.10);
+  --amber-glow: rgba(229, 83, 75, 0.20);
+  --accent-glow: rgba(229, 83, 75, 0.20);
+  --accent-subtle: rgba(229, 83, 75, 0.10);
+  --warm-accent: #c8423b;
+  --coral: var(--amber-9);
+  --coral-hover: var(--amber-10);
+  --pillar-r: 232;
+  --pillar-g: 84;
+  --pillar-b: 74;
+  --pillar-warm-r: 200;
+  --pillar-warm-g: 66;
+  --pillar-warm-b: 59;
+}
+
+[data-pillar="designs"] {
+  --amber-8: #6b79ff;
+  --amber-9: #5d6bfa;
+  --amber-10: #7b86ff;
+  --amber-11: #a2adff;
+  --amber-12: #d4d9ff;
+  --amber-surface: rgba(93, 107, 250, 0.12);
+  --amber-subtle: rgba(93, 107, 250, 0.10);
+  --amber-glow: rgba(93, 107, 250, 0.18);
+  --accent-glow: rgba(93, 107, 250, 0.18);
+  --accent-subtle: rgba(93, 107, 250, 0.10);
+  --warm-accent: #4b58e8;
+  --coral: var(--amber-9);
+  --coral-hover: var(--amber-10);
+  --pillar-r: 93;
+  --pillar-g: 107;
+  --pillar-b: 250;
+  --pillar-warm-r: 75;
+  --pillar-warm-g: 88;
+  --pillar-warm-b: 232;
+}
+
+[data-pillar="dump"] {
+  --amber-8: #42b9b3;
+  --amber-9: #2eb8b4;
+  --amber-10: #56cbc7;
+  --amber-11: #89dbd8;
+  --amber-12: #c3efed;
+  --amber-surface: rgba(46, 184, 180, 0.12);
+  --amber-subtle: rgba(46, 184, 180, 0.10);
+  --amber-glow: rgba(46, 184, 180, 0.18);
+  --accent-glow: rgba(46, 184, 180, 0.18);
+  --accent-subtle: rgba(46, 184, 180, 0.10);
+  --warm-accent: #25a39f;
+  --coral: var(--amber-9);
+  --coral-hover: var(--amber-10);
+  --pillar-r: 46;
+  --pillar-g: 184;
+  --pillar-b: 180;
+  --pillar-warm-r: 37;
+  --pillar-warm-g: 163;
+  --pillar-warm-b: 159;
+}
+
+/* Smooth pillar transitions */
+[data-pillar] {
+  transition: color 300ms ease, background-color 300ms ease,
+              border-color 300ms ease, box-shadow 300ms ease;
+}

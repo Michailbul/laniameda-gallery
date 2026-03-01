@@ -13,8 +13,9 @@ const state = {
 
 const routePath = new URL("../app/api/dev/telegram/simulate/route.ts", import.meta.url).pathname;
 
-mock.module("@workos-inc/authkit-nextjs", () => ({
-  withAuth: async () => ({ user: null }),
+mock.module("@/lib/server-auth", () => ({
+  getAuthUser: async () => null,
+  requireAuth: async () => { throw new Error("Not authenticated."); },
 }));
 
 mock.module("@/lib/ai/convex-runs", () => ({

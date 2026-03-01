@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
 
 export async function GET(
@@ -7,10 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
-    const session = await withAuth({ ensureSignedIn: true });
-    if (!session.user?.id) {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-    }
+    const authUser = await requireAuth();
 
     const { runId } = await params;
     const result = await convexRuns.getRun({ runId });
@@ -18,7 +15,7 @@ export async function GET(
     if (!result) {
       return NextResponse.json({ error: "Run not found." }, { status: 404 });
     }
-    if (result.run.userId !== session.user.id) {
+    if (result.run.userId !== authUser.id) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

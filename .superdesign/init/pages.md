@@ -1,0 +1,8 @@
+- app/page.tsx
+  - components/upload-modal.tsx
+    - components/upload-panel.tsx
+      - components/ui/button.tsx
+      - components/ui/input.tsx
+      - components/ui/textarea.tsx
+      - components/ui/select.tsx
+      - components/ui/label.tsx

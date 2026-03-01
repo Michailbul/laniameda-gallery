@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { requireAuth } from "@/lib/server-auth";
 import { buildIngestKey, fileToBase64, parseTagNames } from "@/lib/ingest";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
@@ -24,10 +24,7 @@ const readJson = async (request: Request) => {
 
 export async function POST(request: Request) {
   try {
-    const session = await withAuth({ ensureSignedIn: true });
-    if (!session.user?.id) {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-    }
+    const authUser = await requireAuth();
 
     const contentType = request.headers.get("content-type") || "";
     let promptText: string | undefined;
@@ -110,7 +107,7 @@ export async function POST(request: Request) {
     });
 
     const payload: Record<string, unknown> = {
-      ownerUserId: session.user.id,
+      ownerUserId: authUser.id,
       promptText,
       url,
       folderId,

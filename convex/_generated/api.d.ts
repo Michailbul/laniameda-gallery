@@ -17,6 +17,7 @@ import type * as ingest from "../ingest.js";
 import type * as prompts from "../prompts.js";
 import type * as runs from "../runs.js";
 import type * as tags from "../tags.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   prompts: typeof prompts;
   runs: typeof runs;
   tags: typeof tags;
+  users: typeof users;
 }>;
 
 /**

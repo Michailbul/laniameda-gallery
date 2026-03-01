@@ -1,11 +1,8 @@
-import { authkitMiddleware } from "@workos-inc/authkit-nextjs";
+import { NextResponse, type NextRequest } from "next/server";
 
-export default authkitMiddleware({
-  middlewareAuth: {
-    enabled: false,
-    unauthenticatedPaths: ["/sign-in", "/sign-up", "/callback"],
-  },
-});
+export default function middleware(_request: NextRequest) {
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [

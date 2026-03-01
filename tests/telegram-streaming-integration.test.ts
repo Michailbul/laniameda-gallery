@@ -531,8 +531,9 @@ mock.module(agentWorkerTelegramStreamPath, () => ({
   },
 }));
 
-mock.module("@workos-inc/authkit-nextjs", () => ({
-  withAuth: async () => ({ user: null }),
+mock.module("@/lib/server-auth", () => ({
+  getAuthUser: async () => null,
+  requireAuth: async () => { throw new Error("Not authenticated."); },
 }));
 
 let routePost: (request: Request) => Promise<Response>;
@@ -628,7 +629,7 @@ describe("Telegram streaming integration harness", () => {
     expect(state.replies.length).toBe(1);
     expect(state.replies[0]?.text).toContain("streaming-result");
     expect(state.ingestCalls.length).toBe(1);
-    expect((state.ingestCalls[0]?.ownerUserId as string | undefined) ?? "").toContain("telegram:");
+    expect(state.ingestCalls[0]?.ownerUserId).toBe("278674008");
   });
 
   test("dev simulate route -> worker dispatch -> run complete without telegram reply send", async () => {

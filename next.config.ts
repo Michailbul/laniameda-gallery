@@ -3,9 +3,6 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
-  turbopack: {
-    root: path.join(__dirname),
-  },
   images: {
     remotePatterns: [
       {

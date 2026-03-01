@@ -24,6 +24,8 @@ const INTENT_LABELS = {
   replace_character: "Replace Character",
 } as const;
 
+const DEFAULT_DEV_OWNER_USER_ID = "278674008";
+
 type SelectedImage = {
   id: string;
   thumbSrc: string;
@@ -48,7 +50,7 @@ const FOCUSABLE_SELECTOR = [
 ].join(", ");
 
 interface GalleryDashboardProps {
-  user?: { id?: string | null; email?: string | null; firstName?: string | null } | null;
+  user?: { id?: string | null; email?: string | null; firstName?: string | null; username?: string | null; photoUrl?: string | null } | null;
   onSignOut?: () => void;
 }
 
@@ -66,6 +68,12 @@ export function GalleryDashboard({
   user,
   onSignOut,
 }: GalleryDashboardProps) {
+  const devOwnerUserIdOverride =
+    process.env.NODE_ENV !== "production"
+      ? (process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || DEFAULT_DEV_OWNER_USER_ID)
+      : null;
+  const ownerUserId = (devOwnerUserIdOverride || user?.id || "__guest__").trim();
+
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -175,7 +183,7 @@ export function GalleryDashboard({
   }, [selectedTags, sourceIdsByTagKey]);
 
   const galleryAssets = useQuery(api.assets.listGalleryAssets, {
-    ownerUserId: user?.id || "__guest__",
+    ownerUserId,
     kind: "image",
     tagIds: selectedTagIds,
     pillar: selectedPillar ?? undefined,
@@ -187,7 +195,7 @@ export function GalleryDashboard({
   });
 
   const allAssets = useQuery(api.assets.listGalleryAssets, {
-    ownerUserId: user?.id || "__guest__",
+    ownerUserId,
     limit: 200,
   });
 
@@ -245,7 +253,7 @@ export function GalleryDashboard({
 
   const images = useMemo(() => {
     if (!galleryAssets) return [];
-    return galleryAssets.map((asset) => ({
+    const mapped = galleryAssets.map((asset) => ({
       id: asset._id,
       src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
       fullSrc: asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
@@ -261,7 +269,11 @@ export function GalleryDashboard({
       createdAt: asset.createdAt,
       initiallyLoaded: loadedImageIds.has(asset._id),
     }));
-  }, [galleryAssets, loadedImageIds]);
+    if (sortOrder === "popular") {
+      mapped.sort((a, b) => (b.tagNames?.length ?? 0) - (a.tagNames?.length ?? 0));
+    }
+    return mapped;
+  }, [galleryAssets, loadedImageIds, sortOrder]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -744,7 +756,13 @@ export function GalleryDashboard({
       </button>
 
       {/* ── Mobile bottom nav ── */}
-      {!selectedImage && <MobileBottomNav onAddClick={() => setUploadOpen(true)} />}
+      {!selectedImage && (
+        <MobileBottomNav
+          onAddClick={() => setUploadOpen(true)}
+          user={user}
+          onSignOut={onSignOut}
+        />
+      )}
 
       {/* ── Modals ── */}
       <UploadModal

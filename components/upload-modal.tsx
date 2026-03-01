@@ -33,41 +33,30 @@ export function UploadModal({ open, onClose, availableTags, folders }: UploadMod
       role="dialog"
     >
       <div
-        className="absolute inset-0 transition-opacity"
-        style={{
-          background: "radial-gradient(ellipse at center, rgba(74, 30, 10, 0.1) 0%, rgba(0,0,0,0.85) 65%)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-        }}
+        className="absolute inset-0 transition-opacity bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
       <div
-        className="relative z-10 flex h-[82vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-border/60 shadow-2xl shadow-black/70 backdrop-blur grain-overlay"
-        style={{
-          background: "linear-gradient(180deg, rgba(17,10,6,0.95) 0%, rgba(8,4,2,0.98) 100%)",
-        }}
+        className="relative z-10 flex h-[88vh] w-full max-w-[1200px] flex-col overflow-hidden rounded-[24px] bg-background border border-border/60 shadow-2xl shadow-black/20"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-border/60 px-8 py-5 bg-surface-1/50">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-[0.4em] text-muted-foreground">
+            <span className="text-micro text-muted-foreground">
               Manual ingest
             </span>
-            <h2 className="text-sm font-medium text-foreground">Add a prompt</h2>
+            <h2 className="text-[24px] font-display text-foreground tracking-tight">Add to gallery</h2>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close upload modal">
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close upload modal" className="rounded-full h-8 w-8 hover:bg-surface-2">
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="flex min-h-full flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              Drag files, paste a URL, add tags/folder metadata, and push straight to the gallery.
-            </p>
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="flex min-h-full flex-col">
             <UploadPanel
               availableTags={availableTags}
               folders={folders}
-              className="bg-background/80 shadow-inner flex-1 min-h-0"
+              className="flex-1 min-h-0"
             />
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
 import { cancelRunInWorker } from "@/lib/ai/worker-dispatch";
 import { cancelRunExecution } from "@/lib/ai/runtime-state";
@@ -9,10 +9,7 @@ export async function POST(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
-    const session = await withAuth({ ensureSignedIn: true });
-    if (!session.user?.id) {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-    }
+    const authUser = await requireAuth();
 
     const { runId } = await params;
     const body = (await request.json().catch(() => null)) as { reason?: string } | null;
@@ -21,13 +18,13 @@ export async function POST(
     const canceledLocal = cancelRunExecution(runId);
     const result = await convexRuns.cancelRun({
       runId,
-      userId: session.user.id,
+      userId: authUser.id,
       reason,
     });
 
     await cancelRunInWorker({
       runId,
-      requestedBy: session.user.id,
+      requestedBy: authUser.id,
     }).catch(() => {
       // best effort
     });

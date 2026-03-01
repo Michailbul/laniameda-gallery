@@ -144,6 +144,30 @@ const createRunEventForwarder = ({
   };
 };
 
+const resolveIngestOwnerUserId = ({
+  runUserId,
+  source,
+}: {
+  runUserId: string;
+  source: string;
+}) => {
+  const normalizedRunUserId = runUserId.trim();
+  if (!normalizedRunUserId) {
+    return normalizedRunUserId;
+  }
+
+  if (source !== "telegram" && source !== "dev_telegram") {
+    return normalizedRunUserId;
+  }
+
+  if (!normalizedRunUserId.startsWith("telegram:")) {
+    return normalizedRunUserId;
+  }
+
+  const unprefixed = normalizedRunUserId.slice("telegram:".length).trim();
+  return unprefixed || normalizedRunUserId;
+};
+
 const createTelegramSender = ({
   runId,
   isTelegramOutboundRun,
@@ -664,7 +688,10 @@ const applyAgentIngestPayload = async ({
 
   const ingestResult = await convexRuns.ingestAgentPayload({
     runId,
-    ownerUserId: runState.run.userId,
+    ownerUserId: resolveIngestOwnerUserId({
+      runUserId: runState.run.userId,
+      source: runState.run.source,
+    }),
     payload: normalizedPayload,
     mediaFiles: downloadedMedia.map(encodeDownloadedMedia),
   });

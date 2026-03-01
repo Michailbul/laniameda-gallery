@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { getAuthUser } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
 import { dispatchRunToWorker } from "@/lib/ai/worker-dispatch";
 import {
@@ -84,8 +84,8 @@ const parseMediaFromFormData = async (formData: FormData) => {
 
 const parseSessionUserId = async () => {
   try {
-    const session = await withAuth({ ensureSignedIn: false });
-    return session.user?.id || undefined;
+    const user = await getAuthUser();
+    return user?.id || undefined;
   } catch {
     return undefined;
   }

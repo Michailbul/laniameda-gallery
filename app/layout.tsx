@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { TelegramAuthProvider } from "@/components/TelegramAuthProvider";
 
 const instrumentSerif = Instrument_Serif({
   weight: "400",
@@ -28,7 +29,9 @@ export default function RootLayout({
         className={`${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <ConvexClientProvider>
+          <TelegramAuthProvider>{children}</TelegramAuthProvider>
+        </ConvexClientProvider>
       </body>
     </html>
   );

@@ -1,11 +1,15 @@
 const clientId = process.env.WORKOS_CLIENT_ID;
 
-if (!clientId) {
-  throw new Error("WORKOS_CLIENT_ID must be set as an environment variable.");
-}
+const providers: Array<{
+  type: string;
+  issuer: string;
+  algorithm: string;
+  applicationID?: string;
+  jwks: string;
+}> = [];
 
-const authConfig = {
-  providers: [
+if (clientId) {
+  providers.push(
     {
       type: "customJwt",
       issuer: "https://api.workos.com/",
@@ -19,7 +23,9 @@ const authConfig = {
       algorithm: "RS256",
       jwks: `https://api.workos.com/sso/jwks/${clientId}`,
     },
-  ],
-};
+  );
+}
+
+const authConfig = { providers };
 
 export default authConfig;

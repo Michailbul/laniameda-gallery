@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Ingest · Studio Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #fffaf5;
+      --paper-muted: #f5eee7;
+      --ink: #201710;
+      --surface-0: #fffaf5;
+      --surface-1: #fff4ea;
+      --surface-2: #f7ede2;
+      --surface-3: #efe2d4;
+      --surface-4: #e4d4c4;
+      --border-subtle: rgba(32, 23, 16, 0.08);
+      --border-default: rgba(32, 23, 16, 0.16);
+      --border-strong: rgba(32, 23, 16, 0.24);
+      --text-primary: #201710;
+      --text-secondary: #4c3a2d;
+      --text-tertiary: #7d6755;
+      --text-ghost: #ab9381;
+      --coral: #ff7a64;
+      --coral-hover: #ff917d;
+      --accent-subtle: rgba(255, 122, 100, 0.10);
+      --accent-glow: rgba(255, 122, 100, 0.18);
+      --shadow-sm: 0 1px 3px rgba(32,23,16,0.06), 0 1px 2px rgba(32,23,16,0.04);
+      --shadow-md: 0 4px 12px rgba(32,23,16,0.08), 0 2px 4px rgba(32,23,16,0.04);
+      --shadow-lg: 0 12px 40px rgba(32,23,16,0.12), 0 4px 8px rgba(32,23,16,0.06);
+      --pillar-r: 255;
+      --pillar-g: 122;
+      --pillar-b: 100;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: 
+        radial-gradient(ellipse 65% 50% at 8% 0%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.11) 0%, transparent 65%),
+        radial-gradient(ellipse 75% 55% at 92% 100%, rgba(232, 97, 79, 0.12) 0%, transparent 65%),
+        linear-gradient(180deg, #fffdf9 0%, var(--surface-0) 45%, #fff6ed 100%);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .font-display {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+    }
+
+    .text-micro {
+      font-size: 10px;
+      line-height: 1.4;
+      text-transform: uppercase;
+      letter-spacing: 0.4em;
+      font-weight: 500;
+    }
+
+    .grain-overlay::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.018;
+      mix-blend-mode: multiply;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 128px 128px;
+    }
+
+    .btn-primary {
+      background: var(--coral);
+      color: white;
+      border: none;
+      padding: 0.75rem 2rem;
+      border-radius: 1rem;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 150ms ease;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-primary:hover {
+      background: var(--coral-hover);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+      padding: 0.625rem 1.5rem;
+      border-radius: 0.875rem;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+
+    .btn-ghost:hover {
+      background: var(--surface-2);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .input-field {
+      width: 100%;
+      background: var(--surface-1);
+      border: 1px solid var(--border-default);
+      border-radius: 0.875rem;
+      padding: 0.75rem 1rem;
+      font-size: 15px;
+      color: var(--text-primary);
+      transition: all 150ms ease;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: var(--coral);
+      box-shadow: 0 0 0 3px var(--accent-subtle);
+    }
+
+    .input-field::placeholder {
+      color: var(--text-ghost);
+    }
+
+    textarea.input-field {
+      resize: vertical;
+      min-height: 360px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+      line-height: 1.8;
+      font-size: 18px;
+      color: var(--ink);
+    }
+
+    textarea.input-field::placeholder {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+      color: var(--text-ghost);
+      opacity: 0.65;
+    }
+
+    .select-field {
+      width: 100%;
+      background: var(--surface-1);
+      border: 1px solid var(--border-default);
+      border-radius: 0.875rem;
+      padding: 0.75rem 1rem;
+      font-size: 15px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+
+    .select-field:focus {
+      outline: none;
+      border-color: var(--coral);
+      box-shadow: 0 0 0 3px var(--accent-subtle);
+    }
+
+    .label-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .helper-text {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 0.375rem;
+    }
+
+    .dropzone {
+      position: relative;
+      background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-1) 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: 1.5rem;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 250ms ease;
+      box-shadow: inset 0 2px 8px rgba(32,23,16,0.04), 0 1px 2px rgba(32,23,16,0.02);
+    }
+
+    .dropzone:hover {
+      background: linear-gradient(135deg, var(--surface-3) 0%, var(--surface-2) 100%);
+      box-shadow: inset 0 3px 12px rgba(32,23,16,0.06), 0 2px 4px rgba(32,23,16,0.04);
+    }
+
+    .dropzone.active {
+      background: linear-gradient(135deg, var(--accent-subtle) 0%, var(--surface-1) 100%);
+      border-color: var(--coral);
+      box-shadow: inset 0 3px 12px rgba(255,122,100,0.12), 0 0 0 3px var(--accent-subtle);
+    }
+
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border-default);
+      border-radius: 1.25rem;
+      padding: 0.5rem 1rem;
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: all 150ms ease;
+    }
+
+    .tag-pill:hover {
+      background: var(--surface-3);
+      border-color: var(--border-strong);
+    }
+
+    .tag-remove {
+      background: none;
+      border: none;
+      color: var(--text-ghost);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+      transition: color 150ms ease;
+    }
+
+    .tag-remove:hover {
+      color: var(--text-primary);
+    }
+
+    .section-divider {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--border-subtle) 50%, transparent 100%);
+      margin: 2rem 0;
+    }
+
+    .metadata-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+
+    .card-surface {
+      background: white;
+      border: 1px solid var(--border-subtle);
+      border-radius: 1.5rem;
+      padding: 2rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .preview-image {
+      width: 100%;
+      height: 280px;
+      object-fit: cover;
+      border-radius: 1rem;
+      background: var(--surface-2);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 0.75rem;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-badge.success {
+      background: rgba(22, 163, 74, 0.1);
+      color: #16a34a;
+      border: 1px solid rgba(22, 163, 74, 0.2);
+    }
+
+    .status-badge.error {
+      background: rgba(220, 38, 38, 0.1);
+      color: #dc2626;
+      border: 1px solid rgba(220, 38, 38, 0.2);
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-slide-up {
+      animation: slideUp 300ms ease-out forwards;
+    }
+
+    .collapsible-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 400ms ease;
+    }
+
+    .collapsible-content.open {
+      max-height: 1000px;
+    }
+
+    ::selection {
+      background: rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.22);
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen py-12 px-6">
+    <div class="max-w-[1200px] mx-auto">
+      <!-- Header -->
+      <div class="mb-8">
+        <div class="text-micro text-[var(--text-ghost)] mb-2">Manual Ingest</div>
+        <h1 class="text-[32px] font-display text-[var(--text-primary)] tracking-tight">Add to gallery</h1>
+        <p class="text-[15px] text-[var(--text-secondary)] mt-2">Create a new prompt entry with media, metadata, and rich context.</p>
+      </div>
+
+      <!-- Main Form -->
+      <div class="grid grid-cols-[1.4fr_1fr] gap-8">
+        <!-- Left Column: Core Content -->
+        <div class="space-y-6">
+          <!-- Prompt Section (HERO) -->
+          <div class="card-surface grain-overlay relative">
+            <label class="label-text mb-3">Prompt</label>
+            <textarea 
+              class="input-field"
+              placeholder="A quiet morning in a Parisian café, golden light streaming through tall windows, the scent of fresh croissants..."
+              maxlength="2000"
+            ></textarea>
+            <div class="helper-text text-right text-[var(--text-ghost)] font-mono">0 / 2000</div>
+          </div>
+
+          <!-- Media Upload -->
+          <div class="card-surface grain-overlay relative">
+            <label class="label-text">Media</label>
+            <div class="dropzone" id="dropzone">
+              <iconify-icon icon="lucide:image" class="text-[42px] text-[var(--text-tertiary)] mb-3 opacity-60"></iconify-icon>
+              <div class="text-[15px] font-semibold text-[var(--text-primary)] mb-1">Drop media here</div>
+              <div class="text-[13px] text-[var(--text-tertiary)]">or click to browse</div>
+              <input type="file" id="fileInput" class="hidden" multiple accept="image/*,video/*">
+            </div>
+            <div class="helper-text">Support for JPEG, PNG, MP4, MOV — up to 50MB per file</div>
+          </div>
+
+          <!-- URL Input -->
+          <div class="card-surface grain-overlay relative">
+            <label class="label-text">Prompt URL</label>
+            <input 
+              type="text" 
+              class="input-field"
+              placeholder="https://example.com/asset"
+            >
+            <div class="helper-text">Fetch media from external URLs you trust</div>
+          </div>
+
+          <!-- Tags Section -->
+          <div class="card-surface grain-overlay relative">
+            <label class="label-text">Tags</label>
+            <input 
+              type="text" 
+              class="input-field"
+              placeholder="Type tags and press Enter or comma to add"
+              id="tagInput"
+            >
+            <div class="flex flex-wrap gap-2 mt-3" id="tagContainer">
+              <!-- Dynamic tags will appear here -->
+              <span class="tag-pill">
+                <span>fashion</span>
+                <button class="tag-remove" aria-label="Remove tag">×</button>
+              </span>
+              <span class="tag-pill">
+                <span>editorial</span>
+                <button class="tag-remove" aria-label="Remove tag">×</button>
+              </span>
+            </div>
+            <div class="mt-3">
+              <div class="text-micro text-[var(--text-ghost)] mb-2">Suggested</div>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn-ghost text-[11px] py-1.5 px-3">Architecture</button>
+                <button class="btn-ghost text-[11px] py-1.5 px-3">Cinematic</button>
+                <button class="btn-ghost text-[11px] py-1.5 px-3">Portrait</button>
+                <button class="btn-ghost text-[11px] py-1.5 px-3">Abstract</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Metadata & Actions -->
+        <div class="space-y-6">
+          <!-- Preview Area (when file is uploaded) -->
+          <div class="card-surface grain-overlay relative" style="display: none;" id="previewCard">
+            <label class="label-text mb-3">Preview</label>
+            <img 
+              src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80" 
+              alt="Preview" 
+              class="preview-image"
+            >
+            <div class="flex items-center justify-between mt-3">
+              <span class="text-[13px] text-[var(--text-secondary)] font-mono">image_001.jpg</span>
+              <span class="text-[11px] text-[var(--text-tertiary)]">2.4 MB</span>
+            </div>
+          </div>
+
+          <!-- Pillar Selection (Essential) -->
+          <div class="card-surface grain-overlay relative">
+            <label class="label-text">Pillar</label>
+            <select class="select-field">
+              <option value="">Select pillar</option>
+              <option value="creators">Creators</option>
+              <option value="cars">Cars</option>
+              <option value="designs">Designs</option>
+              <option value="dump">Dump</option>
+            </select>
+            <div class="helper-text">Primary content category</div>
+          </div>
+
+          <!-- Advanced Settings (Collapsible) -->
+          <div class="card-surface grain-overlay relative">
+            <button class="w-full flex items-center justify-between text-left" id="advancedToggle">
+              <div>
+                <div class="label-text mb-0">Advanced settings</div>
+                <div class="text-[11px] text-[var(--text-tertiary)] mt-1">Model, type, domain, folder</div>
+              </div>
+              <iconify-icon icon="lucide:chevron-right" class="text-[18px] text-[var(--text-tertiary)] transition-transform" id="advancedChevron"></iconify-icon>
+            </button>
+            
+            <div class="collapsible-content" id="advancedContent">
+              <div class="section-divider my-4"></div>
+              <div class="space-y-4">
+                <!-- Model Name -->
+                <div>
+                  <label class="label-text">Model Name</label>
+                  <select class="select-field">
+                    <option value="">Select model</option>
+                    <option value="midjourney">Midjourney</option>
+                    <option value="flux">FLUX</option>
+                    <option value="dalle3">DALL-E 3</option>
+                    <option value="sd">Stable Diffusion</option>
+                    <option value="runway">Runway</option>
+                    <option value="other">Other (custom)</option>
+                  </select>
+                </div>
+
+                <!-- Generation Type -->
+                <div>
+                  <label class="label-text">Generation Type</label>
+                  <select class="select-field">
+                    <option value="">Select type</option>
+                    <option value="image_gen">Image</option>
+                    <option value="video_gen">Video</option>
+                    <option value="ui_design">UI Design</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <!-- Prompt Type -->
+                <div>
+                  <label class="label-text">Prompt Type</label>
+                  <select class="select-field">
+                    <option value="">Select prompt type</option>
+                    <option value="image_gen">Image Gen</option>
+                    <option value="video_gen">Video Gen</option>
+                    <option value="ui_design">UI Design</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="ugc_ad">UGC Ad</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <!-- Domain -->
+                <div>
+                  <label class="label-text">Domain</label>
+                  <input 
+                    type="text" 
+                    class="input-field"
+                    placeholder="e.g. fashion, architecture, gaming"
+                  >
+                  <div class="helper-text">Optional freeform domain tag</div>
+                </div>
+
+                <!-- Folder -->
+                <div>
+                  <label class="label-text">Folder</label>
+                  <select class="select-field">
+                    <option value="">No folder (default)</option>
+                    <option value="folder1">Editorial Collection</option>
+                    <option value="folder2">Client Work 2024</option>
+                    <option value="folder3">Experiments</option>
+                  </select>
+                  <div class="helper-text">Organize prompts into collections</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-col gap-3">
+            <button class="btn-primary w-full">
+              <span>Save to gallery</span>
+            </button>
+            <button class="btn-ghost w-full">
+              Clear form
+            </button>
+          </div>
+
+          <!-- Status Message (hidden by default) -->
+          <div class="status-badge success animate-slide-up" style="display: none;" id="statusMessage">
+            <iconify-icon icon="lucide:check-circle" class="text-[16px]"></iconify-icon>
+            <span>Prompt saved successfully</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Dropzone interaction
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const previewCard = document.getElementById('previewCard');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('active');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('active');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('active');
+      if (e.dataTransfer.files.length > 0) {
+        previewCard.style.display = 'block';
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        previewCard.style.display = 'block';
+      }
+    });
+
+    // Tag input
+    const tagInput = document.getElementById('tagInput');
+    const tagContainer = document.getElementById('tagContainer');
+
+    tagInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        const value = tagInput.value.trim();
+        if (value) {
+          const tagPill = document.createElement('span');
+          tagPill.className = 'tag-pill';
+          tagPill.innerHTML = `
+            <span>${value}</span>
+            <button class="tag-remove" aria-label="Remove tag">×</button>
+          `;
+          tagContainer.appendChild(tagPill);
+          tagInput.value = '';
+          
+          tagPill.querySelector('.tag-remove').addEventListener('click', () => {
+            tagPill.remove();
+          });
+        }
+      }
+    });
+
+    // Advanced options toggle
+    const advancedToggle = document.getElementById('advancedToggle');
+    const advancedContent = document.getElementById('advancedContent');
+    const advancedChevron = document.getElementById('advancedChevron');
+
+    advancedToggle.addEventListener('click', () => {
+      advancedContent.classList.toggle('open');
+      advancedChevron.style.transform = advancedContent.classList.contains('open') 
+        ? 'rotate(90deg)' 
+        : 'rotate(0deg)';
+    });
+  </script>
+</body>
+</html>
+
