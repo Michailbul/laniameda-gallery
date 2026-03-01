@@ -567,24 +567,6 @@ Before marking a ticket complete, verify against these gates:
 
 ---
 
-## Backlog — Future Features
+## Backlog
 
-### 🤖 Agent: Image → Prompt Generator
-**Added:** 2026-02-27
-**Priority:** Backlog
-**Description:**
-Add functionality where an AI agent looks at an existing image in the gallery and generates a reverse-engineered prompt for it. 
-
-**Use case:** User uploads or views an image with no prompt attached → clicks "Generate Prompt" → agent analyzes the image visually → outputs a production-ready prompt in the gallery's format.
-
-**Acceptance criteria:**
-- Works on images with no `promptText` attached
-- Agent uses vision model to analyze: subject, style, lighting, composition, color palette, camera specs
-- Output is a structured prompt in Nano Banana / image-gen format
-- Prompt is saved back to the record (editable before saving)
-- UI: "Generate Prompt" button visible on images without a prompt
-
-**Notes:**
-- Can use Claude vision or Gemini vision model
-- Should follow the cinematic prompt structure from the NB skill (STYLE / SUBJECT / SETTING / LIGHTING / CAMERA / DETAILS)
-- Consider: let user choose output format (NB Pro style, NB2 style, Midjourney style)
+All future work items tracked in `agent-docs/BACKLOG.md`.

@@ -1,49 +1,50 @@
 # Progress
 
-Last updated: 2026-02
+> What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-## Done
+Last updated: 2026-03-01
 
-### Foundation
-- Convex schema: `assets`, `prompts`, `tags`, `folders`, join tables (`promptTags`, `assetTags`)
-- Core Convex mutations/queries for assets, prompts, tags, folders
-- Ingestion action (URL / file / prompt) with idempotency (`ingestKey`)
-- `/api/ingest` route + ingest helpers
-- Ingest helper tests
+---
 
-### Gallery UI
-- Gallery dashboard with masonry grid
-- Convex-backed assets/tags/search (no mock data)
-- Detail modal with progressive thumbnail → full-res load
+## ✔ Shipped
+
+### 2026-03-01
+- Image focus mode (IFM Phase 1) — tabbed detail panel (Prompt/Details/Actions), mobile bottom sheet, keyboard nav, swipe gesture hook, state contract
+- Gallery redesign — warm editorial theme, pillar-aware accent colors, CSS animation system
+- Backend: hidden ingest tool + Telegram streaming pipeline
+- Dev Telegram simulator + structured observability (`runs`, `run_events`, `run_artifacts` tables)
+- AI workspace panel + run contract system
+
+### 2026-02
+- 4-pillar system (`creators` | `cars` | `designs` | `dump`) — schema field, query filter, upload selector, TopFilterBar tabs
+- Model name (`modelName`) field on assets — tagged on ingest, filter chips in TopFilterBar
+- Gallery dashboard — masonry grid, Convex-backed assets/tags/search (no mock data)
+- Detail modal — progressive thumbnail → full-res load
+- Upload panel — drag-drop, URL, prompt, tags, folder, model metadata
 - Image thumbnails auto-generated on ingest (Jimp, no native deps)
-- `next/image` with responsive sizing and skeleton loading states
-- Upload panel: drag-and-drop, prompt/URL inputs, tags/folder metadata
-- Model name (`modelName`) field on assets — tagged on ingest, displayed on cards
-- Model name filter chips in `TopFilterBar` — filter gallery by model
-
-### Auth
-- Telegram auth routes (`/api/auth/telegram`, `/api/auth/me`, `/api/auth/logout`)
-- `TelegramAuthProvider` component
+- Telegram auth routes (`/api/auth/telegram`, `/api/auth/me`, `/api/auth/logout`) + `TelegramAuthProvider`
 - Guest-visible gallery; auth required only for protected actions
 
-### Infrastructure
-- `.env.example` with required vars documented
-- `scripts/worktree-create.sh` / `worktree-remove.sh` for parallel branch work
-- ESLint + Bun test baseline green
-
-### Current quality gates
-- `bun run lint` ✅
-- `bun test` ✅ (60 tests passing)
-
----
-
-## In Progress
-- UI/theme refinements across dashboard, upload panel, shared components
+### Foundation
+- Convex schema: `assets`, `prompts`, `tags`, `folders`, `runs`, `run_events`, `run_artifacts`, join tables
+- Core Convex queries/mutations/actions for assets, prompts, tags, folders
+- Ingestion action with idempotency key (`ingestKey`)
+- `/api/ingest` route + ingest helpers
+- `laniameda-kb` OpenClaw skill (Telegram → Convex ingest)
+- ESLint + Bun test baseline green (60 tests)
 
 ---
 
-## Next Up
-- Add `pillar` field to Convex schema (`creators` | `cars` | `designs` | `dump`)
-- Top pillar slider UI — horizontal tabs, filters gallery, optional per-pillar theme
-- Agent auto-classification into pillars on ingest (via `laniameda-kb` skill)
-- Flatten repo structure: move `app/` contents up to root `laniameda.gallery/`
+## 🔥 Active Sprint
+
+Dashboard Polish — SP-01 through SP-13.
+See `agent-docs/features/dashboard-polish/SPRINT.md` for ticket details.
+
+---
+
+## Quality Gates
+
+```bash
+bun run lint   # must be clean
+bun test       # all tests passing
+```
