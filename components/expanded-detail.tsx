@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowRight,
@@ -13,9 +13,17 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Link as LinkIcon,
+  Package,
 } from "lucide-react";
+import { formatAssetCreatedAt, resolvePillarLabel } from "@/lib/gallery-focus";
+import { downloadImage } from "@/lib/download-image";
 
 type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
+
+type DetailTab = "prompt" | "details" | "actions";
 
 interface ExpandedDetailProps {
   image: {
@@ -26,9 +34,20 @@ interface ExpandedDetailProps {
     width?: number;
     height?: number;
     modelName?: string;
+    pillar?: string;
+    tagNames?: string[];
+    sourceUrl?: string;
+    createdAt?: number;
   };
   onClose: () => void;
   onAction: (intent: ModalIntent, imageId: string) => void;
+  activeRunId?: string;
+  onOpenRun?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
+  imagePosition?: string;
 }
 
 const ACTIONS = [
@@ -37,52 +56,223 @@ const ACTIONS = [
   { intent: "replace_character" as ModalIntent, label: "Replace Character", icon: UserRound },
 ];
 
-export function ExpandedDetail({ image, onClose, onAction }: ExpandedDetailProps) {
-  const [fullLoaded, setFullLoaded] = useState(false);
-  const { modelName } = image;
-  const [copied, setCopied] = useState(false);
-  const [promptExpanded, setPromptExpanded] = useState(false);
+const TABS: { id: DetailTab; label: string }[] = [
+  { id: "prompt", label: "Prompt" },
+  { id: "details", label: "Details" },
+  { id: "actions", label: "Actions" },
+];
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(image.prompt);
+export function ExpandedDetail({
+  image,
+  onClose,
+  onAction,
+  activeRunId,
+  onOpenRun,
+  onPrev,
+  onNext,
+  canGoPrev,
+  canGoNext,
+  imagePosition,
+}: ExpandedDetailProps) {
+  const [fullLoaded, setFullLoaded] = useState(false);
+  const { modelName, tagNames } = image;
+  const [copied, setCopied] = useState(false);
+  const [copiedLabel, setCopiedLabel] = useState("Copied");
+  const [downloadStarted, setDownloadStarted] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<DetailTab>("prompt");
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastExiting, setToastExiting] = useState(false);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const copyMenuRef = useRef<HTMLDivElement>(null);
+
+  // Reset states on image change
+  useEffect(() => {
+    setFullLoaded(false);
+    setPromptExpanded(false);
+    setCopyMenuOpen(false);
+    setToastVisible(false);
+    setToastExiting(false);
+  }, [image.id]);
+
+  // Click-outside to close copy dropdown
+  useEffect(() => {
+    if (!copyMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target as Node)) {
+        setCopyMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [copyMenuOpen]);
+
+  const showToast = useCallback((label: string) => {
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedLabel(label);
+    setCopyMenuOpen(false);
+    setToastVisible(true);
+    setToastExiting(false);
+    setTimeout(() => {
+      setToastExiting(true);
+      setTimeout(() => {
+        setToastVisible(false);
+        setToastExiting(false);
+        setCopied(false);
+      }, 200);
+    }, 1800);
+  }, []);
+
+  const handleCopy = async (text?: string) => {
+    await navigator.clipboard.writeText(text ?? image.prompt);
+    showToast("Prompt copied");
   };
 
-  const isLongPrompt = image.prompt.length > 120;
+  const handleCopyUrl = async () => {
+    await navigator.clipboard.writeText(image.fullSrc);
+    showToast("URL copied");
+  };
+
+  const handleCopyPackage = async () => {
+    const parts = [
+      image.prompt,
+      image.modelName ? `Model: ${image.modelName}` : "",
+      image.pillar ? `Pillar: ${image.pillar}` : "",
+      image.tagNames?.length ? `Tags: ${image.tagNames.join(", ")}` : "",
+      `Image: ${image.fullSrc}`,
+      image.sourceUrl ? `Source: ${image.sourceUrl}` : "",
+    ].filter(Boolean);
+    await navigator.clipboard.writeText(parts.join("\n"));
+    showToast("Package copied");
+  };
+
+  const handleDownload = async () => {
+    setDownloadStarted(true);
+    await downloadImage(image.fullSrc, `laniameda-${image.id}`);
+    setTimeout(() => setDownloadStarted(false), 1500);
+  };
+
+  // Keyboard: Cmd+C copies prompt when panel focused and no text selected
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed) {
+          e.preventDefault();
+          void handleCopy();
+        }
+      }
+    };
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [image.prompt]);
+
+  const isLongPrompt = image.prompt.length > 220;
+  const pillarLabel = useMemo(() => resolvePillarLabel(image.pillar), [image.pillar]);
+  const createdAtLabel = useMemo(
+    () => formatAssetCreatedAt(image.createdAt),
+    [image.createdAt],
+  );
+  const relativeDate = useMemo(() => {
+    if (!image.createdAt) return undefined;
+    const diff = Date.now() - image.createdAt;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return undefined; // fall back to full date in details tab
+  }, [image.createdAt]);
+
+  // Tab keyboard navigation (ARIA roving tabindex)
+  const activeTabIndex = TABS.findIndex((t) => t.id === activeTab);
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      let newIndex = activeTabIndex;
+      if (e.key === "ArrowRight") {
+        newIndex = (activeTabIndex + 1) % TABS.length;
+      } else if (e.key === "ArrowLeft") {
+        newIndex = (activeTabIndex - 1 + TABS.length) % TABS.length;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      setActiveTab(TABS[newIndex].id);
+      const tabList = tabListRef.current;
+      if (tabList) {
+        const buttons = tabList.querySelectorAll<HTMLButtonElement>("[role=tab]");
+        buttons[newIndex]?.focus();
+      }
+    },
+    [activeTabIndex],
+  );
 
   return (
-    <div className="flex flex-col gap-4 p-4 animate-fade-in">
-      {/* Close button */}
-      <div className="flex justify-end">
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      className="flex h-full flex-col gap-3 p-4 animate-panel-slide-in"
+      key={image.id}
+    >
+      {/* Header: nav strip + close */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          {onPrev && (
+            <button
+              type="button"
+              onClick={onPrev}
+              disabled={!canGoPrev}
+              className="interactive-surface flex h-7 w-7 items-center justify-center rounded-lg disabled:opacity-30"
+              style={{ color: "var(--text-tertiary)" }}
+              aria-label="Previous image"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+          {imagePosition && (
+            <span
+              className="px-1 text-[11px] tabular-nums"
+              style={{ color: "var(--text-ghost)", fontFamily: "var(--font-mono)" }}
+            >
+              {imagePosition}
+            </span>
+          )}
+          {onNext && (
+            <button
+              type="button"
+              onClick={onNext}
+              disabled={!canGoNext}
+              className="interactive-surface flex h-7 w-7 items-center justify-center rounded-lg disabled:opacity-30"
+              style={{ color: "var(--text-tertiary)" }}
+              aria-label="Next image"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors"
-          style={{
-            color: "var(--text-tertiary)",
-            transitionDuration: "var(--duration-instant)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--text-primary)";
-            e.currentTarget.style.backgroundColor = "var(--surface-3)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--text-tertiary)";
-            e.currentTarget.style.backgroundColor = "transparent";
-          }}
+          className="interactive-surface flex h-7 w-7 items-center justify-center rounded-lg"
+          style={{ color: "var(--text-tertiary)" }}
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      {/* Image — natural aspect ratio with amber glow */}
+      {/* Image — natural aspect ratio with pillar glow */}
       <div
         className="relative overflow-hidden rounded-xl animate-fade-in"
         style={{
           aspectRatio: `${image.width ?? 1} / ${image.height ?? 1}`,
-          boxShadow:
-            "0 0 0 1.5px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3), 0 0 30px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08)",
+          boxShadow: "var(--shadow-pillar-glow)",
         }}
       >
         <Image
@@ -104,76 +294,19 @@ export function ExpandedDetail({ image, onClose, onAction }: ExpandedDetailProps
           }`}
           style={{ transitionDuration: "500ms" }}
           priority
-          onLoadingComplete={() => setFullLoaded(true)}
+          onLoad={(e) => {
+            if (e.currentTarget.naturalWidth > 0) setFullLoaded(true);
+          }}
           onError={() => setFullLoaded(true)}
           unoptimized
         />
       </div>
 
-      {/* Prompt */}
-      <div className="flex flex-col gap-1.5">
-        <span
-          className="text-[11px] font-medium uppercase tracking-wider"
-          style={{ color: "var(--text-tertiary)" }}
-        >
-          Prompt
-        </span>
-        <p
-          className="text-[14px] leading-relaxed"
-          style={{
-            color: "var(--text-secondary)",
-            ...(!promptExpanded && isLongPrompt
-              ? {
-                  display: "-webkit-box",
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: "vertical" as const,
-                  overflow: "hidden",
-                }
-              : {}),
-          }}
-        >
-          {image.prompt}
-        </p>
-        {isLongPrompt && (
-          <button
-            type="button"
-            onClick={() => setPromptExpanded(!promptExpanded)}
-            className="flex items-center gap-1 self-start text-[12px] transition-colors"
-            style={{
-              color: "var(--text-tertiary)",
-              transitionDuration: "var(--duration-instant)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--amber-9)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--text-tertiary)";
-            }}
-          >
-            {promptExpanded ? (
-              <>
-                <ChevronUp className="h-3 w-3" /> show less
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-3 w-3" /> show more
-              </>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Model name */}
-      {modelName && (
-        <div className="flex items-center gap-2">
+      {/* Quick metadata strip */}
+      <div className="flex flex-wrap items-center gap-2">
+        {modelName && (
           <span
-            className="text-[11px] font-medium uppercase tracking-wider"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            Model
-          </span>
-          <span
-            className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+            className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
             style={{
               backgroundColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)",
               color: "var(--amber-9)",
@@ -182,101 +315,359 @@ export function ExpandedDetail({ image, onClose, onAction }: ExpandedDetailProps
           >
             {modelName}
           </span>
-        </div>
-      )}
-
-      {/* Copy / Download */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void handleCopy()}
-          className="flex items-center gap-1.5 text-[13px] transition-colors"
-          style={{
-            color: "var(--text-tertiary)",
-            transitionDuration: "var(--duration-instant)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--text-primary)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--text-tertiary)";
-          }}
-        >
-          {copied ? (
-            <>
-              <Check className="h-3.5 w-3.5" style={{ color: "var(--amber-9)" }} />
-              <span style={{ color: "var(--amber-9)" }}>Copied!</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3.5 w-3.5" />
-              Copy Prompt
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-1.5 text-[13px] transition-colors"
-          style={{
-            color: "var(--text-tertiary)",
-            transitionDuration: "var(--duration-instant)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--text-primary)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--text-tertiary)";
-          }}
-        >
-          <Download className="h-3.5 w-3.5" />
-          Download
-        </button>
+        )}
+        {pillarLabel && (
+          <span
+            className="text-[10px] font-mono font-medium uppercase tracking-wider"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            {pillarLabel}
+          </span>
+        )}
+        {relativeDate && (
+          <span
+            className="text-[10px] font-mono tracking-wide"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            {relativeDate}
+          </span>
+        )}
       </div>
 
-      {/* Separator */}
+      {/* Tabs */}
       <div
-        className="h-px"
-        style={{ backgroundColor: "var(--border-subtle)" }}
-      />
-
-      {/* Action rows */}
-      <div className="flex flex-col gap-1">
-        {ACTIONS.map(({ intent, label, icon: Icon }) => (
+        ref={tabListRef}
+        className="grid grid-cols-3 gap-0 border"
+        role="tablist"
+        aria-label="Selected image detail tabs"
+        style={{ borderColor: "var(--border-default)" }}
+        onKeyDown={handleTabKeyDown}
+      >
+        {TABS.map((tab, idx) => (
           <button
-            key={intent}
+            key={tab.id}
             type="button"
-            onClick={() => onAction(intent, image.id)}
-            className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-all"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            onClick={() => setActiveTab(tab.id)}
+            className="px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-wider transition-all"
             style={{
-              borderLeft: "3px solid var(--amber-8)",
-              transitionDuration: "var(--duration-fast)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--surface-2)";
-              e.currentTarget.style.borderLeftColor = "var(--amber-9)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.borderLeftColor = "var(--amber-8)";
+              color: activeTab === tab.id ? "var(--text-inverse)" : "var(--text-tertiary)",
+              backgroundColor: activeTab === tab.id ? "var(--bg-inverse)" : "transparent",
+              borderRight: idx < TABS.length - 1 ? "1px solid var(--border-default)" : "none",
+              transitionDuration: "var(--duration-instant)",
             }}
           >
-            <Icon
-              className="h-4 w-4"
-              style={{ color: "var(--text-tertiary)" }}
-            />
-            <span
-              className="flex-1 text-left text-[13px] font-medium"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {label}
-            </span>
-            <ArrowRight
-              className="h-3.5 w-3.5"
-              style={{ color: "var(--text-ghost)" }}
-            />
+            {tab.label}
           </button>
         ))}
       </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === "prompt" && (
+          <div key="tab-prompt" className="animate-tab-content-enter flex flex-col gap-2">
+            <span
+              className="text-[11px] font-medium uppercase tracking-wider"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Prompt
+            </span>
+            <div
+              style={{
+                borderLeft: "2px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.3)",
+                paddingLeft: "12px",
+              }}
+            >
+              <p
+                className="text-[14px]"
+                style={{
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-display)",
+                  fontStyle: "italic",
+                  lineHeight: "1.7",
+                  ...(!promptExpanded && isLongPrompt
+                    ? {
+                        display: "-webkit-box",
+                        WebkitLineClamp: 5,
+                        WebkitBoxOrient: "vertical" as const,
+                        overflow: "hidden",
+                      }
+                    : {}),
+                }}
+              >
+                {image.prompt}
+              </p>
+            </div>
+            <div ref={copyMenuRef} className="relative flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setCopyMenuOpen(!copyMenuOpen)}
+                className="flex items-center gap-1.5 text-[13px] transition-colors duration-[var(--duration-instant)] hover:text-[var(--text-primary)]"
+                aria-label="Copy options"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" style={{ color: "var(--amber-9)" }} />
+                    <span style={{ color: "var(--amber-9)" }}>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                    <ChevronDown className="h-3 w-3" />
+                  </>
+                )}
+              </button>
+              {copyMenuOpen && !copied && (
+                <div
+                  className="absolute left-0 top-full z-10 mt-1 flex flex-col rounded-lg border py-1 animate-dropdown-enter"
+                  style={{
+                    backgroundColor: "var(--paper)",
+                    borderColor: "var(--border-default)",
+                    boxShadow: "var(--shadow-md)",
+                    minWidth: "200px",
+                  }}
+                >
+                  <CopyMenuItem icon={Copy} label="Copy Prompt" hint="⌘C" primary onClick={() => void handleCopy()} />
+                  <div className="mx-2 my-0.5 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />
+                  <CopyMenuItem icon={LinkIcon} label="Copy Image URL" onClick={() => void handleCopyUrl()} />
+                  <CopyMenuItem icon={Package} label="Copy Full Package" onClick={() => void handleCopyPackage()} />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleDownload()}
+                className="flex items-center gap-1.5 text-[13px] transition-colors duration-[var(--duration-instant)] hover:text-[var(--text-primary)]"
+                aria-label="Download image"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {downloadStarted ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" style={{ color: "var(--amber-9)" }} />
+                    <span style={{ color: "var(--amber-9)" }}>Started!</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </>
+                )}
+              </button>
+            </div>
+            {isLongPrompt && (
+              <button
+                type="button"
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                className="flex items-center gap-1 self-start text-[12px] transition-colors duration-[var(--duration-instant)] hover:text-[var(--amber-9)]"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {promptExpanded ? (
+                  <>
+                    <ChevronUp className="h-3 w-3" /> Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3 w-3" /> Show more
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {activeTab === "details" && (
+          <div key="tab-details" className="animate-tab-content-enter flex flex-col gap-3">
+            {modelName && (
+              <DetailRow
+                label="Model"
+                value={
+                  <span
+                    className="px-2 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wider"
+                    style={{
+                      backgroundColor:
+                        "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)",
+                      color: "var(--amber-9)",
+                      border: "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2)",
+                    }}
+                  >
+                    {modelName}
+                  </span>
+                }
+              />
+            )}
+            {pillarLabel && <DetailRow label="Pillar" value={pillarLabel} />}
+            {createdAtLabel && <DetailRow label="Created" value={createdAtLabel} />}
+            {image.sourceUrl && (
+              <DetailRow
+                label="Source"
+                value={
+                  <a
+                    href={image.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-dotted underline-offset-2"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Open source
+                  </a>
+                }
+              />
+            )}
+            <div className="flex flex-col gap-1">
+              <span
+                className="text-[11px] font-medium uppercase tracking-wider"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                Tags
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {tagNames && tagNames.length > 0 ? (
+                  tagNames.map((tag) => (
+                    <span
+                      key={tag}
+                      className="border px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider"
+                      style={{
+                        backgroundColor: "transparent",
+                        color: "var(--text-secondary)",
+                        borderColor: "var(--border-default)",
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-ghost)" }}>
+                    No tags
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "actions" && (
+          <div key="tab-actions" className="animate-tab-content-enter flex flex-col gap-2">
+            {activeRunId && (
+              <button
+                type="button"
+                onClick={onOpenRun}
+                className="flex items-center justify-between rounded-xl px-3 py-2 text-[12px] transition-colors"
+                aria-label="View active run"
+                style={{
+                  border: "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25)",
+                  backgroundColor:
+                    "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span>Run active: {activeRunId}</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {ACTIONS.map(({ intent, label, icon: Icon }) => (
+              <button
+                key={intent}
+                type="button"
+                onClick={() => onAction(intent, image.id)}
+                className="flex items-center gap-2.5 border border-[var(--border-default)] px-3 py-2.5 transition-[background-color,border-color,box-shadow,transform] duration-[var(--duration-fast)] hover:bg-[var(--bg-inverse)] hover:text-[var(--text-inverse)] hover:border-[var(--bg-inverse)] hover:shadow-[var(--shadow-brutal-sm)] hover:-translate-x-px hover:-translate-y-px active:translate-x-0 active:translate-y-0 active:shadow-none"
+                aria-label={label}
+              >
+                <Icon
+                  className="h-4 w-4"
+                  style={{ color: "currentColor", opacity: 0.6 }}
+                />
+                <span
+                  className="flex-1 text-left text-[10px] font-mono font-medium uppercase tracking-wider"
+                >
+                  {label}
+                </span>
+                <ArrowRight
+                  className="h-3.5 w-3.5"
+                  style={{ opacity: 0.4 }}
+                />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Copy toast */}
+      {toastVisible && (
+        <div
+          className={`pointer-events-none absolute inset-x-4 bottom-4 z-10 flex items-center justify-center ${toastExiting ? "animate-toast-exit" : "animate-toast-enter"}`}
+        >
+          <div
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12px] font-medium"
+            style={{
+              backgroundColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)",
+              border: "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25)",
+              color: "var(--text-primary)",
+              boxShadow: "var(--shadow-md)",
+            }}
+          >
+            <Check className="h-3.5 w-3.5" style={{ color: "var(--amber-9)" }} />
+            {copiedLabel}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopyMenuItem({
+  icon: Icon,
+  label,
+  hint,
+  primary,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  hint?: string;
+  primary?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="interactive-ghost flex items-center gap-2 px-3 py-1.5 text-left text-[12px]"
+      style={{
+        color: "var(--text-secondary)",
+        fontWeight: primary ? 600 : 400,
+      }}
+    >
+      <Icon className="h-3.5 w-3.5" style={{ color: "var(--text-ghost)" }} />
+      <span className="flex-1">{label}</span>
+      {hint && (
+        <span className="text-[10px]" style={{ color: "var(--text-ghost)" }}>
+          {hint}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <span
+        className="mt-0.5 min-w-[72px] text-[11px] font-medium uppercase tracking-wider"
+        style={{ color: "var(--text-tertiary)" }}
+      >
+        {label}
+      </span>
+      <span className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+        {value}
+      </span>
     </div>
   );
 }

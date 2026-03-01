@@ -55,6 +55,7 @@ const requiredBase = [
   "NEXT_PUBLIC_CONVEX_URL",
   "CONVEX_URL",
   "ENABLE_AGENT_WORKER",
+  "WORKOS_COOKIE_PASSWORD",
   "AGENT_WORKER_URL",
   "AGENT_WORKER_SHARED_SECRET",
   "DAYTONA_API_KEY",
@@ -106,6 +107,11 @@ for (const key of requiredBase) {
   } else {
     checks.push(`Loaded ${key}`);
   }
+}
+
+const workosCookiePassword = process.env.WORKOS_COOKIE_PASSWORD;
+if (isPresent(workosCookiePassword) && workosCookiePassword!.trim().length < 32) {
+  errors.push("WORKOS_COOKIE_PASSWORD must be at least 32 characters long.");
 }
 
 for (const key of requiredByMode[mode]) {

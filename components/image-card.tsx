@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import { ImageIcon, Paintbrush, Move, UserRound } from "lucide-react";
+import { memo, useEffect, useMemo, useState } from "react";
+import { ImageIcon, Maximize2 } from "lucide-react";
 
 interface ImageCardProps {
   image: {
@@ -16,6 +16,9 @@ interface ImageCardProps {
     height?: number;
     modelName?: string;
     pillar?: string;
+    tagNames?: string[];
+    sourceUrl?: string;
+    createdAt?: number;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -25,6 +28,11 @@ interface ImageCardProps {
     prompt: string;
     width?: number;
     height?: number;
+    modelName?: string;
+    pillar?: string;
+    tagNames?: string[];
+    sourceUrl?: string;
+    createdAt?: number;
   }) => void;
   selectedId?: string;
   initiallyLoaded?: boolean;
@@ -33,13 +41,13 @@ interface ImageCardProps {
 }
 
 const PILLAR_META = {
-  creators: { label: "Creators", color: "#f5d0aa" },
-  cars: { label: "Cars", color: "#f97316" },
-  designs: { label: "Designs", color: "#60a5fa" },
-  dump: { label: "Dump", color: "#9ca3af" },
+  creators: { label: "Creators", color: "#ff7a64" },
+  cars: { label: "Cars", color: "#e5534b" },
+  designs: { label: "Designs", color: "#5d6bfa" },
+  dump: { label: "Dump", color: "#2eb8b4" },
 } as const;
 
-export function ImageCard({
+export const ImageCard = memo(function ImageCard({
   image,
   eager = false,
   onSelect,
@@ -49,6 +57,7 @@ export function ImageCard({
   index = 0,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
+  const hasSelection = selectedId != null;
   const [isLoading, setIsLoading] = useState(!initiallyLoaded);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
@@ -67,10 +76,12 @@ export function ImageCard({
     return () => cancelAnimationFrame(frame);
   }, [image.src, image.fullSrc, initiallyLoaded]);
 
-  const handleLoadingComplete = () => {
-    setIsLoading(false);
-    setHasError(false);
-    onLoad?.();
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (e.currentTarget.naturalWidth > 0) {
+      setIsLoading(false);
+      setHasError(false);
+      onLoad?.();
+    }
   };
 
   const handleImageError = () => {
@@ -100,31 +111,31 @@ export function ImageCard({
       prompt: image.prompt,
       width: image.width,
       height: image.height,
+      modelName: image.modelName,
+      pillar: image.pillar,
+      tagNames: image.tagNames,
+      sourceUrl: image.sourceUrl,
+      createdAt: image.createdAt,
     });
+
+  // Focus dimming: selected stays full, others dim when there is a selection
+  const dimmed = hasSelection && !isSelected;
+
+  const cardClasses = [
+    "group relative cursor-pointer overflow-hidden break-inside-avoid rounded-xl animate-card-entrance card-base",
+    isSelected && "card-selected",
+    dimmed && "card-dimmed",
+  ].filter(Boolean).join(" ");
 
   return (
     <div
-      className="group relative cursor-pointer overflow-hidden break-inside-avoid animate-card-entrance rounded-xl transition-all"
+      className={cardClasses}
       style={{
         aspectRatio,
         breakInside: "avoid-column",
         animationDelay: entranceDelay,
         animationFillMode: "backwards",
         marginBottom: "12px",
-        transitionDuration: "var(--duration-normal)",
-        transitionProperty: "transform, box-shadow, opacity",
-        boxShadow: isSelected
-          ? "0 0 0 2px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.5), 0 0 20px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15)"
-          : "0 2px 8px rgba(0, 0, 0, 0.2)",
-        opacity: isSelected ? 0.6 : 1,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px) scale(1.01)";
-        e.currentTarget.style.boxShadow = "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), 0 0 30px rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0) scale(1)";
-        e.currentTarget.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.2)";
       }}
       onClick={selectImage}
     >
@@ -150,7 +161,7 @@ export function ImageCard({
             />
             {hasError && (
               <span
-                className="text-[11px]"
+                className="text-[11px] font-mono uppercase tracking-wider"
                 style={{ color: "var(--text-ghost)" }}
               >
                 Failed to load
@@ -168,14 +179,13 @@ export function ImageCard({
           fill
           sizes={responsiveSizes}
           priority={eager}
-          className={`object-cover transition-transform group-hover:scale-[1.03] ${
+          className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
             isLoading ? "opacity-0" : "opacity-100"
           }`}
           style={{
-            transitionDuration: "200ms",
             transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
           }}
-          onLoadingComplete={handleLoadingComplete}
+          onLoad={handleImageLoad}
           onError={handleImageError}
           unoptimized
         />
@@ -186,13 +196,13 @@ export function ImageCard({
         <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5">
           {image.modelName && (
             <div
-              className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.6)",
-                color: "rgba(255, 255, 255, 0.85)",
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
+                color: "rgba(255, 255, 255, 0.9)",
                 backdropFilter: "blur(8px)",
                 WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
               }}
             >
               {image.modelName}
@@ -200,13 +210,13 @@ export function ImageCard({
           )}
           {pillarMeta && (
             <div
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.55)",
+                backgroundColor: "rgba(0, 0, 0, 0.65)",
                 color: pillarMeta.color,
                 backdropFilter: "blur(8px)",
                 WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
               }}
             >
               <span
@@ -219,43 +229,20 @@ export function ImageCard({
         </div>
       )}
 
-      {/* Hover overlay — cinematic warm gradient */}
+      {/* Hover overlay — cinematic warm gradient with view details */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
+        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100"
         style={{
           background:
             "linear-gradient(to top, rgba(8,4,2,0.92) 0%, rgba(17,10,6,0.5) 25%, rgba(8,4,2,0.1) 50%, transparent 100%)",
-          transitionDuration: "var(--duration-normal)",
         }}
       >
-        {/* Gradient border ring on hover */}
-        <div
-          className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
-          style={{
-            background: "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.1), rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2))",
-            mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-            maskComposite: "exclude",
-            WebkitMaskComposite: "xor",
-            padding: "1.5px",
-            borderRadius: "inherit",
-            transitionDuration: "var(--duration-normal)",
-          }}
-        />
-        {/* Warm inner glow from bottom */}
-        <div
-          className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:opacity-100"
-          style={{
-            boxShadow: "inset 0 -20px 40px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.04)",
-            transitionDuration: "var(--duration-normal)",
-          }}
-        />
-
         {/* Bottom content */}
         <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between p-3">
           <p
-            className="flex-1 pr-2 text-[11px] leading-snug"
+            className="flex-1 pr-2 text-[10px] font-mono leading-snug tracking-wide"
             style={{
-              color: "var(--text-primary)",
+              color: "rgba(255, 255, 255, 0.85)",
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
@@ -266,50 +253,19 @@ export function ImageCard({
             {image.prompt}
           </p>
 
-          {/* Glass action buttons */}
-          <div className="flex items-center gap-1">
-            {[
-              { icon: Paintbrush, label: "Transfer Style" },
-              { icon: Move, label: "Transfer Pose" },
-              { icon: UserRound, label: "Replace Character" },
-            ].map(({ icon: Icon, label }) => (
-              <button
-                key={label}
-                type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-lg transition-all"
-                style={{
-                  color: "rgba(255,255,255,0.75)",
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  transitionDuration: "var(--duration-fast)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "var(--amber-contrast)";
-                  e.currentTarget.style.background = "linear-gradient(135deg, var(--amber-9), var(--warm-accent))";
-                  e.currentTarget.style.borderColor = "transparent";
-                  e.currentTarget.style.boxShadow = "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.35)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "rgba(255,255,255,0.75)";
-                  e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  selectImage();
-                }}
-                aria-label={label}
-                title={label}
-              >
-                <Icon className="h-3.5 w-3.5" />
-              </button>
-            ))}
+          {/* View details indicator */}
+          <div
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center backdrop-blur-xl"
+            style={{
+              color: "rgba(255,255,255,0.85)",
+              backgroundColor: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
           </div>
         </div>
       </div>
     </div>
   );
-}
+});

@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef } from "react";
+import { useMemo, useRef, useState } from "react";
+
+interface Tag {
+  _id: string;
+  name: string;
+  usageCount?: number;
+}
 
 interface Folder {
   _id: string;
@@ -9,18 +15,29 @@ interface Folder {
 
 export type SortOrder = "featured" | "newest" | "popular";
 
+const PILLAR_OPTIONS = [
+  { label: "Creators", value: "creators" },
+  { label: "Cars", value: "cars" },
+  { label: "Designs", value: "designs" },
+  { label: "Dump", value: "dump" },
+] as const;
+export type Pillar = (typeof PILLAR_OPTIONS)[number]["value"];
+
 interface TopFilterBarProps {
+  tags: Tag[];
+  selectedTags: string[];
+  onTagToggle: (tag: string) => void;
+  onClearAllTags: () => void;
   folders: Folder[];
   selectedFolderId: string | null;
   onFolderSelect: (folderId: string | null) => void;
-  selectedPillar: string | null;
-  onPillarSelect: (pillar: string | null) => void;
+  selectedPillar: Pillar | null;
+  onPillarSelect: (pillar: Pillar | null) => void;
   availableModelNames: string[];
   selectedModelName: string | null;
   onModelNameSelect: (name: string | null) => void;
   sortOrder: SortOrder;
   onSortOrderChange: (order: SortOrder) => void;
-  onCommandPalette?: () => void;
 }
 
 const SORT_OPTIONS: { label: string; value: SortOrder }[] = [
@@ -29,14 +46,11 @@ const SORT_OPTIONS: { label: string; value: SortOrder }[] = [
   { label: "Popular", value: "popular" },
 ];
 
-const PILLAR_OPTIONS = [
-  { label: "Creators", value: "creators" },
-  { label: "Cars", value: "cars" },
-  { label: "Designs", value: "designs" },
-  { label: "Dump", value: "dump" },
-] as const;
-
 export function TopFilterBar({
+  tags,
+  selectedTags,
+  onTagToggle,
+  onClearAllTags,
   folders,
   selectedFolderId,
   onFolderSelect,
@@ -47,21 +61,49 @@ export function TopFilterBar({
   onModelNameSelect,
   sortOrder,
   onSortOrderChange,
-  onCommandPalette: _onCommandPalette,
 }: TopFilterBarProps) {
+  const [tagQuery, setTagQuery] = useState("");
   const pillarScrollRef = useRef<HTMLDivElement>(null);
   const folderScrollRef = useRef<HTMLDivElement>(null);
   const modelScrollRef = useRef<HTMLDivElement>(null);
 
+  const orderedTags = useMemo(() => {
+    return [...tags].sort((a, b) => {
+      const usageDiff = (b.usageCount ?? 0) - (a.usageCount ?? 0);
+      if (usageDiff !== 0) return usageDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [tags]);
+
+  const filteredTags = useMemo(() => {
+    const needle = tagQuery.trim().toLowerCase();
+    if (!needle) return orderedTags;
+    return orderedTags.filter((tag) => tag.name.toLowerCase().includes(needle));
+  }, [orderedTags, tagQuery]);
+
+  const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+
+  const handleWheel = (
+    ref: React.RefObject<HTMLDivElement | null>,
+    e: React.WheelEvent,
+  ) => {
+    const el = ref.current;
+    if (!el || e.deltaY === 0) return;
+    const canScroll = el.scrollWidth > el.clientWidth;
+    if (!canScroll) return;
+    const atStart = el.scrollLeft <= 0;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+    if ((e.deltaY < 0 && atStart) || (e.deltaY > 0 && atEnd)) return;
+    e.preventDefault();
+    el.scrollLeft += e.deltaY;
+  };
+
   return (
     <div
-      className="sticky top-0 z-30 border-b"
+      className="sticky top-0 z-30"
       style={{
-        background:
-          "linear-gradient(90deg, rgba(11, 8, 5, 0.94) 0%, rgba(17, 10, 6, 0.90) 50%, rgba(11, 8, 5, 0.94) 100%)",
-        backdropFilter: "blur(20px) saturate(150%)",
-        WebkitBackdropFilter: "blur(20px) saturate(150%)",
-        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--paper)",
+        borderBottom: "1px solid var(--border-default)",
       }}
     >
       <div
@@ -72,24 +114,21 @@ export function TopFilterBar({
           msOverflowStyle: "none",
           borderBottom: "1px solid var(--border-subtle)",
         }}
-        onWheel={(e) => {
-          if (pillarScrollRef.current && e.deltaY !== 0) {
-            e.preventDefault();
-            pillarScrollRef.current.scrollLeft += e.deltaY;
-          }
-        }}
+        onWheel={(e) => handleWheel(pillarScrollRef, e)}
       >
-        <FolderTab
-          label="All"
+        <FilterTab
+          label="All Pillars"
           active={selectedPillar === null}
           onClick={() => onPillarSelect(null)}
+          tone="coral"
         />
         {PILLAR_OPTIONS.map((pillar) => (
-          <FolderTab
+          <FilterTab
             key={pillar.value}
             label={pillar.label}
             active={selectedPillar === pillar.value}
             onClick={() => onPillarSelect(pillar.value)}
+            tone="coral"
           />
         ))}
       </div>
@@ -99,24 +138,21 @@ export function TopFilterBar({
           ref={folderScrollRef}
           className="flex flex-1 items-center gap-1.5 overflow-x-auto px-4"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          onWheel={(e) => {
-            if (folderScrollRef.current && e.deltaY !== 0) {
-              e.preventDefault();
-              folderScrollRef.current.scrollLeft += e.deltaY;
-            }
-          }}
+          onWheel={(e) => handleWheel(folderScrollRef, e)}
         >
-          <FolderTab
-            label="All"
+          <FilterTab
+            label="All Folders"
             active={selectedFolderId === null}
             onClick={() => onFolderSelect(null)}
+            tone="ink"
           />
           {folders.map((folder) => (
-            <FolderTab
+            <FilterTab
               key={folder._id}
               label={folder.name}
               active={selectedFolderId === folder._id}
               onClick={() => onFolderSelect(folder._id)}
+              tone="ink"
             />
           ))}
         </div>
@@ -133,14 +169,14 @@ export function TopFilterBar({
           {SORT_OPTIONS.map((option, idx) => (
             <span key={option.value} className="flex items-center">
               {idx > 0 && (
-                <span className="mx-2 text-[11px]" style={{ color: "var(--text-ghost)" }}>
-                  ·
+                <span className="mx-1.5 text-[10px] font-mono" style={{ color: "var(--text-ghost)" }}>
+                  /
                 </span>
               )}
               <button
                 type="button"
                 onClick={() => onSortOrderChange(option.value)}
-                className="text-[13px] font-medium transition-colors"
+                className="font-mono text-[10px] font-medium uppercase tracking-wider transition-colors"
                 style={{
                   color:
                     sortOrder === option.value
@@ -149,20 +185,9 @@ export function TopFilterBar({
                   textDecoration: sortOrder === option.value ? "underline" : "none",
                   textUnderlineOffset: "4px",
                   textDecorationColor:
-                    sortOrder === option.value ? "var(--amber-9)" : "transparent",
-                  textDecorationThickness: "1px",
+                    sortOrder === option.value ? "var(--coral)" : "transparent",
+                  textDecorationThickness: "1.5px",
                   transitionDuration: "var(--duration-instant)",
-                }}
-                onMouseEnter={(e) => {
-                  if (sortOrder !== option.value) {
-                    e.currentTarget.style.color = "var(--text-secondary)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color =
-                    sortOrder === option.value
-                      ? "var(--text-primary)"
-                      : "var(--text-tertiary)";
                 }}
               >
                 {option.label}
@@ -172,31 +197,39 @@ export function TopFilterBar({
         </div>
       </div>
 
+      <TopTagSystem
+        tagQuery={tagQuery}
+        onTagQueryChange={setTagQuery}
+        tags={filteredTags}
+        selectedTags={selectedTagSet}
+        onTagToggle={onTagToggle}
+        onClearAllTags={onClearAllTags}
+      />
+
       {availableModelNames.length > 0 && (
         <div
           ref={modelScrollRef}
           className="flex items-center gap-1.5 overflow-x-auto px-4 pb-2"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          onWheel={(e) => {
-            if (modelScrollRef.current && e.deltaY !== 0) {
-              e.preventDefault();
-              modelScrollRef.current.scrollLeft += e.deltaY;
-            }
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            borderTop: "1px solid var(--border-subtle)",
           }}
+          onWheel={(e) => handleWheel(modelScrollRef, e)}
         >
           <span
-            className="mr-1 flex-shrink-0 text-[11px] font-medium"
+            className="mr-1 flex-shrink-0 text-[11px] font-medium uppercase tracking-wide"
             style={{ color: "var(--text-tertiary)" }}
           >
             Model
           </span>
-          <ModelNameChip
+          <ModelChip
             label="All"
             active={selectedModelName === null}
             onClick={() => onModelNameSelect(null)}
           />
           {availableModelNames.map((name) => (
-            <ModelNameChip
+            <ModelChip
               key={name}
               label={name}
               active={selectedModelName === name}
@@ -209,42 +242,123 @@ export function TopFilterBar({
   );
 }
 
-function ModelNameChip({
+function TopTagSystem({
+  tagQuery,
+  onTagQueryChange,
+  tags,
+  selectedTags,
+  onTagToggle,
+  onClearAllTags,
+}: {
+  tagQuery: string;
+  onTagQueryChange: (value: string) => void;
+  tags: Tag[];
+  selectedTags: Set<string>;
+  onTagToggle: (tagId: string) => void;
+  onClearAllTags: () => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div
+      id="top-tag-system"
+      className="border-t px-4 py-2"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-tertiary)" }}>
+          Tags
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            value={tagQuery}
+            onChange={(e) => onTagQueryChange(e.target.value)}
+            placeholder="Filter tags"
+            aria-label="Search tags"
+            className="h-7 w-full rounded-md border bg-transparent px-2 text-[12px] outline-none"
+            style={{
+              borderColor: "var(--border-default)",
+              color: "var(--text-primary)",
+              maxWidth: "220px",
+            }}
+          />
+          {selectedTags.size > 0 && (
+            <button
+              type="button"
+              onClick={onClearAllTags}
+              className="btn-brutal-outline h-7"
+            >
+              Clear {selectedTags.size}
+            </button>
+          )}
+        </div>
+      </div>
+      <div
+        ref={scrollRef}
+        className="flex items-center gap-1.5 overflow-x-auto"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        onWheel={(e) => {
+          const el = scrollRef.current;
+          if (!el || e.deltaY === 0) return;
+          const canScroll = el.scrollWidth > el.clientWidth;
+          if (!canScroll) return;
+          const atStart = el.scrollLeft <= 0;
+          const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+          if ((e.deltaY < 0 && atStart) || (e.deltaY > 0 && atEnd)) return;
+          e.preventDefault();
+          el.scrollLeft += e.deltaY;
+        }}
+      >
+        <TagButton label="All Tags" active={selectedTags.size === 0} onClick={onClearAllTags} />
+        {tags.map((tag) => (
+          <TagButton
+            key={tag._id}
+            label={tag.name}
+            count={tag.usageCount}
+            active={selectedTags.has(tag._id)}
+            onClick={() => onTagToggle(tag._id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilterTab({
   label,
   active,
   onClick,
+  tone,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  tone: "ink" | "coral";
 }) {
+  const activeBackground = tone === "coral" ? "var(--coral)" : "var(--bg-inverse)";
+  const activeColor = tone === "coral" ? "#FFFFFF" : "var(--text-inverse)";
+
+  const className = [
+    "relative flex-shrink-0 px-3.5 py-1.5 text-[11px] font-mono font-medium uppercase tracking-wider border",
+    "transition-[background-color,color,border-color,box-shadow,transform] duration-[var(--duration-fast)]",
+    "active:translate-x-0 active:translate-y-0 active:shadow-none",
+    active
+      ? ""
+      : "hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)]",
+  ].join(" ");
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-xs transition-all"
+      className={className}
       style={{
-        background: active
-          ? "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08))"
-          : "rgba(245, 208, 168, 0.03)",
-        border: active
-          ? "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.28)"
-          : "1px solid var(--border-subtle)",
-        color: active ? "var(--amber-9)" : "var(--text-tertiary)",
-        fontWeight: active ? 600 : 500,
-        transitionDuration: "var(--duration-fast)",
-      }}
-      onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "var(--surface-2)";
-          e.currentTarget.style.color = "var(--text-secondary)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "rgba(245, 208, 168, 0.03)";
-          e.currentTarget.style.color = "var(--text-tertiary)";
-        }
+        background: active ? activeBackground : "transparent",
+        borderColor: active ? activeBackground : "var(--border-subtle)",
+        color: active ? activeColor : "var(--text-secondary)",
+        fontWeight: 500,
+        boxShadow: active ? "var(--shadow-brutal-sm)" : "none",
+        transform: active ? "translate(-1px, -1px)" : undefined,
       }}
     >
       {label}
@@ -252,7 +366,53 @@ function ModelNameChip({
   );
 }
 
-function FolderTab({
+function TagButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const className = [
+    "inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border px-2.5 py-1 text-[10px] font-mono font-medium uppercase tracking-wider",
+    "transition-[background-color,color,border-color,box-shadow,transform] duration-[var(--duration-fast)]",
+    "active:translate-x-0 active:translate-y-0 active:shadow-none",
+    active
+      ? "bg-[var(--bg-inverse)] border-[var(--bg-inverse)] text-[var(--text-inverse)]"
+      : "bg-transparent border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
+  ].join(" ");
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={className}
+      style={{
+        boxShadow: active ? "var(--shadow-brutal-sm)" : "none",
+        transform: active ? "translate(-1px, -1px)" : undefined,
+      }}
+    >
+      {label}
+      {count !== undefined && (
+        <span
+          className="px-1 py-px text-[9px] font-mono tabular-nums"
+          style={{
+            backgroundColor: active ? "rgba(255,255,255,0.18)" : "var(--surface-3)",
+            color: active ? "#FFFFFF" : "var(--text-ghost)",
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ModelChip({
   label,
   active,
   onClick,
@@ -261,40 +421,28 @@ function FolderTab({
   active: boolean;
   onClick: () => void;
 }) {
+  const className = [
+    "flex-shrink-0 border px-2.5 py-0.5 text-[10px] font-mono font-medium uppercase tracking-wider",
+    "transition-[background-color,color,border-color] duration-[var(--duration-fast)]",
+    active
+      ? ""
+      : "hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)] hover:border-[var(--border-strong)]",
+  ].join(" ");
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="relative flex-shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition-all"
+      className={className}
       style={{
         background: active
-          ? "linear-gradient(135deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15), rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.08))"
+          ? "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)"
           : "transparent",
-        border: active
-          ? "1px solid rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.25)"
-          : "1px solid transparent",
-        color: active ? "var(--amber-9)" : "var(--text-secondary)",
-        fontWeight: active ? 600 : 400,
-        boxShadow: active ? "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)" : "none",
-        transitionDuration: "var(--duration-fast)",
-      }}
-      onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "var(--surface-2)";
-          e.currentTarget.style.color = "var(--text-primary)";
-          e.currentTarget.style.borderColor = "var(--border-strong)";
-        } else {
-          e.currentTarget.style.boxShadow = "0 0 16px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.18)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--text-secondary)";
-          e.currentTarget.style.borderColor = "transparent";
-        } else {
-          e.currentTarget.style.boxShadow = "0 0 12px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.1)";
-        }
+        borderColor: active
+          ? "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.30)"
+          : "var(--border-default)",
+        color: active ? "var(--coral)" : "var(--text-tertiary)",
+        fontWeight: 500,
       }}
     >
       {label}

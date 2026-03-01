@@ -19,9 +19,12 @@ export function TelegramLoginButton({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const globalWindow = window as unknown as {
+      __onTelegramAuth?: (data: Record<string, unknown>) => Promise<void>;
+    };
 
     // Global callback invoked by the Telegram widget script.
-    (window as Record<string, unknown>).__onTelegramAuth = async (
+    globalWindow.__onTelegramAuth = async (
       data: Record<string, unknown>,
     ) => {
       await fetch("/api/auth/telegram", {
@@ -45,7 +48,7 @@ export function TelegramLoginButton({
 
     return () => {
       container.innerHTML = "";
-      delete (window as Record<string, unknown>).__onTelegramAuth;
+      delete globalWindow.__onTelegramAuth;
     };
   }, [size, refresh]);
 

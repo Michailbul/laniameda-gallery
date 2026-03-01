@@ -456,3 +456,39 @@ export const countAssets = query({
     return await ctx.db.query("assets").collect().then((rows) => rows.length);
   },
 });
+
+export const deleteAsset = mutation({
+  args: { id: v.id("assets") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const links = await ctx.db
+      .query("assetTags")
+      .withIndex("by_asset", (q) => q.eq("assetId", args.id))
+      .collect();
+    for (const link of links) {
+      await ctx.db.delete(link._id);
+    }
+    await ctx.db.delete(args.id);
+    return null;
+  },
+});
+
+export const bulkDeleteAssets = mutation({
+  args: { ids: v.array(v.id("assets")) },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    let count = 0;
+    for (const id of args.ids) {
+      const links = await ctx.db
+        .query("assetTags")
+        .withIndex("by_asset", (q) => q.eq("assetId", args.id))
+        .collect();
+      for (const link of links) {
+        await ctx.db.delete(link._id);
+      }
+      await ctx.db.delete(id);
+      count++;
+    }
+    return count;
+  },
+});

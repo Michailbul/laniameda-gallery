@@ -279,3 +279,40 @@ export const searchPrompts = query({
     return results.slice(0, limit);
   },
 });
+
+export const deletePrompt = mutation({
+  args: { id: v.id("prompts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Delete linked promptTags
+    const links = await ctx.db
+      .query("promptTags")
+      .withIndex("by_prompt", (q) => q.eq("promptId", args.id))
+      .collect();
+    for (const link of links) {
+      await ctx.db.delete(link._id);
+    }
+    await ctx.db.delete(args.id);
+    return null;
+  },
+});
+
+export const bulkDeletePrompts = mutation({
+  args: { ids: v.array(v.id("prompts")) },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    let count = 0;
+    for (const id of args.ids) {
+      const links = await ctx.db
+        .query("promptTags")
+        .withIndex("by_prompt", (q) => q.eq("promptId", id))
+        .collect();
+      for (const link of links) {
+        await ctx.db.delete(link._id);
+      }
+      await ctx.db.delete(id);
+      count++;
+    }
+    return count;
+  },
+});

@@ -4,6 +4,16 @@ import { Id } from "./_generated/dataModel";
 export const normalizeTagName = (name: string) =>
   name.trim().toLowerCase().replace(/\s+/g, " ");
 
+export const canonicalTagKey = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/^#+/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 export const dedupeIds = <T extends string>(ids: T[]) => {
   return Array.from(new Set(ids));
 };
