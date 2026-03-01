@@ -1,208 +1,164 @@
-# Design System & UI Direction
+# Design System
 
-Last updated: 2026-02-20
+Last updated: 2026-03-01
 
-## Product UI Summary (PM View)
-We are running a dark, gallery-first interface optimized for creative people. The visual language is **monochrome editorial**: black-on-black surfaces, high-contrast white CTAs, and a minimal palette that feels cinematic, precise, and premium. The UI reduces chrome so imagery remains the hero, with **pill-shaped navigation** and **soft-glass surfaces** that feel modern and controlled.
+> ⚠️ **Note:** An older version of this doc described a dark teal/monochrome theme. That was the original direction.
+> The **current implementation** uses a **warm paper light theme**. Follow this doc.
 
-This is a deliberate “studio console” aesthetic with refinement over flash—quiet, high-contrast, and unmistakably premium.
+---
 
-## Current Theme Identity
-- **Audience**: Creative professionals; visually literate users.
-- **Mode**: Dark-only (no light mode planned yet).
-- **Workspace**: Single workspace for now.
-- **Palette**: Radix teal accent over custom gray scale (black + graphite).
-- **Contrast**: Strong; white CTAs on near-black surfaces.
-- **Tone**: Editorial + luxury; content-first, minimal chrome, smooth transitions.
-- **Shape language**: Soft geometry (pill controls, rounded cards, rounded dialogs).
-- **Density**: Compact, but with more breathing room around primary controls.
+## Theme Identity
 
-## Design Tokens (Current)
-Source of truth:
-- `tailwind.config.ts` (token values)
-- `app/globals.css` (CSS variables + theme mapping)
+- **Mode**: Light only (warm paper aesthetic)
+- **Audience**: Creative professionals — visually literate, content-first
+- **Tone**: Warm editorial, studio console — quiet confidence, not SaaS
+- **Palette**: Warm whites (`--paper`), ink blacks (`--ink`), coral/amber accents (`--coral`, `--amber-9`)
+- **Shape**: Rounded cards, soft geometry, no sharp edges
 
-Key tokens:
-- **Background**: `#000000` (gray-1)
-- **Surface/Card**: `#121212` (gray-2)
-- **Primary (CTA)**: `#00fffb` (teal-9)
-- **Border**: `#3a3a3a` (gray-6)
-- **Muted Text**: `#b4b4b4` (gray-11)
-- **Radius base**: `--radius: 1.25rem` (soft, pill-friendly)
+---
 
-Token families are already defined for:
-- `background`, `foreground`, `primary`, `secondary`, `muted`, `accent`, `destructive`
-- `border`, `input`, `ring`
-- `chart-1`..`chart-5`
-- `sidebar` tokens (unused today, but ready)
+## Design Principles
 
-## Typography
-Current stack:
-- `Manrope`, `Sora`, `Inter` fallback.
+1. **Content is hero** — images dominate; chrome recedes
+2. **Warm editorial** — paper backgrounds, ink text, serif display accents (Georgia italic for display text)
+3. **Pillar-aware** — accent color shifts with active pillar using `rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), ...)`
+4. **Quiet confidence** — no loud hover effects, no neon glows, no bouncy animations
+5. **CSS-first** — Tailwind `hover:` / `active:` / `focus:` over JS `onMouseEnter` handlers
+6. **Progressive disclosure** — essential info first, details on demand
 
-Usage pattern:
-- Uppercase micro-labels with wide tracking (`tracking-[0.3em]` to `0.5em`).
-- Compact sizes (`text-[10px]` to `text-sm`), typically `text-xs`.
-- Headlines are simple, low-weight, minimal ornamentation.
+---
 
-## Common Design Language (Shared Vocabulary)
-This is the style system we should carry across all new screens:
-- **Materials**: Black-on-black surfaces; soft overlays; subtle blur and glass-like layers.
-- **Light & shadow**: Minimal elevation; thin outlines and soft shadows instead of heavy cards.
-- **Color behavior**: Monochrome; primary actions go white, everything else stays graphite.
-- **Type**: Editorial labels (uppercase, tracked); restrained body sizes; no oversized UI chrome.
-- **Rhythm**: Tight spacing with intentional whitespace around CTA rows.
-- **Motion**: Smooth, low-friction transitions; avoid busy micro-animations.
-- **Iconography**: Minimal, thin-line icons; use sparingly as supportive cues.
-- **Imagery**: High contrast, sharp detail; keep the grid clean and cinematic.
-- **Interaction tone**: Quiet confidence—no loud hover states, no neon effects.
+## CSS Variables (Source of Truth)
 
-## Motion & Effects
-Motion is subtle and utility-first:
-- `tw-animate-css` for component-level animation helpers.
-- A custom shimmer keyframe for image loading skeletons.
-- Focused on hover and subtle transitions; no large-scale page motion.
+Defined in `app/globals.css`. Key tokens:
 
-## Layout & Surfaces
-Structural patterns used today:
-- **Sticky header** (filter/tabs).
-- **Masonry grid** for assets (gallery-first).
-- **Side filter sheet** (overlay + blur).
-- **Modal** for detail view (image focus).
-- **Manual ingest panel** with dense fields and dashed dropzones.
+### Surface & Text
+| Token | Use |
+|-------|-----|
+| `--paper` | Page background (warm off-white) |
+| `--ink` | Primary text (near-black) |
+| `--text-primary` | Main body text |
+| `--text-secondary` | Metadata, captions |
+| `--surface-2` | Card backgrounds, hover fills |
+| `--surface-3` | Deeper fills, selected states |
+| `--border-default` | Dividers, card outlines |
 
-Surfaces use `bg-background` and `bg-card` with low-opacity overlays and subtle borders, creating a layered, quiet feel without high contrast blocks.
+### Accents
+| Token | Use |
+|-------|-----|
+| `--coral` | Primary action color (warm red-orange) |
+| `--amber-9` | Pillar accent fallback |
+| `--pillar-r/g/b` | Dynamic pillar RGB values for tinting |
 
-## Component Library & UI Tech
-Current system:
-- **Tailwind CSS v4** for styling and tokens (`@theme` inline with CSS variables).
-- **shadcn/ui** base styles (`shadcn/tailwind.css`) and custom `components/ui/*`.
-- **Radix primitives** (via shadcn and `radix-ui` dependency).
-- **Icons**: `lucide-react`, `@hugeicons/react`.
-- **Animations**: `tw-animate-css`.
+### Timing
+| Token | Use |
+|-------|-----|
+| `--duration-fast` | 150ms — tab/hover transitions |
+| `--duration-normal` | 250ms — panel open/close |
 
-This is a **hybrid utility + component system**: tokens are centralized, but the UI layer is mostly Tailwind classes and custom component wrappers.
+### Elevation (Shadow system)
+| Token | Use |
+|-------|-----|
+| `--shadow-sm` | Cards at rest, badges |
+| `--shadow-md` | Hover states, dropdowns |
+| `--shadow-lg` | Modals, floating panels |
+| `--shadow-pillar-glow` | Pillar-tinted card glow on hover |
 
-## Component System Capabilities (What We Can Do Now)
-We already have building blocks for:
-- Buttons, inputs, textareas, badges, dropdowns, selects, comboboxes
-- Dialogs, tables, cards
-- A consistent form field pattern (labels, helper text, error states)
-- Grid/list layouts and modals
+---
 
-This means we can scale the interface without bringing in a new UI framework if we stay within the current aesthetic.
+## Typography Scale
 
-## Design System Options (PM-Level Choices)
-Below are the realistic paths, in increasing scope.
+Use **only** these tiers — no hardcoded `px` sizes:
 
-### Option A — Refine Current System (Lowest Risk)
-Keep Tailwind + shadcn/ui, but formalize the token usage.
-- Define a type scale (xs/sm/md/lg) and spacing scale usage by component.
-- Align all components to the same radius/shape language (sharp vs rounded).
-- Add consistent elevation tokens (shadows or outlines).
-Impact: fast, minimal refactor, preserves velocity.
+| Tier | Size | Use |
+|------|------|-----|
+| `micro` | 10px | Section labels, uppercase mono |
+| `xs` | 11px | Badges, timestamps, metadata |
+| `sm` | 13px | Body text, button labels, nav |
+| `base` | 15px | Primary content text |
+| `lg` | 18px | Section headings |
+| `xl` | 24px | Page headings |
+| `display` | 32–48px | Hero text, empty states (Georgia italic) |
 
-### Option B — Multi-Theme Tokens (Future)
-Stay with the same system, but introduce multiple theme maps.
-- Add a light theme or branded theme when needed.
-- Use CSS variables to swap token sets (no component rewrite).
-Impact: moderate, very scalable brand expression.
+---
 
-### Option C — Component-First Design System
-Lean into shadcn/ui as a formal design system.
-- Establish canonical variants (primary, ghost, subtle, danger).
-- Move repeated class patterns into `components/ui/*` variants.
-Impact: cleaner, more consistent UI with faster assembly.
+## Animation Classes
 
-### Option D — Switch to a Full UI System (Largest Scope)
-Adopt a packaged system (Radix Themes, Mantine, Chakra) to enforce structure.
-- Gains: faster prototyping, built-in accessibility and theming.
-- Costs: heavier refactor, style mismatch with the current visual language.
-Impact: highest scope; only worth it if we want a dramatic shift in process.
+Defined in `app/globals.css`:
 
-## How We Would Change the Design System (Practical Steps)
-The current system is token-driven, so we can change the look without rewriting UI.
+| Class | Use |
+|-------|-----|
+| `animate-fade-in` | General fade-in |
+| `animate-panel-slide-in` | Side panel enter |
+| `animate-card-entrance` | Masonry card stagger |
+| `animate-sheet-slide-up` | Mobile bottom sheet enter |
+| `animate-toast-enter/exit` | Copy feedback toast |
+| `animate-tab-content-enter` | Tab content switch |
 
-Primary levers:
-1. **Palette + tone**  
-   Update `tailwind.config.ts` and `app/globals.css` tokens (background, surfaces, primary).
-2. **Shape language**  
-   Normalize `rounded-none` vs `rounded-*` in `components/ui/*`.
-3. **Density & scale**  
-   Standardize control heights (`h-8`, `h-9`, `h-10`) and typography sizes.
-4. **Component variants**  
-   Expand `cva` variants in `components/ui/*` for consistent usage.
-5. **Motion**  
-   Add a single page-load and panel transition sequence for polish.
+---
 
-Recommended order if we choose to evolve:
-- Lock the token palette + radius.
-- Normalize button/input/form styles.
-- Apply the style to high-traffic screens (gallery, modal, upload).
-
-## AI Agent UX Foundations (Design-First)
-To make the product feel like a trustworthy creative AI tool, we should standardize these UI patterns:
-- **Run objects**: Every agent operation becomes a visible “run” with inputs, tools, outputs, and artifacts.
-- **Provenance**: Show source and timestamp beneath agent outputs and assets.
-- **Status language**: Consistent “Thinking / Running Tool / Waiting” chip styles.
-- **Confidence cues**: Warnings for low confidence or unresolved steps.
-- **History & memory**: Surface recent runs and saved prompts as first-class UI.
-
-## Suggested Direction (Now)
-- Choose **Option A** now to refine the current system without slowing delivery.
-- Keep **dark-only** and **single workspace** in scope for MVP.
-- Begin implementing the **AI Agent UX Foundations** on new features immediately.
-
-## Component Rules (Monochrome Editorial)
-Use these rules as the shared system for all new UI work.
+## Component Rules
 
 ### Buttons
-- **Primary**: white fill, black text, minimal shadow, no gradients.
-- **Secondary**: graphite fill, subtle border, white text.
-- **Ghost**: no fill, hover only; avoid loud color shifts.
-- **Sizes**: default height `h-9`, compact `h-8`, avoid extra tall.
-- **Shape**: pill (rounded-full) for all primary controls.
+- Primary: `--coral` fill, white text, `--shadow-sm`
+- Ghost: transparent → `--surface-2` on hover, `transition-colors`
+- Active state: `active:scale-[0.98]`
+- No inline `onMouseEnter` handlers — use Tailwind `hover:` classes
 
-### Inputs & Textareas
-- **Background**: muted surface, no strong borders; use thin outline on focus.
-- **Text**: `text-xs` to `text-sm` only; avoid large input type.
-- **Placeholder**: low-contrast, never brighter than metadata text.
-- **Spacing**: internal padding consistent with button height.
-- **Shape**: pill for single-line inputs; rounded-2xl for textareas.
+### Cards (ImageCard)
+- Hover lift: `translateY(-4px) scale(1.01)` over 250ms
+- Hover shadow: `--shadow-lg` + pillar glow ring
+- Prompt overlay: max 2 lines, CSS `text-shadow` for readability
+- Selection dimming: unselected cards `opacity: 0.65` via parent `data-has-selection` attribute
 
-### Tags / Chips / Status
-- **Status chips**: single-line, uppercase or small caps feel.
-- **Colors**: monochrome (white for active, graphite for neutral).
-- **Density**: compact; always pill-shaped.
+### Detail Panel (ExpandedDetail)
+- 3 tabs: Prompt (default), Details, Actions
+- Tab switch uses `animate-tab-content-enter`
+- Copy feedback: toast notification (not just button color change)
+- Width: 380px fixed on desktop
 
-### Cards / Tiles
-- **Surface**: subtle separation using border and shadow, not heavy fills.
-- **Padding**: consistent 16–24px; avoid mixed padding sizes within a card.
-- **Corners**: rounded-2xl, slightly softer than buttons.
+### Mobile Bottom Sheet
+- `rounded-t-3xl`, `88dvh` max
+- Drag handle: 4px × 40px rounded capsule
+- `padding-bottom: env(safe-area-inset-bottom)`
+- Exit animation: slide down before unmount
 
-### Modals / Sheets
-- **Backdrop**: dark blur overlay, not pure black.
-- **Frame**: large, panel-like container with rounded-3xl corners and a subtle glass surface.
-- **Header**: thin top bar with title + actions; content sits on a spacious inner panel.
-- **Close actions**: top-right icon, quiet hover state.
+### Sidebar
+- NavItem active: left coral marker + filled icon box + bold mono label
+- NavItem hover: `rgba(255,255,255,0.42)` background via CSS
+- Collapse animation: content fades, then sidebar narrows
 
-### Tables & Lists
-- **Row height**: compact; keep typography small.
-- **Header**: muted, uppercase or tracked labels.
-- **Dividers**: thin, low-contrast; no zebra striping unless required.
+---
 
-### Empty States
-- **Tone**: calm and encouraging, not playful.
-- **Content**: one short headline + one sentence + one action.
+## Pillar Theming
 
-### Navigation & Tabs
-- **Tabs**: quiet, text-first; emphasize active with weight + subtle underline or contrast.
-- **Sidebars**: low contrast, content-focused, no bright separators.
+Each of the 4 pillars sets CSS vars on the root:
 
-### Motion
-- **Hover**: minimal, 100–200ms; avoid bounce.
-- **Open/close**: soft fade + slight scale.
-- **Loading**: shimmer or subtle pulse only; no spinners unless blocking.
+| Pillar | Accent |
+|--------|--------|
+| `creators` | Coral / warm red |
+| `cars` | Amber / orange |
+| `designs` | Blue / cool |
+| `dump` | Neutral gray |
 
-If the goal is to create a distinct brand identity:
-- Choose **Option B** (multi-theme tokens) immediately.
+Interactive elements use `rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)` for tinted backgrounds and borders. Verify pillar theming works after every UI change by switching all 4 pillars.
+
+---
+
+## Tech Stack
+
+- **Tailwind CSS v4** — utility classes + token system
+- **CSS variables** — design tokens in `:root` (no hardcoding)
+- **No shadcn/ui** in active use — custom components only
+- **Lucide React** — icons
+- **Georgia italic** — display/hero text accent
+
+---
+
+## What NOT to Do
+
+- ❌ No hardcoded `rgba(...)` color strings — use tokens
+- ❌ No `onMouseEnter`/`onMouseLeave` for hover styling — use CSS
+- ❌ No inline `style={{ boxShadow: '...' }}` — use `--shadow-*` tokens
+- ❌ No font sizes outside the 7-tier scale
+- ❌ No `px` values for color opacity — use CSS vars

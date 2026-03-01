@@ -1,77 +1,78 @@
-# Backend Convex Setup
+# Backend & Convex Setup
 
-Last updated: 2026-02-13
+Last updated: 2026-03-01
 
-## Current Convex Runtime
-- Stack: Convex functions (queries/mutations/actions) + storage.
-- Auth: WorkOS JWT validation via `convex/auth.config.ts`.
-- Existing ingestion action: `ingest:ingestFromApi`.
+---
 
-## New Run Tables
-Defined in `convex/schema.ts`:
-1. `runs`
-2. `run_events`
-3. `run_artifacts`
+## Convex tables (schema.ts)
 
-These support durable run orchestration and stream/event reconstruction.
+| Table | Purpose |
+|-------|---------|
+| `assets` | Images/videos with owner, pillar, tags, storage refs |
+| `prompts` | Text prompts with owner, tags, folder |
+| `tags` | Normalized tag names + usage counts |
+| `folders` | Named groupings |
+| `assetTags` | asset ↔ tag join |
+| `promptTags` | prompt ↔ tag join |
+| `runs` | Durable AI run records (status, model, intent, usage) |
+| `run_events` | Per-run event stream (stream_text, tool_call, error, etc.) |
+| `run_artifacts` | Outputs attached to a run (prompt package, image, text) |
 
-`runs` now also stores AI runtime metadata:
-- `runtime`
-- `provider`
-- `model`
-- `mode`
-- `usage`
+---
 
-## New Run Functions
-Defined in `convex/runs.ts`:
-1. `createRun`
-2. `claimRun`
-3. `setRunRunning`
-4. `appendRunEvent`
-5. `completeRun`
-6. `failRun`
-7. `cancelRun`
-8. `resumeRun`
-9. `getRun`
-10. `listRunsByUser`
+## Run lifecycle functions (convex/runs.ts)
 
-## Integration Path
-- Next.js API routes call Convex via `ConvexHttpClient` + function refs.
-- Worker service calls the same run functions for orchestration state.
-- Frontend can poll/subscribe to `getRun` and `listRunsByUser`.
+`createRun` → `claimRun` → `setRunRunning` → `appendRunEvent` → `completeRun` / `failRun` / `cancelRun`
 
-## Required Commands After Pull
-1. `bun install`
-2. `bunx convex codegen`
-3. `bun run lint`
-4. `bun test`
+Runs track: `runtime`, `provider`, `model`, `mode`, `intent`, `source`, `usage`.
 
-## Environment Configuration
-### Next.js/API process
-- `CONVEX_URL` (or `NEXT_PUBLIC_CONVEX_URL`)
-- `AI_GATEWAY_API_KEY`
-- `AI_RUNTIME_DEFAULT`
-- `ENABLE_AGENT_WORKER`
-- `AI_TEXT_MODEL`
-- `AI_IMAGE_MODEL_NANO_BANANA`
-- `AI_IMAGE_MODEL_NANO_BANANA_FAST`
-- Optional worker fallback env (`AGENT_WORKER_URL`, `AGENT_WORKER_SHARED_SECRET`)
+---
 
-### Convex deployment
-- `WORKOS_CLIENT_ID`
+## Key ingestion functions
 
-### Worker (uses Convex URL to call mutations/queries)
-- `CONVEX_URL`
+- `convex/ingest.ts` — `ingestFromApi` action (URL / file / prompt, idempotency via `ingestKey`)
+- `convex/agent_ingest.ts` — hidden ingest tool for agent-triggered saves
+- `/api/ingest` — Next.js route that calls the Convex action
 
-## Recommended Convex Components (Next Phases)
-1. `@convex-dev/workflow` for durable retries and long-running orchestration.
-2. `@convex-dev/rate-limiter` for per-user run throttling.
-3. `@convex-dev/persistent-text-streaming` for streaming persistence ergonomics.
-4. `@convex-dev/workos-authkit` if durable user sync/events are needed.
-5. Payments (plan-only for now):
-   - `@convex-dev/stripe`
-   - `@convex-dev/polar`
+---
 
-## Known Notes
-- Convex actions are still capped in duration; external worker remains the fallback for long-running workflows.
-- Current AI endpoints persist compact run logs (milestones, final artifacts, usage) instead of full token-by-token transcript storage.
+## Environment variables
+
+```bash
+# Required for all environments
+NEXT_PUBLIC_CONVEX_URL=...
+CONVEX_URL=...
+KB_OWNER_USER_ID=...          # Michael's Telegram user ID
+
+# Auth
+TELEGRAM_BOT_TOKEN=...
+
+# AI runtime
+AI_GATEWAY_API_KEY=...
+AI_TEXT_MODEL=...
+AI_IMAGE_MODEL_NANO_BANANA=...
+AI_IMAGE_MODEL_NANO_BANANA_FAST=...
+
+# Optional
+ENABLE_AGENT_WORKER=false
+AGENT_WORKER_URL=...
+AGENT_WORKER_SHARED_SECRET=...
+```
+
+---
+
+## After schema changes
+
+```bash
+bunx convex dev      # pushes schema, regenerates types
+bun run typecheck    # verify no type errors
+bun test             # verify no test breakage
+```
+
+---
+
+## Recommended future Convex components
+
+- `@convex-dev/workflow` — durable retries for long-running orchestration
+- `@convex-dev/rate-limiter` — per-user run throttling
+- `@convex-dev/persistent-text-streaming` — streaming persistence
