@@ -495,9 +495,27 @@ export const countAssets = query({
 });
 
 export const deleteAsset = mutation({
-  args: { id: v.id("assets") },
+  args: {
+    id: v.id("assets"),
+    ownerUserId: v.string(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.id);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+
+    const ownerCandidates = resolveOwnerUserIdCandidates(ownerUserId);
+    if (!asset.ownerUserId || !ownerCandidates.includes(asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to ownerUserId.");
+    }
+
     const links = await ctx.db
       .query("assetTags")
       .withIndex("by_asset", (q) => q.eq("assetId", args.id))
@@ -505,7 +523,19 @@ export const deleteAsset = mutation({
     for (const link of links) {
       await ctx.db.delete(link._id);
     }
+
+    const storageIds = dedupeIds(
+      [asset.storageId, asset.thumbStorageId].filter(
+        (id): id is Id<"_storage"> => Boolean(id),
+      ),
+    );
+    for (const storageId of storageIds) {
+      await ctx.storage.delete(storageId);
+    }
+
     await ctx.db.delete(args.id);
+    await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
+
     return null;
   },
 });
@@ -527,5 +557,69 @@ export const bulkDeleteAssets = mutation({
       count++;
     }
     return count;
+  },
+});
+
+export const wipeAllAssets = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    dryRun: v.boolean(),
+    assetsDeleted: v.number(),
+    assetTagLinksDeleted: v.number(),
+    storageObjectsDeleted: v.number(),
+    tagsAdjusted: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? false;
+    const assets = await ctx.db.query("assets").collect();
+    const assetTagLinks = await ctx.db.query("assetTags").collect();
+
+    const tagUsageToSubtract = new Map<Id<"tags">, number>();
+    for (const asset of assets) {
+      for (const tagId of asset.tagIds) {
+        tagUsageToSubtract.set(tagId, (tagUsageToSubtract.get(tagId) ?? 0) + 1);
+      }
+    }
+
+    const uniqueStorageIds = new Set<Id<"_storage">>();
+    for (const asset of assets) {
+      if (asset.storageId) uniqueStorageIds.add(asset.storageId);
+      if (asset.thumbStorageId) uniqueStorageIds.add(asset.thumbStorageId);
+    }
+
+    let storageObjectsDeleted = 0;
+
+    if (!dryRun) {
+      for (const link of assetTagLinks) {
+        await ctx.db.delete(link._id);
+      }
+
+      for (const storageId of uniqueStorageIds) {
+        await ctx.storage.delete(storageId);
+        storageObjectsDeleted += 1;
+      }
+
+      for (const asset of assets) {
+        await ctx.db.delete(asset._id);
+      }
+
+      for (const [tagId, decrementBy] of tagUsageToSubtract) {
+        const tag = await ctx.db.get(tagId);
+        if (!tag) continue;
+        await ctx.db.patch(tagId, {
+          usageCount: Math.max(0, tag.usageCount - decrementBy),
+        });
+      }
+    }
+
+    return {
+      dryRun,
+      assetsDeleted: assets.length,
+      assetTagLinksDeleted: assetTagLinks.length,
+      storageObjectsDeleted: dryRun ? uniqueStorageIds.size : storageObjectsDeleted,
+      tagsAdjusted: tagUsageToSubtract.size,
+    };
   },
 });

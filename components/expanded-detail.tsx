@@ -8,6 +8,7 @@ import {
   Paintbrush,
   Move,
   UserRound,
+  Trash2,
   Copy,
   Download,
   Check,
@@ -48,6 +49,9 @@ interface ExpandedDetailProps {
   canGoPrev?: boolean;
   canGoNext?: boolean;
   imagePosition?: string;
+  onDelete?: (imageId: string) => void;
+  deleting?: boolean;
+  deleteError?: string;
 }
 
 const ACTIONS = [
@@ -73,6 +77,9 @@ export function ExpandedDetail({
   canGoPrev,
   canGoNext,
   imagePosition,
+  onDelete,
+  deleting = false,
+  deleteError,
 }: ExpandedDetailProps) {
   const [fullLoaded, setFullLoaded] = useState(false);
   const { modelName, tagNames } = image;
@@ -589,6 +596,33 @@ export function ExpandedDetail({
                 />
               </button>
             ))}
+            {onDelete && (
+              <>
+                <div className="my-1 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />
+                <button
+                  type="button"
+                  onClick={() => onDelete(image.id)}
+                  disabled={deleting}
+                  className="flex items-center gap-2.5 border px-3 py-2.5 transition-[background-color,border-color,opacity] duration-[var(--duration-fast)] disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Delete asset"
+                  style={{
+                    borderColor: "rgba(229, 83, 75, 0.45)",
+                    color: "#e5534b",
+                    backgroundColor: "rgba(229, 83, 75, 0.08)",
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" style={{ opacity: 0.9 }} />
+                  <span className="flex-1 text-left text-[10px] font-mono font-medium uppercase tracking-wider">
+                    {deleting ? "Deleting..." : "Delete Asset"}
+                  </span>
+                </button>
+                {deleteError && (
+                  <p className="text-[11px]" style={{ color: "#e5534b" }} role="alert">
+                    {deleteError}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

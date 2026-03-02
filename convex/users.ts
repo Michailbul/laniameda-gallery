@@ -217,3 +217,76 @@ export const getUser = query({
     return await ctx.db.get(args.id);
   },
 });
+
+export const normalizeOwnership = mutation({
+  args: {
+    targetOwnerUserId: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    targetOwnerUserId: v.string(),
+    dryRun: v.boolean(),
+    assetsUpdated: v.number(),
+    promptsUpdated: v.number(),
+    usersUpdated: v.number(),
+    runsUpdated: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const targetOwnerUserId = args.targetOwnerUserId.trim();
+    if (!targetOwnerUserId) {
+      throw new ConvexError("targetOwnerUserId is required.");
+    }
+
+    const dryRun = args.dryRun ?? false;
+
+    const assets = await ctx.db.query("assets").collect();
+    const prompts = await ctx.db.query("prompts").collect();
+    const users = await ctx.db.query("users").collect();
+    const runs = await ctx.db.query("runs").collect();
+
+    let assetsUpdated = 0;
+    for (const asset of assets) {
+      if (asset.ownerUserId === targetOwnerUserId) continue;
+      assetsUpdated += 1;
+      if (!dryRun) {
+        await ctx.db.patch(asset._id, { ownerUserId: targetOwnerUserId });
+      }
+    }
+
+    let promptsUpdated = 0;
+    for (const prompt of prompts) {
+      if (prompt.ownerUserId === targetOwnerUserId) continue;
+      promptsUpdated += 1;
+      if (!dryRun) {
+        await ctx.db.patch(prompt._id, { ownerUserId: targetOwnerUserId });
+      }
+    }
+
+    let usersUpdated = 0;
+    for (const user of users) {
+      if (user.ownerUserId === targetOwnerUserId) continue;
+      usersUpdated += 1;
+      if (!dryRun) {
+        await ctx.db.patch(user._id, { ownerUserId: targetOwnerUserId, updatedAt: Date.now() });
+      }
+    }
+
+    let runsUpdated = 0;
+    for (const run of runs) {
+      if (run.userId === targetOwnerUserId) continue;
+      runsUpdated += 1;
+      if (!dryRun) {
+        await ctx.db.patch(run._id, { userId: targetOwnerUserId, updatedAt: Date.now() });
+      }
+    }
+
+    return {
+      targetOwnerUserId,
+      dryRun,
+      assetsUpdated,
+      promptsUpdated,
+      usersUpdated,
+      runsUpdated,
+    };
+  },
+});

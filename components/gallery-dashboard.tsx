@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Plus, Search as SearchIcon } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 import {
@@ -95,6 +95,10 @@ export function GalleryDashboard({
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceContent, setWorkspaceContent] = useState("");
   const [workspaceError, setWorkspaceError] = useState<string>();
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
+  const [deleteAssetError, setDeleteAssetError] = useState<string>();
+
+  const deleteAssetMutation = useMutation(api.assets.deleteAsset);
 
   // Persist sidebar state
   useEffect(() => {
@@ -115,9 +119,81 @@ export function GalleryDashboard({
     }
   }, []);
 
+  const deleteAsset = useCallback(
+    async (assetId: string) => {
+      if (deletingAssetId) return;
+      const confirmed = window.confirm("Delete this asset? This action cannot be undone.");
+      if (!confirmed) return;
+
+      setDeleteAssetError(undefined);
+      setDeletingAssetId(assetId);
+
+      try {
+        await deleteAssetMutation({
+          id: assetId as Id<"assets">,
+          ownerUserId,
+        });
+
+        setLoadedImageIds((previous) => {
+          if (!previous.has(assetId)) return previous;
+          const next = new Set(previous);
+          next.delete(assetId);
+          return next;
+        });
+
+        setSelectedImage((current) => (current?.id === assetId ? null : current));
+      } catch (error) {
+        setDeleteAssetError(
+          error instanceof Error ? error.message : "Failed to delete asset.",
+        );
+      } finally {
+        setDeletingAssetId((current) => (current === assetId ? null : current));
+      }
+    },
+    [deleteAssetMutation, deletingAssetId, ownerUserId],
+  );
+
   // ── Image navigation ──
   const tags = useQuery(api.tags.listTags, {});
   const folders = useQuery(api.folders.listFolders, {});
+
+  const allAssets = useQuery(api.assets.listGalleryAssets, {
+    ownerUserId,
+    kind: "image",
+    limit: 200,
+  });
+
+  const availableUploadTags = useMemo(() => {
+    const deduped = new Map<string, string>();
+    for (const tag of tags ?? []) {
+      const key = canonicalTagKey(tag.name) || tag._id;
+      if (!deduped.has(key)) {
+        deduped.set(key, tag.name);
+      }
+    }
+    return Array.from(deduped.values()).sort((a, b) => a.localeCompare(b));
+  }, [tags]);
+
+  const tagUsageById = useMemo(() => {
+    const usage = new Map<Id<"tags">, number>();
+    for (const asset of allAssets ?? []) {
+      const seenTagIds = new Set<Id<"tags">>();
+      for (const tagId of asset.tagIds) {
+        if (seenTagIds.has(tagId)) continue;
+        seenTagIds.add(tagId);
+        usage.set(tagId, (usage.get(tagId) ?? 0) + 1);
+      }
+    }
+    return usage;
+  }, [allAssets]);
+
+  const tagNameById = useMemo(() => {
+    const map = new Map<Id<"tags">, string>();
+    for (const tag of tags ?? []) {
+      map.set(tag._id, tag.name);
+    }
+    return map;
+  }, [tags]);
 
   const dedupedTags = useMemo(() => {
     const groups = new Map<
@@ -127,41 +203,56 @@ export function GalleryDashboard({
         name: string;
         usageCount: number;
         sourceIds: Id<"tags">[];
+        sourceIdSet: Set<Id<"tags">>;
         primaryCount: number;
       }
     >();
 
-    for (const tag of tags ?? []) {
-      const key = canonicalTagKey(tag.name) || tag._id;
-      const usage = tag.usageCount ?? 0;
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, {
-          _id: key,
-          name: tag.name,
-          usageCount: usage,
-          sourceIds: [tag._id],
-          primaryCount: usage,
-        });
-        continue;
-      }
+    for (const asset of allAssets ?? []) {
+      const seenCanonicalKeys = new Set<string>();
+      for (const [index, tagId] of asset.tagIds.entries()) {
+        const tagName =
+          asset.tagNames[index] ?? tagNameById.get(tagId) ?? "";
+        const key = canonicalTagKey(tagName) || tagId;
+        if (seenCanonicalKeys.has(key)) {
+          continue;
+        }
+        seenCanonicalKeys.add(key);
 
-      existing.usageCount += usage;
-      existing.sourceIds.push(tag._id);
-      if (usage > existing.primaryCount) {
-        existing.primaryCount = usage;
-        existing.name = tag.name;
+        const usage = tagUsageById.get(tagId) ?? 0;
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, {
+            _id: key,
+            name: tagName || "untitled",
+            usageCount: 1,
+            sourceIds: [tagId],
+            sourceIdSet: new Set([tagId]),
+            primaryCount: usage,
+          });
+          continue;
+        }
+
+        existing.usageCount += 1;
+        if (!existing.sourceIdSet.has(tagId)) {
+          existing.sourceIdSet.add(tagId);
+          existing.sourceIds.push(tagId);
+        }
+        if (tagName && usage > existing.primaryCount) {
+          existing.primaryCount = usage;
+          existing.name = tagName;
+        }
       }
     }
 
     return Array.from(groups.values())
-      .map(({ primaryCount: _primaryCount, ...tag }) => tag)
+      .map(({ sourceIdSet: _sourceIdSet, primaryCount: _primaryCount, ...tag }) => tag)
       .sort((a, b) => {
         const usageDiff = b.usageCount - a.usageCount;
         if (usageDiff !== 0) return usageDiff;
         return a.name.localeCompare(b.name);
       });
-  }, [tags]);
+  }, [allAssets, tagNameById, tagUsageById]);
 
   const sourceIdsByTagKey = useMemo(() => {
     const map = new Map<string, Id<"tags">[]>();
@@ -192,11 +283,6 @@ export function GalleryDashboard({
       : undefined,
     modelName: selectedModelName ?? undefined,
     limit: 120,
-  });
-
-  const allAssets = useQuery(api.assets.listGalleryAssets, {
-    ownerUserId,
-    limit: 200,
   });
 
   const imageCount = allAssets?.length;
@@ -508,6 +594,14 @@ export function GalleryDashboard({
     canGoPrev,
     canGoNext,
     imagePosition,
+    onDelete: (imageId: string) => {
+      void deleteAsset(imageId);
+    },
+    deleting: deletingAssetId === selectedImage?.id,
+    deleteError:
+      deletingAssetId === selectedImage?.id || deleteAssetError
+        ? deleteAssetError
+        : undefined,
   };
 
   return (
@@ -768,7 +862,7 @@ export function GalleryDashboard({
       <UploadModal
         open={isUploadOpen}
         onClose={() => setUploadOpen(false)}
-        availableTags={allTags.map((t) => t.name)}
+        availableTags={availableUploadTags}
         folders={folders ?? []}
       />
 

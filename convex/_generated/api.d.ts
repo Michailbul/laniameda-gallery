@@ -14,6 +14,7 @@ import type * as files from "../files.js";
 import type * as folders from "../folders.js";
 import type * as helpers from "../helpers.js";
 import type * as ingest from "../ingest.js";
+import type * as ingest_failures from "../ingest_failures.js";
 import type * as prompts from "../prompts.js";
 import type * as runs from "../runs.js";
 import type * as tags from "../tags.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   folders: typeof folders;
   helpers: typeof helpers;
   ingest: typeof ingest;
+  ingest_failures: typeof ingest_failures;
   prompts: typeof prompts;
   runs: typeof runs;
   tags: typeof tags;

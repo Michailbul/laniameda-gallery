@@ -3,8 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useTelegramAuth } from "./TelegramAuthProvider";
 
-const BOT_USERNAME =
-  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "laniamedaaibot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
 
 interface TelegramLoginButtonProps {
   size?: "small" | "medium" | "large";
@@ -19,6 +18,14 @@ export function TelegramLoginButton({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    if (!BOT_USERNAME) {
+      console.error(
+        "Missing NEXT_PUBLIC_TELEGRAM_BOT_USERNAME; Telegram login widget is disabled.",
+      );
+      return;
+    }
+
     const globalWindow = window as unknown as {
       __onTelegramAuth?: (data: Record<string, unknown>) => Promise<void>;
     };
@@ -27,11 +34,19 @@ export function TelegramLoginButton({
     globalWindow.__onTelegramAuth = async (
       data: Record<string, unknown>,
     ) => {
-      await fetch("/api/auth/telegram", {
+      const response = await fetch("/api/auth/telegram", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(body?.error ?? "Telegram authentication failed.");
+      }
+
       await refresh();
     };
 

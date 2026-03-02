@@ -3,11 +3,23 @@ import {
   verifyTelegramAuth,
   isAuthDateFresh,
   createSessionCookie,
-  type TelegramWidgetData,
+  parseTelegramWidgetData,
 } from "@/lib/telegram-auth";
 
+const TELEGRAM_AUTH_MAX_AGE_SECONDS = 5 * 60;
+
 export async function POST(request: Request) {
-  const data: TelegramWidgetData = await request.json();
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
+  }
+
+  const data = parseTelegramWidgetData(payload);
+  if (!data) {
+    return NextResponse.json({ error: "Invalid Telegram auth payload." }, { status: 400 });
+  }
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -21,7 +33,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid auth hash." }, { status: 401 });
   }
 
-  if (!isAuthDateFresh(data.auth_date)) {
+  if (!isAuthDateFresh(data.auth_date, TELEGRAM_AUTH_MAX_AGE_SECONDS)) {
     return NextResponse.json(
       { error: "Auth data expired. Please try again." },
       { status: 401 },

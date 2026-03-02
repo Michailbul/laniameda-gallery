@@ -5,6 +5,12 @@ import { requireAuth } from "@/lib/server-auth";
 import { buildIngestKey, fileToBase64, parseTagNames } from "@/lib/ingest";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
+const recordIngestFailureMutation = makeFunctionReference<"mutation">(
+  "ingest_failures:recordIngestFailure",
+);
+const resolveIngestFailureMutation = makeFunctionReference<"mutation">(
+  "ingest_failures:resolveIngestFailure",
+);
 
 const getConvexClient = () => {
   const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -22,9 +28,43 @@ const readJson = async (request: Request) => {
   }
 };
 
+const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
+  const file =
+    payload.file && typeof payload.file === "object"
+      ? (payload.file as Record<string, unknown>)
+      : undefined;
+
+  return {
+    ownerUserId: payload.ownerUserId,
+    promptText: payload.promptText,
+    url: payload.url,
+    folderId: payload.folderId,
+    ingestKey: payload.ingestKey,
+    promptIngestKey: payload.promptIngestKey,
+    tagNames: payload.tagNames,
+    modelName: payload.modelName,
+    pillar: payload.pillar,
+    generationType: payload.generationType,
+    promptType: payload.promptType,
+    domain: payload.domain,
+    file: file
+      ? {
+          fileName: file.fileName,
+          contentType: file.contentType,
+          base64Size: typeof file.base64 === "string" ? file.base64.length : undefined,
+        }
+      : undefined,
+  };
+};
+
 export async function POST(request: Request) {
+  let ownerUserId: string | undefined;
+  let finalIngestKey: string | undefined;
+  let failurePayload: Record<string, unknown> | undefined;
+
   try {
     const authUser = await requireAuth();
+    ownerUserId = authUser.id;
 
     const contentType = request.headers.get("content-type") || "";
     let promptText: string | undefined;
@@ -99,7 +139,7 @@ export async function POST(request: Request) {
       domain = typeof domainValue === "string" ? domainValue : undefined;
     }
 
-    const finalIngestKey = buildIngestKey({
+    finalIngestKey = buildIngestKey({
       ingestKey,
       url,
       promptText,
@@ -107,7 +147,7 @@ export async function POST(request: Request) {
     });
 
     const payload: Record<string, unknown> = {
-      ownerUserId: authUser.id,
+      ownerUserId,
       promptText,
       url,
       folderId,
@@ -129,12 +169,41 @@ export async function POST(request: Request) {
       };
     }
 
+    failurePayload = sanitizeFailurePayload(payload);
+
     const client = getConvexClient();
     const result = await client.action(ingestAction, payload);
+
+    if (ownerUserId && finalIngestKey) {
+      void client.mutation(resolveIngestFailureMutation, {
+        ownerUserId,
+        ingestKey: finalIngestKey,
+      });
+    }
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const errorName = error instanceof Error ? error.name : undefined;
+    let failureId: string | undefined;
+
+    if (ownerUserId) {
+      try {
+        const client = getConvexClient();
+        const failureRecord = await client.mutation(recordIngestFailureMutation, {
+          source: "api",
+          ownerUserId,
+          ingestKey: finalIngestKey,
+          payload: failurePayload,
+          errorMessage: message,
+          errorName,
+        });
+        failureId = failureRecord.failureId;
+      } catch {
+        // Best-effort fallback cache write.
+      }
+    }
+
+    return NextResponse.json({ error: message, failureId }, { status: 400 });
   }
 }

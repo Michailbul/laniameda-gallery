@@ -125,6 +125,23 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_tag_createdAt", ["tagId", "createdAt"]),
+  ingest_failures: defineTable({
+    source: v.union(v.literal("api")),
+    ownerUserId: v.optional(v.string()),
+    ingestKey: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("resolved")),
+    attemptCount: v.number(),
+    payload: v.optional(v.any()),
+    lastErrorMessage: v.string(),
+    lastErrorName: v.optional(v.string()),
+    firstErrorAt: v.number(),
+    lastErrorAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_status_lastErrorAt", ["status", "lastErrorAt"])
+    .index("by_owner_status_lastErrorAt", ["ownerUserId", "status", "lastErrorAt"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"]),
   runs: defineTable({
     userId: v.string(),
     runtime: v.optional(v.union(v.literal("ai_sdk"), v.literal("agent_worker"))),

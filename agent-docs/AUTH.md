@@ -38,9 +38,48 @@ The `users` table in Convex is the **identity hub**. It maps `telegramId` ↔ `w
 ### Required env vars
 ```bash
 TELEGRAM_BOT_TOKEN=...                # Bot token for verifying Telegram auth data
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=... # Bot username for Telegram widget (without @)
 KB_OWNER_USER_ID=...                  # Michael's Telegram user ID (for agent ingestion)
 SESSION_SECRET=...                    # ≥32 char secret for Telegram session JWT
 ```
+
+### Telegram web login runbook (official flow)
+
+Reference docs:
+- https://core.telegram.org/widgets/login
+- https://core.telegram.org/bots/features#web-login
+
+1. **Create/select bot in @BotFather**
+   - Use `/newbot` if needed.
+   - Keep token private (`TELEGRAM_BOT_TOKEN`).
+
+2. **Link app domain to bot**
+   - In @BotFather, run `/setdomain` and set your app domain.
+   - For local testing, use a stable HTTPS tunnel domain (e.g. ngrok).
+
+3. **Render login widget on client**
+   - Load `https://telegram.org/js/telegram-widget.js?22`
+   - Set `data-telegram-login=<bot_username>`
+   - Use `data-onauth="__onTelegramAuth(user)"`
+
+4. **Verify payload on server (must-do)**
+   - Parse and validate required fields: `id`, `first_name`, `auth_date`, `hash`.
+   - Build `data_check_string` from all fields except `hash`, sorted alphabetically, joined with `\n`.
+   - Compute `secret_key = SHA256(bot_token)`.
+   - Compute `hex(HMAC_SHA256(data_check_string, secret_key))` and compare with received `hash`.
+   - Reject stale `auth_date` (we use a strict 5-minute window).
+
+5. **Establish app session**
+   - On successful verification, issue server-signed HttpOnly session cookie.
+   - Client refreshes `/api/auth/me`, then resolves/creates Convex user.
+
+### Security checklist
+
+- Never trust Telegram widget payload without server-side hash verification.
+- Never expose `TELEGRAM_BOT_TOKEN` to browser/client code.
+- Keep `SESSION_SECRET` at least 32 chars and rotate if leaked.
+- Use HTTPS in production so cookies stay secure.
+- Keep login freshness checks (`auth_date`) to limit replay windows.
 
 ### Optional env vars (for WorkOS/Google login)
 ```bash
