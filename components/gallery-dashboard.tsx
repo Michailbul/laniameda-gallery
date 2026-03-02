@@ -6,6 +6,7 @@ import { Plus, Search as SearchIcon } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 import {
   TopFilterBar,
+  type GalleryScope,
   type Pillar,
   type SortOrder,
 } from "./top-filter-bar";
@@ -72,7 +73,14 @@ export function GalleryDashboard({
     process.env.NODE_ENV !== "production"
       ? (process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || DEFAULT_DEV_OWNER_USER_ID)
       : null;
-  const ownerUserId = (devOwnerUserIdOverride || user?.id || "__guest__").trim();
+  const ownerUserId = (devOwnerUserIdOverride || user?.id || "").trim();
+  const canAccessMyGallery = Boolean(ownerUserId);
+  const canDeleteAssets = Boolean(ownerUserId) && canAccessMyGallery;
+
+  const [galleryScope, setGalleryScope] = useState<GalleryScope>(
+    canAccessMyGallery ? "mine" : "public",
+  );
+  const canDeleteInCurrentView = canDeleteAssets && galleryScope === "mine";
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
@@ -97,6 +105,12 @@ export function GalleryDashboard({
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [deleteAssetError, setDeleteAssetError] = useState<string>();
+  const [exitingAssetIds, setExitingAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [hiddenAssetIds, setHiddenAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const deleteAssetMutation = useMutation(api.assets.deleteAsset);
 
@@ -104,6 +118,19 @@ export function GalleryDashboard({
   useEffect(() => {
     localStorage.setItem("laniameda-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!canAccessMyGallery && galleryScope === "mine") {
+      setGalleryScope("public");
+    }
+  }, [canAccessMyGallery, galleryScope]);
+
+  useEffect(() => {
+    setExitingAssetIds(new Set());
+    setHiddenAssetIds(new Set());
+    setDeleteAssetError(undefined);
+    setDeletingAssetId(null);
+  }, [galleryScope]);
 
   const closeSelectedImage = useCallback(() => {
     const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
@@ -122,10 +149,25 @@ export function GalleryDashboard({
   const deleteAsset = useCallback(
     async (assetId: string) => {
       if (deletingAssetId) return;
-      const confirmed = window.confirm("Delete this asset? This action cannot be undone.");
-      if (!confirmed) return;
+      if (!canDeleteInCurrentView) {
+        setDeleteAssetError("Switch to My Gallery to delete assets.");
+        return;
+      }
 
       setDeleteAssetError(undefined);
+      setExitingAssetIds((previous) => {
+        const next = new Set(previous);
+        next.add(assetId);
+        return next;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      setHiddenAssetIds((previous) => {
+        const next = new Set(previous);
+        next.add(assetId);
+        return next;
+      });
       setDeletingAssetId(assetId);
 
       try {
@@ -143,25 +185,54 @@ export function GalleryDashboard({
 
         setSelectedImage((current) => (current?.id === assetId ? null : current));
       } catch (error) {
+        setHiddenAssetIds((previous) => {
+          if (!previous.has(assetId)) return previous;
+          const next = new Set(previous);
+          next.delete(assetId);
+          return next;
+        });
         setDeleteAssetError(
           error instanceof Error ? error.message : "Failed to delete asset.",
         );
       } finally {
+        setExitingAssetIds((previous) => {
+          if (!previous.has(assetId)) return previous;
+          const next = new Set(previous);
+          next.delete(assetId);
+          return next;
+        });
         setDeletingAssetId((current) => (current === assetId ? null : current));
       }
     },
-    [deleteAssetMutation, deletingAssetId, ownerUserId],
+    [canDeleteInCurrentView, deleteAssetMutation, deletingAssetId, ownerUserId],
   );
 
   // ── Image navigation ──
   const tags = useQuery(api.tags.listTags, {});
   const folders = useQuery(api.folders.listFolders, {});
 
-  const allAssets = useQuery(api.assets.listGalleryAssets, {
-    ownerUserId,
-    kind: "image",
-    limit: 200,
-  });
+  const mineAllAssets = useQuery(
+    api.assets.listGalleryAssets,
+    galleryScope === "mine" && canAccessMyGallery
+      ? {
+          ownerUserId,
+          kind: "image",
+          limit: 200,
+        }
+      : "skip",
+  );
+
+  const publicAllAssets = useQuery(
+    api.assets.listPublicGalleryAssets,
+    galleryScope === "public"
+      ? {
+          kind: "image",
+          limit: 200,
+        }
+      : "skip",
+  );
+
+  const allAssets = galleryScope === "mine" ? mineAllAssets : publicAllAssets;
 
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
@@ -273,17 +344,41 @@ export function GalleryDashboard({
     return ids.size > 0 ? Array.from(ids) : undefined;
   }, [selectedTags, sourceIdsByTagKey]);
 
-  const galleryAssets = useQuery(api.assets.listGalleryAssets, {
-    ownerUserId,
-    kind: "image",
-    tagIds: selectedTagIds,
-    pillar: selectedPillar ?? undefined,
-    folderId: selectedFolderId
-      ? (selectedFolderId as Id<"folders">)
-      : undefined,
-    modelName: selectedModelName ?? undefined,
-    limit: 120,
-  });
+  const mineGalleryAssets = useQuery(
+    api.assets.listGalleryAssets,
+    galleryScope === "mine" && canAccessMyGallery
+      ? {
+          ownerUserId,
+          kind: "image",
+          tagIds: selectedTagIds,
+          pillar: selectedPillar ?? undefined,
+          folderId: selectedFolderId
+            ? (selectedFolderId as Id<"folders">)
+            : undefined,
+          modelName: selectedModelName ?? undefined,
+          limit: 120,
+        }
+      : "skip",
+  );
+
+  const publicGalleryAssets = useQuery(
+    api.assets.listPublicGalleryAssets,
+    galleryScope === "public"
+      ? {
+          kind: "image",
+          tagIds: selectedTagIds,
+          pillar: selectedPillar ?? undefined,
+          folderId: selectedFolderId
+            ? (selectedFolderId as Id<"folders">)
+            : undefined,
+          modelName: selectedModelName ?? undefined,
+          limit: 120,
+        }
+      : "skip",
+  );
+
+  const galleryAssets =
+    galleryScope === "mine" ? mineGalleryAssets : publicGalleryAssets;
 
   const imageCount = allAssets?.length;
 
@@ -339,27 +434,29 @@ export function GalleryDashboard({
 
   const images = useMemo(() => {
     if (!galleryAssets) return [];
-    const mapped = galleryAssets.map((asset) => ({
-      id: asset._id,
-      src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
-      fullSrc: asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
-      prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
-      author: "Agent",
-      likes: 0,
-      width: asset.thumbWidth ?? asset.width ?? undefined,
-      height: asset.thumbHeight ?? asset.height ?? undefined,
-      modelName: asset.modelName ?? undefined,
-      pillar: asset.pillar ?? undefined,
-      tagNames: asset.tagNames ?? [],
-      sourceUrl: asset.sourceUrl ?? undefined,
-      createdAt: asset.createdAt,
-      initiallyLoaded: loadedImageIds.has(asset._id),
-    }));
+    const mapped = galleryAssets
+      .filter((asset) => !hiddenAssetIds.has(asset._id))
+      .map((asset) => ({
+        id: asset._id,
+        src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
+        fullSrc: asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
+        prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
+        author: "Agent",
+        likes: 0,
+        width: asset.thumbWidth ?? asset.width ?? undefined,
+        height: asset.thumbHeight ?? asset.height ?? undefined,
+        modelName: asset.modelName ?? undefined,
+        pillar: asset.pillar ?? undefined,
+        tagNames: asset.tagNames ?? [],
+        sourceUrl: asset.sourceUrl ?? undefined,
+        createdAt: asset.createdAt,
+        initiallyLoaded: loadedImageIds.has(asset._id),
+      }));
     if (sortOrder === "popular") {
       mapped.sort((a, b) => (b.tagNames?.length ?? 0) - (a.tagNames?.length ?? 0));
     }
     return mapped;
-  }, [galleryAssets, loadedImageIds, sortOrder]);
+  }, [galleryAssets, hiddenAssetIds, loadedImageIds, sortOrder]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -569,7 +666,10 @@ export function GalleryDashboard({
   );
 
   // Distinguish loading / empty / no-matches / has-images
-  const isLoading = galleryAssets === undefined;
+  const isLoading =
+    galleryScope === "mine"
+      ? canAccessMyGallery && mineGalleryAssets === undefined
+      : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
@@ -594,14 +694,17 @@ export function GalleryDashboard({
     canGoPrev,
     canGoNext,
     imagePosition,
-    onDelete: (imageId: string) => {
-      void deleteAsset(imageId);
-    },
+    onDelete: canDeleteInCurrentView
+      ? (imageId: string) => {
+          void deleteAsset(imageId);
+        }
+      : undefined,
     deleting: deletingAssetId === selectedImage?.id,
-    deleteError:
-      deletingAssetId === selectedImage?.id || deleteAssetError
+    deleteError: canDeleteInCurrentView
+      ? deletingAssetId === selectedImage?.id || deleteAssetError
         ? deleteAssetError
-        : undefined,
+        : undefined
+      : undefined,
   };
 
   return (
@@ -643,6 +746,9 @@ export function GalleryDashboard({
       >
         {/* ── Top Filter Bar ── */}
         <TopFilterBar
+          galleryScope={galleryScope}
+          canAccessMyGallery={canAccessMyGallery}
+          onGalleryScopeChange={setGalleryScope}
           tags={allTags}
           selectedTags={selectedTags}
           onTagToggle={handleTagToggle}
@@ -676,6 +782,12 @@ export function GalleryDashboard({
                 selectedImageId={selectedImage?.id}
                 onImageSelect={setSelectedImage}
                 onImageLoad={markImageLoaded}
+                canDelete={canDeleteInCurrentView}
+                deletingImageId={deletingAssetId}
+                exitingImageIds={exitingAssetIds}
+                onDeleteImage={(imageId) => {
+                  void deleteAsset(imageId);
+                }}
               />
             ) : isNoMatches ? (
               <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 animate-fade-in" aria-live="polite">

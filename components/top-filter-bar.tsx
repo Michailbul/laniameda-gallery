@@ -14,6 +14,7 @@ interface Folder {
 }
 
 export type SortOrder = "featured" | "newest" | "popular";
+export type GalleryScope = "mine" | "public";
 
 const PILLAR_OPTIONS = [
   { label: "Creators", value: "creators" },
@@ -24,6 +25,9 @@ const PILLAR_OPTIONS = [
 export type Pillar = (typeof PILLAR_OPTIONS)[number]["value"];
 
 interface TopFilterBarProps {
+  galleryScope: GalleryScope;
+  canAccessMyGallery: boolean;
+  onGalleryScopeChange: (scope: GalleryScope) => void;
   tags: Tag[];
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
@@ -47,6 +51,9 @@ const SORT_OPTIONS: { label: string; value: SortOrder }[] = [
 ];
 
 export function TopFilterBar({
+  galleryScope,
+  canAccessMyGallery,
+  onGalleryScopeChange,
   tags,
   selectedTags,
   onTagToggle,
@@ -106,6 +113,45 @@ export function TopFilterBar({
         borderBottom: "1px solid var(--border-default)",
       }}
     >
+      <div
+        className="flex items-center justify-between gap-3 border-b px-4 py-2"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <p
+          className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          Gallery View
+        </p>
+        <div className="inline-flex items-center overflow-hidden border" style={{ borderColor: "var(--border-default)" }}>
+          <button
+            type="button"
+            onClick={() => onGalleryScopeChange("public")}
+            className="px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition-colors"
+            style={{
+              backgroundColor: galleryScope === "public" ? "var(--bg-inverse)" : "transparent",
+              color: galleryScope === "public" ? "var(--text-inverse)" : "var(--text-secondary)",
+            }}
+          >
+            Public
+          </button>
+          <button
+            type="button"
+            onClick={() => onGalleryScopeChange("mine")}
+            disabled={!canAccessMyGallery}
+            className="border-l px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              borderColor: "var(--border-default)",
+              backgroundColor: galleryScope === "mine" ? "var(--coral)" : "transparent",
+              color: galleryScope === "mine" ? "#ffffff" : "var(--text-secondary)",
+            }}
+            title={canAccessMyGallery ? "View your private gallery" : "Sign in to access your private gallery"}
+          >
+            My Gallery
+          </button>
+        </div>
+      </div>
+
       <div
         ref={pillarScrollRef}
         className="flex h-11 items-center gap-1.5 overflow-x-auto px-4"

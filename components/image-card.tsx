@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { memo, useEffect, useMemo, useState } from "react";
-import { ImageIcon, Maximize2 } from "lucide-react";
+import { ImageIcon, Loader2, Maximize2, Trash2 } from "lucide-react";
 
 interface ImageCardProps {
   image: {
@@ -38,6 +38,10 @@ interface ImageCardProps {
   initiallyLoaded?: boolean;
   onLoad?: () => void;
   index?: number;
+  canDelete?: boolean;
+  deleting?: boolean;
+  exiting?: boolean;
+  onDelete?: (imageId: string) => void;
 }
 
 const PILLAR_META = {
@@ -55,6 +59,10 @@ export const ImageCard = memo(function ImageCard({
   initiallyLoaded = false,
   onLoad,
   index = 0,
+  canDelete = false,
+  deleting = false,
+  exiting = false,
+  onDelete,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -125,7 +133,15 @@ export const ImageCard = memo(function ImageCard({
     "group relative cursor-pointer overflow-hidden break-inside-avoid rounded-xl animate-card-entrance card-base",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
+    exiting && "animate-card-exit",
   ].filter(Boolean).join(" ");
+
+  const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (deleting) return;
+    onDelete?.(image.id);
+  };
 
   return (
     <div
@@ -266,6 +282,30 @@ export const ImageCard = memo(function ImageCard({
           </div>
         </div>
       </div>
+
+      {canDelete && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] disabled:cursor-not-allowed"
+          style={{
+            borderColor: deleting ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.32)",
+            backgroundColor: deleting ? "rgba(8, 4, 2, 0.82)" : "rgba(8, 4, 2, 0.58)",
+            color: deleting ? "rgba(255,255,255,0.72)" : "#ffd7cf",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            boxShadow: deleting ? "none" : "0 2px 10px rgba(0,0,0,0.28)",
+          }}
+          aria-label={deleting ? "Deleting image" : "Delete image"}
+        >
+          {deleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </button>
+      )}
     </div>
   );
 });

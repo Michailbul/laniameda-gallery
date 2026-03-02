@@ -24,6 +24,10 @@ interface MasonryGridProps {
   images: GalleryImage[];
   compactColumns?: boolean;
   selectedImageId?: string;
+  canDelete?: boolean;
+  deletingImageId?: string | null;
+  exitingImageIds?: Set<string>;
+  onDeleteImage?: (imageId: string) => void;
   onImageSelect?: (image: {
     id: string;
     thumbSrc: string;
@@ -52,6 +56,10 @@ export function MasonryGrid({
   images,
   compactColumns,
   selectedImageId,
+  canDelete,
+  deletingImageId,
+  exitingImageIds,
+  onDeleteImage,
   onImageSelect,
   onImageLoad,
   loading,
@@ -131,6 +139,10 @@ export function MasonryGrid({
           image={image}
           eager={index < 12}
           onSelect={onImageSelect}
+          canDelete={canDelete}
+          deleting={deletingImageId === image.id}
+          exiting={Boolean(exitingImageIds?.has(image.id))}
+          onDelete={onDeleteImage}
           selectedId={selectedImageId}
           initiallyLoaded={image.initiallyLoaded}
           onLoad={() => onImageLoad?.(image.id)}
