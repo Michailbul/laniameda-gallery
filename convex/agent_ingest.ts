@@ -2,7 +2,7 @@
 
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 const ingestPromptValidator = v.object({
@@ -174,6 +174,16 @@ export const ingestFromAgentPayload = action({
         },
       });
     }
+
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyKBIngest, {
+      ownerUserId,
+      pillar: "dump",
+      promptText: normalizedPrompts[0]?.finalPrompt,
+      tagNames: promptTagNames,
+      assetId: assetIds[0],
+      promptId: promptIds[0],
+      isDuplicate: false,
+    });
 
     return {
       promptIds,

@@ -57,6 +57,21 @@ Reference docs:
    - In @BotFather, run `/setdomain` and set your app domain.
    - For local testing, use a stable HTTPS tunnel domain (e.g. ngrok).
 
+### Localhost dev bypass (recommended for day-to-day coding)
+
+If you don't want to rotate BotFather domains for random tunnel URLs, use the built-in local-only bypass:
+
+```bash
+NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true
+DEV_AUTH_BYPASS_ENABLED=true
+DEV_AUTH_TELEGRAM_ID=<your_telegram_id>
+DEV_AUTH_FIRST_NAME=Michael
+```
+
+- This enables `POST /api/auth/dev-login` and the "Sign in as dev user" button in the login card.
+- Route is blocked in production and blocked for non-local hosts unless `DEV_AUTH_BYPASS_ALLOW_NON_LOCAL=true`.
+- Keep real Telegram login enabled for production verification.
+
 3. **Render login widget on client**
    - Load `https://telegram.org/js/telegram-widget.js?22`
    - Set `data-telegram-login=<bot_username>`

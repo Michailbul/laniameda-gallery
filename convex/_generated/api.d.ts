@@ -11,6 +11,7 @@
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assets from "../assets.js";
 import type * as files from "../files.js";
+import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
 import type * as helpers from "../helpers.js";
 import type * as ingest from "../ingest.js";
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   agent_ingest: typeof agent_ingest;
   assets: typeof assets;
   files: typeof files;
+  folderHelpers: typeof folderHelpers;
   folders: typeof folders;
   helpers: typeof helpers;
   ingest: typeof ingest;

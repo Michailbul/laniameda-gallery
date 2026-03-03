@@ -10,11 +10,6 @@ import {
   type Pillar,
   type SortOrder,
 } from "./top-filter-bar";
-import {
-  getNextSelectedTagFilters,
-  type SelectedTagFilters,
-  type TagFilterMode,
-} from "@/lib/tag-filters";
 import { MasonryGrid } from "./masonry-grid";
 import { ExpandedDetail } from "./expanded-detail";
 import { UploadModal } from "./upload-modal";
@@ -44,6 +39,9 @@ type SelectedImage = {
   tagNames?: string[];
   sourceUrl?: string;
   createdAt?: number;
+  folderId?: string;
+  isPublic?: boolean;
+  isFeatured?: boolean;
 };
 
 const FOCUSABLE_SELECTOR = [
@@ -70,6 +68,19 @@ const canonicalTagKey = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const resolveActorCandidates = (actorUserId: string) => {
+  const normalized = actorUserId.trim();
+  if (!normalized) return [];
+  const candidates = [normalized];
+  if (normalized.startsWith("telegram:")) {
+    const unprefixed = normalized.slice("telegram:".length).trim();
+    if (unprefixed) candidates.push(unprefixed);
+  } else if (/^\d+$/.test(normalized)) {
+    candidates.push(`telegram:${normalized}`);
+  }
+  return Array.from(new Set(candidates));
+};
+
 export function GalleryDashboard({
   user,
   onSignOut,
@@ -86,8 +97,9 @@ export function GalleryDashboard({
     canAccessMyGallery ? "mine" : "public",
   );
   const canDeleteInCurrentView = canDeleteAssets && galleryScope === "mine";
+  const canManageFoldersInCurrentView = canAccessMyGallery && galleryScope === "mine";
 
-  const [selectedTagFilters, setSelectedTagFilters] = useState<SelectedTagFilters>({});
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
@@ -110,6 +122,10 @@ export function GalleryDashboard({
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [deleteAssetError, setDeleteAssetError] = useState<string>();
+  const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string>();
+  const [curationLoadingAssetId, setCurationLoadingAssetId] = useState<string | null>(null);
+  const [curationError, setCurationError] = useState<string>();
   const [exitingAssetIds, setExitingAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -117,7 +133,28 @@ export function GalleryDashboard({
     () => new Set(),
   );
 
+  const curatorUserIds = useMemo(() => {
+    const configured = process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS
+      ?.split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (configured && configured.length > 0) {
+      return configured;
+    }
+    if (process.env.NODE_ENV !== "production") {
+      return [DEFAULT_DEV_OWNER_USER_ID];
+    }
+    return [];
+  }, []);
+  const canCuratePublic = useMemo(() => {
+    if (!ownerUserId || curatorUserIds.length === 0) return false;
+    const candidates = resolveActorCandidates(ownerUserId);
+    return candidates.some((candidate) => curatorUserIds.includes(candidate));
+  }, [ownerUserId, curatorUserIds]);
+
   const deleteAssetMutation = useMutation(api.assets.deleteAsset);
+  const setAssetFolderMutation = useMutation(api.assets.setAssetFolder);
+  const createFolderMutation = useMutation(api.folders.createFolder);
 
   // Persist sidebar state
   useEffect(() => {
@@ -134,8 +171,153 @@ export function GalleryDashboard({
     setExitingAssetIds(new Set());
     setHiddenAssetIds(new Set());
     setDeleteAssetError(undefined);
+    setFolderError(undefined);
+    setFolderLoadingAssetId(null);
+    setCurationError(undefined);
     setDeletingAssetId(null);
   }, [galleryScope]);
+
+  useEffect(() => {
+    setFolderError(undefined);
+    setFolderLoadingAssetId(null);
+  }, [selectedImage?.id]);
+
+  const updateAssetCuration = useCallback(
+    async ({
+      assetId,
+      isPublic,
+      isFeatured,
+    }: {
+      assetId: string;
+      isPublic: boolean;
+      isFeatured?: boolean;
+    }) => {
+      if (!canCuratePublic || curationLoadingAssetId) return;
+
+      setCurationError(undefined);
+      setCurationLoadingAssetId(assetId);
+      try {
+        const response = await fetch(`/api/admin/assets/${assetId}/curation`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ isPublic, isFeatured }),
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; result?: { isPublic: boolean; isFeatured: boolean } }
+          | null;
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to update curation state.");
+        }
+
+        if (payload?.result) {
+          setSelectedImage((current) =>
+            current && current.id === assetId
+              ? {
+                  ...current,
+                  isPublic: payload.result?.isPublic,
+                  isFeatured: payload.result?.isFeatured,
+                }
+              : current,
+          );
+          if (galleryScope === "public" && !payload.result.isPublic) {
+            setHiddenAssetIds((previous) => {
+              const next = new Set(previous);
+              next.add(assetId);
+              return next;
+            });
+            setSelectedImage((current) => (current?.id === assetId ? null : current));
+          }
+        }
+      } catch (error) {
+        setCurationError(
+          error instanceof Error ? error.message : "Failed to update curation state.",
+        );
+      } finally {
+        setCurationLoadingAssetId((current) => (current === assetId ? null : current));
+      }
+    },
+    [canCuratePublic, curationLoadingAssetId, galleryScope],
+  );
+
+  const createFolder = useCallback(
+    async (name: string): Promise<string | null> => {
+      if (!canAccessMyGallery) {
+        setFolderError("Sign in to create folders.");
+        return null;
+      }
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        setFolderError("Folder name is required.");
+        return null;
+      }
+
+      setFolderError(undefined);
+      try {
+        const result = await createFolderMutation({
+          ownerUserId,
+          name: trimmedName,
+        });
+        return result.folderId;
+      } catch (error) {
+        setFolderError(
+          error instanceof Error ? error.message : "Failed to create folder.",
+        );
+        return null;
+      }
+    },
+    [canAccessMyGallery, createFolderMutation, ownerUserId],
+  );
+
+  const setAssetFolder = useCallback(
+    async (assetId: string, folderId: string | null) => {
+      if (!canAccessMyGallery) {
+        setFolderError("Sign in to manage folders.");
+        return;
+      }
+      if (folderLoadingAssetId) return;
+
+      setFolderError(undefined);
+      setFolderLoadingAssetId(assetId);
+      try {
+        const result = await setAssetFolderMutation({
+          ownerUserId,
+          assetId: assetId as Id<"assets">,
+          folderId: folderId ? (folderId as Id<"folders">) : undefined,
+        });
+        const nextFolderId = result.folderId ?? undefined;
+        setSelectedImage((current) =>
+          current && current.id === assetId
+            ? {
+                ...current,
+                folderId: nextFolderId,
+              }
+            : current,
+        );
+
+        if (
+          galleryScope === "mine" &&
+          selectedFolderId &&
+          nextFolderId !== selectedFolderId
+        ) {
+          setSelectedImage((current) => (current?.id === assetId ? null : current));
+        }
+      } catch (error) {
+        setFolderError(
+          error instanceof Error ? error.message : "Failed to update asset folder.",
+        );
+      } finally {
+        setFolderLoadingAssetId((current) => (current === assetId ? null : current));
+      }
+    },
+    [
+      canAccessMyGallery,
+      folderLoadingAssetId,
+      galleryScope,
+      ownerUserId,
+      selectedFolderId,
+      setAssetFolderMutation,
+    ],
+  );
 
   const closeSelectedImage = useCallback(() => {
     const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
@@ -214,7 +396,14 @@ export function GalleryDashboard({
 
   // ── Image navigation ──
   const tags = useQuery(api.tags.listTags, {});
-  const folders = useQuery(api.folders.listFolders, {});
+  const folders = useQuery(
+    api.folders.listFolders,
+    canAccessMyGallery ? { ownerUserId } : "skip",
+  );
+  const folderNameById = useMemo(
+    () => new Map((folders ?? []).map((folder) => [folder._id, folder.name] as const)),
+    [folders],
+  );
 
   const mineAllAssets = useQuery(
     api.assets.listGalleryAssets,
@@ -338,43 +527,16 @@ export function GalleryDashboard({
     return map;
   }, [dedupedTags]);
 
-  const includedTagKeys = useMemo(
-    () =>
-      Object.entries(selectedTagFilters)
-        .filter(([, mode]) => mode === "include")
-        .map(([tagKey]) => tagKey),
-    [selectedTagFilters],
-  );
-
-  const excludedTagKeys = useMemo(
-    () =>
-      Object.entries(selectedTagFilters)
-        .filter(([, mode]) => mode === "exclude")
-        .map(([tagKey]) => tagKey),
-    [selectedTagFilters],
-  );
-
   const selectedTagIds = useMemo(() => {
-    if (includedTagKeys.length === 0) return undefined;
+    if (selectedTags.length === 0) return undefined;
     const ids = new Set<Id<"tags">>();
-    for (const key of includedTagKeys) {
+    for (const key of selectedTags) {
       for (const id of sourceIdsByTagKey.get(key) ?? []) {
         ids.add(id);
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [includedTagKeys, sourceIdsByTagKey]);
-
-  const excludedTagIds = useMemo(() => {
-    if (excludedTagKeys.length === 0) return undefined;
-    const ids = new Set<Id<"tags">>();
-    for (const key of excludedTagKeys) {
-      for (const id of sourceIdsByTagKey.get(key) ?? []) {
-        ids.add(id);
-      }
-    }
-    return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [excludedTagKeys, sourceIdsByTagKey]);
+  }, [selectedTags, sourceIdsByTagKey]);
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
@@ -383,7 +545,6 @@ export function GalleryDashboard({
           ownerUserId,
           kind: "image",
           tagIds: selectedTagIds,
-          excludeTagIds: excludedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: selectedFolderId
             ? (selectedFolderId as Id<"folders">)
@@ -400,7 +561,6 @@ export function GalleryDashboard({
       ? {
           kind: "image",
           tagIds: selectedTagIds,
-          excludeTagIds: excludedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: selectedFolderId
             ? (selectedFolderId as Id<"folders">)
@@ -450,15 +610,15 @@ export function GalleryDashboard({
     });
   }, []);
 
-  const handleTagSelect = (tag: string, mode: TagFilterMode) => {
-    setSelectedTagFilters((previous) =>
-      getNextSelectedTagFilters(previous, tag, mode),
+  const handleTagToggle = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
     );
   };
 
-  const handleClearAll = () => setSelectedTagFilters({});
+  const handleClearAll = () => setSelectedTags([]);
   const handleClearFilters = () => {
-    setSelectedTagFilters({});
+    setSelectedTags([]);
     setSelectedPillar(null);
     setSelectedFolderId(null);
     setSelectedModelName(null);
@@ -484,8 +644,18 @@ export function GalleryDashboard({
         tagNames: asset.tagNames ?? [],
         sourceUrl: asset.sourceUrl ?? undefined,
         createdAt: asset.createdAt,
+        folderId: asset.folderId ?? undefined,
+        isPublic: asset.isPublic ?? false,
+        isFeatured: asset.isFeatured ?? false,
         initiallyLoaded: loadedImageIds.has(asset._id),
       }));
+    if (sortOrder === "featured") {
+      mapped.sort((a, b) => {
+        const featuredDiff = Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured));
+        if (featuredDiff !== 0) return featuredDiff;
+        return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+      });
+    }
     if (sortOrder === "popular") {
       mapped.sort((a, b) => (b.tagNames?.length ?? 0) - (a.tagNames?.length ?? 0));
     }
@@ -516,6 +686,9 @@ export function GalleryDashboard({
       tagNames: prev.tagNames,
       sourceUrl: prev.sourceUrl,
       createdAt: prev.createdAt,
+      folderId: prev.folderId,
+      isPublic: prev.isPublic,
+      isFeatured: prev.isFeatured,
     });
   }, [canGoPrev, currentImageIndex, images]);
 
@@ -534,6 +707,9 @@ export function GalleryDashboard({
       tagNames: next.tagNames,
       sourceUrl: next.sourceUrl,
       createdAt: next.createdAt,
+      folderId: next.folderId,
+      isPublic: next.isPublic,
+      isFeatured: next.isFeatured,
     });
   }, [canGoNext, currentImageIndex, images]);
 
@@ -705,7 +881,7 @@ export function GalleryDashboard({
       ? canAccessMyGallery && mineGalleryAssets === undefined
       : publicGalleryAssets === undefined;
   const hasFilters =
-    Object.keys(selectedTagFilters).length > 0 ||
+    selectedTags.length > 0 ||
     selectedPillar !== null ||
     selectedFolderId !== null ||
     selectedModelName !== null;
@@ -739,11 +915,46 @@ export function GalleryDashboard({
         ? deleteAssetError
         : undefined
       : undefined,
+    folders: folders ?? [],
+    canManageFolder: canManageFoldersInCurrentView,
+    onSetFolder: canManageFoldersInCurrentView
+      ? (imageId: string, folderId: string | null) => {
+          void setAssetFolder(imageId, folderId);
+        }
+      : undefined,
+    onCreateFolder: canManageFoldersInCurrentView
+      ? async (name: string) => createFolder(name)
+      : undefined,
+    folderBusy: folderLoadingAssetId === selectedImage?.id,
+    folderError:
+      folderLoadingAssetId === selectedImage?.id || folderError
+        ? folderError
+        : undefined,
+    canCuratePublic,
+    onSetPublicState: canCuratePublic
+      ? (imageId: string, isPublic: boolean) => {
+          void updateAssetCuration({ assetId: imageId, isPublic });
+        }
+      : undefined,
+    onSetFeaturedState: canCuratePublic
+      ? (imageId: string, isFeatured: boolean) => {
+          void updateAssetCuration({
+            assetId: imageId,
+            isPublic: Boolean(selectedImage?.isPublic),
+            isFeatured,
+          });
+        }
+      : undefined,
+    curationBusy: curationLoadingAssetId === selectedImage?.id,
+    curationError:
+      curationLoadingAssetId === selectedImage?.id || curationError
+        ? curationError
+        : undefined,
   };
 
   return (
     <div
-      className="min-h-screen"
+      className="h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
       style={{ backgroundColor: "var(--surface-0)" }}
     >
@@ -772,170 +983,179 @@ export function GalleryDashboard({
 
       {/* ── Main content area (offset by sidebar) ── */}
       <div
-        className="flex min-h-screen flex-col md-sidebar-offset"
+        className="flex h-full min-h-0 flex-col md-sidebar-offset"
         style={{
           marginLeft: contentMarginLeft,
           transition: `margin-left var(--duration-normal) cubic-bezier(0.16, 1, 0.3, 1)`,
         }}
       >
-        {/* ── Top Filter Bar ── */}
-        <TopFilterBar
-          galleryScope={galleryScope}
-          canAccessMyGallery={canAccessMyGallery}
-          onGalleryScopeChange={setGalleryScope}
-          tags={allTags}
-          selectedTagFilters={selectedTagFilters}
-          onTagSelect={handleTagSelect}
-          onClearAllTags={handleClearAll}
-          folders={folders ?? []}
-          selectedFolderId={selectedFolderId}
-          onFolderSelect={setSelectedFolderId}
-          selectedPillar={selectedPillar}
-          onPillarSelect={setSelectedPillar}
-          availableModelNames={availableModelNames}
-          selectedModelName={selectedModelName}
-          onModelNameSelect={setSelectedModelName}
-          sortOrder={sortOrder}
-          onSortOrderChange={setSortOrder}
-        />
-
         <div className="flex min-h-0 flex-1">
-          <main id="main-content" className="masonry-view-bg relative flex-1 min-w-0 overflow-y-auto">
-            {isLoading ? (
-              <MasonryGrid
-                images={[]}
-                loading
-                compactColumns={false}
-                onImageSelect={setSelectedImage}
-                onImageLoad={markImageLoaded}
-              />
-            ) : hasImages ? (
-              <MasonryGrid
-                images={images}
-                compactColumns={Boolean(selectedImage)}
-                selectedImageId={selectedImage?.id}
-                onImageSelect={setSelectedImage}
-                onImageLoad={markImageLoaded}
-                canDelete={canDeleteInCurrentView}
-                deletingImageId={deletingAssetId}
-                exitingImageIds={exitingAssetIds}
-                onDeleteImage={(imageId) => {
-                  void deleteAsset(imageId);
-                }}
-              />
-            ) : isNoMatches ? (
-              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 animate-fade-in" aria-live="polite">
-                <SearchIcon className="h-10 w-10" style={{ color: "var(--text-ghost)" }} />
-                <h2
-                  className="font-display text-[32px] font-normal tracking-tight italic"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Nothing here yet
-                </h2>
-                <p
-                  className="max-w-[340px] text-center text-[14px]"
-                  style={{ color: "var(--text-ghost)", lineHeight: "1.7" }}
-                >
-                  Try adjusting your filters or search terms.
-                </p>
-                {/* Active filter summary */}
-                <div className="flex flex-wrap items-center justify-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  <span>Active filters:</span>
-                  {selectedPillar && (
-                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      {selectedPillar}
-                    </span>
-                  )}
-                  {selectedFolderId && (
-                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      Folder
-                    </span>
-                  )}
-                  {selectedModelName && (
-                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      {selectedModelName}
-                    </span>
-                  )}
-                  {includedTagKeys.length > 0 && (
-                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      +{includedTagKeys.length} tag{includedTagKeys.length > 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {excludedTagKeys.length > 0 && (
-                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      -{excludedTagKeys.length} tag{excludedTagKeys.length > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleClearFilters}
-                  className="btn-brutal-outline mt-1"
-                >
-                  Clear filters
-                </button>
-              </div>
-            ) : (
-              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6 animate-fade-in">
-                {/* Stacked image frames illustration */}
-                <div className="relative h-20 w-20">
-                  <div
-                    className="absolute inset-2 rounded-lg rotate-[-6deg]"
-                    style={{
-                      border: "1px solid var(--border-default)",
-                      backgroundColor: "var(--surface-1)",
-                    }}
-                  />
-                  <div
-                    className="absolute inset-1 rounded-lg rotate-[3deg]"
-                    style={{
-                      border: "1px solid var(--border-default)",
-                      backgroundColor: "var(--surface-2)",
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 flex items-center justify-center rounded-lg"
-                    style={{
-                      border: "1px solid var(--border-default)",
-                      backgroundColor: "var(--paper-muted)",
-                    }}
-                  >
-                    <Plus className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
-                  </div>
-                </div>
-                <div className="flex flex-col items-center gap-2">
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            style={{
+              borderRight: selectedImage ? "1px solid var(--border-default)" : "none",
+            }}
+          >
+            {/* ── Top Filter Bar ── */}
+            <TopFilterBar
+              galleryScope={galleryScope}
+              canAccessMyGallery={canAccessMyGallery}
+              onGalleryScopeChange={setGalleryScope}
+              tags={allTags}
+              selectedTags={selectedTags}
+              onTagToggle={handleTagToggle}
+              onClearAllTags={handleClearAll}
+              folders={folders ?? []}
+              selectedFolderId={selectedFolderId}
+              onFolderSelect={setSelectedFolderId}
+              selectedPillar={selectedPillar}
+              onPillarSelect={setSelectedPillar}
+              availableModelNames={availableModelNames}
+              selectedModelName={selectedModelName}
+              onModelNameSelect={setSelectedModelName}
+              sortOrder={sortOrder}
+              onSortOrderChange={setSortOrder}
+            />
+
+            <main
+              id="main-content"
+              className="relative min-h-0 flex-1 min-w-0 overflow-y-auto overscroll-contain"
+            >
+              {isLoading ? (
+                <MasonryGrid
+                  images={[]}
+                  loading
+                  compactColumns={false}
+                  onImageSelect={setSelectedImage}
+                  onImageLoad={markImageLoaded}
+                />
+              ) : hasImages ? (
+                <MasonryGrid
+                  images={images}
+                  compactColumns={Boolean(selectedImage)}
+                  selectedImageId={selectedImage?.id}
+                  onImageSelect={setSelectedImage}
+                  onImageLoad={markImageLoaded}
+                  canDelete={canDeleteInCurrentView}
+                  deletingImageId={deletingAssetId}
+                  exitingImageIds={exitingAssetIds}
+                  onDeleteImage={(imageId) => {
+                    void deleteAsset(imageId);
+                  }}
+                />
+              ) : isNoMatches ? (
+                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 animate-fade-in" aria-live="polite">
+                  <SearchIcon className="h-10 w-10" style={{ color: "var(--text-ghost)" }} />
                   <h2
-                    className="font-display text-[48px] font-normal tracking-tight italic"
-                    style={{
-                      color: "var(--text-primary)",
-                      letterSpacing: "-0.03em",
-                    }}
+                    className="font-display text-[32px] font-normal tracking-tight italic"
+                    style={{ color: "var(--text-secondary)" }}
                   >
-                    Start your collection
+                    Nothing here yet
                   </h2>
                   <p
-                    className="max-w-[380px] text-center text-[14px]"
-                    style={{ color: "var(--text-tertiary)", lineHeight: "1.7" }}
+                    className="max-w-[340px] text-center text-[14px]"
+                    style={{ color: "var(--text-ghost)", lineHeight: "1.7" }}
                   >
-                    Add your first reference image to begin building your creative library.
+                    Try adjusting your filters or search terms.
                   </p>
+                  {/* Active filter summary */}
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    <span>Active filters:</span>
+                    {selectedPillar && (
+                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                        {selectedPillar}
+                      </span>
+                    )}
+                    {selectedFolderId && (
+                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                        {folderNameById.get(selectedFolderId) ?? "Folder"}
+                      </span>
+                    )}
+                    {selectedModelName && (
+                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                        {selectedModelName}
+                      </span>
+                    )}
+                    {selectedTags.length > 0 && (
+                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                        {selectedTags.length} tag{selectedTags.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="btn-brutal-outline mt-1"
+                  >
+                    Clear filters
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setUploadOpen(true)}
-                  className="btn-brutal mt-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add image
-                </button>
-              </div>
-            )}
-          </main>
+              ) : (
+                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6 animate-fade-in">
+                  {/* Stacked image frames illustration */}
+                  <div className="relative h-20 w-20">
+                    <div
+                      className="absolute inset-2 rounded-lg rotate-[-6deg]"
+                      style={{
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--surface-1)",
+                      }}
+                    />
+                    <div
+                      className="absolute inset-1 rounded-lg rotate-[3deg]"
+                      style={{
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--surface-2)",
+                      }}
+                    />
+                    <div
+                      className="absolute inset-0 flex items-center justify-center rounded-lg"
+                      style={{
+                        border: "1px solid var(--border-default)",
+                        backgroundColor: "var(--paper-muted)",
+                      }}
+                    >
+                      <Plus className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <h2
+                      className="font-display text-[48px] font-normal tracking-tight italic"
+                      style={{
+                        color: "var(--text-primary)",
+                        letterSpacing: "-0.03em",
+                      }}
+                    >
+                      Start your collection
+                    </h2>
+                    <p
+                      className="max-w-[380px] text-center text-[14px]"
+                      style={{ color: "var(--text-tertiary)", lineHeight: "1.7" }}
+                    >
+                      Add your first reference image to begin building your creative library.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUploadOpen(true)}
+                    className="btn-brutal mt-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add image
+                  </button>
+                </div>
+              )}
+            </main>
+          </div>
 
           {selectedImage && (
             <aside
-              className="hidden w-[380px] shrink-0 overflow-y-auto md:block"
+              className="hidden w-[420px] shrink-0 overflow-y-auto overscroll-contain md:block xl:w-[440px]"
               style={{
+                background:
+                  "linear-gradient(180deg, color-mix(in srgb, var(--paper) 96%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08) 4%) 0%, var(--paper) 100%)",
+                boxShadow:
+                  "inset 1px 0 0 rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.14), -12px 0 24px -20px rgba(32, 23, 16, 0.45)",
                 transition:
                   "width var(--duration-normal) ease-out, opacity var(--duration-normal) ease-out",
               }}
@@ -994,7 +1214,8 @@ export function GalleryDashboard({
       <button
         type="button"
         onClick={() => setUploadOpen(true)}
-        className="btn-brutal fixed bottom-6 right-6 z-40 hidden h-13 w-13 items-center justify-center p-0 md:flex"
+        className={`btn-brutal fixed bottom-6 z-40 h-13 w-13 items-center justify-center p-0 ${selectedImage ? "hidden" : "hidden md:flex"}`}
+        style={{ right: "24px" }}
         aria-label="Add to library"
       >
         <Plus className="h-5 w-5" />
@@ -1015,6 +1236,7 @@ export function GalleryDashboard({
         onClose={() => setUploadOpen(false)}
         availableTags={availableUploadTags}
         folders={folders ?? []}
+        ownerUserId={canAccessMyGallery ? ownerUserId : undefined}
       />
 
       <AiWorkspacePanel

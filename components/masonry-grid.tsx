@@ -18,6 +18,9 @@ interface GalleryImage {
   tagNames?: string[];
   sourceUrl?: string;
   createdAt?: number;
+  folderId?: string;
+  isPublic?: boolean;
+  isFeatured?: boolean;
 }
 
 interface MasonryGridProps {
@@ -40,6 +43,9 @@ interface MasonryGridProps {
     tagNames?: string[];
     sourceUrl?: string;
     createdAt?: number;
+    folderId?: string;
+    isPublic?: boolean;
+    isFeatured?: boolean;
   }) => void;
   onImageLoad?: (imageId: string) => void;
   loading?: boolean;

@@ -2,11 +2,17 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 ---
 
 ## ✔ Shipped
+
+### 2026-03-03
+- Folders backend v1 — owner-scoped folder model (create/list/update/delete), cross-user folder guardrails, and asset folder assignment mutation
+- Folder lifecycle cleanup — deleting a folder now clears linked `folderId` on owner prompts/assets
+- Backend test harness for Convex handlers + folder lifecycle permission tests
+- Feature docs added: `agent-docs/features/folders/PRD.md` and `agent-docs/features/folders/TICKET.md`
 
 ### 2026-03-01
 - Image focus mode (IFM Phase 1) — tabbed detail panel (Prompt/Details/Actions), mobile bottom sheet, keyboard nav, swipe gesture hook, state contract

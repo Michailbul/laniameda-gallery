@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle, ShieldCheck } from "lucide-react";
 import { useTelegramAuth } from "./TelegramAuthProvider";
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
   ?.trim()
   .replace(/^@+/, "");
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  return fallback;
+};
+const DEV_AUTH_BYPASS_ENABLED =
+  process.env.NODE_ENV !== "production" &&
+  parseBoolean(process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED, false);
 
 interface TelegramLoginButtonProps {
   size?: "small" | "medium" | "large";
@@ -16,6 +26,9 @@ export function TelegramLoginButton({
   size = "medium",
 }: TelegramLoginButtonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [widgetError, setWidgetError] = useState<string | null>(null);
+  const [devLoginLoading, setDevLoginLoading] = useState(false);
+  const [devLoginError, setDevLoginError] = useState<string | null>(null);
   const { refresh } = useTelegramAuth();
   const sizeConfig =
     size === "small"
@@ -39,7 +52,33 @@ export function TelegramLoginButton({
             scriptSize: "medium" as const,
           };
 
+  const handleDevLogin = useCallback(async () => {
+    if (devLoginLoading) return;
+    setDevLoginLoading(true);
+    setDevLoginError(null);
+    try {
+      const response = await fetch("/api/auth/dev-login", { method: "POST" });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to create local dev session.");
+      }
+      await refresh();
+    } catch (error) {
+      setDevLoginError(
+        error instanceof Error ? error.message : "Failed to create local dev session.",
+      );
+    } finally {
+      setDevLoginLoading(false);
+    }
+  }, [devLoginLoading, refresh]);
+
   useEffect(() => {
+    if (DEV_AUTH_BYPASS_ENABLED) {
+      return;
+    }
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -85,7 +124,24 @@ export function TelegramLoginButton({
     container.innerHTML = "";
     container.appendChild(script);
 
+    const detectWidgetError = () => {
+      const text = container.textContent?.trim().toLowerCase() ?? "";
+      if (!text) return;
+      if (text.includes("bot domain invalid")) {
+        const host = window.location.host;
+        setWidgetError(
+          `Telegram widget rejected this domain (${host}). Add it in BotFather using /setdomain for @${BOT_USERNAME}.`,
+        );
+      }
+    };
+
+    const observer = new MutationObserver(detectWidgetError);
+    observer.observe(container, { childList: true, subtree: true, characterData: true });
+    const timer = window.setTimeout(detectWidgetError, 900);
+
     return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
       container.innerHTML = "";
       delete globalWindow.__onTelegramAuth;
     };
@@ -117,13 +173,15 @@ export function TelegramLoginButton({
               className={`font-mono uppercase tracking-[0.14em] ${sizeConfig.title}`}
               style={{ color: "var(--text-secondary)" }}
             >
-              Telegram Login
+              {DEV_AUTH_BYPASS_ENABLED ? "Local Dev Login" : "Telegram Login"}
             </span>
             <span
               className={`${sizeConfig.subtitle}`}
               style={{ color: "var(--text-ghost)", lineHeight: 1.3 }}
             >
-              Verify identity in one tap.
+              {DEV_AUTH_BYPASS_ENABLED
+                ? "Bypass widget while running localhost."
+                : "Verify identity in one tap."}
             </span>
           </div>
         </div>
@@ -136,11 +194,45 @@ export function TelegramLoginButton({
           }}
         >
           <ShieldCheck className="h-3 w-3" />
-          Secure
+          {DEV_AUTH_BYPASS_ENABLED ? "Dev only" : "Secure"}
         </div>
       </div>
 
-      {BOT_USERNAME ? (
+      {DEV_AUTH_BYPASS_ENABLED ? (
+        <div
+          className="rounded-xl border px-3 py-2"
+          style={{
+            borderColor: "var(--border-default)",
+            backgroundColor: "var(--paper-muted)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => void handleDevLogin()}
+            disabled={devLoginLoading}
+            className="w-full rounded-lg border px-3 py-2 text-[11px] font-medium uppercase tracking-wider transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              borderColor: "rgba(46, 184, 180, 0.45)",
+              color: "var(--text-secondary)",
+              backgroundColor: "rgba(46, 184, 180, 0.08)",
+            }}
+          >
+            {devLoginLoading ? "Signing in..." : "Sign in as dev user"}
+          </button>
+          <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
+            Enable with `NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` and `DEV_AUTH_BYPASS_ENABLED=true`.
+          </p>
+          {devLoginError && (
+            <p
+              className="mt-1 text-[11px]"
+              style={{ color: "#b44f3a", lineHeight: 1.35 }}
+              role="alert"
+            >
+              {devLoginError}
+            </p>
+          )}
+        </div>
+      ) : BOT_USERNAME ? (
         <div
           className="rounded-xl border px-3 py-2"
           style={{
@@ -149,6 +241,15 @@ export function TelegramLoginButton({
           }}
         >
           <div ref={containerRef} className="min-h-[34px]" />
+          {widgetError && (
+            <p
+              className="mt-2 text-[11px]"
+              style={{ color: "#b44f3a", lineHeight: 1.35 }}
+              role="alert"
+            >
+              {widgetError}
+            </p>
+          )}
         </div>
       ) : (
         <div

@@ -8,9 +8,9 @@ import { X } from "lucide-react";
 type UploadModalProps = {
   open: boolean;
   onClose: () => void;
-} & Pick<UploadPanelProps, "availableTags" | "folders">;
+} & Pick<UploadPanelProps, "availableTags" | "folders" | "ownerUserId">;
 
-export function UploadModal({ open, onClose, availableTags, folders }: UploadModalProps) {
+export function UploadModal({ open, onClose, availableTags, folders, ownerUserId }: UploadModalProps) {
   useEffect(() => {
     if (!open || typeof window === "undefined") return;
     const handleKey = (event: KeyboardEvent) => {
@@ -56,6 +56,7 @@ export function UploadModal({ open, onClose, availableTags, folders }: UploadMod
             <UploadPanel
               availableTags={availableTags}
               folders={folders}
+              ownerUserId={ownerUserId}
               className="flex-1 min-h-0"
             />
           </div>

@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-02
+Last updated: 2026-03-03
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -13,6 +13,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Jimp (not sharp) is used for thumbnail generation — keeps os-specific binaries out of the Convex action bundle (`linux-arm64` compatible).
 - `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
+- Folders are owner-scoped in backend APIs; always pass `ownerUserId` to `folders.listFolders` and validate folder ownership before writing `folderId` to assets/prompts.
 
 ## Gallery / UI
 
@@ -26,6 +27,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
 - Gallery is guest-visible; auth required only for protected actions (upload, save, edit).
 - `KB_OWNER_USER_ID` env var scopes agent-ingested content to the correct owner — never hardcode this, always read from env.
+- For localhost work without tunnel domain churn, enable dev bypass (`NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` + `DEV_AUTH_BYPASS_ENABLED=true`) and use `/api/auth/dev-login` from the login card.
 
 ## Ingest
 

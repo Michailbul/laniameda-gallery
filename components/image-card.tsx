@@ -19,6 +19,9 @@ interface ImageCardProps {
     tagNames?: string[];
     sourceUrl?: string;
     createdAt?: number;
+    folderId?: string;
+    isPublic?: boolean;
+    isFeatured?: boolean;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -33,6 +36,9 @@ interface ImageCardProps {
     tagNames?: string[];
     sourceUrl?: string;
     createdAt?: number;
+    folderId?: string;
+    isPublic?: boolean;
+    isFeatured?: boolean;
   }) => void;
   selectedId?: string;
   initiallyLoaded?: boolean;
@@ -124,6 +130,9 @@ export const ImageCard = memo(function ImageCard({
       tagNames: image.tagNames,
       sourceUrl: image.sourceUrl,
       createdAt: image.createdAt,
+      folderId: image.folderId,
+      isPublic: image.isPublic,
+      isFeatured: image.isFeatured,
     });
 
   // Focus dimming: selected stays full, others dim when there is a selection

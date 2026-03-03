@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
+import { ensureFolderOwnership } from "./folderHelpers";
 
 const generationTypeValidator = v.optional(v.union(
   v.literal("image_gen"),
@@ -36,6 +37,27 @@ const resolveOwnerUserIdCandidates = (ownerUserId: string) => {
   return Array.from(new Set(candidates));
 };
 
+const resolveAdminCandidates = (actorUserId: string) => {
+  const normalized = actorUserId.trim();
+  if (!normalized) return [];
+  const candidates = [normalized];
+  if (normalized.startsWith("telegram:")) {
+    const unprefixed = normalized.slice("telegram:".length).trim();
+    if (unprefixed) candidates.push(unprefixed);
+  } else if (/^\d+$/.test(normalized)) {
+    candidates.push(`telegram:${normalized}`);
+  }
+  return Array.from(new Set(candidates));
+};
+
+const getCuratorUserIdsFromEnv = () => {
+  const raw = process.env.CURATION_ADMIN_USER_IDS ?? process.env.KB_OWNER_USER_ID ?? "";
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+};
+
 export const createAsset = mutation({
   args: {
     ownerUserId: v.string(),
@@ -68,6 +90,7 @@ export const createAsset = mutation({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
 
     if (args.ingestKey) {
       const existing = await ctx.db
@@ -102,6 +125,8 @@ export const createAsset = mutation({
       folderId: args.folderId,
       ingestKey: args.ingestKey,
       modelName: args.modelName,
+      isPublic: false,
+      isFeatured: false,
       pillar: args.pillar,
       generationType: args.generationType,
       createdAt,
@@ -118,6 +143,49 @@ export const createAsset = mutation({
     await bumpTagUsage(ctx, tagIds, 1);
 
     return { assetId, created: true };
+  },
+});
+
+export const setAssetFolder = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    folderId: v.optional(v.id("folders")),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    folderId: v.optional(v.id("folders")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (asset.ownerUserId !== ownerUserId) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
+    if (asset.folderId === args.folderId) {
+      return {
+        assetId: args.assetId,
+        folderId: asset.folderId,
+      };
+    }
+
+    await ctx.db.patch(args.assetId, {
+      folderId: args.folderId,
+    });
+
+    return {
+      assetId: args.assetId,
+      folderId: args.folderId,
+    };
   },
 });
 
@@ -149,6 +217,10 @@ export const getAsset = query({
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
       modelName: v.optional(v.string()),
+      isPublic: v.optional(v.boolean()),
+      isFeatured: v.optional(v.boolean()),
+      curatedByUserId: v.optional(v.string()),
+      curatedAt: v.optional(v.number()),
       pillar: pillarValidator,
       generationType: generationTypeValidator,
       createdAt: v.number(),
@@ -197,6 +269,10 @@ export const listAssets = query({
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
       modelName: v.optional(v.string()),
+      isPublic: v.optional(v.boolean()),
+      isFeatured: v.optional(v.boolean()),
+      curatedByUserId: v.optional(v.string()),
+      curatedAt: v.optional(v.number()),
       pillar: pillarValidator,
       generationType: generationTypeValidator,
       createdAt: v.number(),
@@ -286,6 +362,10 @@ const galleryAssetResultValidator = v.object({
   tagNames: v.array(v.string()),
   folderId: v.optional(v.id("folders")),
   modelName: v.optional(v.string()),
+  isPublic: v.optional(v.boolean()),
+  isFeatured: v.optional(v.boolean()),
+  curatedByUserId: v.optional(v.string()),
+  curatedAt: v.optional(v.number()),
   pillar: pillarValidator,
   createdAt: v.number(),
   url: v.optional(v.string()),
@@ -297,7 +377,6 @@ export const listGalleryAssets = query({
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
-    excludeTagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -315,10 +394,6 @@ export const listGalleryAssets = query({
     const ownerUserIds = resolveOwnerUserIdCandidates(ownerUserId);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
-    const excludeTagFilter =
-      args.excludeTagIds && args.excludeTagIds.length > 0
-        ? new Set(args.excludeTagIds)
-        : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
@@ -380,9 +455,6 @@ export const listGalleryAssets = query({
 
     const results = [];
     for (const asset of assets) {
-      if (excludeTagFilter && asset.tagIds.some((tagId) => excludeTagFilter.has(tagId))) {
-        continue;
-      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         continue;
       }
@@ -445,6 +517,10 @@ export const listGalleryAssets = query({
         tagNames,
         folderId: asset.folderId,
         modelName: asset.modelName,
+        isPublic: asset.isPublic,
+        isFeatured: asset.isFeatured,
+        curatedByUserId: asset.curatedByUserId,
+        curatedAt: asset.curatedAt,
         pillar: asset.pillar,
         createdAt: asset.createdAt,
         url,
@@ -463,7 +539,6 @@ export const listPublicGalleryAssets = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
-    excludeTagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -476,24 +551,28 @@ export const listPublicGalleryAssets = query({
     const queryTake = Math.min(limit * 3, 600);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
-    const excludeTagFilter =
-      args.excludeTagIds && args.excludeTagIds.length > 0
-        ? new Set(args.excludeTagIds)
-        : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
     const kind = args.kind;
 
-    const baseAssets = await (kind
+    const baseAssets = await (pillar
       ? ctx.db
           .query("assets")
-          .withIndex("by_kind_createdAt", (q) =>
-            q.eq("kind", kind).gte("createdAt", 0),
+          .withIndex("by_isPublic_pillar_createdAt", (q) =>
+            q.eq("isPublic", true).eq("pillar", pillar).gte("createdAt", 0),
           )
-      : ctx.db
-          .query("assets")
-          .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+      : kind
+        ? ctx.db
+            .query("assets")
+            .withIndex("by_isPublic_kind_createdAt", (q) =>
+              q.eq("isPublic", true).eq("kind", kind).gte("createdAt", 0),
+            )
+        : ctx.db
+            .query("assets")
+            .withIndex("by_isPublic_createdAt", (q) =>
+              q.eq("isPublic", true).gte("createdAt", 0),
+            )
     )
       .order("desc")
       .take(queryTake);
@@ -521,12 +600,6 @@ export const listPublicGalleryAssets = query({
 
     const results = [];
     for (const asset of baseAssets) {
-      if (pillar && asset.pillar !== pillar) {
-        continue;
-      }
-      if (excludeTagFilter && asset.tagIds.some((tagId) => excludeTagFilter.has(tagId))) {
-        continue;
-      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         continue;
       }
@@ -586,6 +659,10 @@ export const listPublicGalleryAssets = query({
         tagNames,
         folderId: asset.folderId,
         modelName: asset.modelName,
+        isPublic: asset.isPublic,
+        isFeatured: asset.isFeatured,
+        curatedByUserId: asset.curatedByUserId,
+        curatedAt: asset.curatedAt,
         pillar: asset.pillar,
         createdAt: asset.createdAt,
         url,
@@ -597,6 +674,68 @@ export const listPublicGalleryAssets = query({
     }
 
     return results;
+  },
+});
+
+export const setAssetCuration = mutation({
+  args: {
+    assetId: v.id("assets"),
+    actorUserId: v.string(),
+    isPublic: v.boolean(),
+    isFeatured: v.optional(v.boolean()),
+    adminSecret: v.string(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    isPublic: v.boolean(),
+    isFeatured: v.boolean(),
+    curatedAt: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.CURATION_ADMIN_SECRET;
+    if (!expectedSecret || args.adminSecret !== expectedSecret) {
+      throw new ConvexError("Unauthorized curator request.");
+    }
+
+    const actorUserId = args.actorUserId.trim();
+    if (!actorUserId) {
+      throw new ConvexError("actorUserId is required.");
+    }
+
+    const allowedUserIds = getCuratorUserIdsFromEnv();
+    if (allowedUserIds.length === 0) {
+      throw new ConvexError("Curator user list is not configured.");
+    }
+
+    const actorCandidates = resolveAdminCandidates(actorUserId);
+    const canCurate = allowedUserIds.some((allowed) => actorCandidates.includes(allowed));
+    if (!canCurate) {
+      throw new ConvexError("Forbidden curator.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+
+    const curatedAt = Date.now();
+    const nextIsPublic = args.isPublic;
+    const nextIsFeatured =
+      args.isFeatured !== undefined ? args.isFeatured && nextIsPublic : Boolean(asset.isFeatured && nextIsPublic);
+
+    await ctx.db.patch(args.assetId, {
+      isPublic: nextIsPublic,
+      isFeatured: nextIsFeatured,
+      curatedByUserId: actorUserId,
+      curatedAt,
+    });
+
+    return {
+      assetId: args.assetId,
+      isPublic: nextIsPublic,
+      isFeatured: nextIsFeatured,
+      curatedAt,
+    };
   },
 });
 

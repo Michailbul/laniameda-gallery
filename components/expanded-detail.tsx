@@ -25,6 +25,7 @@ import { downloadImage } from "@/lib/download-image";
 type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
 
 type DetailTab = "prompt" | "details" | "actions";
+const NO_FOLDER_VALUE = "__none";
 
 interface ExpandedDetailProps {
   image: {
@@ -39,6 +40,9 @@ interface ExpandedDetailProps {
     tagNames?: string[];
     sourceUrl?: string;
     createdAt?: number;
+    folderId?: string;
+    isPublic?: boolean;
+    isFeatured?: boolean;
   };
   onClose: () => void;
   onAction: (intent: ModalIntent, imageId: string) => void;
@@ -52,6 +56,17 @@ interface ExpandedDetailProps {
   onDelete?: (imageId: string) => void;
   deleting?: boolean;
   deleteError?: string;
+  canCuratePublic?: boolean;
+  onSetPublicState?: (imageId: string, isPublic: boolean) => void;
+  onSetFeaturedState?: (imageId: string, isFeatured: boolean) => void;
+  curationBusy?: boolean;
+  curationError?: string;
+  folders?: Array<{ _id: string; name: string }>;
+  canManageFolder?: boolean;
+  onSetFolder?: (imageId: string, folderId: string | null) => Promise<void> | void;
+  onCreateFolder?: (name: string) => Promise<string | null>;
+  folderBusy?: boolean;
+  folderError?: string;
 }
 
 const ACTIONS = [
@@ -80,6 +95,17 @@ export function ExpandedDetail({
   onDelete,
   deleting = false,
   deleteError,
+  canCuratePublic = false,
+  onSetPublicState,
+  onSetFeaturedState,
+  curationBusy = false,
+  curationError,
+  folders = [],
+  canManageFolder = false,
+  onSetFolder,
+  onCreateFolder,
+  folderBusy = false,
+  folderError,
 }: ExpandedDetailProps) {
   const [fullLoaded, setFullLoaded] = useState(false);
   const { modelName, tagNames } = image;
@@ -88,6 +114,8 @@ export function ExpandedDetail({
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("prompt");
+  const [folderDraftName, setFolderDraftName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastExiting, setToastExiting] = useState(false);
@@ -102,6 +130,8 @@ export function ExpandedDetail({
     setCopyMenuOpen(false);
     setToastVisible(false);
     setToastExiting(false);
+    setFolderDraftName("");
+    setCreatingFolder(false);
   }, [image.id]);
 
   // Click-outside to close copy dropdown
@@ -159,6 +189,29 @@ export function ExpandedDetail({
     setDownloadStarted(true);
     await downloadImage(image.fullSrc, `laniameda-${image.id}`);
     setTimeout(() => setDownloadStarted(false), 1500);
+  };
+
+  const handleFolderChange = (value: string) => {
+    if (!onSetFolder) return;
+    const nextFolderId = value === NO_FOLDER_VALUE ? null : value;
+    void onSetFolder(image.id, nextFolderId);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!onCreateFolder) return;
+    const name = folderDraftName.trim();
+    if (!name || creatingFolder) return;
+
+    setCreatingFolder(true);
+    try {
+      const folderId = await onCreateFolder(name);
+      if (folderId && onSetFolder) {
+        await onSetFolder(image.id, folderId);
+      }
+      setFolderDraftName("");
+    } finally {
+      setCreatingFolder(false);
+    }
   };
 
   // Keyboard: Cmd+C copies prompt when panel focused and no text selected
@@ -522,6 +575,73 @@ export function ExpandedDetail({
                 }
               />
             )}
+            {canManageFolder && (
+              <div className="flex flex-col gap-1.5">
+                <span
+                  className="text-[11px] font-medium uppercase tracking-wider"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Folder
+                </span>
+                <select
+                  aria-label="Select folder"
+                  value={image.folderId ?? NO_FOLDER_VALUE}
+                  onChange={(event) => handleFolderChange(event.target.value)}
+                  disabled={folderBusy}
+                  className="h-9 w-full border px-2.5 font-mono text-[11px] uppercase tracking-wider disabled:opacity-60"
+                  style={{
+                    borderColor: "var(--border-default)",
+                    backgroundColor: "var(--surface-1)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <option value={NO_FOLDER_VALUE}>No folder</option>
+                  {folders.map((folder) => (
+                    <option key={folder._id} value={folder._id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+                {onCreateFolder && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={folderDraftName}
+                      onChange={(event) => setFolderDraftName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        void handleCreateFolder();
+                      }}
+                      placeholder="Create folder"
+                      className="h-9 flex-1 border px-2.5 text-[12px]"
+                      style={{
+                        borderColor: "var(--border-default)",
+                        backgroundColor: "var(--surface-1)",
+                        color: "var(--text-secondary)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateFolder()}
+                      disabled={creatingFolder || folderDraftName.trim().length === 0}
+                      className="h-9 border px-2.5 font-mono text-[10px] uppercase tracking-wider disabled:opacity-60"
+                      style={{
+                        borderColor: "var(--border-default)",
+                        backgroundColor: "var(--surface-2)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {creatingFolder ? "Saving..." : "Create"}
+                    </button>
+                  </div>
+                )}
+                {folderError && (
+                  <p className="text-[11px]" style={{ color: "#e5534b" }} role="alert">
+                    {folderError}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <span
                 className="text-[11px] font-medium uppercase tracking-wider"
@@ -596,6 +716,59 @@ export function ExpandedDetail({
                 />
               </button>
             ))}
+            {canCuratePublic && onSetPublicState && (
+              <>
+                <div className="my-1 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />
+                <button
+                  type="button"
+                  onClick={() => onSetPublicState(image.id, !Boolean(image.isPublic))}
+                  disabled={curationBusy}
+                  className="flex items-center gap-2.5 border px-3 py-2.5 transition-[background-color,border-color,opacity] duration-[var(--duration-fast)] disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{
+                    borderColor: "rgba(46, 184, 180, 0.45)",
+                    color: "var(--text-secondary)",
+                    backgroundColor: "rgba(46, 184, 180, 0.08)",
+                  }}
+                >
+                  <span className="flex-1 text-left text-[10px] font-mono font-medium uppercase tracking-wider">
+                    {curationBusy
+                      ? "Saving..."
+                      : image.isPublic
+                        ? "Remove from Public"
+                        : "Publish to Public"}
+                  </span>
+                </button>
+                {onSetFeaturedState && (
+                  <button
+                    type="button"
+                    onClick={() => onSetFeaturedState(image.id, !Boolean(image.isFeatured))}
+                    disabled={curationBusy || !image.isPublic}
+                    className="flex items-center gap-2.5 border px-3 py-2.5 transition-[background-color,border-color,opacity] duration-[var(--duration-fast)] disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{
+                      borderColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.45)",
+                      color: "var(--text-secondary)",
+                      backgroundColor:
+                        image.isFeatured && image.isPublic
+                          ? "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15)"
+                          : "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08)",
+                    }}
+                  >
+                    <span className="flex-1 text-left text-[10px] font-mono font-medium uppercase tracking-wider">
+                      {curationBusy
+                        ? "Saving..."
+                        : image.isFeatured
+                          ? "Unset Featured"
+                          : "Set as Featured"}
+                    </span>
+                  </button>
+                )}
+                {curationError && (
+                  <p className="text-[11px]" style={{ color: "#e5534b" }} role="alert">
+                    {curationError}
+                  </p>
+                )}
+              </>
+            )}
             {onDelete && (
               <>
                 <div className="my-1 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />

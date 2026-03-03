@@ -20,6 +20,7 @@ Quick reference for all docs in this folder.
 |------|---------|
 | `DESIGN.md` | Design system — current warm paper theme, tokens, component rules |
 | `AUTH.md` | Auth architecture — Telegram login, session, env vars |
+| `ENV_MATRIX.md` | Local vs Vercel vs Convex vs OpenClaw env variables + production smoke tests |
 | `BACKEND_CONVEX_SETUP.md` | Convex tables, run lifecycle, env vars, schema change workflow |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands, env setup, test workflow |
 
@@ -43,6 +44,7 @@ features/<feature-name>/
 | `features/dashboard-polish/` | 🔥 Active sprint | `SPRINT.md` — SP-01 to SP-13 tickets |
 | `features/image-focus-mode/` | ✔ Done (Phase 1) | `PRD.md`, `TICKETS-PHASE1.md` |
 | `features/workos-auth/` | ✅ Ready | `TICKET.md` — phases 1–3 |
+| `features/gallery-entry-v2/` | 📋 Backlog | `TICKET.md` — entry model (multi-image/prompt mapping) + hover actions + side-panel carousel |
 | `features/image-prompt-generator/` | 📋 Backlog | `research/` — placeholder |
 
 ---

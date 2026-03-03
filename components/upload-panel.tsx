@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation } from "convex/react";
 import Image from "next/image";
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +34,7 @@ type StatusMessage = {
 export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
+  ownerUserId?: string;
   className?: string;
 };
 
@@ -84,6 +87,7 @@ const PROMPT_TYPE_OPTIONS = [
 export function UploadPanel({
   availableTags = [],
   folders = [],
+  ownerUserId,
   className,
 }: UploadPanelProps) {
   const [promptText, setPromptText] = useState("");
@@ -91,6 +95,8 @@ export function UploadPanel({
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [folderSelection, setFolderSelection] = useState(NO_FOLDER_VALUE);
+  const [folderDraftName, setFolderDraftName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
   const [pillarSelection, setPillarSelection] = useState(NO_VALUE);
@@ -107,6 +113,8 @@ export function UploadPanel({
   const highlightRef = useRef<HTMLPreElement | null>(null);
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const createFolderMutation = useMutation(api.folders.createFolder);
+  const canCreateFolders = Boolean(ownerUserId?.trim());
 
   const canSubmit = Boolean(
     promptText.trim().length > 0 || urlInput.trim().length > 0 || selectedFiles.length > 0,
@@ -210,6 +218,8 @@ export function UploadPanel({
     setTags([]);
     setSelectedFiles([]);
     setFolderSelection(NO_FOLDER_VALUE);
+    setFolderDraftName("");
+    setCreatingFolder(false);
     setModelNameSelection(NO_VALUE);
     setModelNameCustom("");
     setPillarSelection(NO_VALUE);
@@ -218,6 +228,41 @@ export function UploadPanel({
     setDomainInput("");
     setIsDragActive(false);
     setStatus(null);
+  };
+
+  const handleCreateFolder = async () => {
+    const name = folderDraftName.trim();
+    const normalizedOwnerUserId = ownerUserId?.trim();
+    if (!normalizedOwnerUserId) {
+      setStatus({ type: "error", message: "Sign in to create folders." });
+      return;
+    }
+    if (!name) {
+      setStatus({ type: "error", message: "Folder name is required." });
+      return;
+    }
+    if (creatingFolder) return;
+
+    setCreatingFolder(true);
+    setStatus(null);
+    try {
+      const result = await createFolderMutation({
+        ownerUserId: normalizedOwnerUserId,
+        name,
+      });
+      setFolderSelection(result.folderId);
+      setFolderDraftName("");
+      setStatus({
+        type: "success",
+        message: result.created ? "Folder created." : "Using existing folder.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create folder.";
+      setStatus({ type: "error", message });
+    } finally {
+      setCreatingFolder(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -744,6 +789,29 @@ export function UploadPanel({
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-muted-foreground mt-1">Organize prompts into collections</p>
+                    {canCreateFolders && (
+                      <div className="mt-1 flex items-center gap-2">
+                        <Input
+                          value={folderDraftName}
+                          onChange={(event) => setFolderDraftName(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            void handleCreateFolder();
+                          }}
+                          placeholder="Create new folder"
+                          className="h-10 flex-1 rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:ring-0 focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)]"
+                        />
+                        <Button
+                          type="button"
+                          onClick={() => void handleCreateFolder()}
+                          disabled={creatingFolder || folderDraftName.trim().length === 0}
+                          className="h-10 rounded-[12px] px-3 text-[11px] font-mono uppercase tracking-wider"
+                        >
+                          {creatingFolder ? "Saving..." : "Create"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { bumpTagUsage, dedupeIds } from "./helpers";
+import { ensureFolderOwnership } from "./folderHelpers";
 
 const promptTypeValidator = v.optional(v.union(
   v.literal("image_gen"),
@@ -38,6 +39,7 @@ export const createPrompt = mutation({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
 
     const text = args.text.trim();
     if (!text) {
@@ -114,6 +116,7 @@ export const updatePrompt = mutation({
     if (existing.ownerUserId !== ownerUserId) {
       throw new ConvexError("Prompt does not belong to this user.");
     }
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
 
     const tagIds = dedupeIds(args.tagIds);
     await ctx.db.patch(args.id, {

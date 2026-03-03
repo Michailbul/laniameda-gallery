@@ -32,9 +32,16 @@ export default defineSchema({
     .index("by_normalized", ["normalized"])
     .index("by_category_normalized", ["category", "normalized"]),
   folders: defineTable({
+    ownerUserId: v.optional(v.string()),
     name: v.string(),
+    normalizedName: v.optional(v.string()),
     description: v.optional(v.string()),
-  }).index("by_name", ["name"]),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_name", ["name"])
+    .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   prompts: defineTable({
     ownerUserId: v.optional(v.string()),
     text: v.string(),
@@ -92,6 +99,10 @@ export default defineSchema({
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
+    isFeatured: v.optional(v.boolean()),
+    curatedByUserId: v.optional(v.string()),
+    curatedAt: v.optional(v.number()),
     pillar: v.optional(v.union(
       v.literal("creators"),
       v.literal("cars"),
@@ -117,6 +128,9 @@ export default defineSchema({
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
+    .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])
+    .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"]),
   assetTags: defineTable({
     assetId: v.id("assets"),

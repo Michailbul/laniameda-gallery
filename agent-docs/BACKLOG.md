@@ -3,7 +3,7 @@
 > Single source of truth for all work items.
 > Statuses: `🔥 active` | `✅ ready` | `📋 backlog` | `🧊 icebox` | `✔ done`
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 ---
 
@@ -76,6 +76,7 @@ Last updated: 2026-03-01
 | UI-02 | Prompt detail tab: show provenance / source history | P3 | S | Phase 2 question from IFM PRD |
 | UI-03 | Tab state persists globally (not reset on image switch) | P3 | XS | IFM PRD open question |
 | UI-04 | Contextual related tags/prompts in side panel | P3 | L | IFM Phase 3 |
+| UI-05 | Gallery Entry V2: hover actions + side-panel carousel + prompt/image arrays | P0 | XL | Ticket: `features/gallery-entry-v2/TICKET.md` (includes Convex schema/backend/frontend/docs tasks) |
 
 ### Infrastructure
 

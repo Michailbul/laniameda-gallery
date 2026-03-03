@@ -54,13 +54,19 @@ const mode = parseMode();
 const requiredBase = [
   "NEXT_PUBLIC_CONVEX_URL",
   "CONVEX_URL",
-  "WORKOS_COOKIE_PASSWORD",
 ] as const;
 
 const requiredByMode: Record<Mode, readonly string[]> = {
-  "dev-sim": ["DEV_TELEGRAM_SIM_ENABLED"],
-  "dev-telegram": ["TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME", "SESSION_SECRET"],
-  "prod-telegram": ["TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME", "SESSION_SECRET"],
+  "dev-sim": ["SESSION_SECRET", "DEV_TELEGRAM_SIM_ENABLED"],
+  "dev-telegram": ["SESSION_SECRET", "TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"],
+  "prod-telegram": [
+    "SESSION_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+    "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
+    "CURATION_ADMIN_SECRET",
+    "CURATION_ADMIN_USER_IDS",
+    "NEXT_PUBLIC_CURATION_ADMIN_USER_IDS",
+  ],
 };
 
 const optionalButRecommended = [
@@ -103,6 +109,16 @@ for (const key of requiredBase) {
   }
 }
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (isPresent(sessionSecret) && sessionSecret!.trim().length < 32) {
+  errors.push("SESSION_SECRET must be at least 32 characters long.");
+}
+
+const curationSecret = process.env.CURATION_ADMIN_SECRET;
+if (isPresent(curationSecret) && curationSecret!.trim().length < 16) {
+  warnings.push("CURATION_ADMIN_SECRET should be at least 16 characters long.");
+}
+
 const workosCookiePassword = process.env.WORKOS_COOKIE_PASSWORD;
 if (isPresent(workosCookiePassword) && workosCookiePassword!.trim().length < 32) {
   errors.push("WORKOS_COOKIE_PASSWORD must be at least 32 characters long.");
@@ -140,10 +156,16 @@ for (const key of optionalButRecommended) {
 
 if (!existsSync(CONVEX_ENV_LOCAL)) {
   warnings.push("convex/.env.local missing (recommended for local convex env parity checks).");
-} else if (!isPresent(convexEnvLocal.WORKOS_CLIENT_ID)) {
-  warnings.push("convex/.env.local exists but WORKOS_CLIENT_ID is missing.");
 } else {
-  checks.push("Found convex/.env.local with WORKOS_CLIENT_ID");
+  if (isPresent(convexEnvLocal.TELEGRAM_BOT_TOKEN)) {
+    checks.push("Found convex/.env.local with TELEGRAM_BOT_TOKEN");
+  } else {
+    warnings.push("convex/.env.local exists but TELEGRAM_BOT_TOKEN is missing.");
+  }
+
+  if (isPresent(convexEnvLocal.WORKOS_CLIENT_ID)) {
+    checks.push("Found convex/.env.local with WORKOS_CLIENT_ID");
+  }
 }
 
 console.log(`Env Doctor: ${mode}`);
