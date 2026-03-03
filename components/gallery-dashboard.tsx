@@ -401,7 +401,7 @@ export function GalleryDashboard({
     canAccessMyGallery ? { ownerUserId } : "skip",
   );
   const folderNameById = useMemo(
-    () => new Map((folders ?? []).map((folder) => [folder._id, folder.name] as const)),
+    () => new Map<string, string>((folders ?? []).map((folder) => [folder._id, folder.name])),
     [folders],
   );
 
