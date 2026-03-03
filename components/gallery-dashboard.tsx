@@ -10,6 +10,11 @@ import {
   type Pillar,
   type SortOrder,
 } from "./top-filter-bar";
+import {
+  getNextSelectedTagFilters,
+  type SelectedTagFilters,
+  type TagFilterMode,
+} from "@/lib/tag-filters";
 import { MasonryGrid } from "./masonry-grid";
 import { ExpandedDetail } from "./expanded-detail";
 import { UploadModal } from "./upload-modal";
@@ -82,7 +87,7 @@ export function GalleryDashboard({
   );
   const canDeleteInCurrentView = canDeleteAssets && galleryScope === "mine";
 
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTagFilters, setSelectedTagFilters] = useState<SelectedTagFilters>({});
   const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
@@ -333,16 +338,43 @@ export function GalleryDashboard({
     return map;
   }, [dedupedTags]);
 
+  const includedTagKeys = useMemo(
+    () =>
+      Object.entries(selectedTagFilters)
+        .filter(([, mode]) => mode === "include")
+        .map(([tagKey]) => tagKey),
+    [selectedTagFilters],
+  );
+
+  const excludedTagKeys = useMemo(
+    () =>
+      Object.entries(selectedTagFilters)
+        .filter(([, mode]) => mode === "exclude")
+        .map(([tagKey]) => tagKey),
+    [selectedTagFilters],
+  );
+
   const selectedTagIds = useMemo(() => {
-    if (selectedTags.length === 0) return undefined;
+    if (includedTagKeys.length === 0) return undefined;
     const ids = new Set<Id<"tags">>();
-    for (const key of selectedTags) {
+    for (const key of includedTagKeys) {
       for (const id of sourceIdsByTagKey.get(key) ?? []) {
         ids.add(id);
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [selectedTags, sourceIdsByTagKey]);
+  }, [includedTagKeys, sourceIdsByTagKey]);
+
+  const excludedTagIds = useMemo(() => {
+    if (excludedTagKeys.length === 0) return undefined;
+    const ids = new Set<Id<"tags">>();
+    for (const key of excludedTagKeys) {
+      for (const id of sourceIdsByTagKey.get(key) ?? []) {
+        ids.add(id);
+      }
+    }
+    return ids.size > 0 ? Array.from(ids) : undefined;
+  }, [excludedTagKeys, sourceIdsByTagKey]);
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
@@ -351,6 +383,7 @@ export function GalleryDashboard({
           ownerUserId,
           kind: "image",
           tagIds: selectedTagIds,
+          excludeTagIds: excludedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: selectedFolderId
             ? (selectedFolderId as Id<"folders">)
@@ -367,6 +400,7 @@ export function GalleryDashboard({
       ? {
           kind: "image",
           tagIds: selectedTagIds,
+          excludeTagIds: excludedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: selectedFolderId
             ? (selectedFolderId as Id<"folders">)
@@ -416,15 +450,15 @@ export function GalleryDashboard({
     });
   }, []);
 
-  const handleTagToggle = (tag: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+  const handleTagSelect = (tag: string, mode: TagFilterMode) => {
+    setSelectedTagFilters((previous) =>
+      getNextSelectedTagFilters(previous, tag, mode),
     );
   };
 
-  const handleClearAll = () => setSelectedTags([]);
+  const handleClearAll = () => setSelectedTagFilters({});
   const handleClearFilters = () => {
-    setSelectedTags([]);
+    setSelectedTagFilters({});
     setSelectedPillar(null);
     setSelectedFolderId(null);
     setSelectedModelName(null);
@@ -671,7 +705,7 @@ export function GalleryDashboard({
       ? canAccessMyGallery && mineGalleryAssets === undefined
       : publicGalleryAssets === undefined;
   const hasFilters =
-    selectedTags.length > 0 ||
+    Object.keys(selectedTagFilters).length > 0 ||
     selectedPillar !== null ||
     selectedFolderId !== null ||
     selectedModelName !== null;
@@ -750,8 +784,8 @@ export function GalleryDashboard({
           canAccessMyGallery={canAccessMyGallery}
           onGalleryScopeChange={setGalleryScope}
           tags={allTags}
-          selectedTags={selectedTags}
-          onTagToggle={handleTagToggle}
+          selectedTagFilters={selectedTagFilters}
+          onTagSelect={handleTagSelect}
           onClearAllTags={handleClearAll}
           folders={folders ?? []}
           selectedFolderId={selectedFolderId}
@@ -822,9 +856,14 @@ export function GalleryDashboard({
                       {selectedModelName}
                     </span>
                   )}
-                  {selectedTags.length > 0 && (
+                  {includedTagKeys.length > 0 && (
                     <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                      {selectedTags.length} tag{selectedTags.length > 1 ? "s" : ""}
+                      +{includedTagKeys.length} tag{includedTagKeys.length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {excludedTagKeys.length > 0 && (
+                    <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                      -{excludedTagKeys.length} tag{excludedTagKeys.length > 1 ? "s" : ""}
                     </span>
                   )}
                 </div>

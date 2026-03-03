@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import {
+  resolveTagFilterModeFromClickPosition,
+  type SelectedTagFilters,
+  type TagFilterMode,
+} from "@/lib/tag-filters";
 
 interface Tag {
   _id: string;
@@ -29,8 +34,8 @@ interface TopFilterBarProps {
   canAccessMyGallery: boolean;
   onGalleryScopeChange: (scope: GalleryScope) => void;
   tags: Tag[];
-  selectedTags: string[];
-  onTagToggle: (tag: string) => void;
+  selectedTagFilters: SelectedTagFilters;
+  onTagSelect: (tag: string, mode: TagFilterMode) => void;
   onClearAllTags: () => void;
   folders: Folder[];
   selectedFolderId: string | null;
@@ -55,8 +60,8 @@ export function TopFilterBar({
   canAccessMyGallery,
   onGalleryScopeChange,
   tags,
-  selectedTags,
-  onTagToggle,
+  selectedTagFilters,
+  onTagSelect,
   onClearAllTags,
   folders,
   selectedFolderId,
@@ -87,8 +92,10 @@ export function TopFilterBar({
     if (!needle) return orderedTags;
     return orderedTags.filter((tag) => tag.name.toLowerCase().includes(needle));
   }, [orderedTags, tagQuery]);
-
-  const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const selectedTagCount = useMemo(
+    () => Object.keys(selectedTagFilters).length,
+    [selectedTagFilters],
+  );
 
   const handleWheel = (
     ref: React.RefObject<HTMLDivElement | null>,
@@ -247,8 +254,9 @@ export function TopFilterBar({
         tagQuery={tagQuery}
         onTagQueryChange={setTagQuery}
         tags={filteredTags}
-        selectedTags={selectedTagSet}
-        onTagToggle={onTagToggle}
+        selectedTagFilters={selectedTagFilters}
+        selectedTagCount={selectedTagCount}
+        onTagSelect={onTagSelect}
         onClearAllTags={onClearAllTags}
       />
 
@@ -292,15 +300,17 @@ function TopTagSystem({
   tagQuery,
   onTagQueryChange,
   tags,
-  selectedTags,
-  onTagToggle,
+  selectedTagFilters,
+  selectedTagCount,
+  onTagSelect,
   onClearAllTags,
 }: {
   tagQuery: string;
   onTagQueryChange: (value: string) => void;
   tags: Tag[];
-  selectedTags: Set<string>;
-  onTagToggle: (tagId: string) => void;
+  selectedTagFilters: SelectedTagFilters;
+  selectedTagCount: number;
+  onTagSelect: (tagId: string, mode: TagFilterMode) => void;
   onClearAllTags: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -328,13 +338,13 @@ function TopTagSystem({
               maxWidth: "220px",
             }}
           />
-          {selectedTags.size > 0 && (
+          {selectedTagCount > 0 && (
             <button
               type="button"
               onClick={onClearAllTags}
               className="btn-brutal-outline h-7"
             >
-              Clear {selectedTags.size}
+              Clear {selectedTagCount}
             </button>
           )}
         </div>
@@ -355,14 +365,18 @@ function TopTagSystem({
           el.scrollLeft += e.deltaY;
         }}
       >
-        <TagButton label="All Tags" active={selectedTags.size === 0} onClick={onClearAllTags} />
+        <TagButton
+          label="All Tags"
+          selectionMode={selectedTagCount === 0 ? "include" : null}
+          onClearAllTags={onClearAllTags}
+        />
         {tags.map((tag) => (
           <TagButton
             key={tag._id}
             label={tag.name}
             count={tag.usageCount}
-            active={selectedTags.has(tag._id)}
-            onClick={() => onTagToggle(tag._id)}
+            selectionMode={selectedTagFilters[tag._id] ?? null}
+            onSelect={(mode) => onTagSelect(tag._id, mode)}
           />
         ))}
       </div>
@@ -415,43 +429,81 @@ function FilterTab({
 function TagButton({
   label,
   count,
-  active,
-  onClick,
+  selectionMode,
+  onSelect,
+  onClearAllTags,
 }: {
   label: string;
   count?: number;
-  active: boolean;
-  onClick: () => void;
+  selectionMode: TagFilterMode | null;
+  onSelect?: (mode: TagFilterMode) => void;
+  onClearAllTags?: () => void;
 }) {
+  const isInclude = selectionMode === "include";
+  const isExclude = selectionMode === "exclude";
+  const isActive = selectionMode !== null;
   const className = [
     "inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border px-2.5 py-1 text-[10px] font-mono font-medium uppercase tracking-wider",
     "transition-[background-color,color,border-color,box-shadow,transform] duration-[var(--duration-fast)]",
     "active:translate-x-0 active:translate-y-0 active:shadow-none",
-    active
+    isActive
       ? "bg-[var(--bg-inverse)] border-[var(--bg-inverse)] text-[var(--text-inverse)]"
       : "bg-transparent border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
   ].join(" ");
 
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (onClearAllTags) {
+      onClearAllTags();
+      return;
+    }
+    if (!onSelect) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    onSelect(resolveTagFilterModeFromClickPosition(rect.width, offsetX));
+  };
+
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className={className}
       style={{
-        boxShadow: active ? "var(--shadow-brutal-sm)" : "none",
-        transform: active ? "translate(-1px, -1px)" : undefined,
+        boxShadow: isActive ? "var(--shadow-brutal-sm)" : "none",
+        transform: isActive ? "translate(-1px, -1px)" : undefined,
+        backgroundColor: isExclude ? "rgba(255, 91, 78, 0.12)" : undefined,
+        borderColor: isExclude ? "rgba(255, 91, 78, 0.55)" : undefined,
+        color: isExclude ? "var(--coral)" : undefined,
       }}
+      title={onSelect ? "Click right side to exclude, center/left to include" : undefined}
     >
       {label}
       {count !== undefined && (
         <span
           className="px-1 py-px text-[9px] font-mono tabular-nums"
           style={{
-            backgroundColor: active ? "rgba(255,255,255,0.18)" : "var(--surface-3)",
-            color: active ? "#FFFFFF" : "var(--text-ghost)",
+            backgroundColor: isInclude
+              ? "rgba(255,255,255,0.18)"
+              : isExclude
+                ? "rgba(255, 91, 78, 0.2)"
+                : "var(--surface-3)",
+            color: isInclude ? "#FFFFFF" : isExclude ? "var(--coral)" : "var(--text-ghost)",
           }}
         >
           {count}
+        </span>
+      )}
+      {onSelect && (
+        <span
+          className="ml-0.5 border-l pl-1 text-[8px]"
+          style={{
+            borderColor: isExclude
+              ? "rgba(255, 91, 78, 0.45)"
+              : "var(--border-subtle)",
+            color: isExclude ? "var(--coral)" : "var(--text-ghost)",
+          }}
+          aria-hidden="true"
+        >
+          -
         </span>
       )}
     </button>

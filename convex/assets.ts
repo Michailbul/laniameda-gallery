@@ -297,6 +297,7 @@ export const listGalleryAssets = query({
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    excludeTagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -314,6 +315,10 @@ export const listGalleryAssets = query({
     const ownerUserIds = resolveOwnerUserIdCandidates(ownerUserId);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const excludeTagFilter =
+      args.excludeTagIds && args.excludeTagIds.length > 0
+        ? new Set(args.excludeTagIds)
+        : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
@@ -375,6 +380,9 @@ export const listGalleryAssets = query({
 
     const results = [];
     for (const asset of assets) {
+      if (excludeTagFilter && asset.tagIds.some((tagId) => excludeTagFilter.has(tagId))) {
+        continue;
+      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         continue;
       }
@@ -455,6 +463,7 @@ export const listPublicGalleryAssets = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    excludeTagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -467,6 +476,10 @@ export const listPublicGalleryAssets = query({
     const queryTake = Math.min(limit * 3, 600);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const excludeTagFilter =
+      args.excludeTagIds && args.excludeTagIds.length > 0
+        ? new Set(args.excludeTagIds)
+        : null;
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
@@ -509,6 +522,9 @@ export const listPublicGalleryAssets = query({
     const results = [];
     for (const asset of baseAssets) {
       if (pillar && asset.pillar !== pillar) {
+        continue;
+      }
+      if (excludeTagFilter && asset.tagIds.some((tagId) => excludeTagFilter.has(tagId))) {
         continue;
       }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
