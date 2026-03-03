@@ -54,19 +54,13 @@ const mode = parseMode();
 const requiredBase = [
   "NEXT_PUBLIC_CONVEX_URL",
   "CONVEX_URL",
-  "ENABLE_AGENT_WORKER",
   "WORKOS_COOKIE_PASSWORD",
-  "AGENT_WORKER_URL",
-  "AGENT_WORKER_SHARED_SECRET",
-  "DAYTONA_API_KEY",
-  "DAYTONA_API_URL",
-  "DAYTONA_TARGET",
 ] as const;
 
 const requiredByMode: Record<Mode, readonly string[]> = {
   "dev-sim": ["DEV_TELEGRAM_SIM_ENABLED"],
-  "dev-telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_PUBLIC_URL"],
-  "prod-telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_PUBLIC_URL"],
+  "dev-telegram": ["TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME", "SESSION_SECRET"],
+  "prod-telegram": ["TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME", "SESSION_SECRET"],
 };
 
 const optionalButRecommended = [
@@ -122,10 +116,6 @@ for (const key of requiredByMode[mode]) {
   }
 }
 
-if (process.env.ENABLE_AGENT_WORKER !== "true") {
-  errors.push("ENABLE_AGENT_WORKER must be 'true' for this workflow.");
-}
-
 if (mode === "dev-sim") {
   if ((process.env.DEV_TELEGRAM_SIM_ENABLED || "").trim().toLowerCase() !== "true") {
     errors.push("DEV_TELEGRAM_SIM_ENABLED must be 'true' in dev-sim mode.");
@@ -134,20 +124,12 @@ if (mode === "dev-sim") {
   warnings.push("DEV_TELEGRAM_SIM_ENABLED is true outside dev-sim mode.");
 }
 
-const isDummyMode =
-  (process.env.AGENT_DUMMY_MODE || "").trim().toLowerCase() === "true";
-if (!isDummyMode) {
-  if (!isPresent(process.env.AI_GATEWAY_API_KEY)) {
-    errors.push(
-      "Missing required env var: AI_GATEWAY_API_KEY (required when AGENT_DUMMY_MODE is not true).",
-    );
-  } else {
-    checks.push("Loaded AI_GATEWAY_API_KEY for live worker mode");
-  }
-} else if (!isPresent(process.env.AI_GATEWAY_API_KEY)) {
+if (!isPresent(process.env.AI_GATEWAY_API_KEY)) {
   warnings.push(
-    "AI_GATEWAY_API_KEY is not set. This is okay for AGENT_DUMMY_MODE=true, but live worker mode will fail without it.",
+    "AI_GATEWAY_API_KEY is not set. AI runs that depend on gateway models will fail without it.",
   );
+} else {
+  checks.push("Loaded AI_GATEWAY_API_KEY");
 }
 
 for (const key of optionalButRecommended) {

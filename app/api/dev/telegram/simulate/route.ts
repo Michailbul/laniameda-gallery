@@ -2,7 +2,6 @@ import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
-import { dispatchRunToWorker } from "@/lib/ai/worker-dispatch";
 import {
   buildDevTelegramEnvelope,
   buildDevTelegramIdempotencyKey,
@@ -175,8 +174,8 @@ export async function POST(request: Request) {
             devMediaFiles,
           },
           idempotencyKey,
-          runtime: "agent_worker",
-          provider: "provider_direct",
+          runtime: "ai_sdk",
+          provider: "gateway",
           mode: "prompt_package",
           sourceChatId: envelope.chatId,
           sourceThreadId: envelope.threadId,
@@ -201,48 +200,6 @@ export async function POST(request: Request) {
         mediaCount: envelope.media?.length ?? 0,
       },
     });
-
-    if (createdRun.created) {
-      const { result: dispatched } = await requestLogger.time(
-        "dispatch_run",
-        () =>
-          dispatchRunToWorker({
-            runId: createdRun.runId,
-            userId,
-            intent: "ingest",
-            source: "dev_telegram",
-          }),
-        {
-          runId: createdRun.runId,
-          source: "dev_telegram",
-        },
-      );
-
-      if (!dispatched.ok) {
-        await convexRuns.failRun({
-          runId: createdRun.runId,
-          workerId: "dev-telegram-sim",
-          error: dispatched.error,
-        });
-        requestLogger.error(
-          {
-            runId: createdRun.runId,
-            error: dispatched.error,
-          },
-          "dev_telegram_dispatch_failed",
-        );
-        return NextResponse.json(
-          {
-            ok: true,
-            runId: createdRun.runId,
-            dispatched: false,
-            error: dispatched.error,
-            requestId,
-          },
-          { status: 200 },
-        );
-      }
-    }
 
     requestLogger.info(
       {

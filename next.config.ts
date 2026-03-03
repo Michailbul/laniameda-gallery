@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: path.join(__dirname),
+  // __dirname is undefined in ESM contexts on Vercel; use cwd for tracing root.
+  outputFileTracingRoot: path.join(process.cwd()),
   images: {
     remotePatterns: [
       {

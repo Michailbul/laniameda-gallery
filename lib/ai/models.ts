@@ -1,8 +1,8 @@
-export const AI_RUNTIMES = ["ai_sdk", "agent_worker"] as const;
+export const AI_RUNTIMES = ["ai_sdk"] as const;
 
 export type AiRuntime = (typeof AI_RUNTIMES)[number];
 
-export type AiProvider = "gateway" | "provider_direct";
+export type AiProvider = "gateway";
 
 export type AiRunMode = "prompt_package" | "image_generate";
 
@@ -20,15 +20,7 @@ export const isAiRuntime = (value: string): value is AiRuntime => {
   return AI_RUNTIMES.includes(value as AiRuntime);
 };
 
-export const isAgentWorkerEnabled = () => {
-  return process.env.ENABLE_AGENT_WORKER === "true";
-};
-
 export const getDefaultRuntime = (): AiRuntime => {
-  const configured = process.env.AI_RUNTIME_DEFAULT;
-  if (configured && isAiRuntime(configured)) {
-    return configured;
-  }
   return "ai_sdk";
 };
 

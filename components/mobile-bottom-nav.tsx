@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Home, Search, Plus, User, LogOut, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
-import { DevLoginButton } from "./dev-login-button";
 
 interface MobileBottomNavUser {
   firstName?: string | null;
@@ -234,7 +233,6 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
               ) : (
                 <div className="flex flex-col gap-3">
                   <TelegramLoginButton size="medium" />
-                  <DevLoginButton />
                 </div>
               )}
             </div>

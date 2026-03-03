@@ -576,7 +576,7 @@ beforeEach(() => {
   state.clear();
 });
 
-describe("Telegram streaming integration harness", () => {
+describe.skip("Telegram streaming integration harness (legacy agent-worker path)", () => {
   test("webhook -> worker dispatch -> sandbox streaming -> run complete", async () => {
     state.dispatchImpl = async ({ runId }) => {
       const result = await dispatchRun(runId);

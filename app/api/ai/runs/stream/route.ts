@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
-import { dispatchRunToWorker } from "@/lib/ai/worker-dispatch";
 import { consumeRateLimit } from "@/lib/ai/rate-limit";
 import {
   clearRunAbortController,
@@ -12,16 +11,13 @@ import { createPromptPackageStream, toCompactUsage } from "@/lib/ai/runtime";
 import {
   getDefaultRuntime,
   getDefaultTextModel,
-  isAgentWorkerEnabled,
   isAiRuntime,
-  type AiProvider,
   type AiRuntime,
 } from "@/lib/ai/models";
 import {
   buildRunIdempotencyKey,
   isRunIntent,
   RUN_SOURCES,
-  type RunDispatchPayload,
   type RunSource,
 } from "@/lib/run-contract";
 
@@ -44,11 +40,7 @@ const parseRuntime = (value: unknown): AiRuntime | null => {
 };
 
 const runtimeFromRequest = (value: unknown) => {
-  const requested = parseRuntime(value) || getDefaultRuntime();
-  if (requested === "agent_worker" && isAgentWorkerEnabled()) {
-    return "agent_worker" as const;
-  }
-  return "ai_sdk" as const;
+  return parseRuntime(value) || getDefaultRuntime();
 };
 
 const encoder = new TextEncoder();
@@ -108,8 +100,8 @@ export async function POST(request: Request) {
       inputFingerprint,
     });
 
-    const provider: AiProvider = "gateway";
-    const model = runtime === "ai_sdk" ? getDefaultTextModel() : process.env.AGENT_MODEL || "claude-sonnet-4-5";
+    const provider = "gateway" as const;
+    const model = getDefaultTextModel();
 
     const createdRun = await convexRuns.createRun({
       userId: authUser.id,
@@ -128,40 +120,6 @@ export async function POST(request: Request) {
 
     const createdRunId = createdRun.runId;
     runId = createdRunId;
-
-    if (runtime === "agent_worker") {
-      const payload: RunDispatchPayload = {
-        runId: createdRunId,
-        userId: authUser.id,
-        intent: body.intent,
-        source,
-      };
-      const dispatched = await dispatchRunToWorker(payload);
-      if (!dispatched.ok) {
-        await convexRuns.failRun({
-          runId: createdRunId,
-          error: dispatched.error,
-          workerId: "next-api",
-        });
-        return NextResponse.json(
-          {
-            error: dispatched.error,
-            runId: createdRunId,
-          },
-          { status: 502 },
-        );
-      }
-
-      return NextResponse.json(
-        {
-          ok: true,
-          runId: createdRunId,
-          status: createdRun.status,
-          runtime,
-        },
-        { status: 202 },
-      );
-    }
 
     const abortController = new AbortController();
     registerRunAbortController(createdRunId, abortController);

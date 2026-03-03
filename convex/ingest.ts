@@ -3,7 +3,7 @@
 import { Jimp, JimpMime } from "jimp";
 import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 const pillarValidator = v.optional(v.union(
@@ -106,21 +106,25 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         })) as Id<"tags">[])
       : [];
 
-    const promptId: Id<"prompts"> | undefined = args.promptText
-      ? (
-          (await ctx.runMutation(api.prompts.createPrompt, {
-            ownerUserId,
-            text: args.promptText,
-            tagIds,
-            folderId: args.folderId,
-            ingestKey: args.promptIngestKey ?? args.ingestKey,
-            pillar: args.pillar,
-            promptType: args.promptType,
-            domain: args.domain,
-          })) as { promptId: Id<"prompts"> }
-        ).promptId
+    let promptCreated = true;
+    const promptResult: { promptId: Id<"prompts">; created: boolean } | undefined = args.promptText
+      ? ((await ctx.runMutation(api.prompts.createPrompt, {
+          ownerUserId,
+          text: args.promptText,
+          tagIds,
+          folderId: args.folderId,
+          ingestKey: args.promptIngestKey ?? args.ingestKey,
+          pillar: args.pillar,
+          promptType: args.promptType,
+          domain: args.domain,
+        })) as { promptId: Id<"prompts">; created: boolean })
       : undefined;
+    const promptId: Id<"prompts"> | undefined = promptResult?.promptId;
+    if (promptResult) {
+      promptCreated = promptResult.created;
+    }
 
+    let assetCreated = true;
     let assetId: Id<"assets"> | undefined;
     if (args.url || args.file) {
       let blob: Blob | null = null;
@@ -213,9 +217,23 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         modelName: args.modelName,
         pillar: args.pillar,
         generationType: args.generationType,
-      })) as { assetId: Id<"assets"> };
+      })) as { assetId: Id<"assets">; created: boolean };
       assetId = result.assetId;
+      assetCreated = result.created;
     }
+
+    const ingestKeyDuplicate = Boolean(args.ingestKey && !assetCreated);
+    const promptIngestKeyDuplicate = Boolean((args.promptIngestKey ?? args.ingestKey) && !promptCreated);
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyKBIngest, {
+      ownerUserId,
+      pillar: args.pillar ?? "dump",
+      promptText: args.promptText,
+      modelName: args.modelName,
+      tagNames: args.tagNames,
+      assetId,
+      promptId,
+      isDuplicate: ingestKeyDuplicate || promptIngestKeyDuplicate,
+    });
 
     return {
       assetId,

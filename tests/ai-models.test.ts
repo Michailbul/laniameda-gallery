@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_IMAGE_ALIAS,
   getDefaultRuntime,
-  isAgentWorkerEnabled,
   isAiRuntime,
   resolveImageModelAlias,
 } from "@/lib/ai/models";
@@ -24,9 +23,8 @@ describe("ai model aliases", () => {
 
   test("runtime helpers return supported values", () => {
     expect(isAiRuntime("ai_sdk")).toBe(true);
-    expect(isAiRuntime("agent_worker")).toBe(true);
+    expect(isAiRuntime("agent_worker")).toBe(false);
     expect(isAiRuntime("random")).toBe(false);
-    expect(["ai_sdk", "agent_worker"]).toContain(getDefaultRuntime());
-    expect(typeof isAgentWorkerEnabled()).toBe("boolean");
+    expect(getDefaultRuntime()).toBe("ai_sdk");
   });
 });

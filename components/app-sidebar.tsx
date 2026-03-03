@@ -15,7 +15,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "./telegram-login-button";
-import { DevLoginButton } from "./dev-login-button";
 
 interface ModelTag {
   name: string;
@@ -375,7 +374,6 @@ export function AppSidebar({
             ) : (
               <div className="flex flex-col gap-2">
                 <TelegramLoginButton size="small" />
-                <DevLoginButton />
               </div>
             )}
           </div>

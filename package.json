@@ -12,14 +12,9 @@
     "env:doctor:sim": "bun scripts/env-doctor.ts --mode dev-sim",
     "env:doctor:telegram": "bun scripts/env-doctor.ts --mode dev-telegram",
     "env:doctor:prod": "bun scripts/env-doctor.ts --mode prod-telegram",
-    "worker:dev": "PORT=${WORKER_PORT:-8797} bun run agent-worker/server.ts",
-    "worker:start": "NODE_ENV=production PORT=${WORKER_PORT:-8797} bun run agent-worker/server.ts",
     "dev:sim": "bun scripts/dev-stack.ts --mode dev-sim",
     "dev:telegram": "bun scripts/dev-stack.ts --mode dev-telegram",
-    "dev:all": "bun scripts/dev-stack.ts --mode dev-all",
-    "telegram:webhook:set": "bun scripts/telegram-webhook.ts set",
-    "telegram:webhook:info": "bun scripts/telegram-webhook.ts info",
-    "telegram:webhook:delete": "bun scripts/telegram-webhook.ts delete"
+    "dev:all": "bun scripts/dev-stack.ts --mode dev-all"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.45",

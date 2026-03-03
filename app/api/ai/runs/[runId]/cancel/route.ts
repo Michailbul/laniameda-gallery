@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/server-auth";
 import { convexRuns } from "@/lib/ai/convex-runs";
-import { cancelRunInWorker } from "@/lib/ai/worker-dispatch";
 import { cancelRunExecution } from "@/lib/ai/runtime-state";
 
 export async function POST(
@@ -20,13 +19,6 @@ export async function POST(
       runId,
       userId: authUser.id,
       reason,
-    });
-
-    await cancelRunInWorker({
-      runId,
-      requestedBy: authUser.id,
-    }).catch(() => {
-      // best effort
     });
 
     return NextResponse.json({
