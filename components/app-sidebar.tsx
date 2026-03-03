@@ -288,25 +288,87 @@ export function AppSidebar({
       <div className="border-t px-3 py-3" style={{ borderColor: "var(--border-subtle)" }}>
         {!collapsed && (
           <div
-            className="mb-3 border px-3 py-2.5"
+            className="mb-3 overflow-hidden rounded-[20px] border p-3.5"
             style={{
-              borderColor: "var(--border-strong)",
-              background: "var(--surface-1)",
+              borderColor: "rgba(32, 23, 16, 0.18)",
+              background:
+                "linear-gradient(162deg, color-mix(in srgb, var(--surface-1) 90%, #ffffff 10%) 0%, color-mix(in srgb, var(--surface-2) 84%, #ffffff 16%) 100%)",
+              boxShadow:
+                "0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 12px 24px rgba(30, 14, 5, 0.08)",
             }}
           >
-            <p
-              className="font-mono text-[9px] font-medium uppercase tracking-[0.2em]"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Vault Stats
-            </p>
-            <div className="mt-1.5 flex items-center gap-3">
-              <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-primary)" }}>
-                {imageCount != null ? `${imageCount}` : "--"} <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-ghost)" }}>img</span>
+            <div className="flex items-end justify-between gap-2">
+              <div>
+                <p
+                  className="text-[15px] leading-none"
+                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
+                >
+                  Vault Pulse
+                </p>
+                <p
+                  className="mt-1 font-mono text-[8px] uppercase tracking-[0.18em]"
+                  style={{ color: "var(--text-ghost)" }}
+                >
+                  Quick snapshot
+                </p>
+              </div>
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[8px] font-semibold tracking-[0.08em]"
+                style={{
+                  borderColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.26)",
+                  color: "var(--text-tertiary)",
+                  backgroundColor:
+                    "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08)",
+                }}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.8)" }}
+                />
+                Live
               </span>
-              <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-primary)" }}>
-                {modelTags.length} <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-ghost)" }}>models</span>
-              </span>
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <div
+                className="rounded-xl border px-2.5 py-2.5"
+                style={{
+                  borderColor: "rgba(32, 23, 16, 0.14)",
+                  backgroundColor: "rgba(255, 255, 255, 0.62)",
+                }}
+              >
+                <p
+                  className="font-mono text-[8px] uppercase tracking-[0.14em]"
+                  style={{ color: "var(--text-ghost)" }}
+                >
+                  Images
+                </p>
+                <p
+                  className="mt-1 text-[18px] leading-none tabular-nums"
+                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
+                >
+                  {imageCount != null ? imageCount : "--"}
+                </p>
+              </div>
+              <div
+                className="rounded-xl border px-2.5 py-2.5"
+                style={{
+                  borderColor: "rgba(32, 23, 16, 0.14)",
+                  backgroundColor: "rgba(255, 255, 255, 0.62)",
+                }}
+              >
+                <p
+                  className="font-mono text-[8px] uppercase tracking-[0.14em]"
+                  style={{ color: "var(--text-ghost)" }}
+                >
+                  Models
+                </p>
+                <p
+                  className="mt-1 text-[18px] leading-none tabular-nums"
+                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
+                >
+                  {modelTags.length}
+                </p>
+              </div>
             </div>
           </div>
         )}

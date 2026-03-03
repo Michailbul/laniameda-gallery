@@ -33,22 +33,34 @@ export function TelegramLoginButton({
   const sizeConfig =
     size === "small"
       ? {
-          title: "text-[11px]",
+          title: "text-[13px]",
           subtitle: "text-[10px]",
+          helper: "text-[10px]",
           wrapper: "px-3 py-3",
+          iconShell: "h-8 w-8",
+          widgetMaxWidth: "188px",
+          compact: true,
           scriptSize: "small" as const,
         }
       : size === "large"
         ? {
-            title: "text-[14px]",
+            title: "text-[16px]",
             subtitle: "text-[12px]",
-            wrapper: "px-4 py-4",
+            helper: "text-[11px]",
+            wrapper: "px-5 py-5",
+            iconShell: "h-11 w-11",
+            widgetMaxWidth: "252px",
+            compact: false,
             scriptSize: "large" as const,
           }
         : {
-            title: "text-[12px]",
+            title: "text-[15px]",
             subtitle: "text-[11px]",
-            wrapper: "px-4 py-3.5",
+            helper: "text-[11px]",
+            wrapper: "px-4 py-4",
+            iconShell: "h-10 w-10",
+            widgetMaxWidth: "220px",
+            compact: false,
             scriptSize: "medium" as const,
           };
 
@@ -149,120 +161,182 @@ export function TelegramLoginButton({
 
   return (
     <div
-      className={`w-full rounded-2xl border ${sizeConfig.wrapper}`}
+      className={`relative w-full overflow-hidden rounded-[24px] border ${sizeConfig.wrapper}`}
       style={{
-        borderColor: "var(--border-default)",
+        borderColor: "rgba(32, 23, 16, 0.18)",
         background:
-          "linear-gradient(160deg, color-mix(in srgb, var(--surface-1) 94%, #ffffff 6%) 0%, var(--surface-1) 100%)",
+          "linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 92%, #ffffff 8%) 0%, color-mix(in srgb, var(--surface-1) 84%, var(--surface-2) 16%) 100%)",
+        boxShadow:
+          "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 14px 30px rgba(38, 18, 6, 0.08)",
       }}
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-9 -top-10 h-28 w-28 rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.18) 0%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0) 72%)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-7 -left-7 h-24 w-24 rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(46, 184, 180, 0.11) 0%, rgba(46, 184, 180, 0) 70%)",
+        }}
+      />
+
+      <div className="relative z-10">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div
+              className={`flex items-center justify-center rounded-xl border ${sizeConfig.iconShell}`}
+              style={{
+                background:
+                  "linear-gradient(145deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2) 0%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08) 100%)",
+                color: "var(--text-primary)",
+                borderColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.26)",
+                boxShadow: "0 1px 0 rgba(255, 255, 255, 0.72) inset",
+              }}
+            >
+              <MessageCircle className="h-4 w-4" />
+            </div>
+            <div className="flex flex-col">
+              <span
+                className={`font-semibold leading-tight ${sizeConfig.title}`}
+                style={{
+                  color: "var(--text-primary)",
+                  fontFamily: "var(--font-display)",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {DEV_AUTH_BYPASS_ENABLED ? "Local Dev Access" : "Telegram Access"}
+              </span>
+              <span
+                className={`mt-0.5 ${sizeConfig.subtitle}`}
+                style={{ color: "var(--text-tertiary)", lineHeight: 1.35, letterSpacing: "0.01em" }}
+              >
+                {DEV_AUTH_BYPASS_ENABLED
+                  ? "Bypass widget while running localhost."
+                  : sizeConfig.compact
+                    ? "One-tap sign in for your vault."
+                    : "Verify identity in one tap with Telegram."}
+              </span>
+            </div>
+          </div>
+
           <div
-            className="flex h-8 w-8 items-center justify-center rounded-full"
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold tracking-[0.08em]"
             style={{
-              backgroundColor: "color-mix(in srgb, var(--coral) 16%, transparent)",
-              color: "var(--text-primary)",
-              border: "1px solid var(--border-default)",
+              border: "1px solid rgba(32, 23, 16, 0.18)",
+              backgroundColor: "rgba(255, 255, 255, 0.45)",
+              color: "var(--text-tertiary)",
+              boxShadow: "0 1px 0 rgba(255, 255, 255, 0.8) inset",
             }}
           >
-            <MessageCircle className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col">
-            <span
-              className={`font-mono uppercase tracking-[0.14em] ${sizeConfig.title}`}
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {DEV_AUTH_BYPASS_ENABLED ? "Local Dev Login" : "Telegram Login"}
-            </span>
-            <span
-              className={`${sizeConfig.subtitle}`}
-              style={{ color: "var(--text-ghost)", lineHeight: 1.3 }}
-            >
-              {DEV_AUTH_BYPASS_ENABLED
-                ? "Bypass widget while running localhost."
-                : "Verify identity in one tap."}
-            </span>
+            <ShieldCheck className="h-3 w-3" />
+            {DEV_AUTH_BYPASS_ENABLED ? "Dev only" : "Encrypted"}
           </div>
         </div>
 
-        <div
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-medium uppercase tracking-widest"
-          style={{
-            border: "1px solid var(--border-default)",
-            color: "var(--text-tertiary)",
-          }}
-        >
-          <ShieldCheck className="h-3 w-3" />
-          {DEV_AUTH_BYPASS_ENABLED ? "Dev only" : "Secure"}
-        </div>
-      </div>
-
-      {DEV_AUTH_BYPASS_ENABLED ? (
-        <div
-          className="rounded-xl border px-3 py-2"
-          style={{
-            borderColor: "var(--border-default)",
-            backgroundColor: "var(--paper-muted)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => void handleDevLogin()}
-            disabled={devLoginLoading}
-            className="w-full rounded-lg border px-3 py-2 text-[11px] font-medium uppercase tracking-wider transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
-            style={{
-              borderColor: "rgba(46, 184, 180, 0.45)",
-              color: "var(--text-secondary)",
-              backgroundColor: "rgba(46, 184, 180, 0.08)",
-            }}
+        {!sizeConfig.compact && (
+          <p
+            className={`mb-2.5 ${sizeConfig.helper}`}
+            style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}
           >
-            {devLoginLoading ? "Signing in..." : "Sign in as dev user"}
-          </button>
-          <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
-            Enable with `NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` and `DEV_AUTH_BYPASS_ENABLED=true`.
+            {DEV_AUTH_BYPASS_ENABLED
+              ? "Local route only. Use real auth in production."
+              : "Sign in to save assets, prompts, and folders."}
           </p>
-          {devLoginError && (
-            <p
-              className="mt-1 text-[11px]"
-              style={{ color: "#b44f3a", lineHeight: 1.35 }}
-              role="alert"
+        )}
+
+        {DEV_AUTH_BYPASS_ENABLED ? (
+          <div
+            className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
+            style={{
+              borderColor: "rgba(32, 23, 16, 0.16)",
+              background:
+                "linear-gradient(160deg, rgba(255, 255, 255, 0.62) 0%, color-mix(in srgb, var(--paper-muted) 84%, #ffffff 16%) 100%)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => void handleDevLogin()}
+              disabled={devLoginLoading}
+              className="w-full rounded-xl border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] transition-all disabled:cursor-not-allowed disabled:opacity-60"
+              style={{
+                borderColor: "rgba(46, 184, 180, 0.42)",
+                color: "var(--text-secondary)",
+                background:
+                  "linear-gradient(140deg, rgba(46, 184, 180, 0.16) 0%, rgba(46, 184, 180, 0.06) 100%)",
+              }}
             >
-              {devLoginError}
+              {devLoginLoading ? "Signing in..." : "Sign in as dev user"}
+            </button>
+            <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
+              Enable with `NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` and `DEV_AUTH_BYPASS_ENABLED=true`.
             </p>
-          )}
-        </div>
-      ) : BOT_USERNAME ? (
-        <div
-          className="rounded-xl border px-3 py-2"
-          style={{
-            borderColor: "var(--border-default)",
-            backgroundColor: "var(--paper-muted)",
-          }}
-        >
-          <div ref={containerRef} className="min-h-[34px]" />
-          {widgetError && (
-            <p
-              className="mt-2 text-[11px]"
-              style={{ color: "#b44f3a", lineHeight: 1.35 }}
-              role="alert"
-            >
-              {widgetError}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div
-          className="rounded-xl border px-3 py-2 text-[11px]"
-          style={{
-            borderColor: "var(--border-strong)",
-            backgroundColor: "var(--surface-2)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          Set NEXT_PUBLIC_TELEGRAM_BOT_USERNAME (without @) and restart bun run dev.
-        </div>
-      )}
+            {devLoginError && (
+              <p
+                className="mt-1 text-[11px]"
+                style={{ color: "#b44f3a", lineHeight: 1.35 }}
+                role="alert"
+              >
+                {devLoginError}
+              </p>
+            )}
+          </div>
+        ) : BOT_USERNAME ? (
+          <div
+            className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
+            style={{
+              borderColor: "rgba(32, 23, 16, 0.16)",
+              background:
+                "linear-gradient(160deg, rgba(255, 255, 255, 0.62) 0%, color-mix(in srgb, var(--paper-muted) 84%, #ffffff 16%) 100%)",
+            }}
+          >
+            <div className="flex justify-start">
+              <div
+                style={{
+                  maxWidth: sizeConfig.widgetMaxWidth,
+                  width: "100%",
+                }}
+              >
+                <div ref={containerRef} className="min-h-[34px] overflow-x-auto overflow-y-hidden" />
+              </div>
+            </div>
+            {!widgetError && (
+              <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
+                {sizeConfig.compact
+                  ? "No password needed."
+                  : "No password needed. Telegram confirms your identity."}
+              </p>
+            )}
+            {widgetError && (
+              <p
+                className="mt-2 text-[11px]"
+                style={{ color: "#b44f3a", lineHeight: 1.35 }}
+                role="alert"
+              >
+                {widgetError}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div
+            className="rounded-2xl border px-3 py-3 text-[11px]"
+            style={{
+              borderColor: "rgba(32, 23, 16, 0.22)",
+              backgroundColor: "rgba(255, 255, 255, 0.45)",
+              color: "var(--text-secondary)",
+              lineHeight: 1.4,
+            }}
+          >
+            Set `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` (without `@`) and restart `bun run dev`.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
