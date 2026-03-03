@@ -800,7 +800,7 @@ export function GalleryDashboard({
         />
 
         <div className="flex min-h-0 flex-1">
-          <main id="main-content" className="relative flex-1 min-w-0 overflow-y-auto">
+          <main id="main-content" className="masonry-view-bg relative flex-1 min-w-0 overflow-y-auto">
             {isLoading ? (
               <MasonryGrid
                 images={[]}
