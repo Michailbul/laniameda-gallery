@@ -2,11 +2,16 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 ---
 
 ## ✔ Shipped
+
+### 2026-03-04
+- Iteration hardening phase 1: authz canonicalization, design token enforcement, shared UI primitives, and gallery query N+1 reduction
+- Product management docs for iteration hardening: scorecard + now/next/later roadmap
+- Gallery interaction reliability pass: scope-safe folder filtering (`mine` only), stale folder filter normalization, and selected-detail reset on scope switch
 
 ### 2026-03-03
 - Folders backend v1 — owner-scoped folder model (create/list/update/delete), cross-user folder guardrails, and asset folder assignment mutation

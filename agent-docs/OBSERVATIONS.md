@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -19,6 +19,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
+- Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
 - `bun run build` may fail due to Turbopack font download issues (Nunito Sans) on restricted networks — run from a network-accessible machine.
 - ESLint ignores `convex/_generated/**` — those are generated files; real lint signal comes from app code only.
 

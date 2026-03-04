@@ -51,10 +51,10 @@ interface ImageCardProps {
 }
 
 const PILLAR_META = {
-  creators: { label: "Creators", color: "#ff7a64" },
-  cars: { label: "Cars", color: "#e5534b" },
-  designs: { label: "Designs", color: "#5d6bfa" },
-  dump: { label: "Dump", color: "#2eb8b4" },
+  creators: { label: "Creators", color: "var(--pillar-creators)" },
+  cars: { label: "Cars", color: "var(--pillar-cars)" },
+  designs: { label: "Designs", color: "var(--pillar-designs)" },
+  dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;
 
 export const ImageCard = memo(function ImageCard({
@@ -223,11 +223,11 @@ export const ImageCard = memo(function ImageCard({
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.7)",
-                color: "rgba(255, 255, 255, 0.9)",
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--image-card-badge-text)",
                 backdropFilter: "blur(8px)",
                 WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
+                border: "1px solid var(--image-card-badge-border)",
               }}
             >
               {image.modelName}
@@ -237,11 +237,11 @@ export const ImageCard = memo(function ImageCard({
             <div
               className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.65)",
+                backgroundColor: "var(--image-card-badge-bg-soft)",
                 color: pillarMeta.color,
                 backdropFilter: "blur(8px)",
                 WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
+                border: "1px solid var(--image-card-badge-border)",
               }}
             >
               <span
@@ -258,8 +258,7 @@ export const ImageCard = memo(function ImageCard({
       <div
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100"
         style={{
-          background:
-            "linear-gradient(to top, rgba(8,4,2,0.92) 0%, rgba(17,10,6,0.5) 25%, rgba(8,4,2,0.1) 50%, transparent 100%)",
+          background: "var(--image-card-overlay-gradient)",
         }}
       >
         {/* Bottom content */}
@@ -267,12 +266,12 @@ export const ImageCard = memo(function ImageCard({
           <p
             className="flex-1 pr-2 text-[10px] font-mono leading-snug tracking-wide"
             style={{
-              color: "rgba(255, 255, 255, 0.85)",
+              color: "var(--image-card-overlay-text)",
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
               overflow: "hidden",
-              textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+              textShadow: "var(--image-card-text-shadow)",
             }}
           >
             {image.prompt}
@@ -282,9 +281,9 @@ export const ImageCard = memo(function ImageCard({
           <div
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center backdrop-blur-xl"
             style={{
-              color: "rgba(255,255,255,0.85)",
-              backgroundColor: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.12)",
+              color: "var(--image-card-overlay-text)",
+              backgroundColor: "var(--image-card-action-bg)",
+              border: "1px solid var(--image-card-action-border)",
             }}
           >
             <Maximize2 className="h-3.5 w-3.5" />
@@ -299,12 +298,18 @@ export const ImageCard = memo(function ImageCard({
           disabled={deleting}
           className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] disabled:cursor-not-allowed"
           style={{
-            borderColor: deleting ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.32)",
-            backgroundColor: deleting ? "rgba(8, 4, 2, 0.82)" : "rgba(8, 4, 2, 0.58)",
-            color: deleting ? "rgba(255,255,255,0.72)" : "#ffd7cf",
+            borderColor: deleting
+              ? "var(--image-card-delete-border-disabled)"
+              : "var(--image-card-delete-border)",
+            backgroundColor: deleting
+              ? "var(--image-card-delete-bg-disabled)"
+              : "var(--image-card-delete-bg)",
+            color: deleting
+              ? "var(--image-card-delete-text-disabled)"
+              : "var(--image-card-delete-text)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
-            boxShadow: deleting ? "none" : "0 2px 10px rgba(0,0,0,0.28)",
+            boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
           }}
           aria-label={deleting ? "Deleting image" : "Delete image"}
         >

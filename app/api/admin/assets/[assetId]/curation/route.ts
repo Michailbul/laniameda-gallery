@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { requireAuth } from "@/lib/server-auth";
 import type { Id } from "@/convex/_generated/dataModel";
+import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 
 const setAssetCurationMutation = makeFunctionReference<"mutation">(
   "assets:setAssetCuration",
@@ -16,26 +17,10 @@ const getConvexClient = () => {
   return new ConvexHttpClient(url);
 };
 
-const resolveCuratorUserIds = () => {
-  const raw = process.env.CURATION_ADMIN_USER_IDS ?? process.env.KB_OWNER_USER_ID ?? "";
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-};
-
-const resolveActorCandidates = (actorUserId: string) => {
-  const normalized = actorUserId.trim();
-  if (!normalized) return [];
-  const candidates = [normalized];
-  if (normalized.startsWith("telegram:")) {
-    const unprefixed = normalized.slice("telegram:".length).trim();
-    if (unprefixed) candidates.push(unprefixed);
-  } else if (/^\d+$/.test(normalized)) {
-    candidates.push(`telegram:${normalized}`);
-  }
-  return Array.from(new Set(candidates));
-};
+const resolveCuratorUserIds = () =>
+  parseUserIdList(
+    process.env.CURATION_ADMIN_USER_IDS ?? process.env.KB_OWNER_USER_ID,
+  );
 
 export async function POST(
   request: Request,
@@ -71,10 +56,7 @@ export async function POST(
       );
     }
 
-    const actorCandidates = resolveActorCandidates(authUser.id);
-    const canCurate = allowedCurators.some((allowedUserId) =>
-      actorCandidates.includes(allowedUserId),
-    );
+    const canCurate = canActorAccessByUserId(authUser.id, allowedCurators);
     if (!canCurate) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }

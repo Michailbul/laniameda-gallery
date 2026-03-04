@@ -14,6 +14,9 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { FilterChip } from "@/components/ui/filter-chip";
+import { StatTile } from "@/components/ui/stat-tile";
+import { VaultCard } from "@/components/ui/vault-card";
 import { TelegramLoginButton } from "./telegram-login-button";
 
 interface ModelTag {
@@ -287,16 +290,7 @@ export function AppSidebar({
 
       <div className="border-t px-3 py-3" style={{ borderColor: "var(--border-subtle)" }}>
         {!collapsed && (
-          <div
-            className="mb-3 overflow-hidden rounded-[20px] border p-3.5"
-            style={{
-              borderColor: "rgba(32, 23, 16, 0.18)",
-              background:
-                "linear-gradient(162deg, color-mix(in srgb, var(--surface-1) 90%, #ffffff 10%) 0%, color-mix(in srgb, var(--surface-2) 84%, #ffffff 16%) 100%)",
-              boxShadow:
-                "0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 12px 24px rgba(30, 14, 5, 0.08)",
-            }}
-          >
+          <VaultCard className="mb-3 p-3.5">
             <div className="flex items-end justify-between gap-2">
               <div>
                 <p
@@ -329,48 +323,10 @@ export function AppSidebar({
               </span>
             </div>
             <div className="mt-2.5 grid grid-cols-2 gap-2">
-              <div
-                className="rounded-xl border px-2.5 py-2.5"
-                style={{
-                  borderColor: "rgba(32, 23, 16, 0.14)",
-                  backgroundColor: "rgba(255, 255, 255, 0.62)",
-                }}
-              >
-                <p
-                  className="font-mono text-[8px] uppercase tracking-[0.14em]"
-                  style={{ color: "var(--text-ghost)" }}
-                >
-                  Images
-                </p>
-                <p
-                  className="mt-1 text-[18px] leading-none tabular-nums"
-                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
-                >
-                  {imageCount != null ? imageCount : "--"}
-                </p>
-              </div>
-              <div
-                className="rounded-xl border px-2.5 py-2.5"
-                style={{
-                  borderColor: "rgba(32, 23, 16, 0.14)",
-                  backgroundColor: "rgba(255, 255, 255, 0.62)",
-                }}
-              >
-                <p
-                  className="font-mono text-[8px] uppercase tracking-[0.14em]"
-                  style={{ color: "var(--text-ghost)" }}
-                >
-                  Models
-                </p>
-                <p
-                  className="mt-1 text-[18px] leading-none tabular-nums"
-                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
-                >
-                  {modelTags.length}
-                </p>
-              </div>
+              <StatTile label="Images" value={imageCount != null ? imageCount : "--"} />
+              <StatTile label="Models" value={modelTags.length} />
             </div>
-          </div>
+          </VaultCard>
         )}
 
         {user ? (
@@ -563,8 +519,8 @@ function TagRow({
   ].join(" ");
 
   return (
-    <button
-      type="button"
+    <FilterChip
+      active={active}
       onClick={onClick}
       className={rowClassName}
     >
@@ -581,7 +537,7 @@ function TagRow({
         }}
       >
         {active && (
-          <Check className="h-[10px] w-[10px]" style={{ color: "#fff" }} />
+          <Check className="h-[10px] w-[10px]" style={{ color: "var(--primary-foreground)" }} />
         )}
       </span>
       <span
@@ -612,6 +568,6 @@ function TagRow({
           {count}
         </span>
       )}
-    </button>
+    </FilterChip>
   );
 }

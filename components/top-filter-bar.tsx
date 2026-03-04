@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { FilterChip } from "@/components/ui/filter-chip";
+import { shouldShowFolderFilters } from "@/lib/gallery-filters";
 
 interface Tag {
   _id: string;
@@ -89,6 +91,7 @@ export function TopFilterBar({
   }, [orderedTags, tagQuery]);
 
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const showFolderFilters = shouldShowFolderFilters(galleryScope);
 
   const handleWheel = (
     ref: React.RefObject<HTMLDivElement | null>,
@@ -143,7 +146,7 @@ export function TopFilterBar({
             style={{
               borderColor: "var(--border-default)",
               backgroundColor: galleryScope === "mine" ? "var(--coral)" : "transparent",
-              color: galleryScope === "mine" ? "#ffffff" : "var(--text-secondary)",
+              color: galleryScope === "mine" ? "var(--primary-foreground)" : "var(--text-secondary)",
             }}
             title={canAccessMyGallery ? "View your private gallery" : "Sign in to access your private gallery"}
           >
@@ -180,38 +183,44 @@ export function TopFilterBar({
       </div>
 
       <div className="flex h-12 items-center justify-between">
-        <div
-          ref={folderScrollRef}
-          className="flex flex-1 items-center gap-1.5 overflow-x-auto px-4"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          onWheel={(e) => handleWheel(folderScrollRef, e)}
-        >
-          <FilterTab
-            label="All Folders"
-            active={selectedFolderId === null}
-            onClick={() => onFolderSelect(null)}
-            tone="ink"
-          />
-          {folders.map((folder) => (
+        {showFolderFilters && (
+          <div
+            ref={folderScrollRef}
+            className="flex flex-1 items-center gap-1.5 overflow-x-auto px-4"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            onWheel={(e) => handleWheel(folderScrollRef, e)}
+          >
             <FilterTab
-              key={folder._id}
-              label={folder.name}
-              active={selectedFolderId === folder._id}
-              onClick={() => onFolderSelect(folder._id)}
+              label="All Folders"
+              active={selectedFolderId === null}
+              onClick={() => onFolderSelect(null)}
               tone="ink"
             />
-          ))}
-        </div>
+            {folders.map((folder) => (
+              <FilterTab
+                key={folder._id}
+                label={folder.name}
+                active={selectedFolderId === folder._id}
+                onClick={() => onFolderSelect(folder._id)}
+                tone="ink"
+              />
+            ))}
+          </div>
+        )}
+
+        {showFolderFilters && (
+          <div
+            className="h-6 w-px flex-shrink-0"
+            style={{
+              background:
+                "linear-gradient(180deg, transparent 0%, var(--border-default) 50%, transparent 100%)",
+            }}
+          />
+        )}
 
         <div
-          className="h-6 w-px flex-shrink-0"
-          style={{
-            background:
-              "linear-gradient(180deg, transparent 0%, var(--border-default) 50%, transparent 100%)",
-          }}
-        />
-
-        <div className="flex flex-shrink-0 items-center gap-0 px-4">
+          className={`flex items-center gap-0 px-4 ${showFolderFilters ? "flex-shrink-0" : "w-full justify-end"}`}
+        >
           {SORT_OPTIONS.map((option, idx) => (
             <span key={option.value} className="flex items-center">
               {idx > 0 && (
@@ -382,7 +391,7 @@ function FilterTab({
   tone: "ink" | "coral";
 }) {
   const activeBackground = tone === "coral" ? "var(--coral)" : "var(--bg-inverse)";
-  const activeColor = tone === "coral" ? "#FFFFFF" : "var(--text-inverse)";
+  const activeColor = tone === "coral" ? "var(--primary-foreground)" : "var(--text-inverse)";
 
   const className = [
     "relative flex-shrink-0 px-3.5 py-1.5 text-[11px] font-mono font-medium uppercase tracking-wider border",
@@ -394,21 +403,28 @@ function FilterTab({
   ].join(" ");
 
   return (
-    <button
-      type="button"
+    <FilterChip
+      active={active}
       onClick={onClick}
       className={className}
-      style={{
-        background: active ? activeBackground : "transparent",
-        borderColor: active ? activeBackground : "var(--border-subtle)",
-        color: active ? activeColor : "var(--text-secondary)",
+      activeStyle={{
+        background: activeBackground,
+        borderColor: activeBackground,
+        color: activeColor,
         fontWeight: 500,
-        boxShadow: active ? "var(--shadow-brutal-sm)" : "none",
-        transform: active ? "translate(-1px, -1px)" : undefined,
+        boxShadow: "var(--shadow-brutal-sm)",
+        transform: "translate(-1px, -1px)",
+      }}
+      inactiveStyle={{
+        background: "transparent",
+        borderColor: "var(--border-subtle)",
+        color: "var(--text-secondary)",
+        fontWeight: 500,
+        boxShadow: "none",
       }}
     >
       {label}
-    </button>
+    </FilterChip>
   );
 }
 
@@ -433,13 +449,16 @@ function TagButton({
   ].join(" ");
 
   return (
-    <button
-      type="button"
+    <FilterChip
+      active={active}
       onClick={onClick}
       className={className}
-      style={{
-        boxShadow: active ? "var(--shadow-brutal-sm)" : "none",
-        transform: active ? "translate(-1px, -1px)" : undefined,
+      activeStyle={{
+        boxShadow: "var(--shadow-brutal-sm)",
+        transform: "translate(-1px, -1px)",
+      }}
+      inactiveStyle={{
+        boxShadow: "none",
       }}
     >
       {label}
@@ -447,14 +466,16 @@ function TagButton({
         <span
           className="px-1 py-px text-[9px] font-mono tabular-nums"
           style={{
-            backgroundColor: active ? "rgba(255,255,255,0.18)" : "var(--surface-3)",
-            color: active ? "#FFFFFF" : "var(--text-ghost)",
+            backgroundColor: active
+              ? "color-mix(in srgb, var(--paper) 18%, transparent)"
+              : "var(--surface-3)",
+            color: active ? "var(--primary-foreground)" : "var(--text-ghost)",
           }}
         >
           {count}
         </span>
       )}
-    </button>
+    </FilterChip>
   );
 }
 
@@ -476,22 +497,24 @@ function ModelChip({
   ].join(" ");
 
   return (
-    <button
-      type="button"
+    <FilterChip
+      active={active}
       onClick={onClick}
       className={className}
-      style={{
-        background: active
-          ? "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)"
-          : "transparent",
-        borderColor: active
-          ? "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.30)"
-          : "var(--border-default)",
-        color: active ? "var(--coral)" : "var(--text-tertiary)",
+      activeStyle={{
+        background: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)",
+        borderColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.30)",
+        color: "var(--coral)",
+        fontWeight: 500,
+      }}
+      inactiveStyle={{
+        background: "transparent",
+        borderColor: "var(--border-default)",
+        color: "var(--text-tertiary)",
         fontWeight: 500,
       }}
     >
       {label}
-    </button>
+    </FilterChip>
   );
 }

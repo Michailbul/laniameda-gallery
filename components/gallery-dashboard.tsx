@@ -18,6 +18,8 @@ import { MobileBottomNav } from "./mobile-bottom-nav";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
+import { resolveScopeFolderFilter } from "@/lib/gallery-filters";
 
 const INTENT_LABELS = {
   transfer_style: "Transfer Style",
@@ -67,19 +69,6 @@ const canonicalTagKey = (value: string) =>
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-const resolveActorCandidates = (actorUserId: string) => {
-  const normalized = actorUserId.trim();
-  if (!normalized) return [];
-  const candidates = [normalized];
-  if (normalized.startsWith("telegram:")) {
-    const unprefixed = normalized.slice("telegram:".length).trim();
-    if (unprefixed) candidates.push(unprefixed);
-  } else if (/^\d+$/.test(normalized)) {
-    candidates.push(`telegram:${normalized}`);
-  }
-  return Array.from(new Set(candidates));
-};
 
 export function GalleryDashboard({
   user,
@@ -134,10 +123,7 @@ export function GalleryDashboard({
   );
 
   const curatorUserIds = useMemo(() => {
-    const configured = process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS
-      ?.split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
+    const configured = parseUserIdList(process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS);
     if (configured && configured.length > 0) {
       return configured;
     }
@@ -147,9 +133,7 @@ export function GalleryDashboard({
     return [];
   }, []);
   const canCuratePublic = useMemo(() => {
-    if (!ownerUserId || curatorUserIds.length === 0) return false;
-    const candidates = resolveActorCandidates(ownerUserId);
-    return candidates.some((candidate) => curatorUserIds.includes(candidate));
+    return canActorAccessByUserId(ownerUserId, curatorUserIds);
   }, [ownerUserId, curatorUserIds]);
 
   const deleteAssetMutation = useMutation(api.assets.deleteAsset);
@@ -175,6 +159,9 @@ export function GalleryDashboard({
     setFolderLoadingAssetId(null);
     setCurationError(undefined);
     setDeletingAssetId(null);
+    setSelectedImage(null);
+    setSheetDismissing(false);
+    setSheetDragY(0);
   }, [galleryScope]);
 
   useEffect(() => {
@@ -404,6 +391,25 @@ export function GalleryDashboard({
     () => new Map<string, string>((folders ?? []).map((folder) => [folder._id, folder.name])),
     [folders],
   );
+  const knownFolderIds = useMemo(
+    () => (folders ? folders.map((folder) => folder._id) : null),
+    [folders],
+  );
+  const effectiveSelectedFolderId = useMemo(
+    () =>
+      resolveScopeFolderFilter({
+        galleryScope,
+        selectedFolderId,
+        knownFolderIds,
+      }),
+    [galleryScope, knownFolderIds, selectedFolderId],
+  );
+
+  useEffect(() => {
+    if (selectedFolderId !== effectiveSelectedFolderId) {
+      setSelectedFolderId(effectiveSelectedFolderId);
+    }
+  }, [effectiveSelectedFolderId, selectedFolderId]);
 
   const mineAllAssets = useQuery(
     api.assets.listGalleryAssets,
@@ -546,8 +552,8 @@ export function GalleryDashboard({
           kind: "image",
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
-          folderId: selectedFolderId
-            ? (selectedFolderId as Id<"folders">)
+          folderId: effectiveSelectedFolderId
+            ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           modelName: selectedModelName ?? undefined,
           limit: 120,
@@ -562,8 +568,8 @@ export function GalleryDashboard({
           kind: "image",
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
-          folderId: selectedFolderId
-            ? (selectedFolderId as Id<"folders">)
+          folderId: effectiveSelectedFolderId
+            ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           modelName: selectedModelName ?? undefined,
           limit: 120,
@@ -883,7 +889,7 @@ export function GalleryDashboard({
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
-    selectedFolderId !== null ||
+    effectiveSelectedFolderId !== null ||
     selectedModelName !== null;
   const hasImages = images.length > 0;
   const isNoMatches = !isLoading && !hasImages && hasFilters;
@@ -1006,7 +1012,7 @@ export function GalleryDashboard({
               onTagToggle={handleTagToggle}
               onClearAllTags={handleClearAll}
               folders={folders ?? []}
-              selectedFolderId={selectedFolderId}
+              selectedFolderId={effectiveSelectedFolderId}
               onFolderSelect={setSelectedFolderId}
               selectedPillar={selectedPillar}
               onPillarSelect={setSelectedPillar}
@@ -1066,9 +1072,9 @@ export function GalleryDashboard({
                         {selectedPillar}
                       </span>
                     )}
-                    {selectedFolderId && (
+                    {effectiveSelectedFolderId && (
                       <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                        {folderNameById.get(selectedFolderId) ?? "Folder"}
+                        {folderNameById.get(effectiveSelectedFolderId) ?? "Folder"}
                       </span>
                     )}
                     {selectedModelName && (

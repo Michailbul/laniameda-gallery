@@ -1,8 +1,14 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
+import {
+  canActorAccessByUserId,
+  canActorAccessOwnerUserId,
+  parseUserIdList,
+  resolveUserIdCandidates,
+} from "./authz";
 
 const generationTypeValidator = v.optional(v.union(
   v.literal("image_gen"),
@@ -18,44 +24,19 @@ const pillarValidator = v.optional(v.union(
   v.literal("dump"),
 ));
 
-const resolveOwnerUserIdCandidates = (ownerUserId: string) => {
-  const normalized = ownerUserId.trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const candidates = [normalized];
-  if (normalized.startsWith("telegram:")) {
-    const unprefixed = normalized.slice("telegram:".length).trim();
-    if (unprefixed) {
-      candidates.push(unprefixed);
-    }
-  } else if (/^\d+$/.test(normalized)) {
-    candidates.push(`telegram:${normalized}`);
-  }
-
-  return Array.from(new Set(candidates));
-};
-
-const resolveAdminCandidates = (actorUserId: string) => {
-  const normalized = actorUserId.trim();
-  if (!normalized) return [];
-  const candidates = [normalized];
-  if (normalized.startsWith("telegram:")) {
-    const unprefixed = normalized.slice("telegram:".length).trim();
-    if (unprefixed) candidates.push(unprefixed);
-  } else if (/^\d+$/.test(normalized)) {
-    candidates.push(`telegram:${normalized}`);
-  }
-  return Array.from(new Set(candidates));
-};
-
 const getCuratorUserIdsFromEnv = () => {
-  const raw = process.env.CURATION_ADMIN_USER_IDS ?? process.env.KB_OWNER_USER_ID ?? "";
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  return parseUserIdList(
+    process.env.CURATION_ADMIN_USER_IDS ?? process.env.KB_OWNER_USER_ID,
+  );
+};
+
+const dedupeAssetIds = <T extends { _id: string }>(rows: T[]) => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row._id)) return false;
+    seen.add(row._id);
+    return true;
+  });
 };
 
 export const createAsset = mutation({
@@ -166,7 +147,7 @@ export const setAssetFolder = mutation({
     if (!asset) {
       throw new ConvexError("Asset not found.");
     }
-    if (asset.ownerUserId !== ownerUserId) {
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
       throw new ConvexError("Asset does not belong to this user.");
     }
 
@@ -231,7 +212,7 @@ export const getAsset = query({
     if (!asset) {
       return null;
     }
-    if (args.ownerUserId && asset.ownerUserId !== args.ownerUserId) {
+    if (args.ownerUserId && !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) {
       return null;
     }
     return asset;
@@ -283,16 +264,24 @@ export const listAssets = query({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
     const limit = Math.min(args.limit ?? 50, 200);
     if (args.promptId) {
-      return await ctx.db
-        .query("assets")
-        .withIndex("by_owner_prompt_createdAt", (q) =>
-          q.eq("ownerUserId", ownerUserId).eq("promptId", args.promptId).gte("createdAt", 0),
-        )
-        .order("desc")
-        .take(limit);
+      const results = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rows = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_prompt_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("promptId", args.promptId).gte("createdAt", 0),
+          )
+          .order("desc")
+          .take(limit);
+        results.push(...rows);
+      }
+      return dedupeAssetIds(results)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
     }
     const tagId = args.tagId;
     if (tagId) {
@@ -306,37 +295,59 @@ export const listAssets = query({
       const results = [];
       for (const link of links) {
         const asset = await ctx.db.get(link.assetId);
-        if (asset && asset.ownerUserId === ownerUserId) {
+        if (asset && canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
           results.push(asset);
         }
       }
       return results;
     }
     if (args.folderId) {
-      return await ctx.db
-        .query("assets")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
-        )
-        .order("desc")
-        .take(limit);
+      const results = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rows = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+          )
+          .order("desc")
+          .take(limit);
+        results.push(...rows);
+      }
+      return dedupeAssetIds(results)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
     }
     const kind = args.kind;
     if (kind) {
-      return await ctx.db
-        .query("assets")
-        .withIndex("by_owner_kind_createdAt", (q) =>
-          q.eq("ownerUserId", ownerUserId).eq("kind", kind).gte("createdAt", 0),
-        )
-        .order("desc")
-        .take(limit);
+      const results = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rows = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_kind_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+          )
+          .order("desc")
+          .take(limit);
+        results.push(...rows);
+      }
+      return dedupeAssetIds(results)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
     }
 
-    return await ctx.db
-      .query("assets")
-      .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
-      .order("desc")
-      .take(limit);
+    const results = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const rows = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0))
+        .order("desc")
+        .take(limit);
+      results.push(...rows);
+    }
+
+    return dedupeAssetIds(results)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
   },
 });
 
@@ -372,130 +383,99 @@ const galleryAssetResultValidator = v.object({
   thumbUrl: v.optional(v.string()),
 });
 
-export const listGalleryAssets = query({
-  args: {
-    ownerUserId: v.string(),
-    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
-    tagIds: v.optional(v.array(v.id("tags"))),
-    folderId: v.optional(v.id("folders")),
-    modelName: v.optional(v.string()),
-    pillar: pillarValidator,
-    search: v.optional(v.string()),
-    limit: v.optional(v.number()),
-  },
-  returns: v.array(galleryAssetResultValidator),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
+const resolvePromptTextMap = async (
+  ctx: QueryCtx,
+  assets: Doc<"assets">[],
+) => {
+  const promptIds = dedupeIds(
+    assets
+      .map((asset) => asset.promptId)
+      .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
+  );
 
-    const limit = Math.min(args.limit ?? 100, 200);
-    const ownerUserIds = resolveOwnerUserIdCandidates(ownerUserId);
-    const tagFilter =
-      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
-    const search = args.search?.trim().toLowerCase();
-    const modelNameFilter = args.modelName?.trim() || null;
-    const pillar = args.pillar;
-    const kind = args.kind;
-    const ownerScopedAssets = [];
-    for (const ownerCandidate of ownerUserIds) {
-      const assetsForOwner = await (pillar
-        ? ctx.db
-            .query("assets")
-            .withIndex("by_owner_pillar_createdAt", (q) =>
-              q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
-            )
-        : kind
-          ? ctx.db
-              .query("assets")
-              .withIndex("by_owner_kind_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
-              )
-          : ctx.db
-              .query("assets")
-              .withIndex("by_owner_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-              )
-      )
-        .order("desc")
-        .take(limit);
-      ownerScopedAssets.push(...assetsForOwner);
-    }
+  if (promptIds.length === 0) {
+    return new Map<Id<"prompts">, string>();
+  }
 
-    ownerScopedAssets.sort((a, b) => b.createdAt - a.createdAt);
-    const seenAssetIds = new Set<Id<"assets">>();
-    const assets = ownerScopedAssets.filter((asset) => {
-      if (seenAssetIds.has(asset._id)) {
-        return false;
-      }
-      seenAssetIds.add(asset._id);
-      return true;
-    });
-    const tagNameCache = new Map<Id<"tags">, string>();
-    const promptCache = new Map<Id<"prompts">, string>();
-
-    const getTagName = async (tagId: Id<"tags">) => {
-      const cached = tagNameCache.get(tagId);
-      if (cached) return cached;
-      const tag = await ctx.db.get(tagId);
-      if (!tag) return undefined;
-      tagNameCache.set(tagId, tag.name);
-      return tag.name;
-    };
-
-    const getPromptText = async (promptId: Id<"prompts">) => {
-      const cached = promptCache.get(promptId);
-      if (cached) return cached;
+  const promptEntries = await Promise.all(
+    promptIds.map(async (promptId) => {
       const prompt = await ctx.db.get(promptId);
-      if (!prompt) return undefined;
-      promptCache.set(promptId, prompt.text);
-      return prompt.text;
-    };
+      return [promptId, prompt?.text] as const;
+    }),
+  );
 
-    const results = [];
-    for (const asset of assets) {
-      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
-        continue;
-      }
-      if (args.folderId && asset.folderId !== args.folderId) {
-        continue;
-      }
-      if (modelNameFilter && asset.modelName !== modelNameFilter) {
-        continue;
-      }
-      if (kind && asset.kind !== kind) {
-        continue;
-      }
+  const promptTextById = new Map<Id<"prompts">, string>();
+  for (const [promptId, promptText] of promptEntries) {
+    if (promptText) {
+      promptTextById.set(promptId, promptText);
+    }
+  }
+  return promptTextById;
+};
 
+const resolveTagNameMap = async (
+  ctx: QueryCtx,
+  assets: Doc<"assets">[],
+) => {
+  const tagIds = dedupeIds(
+    assets.flatMap((asset) => asset.tagIds),
+  );
+
+  if (tagIds.length === 0) {
+    return new Map<Id<"tags">, string>();
+  }
+
+  const tagEntries = await Promise.all(
+    tagIds.map(async (tagId) => {
+      const tag = await ctx.db.get(tagId);
+      return [tagId, tag?.name] as const;
+    }),
+  );
+
+  const tagNameById = new Map<Id<"tags">, string>();
+  for (const [tagId, tagName] of tagEntries) {
+    if (tagName) {
+      tagNameById.set(tagId, tagName);
+    }
+  }
+  return tagNameById;
+};
+
+const buildSearchHaystack = (
+  promptText: string | undefined,
+  fileName: string | undefined,
+  sourceUrl: string | undefined,
+) =>
+  [promptText, fileName, sourceUrl]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+
+const buildGalleryAssetResults = async (
+  ctx: QueryCtx,
+  assets: Doc<"assets">[],
+  promptTextById: Map<Id<"prompts">, string>,
+  tagNameById: Map<Id<"tags">, string>,
+) =>
+  await Promise.all(
+    assets.map(async (asset) => {
       const promptText = asset.promptId
-        ? await getPromptText(asset.promptId)
+        ? promptTextById.get(asset.promptId)
         : undefined;
+      const tagNames = asset.tagIds
+        .map((tagId) => tagNameById.get(tagId))
+        .filter((tagName): tagName is string => Boolean(tagName));
 
-      if (search) {
-        const haystack = [promptText, asset.fileName, asset.sourceUrl]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(search)) {
-          continue;
-        }
-      }
+      const [url, thumbUrl] = await Promise.all([
+        asset.storageId
+          ? ctx.storage.getUrl(asset.storageId).then((value) => value ?? undefined)
+          : Promise.resolve(asset.sourceUrl),
+        asset.thumbStorageId
+          ? ctx.storage.getUrl(asset.thumbStorageId).then((value) => value ?? undefined)
+          : Promise.resolve(undefined),
+      ]);
 
-      const tagNames: string[] = [];
-      for (const tagId of asset.tagIds) {
-        const name = await getTagName(tagId);
-        if (name) tagNames.push(name);
-      }
-
-      const url = asset.storageId
-        ? (await ctx.storage.getUrl(asset.storageId)) ?? undefined
-        : asset.sourceUrl;
-      const thumbUrl = asset.thumbStorageId
-        ? (await ctx.storage.getUrl(asset.thumbStorageId)) ?? undefined
-        : undefined;
-
-      results.push({
+      return {
         _id: asset._id,
         _creationTime: asset._creationTime,
         ownerUserId: asset.ownerUserId,
@@ -525,13 +505,120 @@ export const listGalleryAssets = query({
         createdAt: asset.createdAt,
         url,
         thumbUrl,
-      });
-      if (results.length >= limit) {
-        break;
-      }
+      };
+    }),
+  );
+
+export const listGalleryAssets = query({
+  args: {
+    ownerUserId: v.string(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    folderId: v.optional(v.id("folders")),
+    modelName: v.optional(v.string()),
+    pillar: pillarValidator,
+    search: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(galleryAssetResultValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
     }
 
-    return results;
+    const limit = Math.min(args.limit ?? 100, 200);
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const tagFilter =
+      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const search = args.search?.trim().toLowerCase();
+    const modelNameFilter = args.modelName?.trim() || null;
+    const pillar = args.pillar;
+    const kind = args.kind;
+    const ownerScopedAssets = (
+      await Promise.all(
+        ownerUserIds.map(async (ownerCandidate) =>
+          await (pillar
+            ? ctx.db
+                .query("assets")
+                .withIndex("by_owner_pillar_createdAt", (q) =>
+                  q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
+                )
+            : kind
+              ? ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_kind_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+                  )
+              : ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+                  )
+          )
+            .order("desc")
+            .take(limit),
+        ),
+      )
+    ).flat();
+
+    ownerScopedAssets.sort((a, b) => b.createdAt - a.createdAt);
+    const seenAssetIds = new Set<Id<"assets">>();
+    const assets = ownerScopedAssets.filter((asset) => {
+      if (seenAssetIds.has(asset._id)) {
+        return false;
+      }
+      seenAssetIds.add(asset._id);
+      return true;
+    });
+    const filteredAssets = assets.filter((asset) => {
+      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+        return false;
+      }
+      if (args.folderId && asset.folderId !== args.folderId) {
+        return false;
+      }
+      if (modelNameFilter && asset.modelName !== modelNameFilter) {
+        return false;
+      }
+      if (kind && asset.kind !== kind) {
+        return false;
+      }
+      return true;
+    });
+
+    if (filteredAssets.length === 0) {
+      return [];
+    }
+
+    let selectedAssets = filteredAssets;
+    let promptTextById: Map<Id<"prompts">, string>;
+    if (search) {
+      promptTextById = await resolvePromptTextMap(ctx, filteredAssets);
+      selectedAssets = filteredAssets.filter((asset) => {
+        const promptText = asset.promptId
+          ? promptTextById.get(asset.promptId)
+          : undefined;
+        return buildSearchHaystack(promptText, asset.fileName, asset.sourceUrl)
+          .includes(search);
+      });
+    } else {
+      selectedAssets = filteredAssets.slice(0, limit);
+      promptTextById = await resolvePromptTextMap(ctx, selectedAssets);
+    }
+
+    selectedAssets = selectedAssets.slice(0, limit);
+    if (selectedAssets.length === 0) {
+      return [];
+    }
+
+    const tagNameById = await resolveTagNameMap(ctx, selectedAssets);
+    return await buildGalleryAssetResults(
+      ctx,
+      selectedAssets,
+      promptTextById,
+      tagNameById,
+    );
   },
 });
 
@@ -577,103 +664,51 @@ export const listPublicGalleryAssets = query({
       .order("desc")
       .take(queryTake);
 
-    const tagNameCache = new Map<Id<"tags">, string>();
-    const promptCache = new Map<Id<"prompts">, string>();
-
-    const getTagName = async (tagId: Id<"tags">) => {
-      const cached = tagNameCache.get(tagId);
-      if (cached) return cached;
-      const tag = await ctx.db.get(tagId);
-      if (!tag) return undefined;
-      tagNameCache.set(tagId, tag.name);
-      return tag.name;
-    };
-
-    const getPromptText = async (promptId: Id<"prompts">) => {
-      const cached = promptCache.get(promptId);
-      if (cached) return cached;
-      const prompt = await ctx.db.get(promptId);
-      if (!prompt) return undefined;
-      promptCache.set(promptId, prompt.text);
-      return prompt.text;
-    };
-
-    const results = [];
-    for (const asset of baseAssets) {
+    const filteredAssets = baseAssets.filter((asset) => {
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
-        continue;
+        return false;
       }
       if (args.folderId && asset.folderId !== args.folderId) {
-        continue;
+        return false;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
-        continue;
+        return false;
       }
+      return true;
+    });
 
-      const promptText = asset.promptId
-        ? await getPromptText(asset.promptId)
-        : undefined;
-
-      if (search) {
-        const haystack = [promptText, asset.fileName, asset.sourceUrl]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(search)) {
-          continue;
-        }
-      }
-
-      const tagNames: string[] = [];
-      for (const tagId of asset.tagIds) {
-        const name = await getTagName(tagId);
-        if (name) tagNames.push(name);
-      }
-
-      const url = asset.storageId
-        ? (await ctx.storage.getUrl(asset.storageId)) ?? undefined
-        : asset.sourceUrl;
-      const thumbUrl = asset.thumbStorageId
-        ? (await ctx.storage.getUrl(asset.thumbStorageId)) ?? undefined
-        : undefined;
-
-      results.push({
-        _id: asset._id,
-        _creationTime: asset._creationTime,
-        ownerUserId: asset.ownerUserId,
-        kind: asset.kind,
-        storageId: asset.storageId,
-        thumbStorageId: asset.thumbStorageId,
-        sourceUrl: asset.sourceUrl,
-        fileName: asset.fileName,
-        contentType: asset.contentType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-        thumbSize: asset.thumbSize,
-        thumbWidth: asset.thumbWidth,
-        thumbHeight: asset.thumbHeight,
-        promptId: asset.promptId,
-        promptText,
-        tagIds: asset.tagIds,
-        tagNames,
-        folderId: asset.folderId,
-        modelName: asset.modelName,
-        isPublic: asset.isPublic,
-        isFeatured: asset.isFeatured,
-        curatedByUserId: asset.curatedByUserId,
-        curatedAt: asset.curatedAt,
-        pillar: asset.pillar,
-        createdAt: asset.createdAt,
-        url,
-        thumbUrl,
-      });
-      if (results.length >= limit) {
-        break;
-      }
+    if (filteredAssets.length === 0) {
+      return [];
     }
 
-    return results;
+    let selectedAssets = filteredAssets;
+    let promptTextById: Map<Id<"prompts">, string>;
+    if (search) {
+      promptTextById = await resolvePromptTextMap(ctx, filteredAssets);
+      selectedAssets = filteredAssets.filter((asset) => {
+        const promptText = asset.promptId
+          ? promptTextById.get(asset.promptId)
+          : undefined;
+        return buildSearchHaystack(promptText, asset.fileName, asset.sourceUrl)
+          .includes(search);
+      });
+    } else {
+      selectedAssets = filteredAssets.slice(0, limit);
+      promptTextById = await resolvePromptTextMap(ctx, selectedAssets);
+    }
+
+    selectedAssets = selectedAssets.slice(0, limit);
+    if (selectedAssets.length === 0) {
+      return [];
+    }
+
+    const tagNameById = await resolveTagNameMap(ctx, selectedAssets);
+    return await buildGalleryAssetResults(
+      ctx,
+      selectedAssets,
+      promptTextById,
+      tagNameById,
+    );
   },
 });
 
@@ -707,8 +742,7 @@ export const setAssetCuration = mutation({
       throw new ConvexError("Curator user list is not configured.");
     }
 
-    const actorCandidates = resolveAdminCandidates(actorUserId);
-    const canCurate = allowedUserIds.some((allowed) => actorCandidates.includes(allowed));
+    const canCurate = canActorAccessByUserId(actorUserId, allowedUserIds);
     if (!canCurate) {
       throw new ConvexError("Forbidden curator.");
     }
@@ -757,7 +791,24 @@ export const hasAssetForIngestKey = query({
         q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
       )
       .unique();
-    return Boolean(existing);
+    if (existing) {
+      return true;
+    }
+    const ownerCandidates = resolveUserIdCandidates(ownerUserId).filter(
+      (candidate) => candidate !== ownerUserId,
+    );
+    for (const ownerCandidate of ownerCandidates) {
+      const existingByCandidate = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_ingestKey", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("ingestKey", args.ingestKey),
+        )
+        .unique();
+      if (existingByCandidate) {
+        return true;
+      }
+    }
+    return false;
   },
 });
 
@@ -772,11 +823,16 @@ export const countAssets = query({
       if (!ownerUserId) {
         throw new ConvexError("ownerUserId is required when provided.");
       }
-      return await ctx.db
-        .query("assets")
-        .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
-        .collect()
-        .then((rows) => rows.length);
+      const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+      const rows = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rowsForOwner = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0))
+          .collect();
+        rows.push(...rowsForOwner);
+      }
+      return dedupeAssetIds(rows).length;
     }
     return await ctx.db.query("assets").collect().then((rows) => rows.length);
   },
@@ -799,8 +855,7 @@ export const deleteAsset = mutation({
       throw new ConvexError("Asset not found.");
     }
 
-    const ownerCandidates = resolveOwnerUserIdCandidates(ownerUserId);
-    if (!asset.ownerUserId || !ownerCandidates.includes(asset.ownerUserId)) {
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
       throw new ConvexError("Asset does not belong to ownerUserId.");
     }
 
@@ -828,7 +883,7 @@ export const deleteAsset = mutation({
   },
 });
 
-export const bulkDeleteAssets = mutation({
+export const bulkDeleteAssets = internalMutation({
   args: { ids: v.array(v.id("assets")) },
   returns: v.number(),
   handler: async (ctx, args) => {
@@ -848,7 +903,7 @@ export const bulkDeleteAssets = mutation({
   },
 });
 
-export const wipeAllAssets = mutation({
+export const wipeAllAssets = internalMutation({
   args: {
     dryRun: v.optional(v.boolean()),
   },
