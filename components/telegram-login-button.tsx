@@ -163,11 +163,11 @@ export function TelegramLoginButton({
     <div
       className={`relative w-full overflow-hidden rounded-[24px] border ${sizeConfig.wrapper}`}
       style={{
-        borderColor: "rgba(32, 23, 16, 0.18)",
+        borderColor: "rgba(32, 23, 16, 0.22)",
         background:
-          "linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 92%, #ffffff 8%) 0%, color-mix(in srgb, var(--surface-1) 84%, var(--surface-2) 16%) 100%)",
+          "linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 90%, #ffffff 10%) 0%, color-mix(in srgb, var(--surface-1) 80%, var(--surface-2) 20%) 100%)",
         boxShadow:
-          "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 14px 30px rgba(38, 18, 6, 0.08)",
+          "0 1px 0 rgba(255, 255, 255, 0.68) inset, 0 16px 34px rgba(38, 18, 6, 0.1)",
       }}
     >
       <div
@@ -291,11 +291,37 @@ export function TelegramLoginButton({
           <div
             className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
             style={{
-              borderColor: "rgba(32, 23, 16, 0.16)",
+              borderColor: "rgba(39, 149, 212, 0.35)",
               background:
-                "linear-gradient(160deg, rgba(255, 255, 255, 0.62) 0%, color-mix(in srgb, var(--paper-muted) 84%, #ffffff 16%) 100%)",
+                "linear-gradient(160deg, rgba(255, 255, 255, 0.75) 0%, color-mix(in srgb, var(--paper-muted) 82%, #ffffff 18%) 100%)",
+              boxShadow: "0 1px 0 rgba(255, 255, 255, 0.85) inset",
             }}
           >
+            <div
+              className="mb-2.5 flex items-center justify-between rounded-xl border px-2.5 py-1.5"
+              style={{
+                borderColor: "rgba(39, 149, 212, 0.42)",
+                background:
+                  "linear-gradient(140deg, rgba(39, 149, 212, 0.18) 0%, rgba(39, 149, 212, 0.08) 100%)",
+              }}
+            >
+              <span
+                className="text-[10px] font-semibold"
+                style={{ color: "#1e6e9a", letterSpacing: "0.01em" }}
+              >
+                {sizeConfig.compact ? "Tap to unlock your vault" : "Continue with Telegram"}
+              </span>
+              <span
+                className="rounded-full border px-2 py-0.5 text-[9px] font-semibold"
+                style={{
+                  borderColor: "rgba(39, 149, 212, 0.4)",
+                  color: "#1e6e9a",
+                  backgroundColor: "rgba(255, 255, 255, 0.55)",
+                }}
+              >
+                1 tap
+              </span>
+            </div>
             <div className="flex justify-start">
               <div
                 style={{
@@ -310,7 +336,7 @@ export function TelegramLoginButton({
               <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
                 {sizeConfig.compact
                   ? "No password needed."
-                  : "No password needed. Telegram confirms your identity."}
+                  : "No password needed. Telegram confirms your identity instantly."}
               </p>
             )}
             {widgetError && (
