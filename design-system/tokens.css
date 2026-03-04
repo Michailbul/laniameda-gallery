@@ -76,6 +76,13 @@
   --pillar-warm-r: 232;
   --pillar-warm-g: 97;
   --pillar-warm-b: 79;
+  --pillar-creators: #ff7a64;
+  --pillar-cars: #e5534b;
+  --pillar-designs: #5d6bfa;
+  --pillar-dump: #2eb8b4;
+  --brand-telegram-rgb: 39, 149, 212;
+  --brand-telegram: rgb(var(--brand-telegram-rgb));
+  --brand-telegram-ink: color-mix(in srgb, var(--brand-telegram) 72%, var(--ink) 28%);
 
   /* ═══════════════════════════════════════════
      SEMANTIC MAPPINGS  (shadcn-compatible)
@@ -122,6 +129,28 @@
   --status-success: #16a34a;
   --status-error: #dc2626;
   --status-queued: var(--text-tertiary);
+  --image-card-badge-bg: rgba(0, 0, 0, 0.7);
+  --image-card-badge-bg-soft: rgba(0, 0, 0, 0.65);
+  --image-card-badge-border: rgba(255, 255, 255, 0.1);
+  --image-card-badge-text: rgba(255, 255, 255, 0.9);
+  --image-card-overlay-gradient: linear-gradient(
+    to top,
+    rgba(8, 4, 2, 0.92) 0%,
+    rgba(17, 10, 6, 0.5) 25%,
+    rgba(8, 4, 2, 0.1) 50%,
+    transparent 100%
+  );
+  --image-card-overlay-text: rgba(255, 255, 255, 0.85);
+  --image-card-text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  --image-card-action-bg: rgba(255, 255, 255, 0.08);
+  --image-card-action-border: rgba(255, 255, 255, 0.12);
+  --image-card-delete-border: rgba(255, 255, 255, 0.32);
+  --image-card-delete-border-disabled: rgba(255, 255, 255, 0.18);
+  --image-card-delete-bg: rgba(8, 4, 2, 0.58);
+  --image-card-delete-bg-disabled: rgba(8, 4, 2, 0.82);
+  --image-card-delete-text: #ffd7cf;
+  --image-card-delete-text-disabled: rgba(255, 255, 255, 0.72);
+  --image-card-delete-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
 
   /* ── Inverse (dark panels) ── */
   --bg-inverse: #18181b;

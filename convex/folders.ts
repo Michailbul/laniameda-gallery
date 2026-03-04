@@ -4,6 +4,10 @@ import {
   canonicalFolderName,
   normalizeFolderName,
 } from "./folderHelpers";
+import {
+  canActorAccessOwnerUserId,
+  resolveUserIdCandidates,
+} from "./authz";
 
 const folderReturnValidator = v.object({
   _id: v.id("folders"),
@@ -15,6 +19,15 @@ const folderReturnValidator = v.object({
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
+
+const dedupeById = <T extends { _id: string }>(rows: T[]) => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row._id)) return false;
+    seen.add(row._id);
+    return true;
+  });
+};
 
 export const createFolder = mutation({
   args: {
@@ -31,6 +44,7 @@ export const createFolder = mutation({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
     const name = normalizeFolderName(args.name);
     if (!name) {
@@ -42,12 +56,18 @@ export const createFolder = mutation({
     const description = hasDescription
       ? args.description?.trim() || undefined
       : undefined;
-    const existing = await ctx.db
-      .query("folders")
-      .withIndex("by_owner_normalizedName", (q) =>
-        q.eq("ownerUserId", ownerUserId).eq("normalizedName", normalizedName),
-      )
-      .unique();
+    let existing = null;
+    for (const ownerCandidate of ownerUserIds) {
+      existing = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("normalizedName", normalizedName),
+        )
+        .unique();
+      if (existing) {
+        break;
+      }
+    }
     if (existing) {
       const nextDescription = hasDescription
         ? description
@@ -93,13 +113,21 @@ export const listFolders = query({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const folders = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const foldersForOwner = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gte("normalizedName", ""),
+        )
+        .collect();
+      folders.push(...foldersForOwner);
+    }
 
-    return await ctx.db
-      .query("folders")
-      .withIndex("by_owner_normalizedName", (q) =>
-        q.eq("ownerUserId", ownerUserId).gte("normalizedName", ""),
-      )
-      .collect();
+    return dedupeById(folders).sort((left, right) =>
+      String(left.normalizedName ?? "").localeCompare(String(right.normalizedName ?? "")),
+    );
   },
 });
 
@@ -116,6 +144,7 @@ export const updateFolder = mutation({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
     const name = normalizeFolderName(args.name);
     if (!name) {
@@ -126,17 +155,23 @@ export const updateFolder = mutation({
     if (!folder) {
       throw new ConvexError("Folder not found.");
     }
-    if (folder.ownerUserId !== ownerUserId) {
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
 
     const normalizedName = canonicalFolderName(name);
-    const duplicate = await ctx.db
-      .query("folders")
-      .withIndex("by_owner_normalizedName", (q) =>
-        q.eq("ownerUserId", ownerUserId).eq("normalizedName", normalizedName),
-      )
-      .unique();
+    let duplicate = null;
+    for (const ownerCandidate of ownerUserIds) {
+      duplicate = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("normalizedName", normalizedName),
+        )
+        .unique();
+      if (duplicate) {
+        break;
+      }
+    }
     if (duplicate && duplicate._id !== args.folderId) {
       throw new ConvexError("A folder with this name already exists.");
     }
@@ -172,6 +207,7 @@ export const deleteFolder = mutation({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
     const folder = await ctx.db.get(args.folderId);
     if (!folder) {
@@ -182,26 +218,34 @@ export const deleteFolder = mutation({
         promptsUpdated: 0,
       };
     }
-    if (folder.ownerUserId !== ownerUserId) {
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
 
-    const assets = await ctx.db
-      .query("assets")
-      .withIndex("by_owner_folder_createdAt", (q) =>
-        q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
-      )
-      .collect();
+    const assets = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const assetsForOwner = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+        )
+        .collect();
+      assets.push(...assetsForOwner);
+    }
     for (const asset of assets) {
       await ctx.db.patch(asset._id, { folderId: undefined });
     }
 
-    const prompts = await ctx.db
-      .query("prompts")
-      .withIndex("by_owner_folder_createdAt", (q) =>
-        q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
-      )
-      .collect();
+    const prompts = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const promptsForOwner = await ctx.db
+        .query("prompts")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+        )
+        .collect();
+      prompts.push(...promptsForOwner);
+    }
     for (const prompt of prompts) {
       await ctx.db.patch(prompt._id, { folderId: undefined });
     }
@@ -211,8 +255,8 @@ export const deleteFolder = mutation({
     return {
       folderId: args.folderId,
       deleted: true,
-      assetsUpdated: assets.length,
-      promptsUpdated: prompts.length,
+      assetsUpdated: dedupeById(assets).length,
+      promptsUpdated: dedupeById(prompts).length,
     };
   },
 });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle, ShieldCheck } from "lucide-react";
 import { useTelegramAuth } from "./TelegramAuthProvider";
+import { AuthPanel } from "@/components/ui/auth-panel";
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
   ?.trim()
@@ -160,16 +161,7 @@ export function TelegramLoginButton({
   }, [refresh, sizeConfig.scriptSize]);
 
   return (
-    <div
-      className={`relative w-full overflow-hidden rounded-[24px] border ${sizeConfig.wrapper}`}
-      style={{
-        borderColor: "rgba(32, 23, 16, 0.22)",
-        background:
-          "linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 90%, #ffffff 10%) 0%, color-mix(in srgb, var(--surface-1) 80%, var(--surface-2) 20%) 100%)",
-        boxShadow:
-          "0 1px 0 rgba(255, 255, 255, 0.68) inset, 0 16px 34px rgba(38, 18, 6, 0.1)",
-      }}
-    >
+    <AuthPanel paddingClassName={sizeConfig.wrapper}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -right-9 -top-10 h-28 w-28 rounded-full"
@@ -183,7 +175,7 @@ export function TelegramLoginButton({
         className="pointer-events-none absolute -bottom-7 -left-7 h-24 w-24 rounded-full"
         style={{
           background:
-            "radial-gradient(circle, rgba(46, 184, 180, 0.11) 0%, rgba(46, 184, 180, 0) 70%)",
+            "radial-gradient(circle, rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.11) 0%, rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0) 70%)",
         }}
       />
 
@@ -197,7 +189,7 @@ export function TelegramLoginButton({
                   "linear-gradient(145deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.2) 0%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08) 100%)",
                 color: "var(--text-primary)",
                 borderColor: "rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.26)",
-                boxShadow: "0 1px 0 rgba(255, 255, 255, 0.72) inset",
+                boxShadow: "0 1px 0 color-mix(in srgb, var(--paper) 72%, transparent) inset",
               }}
             >
               <MessageCircle className="h-4 w-4" />
@@ -229,10 +221,10 @@ export function TelegramLoginButton({
           <div
             className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold tracking-[0.08em]"
             style={{
-              border: "1px solid rgba(32, 23, 16, 0.18)",
-              backgroundColor: "rgba(255, 255, 255, 0.45)",
+              border: "1px solid color-mix(in srgb, var(--ink) 18%, transparent)",
+              backgroundColor: "color-mix(in srgb, var(--paper) 45%, transparent)",
               color: "var(--text-tertiary)",
-              boxShadow: "0 1px 0 rgba(255, 255, 255, 0.8) inset",
+              boxShadow: "0 1px 0 color-mix(in srgb, var(--paper) 80%, transparent) inset",
             }}
           >
             <ShieldCheck className="h-3 w-3" />
@@ -255,9 +247,9 @@ export function TelegramLoginButton({
           <div
             className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
             style={{
-              borderColor: "rgba(32, 23, 16, 0.16)",
+              borderColor: "color-mix(in srgb, var(--ink) 16%, transparent)",
               background:
-                "linear-gradient(160deg, rgba(255, 255, 255, 0.62) 0%, color-mix(in srgb, var(--paper-muted) 84%, #ffffff 16%) 100%)",
+                "linear-gradient(160deg, color-mix(in srgb, var(--paper) 62%, transparent) 0%, color-mix(in srgb, var(--paper-muted) 84%, var(--paper) 16%) 100%)",
             }}
           >
             <button
@@ -266,10 +258,11 @@ export function TelegramLoginButton({
               disabled={devLoginLoading}
               className="w-full rounded-xl border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.13em] transition-all disabled:cursor-not-allowed disabled:opacity-60"
               style={{
-                borderColor: "rgba(46, 184, 180, 0.42)",
+                borderColor:
+                  "rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.42)",
                 color: "var(--text-secondary)",
                 background:
-                  "linear-gradient(140deg, rgba(46, 184, 180, 0.16) 0%, rgba(46, 184, 180, 0.06) 100%)",
+                  "linear-gradient(140deg, rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.16) 0%, rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.06) 100%)",
               }}
             >
               {devLoginLoading ? "Signing in..." : "Sign in as dev user"}
@@ -280,7 +273,7 @@ export function TelegramLoginButton({
             {devLoginError && (
               <p
                 className="mt-1 text-[11px]"
-                style={{ color: "#b44f3a", lineHeight: 1.35 }}
+                style={{ color: "var(--status-error)", lineHeight: 1.35 }}
                 role="alert"
               >
                 {devLoginError}
@@ -291,32 +284,32 @@ export function TelegramLoginButton({
           <div
             className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
             style={{
-              borderColor: "rgba(39, 149, 212, 0.35)",
+              borderColor: "rgba(var(--brand-telegram-rgb), 0.35)",
               background:
-                "linear-gradient(160deg, rgba(255, 255, 255, 0.75) 0%, color-mix(in srgb, var(--paper-muted) 82%, #ffffff 18%) 100%)",
-              boxShadow: "0 1px 0 rgba(255, 255, 255, 0.85) inset",
+                "linear-gradient(160deg, color-mix(in srgb, var(--paper) 75%, transparent) 0%, color-mix(in srgb, var(--paper-muted) 82%, var(--paper) 18%) 100%)",
+              boxShadow: "0 1px 0 color-mix(in srgb, var(--paper) 85%, transparent) inset",
             }}
           >
             <div
               className="mb-2.5 flex items-center justify-between rounded-xl border px-2.5 py-1.5"
               style={{
-                borderColor: "rgba(39, 149, 212, 0.42)",
+                borderColor: "rgba(var(--brand-telegram-rgb), 0.42)",
                 background:
-                  "linear-gradient(140deg, rgba(39, 149, 212, 0.18) 0%, rgba(39, 149, 212, 0.08) 100%)",
+                  "linear-gradient(140deg, rgba(var(--brand-telegram-rgb), 0.18) 0%, rgba(var(--brand-telegram-rgb), 0.08) 100%)",
               }}
             >
               <span
                 className="text-[10px] font-semibold"
-                style={{ color: "#1e6e9a", letterSpacing: "0.01em" }}
+                style={{ color: "var(--brand-telegram-ink)", letterSpacing: "0.01em" }}
               >
                 {sizeConfig.compact ? "Tap to unlock your vault" : "Continue with Telegram"}
               </span>
               <span
                 className="rounded-full border px-2 py-0.5 text-[9px] font-semibold"
                 style={{
-                  borderColor: "rgba(39, 149, 212, 0.4)",
-                  color: "#1e6e9a",
-                  backgroundColor: "rgba(255, 255, 255, 0.55)",
+                  borderColor: "rgba(var(--brand-telegram-rgb), 0.4)",
+                  color: "var(--brand-telegram-ink)",
+                  backgroundColor: "color-mix(in srgb, var(--paper) 55%, transparent)",
                 }}
               >
                 1 tap
@@ -342,7 +335,7 @@ export function TelegramLoginButton({
             {widgetError && (
               <p
                 className="mt-2 text-[11px]"
-                style={{ color: "#b44f3a", lineHeight: 1.35 }}
+                style={{ color: "var(--status-error)", lineHeight: 1.35 }}
                 role="alert"
               >
                 {widgetError}
@@ -353,8 +346,8 @@ export function TelegramLoginButton({
           <div
             className="rounded-2xl border px-3 py-3 text-[11px]"
             style={{
-              borderColor: "rgba(32, 23, 16, 0.22)",
-              backgroundColor: "rgba(255, 255, 255, 0.45)",
+              borderColor: "color-mix(in srgb, var(--ink) 22%, transparent)",
+              backgroundColor: "color-mix(in srgb, var(--paper) 45%, transparent)",
               color: "var(--text-secondary)",
               lineHeight: 1.4,
             }}
@@ -363,6 +356,6 @@ export function TelegramLoginButton({
           </div>
         )}
       </div>
-    </div>
+    </AuthPanel>
   );
 }

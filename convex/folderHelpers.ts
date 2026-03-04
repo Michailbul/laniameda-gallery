@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 import { type Id } from "./_generated/dataModel";
 import { type MutationCtx } from "./_generated/server";
+import { canActorAccessOwnerUserId } from "./authz";
 
 export const normalizeFolderName = (name: string) =>
   name.trim().replace(/\s+/g, " ");
@@ -22,7 +23,7 @@ export const ensureFolderOwnership = async (
     throw new ConvexError("Folder not found.");
   }
 
-  if (!folder.ownerUserId || folder.ownerUserId !== ownerUserId) {
+  if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
     throw new ConvexError("Folder does not belong to this user.");
   }
 };

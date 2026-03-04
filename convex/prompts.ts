@@ -1,7 +1,8 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
+import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 
 const promptTypeValidator = v.optional(v.union(
   v.literal("image_gen"),
@@ -18,6 +19,15 @@ const pillarValidator = v.optional(v.union(
   v.literal("designs"),
   v.literal("dump"),
 ));
+
+const dedupePromptIds = <T extends { _id: string }>(rows: T[]) => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row._id)) return false;
+    seen.add(row._id);
+    return true;
+  });
+};
 
 export const createPrompt = mutation({
   args: {
@@ -113,7 +123,7 @@ export const updatePrompt = mutation({
     if (!existing) {
       throw new ConvexError("Prompt not found.");
     }
-    if (existing.ownerUserId !== ownerUserId) {
+    if (!canActorAccessOwnerUserId(ownerUserId, existing.ownerUserId)) {
       throw new ConvexError("Prompt does not belong to this user.");
     }
     await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
@@ -176,7 +186,7 @@ export const getPrompt = query({
     if (!prompt) {
       return null;
     }
-    if (args.ownerUserId && prompt.ownerUserId !== args.ownerUserId) {
+    if (args.ownerUserId && !canActorAccessOwnerUserId(args.ownerUserId, prompt.ownerUserId)) {
       return null;
     }
     return prompt;
@@ -210,6 +220,7 @@ export const listPrompts = query({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
     const limit = Math.min(args.limit ?? 50, 200);
     const tagId = args.tagId;
@@ -224,27 +235,42 @@ export const listPrompts = query({
       const results = [];
       for (const link of links) {
         const prompt = await ctx.db.get(link.promptId);
-        if (prompt && prompt.ownerUserId === ownerUserId) {
+        if (prompt && canActorAccessOwnerUserId(ownerUserId, prompt.ownerUserId)) {
           results.push(prompt);
         }
       }
       return results;
     }
     if (args.folderId) {
-      return await ctx.db
-        .query("prompts")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q.eq("ownerUserId", ownerUserId).eq("folderId", args.folderId).gte("createdAt", 0),
-        )
-        .order("desc")
-        .take(limit);
+      const results = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rows = await ctx.db
+          .query("prompts")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+          )
+          .order("desc")
+          .take(limit);
+        results.push(...rows);
+      }
+      return dedupePromptIds(results)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
     }
 
-    return await ctx.db
-      .query("prompts")
-      .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerUserId).gte("createdAt", 0))
-      .order("desc")
-      .take(limit);
+    const results = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const rows = await ctx.db
+        .query("prompts")
+        .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0))
+        .order("desc")
+        .take(limit);
+      results.push(...rows);
+    }
+
+    return dedupePromptIds(results)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
   },
 });
 
@@ -278,12 +304,12 @@ export const searchPrompts = query({
       .query("prompts")
       .withSearchIndex("search_text", (q) => q.search("text", query))
       .take(limit * 3);
-    const results = rows.filter((row) => row.ownerUserId === ownerUserId);
+    const results = rows.filter((row) => canActorAccessOwnerUserId(ownerUserId, row.ownerUserId));
     return results.slice(0, limit);
   },
 });
 
-export const deletePrompt = mutation({
+export const deletePrompt = internalMutation({
   args: { id: v.id("prompts") },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -300,7 +326,7 @@ export const deletePrompt = mutation({
   },
 });
 
-export const bulkDeletePrompts = mutation({
+export const bulkDeletePrompts = internalMutation({
   args: { ids: v.array(v.id("prompts")) },
   returns: v.number(),
   handler: async (ctx, args) => {
