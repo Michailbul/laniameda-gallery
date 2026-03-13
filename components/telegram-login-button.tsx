@@ -160,6 +160,135 @@ export function TelegramLoginButton({
     };
   }, [refresh, sizeConfig.scriptSize]);
 
+  /* ── Compact sidebar variant — neobrutalist ── */
+  if (sizeConfig.compact) {
+    return (
+      <div
+        className="relative w-full overflow-hidden"
+        style={{
+          border: "1.5px solid var(--ink)",
+          borderRadius: "4px",
+          backgroundColor: "var(--paper)",
+          boxShadow: "var(--shadow-brutal-accent)",
+        }}
+      >
+        {/* Coral accent bar */}
+        <div
+          className="h-[3px] w-full"
+          style={{
+            background:
+              "linear-gradient(90deg, var(--coral) 0%, rgba(var(--pillar-warm-r), var(--pillar-warm-g), var(--pillar-warm-b), 0.4) 70%, transparent 100%)",
+          }}
+        />
+
+        <div className="px-3 py-3">
+          {/* Label + diamond marker */}
+          <div className="mb-1 flex items-center gap-2">
+            <span
+              className="block h-[5px] w-[5px] rotate-45"
+              style={{ backgroundColor: "var(--coral)" }}
+            />
+            <span
+              className="font-mono text-[7px] font-bold uppercase tracking-[0.2em]"
+              style={{ color: "var(--text-ghost)" }}
+            >
+              {DEV_AUTH_BYPASS_ENABLED ? "Dev mode" : "Access"}
+            </span>
+          </div>
+
+          {/* Headline — large display font */}
+          <p
+            className="text-[20px] leading-[1.1]"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontStyle: "italic",
+              color: "var(--text-primary)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {DEV_AUTH_BYPASS_ENABLED ? "localhost" : "Enter your vault"}
+          </p>
+
+          {/* Action area */}
+          <div className="mt-3">
+            {DEV_AUTH_BYPASS_ENABLED ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleDevLogin()}
+                  disabled={devLoginLoading}
+                  className="btn-brutal w-full disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ borderRadius: "3px" }}
+                >
+                  {devLoginLoading ? "Signing in..." : "Sign in as dev"}
+                </button>
+                {devLoginError && (
+                  <p
+                    className="mt-1.5 font-mono text-[9px]"
+                    style={{
+                      color: "var(--status-error)",
+                      lineHeight: 1.35,
+                    }}
+                    role="alert"
+                  >
+                    {devLoginError}
+                  </p>
+                )}
+              </>
+            ) : BOT_USERNAME ? (
+              <>
+                <div className="flex justify-start">
+                  <div
+                    style={{
+                      maxWidth: sizeConfig.widgetMaxWidth,
+                      width: "100%",
+                    }}
+                  >
+                    <div
+                      ref={containerRef}
+                      className="min-h-[34px] overflow-x-auto overflow-y-hidden"
+                    />
+                  </div>
+                </div>
+                {widgetError && (
+                  <p
+                    className="mt-1.5 font-mono text-[9px]"
+                    style={{
+                      color: "var(--status-error)",
+                      lineHeight: 1.35,
+                    }}
+                    role="alert"
+                  >
+                    {widgetError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p
+                className="font-mono text-[9px]"
+                style={{
+                  color: "var(--text-ghost)",
+                  lineHeight: 1.4,
+                }}
+              >
+                Set NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
+              </p>
+            )}
+          </div>
+
+          {/* Footer detail */}
+          <p
+            className="mt-2.5 font-mono text-[7px] font-bold uppercase tracking-[0.14em]"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            No password · One tap
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Standard variant (medium / large) ── */
   return (
     <AuthPanel paddingClassName={sizeConfig.wrapper}>
       <div
@@ -211,9 +340,7 @@ export function TelegramLoginButton({
               >
                 {DEV_AUTH_BYPASS_ENABLED
                   ? "Bypass widget while running localhost."
-                  : sizeConfig.compact
-                    ? "One-tap sign in for your vault."
-                    : "Verify identity in one tap with Telegram."}
+                  : "Verify identity in one tap with Telegram."}
               </span>
             </div>
           </div>
@@ -232,20 +359,18 @@ export function TelegramLoginButton({
           </div>
         </div>
 
-        {!sizeConfig.compact && (
-          <p
-            className={`mb-2.5 ${sizeConfig.helper}`}
-            style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}
-          >
-            {DEV_AUTH_BYPASS_ENABLED
-              ? "Local route only. Use real auth in production."
-              : "Sign in to save assets, prompts, and folders."}
-          </p>
-        )}
+        <p
+          className={`mb-2.5 ${sizeConfig.helper}`}
+          style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}
+        >
+          {DEV_AUTH_BYPASS_ENABLED
+            ? "Local route only. Use real auth in production."
+            : "Sign in to save assets, prompts, and folders."}
+        </p>
 
         {DEV_AUTH_BYPASS_ENABLED ? (
           <div
-            className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
+            className="rounded-2xl border px-3 py-3"
             style={{
               borderColor: "color-mix(in srgb, var(--ink) 16%, transparent)",
               background:
@@ -282,7 +407,7 @@ export function TelegramLoginButton({
           </div>
         ) : BOT_USERNAME ? (
           <div
-            className={`rounded-2xl border ${sizeConfig.compact ? "px-2.5 py-2.5" : "px-3 py-3"}`}
+            className="rounded-2xl border px-3 py-3"
             style={{
               borderColor: "rgba(var(--brand-telegram-rgb), 0.35)",
               background:
@@ -302,7 +427,7 @@ export function TelegramLoginButton({
                 className="text-[10px] font-semibold"
                 style={{ color: "var(--brand-telegram-ink)", letterSpacing: "0.01em" }}
               >
-                {sizeConfig.compact ? "Tap to unlock your vault" : "Continue with Telegram"}
+                Continue with Telegram
               </span>
               <span
                 className="rounded-full border px-2 py-0.5 text-[9px] font-semibold"
@@ -327,9 +452,7 @@ export function TelegramLoginButton({
             </div>
             {!widgetError && (
               <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
-                {sizeConfig.compact
-                  ? "No password needed."
-                  : "No password needed. Telegram confirms your identity instantly."}
+                No password needed. Telegram confirms your identity instantly.
               </p>
             )}
             {widgetError && (

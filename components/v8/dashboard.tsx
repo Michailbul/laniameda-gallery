@@ -1,20 +1,24 @@
 "use client";
 
+import "@/app/v8/tokens.css";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Plus, Search as SearchIcon } from "lucide-react";
-import { AppSidebar } from "./app-sidebar";
+import { V72Sidebar } from "./sidebar";
 import {
-  TopFilterBar,
+  V72FilterBar,
   type GalleryScope,
   type Pillar,
   type SortOrder,
-} from "./top-filter-bar";
-import { MasonryGrid } from "./masonry-grid";
-import { ExpandedDetail } from "./expanded-detail";
-import { UploadModal } from "./upload-modal";
-import { AiWorkspacePanel } from "./ai-workspace-panel";
-import { MobileBottomNav } from "./mobile-bottom-nav";
+  type ViewMode,
+} from "./filter-bar";
+import { CanvasMode } from "./canvas-mode";
+import { MasonryGrid } from "@/components/masonry-grid";
+import { V72DetailPanel } from "./detail-panel";
+import { UploadModal } from "@/components/upload-modal";
+import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -55,8 +59,14 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-interface GalleryDashboardProps {
-  user?: { id?: string | null; email?: string | null; firstName?: string | null; username?: string | null; photoUrl?: string | null } | null;
+interface V72DashboardProps {
+  user?: {
+    id?: string | null;
+    email?: string | null;
+    firstName?: string | null;
+    username?: string | null;
+    photoUrl?: string | null;
+  } | null;
   onSignOut?: () => void;
 }
 
@@ -70,60 +80,100 @@ const canonicalTagKey = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export function GalleryDashboard({
-  user,
-  onSignOut,
-}: GalleryDashboardProps) {
+export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
-      ? (process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || DEFAULT_DEV_OWNER_USER_ID)
+      ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() ||
+        DEFAULT_DEV_OWNER_USER_ID
       : null;
-  const ownerUserId = (devOwnerUserIdOverride || user?.id || "").trim();
+  const ownerUserId = (
+    devOwnerUserIdOverride ||
+    user?.id ||
+    ""
+  ).trim();
   const canAccessMyGallery = Boolean(ownerUserId);
-  const canDeleteAssets = Boolean(ownerUserId) && canAccessMyGallery;
+  const canDeleteAssets =
+    Boolean(ownerUserId) && canAccessMyGallery;
 
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
   );
-  const canDeleteInCurrentView = canDeleteAssets && galleryScope === "mine";
-  const canManageFoldersInCurrentView = canAccessMyGallery && galleryScope === "mine";
+  const canDeleteInCurrentView =
+    canDeleteAssets && galleryScope === "mine";
+  const canManageFoldersInCurrentView =
+    canAccessMyGallery && galleryScope === "mine";
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedPillar, setSelectedPillar] = useState<Pillar | null>(null);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
+  const [selectedPillar, setSelectedPillar] =
+    useState<Pillar | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<
+    string | null
+  >(null);
+  const [selectedModelName, setSelectedModelName] = useState<
+    string | null
+  >(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("laniameda-sidebar-collapsed") === "true";
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState<boolean>(() => {
+      if (typeof window === "undefined") return false;
+      return (
+        localStorage.getItem("laniameda-sidebar-collapsed") ===
+        "true"
+      );
+    });
+
+  const [theme, setTheme] = useState<"light" | "dark" | "system">(() => {
+    if (typeof window === "undefined") return "system";
+    return (localStorage.getItem("laniameda-theme") as "light" | "dark") ?? "system";
   });
 
-  const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "system") {
+      root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", theme);
+    }
+    localStorage.setItem("laniameda-theme", theme);
+  }, [theme]);
+
+  const [selectedImage, setSelectedImage] =
+    useState<SelectedImage | null>(null);
   const [sheetDismissing, setSheetDismissing] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceRunId, setWorkspaceRunId] = useState<string>();
-  const [workspaceActionLabel, setWorkspaceActionLabel] = useState("Prompt Package");
+  const [workspaceActionLabel, setWorkspaceActionLabel] =
+    useState("Prompt Package");
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceContent, setWorkspaceContent] = useState("");
   const [workspaceError, setWorkspaceError] = useState<string>();
-  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
-  const [deleteAssetError, setDeleteAssetError] = useState<string>();
-  const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<string | null>(null);
+  const [deletingAssetId, setDeletingAssetId] = useState<
+    string | null
+  >(null);
+  const [deleteAssetError, setDeleteAssetError] =
+    useState<string>();
+  const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<
+    string | null
+  >(null);
   const [folderError, setFolderError] = useState<string>();
-  const [curationLoadingAssetId, setCurationLoadingAssetId] = useState<string | null>(null);
+  const [curationLoadingAssetId, setCurationLoadingAssetId] =
+    useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
-  const [exitingAssetIds, setExitingAssetIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [exitingAssetIds, setExitingAssetIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [hiddenAssetIds, setHiddenAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
 
   const curatorUserIds = useMemo(() => {
-    const configured = parseUserIdList(process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS);
+    const configured = parseUserIdList(
+      process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS,
+    );
     if (configured && configured.length > 0) {
       return configured;
     }
@@ -137,13 +187,12 @@ export function GalleryDashboard({
   }, [ownerUserId, curatorUserIds]);
 
   const deleteAssetMutation = useMutation(api.assets.deleteAsset);
-  const setAssetFolderMutation = useMutation(api.assets.setAssetFolder);
-  const createFolderMutation = useMutation(api.folders.createFolder);
-
-  // Persist sidebar state
-  useEffect(() => {
-    localStorage.setItem("laniameda-sidebar-collapsed", String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
+  const setAssetFolderMutation = useMutation(
+    api.assets.setAssetFolder,
+  );
+  const createFolderMutation = useMutation(
+    api.folders.createFolder,
+  );
 
   useEffect(() => {
     if (!canAccessMyGallery && galleryScope === "mine") {
@@ -184,46 +233,50 @@ export function GalleryDashboard({
       setCurationError(undefined);
       setCurationLoadingAssetId(assetId);
       try {
-        const response = await fetch(`/api/admin/assets/${assetId}/curation`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ isPublic, isFeatured }),
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string; result?: { isPublic: boolean; isFeatured: boolean } }
-          | null;
+        const response = await fetch(
+          `/api/admin/assets/${assetId}/curation`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ isPublic, isFeatured }),
+          },
+        );
+        const payload = (await response
+          .json()
+          .catch(() => null)) as {
+          error?: string;
+          result?: { isPublic: boolean; isFeatured: boolean };
+        } | null;
         if (!response.ok) {
-          throw new Error(payload?.error || "Failed to update curation state.");
+          throw new Error(
+            payload?.error ||
+              "Failed to update curation state.",
+          );
         }
-
         if (payload?.result) {
           setSelectedImage((current) =>
             current && current.id === assetId
               ? {
                   ...current,
-                  isPublic: payload.result?.isPublic,
-                  isFeatured: payload.result?.isFeatured,
+                  isPublic: payload.result!.isPublic,
+                  isFeatured: payload.result!.isFeatured,
                 }
               : current,
           );
-          if (galleryScope === "public" && !payload.result.isPublic) {
-            setHiddenAssetIds((previous) => {
-              const next = new Set(previous);
-              next.add(assetId);
-              return next;
-            });
-            setSelectedImage((current) => (current?.id === assetId ? null : current));
-          }
         }
       } catch (error) {
         setCurationError(
-          error instanceof Error ? error.message : "Failed to update curation state.",
+          error instanceof Error
+            ? error.message
+            : "Failed to update curation state.",
         );
       } finally {
-        setCurationLoadingAssetId((current) => (current === assetId ? null : current));
+        setCurationLoadingAssetId((current) =>
+          current === assetId ? null : current,
+        );
       }
     },
-    [canCuratePublic, curationLoadingAssetId, galleryScope],
+    [canCuratePublic, curationLoadingAssetId],
   );
 
   const createFolder = useCallback(
@@ -247,7 +300,9 @@ export function GalleryDashboard({
         return result.folderId;
       } catch (error) {
         setFolderError(
-          error instanceof Error ? error.message : "Failed to create folder.",
+          error instanceof Error
+            ? error.message
+            : "Failed to create folder.",
         );
         return null;
       }
@@ -269,7 +324,9 @@ export function GalleryDashboard({
         const result = await setAssetFolderMutation({
           ownerUserId,
           assetId: assetId as Id<"assets">,
-          folderId: folderId ? (folderId as Id<"folders">) : undefined,
+          folderId: folderId
+            ? (folderId as Id<"folders">)
+            : undefined,
         });
         const nextFolderId = result.folderId ?? undefined;
         setSelectedImage((current) =>
@@ -286,14 +343,20 @@ export function GalleryDashboard({
           selectedFolderId &&
           nextFolderId !== selectedFolderId
         ) {
-          setSelectedImage((current) => (current?.id === assetId ? null : current));
+          setSelectedImage((current) =>
+            current?.id === assetId ? null : current,
+          );
         }
       } catch (error) {
         setFolderError(
-          error instanceof Error ? error.message : "Failed to update asset folder.",
+          error instanceof Error
+            ? error.message
+            : "Failed to update asset folder.",
         );
       } finally {
-        setFolderLoadingAssetId((current) => (current === assetId ? null : current));
+        setFolderLoadingAssetId((current) =>
+          current === assetId ? null : current,
+        );
       }
     },
     [
@@ -307,7 +370,9 @@ export function GalleryDashboard({
   );
 
   const closeSelectedImage = useCallback(() => {
-    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    const isMobile =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches;
     if (isMobile) {
       setSheetDismissing(true);
       setSheetDragY(0);
@@ -324,7 +389,9 @@ export function GalleryDashboard({
     async (assetId: string) => {
       if (deletingAssetId) return;
       if (!canDeleteInCurrentView) {
-        setDeleteAssetError("Switch to My Gallery to delete assets.");
+        setDeleteAssetError(
+          "Switch to My Gallery to delete assets.",
+        );
         return;
       }
 
@@ -357,7 +424,9 @@ export function GalleryDashboard({
           return next;
         });
 
-        setSelectedImage((current) => (current?.id === assetId ? null : current));
+        setSelectedImage((current) =>
+          current?.id === assetId ? null : current,
+        );
       } catch (error) {
         setHiddenAssetIds((previous) => {
           if (!previous.has(assetId)) return previous;
@@ -366,7 +435,9 @@ export function GalleryDashboard({
           return next;
         });
         setDeleteAssetError(
-          error instanceof Error ? error.message : "Failed to delete asset.",
+          error instanceof Error
+            ? error.message
+            : "Failed to delete asset.",
         );
       } finally {
         setExitingAssetIds((previous) => {
@@ -375,20 +446,30 @@ export function GalleryDashboard({
           next.delete(assetId);
           return next;
         });
-        setDeletingAssetId((current) => (current === assetId ? null : current));
+        setDeletingAssetId((current) =>
+          current === assetId ? null : current,
+        );
       }
     },
-    [canDeleteInCurrentView, deleteAssetMutation, deletingAssetId, ownerUserId],
+    [
+      canDeleteInCurrentView,
+      deleteAssetMutation,
+      deletingAssetId,
+      ownerUserId,
+    ],
   );
 
-  // ── Image navigation ──
+  // Image navigation
   const tags = useQuery(api.tags.listTags, {});
   const folders = useQuery(
     api.folders.listFolders,
     canAccessMyGallery ? { ownerUserId } : "skip",
   );
   const folderNameById = useMemo(
-    () => new Map<string, string>((folders ?? []).map((folder) => [folder._id, folder.name])),
+    () =>
+      new Map<string, string>(
+        (folders ?? []).map((folder) => [folder._id, folder.name]),
+      ),
     [folders],
   );
   const knownFolderIds = useMemo(
@@ -432,7 +513,8 @@ export function GalleryDashboard({
       : "skip",
   );
 
-  const allAssets = galleryScope === "mine" ? mineAllAssets : publicAllAssets;
+  const allAssets =
+    galleryScope === "mine" ? mineAllAssets : publicAllAssets;
 
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
@@ -442,7 +524,9 @@ export function GalleryDashboard({
         deduped.set(key, tag.name);
       }
     }
-    return Array.from(deduped.values()).sort((a, b) => a.localeCompare(b));
+    return Array.from(deduped.values()).sort((a, b) =>
+      a.localeCompare(b),
+    );
   }, [tags]);
 
   const tagUsageById = useMemo(() => {
@@ -483,7 +567,9 @@ export function GalleryDashboard({
       const seenCanonicalKeys = new Set<string>();
       for (const [index, tagId] of asset.tagIds.entries()) {
         const tagName =
-          asset.tagNames[index] ?? tagNameById.get(tagId) ?? "";
+          asset.tagNames[index] ??
+          tagNameById.get(tagId) ??
+          "";
         const key = canonicalTagKey(tagName) || tagId;
         if (seenCanonicalKeys.has(key)) {
           continue;
@@ -517,7 +603,13 @@ export function GalleryDashboard({
     }
 
     return Array.from(groups.values())
-      .map(({ sourceIdSet: _sourceIdSet, primaryCount: _primaryCount, ...tag }) => tag)
+      .map(
+        ({
+          sourceIdSet: _sourceIdSet,
+          primaryCount: _primaryCount,
+          ...tag
+        }) => tag,
+      )
       .sort((a, b) => {
         const usageDiff = b.usageCount - a.usageCount;
         if (usageDiff !== 0) return usageDiff;
@@ -578,19 +670,27 @@ export function GalleryDashboard({
   );
 
   const galleryAssets =
-    galleryScope === "mine" ? mineGalleryAssets : publicGalleryAssets;
+    galleryScope === "mine"
+      ? mineGalleryAssets
+      : publicGalleryAssets;
 
   const imageCount = allAssets?.length;
 
   const modelTags = useMemo(() => {
-    const grouped = new Map<string, { name: string; usageCount: number }>();
+    const grouped = new Map<
+      string,
+      { name: string; usageCount: number }
+    >();
     for (const asset of allAssets ?? []) {
       if (!asset.modelName) continue;
       const key = asset.modelName.trim().toLowerCase();
       if (!key) continue;
       const existing = grouped.get(key);
       if (!existing) {
-        grouped.set(key, { name: asset.modelName, usageCount: 1 });
+        grouped.set(key, {
+          name: asset.modelName,
+          usageCount: 1,
+        });
         continue;
       }
       existing.usageCount += 1;
@@ -602,11 +702,9 @@ export function GalleryDashboard({
     });
   }, [allAssets]);
 
-  const availableModelNames = useMemo(() => {
-    return modelTags.map((entry) => entry.name);
-  }, [modelTags]);
-
-  const [loadedImageIds, setLoadedImageIds] = useState(() => new Set<string>());
+  const [loadedImageIds, setLoadedImageIds] = useState(
+    () => new Set<string>(),
+  );
   const markImageLoaded = useCallback((assetId: string) => {
     setLoadedImageIds((previous) => {
       if (previous.has(assetId)) return previous;
@@ -618,7 +716,9 @@ export function GalleryDashboard({
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+      prev.includes(tag)
+        ? prev.filter((t) => t !== tag)
+        : [...prev, tag],
     );
   };
 
@@ -638,9 +738,17 @@ export function GalleryDashboard({
       .filter((asset) => !hiddenAssetIds.has(asset._id))
       .map((asset) => ({
         id: asset._id,
-        src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
-        fullSrc: asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
-        prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
+        src:
+          asset.thumbUrl ??
+          asset.url ??
+          asset.sourceUrl ??
+          "/placeholder.svg",
+        fullSrc:
+          asset.url ?? asset.sourceUrl ?? "/placeholder.svg",
+        prompt:
+          asset.promptText ??
+          asset.fileName ??
+          "Untitled prompt",
         author: "Agent",
         likes: 0,
         width: asset.thumbWidth ?? asset.width ?? undefined,
@@ -657,13 +765,18 @@ export function GalleryDashboard({
       }));
     if (sortOrder === "featured") {
       mapped.sort((a, b) => {
-        const featuredDiff = Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured));
+        const featuredDiff =
+          Number(Boolean(b.isFeatured)) -
+          Number(Boolean(a.isFeatured));
         if (featuredDiff !== 0) return featuredDiff;
         return (b.createdAt ?? 0) - (a.createdAt ?? 0);
       });
     }
     if (sortOrder === "popular") {
-      mapped.sort((a, b) => (b.tagNames?.length ?? 0) - (a.tagNames?.length ?? 0));
+      mapped.sort(
+        (a, b) =>
+          (b.tagNames?.length ?? 0) - (a.tagNames?.length ?? 0),
+      );
     }
     return mapped;
   }, [galleryAssets, hiddenAssetIds, loadedImageIds, sortOrder]);
@@ -671,11 +784,15 @@ export function GalleryDashboard({
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
     if (!selectedImage) return -1;
-    return images.findIndex((img) => img.id === selectedImage.id);
+    return images.findIndex(
+      (img) => img.id === selectedImage.id,
+    );
   }, [images, selectedImage]);
 
   const canGoPrev = currentImageIndex > 0;
-  const canGoNext = currentImageIndex >= 0 && currentImageIndex < images.length - 1;
+  const canGoNext =
+    currentImageIndex >= 0 &&
+    currentImageIndex < images.length - 1;
 
   const goToPrev = useCallback(() => {
     if (!canGoPrev) return;
@@ -720,32 +837,42 @@ export function GalleryDashboard({
   }, [canGoNext, currentImageIndex, images]);
 
   const imagePosition =
-    currentImageIndex >= 0 ? `${currentImageIndex + 1}/${images.length}` : undefined;
+    currentImageIndex >= 0
+      ? `${currentImageIndex + 1}/${images.length}`
+      : undefined;
 
   // Swipe gestures for mobile detail sheet
-  const swipeHandlers = useMemo(() => ({
-    onSwipeLeft: goToNext,
-    onSwipeRight: goToPrev,
-    onSwipeDown: closeSelectedImage,
-    onDrag: (_dx: number, dy: number) => {
-      if (dy > 0) setSheetDragY(dy);
-    },
-    onDragCancel: () => setSheetDragY(0),
-  }), [goToNext, goToPrev, closeSelectedImage]);
+  const swipeHandlers = useMemo(
+    () => ({
+      onSwipeLeft: goToNext,
+      onSwipeRight: goToPrev,
+      onSwipeDown: closeSelectedImage,
+      onDrag: (_dx: number, dy: number) => {
+        if (dy > 0) setSheetDragY(dy);
+      },
+      onDragCancel: () => setSheetDragY(0),
+    }),
+    [goToNext, goToPrev, closeSelectedImage],
+  );
   useSwipeGesture(mobileDetailRef, swipeHandlers);
 
   // Keyboard: Escape, ArrowLeft/Right for image navigation
   useEffect(() => {
     if (!selectedImage || typeof window === "undefined") return;
 
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    const isMobile = window
+      .matchMedia("(max-width: 767px)")
+      .matches;
     const previousOverflow = document.body.style.overflow;
     if (isMobile) {
       document.body.style.overflow = "hidden";
       window.setTimeout(() => {
         const container = mobileDetailRef.current;
         if (!container) return;
-        const firstFocusable = container.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+        const firstFocusable =
+          container.querySelector<HTMLElement>(
+            FOCUSABLE_SELECTOR,
+          );
         (firstFocusable ?? container).focus();
       }, 0);
     }
@@ -771,7 +898,9 @@ export function GalleryDashboard({
       if (!container) return;
 
       const focusable = Array.from(
-        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+        container.querySelectorAll<HTMLElement>(
+          FOCUSABLE_SELECTOR,
+        ),
       );
       if (focusable.length === 0) {
         event.preventDefault();
@@ -780,7 +909,8 @@ export function GalleryDashboard({
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const activeElement = document.activeElement as HTMLElement | null;
+      const activeElement =
+        document.activeElement as HTMLElement | null;
       if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -797,7 +927,12 @@ export function GalleryDashboard({
         document.body.style.overflow = previousOverflow;
       }
     };
-  }, [closeSelectedImage, selectedImage, goToPrev, goToNext]);
+  }, [
+    closeSelectedImage,
+    selectedImage,
+    goToPrev,
+    goToNext,
+  ]);
 
   const runAction = useCallback(
     async (
@@ -825,10 +960,14 @@ export function GalleryDashboard({
         });
 
         if (!response.ok || !response.body) {
-          const payload = (await response.json().catch(() => null)) as {
+          const payload = (await response
+            .json()
+            .catch(() => null)) as {
             error?: string;
           } | null;
-          throw new Error(payload?.error || "Failed to start AI run.");
+          throw new Error(
+            payload?.error || "Failed to start AI run.",
+          );
         }
 
         const reader = response.body.getReader();
@@ -841,11 +980,18 @@ export function GalleryDashboard({
           buffer += decoder.decode(value, { stream: true });
           let delimiterIndex = buffer.indexOf("\n");
           while (delimiterIndex >= 0) {
-            const line = buffer.slice(0, delimiterIndex).trim();
+            const line = buffer
+              .slice(0, delimiterIndex)
+              .trim();
             buffer = buffer.slice(delimiterIndex + 1);
             if (line) {
               const event = JSON.parse(line) as {
-                type: "run_start" | "partial" | "done" | "error" | "canceled";
+                type:
+                  | "run_start"
+                  | "partial"
+                  | "done"
+                  | "error"
+                  | "canceled";
                 runId?: string;
                 partial?: unknown;
                 output?: unknown;
@@ -854,16 +1000,25 @@ export function GalleryDashboard({
               };
               if (event.runId) setWorkspaceRunId(event.runId);
               if (event.type === "partial" && event.partial)
-                setWorkspaceContent(JSON.stringify(event.partial, null, 2));
+                setWorkspaceContent(
+                  JSON.stringify(event.partial, null, 2),
+                );
               if (event.type === "done" && event.output)
-                setWorkspaceContent(JSON.stringify(event.output, null, 2));
-              if (event.type === "done") setWorkspaceLoading(false);
+                setWorkspaceContent(
+                  JSON.stringify(event.output, null, 2),
+                );
+              if (event.type === "done")
+                setWorkspaceLoading(false);
               if (event.type === "error") {
-                setWorkspaceError(event.error || "Run failed.");
+                setWorkspaceError(
+                  event.error || "Run failed.",
+                );
                 setWorkspaceLoading(false);
               }
               if (event.type === "canceled") {
-                setWorkspaceError(event.message || "Run canceled.");
+                setWorkspaceError(
+                  event.message || "Run canceled.",
+                );
                 setWorkspaceLoading(false);
               }
             }
@@ -873,7 +1028,9 @@ export function GalleryDashboard({
         setWorkspaceLoading(false);
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Unknown run error.";
+          error instanceof Error
+            ? error.message
+            : "Unknown run error.";
         setWorkspaceError(message);
         setWorkspaceLoading(false);
       }
@@ -884,7 +1041,8 @@ export function GalleryDashboard({
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
     galleryScope === "mine"
-      ? canAccessMyGallery && mineGalleryAssets === undefined
+      ? canAccessMyGallery &&
+        mineGalleryAssets === undefined
       : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
@@ -895,12 +1053,56 @@ export function GalleryDashboard({
   const isNoMatches = !isLoading && !hasImages && hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
-    ? "var(--sidebar-collapsed-width)"
-    : "var(--sidebar-width)";
+    ? "var(--v7-sidebar-collapsed)"
+    : "var(--v7-sidebar-width)";
+
+  // Carousel: find sibling images sharing the same promptId
+  const carouselImages = useMemo(() => {
+    if (!selectedImage || !galleryAssets) return undefined;
+    const selectedAsset = galleryAssets.find(
+      (a) => a._id === selectedImage.id,
+    );
+    const promptId = selectedAsset?.promptId;
+    if (!promptId) return undefined;
+
+    const siblings = galleryAssets.filter(
+      (a) =>
+        a.promptId === promptId &&
+        !hiddenAssetIds.has(a._id),
+    );
+    if (siblings.length <= 1) return undefined;
+
+    const rest = siblings
+      .filter((a) => a._id !== selectedImage.id)
+      .sort((a, b) => a.createdAt - b.createdAt);
+    return [selectedAsset, ...rest]
+      .filter(Boolean)
+      .map((asset) => ({
+        id: asset._id,
+        thumbSrc:
+          asset.thumbUrl ??
+          asset.url ??
+          asset.sourceUrl ??
+          "/placeholder.svg",
+        fullSrc:
+          asset.url ??
+          asset.sourceUrl ??
+          "/placeholder.svg",
+        width: asset.thumbWidth ?? asset.width ?? undefined,
+        height:
+          asset.thumbHeight ?? asset.height ?? undefined,
+      }));
+  }, [selectedImage, galleryAssets, hiddenAssetIds]);
 
   const expandedDetailProps = {
     onClose: closeSelectedImage,
-    onAction: (intent: "transfer_style" | "transfer_pose" | "replace_character", imageId: string) => {
+    onAction: (
+      intent:
+        | "transfer_style"
+        | "transfer_pose"
+        | "replace_character",
+      imageId: string,
+    ) => {
       void runAction(intent, imageId, selectedImage?.prompt);
     },
     activeRunId: workspaceRunId,
@@ -917,7 +1119,8 @@ export function GalleryDashboard({
       : undefined,
     deleting: deletingAssetId === selectedImage?.id,
     deleteError: canDeleteInCurrentView
-      ? deletingAssetId === selectedImage?.id || deleteAssetError
+      ? deletingAssetId === selectedImage?.id ||
+        deleteAssetError
         ? deleteAssetError
         : undefined
       : undefined,
@@ -933,13 +1136,17 @@ export function GalleryDashboard({
       : undefined,
     folderBusy: folderLoadingAssetId === selectedImage?.id,
     folderError:
-      folderLoadingAssetId === selectedImage?.id || folderError
+      folderLoadingAssetId === selectedImage?.id ||
+      folderError
         ? folderError
         : undefined,
     canCuratePublic,
     onSetPublicState: canCuratePublic
       ? (imageId: string, isPublic: boolean) => {
-          void updateAssetCuration({ assetId: imageId, isPublic });
+          void updateAssetCuration({
+            assetId: imageId,
+            isPublic,
+          });
         }
       : undefined,
     onSetFeaturedState: canCuratePublic
@@ -951,30 +1158,37 @@ export function GalleryDashboard({
           });
         }
       : undefined,
-    curationBusy: curationLoadingAssetId === selectedImage?.id,
+    curationBusy:
+      curationLoadingAssetId === selectedImage?.id,
     curationError:
-      curationLoadingAssetId === selectedImage?.id || curationError
+      curationLoadingAssetId === selectedImage?.id ||
+      curationError
         ? curationError
         : undefined,
   };
 
   return (
     <div
-      className="h-[100dvh] overflow-hidden"
+      className="v7-brutal h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
-      style={{ backgroundColor: "var(--surface-0)" }}
+      style={{ backgroundColor: "var(--v7-surface-0)" }}
     >
-      {/* Skip link for keyboard/screen reader users */}
+      {/* Skip link */}
       <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[var(--coral)] focus:px-4 focus:py-2 focus:text-[13px] focus:font-medium focus:text-white"
+        href="#v72-main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:px-4 focus:py-2 focus:text-[13px] focus:font-medium"
+        style={{
+          backgroundColor: "var(--v7-coral)",
+          color: "#000",
+          borderRadius: "12px",
+        }}
       >
         Skip to gallery
       </a>
 
-      {/* ── Sidebar (desktop only) ── */}
+      {/* Sidebar (desktop only) */}
       <div className="hidden md:block">
-        <AppSidebar
+        <V72Sidebar
           modelTags={modelTags}
           selectedModelName={selectedModelName}
           onModelSelect={setSelectedModelName}
@@ -984,26 +1198,34 @@ export function GalleryDashboard({
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
+          folders={folders ?? []}
+          selectedFolderId={effectiveSelectedFolderId}
+          onFolderSelect={setSelectedFolderId}
+          galleryScope={galleryScope}
+          theme={theme}
+          onThemeChange={setTheme}
         />
       </div>
 
-      {/* ── Main content area (offset by sidebar) ── */}
+      {/* Main content area (offset by sidebar) */}
       <div
         className="flex h-full min-h-0 flex-col md-sidebar-offset"
         style={{
           marginLeft: contentMarginLeft,
-          transition: `margin-left var(--duration-normal) cubic-bezier(0.16, 1, 0.3, 1)`,
+          transition: `margin-left var(--v7-duration-normal) ease-out`,
         }}
       >
         <div className="flex min-h-0 flex-1">
           <div
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
             style={{
-              borderRight: selectedImage ? "1px solid var(--border-default)" : "none",
+              borderRight: selectedImage
+                ? "3px solid var(--v7-ink)"
+                : "none",
             }}
           >
-            {/* ── Top Filter Bar ── */}
-            <TopFilterBar
+            {/* Filter Bar */}
+            <V72FilterBar
               galleryScope={galleryScope}
               canAccessMyGallery={canAccessMyGallery}
               onGalleryScopeChange={setGalleryScope}
@@ -1011,21 +1233,20 @@ export function GalleryDashboard({
               selectedTags={selectedTags}
               onTagToggle={handleTagToggle}
               onClearAllTags={handleClearAll}
-              folders={folders ?? []}
-              selectedFolderId={effectiveSelectedFolderId}
-              onFolderSelect={setSelectedFolderId}
               selectedPillar={selectedPillar}
               onPillarSelect={setSelectedPillar}
-              availableModelNames={availableModelNames}
-              selectedModelName={selectedModelName}
-              onModelNameSelect={setSelectedModelName}
               sortOrder={sortOrder}
               onSortOrderChange={setSortOrder}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
             />
 
             <main
-              id="main-content"
-              className="relative min-h-0 flex-1 min-w-0 overflow-y-auto overscroll-contain"
+              id="v72-main-content"
+              className={`v7-grid-bg relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
+              style={{
+                backgroundColor: "var(--v7-surface-0)",
+              }}
             >
               {isLoading ? (
                 <MasonryGrid
@@ -1036,118 +1257,204 @@ export function GalleryDashboard({
                   onImageLoad={markImageLoaded}
                 />
               ) : hasImages ? (
-                <MasonryGrid
-                  images={images}
-                  compactColumns={Boolean(selectedImage)}
-                  selectedImageId={selectedImage?.id}
-                  onImageSelect={setSelectedImage}
-                  onImageLoad={markImageLoaded}
-                  canDelete={canDeleteInCurrentView}
-                  deletingImageId={deletingAssetId}
-                  exitingImageIds={exitingAssetIds}
-                  onDeleteImage={(imageId) => {
-                    void deleteAsset(imageId);
-                  }}
-                />
+                viewMode === "canvas" ? (
+                  <CanvasMode
+                    images={images}
+                    selectedImage={selectedImage}
+                    onImageSelect={setSelectedImage}
+                    loading={isLoading}
+                    ownerUserId={ownerUserId}
+                    syncEnabled={canAccessMyGallery}
+                  />
+                ) : (
+                  <MasonryGrid
+                    images={images}
+                    compactColumns={Boolean(selectedImage)}
+                    selectedImageId={selectedImage?.id}
+                    onImageSelect={setSelectedImage}
+                    onImageLoad={markImageLoaded}
+                    canDelete={canDeleteInCurrentView}
+                    deletingImageId={deletingAssetId}
+                    exitingImageIds={exitingAssetIds}
+                    onDeleteImage={(imageId) => {
+                      void deleteAsset(imageId);
+                    }}
+                  />
+                )
               ) : isNoMatches ? (
-                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 animate-fade-in" aria-live="polite">
-                  <SearchIcon className="h-10 w-10" style={{ color: "var(--text-ghost)" }} />
-                  <h2
-                    className="font-display text-[32px] font-normal tracking-tight italic"
-                    style={{ color: "var(--text-secondary)" }}
+                <div
+                  className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in"
+                  aria-live="polite"
+                >
+                  <div
+                    className="flex items-center justify-center mb-5"
+                    style={{
+                      width: "52px",
+                      height: "52px",
+                      border: "3px solid var(--v7-ink)",
+                      backgroundColor:
+                        "var(--v7-accent-dim)",
+                      boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
+                      borderRadius: "12px",
+                    }}
                   >
-                    Nothing here yet
+                    <SearchIcon
+                      className="h-5 w-5"
+                      style={{
+                        color: "var(--v7-coral)",
+                      }}
+                    />
+                  </div>
+                  <h2
+                    style={{
+                      fontFamily: "var(--v7-font)",
+                      fontSize: "16px",
+                      fontWeight: 900,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.18em",
+                      color: "var(--v7-text-primary)",
+                    }}
+                  >
+                    NO MATCHES FOUND
                   </h2>
                   <p
-                    className="max-w-[340px] text-center text-[14px]"
-                    style={{ color: "var(--text-ghost)", lineHeight: "1.7" }}
+                    className="mt-2"
+                    style={{
+                      fontFamily: "var(--v7-font)",
+                      fontSize: "11px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.10em",
+                      color: "var(--v7-text-tertiary)",
+                      maxWidth: "320px",
+                      fontWeight: 500,
+                    }}
                   >
-                    Try adjusting your filters or search terms.
+                    ADJUST FILTERS OR SEARCH TERMS TO FIND
+                    WHAT YOU ARE LOOKING FOR.
                   </p>
-                  {/* Active filter summary */}
-                  <div className="flex flex-wrap items-center justify-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                    <span>Active filters:</span>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
                     {selectedPillar && (
-                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                      <span
+                        className="v7-chip"
+                        style={{ borderRadius: "12px" }}
+                      >
                         {selectedPillar}
                       </span>
                     )}
                     {effectiveSelectedFolderId && (
-                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                        {folderNameById.get(effectiveSelectedFolderId) ?? "Folder"}
+                      <span
+                        className="v7-chip"
+                        style={{ borderRadius: "12px" }}
+                      >
+                        {folderNameById.get(
+                          effectiveSelectedFolderId,
+                        ) ?? "FOLDER"}
                       </span>
                     )}
                     {selectedModelName && (
-                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
+                      <span
+                        className="v7-chip"
+                        style={{ borderRadius: "12px" }}
+                      >
                         {selectedModelName}
                       </span>
                     )}
                     {selectedTags.length > 0 && (
-                      <span className="border px-2 py-0.5" style={{ borderColor: "var(--border-default)" }}>
-                        {selectedTags.length} tag{selectedTags.length > 1 ? "s" : ""}
+                      <span
+                        className="v7-chip"
+                        style={{ borderRadius: "12px" }}
+                      >
+                        {selectedTags.length} TAG
+                        {selectedTags.length > 1
+                          ? "S"
+                          : ""}
                       </span>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={handleClearFilters}
-                    className="btn-brutal-outline mt-1"
+                    className="v7-btn-brutal mt-6"
+                    style={{ borderRadius: "12px" }}
                   >
-                    Clear filters
+                    CLEAR ALL FILTERS
                   </button>
                 </div>
               ) : (
-                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6 animate-fade-in">
-                  {/* Stacked image frames illustration */}
-                  <div className="relative h-20 w-20">
+                <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in">
+                  {/* Stacked frames with softer radius */}
+                  <div className="relative mb-6 h-20 w-20">
                     <div
-                      className="absolute inset-2 rounded-lg rotate-[-6deg]"
+                      className="absolute inset-2 rotate-[-6deg]"
                       style={{
-                        border: "1px solid var(--border-default)",
-                        backgroundColor: "var(--surface-1)",
+                        border: "2px solid var(--v7-border-strong)",
+                        backgroundColor:
+                          "var(--v7-surface-1)",
+                        borderRadius: "12px",
                       }}
                     />
                     <div
-                      className="absolute inset-1 rounded-lg rotate-[3deg]"
+                      className="absolute inset-1 rotate-[3deg]"
                       style={{
-                        border: "1px solid var(--border-default)",
-                        backgroundColor: "var(--surface-2)",
+                        border: "2px solid var(--v7-border-strong)",
+                        backgroundColor:
+                          "var(--v7-surface-2)",
+                        borderRadius: "12px",
                       }}
                     />
                     <div
-                      className="absolute inset-0 flex items-center justify-center rounded-lg"
+                      className="absolute inset-0 flex items-center justify-center"
                       style={{
-                        border: "1px solid var(--border-default)",
-                        backgroundColor: "var(--paper-muted)",
+                        border: "3px solid var(--v7-ink)",
+                        backgroundColor:
+                          "var(--v7-surface-3)",
+                        boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
+                        borderRadius: "12px",
                       }}
                     >
-                      <Plus className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
+                      <Plus
+                        className="h-5 w-5"
+                        style={{
+                          color: "var(--v7-coral)",
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="flex flex-col items-center gap-2">
-                    <h2
-                      className="font-display text-[48px] font-normal tracking-tight italic"
-                      style={{
-                        color: "var(--text-primary)",
-                        letterSpacing: "-0.03em",
-                      }}
-                    >
-                      Start your collection
-                    </h2>
-                    <p
-                      className="max-w-[380px] text-center text-[14px]"
-                      style={{ color: "var(--text-tertiary)", lineHeight: "1.7" }}
-                    >
-                      Add your first reference image to begin building your creative library.
-                    </p>
-                  </div>
+                  <h2
+                    style={{
+                      fontFamily: "var(--v7-font)",
+                      fontSize: "18px",
+                      fontWeight: 900,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.18em",
+                      color: "var(--v7-text-primary)",
+                    }}
+                  >
+                    START YOUR COLLECTION
+                  </h2>
+                  <p
+                    className="mt-2"
+                    style={{
+                      fontFamily: "var(--v7-font)",
+                      fontSize: "11px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.10em",
+                      color: "var(--v7-text-tertiary)",
+                      maxWidth: "360px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    ADD YOUR FIRST REFERENCE IMAGE TO BEGIN
+                    BUILDING YOUR CREATIVE LIBRARY.
+                  </p>
                   <button
                     type="button"
                     onClick={() => setUploadOpen(true)}
-                    className="btn-brutal mt-2"
+                    className="v7-btn-brutal mt-6"
+                    style={{ borderRadius: "12px" }}
                   >
                     <Plus className="h-4 w-4" />
-                    Add image
+                    ADD IMAGE
                   </button>
                 </div>
               )}
@@ -1156,18 +1463,14 @@ export function GalleryDashboard({
 
           {selectedImage && (
             <aside
-              className="hidden w-[420px] shrink-0 overflow-y-auto overscroll-contain md:block xl:w-[440px]"
+              className="hidden w-[440px] shrink-0 overflow-y-auto overscroll-contain md:block"
               style={{
-                background:
-                  "linear-gradient(180deg, color-mix(in srgb, var(--paper) 96%, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.08) 4%) 0%, var(--paper) 100%)",
-                boxShadow:
-                  "inset 1px 0 0 rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.14), -12px 0 24px -20px rgba(32, 23, 16, 0.45)",
-                transition:
-                  "width var(--duration-normal) ease-out, opacity var(--duration-normal) ease-out",
+                backgroundColor: "var(--v7-surface-1)",
               }}
             >
-              <ExpandedDetail
+              <V72DetailPanel
                 image={selectedImage}
+                carouselImages={carouselImages}
                 {...expandedDetailProps}
               />
             </aside>
@@ -1175,6 +1478,7 @@ export function GalleryDashboard({
         </div>
       </div>
 
+      {/* Mobile detail sheet */}
       {selectedImage && (
         <div
           className="fixed inset-0 z-[65] md:hidden"
@@ -1183,32 +1487,43 @@ export function GalleryDashboard({
           aria-label="Selected image details"
         >
           <div
-            className={`absolute inset-0 bg-black/55 backdrop-blur-sm ${sheetDismissing ? "animate-fade-out" : "animate-fade-in"}`}
+            className={`absolute inset-0 bg-black/70 ${sheetDismissing ? "animate-fade-out" : "animate-fade-in"}`}
             onClick={closeSelectedImage}
             aria-hidden="true"
           />
           <div
             ref={mobileDetailRef}
             tabIndex={-1}
-            className={`absolute inset-x-0 bottom-0 h-[88dvh] rounded-t-3xl border-t ${sheetDismissing ? "animate-sheet-slide-down" : "animate-sheet-slide-up"}`}
+            className={`absolute inset-x-0 bottom-0 h-[88dvh] ${sheetDismissing ? "animate-sheet-slide-down-v7" : "animate-sheet-slide-up-v7"}`}
             style={{
-              background: "linear-gradient(180deg, rgba(17,10,6,0.98) 0%, rgba(8,4,2,0.99) 100%)",
-              borderColor: "var(--border-subtle)",
-              transform: sheetDragY > 0 ? `translateY(${sheetDragY}px)` : undefined,
-              transition: sheetDragY > 0 ? "none" : undefined,
+              backgroundColor: "var(--v7-surface-1)",
+              borderTop: "3px solid var(--v7-ink)",
+              borderTopLeftRadius: "20px",
+              borderTopRightRadius: "20px",
+              transform:
+                sheetDragY > 0
+                  ? `translateY(${sheetDragY}px)`
+                  : undefined,
+              transition:
+                sheetDragY > 0 ? "none" : undefined,
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
           >
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1">
               <div
-                className="h-1 w-10 rounded-full"
-                style={{ backgroundColor: "rgba(255,255,255,0.3)" }}
+                style={{
+                  height: "4px",
+                  width: "40px",
+                  backgroundColor: "var(--v7-ink)",
+                  borderRadius: "12px",
+                }}
               />
             </div>
             <div className="h-[calc(100%-20px)] overflow-y-auto">
-              <ExpandedDetail
+              <V72DetailPanel
                 image={selectedImage}
+                carouselImages={carouselImages}
                 {...expandedDetailProps}
               />
             </div>
@@ -1216,18 +1531,27 @@ export function GalleryDashboard({
         </div>
       )}
 
-      {/* ── Floating add (desktop only) ── */}
+      {/* Floating add (desktop only) */}
       <button
         type="button"
         onClick={() => setUploadOpen(true)}
-        className={`btn-brutal fixed bottom-6 z-40 h-13 w-13 items-center justify-center p-0 ${selectedImage ? "hidden" : "hidden md:flex"}`}
-        style={{ right: "24px" }}
+        className={`fixed bottom-6 z-40 flex items-center justify-center transition-all active:scale-95 ${selectedImage ? "hidden" : "hidden md:flex"}`}
+        style={{
+          right: "24px",
+          width: "52px",
+          height: "52px",
+          backgroundColor: "var(--v7-ink)",
+          color: "var(--v7-coral)",
+          border: "3px solid var(--v7-ink)",
+          boxShadow: "0 0 20px rgba(255, 122, 100, 0.2), 0 4px 16px rgba(0, 0, 0, 0.12)",
+          borderRadius: "16px",
+        }}
         aria-label="Add to library"
       >
         <Plus className="h-5 w-5" />
       </button>
 
-      {/* ── Mobile bottom nav ── */}
+      {/* Mobile bottom nav */}
       {!selectedImage && (
         <MobileBottomNav
           onAddClick={() => setUploadOpen(true)}
@@ -1236,13 +1560,15 @@ export function GalleryDashboard({
         />
       )}
 
-      {/* ── Modals ── */}
+      {/* Modals */}
       <UploadModal
         open={isUploadOpen}
         onClose={() => setUploadOpen(false)}
         availableTags={availableUploadTags}
         folders={folders ?? []}
-        ownerUserId={canAccessMyGallery ? ownerUserId : undefined}
+        ownerUserId={
+          canAccessMyGallery ? ownerUserId : undefined
+        }
       />
 
       <AiWorkspacePanel

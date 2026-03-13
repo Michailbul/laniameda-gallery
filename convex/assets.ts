@@ -1,28 +1,30 @@
-import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { Doc, Id } from "./_generated/dataModel";
+import { makeFunctionReference } from "convex/server";
+import { Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
+import {
+  galleryAssetResultValidator,
+  hydrateGalleryAssetResults,
+} from "./galleryAssetResults";
 import {
   canActorAccessByUserId,
   canActorAccessOwnerUserId,
   parseUserIdList,
   resolveUserIdCandidates,
 } from "./authz";
+import {
+  assetRoleValidator,
+  generationTypeValidator,
+  ingestSourceValidator,
+  optionalPillarValidator,
+} from "./validators";
 
-const generationTypeValidator = v.optional(v.union(
-  v.literal("image_gen"),
-  v.literal("video_gen"),
-  v.literal("ui_design"),
-  v.literal("other"),
-));
-
-const pillarValidator = v.optional(v.union(
-  v.literal("creators"),
-  v.literal("cars"),
-  v.literal("designs"),
-  v.literal("dump"),
-));
+const pillarValidator = optionalPillarValidator;
+const reindexAssetAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexAsset",
+);
 
 const getCuratorUserIdsFromEnv = () => {
   return parseUserIdList(
@@ -55,12 +57,15 @@ export const createAsset = mutation({
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
     promptId: v.optional(v.id("prompts")),
+    designInspirationId: v.optional(v.id("designInspirations")),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     generationType: generationTypeValidator,
+    assetRole: assetRoleValidator,
+    ingestSource: ingestSourceValidator,
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -102,6 +107,7 @@ export const createAsset = mutation({
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
       promptId: args.promptId,
+      designInspirationId: args.designInspirationId,
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
@@ -110,6 +116,8 @@ export const createAsset = mutation({
       isFeatured: false,
       pillar: args.pillar,
       generationType: args.generationType,
+      assetRole: args.assetRole,
+      ingestSource: args.ingestSource,
       createdAt,
     });
 
@@ -122,6 +130,7 @@ export const createAsset = mutation({
     }
 
     await bumpTagUsage(ctx, tagIds, 1);
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
 
     return { assetId, created: true };
   },
@@ -170,6 +179,61 @@ export const setAssetFolder = mutation({
   },
 });
 
+export const setAssetDesignInspiration = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    designInspirationId: v.optional(v.id("designInspirations")),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    designInspirationId: v.optional(v.id("designInspirations")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    if (args.designInspirationId) {
+      const inspiration = await ctx.db.get(args.designInspirationId);
+      if (!inspiration) {
+        throw new ConvexError("Design inspiration not found.");
+      }
+      if (!canActorAccessOwnerUserId(ownerUserId, inspiration.ownerUserId)) {
+        throw new ConvexError("Design inspiration does not belong to this user.");
+      }
+    }
+
+    if (asset.designInspirationId === args.designInspirationId) {
+      return {
+        assetId: args.assetId,
+        designInspirationId: asset.designInspirationId,
+      };
+    }
+
+    await ctx.db.patch(args.assetId, {
+      designInspirationId: args.designInspirationId,
+    });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
+    });
+
+    return {
+      assetId: args.assetId,
+      designInspirationId: args.designInspirationId,
+    };
+  },
+});
+
 export const getAsset = query({
   args: {
     id: v.id("assets"),
@@ -194,6 +258,7 @@ export const getAsset = query({
       thumbWidth: v.optional(v.number()),
       thumbHeight: v.optional(v.number()),
       promptId: v.optional(v.id("prompts")),
+      designInspirationId: v.optional(v.id("designInspirations")),
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
@@ -204,6 +269,8 @@ export const getAsset = query({
       curatedAt: v.optional(v.number()),
       pillar: pillarValidator,
       generationType: generationTypeValidator,
+      assetRole: assetRoleValidator,
+      ingestSource: ingestSourceValidator,
       createdAt: v.number(),
     }),
   ),
@@ -246,6 +313,7 @@ export const listAssets = query({
       thumbWidth: v.optional(v.number()),
       thumbHeight: v.optional(v.number()),
       promptId: v.optional(v.id("prompts")),
+      designInspirationId: v.optional(v.id("designInspirations")),
       tagIds: v.array(v.id("tags")),
       folderId: v.optional(v.id("folders")),
       ingestKey: v.optional(v.string()),
@@ -256,6 +324,8 @@ export const listAssets = query({
       curatedAt: v.optional(v.number()),
       pillar: pillarValidator,
       generationType: generationTypeValidator,
+      assetRole: assetRoleValidator,
+      ingestSource: ingestSourceValidator,
       createdAt: v.number(),
     }),
   ),
@@ -351,96 +421,6 @@ export const listAssets = query({
   },
 });
 
-const galleryAssetResultValidator = v.object({
-  _id: v.id("assets"),
-  _creationTime: v.number(),
-  ownerUserId: v.optional(v.string()),
-  kind: v.union(v.literal("image"), v.literal("video")),
-  storageId: v.optional(v.id("_storage")),
-  thumbStorageId: v.optional(v.id("_storage")),
-  sourceUrl: v.optional(v.string()),
-  fileName: v.optional(v.string()),
-  contentType: v.optional(v.string()),
-  size: v.optional(v.number()),
-  width: v.optional(v.number()),
-  height: v.optional(v.number()),
-  thumbSize: v.optional(v.number()),
-  thumbWidth: v.optional(v.number()),
-  thumbHeight: v.optional(v.number()),
-  promptId: v.optional(v.id("prompts")),
-  promptText: v.optional(v.string()),
-  tagIds: v.array(v.id("tags")),
-  tagNames: v.array(v.string()),
-  folderId: v.optional(v.id("folders")),
-  modelName: v.optional(v.string()),
-  isPublic: v.optional(v.boolean()),
-  isFeatured: v.optional(v.boolean()),
-  curatedByUserId: v.optional(v.string()),
-  curatedAt: v.optional(v.number()),
-  pillar: pillarValidator,
-  createdAt: v.number(),
-  url: v.optional(v.string()),
-  thumbUrl: v.optional(v.string()),
-});
-
-const resolvePromptTextMap = async (
-  ctx: QueryCtx,
-  assets: Doc<"assets">[],
-) => {
-  const promptIds = dedupeIds(
-    assets
-      .map((asset) => asset.promptId)
-      .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
-  );
-
-  if (promptIds.length === 0) {
-    return new Map<Id<"prompts">, string>();
-  }
-
-  const promptEntries = await Promise.all(
-    promptIds.map(async (promptId) => {
-      const prompt = await ctx.db.get(promptId);
-      return [promptId, prompt?.text] as const;
-    }),
-  );
-
-  const promptTextById = new Map<Id<"prompts">, string>();
-  for (const [promptId, promptText] of promptEntries) {
-    if (promptText) {
-      promptTextById.set(promptId, promptText);
-    }
-  }
-  return promptTextById;
-};
-
-const resolveTagNameMap = async (
-  ctx: QueryCtx,
-  assets: Doc<"assets">[],
-) => {
-  const tagIds = dedupeIds(
-    assets.flatMap((asset) => asset.tagIds),
-  );
-
-  if (tagIds.length === 0) {
-    return new Map<Id<"tags">, string>();
-  }
-
-  const tagEntries = await Promise.all(
-    tagIds.map(async (tagId) => {
-      const tag = await ctx.db.get(tagId);
-      return [tagId, tag?.name] as const;
-    }),
-  );
-
-  const tagNameById = new Map<Id<"tags">, string>();
-  for (const [tagId, tagName] of tagEntries) {
-    if (tagName) {
-      tagNameById.set(tagId, tagName);
-    }
-  }
-  return tagNameById;
-};
-
 const buildSearchHaystack = (
   promptText: string | undefined,
   fileName: string | undefined,
@@ -451,64 +431,6 @@ const buildSearchHaystack = (
     .join(" ")
     .toLowerCase();
 
-const buildGalleryAssetResults = async (
-  ctx: QueryCtx,
-  assets: Doc<"assets">[],
-  promptTextById: Map<Id<"prompts">, string>,
-  tagNameById: Map<Id<"tags">, string>,
-) =>
-  await Promise.all(
-    assets.map(async (asset) => {
-      const promptText = asset.promptId
-        ? promptTextById.get(asset.promptId)
-        : undefined;
-      const tagNames = asset.tagIds
-        .map((tagId) => tagNameById.get(tagId))
-        .filter((tagName): tagName is string => Boolean(tagName));
-
-      const [url, thumbUrl] = await Promise.all([
-        asset.storageId
-          ? ctx.storage.getUrl(asset.storageId).then((value) => value ?? undefined)
-          : Promise.resolve(asset.sourceUrl),
-        asset.thumbStorageId
-          ? ctx.storage.getUrl(asset.thumbStorageId).then((value) => value ?? undefined)
-          : Promise.resolve(undefined),
-      ]);
-
-      return {
-        _id: asset._id,
-        _creationTime: asset._creationTime,
-        ownerUserId: asset.ownerUserId,
-        kind: asset.kind,
-        storageId: asset.storageId,
-        thumbStorageId: asset.thumbStorageId,
-        sourceUrl: asset.sourceUrl,
-        fileName: asset.fileName,
-        contentType: asset.contentType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-        thumbSize: asset.thumbSize,
-        thumbWidth: asset.thumbWidth,
-        thumbHeight: asset.thumbHeight,
-        promptId: asset.promptId,
-        promptText,
-        tagIds: asset.tagIds,
-        tagNames,
-        folderId: asset.folderId,
-        modelName: asset.modelName,
-        isPublic: asset.isPublic,
-        isFeatured: asset.isFeatured,
-        curatedByUserId: asset.curatedByUserId,
-        curatedAt: asset.curatedAt,
-        pillar: asset.pillar,
-        createdAt: asset.createdAt,
-        url,
-        thumbUrl,
-      };
-    }),
-  );
-
 export const listGalleryAssets = query({
   args: {
     ownerUserId: v.string(),
@@ -517,6 +439,7 @@ export const listGalleryAssets = query({
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
+    assetRole: assetRoleValidator,
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -534,6 +457,7 @@ export const listGalleryAssets = query({
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
+    const assetRole = args.assetRole;
     const kind = args.kind;
     const ownerScopedAssets = (
       await Promise.all(
@@ -581,6 +505,9 @@ export const listGalleryAssets = query({
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
         return false;
       }
+      if (assetRole && asset.assetRole !== assetRole) {
+        return false;
+      }
       if (kind && asset.kind !== kind) {
         return false;
       }
@@ -594,7 +521,20 @@ export const listGalleryAssets = query({
     let selectedAssets = filteredAssets;
     let promptTextById: Map<Id<"prompts">, string>;
     if (search) {
-      promptTextById = await resolvePromptTextMap(ctx, filteredAssets);
+      const promptIds = dedupeIds(
+        filteredAssets
+          .map((asset) => asset.promptId)
+          .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
+      );
+      const promptEntries = await Promise.all(
+        promptIds.map(async (promptId) => {
+          const prompt = await ctx.db.get(promptId);
+          return [promptId, prompt?.text] as const;
+        }),
+      );
+      promptTextById = new Map(
+        promptEntries.filter((entry): entry is [Id<"prompts">, string] => Boolean(entry[1])),
+      );
       selectedAssets = filteredAssets.filter((asset) => {
         const promptText = asset.promptId
           ? promptTextById.get(asset.promptId)
@@ -604,7 +544,7 @@ export const listGalleryAssets = query({
       });
     } else {
       selectedAssets = filteredAssets.slice(0, limit);
-      promptTextById = await resolvePromptTextMap(ctx, selectedAssets);
+      promptTextById = new Map();
     }
 
     selectedAssets = selectedAssets.slice(0, limit);
@@ -612,13 +552,7 @@ export const listGalleryAssets = query({
       return [];
     }
 
-    const tagNameById = await resolveTagNameMap(ctx, selectedAssets);
-    return await buildGalleryAssetResults(
-      ctx,
-      selectedAssets,
-      promptTextById,
-      tagNameById,
-    );
+    return await hydrateGalleryAssetResults(ctx, selectedAssets);
   },
 });
 
@@ -629,6 +563,7 @@ export const listPublicGalleryAssets = query({
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
+    assetRole: assetRoleValidator,
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -641,6 +576,7 @@ export const listPublicGalleryAssets = query({
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
+    const assetRole = args.assetRole;
     const kind = args.kind;
 
     const baseAssets = await (pillar
@@ -674,6 +610,9 @@ export const listPublicGalleryAssets = query({
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
         return false;
       }
+      if (assetRole && asset.assetRole !== assetRole) {
+        return false;
+      }
       return true;
     });
 
@@ -684,7 +623,20 @@ export const listPublicGalleryAssets = query({
     let selectedAssets = filteredAssets;
     let promptTextById: Map<Id<"prompts">, string>;
     if (search) {
-      promptTextById = await resolvePromptTextMap(ctx, filteredAssets);
+      const promptIds = dedupeIds(
+        filteredAssets
+          .map((asset) => asset.promptId)
+          .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
+      );
+      const promptEntries = await Promise.all(
+        promptIds.map(async (promptId) => {
+          const prompt = await ctx.db.get(promptId);
+          return [promptId, prompt?.text] as const;
+        }),
+      );
+      promptTextById = new Map(
+        promptEntries.filter((entry): entry is [Id<"prompts">, string] => Boolean(entry[1])),
+      );
       selectedAssets = filteredAssets.filter((asset) => {
         const promptText = asset.promptId
           ? promptTextById.get(asset.promptId)
@@ -694,7 +646,7 @@ export const listPublicGalleryAssets = query({
       });
     } else {
       selectedAssets = filteredAssets.slice(0, limit);
-      promptTextById = await resolvePromptTextMap(ctx, selectedAssets);
+      promptTextById = new Map();
     }
 
     selectedAssets = selectedAssets.slice(0, limit);
@@ -702,13 +654,7 @@ export const listPublicGalleryAssets = query({
       return [];
     }
 
-    const tagNameById = await resolveTagNameMap(ctx, selectedAssets);
-    return await buildGalleryAssetResults(
-      ctx,
-      selectedAssets,
-      promptTextById,
-      tagNameById,
-    );
+    return await hydrateGalleryAssetResults(ctx, selectedAssets);
   },
 });
 
@@ -762,6 +708,9 @@ export const setAssetCuration = mutation({
       isFeatured: nextIsFeatured,
       curatedByUserId: actorUserId,
       curatedAt,
+    });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
     });
 
     return {
@@ -878,6 +827,9 @@ export const deleteAsset = mutation({
 
     await ctx.db.delete(args.id);
     await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.id,
+    });
 
     return null;
   },

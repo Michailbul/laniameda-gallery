@@ -5,13 +5,69 @@ import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { makeFunctionReference } from "convex/server";
+import {
+  assetRoleValidator,
+  designInspirationTypeValidator,
+  designPlatformValidator,
+  generationTypeValidator,
+  ingestSourceValidator,
+  modelProviderValidator,
+  optionalPillarValidator,
+  promptProfileValidator,
+  promptSectionsValidator,
+  promptTypeValidator,
+  typedTagInputValidator,
+  workflowTypeValidator,
+} from "./validators";
 
-const pillarValidator = v.optional(v.union(
-  v.literal("creators"),
-  v.literal("cars"),
-  v.literal("designs"),
-  v.literal("dump"),
-));
+type Pillar = "creators" | "cars" | "designs" | "dump";
+type TagCategory =
+  | "model_name"
+  | "style"
+  | "content_type"
+  | "platform"
+  | "color"
+  | "camera_angle"
+  | "lighting"
+  | "composition"
+  | "car_make"
+  | "car_model"
+  | "car_angle"
+  | "environment"
+  | "design_style"
+  | "design_type"
+  | "workflow_type"
+  | "component_type"
+  | "custom";
+type TagSource = "user" | "agent" | "system";
+
+const pillarValidator = optionalPillarValidator;
+const createDesignInspirationMutation = makeFunctionReference<"mutation">(
+  "designInspirations:createDesignInspiration",
+);
+const getOrCreateTagsWithMetadataMutation = makeFunctionReference<"mutation">(
+  "tags:getOrCreateTagsWithMetadata",
+);
+const reindexAssetAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexAsset",
+);
+const reindexPromptAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexPrompt",
+);
+const reindexDesignInspirationAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexDesignInspiration",
+);
+
+const designInspirationInputValidator = v.object({
+  title: v.optional(v.string()),
+  summary: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+  inspirationType: designInspirationTypeValidator,
+  platform: designPlatformValidator,
+  workflowType: workflowTypeValidator,
+  ingestKey: v.optional(v.string()),
+});
 
 const normalizeTags = (names: string[]) => {
   const cleaned = names
@@ -45,6 +101,32 @@ const blobFromBase64 = (base64: string, contentType?: string) => {
   return new Blob([binary], { type: contentType || "application/octet-stream" });
 };
 
+const normalizeTypedTags = (
+  tags: Array<{
+    name: string;
+    category?: TagCategory;
+    pillar?: Pillar;
+    source?: TagSource;
+  }>,
+) => {
+  const seen = new Set<string>();
+  const normalized = [];
+  for (const tag of tags) {
+    const name = tag.name.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({
+      name,
+      category: tag.category,
+      pillar: tag.pillar,
+      source: tag.source,
+    });
+  }
+  return normalized;
+};
+
 export const ingestFromApi: ReturnType<typeof action> = action({
   args: {
     ownerUserId: v.string(),
@@ -58,65 +140,82 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       }),
     ),
     tagNames: v.optional(v.array(v.string())),
+    typedTags: v.optional(v.array(typedTagInputValidator)),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
     promptIngestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
+    modelProvider: modelProviderValidator,
     pillar: pillarValidator,
-    generationType: v.optional(v.union(
-      v.literal("image_gen"),
-      v.literal("video_gen"),
-      v.literal("ui_design"),
-      v.literal("other"),
-    )),
-    promptType: v.optional(v.union(
-      v.literal("image_gen"),
-      v.literal("video_gen"),
-      v.literal("ui_design"),
-      v.literal("cinematic"),
-      v.literal("ugc_ad"),
-      v.literal("other"),
-    )),
+    generationType: generationTypeValidator,
+    promptType: promptTypeValidator,
+    workflowType: workflowTypeValidator,
+    promptSections: promptSectionsValidator,
+    promptProfile: promptProfileValidator,
+    assetRole: assetRoleValidator,
+    ingestSource: ingestSourceValidator,
+    designInspiration: v.optional(designInspirationInputValidator),
     domain: v.optional(v.string()),
   },
   returns: v.object({
     assetId: v.optional(v.id("assets")),
     promptId: v.optional(v.id("prompts")),
+    designInspirationId: v.optional(v.id("designInspirations")),
   }),
   handler: async (
     ctx,
     args,
-  ): Promise<{ assetId?: Id<"assets">; promptId?: Id<"prompts"> }> => {
+  ): Promise<{
+    assetId?: Id<"assets">;
+    promptId?: Id<"prompts">;
+    designInspirationId?: Id<"designInspirations">;
+  }> => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
 
-    if (!args.promptText && !args.url && !args.file) {
-      throw new ConvexError("Provide a prompt, URL, or file.");
+    const promptText = args.promptText?.trim() || undefined;
+    const resolvedPromptText = promptText || args.promptSections?.finalPrompt.trim() || undefined;
+    if (!resolvedPromptText && !args.url && !args.file && !args.designInspiration) {
+      throw new ConvexError("Provide prompt content, URL, file, or design inspiration.");
     }
 
-    const tagNames = normalizeTags([
+    const inferredTagNames = normalizeTags([
       ...(args.tagNames ?? []),
-      ...guessTags(args.promptText, args.file?.fileName, args.url),
+      ...guessTags(resolvedPromptText, args.file?.fileName, args.url),
     ]);
-    const tagIds: Id<"tags">[] = tagNames.length
-      ? ((await ctx.runMutation(api.tags.getOrCreateTags, {
-          names: tagNames,
+    const tagInputs = normalizeTypedTags([
+      ...(args.typedTags ?? []),
+      ...inferredTagNames.map((name) => ({
+        name,
+        category: undefined,
+        pillar: args.pillar,
+        source: "user" as const,
+      })),
+    ]);
+    const tagIds: Id<"tags">[] = tagInputs.length
+      ? ((await ctx.runMutation(getOrCreateTagsWithMetadataMutation, {
+          tags: tagInputs,
         })) as Id<"tags">[])
       : [];
 
     let promptCreated = true;
-    const promptResult: { promptId: Id<"prompts">; created: boolean } | undefined = args.promptText
+    const promptResult: { promptId: Id<"prompts">; created: boolean } | undefined = resolvedPromptText
       ? ((await ctx.runMutation(api.prompts.createPrompt, {
           ownerUserId,
-          text: args.promptText,
+          text: resolvedPromptText,
           tagIds,
           folderId: args.folderId,
           ingestKey: args.promptIngestKey ?? args.ingestKey,
           pillar: args.pillar,
           promptType: args.promptType,
+          workflowType: args.workflowType,
           domain: args.domain,
+          modelName: args.modelName,
+          modelProvider: args.modelProvider,
+          promptSections: args.promptSections,
+          promptProfile: args.promptProfile,
         })) as { promptId: Id<"prompts">; created: boolean })
       : undefined;
     const promptId: Id<"prompts"> | undefined = promptResult?.promptId;
@@ -217,27 +316,66 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         modelName: args.modelName,
         pillar: args.pillar,
         generationType: args.generationType,
+        assetRole: args.assetRole,
+        ingestSource: args.ingestSource ?? "api",
       })) as { assetId: Id<"assets">; created: boolean };
       assetId = result.assetId;
       assetCreated = result.created;
     }
 
+    let designInspirationCreated = true;
+    let designInspirationId: Id<"designInspirations"> | undefined;
+    if (args.designInspiration) {
+      const result = (await ctx.runMutation(createDesignInspirationMutation, {
+        ownerUserId,
+        title: args.designInspiration.title,
+        summary: args.designInspiration.summary,
+        sourceUrl: args.designInspiration.sourceUrl ?? args.url,
+        inspirationType: args.designInspiration.inspirationType,
+        platform: args.designInspiration.platform,
+        workflowType: args.designInspiration.workflowType ?? args.workflowType,
+        tagIds,
+        folderId: args.folderId,
+        ingestKey: args.designInspiration.ingestKey ?? args.ingestKey,
+        assetId,
+        promptId,
+      })) as { designInspirationId: Id<"designInspirations">; created: boolean };
+      designInspirationId = result.designInspirationId;
+      designInspirationCreated = result.created;
+    }
+
     const ingestKeyDuplicate = Boolean(args.ingestKey && !assetCreated);
     const promptIngestKeyDuplicate = Boolean((args.promptIngestKey ?? args.ingestKey) && !promptCreated);
+    const inspirationIngestKeyDuplicate = Boolean(
+      (args.designInspiration?.ingestKey ?? args.ingestKey) && !designInspirationCreated,
+    );
     await ctx.scheduler.runAfter(0, internal.notifications.notifyKBIngest, {
       ownerUserId,
-      pillar: args.pillar ?? "dump",
-      promptText: args.promptText,
+      pillar: args.pillar ?? (args.designInspiration ? "designs" : "dump"),
+      promptText: resolvedPromptText ?? args.designInspiration?.title,
       modelName: args.modelName,
-      tagNames: args.tagNames,
+      tagNames: tagInputs.map((tag) => tag.name),
       assetId,
       promptId,
-      isDuplicate: ingestKeyDuplicate || promptIngestKeyDuplicate,
+      isDuplicate:
+        ingestKeyDuplicate || promptIngestKeyDuplicate || inspirationIngestKeyDuplicate,
     });
+    if (assetId) {
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+    }
+    if (promptId) {
+      await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId });
+    }
+    if (designInspirationId) {
+      await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
+        designInspirationId,
+      });
+    }
 
     return {
       assetId,
       promptId,
+      designInspirationId,
     };
   },
 });

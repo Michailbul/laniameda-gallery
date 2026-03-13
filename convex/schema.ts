@@ -1,5 +1,24 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  assetRoleValidator,
+  designInspirationStatusValidator,
+  designInspirationTypeValidator,
+  designPlatformValidator,
+  generationTypeValidator,
+  ingestSourceValidator,
+  modelProviderValidator,
+  optionalPillarValidator,
+  promptProfileValidator,
+  promptSectionsValidator,
+  promptTypeValidator,
+  semanticFailureStatusValidator,
+  semanticModalityValidator,
+  semanticSourceTypeValidator,
+  tagCategoryValidator,
+  tagSourceValidator,
+  workflowTypeValidator,
+} from "./validators";
 
 export default defineSchema({
   users: defineTable({
@@ -20,17 +39,14 @@ export default defineSchema({
     name: v.string(),
     normalized: v.string(),
     usageCount: v.number(),
-    category: v.optional(v.union(
-      v.literal("model_name"),
-      v.literal("style"),
-      v.literal("content_type"),
-      v.literal("platform"),
-      v.literal("color"),
-      v.literal("custom"),
-    )),
+    category: tagCategoryValidator,
+    pillar: optionalPillarValidator,
+    source: tagSourceValidator,
+    aliases: v.optional(v.array(v.string())),
   })
     .index("by_normalized", ["normalized"])
-    .index("by_category_normalized", ["category", "normalized"]),
+    .index("by_category_normalized", ["category", "normalized"])
+    .index("by_pillar_category_normalized", ["pillar", "category", "normalized"]),
   folders: defineTable({
     ownerUserId: v.optional(v.string()),
     name: v.string(),
@@ -48,21 +64,14 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
-    pillar: v.optional(v.union(
-      v.literal("creators"),
-      v.literal("cars"),
-      v.literal("designs"),
-      v.literal("dump"),
-    )),
-    promptType: v.optional(v.union(
-      v.literal("image_gen"),
-      v.literal("video_gen"),
-      v.literal("ui_design"),
-      v.literal("cinematic"),
-      v.literal("ugc_ad"),
-      v.literal("other"),
-    )),
+    pillar: optionalPillarValidator,
+    promptType: promptTypeValidator,
     domain: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    modelProvider: modelProviderValidator,
+    workflowType: workflowTypeValidator,
+    promptSections: promptSectionsValidator,
+    promptProfile: promptProfileValidator,
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -70,6 +79,8 @@ export default defineSchema({
     .index("by_folder_createdAt", ["folderId", "createdAt"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
+    .index("by_owner_pillar_promptType_createdAt", ["ownerUserId", "pillar", "promptType", "createdAt"])
+    .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .searchIndex("search_text", { searchField: "text" }),
@@ -95,6 +106,7 @@ export default defineSchema({
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
     promptId: v.optional(v.id("prompts")),
+    designInspirationId: v.optional(v.id("designInspirations")),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
@@ -103,18 +115,10 @@ export default defineSchema({
     isFeatured: v.optional(v.boolean()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
-    pillar: v.optional(v.union(
-      v.literal("creators"),
-      v.literal("cars"),
-      v.literal("designs"),
-      v.literal("dump"),
-    )),
-    generationType: v.optional(v.union(
-      v.literal("image_gen"),
-      v.literal("video_gen"),
-      v.literal("ui_design"),
-      v.literal("other"),
-    )),
+    pillar: optionalPillarValidator,
+    generationType: generationTypeValidator,
+    assetRole: assetRoleValidator,
+    ingestSource: ingestSourceValidator,
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -131,7 +135,47 @@ export default defineSchema({
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
     .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])
     .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])
-    .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"]),
+    .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
+    .index("by_owner_assetRole_createdAt", ["ownerUserId", "assetRole", "createdAt"])
+    .index("by_owner_pillar_assetRole_createdAt", ["ownerUserId", "pillar", "assetRole", "createdAt"]),
+  designInspirations: defineTable({
+    ownerUserId: v.optional(v.string()),
+    pillar: v.literal("designs"),
+    title: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    sourceDomain: v.optional(v.string()),
+    searchText: v.string(),
+    inspirationType: designInspirationTypeValidator,
+    platform: designPlatformValidator,
+    workflowType: workflowTypeValidator,
+    status: designInspirationStatusValidator,
+    tagIds: v.array(v.id("tags")),
+    folderId: v.optional(v.id("folders")),
+    ingestKey: v.optional(v.string()),
+    assetId: v.optional(v.id("assets")),
+    promptId: v.optional(v.id("prompts")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_ingestKey", ["ingestKey"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
+    .index("by_owner_inspirationType_createdAt", ["ownerUserId", "inspirationType", "createdAt"])
+    .index("by_owner_platform_createdAt", ["ownerUserId", "platform", "createdAt"])
+    .index("by_owner_workflowType_createdAt", ["ownerUserId", "workflowType", "createdAt"])
+    .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
+    .index("by_owner_sourceDomain_createdAt", ["ownerUserId", "sourceDomain", "createdAt"])
+    .searchIndex("search_text", { searchField: "searchText" }),
+  designInspirationTags: defineTable({
+    designInspirationId: v.id("designInspirations"),
+    tagId: v.id("tags"),
+    createdAt: v.number(),
+  })
+    .index("by_designInspiration", ["designInspirationId"])
+    .index("by_tag_createdAt", ["tagId", "createdAt"]),
   assetTags: defineTable({
     assetId: v.id("assets"),
     tagId: v.id("tags"),
@@ -139,6 +183,16 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_tag_createdAt", ["tagId", "createdAt"]),
+  canvasPositions: defineTable({
+    assetId: v.id("assets"),
+    ownerUserId: v.string(),
+    x: v.number(),
+    y: v.number(),
+    zIndex: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_asset", ["ownerUserId", "assetId"])
+    .index("by_owner", ["ownerUserId"]),
   ingest_failures: defineTable({
     source: v.union(v.literal("api")),
     ownerUserId: v.optional(v.string()),
@@ -156,6 +210,66 @@ export default defineSchema({
     .index("by_status_lastErrorAt", ["status", "lastErrorAt"])
     .index("by_owner_status_lastErrorAt", ["ownerUserId", "status", "lastErrorAt"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"]),
+  semanticDocuments: defineTable({
+    ownerUserId: v.string(),
+    sourceType: semanticSourceTypeValidator,
+    sourceId: v.string(),
+    assetId: v.optional(v.id("assets")),
+    promptId: v.optional(v.id("prompts")),
+    designInspirationId: v.optional(v.id("designInspirations")),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    modality: semanticModalityValidator,
+    searchText: v.string(),
+    contentHash: v.string(),
+    embeddingModel: v.string(),
+    embeddingDimensions: v.number(),
+    embedding: v.array(v.float64()),
+    scopeKey: v.string(),
+    scopePillarKey: v.optional(v.string()),
+    publicScopeKey: v.optional(v.string()),
+    publicScopePillarKey: v.optional(v.string()),
+    sourceUpdatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source", ["sourceType", "sourceId"])
+    .index("by_owner_source", ["ownerUserId", "sourceType", "sourceId"])
+    .index("by_asset", ["assetId"])
+    .index("by_prompt", ["promptId"])
+    .index("by_designInspiration", ["designInspirationId"])
+    .index("by_sourceType_updatedAt", ["sourceType", "sourceUpdatedAt"])
+    .searchIndex("search_text", { searchField: "searchText" })
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 3072,
+      filterFields: [
+        "ownerUserId",
+        "sourceType",
+        "pillar",
+        "isPublic",
+        "scopeKey",
+        "scopePillarKey",
+        "publicScopeKey",
+        "publicScopePillarKey",
+      ],
+    }),
+  semantic_index_failures: defineTable({
+    ownerUserId: v.optional(v.string()),
+    sourceType: semanticSourceTypeValidator,
+    sourceId: v.string(),
+    status: semanticFailureStatusValidator,
+    attemptCount: v.number(),
+    lastErrorMessage: v.string(),
+    firstErrorAt: v.number(),
+    lastErrorAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_source", ["sourceType", "sourceId"])
+    .index("by_status_lastErrorAt", ["status", "lastErrorAt"])
+    .index("by_owner_status_lastErrorAt", ["ownerUserId", "status", "lastErrorAt"]),
   runs: defineTable({
     userId: v.string(),
     runtime: v.optional(v.union(v.literal("ai_sdk"), v.literal("agent_worker"))),

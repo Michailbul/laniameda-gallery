@@ -21,6 +21,32 @@ bun run lint         # ESLint
 bun test             # Bun test runner
 bun run typecheck    # tsc --noEmit
 bunx convex dev      # Convex local dev (watch mode)
+bun run skills:install:local   # Install repo skill via local path for active development
+bun run skills:install:github  # Install repo skill from GitHub for tracked updates
+bun run skills:update          # Check/update GitHub-backed installed skills
+```
+
+## Skill sync workflow
+
+Canonical source:
+- `skills/laniameda-kb/`
+
+Rules:
+- Edit only the repo copy of `skills/laniameda-kb`.
+- Never hand-edit installed copies under `~/.openclaw/skills`, `~/.codex/skills`, or `~/.agents/skills`.
+- When ingest contracts change, ship the repo skill update in the same commit.
+
+Recommended commands:
+
+```bash
+# laptop during active development
+bun run skills:install:local
+
+# VPS / another machine that should track GitHub
+bun run skills:install:github
+
+# after pulling newer commits on GitHub-backed installs
+bun run skills:update
 ```
 
 ## Env setup
@@ -34,7 +60,12 @@ Minimum vars needed locally:
 NEXT_PUBLIC_CONVEX_URL=...
 CONVEX_URL=...
 KB_OWNER_USER_ID=...          # Your Telegram user ID (for agent ingestion)
-TELEGRAM_BOT_TOKEN=...        # For Telegram auth
+TELEGRAM_LOGIN_BOT_TOKEN=...  # For Telegram auth
+```
+
+Also set in `convex/.env.local`:
+```bash
+TELEGRAM_NOTIFY_BOT_TOKEN=... # For Convex ingest confirmations
 ```
 
 ## Convex schema changes

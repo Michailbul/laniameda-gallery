@@ -58,10 +58,9 @@ const requiredBase = [
 
 const requiredByMode: Record<Mode, readonly string[]> = {
   "dev-sim": ["SESSION_SECRET", "DEV_TELEGRAM_SIM_ENABLED"],
-  "dev-telegram": ["SESSION_SECRET", "TELEGRAM_BOT_TOKEN", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"],
+  "dev-telegram": ["SESSION_SECRET", "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"],
   "prod-telegram": [
     "SESSION_SECRET",
-    "TELEGRAM_BOT_TOKEN",
     "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
     "CURATION_ADMIN_SECRET",
     "CURATION_ADMIN_USER_IDS",
@@ -132,6 +131,42 @@ for (const key of requiredByMode[mode]) {
   }
 }
 
+const hasLoginBotToken =
+  isPresent(process.env.TELEGRAM_LOGIN_BOT_TOKEN) || isPresent(process.env.TELEGRAM_BOT_TOKEN);
+if (mode !== "dev-sim") {
+  if (!hasLoginBotToken) {
+    errors.push(
+      `Missing required env var for ${mode}: TELEGRAM_LOGIN_BOT_TOKEN (or legacy TELEGRAM_BOT_TOKEN)`,
+    );
+  } else if (isPresent(process.env.TELEGRAM_LOGIN_BOT_TOKEN)) {
+    checks.push("Loaded TELEGRAM_LOGIN_BOT_TOKEN");
+  } else {
+    warnings.push(
+      "Using legacy TELEGRAM_BOT_TOKEN for login auth. Prefer TELEGRAM_LOGIN_BOT_TOKEN.",
+    );
+  }
+}
+
+const hasNotifyBotToken =
+  isPresent(process.env.TELEGRAM_NOTIFY_BOT_TOKEN) || isPresent(process.env.TELEGRAM_BOT_TOKEN);
+if (mode === "prod-telegram") {
+  if (!hasNotifyBotToken) {
+    errors.push(
+      "Missing required env var for prod-telegram: TELEGRAM_NOTIFY_BOT_TOKEN (or legacy TELEGRAM_BOT_TOKEN)",
+    );
+  } else if (isPresent(process.env.TELEGRAM_NOTIFY_BOT_TOKEN)) {
+    checks.push("Loaded TELEGRAM_NOTIFY_BOT_TOKEN");
+  } else {
+    warnings.push(
+      "Using legacy TELEGRAM_BOT_TOKEN for Convex notifications. Prefer TELEGRAM_NOTIFY_BOT_TOKEN.",
+    );
+  }
+} else if (mode === "dev-telegram" && !hasNotifyBotToken) {
+  warnings.push(
+    "TELEGRAM_NOTIFY_BOT_TOKEN is not set. Ingest save confirmations to Telegram will be skipped.",
+  );
+}
+
 if (mode === "dev-sim") {
   if ((process.env.DEV_TELEGRAM_SIM_ENABLED || "").trim().toLowerCase() !== "true") {
     errors.push("DEV_TELEGRAM_SIM_ENABLED must be 'true' in dev-sim mode.");
@@ -157,10 +192,16 @@ for (const key of optionalButRecommended) {
 if (!existsSync(CONVEX_ENV_LOCAL)) {
   warnings.push("convex/.env.local missing (recommended for local convex env parity checks).");
 } else {
-  if (isPresent(convexEnvLocal.TELEGRAM_BOT_TOKEN)) {
-    checks.push("Found convex/.env.local with TELEGRAM_BOT_TOKEN");
+  if (isPresent(convexEnvLocal.TELEGRAM_NOTIFY_BOT_TOKEN)) {
+    checks.push("Found convex/.env.local with TELEGRAM_NOTIFY_BOT_TOKEN");
+  } else if (isPresent(convexEnvLocal.TELEGRAM_BOT_TOKEN)) {
+    warnings.push(
+      "convex/.env.local uses legacy TELEGRAM_BOT_TOKEN for notifications. Prefer TELEGRAM_NOTIFY_BOT_TOKEN.",
+    );
   } else {
-    warnings.push("convex/.env.local exists but TELEGRAM_BOT_TOKEN is missing.");
+    warnings.push(
+      "convex/.env.local exists but TELEGRAM_NOTIFY_BOT_TOKEN is missing (notifications will not be sent).",
+    );
   }
 
   if (isPresent(convexEnvLocal.WORKOS_CLIENT_ID)) {

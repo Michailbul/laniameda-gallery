@@ -28,6 +28,21 @@ const readJson = async (request: Request) => {
   }
 };
 
+const parseOptionalJsonField = <T = unknown>(value: FormDataEntryValue | null) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return undefined;
+  }
+};
+
 const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
   const file =
     payload.file && typeof payload.file === "object"
@@ -46,6 +61,14 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
     pillar: payload.pillar,
     generationType: payload.generationType,
     promptType: payload.promptType,
+    workflowType: payload.workflowType,
+    modelProvider: payload.modelProvider,
+    promptSections: payload.promptSections,
+    promptProfile: payload.promptProfile,
+    typedTags: payload.typedTags,
+    assetRole: payload.assetRole,
+    ingestSource: payload.ingestSource,
+    designInspiration: payload.designInspiration,
     domain: payload.domain,
     file: file
       ? {
@@ -78,7 +101,15 @@ export async function POST(request: Request) {
     let pillar: string | undefined;
     let generationType: string | undefined;
     let promptType: string | undefined;
+    let workflowType: string | undefined;
     let domain: string | undefined;
+    let modelProvider: string | undefined;
+    let promptSections: Record<string, unknown> | undefined;
+    let promptProfile: Record<string, unknown> | undefined;
+    let typedTags: Record<string, unknown>[] | undefined;
+    let assetRole: string | undefined;
+    let ingestSource: string | undefined;
+    let designInspiration: Record<string, unknown> | undefined;
 
     if (contentType.includes("application/json")) {
       const data = await readJson(request);
@@ -98,7 +129,32 @@ export async function POST(request: Request) {
       pillar = typeof data.pillar === "string" ? data.pillar : undefined;
       generationType = typeof data.generationType === "string" ? data.generationType : undefined;
       promptType = typeof data.promptType === "string" ? data.promptType : undefined;
+      workflowType = typeof data.workflowType === "string" ? data.workflowType : undefined;
       domain = typeof data.domain === "string" ? data.domain : undefined;
+      modelProvider = typeof data.modelProvider === "string" ? data.modelProvider : undefined;
+      promptSections =
+        data.promptSections &&
+        typeof data.promptSections === "object" &&
+        !Array.isArray(data.promptSections)
+          ? (data.promptSections as Record<string, unknown>)
+          : undefined;
+      promptProfile =
+        data.promptProfile &&
+        typeof data.promptProfile === "object" &&
+        !Array.isArray(data.promptProfile)
+          ? (data.promptProfile as Record<string, unknown>)
+          : undefined;
+      typedTags = Array.isArray(data.typedTags)
+        ? (data.typedTags as Record<string, unknown>[])
+        : undefined;
+      assetRole = typeof data.assetRole === "string" ? data.assetRole : undefined;
+      ingestSource = typeof data.ingestSource === "string" ? data.ingestSource : undefined;
+      designInspiration =
+        data.designInspiration &&
+        typeof data.designInspiration === "object" &&
+        !Array.isArray(data.designInspiration)
+          ? (data.designInspiration as Record<string, unknown>)
+          : undefined;
     } else {
       const form = await request.formData();
       const promptValue = form.get("prompt");
@@ -131,12 +187,29 @@ export async function POST(request: Request) {
       const pillarValue = form.get("pillar");
       const generationTypeValue = form.get("generationType");
       const promptTypeValue = form.get("promptType");
+      const workflowTypeValue = form.get("workflowType");
       const domainValue = form.get("domain");
+      const modelProviderValue = form.get("modelProvider");
+      const promptSectionsValue = form.get("promptSections");
+      const promptProfileValue = form.get("promptProfile");
+      const typedTagsValue = form.get("typedTags");
+      const assetRoleValue = form.get("assetRole");
+      const ingestSourceValue = form.get("ingestSource");
+      const designInspirationValue = form.get("designInspiration");
       modelName = typeof modelNameValue === "string" ? modelNameValue : undefined;
       pillar = typeof pillarValue === "string" ? pillarValue : undefined;
       generationType = typeof generationTypeValue === "string" ? generationTypeValue : undefined;
       promptType = typeof promptTypeValue === "string" ? promptTypeValue : undefined;
+      workflowType = typeof workflowTypeValue === "string" ? workflowTypeValue : undefined;
       domain = typeof domainValue === "string" ? domainValue : undefined;
+      modelProvider = typeof modelProviderValue === "string" ? modelProviderValue : undefined;
+      promptSections = parseOptionalJsonField<Record<string, unknown>>(promptSectionsValue);
+      promptProfile = parseOptionalJsonField<Record<string, unknown>>(promptProfileValue);
+      typedTags = parseOptionalJsonField<Record<string, unknown>[]>(typedTagsValue);
+      assetRole = typeof assetRoleValue === "string" ? assetRoleValue : undefined;
+      ingestSource = typeof ingestSourceValue === "string" ? ingestSourceValue : undefined;
+      designInspiration =
+        parseOptionalJsonField<Record<string, unknown>>(designInspirationValue);
     }
 
     finalIngestKey = buildIngestKey({
@@ -155,9 +228,17 @@ export async function POST(request: Request) {
       promptIngestKey,
       tagNames,
       modelName: modelName || undefined,
+      modelProvider: modelProvider || undefined,
       pillar: pillar || undefined,
       generationType: generationType || undefined,
       promptType: promptType || undefined,
+      workflowType: workflowType || undefined,
+      promptSections,
+      promptProfile,
+      typedTags,
+      assetRole: assetRole || undefined,
+      ingestSource: ingestSource || undefined,
+      designInspiration,
       domain: domain || undefined,
     };
 

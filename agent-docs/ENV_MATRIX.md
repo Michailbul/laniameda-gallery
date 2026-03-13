@@ -1,6 +1,6 @@
 # Environment Matrix
 
-Last updated: 2026-03-03
+Last updated: 2026-03-07
 
 This is the canonical env map for running `laniameda.gallery` locally and in production.
 
@@ -48,7 +48,7 @@ Set these in Vercel for the Next.js app:
 NEXT_PUBLIC_CONVEX_URL=...
 CONVEX_URL=...
 SESSION_SECRET=... # min 32 chars
-TELEGRAM_BOT_TOKEN=...
+TELEGRAM_LOGIN_BOT_TOKEN=...
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
 KB_OWNER_USER_ID=278674008
 CURATION_ADMIN_SECRET=...
@@ -77,7 +77,7 @@ APP_ENV_PROFILE=prod-telegram
 Set these in Convex dashboard env vars:
 
 ```bash
-TELEGRAM_BOT_TOKEN=... # needed by convex/notifications.ts
+TELEGRAM_NOTIFY_BOT_TOKEN=... # needed by convex/notifications.ts
 CURATION_ADMIN_SECRET=...
 CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
 KB_OWNER_USER_ID=278674008
@@ -93,17 +93,23 @@ Required in the runtime where `laniameda-kb` script executes:
 
 ```bash
 KB_OWNER_USER_ID=278674008
+CONVEX_URL=https://<your-convex-deployment>.convex.cloud
 ```
 
 Important:
-- The current skill script at `~/.agents/skills/laniameda-kb/scripts/ingest.ts` contains a hardcoded Convex URL.
-- Before production usage, it must point to your production Convex deployment URL.
+- The canonical skill source lives in `skills/laniameda-kb/` inside this repo.
+- Install that skill with `npx skills` so `skills check` / `skills update` can track GitHub-backed installs on VPS and other machines.
+- The skill script now reads `CONVEX_URL` from env instead of hardcoding a deployment URL.
 
 ## 5) Telegram integration boundaries
 
 - Web login widget domain allowlist is configured in BotFather via `/setdomain`.
-- `app/api/telegram/webhook` currently returns `410` intentionally.
-- Ingestion is expected via OpenClaw skill -> Convex ingest action, not by pointing Telegram bot webhook to this app route.
+- Ingestion is expected via OpenClaw skill -> Convex ingest action.
+- This app does not expose a Telegram ingestion webhook route.
+- Use separate bots/tokens:
+  - Login bot: `TELEGRAM_LOGIN_BOT_TOKEN` + `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`
+  - Notification bot: `TELEGRAM_NOTIFY_BOT_TOKEN` (Convex env)
+- Legacy fallback during migration: `TELEGRAM_BOT_TOKEN` is still accepted by code for both paths, but should be phased out.
 
 ## 6) Smoke tests after env setup
 
