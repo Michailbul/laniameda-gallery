@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "skills:install:local": "npx skills add ./skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
-    "skills:install:github": "npx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
+    "skills:install:github": "npx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
     "skills:update": "npx skills check && npx skills update",
     "backfill:semantic": "bun scripts/backfill-semantic-index.ts",
     "ingest:local": "bun scripts/ingest-local-assets.ts",
