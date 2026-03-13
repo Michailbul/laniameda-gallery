@@ -912,7 +912,7 @@ const reindexAssetSource = async (
       scopePillarKey: scopeFields.scopePillarKey,
       publicScopeKey: scopeFields.publicScopeKey,
       publicScopePillarKey: scopeFields.publicScopePillarKey,
-      sourceUpdatedAt: Date.now(),
+      sourceUpdatedAt: source.sourceUpdatedAt,
     });
     await ctx.runMutation(resolveFailureMutationRef, {
       sourceType: "asset",
@@ -1028,7 +1028,7 @@ const reindexPromptSource = async (
       scopePillarKey: scopeFields.scopePillarKey,
       publicScopeKey: undefined,
       publicScopePillarKey: undefined,
-      sourceUpdatedAt: Date.now(),
+      sourceUpdatedAt: source.sourceUpdatedAt,
     });
     await ctx.runMutation(resolveFailureMutationRef, {
       sourceType: "prompt",
@@ -1145,7 +1145,7 @@ const reindexDesignSource = async (
       scopePillarKey: scopeFields.scopePillarKey,
       publicScopeKey: undefined,
       publicScopePillarKey: undefined,
-      sourceUpdatedAt: Date.now(),
+      sourceUpdatedAt: source.sourceUpdatedAt,
     });
     await ctx.runMutation(resolveFailureMutationRef, {
       sourceType: "designInspiration",

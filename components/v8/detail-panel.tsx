@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Link as LinkIcon,
   Package,
+  Search,
 } from "lucide-react";
 import { formatAssetCreatedAt, resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
@@ -76,6 +77,9 @@ interface V72DetailPanelProps {
   onCreateFolder?: (name: string) => Promise<string | null>;
   folderBusy?: boolean;
   folderError?: string;
+  onFindSimilar?: (imageId: string) => void;
+  similarBusy?: boolean;
+  similarActive?: boolean;
 }
 
 const ACTIONS = [
@@ -125,6 +129,9 @@ export function V72DetailPanel({
   onCreateFolder,
   folderBusy = false,
   folderError,
+  onFindSimilar,
+  similarBusy = false,
+  similarActive = false,
 }: V72DetailPanelProps) {
   const { modelName, tagNames } = image;
   const [activeTab, setActiveTab] = useState<DetailTab>("INFO");
@@ -802,6 +809,31 @@ export function V72DetailPanel({
               >
                 <SectionLabel>AI ACTIONS</SectionLabel>
                 <div className="mt-2 flex flex-col gap-1.5">
+                  {onFindSimilar ? (
+                    <button
+                      type="button"
+                      onClick={() => onFindSimilar(image.id)}
+                      disabled={similarBusy}
+                      className="v7-btn-brutal group flex w-full items-center gap-3 justify-start disabled:cursor-wait disabled:opacity-70"
+                      aria-label="Find similar"
+                    >
+                      <Search
+                        className="h-3.5 w-3.5 flex-shrink-0"
+                        style={{ opacity: 0.7 }}
+                      />
+                      <span className="flex-1 text-left">
+                        {similarBusy
+                          ? "FINDING SIMILAR"
+                          : similarActive
+                            ? "SHOWING SIMILAR"
+                            : "FIND SIMILAR"}
+                      </span>
+                      <ArrowRight
+                        className="h-3 w-3"
+                        style={{ opacity: 0.4 }}
+                      />
+                    </button>
+                  ) : null}
                   {activeRunId && (
                     <button
                       type="button"

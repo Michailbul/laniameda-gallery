@@ -3,7 +3,8 @@
 import "@/app/v8/tokens.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
 import { V72Sidebar } from "./sidebar";
 import {
@@ -50,6 +51,15 @@ type SelectedImage = {
   isFeatured?: boolean;
 };
 
+type SemanticGalleryAsset = FunctionReturnType<
+  typeof api.semanticSearch.searchAssets
+>[number];
+
+type SemanticMode =
+  | { kind: "query"; query: string }
+  | { kind: "similar"; assetId: string; prompt: string }
+  | null;
+
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
   "[href]",
@@ -79,6 +89,26 @@ const canonicalTagKey = (value: string) =>
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const buildAssetSearchHaystack = (asset: {
+  promptText?: string;
+  fileName?: string;
+  sourceUrl?: string;
+  tagNames?: string[];
+  modelName?: string;
+  pillar?: string;
+}) =>
+  [
+    asset.promptText,
+    asset.fileName,
+    asset.sourceUrl,
+    asset.modelName,
+    asset.pillar,
+    ...(asset.tagNames ?? []),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
 
 export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const devOwnerUserIdOverride =
@@ -169,6 +199,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [hiddenAssetIds, setHiddenAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [debouncedAssetSearchQuery, setDebouncedAssetSearchQuery] =
+    useState("");
+  const [semanticMode, setSemanticMode] = useState<SemanticMode>(null);
+  const [semanticResults, setSemanticResults] = useState<
+    SemanticGalleryAsset[] | null
+  >(null);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [semanticError, setSemanticError] = useState<string>();
+  const semanticRequestIdRef = useRef(0);
 
   const curatorUserIds = useMemo(() => {
     const configured = parseUserIdList(
@@ -193,6 +233,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
+  const semanticSearchAction = useAction(api.semanticSearch.searchAssets);
+  const findSimilarAssetsAction = useAction(
+    api.semanticSearch.findSimilarAssets,
+  );
 
   useEffect(() => {
     if (!canAccessMyGallery && galleryScope === "mine") {
@@ -211,12 +255,24 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSelectedImage(null);
     setSheetDismissing(false);
     setSheetDragY(0);
+    setSemanticMode(null);
+    setSemanticResults(null);
+    setSemanticError(undefined);
+    setSemanticLoading(false);
   }, [galleryScope]);
 
   useEffect(() => {
     setFolderError(undefined);
     setFolderLoadingAssetId(null);
   }, [selectedImage?.id]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedAssetSearchQuery(assetSearchQuery.trim());
+    }, 400);
+
+    return () => window.clearTimeout(handle);
+  }, [assetSearchQuery]);
 
   const updateAssetCuration = useCallback(
     async ({
@@ -673,6 +729,101 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     galleryScope === "mine"
       ? mineGalleryAssets
       : publicGalleryAssets;
+  const baseGalleryAssets = useMemo(
+    () => galleryAssets ?? [],
+    [galleryAssets],
+  );
+  const isSimilarMode = semanticMode?.kind === "similar";
+
+  useEffect(() => {
+    if (isSimilarMode) {
+      return;
+    }
+
+    if (!debouncedAssetSearchQuery) {
+      setSemanticMode(null);
+      setSemanticResults(null);
+      setSemanticError(undefined);
+      setSemanticLoading(false);
+      return;
+    }
+
+    if (debouncedAssetSearchQuery.length < 3) {
+      setSemanticMode(null);
+      setSemanticResults(null);
+      setSemanticError(undefined);
+      setSemanticLoading(false);
+      return;
+    }
+
+    if (galleryScope === "mine" && !ownerUserId) {
+      setSemanticMode(null);
+      setSemanticResults(null);
+      setSemanticError(undefined);
+      setSemanticLoading(false);
+      return;
+    }
+
+    const requestId = semanticRequestIdRef.current + 1;
+    semanticRequestIdRef.current = requestId;
+    setSemanticLoading(true);
+    setSemanticError(undefined);
+
+    void semanticSearchAction({
+      ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
+      scope: galleryScope,
+      query: debouncedAssetSearchQuery,
+      pillar: selectedPillar ?? undefined,
+      folderId:
+        galleryScope === "mine" && effectiveSelectedFolderId
+          ? (effectiveSelectedFolderId as Id<"folders">)
+          : undefined,
+      modelName: selectedModelName ?? undefined,
+      kind: "image",
+      limit: 120,
+    })
+      .then((results) => {
+        if (semanticRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setSemanticLoading(false);
+        if (results.length === 0) {
+          setSemanticMode(null);
+          setSemanticResults(null);
+          return;
+        }
+
+        setSemanticMode({
+          kind: "query",
+          query: debouncedAssetSearchQuery,
+        });
+        setSemanticResults(results);
+      })
+      .catch((error) => {
+        if (semanticRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setSemanticLoading(false);
+        setSemanticMode(null);
+        setSemanticResults(null);
+        setSemanticError(
+          error instanceof Error
+            ? error.message
+            : "Semantic search failed.",
+        );
+      });
+  }, [
+    debouncedAssetSearchQuery,
+    effectiveSelectedFolderId,
+    galleryScope,
+    isSimilarMode,
+    ownerUserId,
+    selectedModelName,
+    selectedPillar,
+    semanticSearchAction,
+  ]);
 
   const imageCount = allAssets?.length;
 
@@ -729,12 +880,71 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSelectedFolderId(null);
     setSelectedModelName(null);
   };
+  const clearSemanticMode = useCallback(() => {
+    setAssetSearchQuery("");
+    setDebouncedAssetSearchQuery("");
+    setSemanticMode(null);
+    setSemanticResults(null);
+    setSemanticError(undefined);
+    setSemanticLoading(false);
+  }, []);
 
   const allTags = dedupedTags;
+  const lexicalFilteredAssets = useMemo(() => {
+    const search = assetSearchQuery.trim().toLowerCase();
+    if (!search) {
+      return baseGalleryAssets;
+    }
+
+    return baseGalleryAssets.filter((asset) =>
+      buildAssetSearchHaystack(asset).includes(search),
+    );
+  }, [assetSearchQuery, baseGalleryAssets]);
+
+  const filteredSemanticResults = useMemo(() => {
+    if (!semanticResults) {
+      return semanticResults;
+    }
+
+    return semanticResults.filter((asset) => {
+      if (
+        galleryScope === "mine" &&
+        effectiveSelectedFolderId &&
+        asset.folderId !== effectiveSelectedFolderId
+      ) {
+        return false;
+      }
+      if (selectedModelName && asset.modelName !== selectedModelName) {
+        return false;
+      }
+      if (selectedPillar && asset.pillar !== selectedPillar) {
+        return false;
+      }
+      if (
+        selectedTagIds &&
+        !asset.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
+      ) {
+        return false;
+      }
+      return asset.kind === "image";
+    });
+  }, [
+    effectiveSelectedFolderId,
+    galleryScope,
+    selectedModelName,
+    selectedPillar,
+    selectedTagIds,
+    semanticResults,
+  ]);
+
+  const displayGalleryAssets =
+    filteredSemanticResults !== null
+      ? filteredSemanticResults
+      : lexicalFilteredAssets;
 
   const images = useMemo(() => {
-    if (!galleryAssets) return [];
-    const mapped = galleryAssets
+    if (!displayGalleryAssets) return [];
+    const mapped = displayGalleryAssets
       .filter((asset) => !hiddenAssetIds.has(asset._id))
       .map((asset) => ({
         id: asset._id,
@@ -779,7 +989,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       );
     }
     return mapped;
-  }, [galleryAssets, hiddenAssetIds, loadedImageIds, sortOrder]);
+  }, [displayGalleryAssets, hiddenAssetIds, loadedImageIds, sortOrder]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -840,6 +1050,53 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     currentImageIndex >= 0
       ? `${currentImageIndex + 1}/${images.length}`
       : undefined;
+
+  const handleFindSimilar = useCallback(
+    async (imageId: string) => {
+      const image = images.find((candidate) => candidate.id === imageId);
+      const requestId = semanticRequestIdRef.current + 1;
+      semanticRequestIdRef.current = requestId;
+
+      setAssetSearchQuery("");
+      setDebouncedAssetSearchQuery("");
+      setSemanticMode({
+        kind: "similar",
+        assetId: imageId,
+        prompt: image?.prompt ?? "Selected image",
+      });
+      setSemanticLoading(true);
+      setSemanticError(undefined);
+
+      try {
+        const results = await findSimilarAssetsAction({
+          ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
+          scope: galleryScope,
+          assetId: imageId as Id<"assets">,
+          limit: 120,
+        });
+
+        if (semanticRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setSemanticResults(results);
+        setSemanticLoading(false);
+      } catch (error) {
+        if (semanticRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setSemanticResults([]);
+        setSemanticLoading(false);
+        setSemanticError(
+          error instanceof Error
+            ? error.message
+            : "Failed to find similar assets.",
+        );
+      }
+    },
+    [findSimilarAssetsAction, galleryScope, images, ownerUserId],
+  );
 
   // Swipe gestures for mobile detail sheet
   const swipeHandlers = useMemo(
@@ -1048,7 +1305,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     selectedTags.length > 0 ||
     selectedPillar !== null ||
     effectiveSelectedFolderId !== null ||
-    selectedModelName !== null;
+    selectedModelName !== null ||
+    assetSearchQuery.trim().length > 0 ||
+    semanticMode?.kind === "similar";
   const hasImages = images.length > 0;
   const isNoMatches = !isLoading && !hasImages && hasFilters;
 
@@ -1058,14 +1317,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   // Carousel: find sibling images sharing the same promptId
   const carouselImages = useMemo(() => {
-    if (!selectedImage || !galleryAssets) return undefined;
-    const selectedAsset = galleryAssets.find(
+    if (!selectedImage || displayGalleryAssets.length === 0) return undefined;
+    const selectedAsset = displayGalleryAssets.find(
       (a) => a._id === selectedImage.id,
     );
     const promptId = selectedAsset?.promptId;
     if (!promptId) return undefined;
 
-    const siblings = galleryAssets.filter(
+    const siblings = displayGalleryAssets.filter(
       (a) =>
         a.promptId === promptId &&
         !hiddenAssetIds.has(a._id),
@@ -1092,7 +1351,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         height:
           asset.thumbHeight ?? asset.height ?? undefined,
       }));
-  }, [selectedImage, galleryAssets, hiddenAssetIds]);
+  }, [displayGalleryAssets, hiddenAssetIds, selectedImage]);
 
   const expandedDetailProps = {
     onClose: closeSelectedImage,
@@ -1165,6 +1424,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       curationError
         ? curationError
         : undefined,
+    onFindSimilar: (imageId: string) => {
+      void handleFindSimilar(imageId);
+    },
+    similarBusy:
+      semanticLoading &&
+      semanticMode?.kind === "similar" &&
+      semanticMode.assetId === selectedImage?.id,
+    similarActive:
+      semanticMode?.kind === "similar" &&
+      semanticMode.assetId === selectedImage?.id,
   };
 
   return (
@@ -1229,6 +1498,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               galleryScope={galleryScope}
               canAccessMyGallery={canAccessMyGallery}
               onGalleryScopeChange={setGalleryScope}
+              assetSearchQuery={assetSearchQuery}
+              onAssetSearchQueryChange={(query) => {
+                setAssetSearchQuery(query);
+                setSemanticError(undefined);
+                if (query.trim().length > 0 && semanticMode?.kind === "similar") {
+                  setSemanticMode(null);
+                  setSemanticResults(null);
+                }
+              }}
+              semanticSearchLoading={semanticLoading}
               tags={allTags}
               selectedTags={selectedTags}
               onTagToggle={handleTagToggle}
@@ -1240,6 +1519,59 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               viewMode={viewMode}
               onViewModeChange={setViewMode}
             />
+
+            {(semanticMode?.kind === "similar" || semanticError) && (
+              <div className="px-4 pb-2">
+                <div
+                  className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
+                  style={{
+                    backgroundColor: "rgba(255, 122, 100, 0.08)",
+                    border: "2px solid var(--v7-border-strong)",
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        letterSpacing: "0.16em",
+                        textTransform: "uppercase",
+                        color: "var(--v7-text-primary)",
+                      }}
+                    >
+                      {semanticMode?.kind === "similar"
+                        ? "Similar Results"
+                        : "Semantic Search"}
+                    </div>
+                    <p
+                      className="mt-1"
+                      style={{
+                        fontSize: "11px",
+                        lineHeight: 1.5,
+                        color: "var(--v7-text-secondary)",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {semanticError
+                        ? semanticError
+                        : semanticMode?.kind === "similar"
+                          ? `Showing nearest matches for "${semanticMode.prompt}".`
+                          : undefined}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearSemanticMode}
+                    className="v7-btn-ghost self-start md:self-auto"
+                    style={{
+                      border: "2px solid var(--v7-border-strong)",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
 
             <main
               id="v72-main-content"

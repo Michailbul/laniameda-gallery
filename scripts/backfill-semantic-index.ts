@@ -37,7 +37,9 @@ const main = async () => {
   getRequiredEnv("SEMANTIC_EMBEDDINGS_ENABLED");
 
   const client = new ConvexHttpClient(convexUrl);
-  client.setAdminAuth(adminKey);
+  (client as ConvexHttpClient & { setAdminAuth: (token: string) => void }).setAdminAuth(
+    adminKey,
+  );
 
   for (const sourceType of ["asset", "prompt", "designInspiration"] as const) {
     let cursor: string | undefined;
@@ -53,7 +55,7 @@ const main = async () => {
         sourceType,
         cursor,
         batchSize,
-      })) as {
+      } as never)) as {
         processed: number;
         successCount: number;
         failureCount: number;

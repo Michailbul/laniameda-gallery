@@ -102,6 +102,7 @@ export const createPrompt = mutation({
     }
 
     await bumpTagUsage(ctx, tagIds, 1);
+    await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId });
 
     return { promptId, created: true };
   },

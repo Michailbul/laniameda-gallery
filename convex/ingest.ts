@@ -49,15 +49,6 @@ const createDesignInspirationMutation = makeFunctionReference<"mutation">(
 const getOrCreateTagsWithMetadataMutation = makeFunctionReference<"mutation">(
   "tags:getOrCreateTagsWithMetadata",
 );
-const reindexAssetAction = makeFunctionReference<"action">(
-  "semanticIndex:reindexAsset",
-);
-const reindexPromptAction = makeFunctionReference<"action">(
-  "semanticIndex:reindexPrompt",
-);
-const reindexDesignInspirationAction = makeFunctionReference<"action">(
-  "semanticIndex:reindexDesignInspiration",
-);
 
 const designInspirationInputValidator = v.object({
   title: v.optional(v.string()),
@@ -360,18 +351,6 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       isDuplicate:
         ingestKeyDuplicate || promptIngestKeyDuplicate || inspirationIngestKeyDuplicate,
     });
-    if (assetId) {
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
-    }
-    if (promptId) {
-      await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId });
-    }
-    if (designInspirationId) {
-      await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
-        designInspirationId,
-      });
-    }
-
     return {
       assetId,
       promptId,

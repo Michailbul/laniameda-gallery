@@ -26,6 +26,9 @@ interface V72FilterBarProps {
   galleryScope: GalleryScope;
   canAccessMyGallery: boolean;
   onGalleryScopeChange: (scope: GalleryScope) => void;
+  assetSearchQuery: string;
+  onAssetSearchQueryChange: (query: string) => void;
+  semanticSearchLoading?: boolean;
   tags: TagItem[];
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
@@ -55,6 +58,9 @@ export function V72FilterBar({
   galleryScope,
   canAccessMyGallery,
   onGalleryScopeChange,
+  assetSearchQuery,
+  onAssetSearchQueryChange,
+  semanticSearchLoading = false,
   tags,
   selectedTags,
   onTagToggle,
@@ -235,6 +241,60 @@ export function V72FilterBar({
               }}
             >
               <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 md:flex-initial md:min-w-[280px]">
+                  <div
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3"
+                    style={{
+                      minHeight: "36px",
+                      border: "2px solid var(--v7-ink)",
+                      borderRadius: "999px",
+                      backgroundColor: "rgba(255, 253, 250, 0.9)",
+                    }}
+                  >
+                    <Search className="h-3.5 w-3.5 shrink-0" />
+                    <input
+                      value={assetSearchQuery}
+                      onChange={(event) =>
+                        onAssetSearchQueryChange(event.target.value)
+                      }
+                      placeholder="SEARCH VAULT..."
+                      className="min-w-0 flex-1 bg-transparent py-1 outline-none"
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "10px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.12em",
+                        color: "var(--v7-text-primary)",
+                      }}
+                      aria-label="Search gallery"
+                    />
+                    {assetSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => onAssetSearchQueryChange("")}
+                        className="flex h-5 w-5 items-center justify-center rounded-full transition-colors"
+                        style={{ color: "var(--v7-text-ghost)" }}
+                        aria-label="Clear gallery search"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    ) : semanticSearchLoading ? (
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          fontWeight: 800,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.12em",
+                          color: "var(--v7-coral)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Searching
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
                 {searchOpen ? (
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 md:flex-initial">
                     <div
