@@ -2,11 +2,20 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-03-04
+Last updated: 2026-03-13
 
 ---
 
 ## ✔ Shipped
+
+### 2026-03-13
+- Canonical repo-backed `laniameda-kb` skill added under `skills/laniameda-kb/` with GitHub/local `npx skills` install workflows
+- Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
+
+### 2026-03-07
+- Telegram integration split: dedicated login token (`TELEGRAM_LOGIN_BOT_TOKEN`) and dedicated Convex notification token (`TELEGRAM_NOTIFY_BOT_TOKEN`) with legacy fallback support
+- Removed obsolete Next.js Telegram webhook route and webhook setup script; ingest remains OpenClaw -> Convex
+- Env/docs refresh for two-bot architecture and production setup
 
 ### 2026-03-04
 - Iteration hardening phase 1: authz canonicalization, design token enforcement, shared UI primitives, and gallery query N+1 reduction

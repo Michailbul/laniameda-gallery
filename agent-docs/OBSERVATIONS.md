@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-03-04
+Last updated: 2026-03-07
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -26,6 +26,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 ## Auth
 
 - Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
+- Telegram auth now prefers `TELEGRAM_LOGIN_BOT_TOKEN` (with legacy fallback to `TELEGRAM_BOT_TOKEN` during migration).
 - Gallery is guest-visible; auth required only for protected actions (upload, save, edit).
 - `KB_OWNER_USER_ID` env var scopes agent-ingested content to the correct owner — never hardcode this, always read from env.
 - For localhost work without tunnel domain churn, enable dev bypass (`NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` + `DEV_AUTH_BYPASS_ENABLED=true`) and use `/api/auth/dev-login` from the login card.
@@ -34,6 +35,9 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
 - `laniameda-kb` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
+- Canonical agent skill source is `skills/laniameda-kb/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
+- Telegram ingest confirmations are sent by Convex using `TELEGRAM_NOTIFY_BOT_TOKEN` (legacy fallback `TELEGRAM_BOT_TOKEN`).
+- The Next.js Telegram webhook route has been removed; ingest is OpenClaw -> Convex action.
 
 ## Dev workflow
 

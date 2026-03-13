@@ -170,6 +170,9 @@ export const createMockConvexMutationCtx = () => {
   const db = new InMemoryDB();
   const ctx = {
     db,
+    scheduler: {
+      runAfter: async () => null,
+    },
   };
 
   return { ctx, db };

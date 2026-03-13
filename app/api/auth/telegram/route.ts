@@ -8,6 +8,17 @@ import {
 
 const TELEGRAM_AUTH_MAX_AGE_SECONDS = 5 * 60;
 
+const resolveTelegramLoginBotToken = () => {
+  const explicitLoginToken = process.env.TELEGRAM_LOGIN_BOT_TOKEN?.trim();
+  if (explicitLoginToken) {
+    return explicitLoginToken;
+  }
+
+  // Backward-compatible fallback while migrating existing environments.
+  const legacyToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  return legacyToken || null;
+};
+
 export async function POST(request: Request) {
   let payload: unknown;
   try {
@@ -21,10 +32,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid Telegram auth payload." }, { status: 400 });
   }
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = resolveTelegramLoginBotToken();
   if (!botToken) {
     return NextResponse.json(
-      { error: "Server misconfigured: missing bot token." },
+      {
+        error:
+          "Server misconfigured: missing Telegram login bot token (TELEGRAM_LOGIN_BOT_TOKEN).",
+      },
       { status: 500 },
     );
   }

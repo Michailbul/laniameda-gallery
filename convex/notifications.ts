@@ -17,6 +17,17 @@ const resolveTelegramChatId = (ownerUserId: string) => {
   return normalized;
 };
 
+const resolveTelegramNotificationBotToken = () => {
+  const explicitNotifyToken = process.env.TELEGRAM_NOTIFY_BOT_TOKEN?.trim();
+  if (explicitNotifyToken) {
+    return explicitNotifyToken;
+  }
+
+  // Backward-compatible fallback while migrating existing environments.
+  const legacyToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  return legacyToken || null;
+};
+
 export const notifyKBIngest = internalAction({
   args: {
     ownerUserId: v.string(),
@@ -30,7 +41,7 @@ export const notifyKBIngest = internalAction({
   },
   returns: v.null(),
   handler: async (_ctx, args) => {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = resolveTelegramNotificationBotToken();
     if (!token) {
       return null;
     }
@@ -57,7 +68,7 @@ export const notifyKBIngest = internalAction({
     const text = `${status} → [${args.pillar}] ${preview}${model}${tags}`;
 
     try {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -65,6 +76,14 @@ export const notifyKBIngest = internalAction({
           text,
         }),
       });
+
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => "");
+        console.warn("Telegram KB ingest notification failed", {
+          status: response.status,
+          bodyText,
+        });
+      }
     } catch (error) {
       console.warn("Failed to send Telegram KB ingest notification", error);
     }

@@ -59,6 +59,7 @@ Michael finds things he likes (screenshots, prompts, reference images, designs) 
 - Use **indexes** for all queries that filter or sort
 - Queries and mutations **must not call external APIs** — use actions for that
 - Use actions to call external services, then store results via mutation
+- When backend schema or ingest contracts change (`convex/schema.ts`, `convex/validators.ts`, `convex/ingest.ts`, `convex/agent_ingest.ts`, `app/api/ingest/route.ts`), update `skills/laniameda-kb/**` in the same change.
 
 ## TypeScript & schema conventions
 - Use `v.*` validators for all Convex function args
@@ -107,3 +108,12 @@ scripts/         Dev utility scripts
 | `DESIGN.md` | UI design system and visual direction |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
 | `OPENCLAW-EXPLANATION.md` | How OpenClaw and the laniameda-kb skill work |
+
+## Feature PRD workflow
+- When starting a new feature on a new branch, do **not** add that feature's full PRD documents to `main`.
+- `main` should stay clean and should not accumulate competing in-progress PRDs for different feature branches.
+- For planned or proposed work on `main`, add only a concise backlog note in `agent-docs/BACKLOG.md` or another shared project-doc summary if needed.
+- The full feature PRD, ticket, and implementation handoff docs should live on the **feature branch** inside `agent-docs/features/<feature-name>/`.
+- On a feature branch, agents must treat the branch-local PRD in `agent-docs/features/<feature-name>/` as the source of truth for that feature.
+- Before implementing a feature on a branch, agents should check whether a branch-local PRD or ticket already exists and use it instead of inventing a parallel spec.
+- Keep feature PRD docs organized, branch-specific, and close to the implementation work so the branch remains self-contained and easy to hand off.

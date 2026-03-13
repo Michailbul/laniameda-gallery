@@ -1,24 +1,25 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import {
+  modelProviderValidator,
+  optionalPillarValidator,
+  promptProfileValidator,
+  promptSectionsValidator,
+  promptTypeValidator,
+  workflowTypeValidator,
+} from "./validators";
 
-const promptTypeValidator = v.optional(v.union(
-  v.literal("image_gen"),
-  v.literal("video_gen"),
-  v.literal("ui_design"),
-  v.literal("cinematic"),
-  v.literal("ugc_ad"),
-  v.literal("other"),
-));
-
-const pillarValidator = v.optional(v.union(
-  v.literal("creators"),
-  v.literal("cars"),
-  v.literal("designs"),
-  v.literal("dump"),
-));
+const pillarValidator = optionalPillarValidator;
+const reindexPromptAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexPrompt",
+);
+const reindexAssetAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexAsset",
+);
 
 const dedupePromptIds = <T extends { _id: string }>(rows: T[]) => {
   const seen = new Set<string>();
@@ -39,6 +40,11 @@ export const createPrompt = mutation({
     pillar: pillarValidator,
     promptType: promptTypeValidator,
     domain: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    modelProvider: modelProviderValidator,
+    workflowType: workflowTypeValidator,
+    promptSections: promptSectionsValidator,
+    promptProfile: promptProfileValidator,
   },
   returns: v.object({
     promptId: v.id("prompts"),
@@ -79,6 +85,11 @@ export const createPrompt = mutation({
       pillar: args.pillar,
       promptType: args.promptType,
       domain: args.domain,
+      modelName: args.modelName,
+      modelProvider: args.modelProvider,
+      workflowType: args.workflowType,
+      promptSections: args.promptSections,
+      promptProfile: args.promptProfile,
       createdAt,
     });
 
@@ -106,6 +117,11 @@ export const updatePrompt = mutation({
     pillar: pillarValidator,
     promptType: promptTypeValidator,
     domain: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    modelProvider: modelProviderValidator,
+    workflowType: workflowTypeValidator,
+    promptSections: promptSectionsValidator,
+    promptProfile: promptProfileValidator,
   },
   returns: v.id("prompts"),
   handler: async (ctx, args) => {
@@ -136,6 +152,11 @@ export const updatePrompt = mutation({
       pillar: args.pillar,
       promptType: args.promptType,
       domain: args.domain,
+      modelName: args.modelName,
+      modelProvider: args.modelProvider,
+      workflowType: args.workflowType,
+      promptSections: args.promptSections,
+      promptProfile: args.promptProfile,
     });
 
     await bumpTagUsage(ctx, existing.tagIds, -1);
@@ -153,6 +174,19 @@ export const updatePrompt = mutation({
         promptId: args.id,
         tagId,
         createdAt: existing.createdAt,
+      });
+    }
+
+    await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: args.id });
+    const linkedAssets = await ctx.db
+      .query("assets")
+      .withIndex("by_prompt_createdAt", (q) =>
+        q.eq("promptId", args.id).gte("createdAt", 0),
+      )
+      .collect();
+    for (const asset of linkedAssets) {
+      await ctx.scheduler.runAfter(0, reindexAssetAction, {
+        assetId: asset._id,
       });
     }
 
@@ -178,6 +212,11 @@ export const getPrompt = query({
       pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
+      modelName: v.optional(v.string()),
+      modelProvider: modelProviderValidator,
+      workflowType: workflowTypeValidator,
+      promptSections: promptSectionsValidator,
+      promptProfile: promptProfileValidator,
       createdAt: v.number(),
     }),
   ),
@@ -212,6 +251,11 @@ export const listPrompts = query({
       pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
+      modelName: v.optional(v.string()),
+      modelProvider: modelProviderValidator,
+      workflowType: workflowTypeValidator,
+      promptSections: promptSectionsValidator,
+      promptProfile: promptProfileValidator,
       createdAt: v.number(),
     }),
   ),
@@ -288,6 +332,11 @@ export const searchPrompts = query({
       pillar: pillarValidator,
       promptType: promptTypeValidator,
       domain: v.optional(v.string()),
+      modelName: v.optional(v.string()),
+      modelProvider: modelProviderValidator,
+      workflowType: workflowTypeValidator,
+      promptSections: promptSectionsValidator,
+      promptProfile: promptProfileValidator,
       createdAt: v.number(),
     }),
   ),
@@ -313,6 +362,12 @@ export const deletePrompt = internalMutation({
   args: { id: v.id("prompts") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const linkedAssets = await ctx.db
+      .query("assets")
+      .withIndex("by_prompt_createdAt", (q) =>
+        q.eq("promptId", args.id).gte("createdAt", 0),
+      )
+      .collect();
     // Delete linked promptTags
     const links = await ctx.db
       .query("promptTags")
@@ -322,6 +377,12 @@ export const deletePrompt = internalMutation({
       await ctx.db.delete(link._id);
     }
     await ctx.db.delete(args.id);
+    await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: args.id });
+    for (const asset of linkedAssets) {
+      await ctx.scheduler.runAfter(0, reindexAssetAction, {
+        assetId: asset._id,
+      });
+    }
     return null;
   },
 });
@@ -332,6 +393,12 @@ export const bulkDeletePrompts = internalMutation({
   handler: async (ctx, args) => {
     let count = 0;
     for (const id of args.ids) {
+      const linkedAssets = await ctx.db
+        .query("assets")
+        .withIndex("by_prompt_createdAt", (q) =>
+          q.eq("promptId", id).gte("createdAt", 0),
+        )
+        .collect();
       const links = await ctx.db
         .query("promptTags")
         .withIndex("by_prompt", (q) => q.eq("promptId", id))
@@ -340,6 +407,12 @@ export const bulkDeletePrompts = internalMutation({
         await ctx.db.delete(link._id);
       }
       await ctx.db.delete(id);
+      await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: id });
+      for (const asset of linkedAssets) {
+        await ctx.scheduler.runAfter(0, reindexAssetAction, {
+          assetId: asset._id,
+        });
+      }
       count++;
     }
     return count;

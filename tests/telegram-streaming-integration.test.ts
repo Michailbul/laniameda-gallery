@@ -539,6 +539,9 @@ mock.module("@/lib/server-auth", () => ({
 let routePost: (request: Request) => Promise<Response>;
 let devSimRoutePost: (request: Request) => Promise<Response>;
 let dispatchRun: (runId: string) => Promise<{ accepted: boolean; status: string }>;
+const legacyWebhookRoutePath = new URL("../app/api/telegram/webhook/route.ts", import.meta.url).pathname;
+const devSimRoutePath = new URL("../app/api/dev/telegram/simulate/route.ts", import.meta.url).pathname;
+const orchestratorModulePath = new URL("../agent-worker/orchestrator.ts", import.meta.url).pathname;
 const previousEnv = {
   TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
   TELEGRAM_WEBHOOK_MAX_BODY_BYTES: process.env.TELEGRAM_WEBHOOK_MAX_BODY_BYTES,
@@ -554,12 +557,16 @@ beforeAll(async () => {
   process.env.DEV_TELEGRAM_SIM_ENABLED = "true";
   process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS = "true";
 
-  const routeModule = await import("@/app/api/telegram/webhook/route");
+  if (!(await Bun.file(legacyWebhookRoutePath).exists())) {
+    return;
+  }
+
+  const routeModule = await import(legacyWebhookRoutePath);
   routePost = routeModule.POST;
-  const devSimRouteModule = await import("@/app/api/dev/telegram/simulate/route");
+  const devSimRouteModule = await import(devSimRoutePath);
   devSimRoutePost = devSimRouteModule.POST;
 
-  const orchestratorModule = await import("@/agent-worker/orchestrator");
+  const orchestratorModule = await import(orchestratorModulePath);
   dispatchRun = orchestratorModule.dispatchRun;
 });
 

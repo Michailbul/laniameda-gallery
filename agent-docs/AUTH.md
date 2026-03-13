@@ -37,10 +37,15 @@ The `users` table in Convex is the **identity hub**. It maps `telegramId` ↔ `w
 
 ### Required env vars
 ```bash
-TELEGRAM_BOT_TOKEN=...                # Bot token for verifying Telegram auth data
+TELEGRAM_LOGIN_BOT_TOKEN=...          # Bot token for verifying Telegram auth data
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=... # Bot username for Telegram widget (without @)
 KB_OWNER_USER_ID=...                  # Michael's Telegram user ID (for agent ingestion)
 SESSION_SECRET=...                    # ≥32 char secret for Telegram session JWT
+```
+
+Convex env also needs:
+```bash
+TELEGRAM_NOTIFY_BOT_TOKEN=...         # Bot token used by Convex "✅ Saved" notifications
 ```
 
 ### Telegram web login runbook (official flow)
@@ -51,7 +56,8 @@ Reference docs:
 
 1. **Create/select bot in @BotFather**
    - Use `/newbot` if needed.
-   - Keep token private (`TELEGRAM_BOT_TOKEN`).
+   - Keep login token private (`TELEGRAM_LOGIN_BOT_TOKEN`).
+   - Create a second bot for notifications and keep `TELEGRAM_NOTIFY_BOT_TOKEN` private.
 
 2. **Link app domain to bot**
    - In @BotFather, run `/setdomain` and set your app domain.
@@ -91,7 +97,7 @@ DEV_AUTH_FIRST_NAME=Michael
 ### Security checklist
 
 - Never trust Telegram widget payload without server-side hash verification.
-- Never expose `TELEGRAM_BOT_TOKEN` to browser/client code.
+- Never expose `TELEGRAM_LOGIN_BOT_TOKEN` or `TELEGRAM_NOTIFY_BOT_TOKEN` to browser/client code.
 - Keep `SESSION_SECRET` at least 32 chars and rotate if leaked.
 - Use HTTPS in production so cookies stay secure.
 - Keep login freshness checks (`auth_date`) to limit replay windows.

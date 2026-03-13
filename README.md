@@ -55,6 +55,8 @@ bun run lint         # Lint
 bun test             # Tests
 bun run typecheck    # Type check
 bunx convex dev      # Convex local dev (run separately)
+bun run skills:install:github # Install canonical laniameda-kb skill globally
+bun run skills:update         # Refresh GitHub-backed installed skills
 ```
 
 ## Convex schema
@@ -76,7 +78,8 @@ See `.env.example` for the full list. Key vars:
 | `NEXT_PUBLIC_CONVEX_URL` | Convex deployment URL (public) |
 | `CONVEX_URL` | Convex deployment URL (server) |
 | `KB_OWNER_USER_ID` | Telegram user ID for agent-scoped ingestion |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token for auth |
+| `TELEGRAM_LOGIN_BOT_TOKEN` | Telegram login widget verification token |
+| `TELEGRAM_NOTIFY_BOT_TOKEN` | Convex ingest confirmation bot token |
 
 ## Documentation
 
@@ -87,3 +90,5 @@ See `agent-docs/` for detailed docs:
 - `AUTH.md` — Telegram auth setup
 - `DESIGN.md` — UI design system
 - `OPENCLAW-EXPLANATION.md` — how OpenClaw integration works
+
+The canonical `laniameda-kb` skill now lives in [`skills/laniameda-kb`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-kb). Install it from this repo with `npx skills` so laptops and VPS machines can track updates from GitHub.

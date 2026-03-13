@@ -57,7 +57,8 @@ describe("POST /api/auth/telegram", () => {
     state.verifyCalls = [];
     state.freshCalls = [];
     state.createSessionCookieCalls = [];
-    process.env.TELEGRAM_BOT_TOKEN = "123456:bot_token";
+    process.env.TELEGRAM_LOGIN_BOT_TOKEN = "123456:login_bot_token";
+    delete process.env.TELEGRAM_BOT_TOKEN;
   });
 
   test("returns 400 for invalid JSON", async () => {
@@ -92,7 +93,8 @@ describe("POST /api/auth/telegram", () => {
     expect(state.createSessionCookieCalls.length).toBe(0);
   });
 
-  test("returns 500 when TELEGRAM_BOT_TOKEN is missing", async () => {
+  test("returns 500 when login bot token env vars are missing", async () => {
+    delete process.env.TELEGRAM_LOGIN_BOT_TOKEN;
     delete process.env.TELEGRAM_BOT_TOKEN;
     const { POST } = await import(routePath);
 
@@ -106,6 +108,24 @@ describe("POST /api/auth/telegram", () => {
 
     expect(response.status).toBe(500);
     expect(state.verifyCalls.length).toBe(0);
+  });
+
+  test("uses legacy TELEGRAM_BOT_TOKEN fallback when TELEGRAM_LOGIN_BOT_TOKEN is missing", async () => {
+    delete process.env.TELEGRAM_LOGIN_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = "123456:legacy_token";
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/auth/telegram", {
+        method: "POST",
+        body: JSON.stringify({ any: "payload" }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.verifyCalls.length).toBe(1);
+    expect(state.verifyCalls[0]?.botToken).toBe("123456:legacy_token");
   });
 
   test("returns 401 when hash is invalid", async () => {

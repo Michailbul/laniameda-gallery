@@ -10,17 +10,24 @@
 
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assets from "../assets.js";
+import type * as authz from "../authz.js";
+import type * as canvasPositions from "../canvasPositions.js";
+import type * as designInspirations from "../designInspirations.js";
 import type * as files from "../files.js";
 import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
+import type * as galleryAssetResults from "../galleryAssetResults.js";
 import type * as helpers from "../helpers.js";
 import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
 import type * as runs from "../runs.js";
+import type * as semanticIndex from "../semanticIndex.js";
+import type * as semanticSearch from "../semanticSearch.js";
 import type * as tags from "../tags.js";
 import type * as users from "../users.js";
+import type * as validators from "../validators.js";
 
 import type {
   ApiFromModules,
@@ -31,17 +38,24 @@ import type {
 declare const fullApi: ApiFromModules<{
   agent_ingest: typeof agent_ingest;
   assets: typeof assets;
+  authz: typeof authz;
+  canvasPositions: typeof canvasPositions;
+  designInspirations: typeof designInspirations;
   files: typeof files;
   folderHelpers: typeof folderHelpers;
   folders: typeof folders;
+  galleryAssetResults: typeof galleryAssetResults;
   helpers: typeof helpers;
   ingest: typeof ingest;
   ingest_failures: typeof ingest_failures;
   notifications: typeof notifications;
   prompts: typeof prompts;
   runs: typeof runs;
+  semanticIndex: typeof semanticIndex;
+  semanticSearch: typeof semanticSearch;
   tags: typeof tags;
   users: typeof users;
+  validators: typeof validators;
 }>;
 
 /**
