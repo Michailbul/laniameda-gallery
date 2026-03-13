@@ -82,6 +82,7 @@ DEV_AUTH_FIRST_NAME=Michael
    - Load `https://telegram.org/js/telegram-widget.js?22`
    - Set `data-telegram-login=<bot_username>`
    - Use `data-onauth="__onTelegramAuth(user)"`
+   - Do **not** request `data-request-access="write"` unless you explicitly need the login bot to DM the user. Standard login-only auth should omit it to avoid Telegram confirmation-message prompts that can stall sign-in.
 
 4. **Verify payload on server (must-do)**
    - Parse and validate required fields: `id`, `first_name`, `auth_date`, `hash`.

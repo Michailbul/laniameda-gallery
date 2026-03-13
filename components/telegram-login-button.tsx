@@ -8,6 +8,9 @@ import { AuthPanel } from "@/components/ui/auth-panel";
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
   ?.trim()
   .replace(/^@+/, "");
+const REQUEST_ACCESS_MODE = process.env.NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS
+  ?.trim()
+  .toLowerCase();
 const parseBoolean = (value: string | undefined, fallback: boolean) => {
   if (!value) return fallback;
   const normalized = value.trim().toLowerCase();
@@ -131,7 +134,9 @@ export function TelegramLoginButton({
     script.async = true;
     script.dataset.telegramLogin = BOT_USERNAME;
     script.dataset.size = sizeConfig.scriptSize;
-    script.dataset.requestAccess = "write";
+    if (REQUEST_ACCESS_MODE === "write") {
+      script.dataset.requestAccess = "write";
+    }
     script.dataset.onauth = "__onTelegramAuth(user)";
 
     container.innerHTML = "";
