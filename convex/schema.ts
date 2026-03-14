@@ -160,6 +160,8 @@ export default defineSchema({
   })
     .index("by_ingestKey", ["ingestKey"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_promptId", ["promptId"])
+    .index("by_owner_promptId", ["ownerUserId", "promptId"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])

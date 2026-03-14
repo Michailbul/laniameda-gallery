@@ -5,6 +5,8 @@ import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
 
 type Pillar = "creators" | "cars" | "designs" | "dump";
+type Operation = "create" | "update" | "delete";
+type Target = "prompt" | "asset" | "designInspiration";
 type GenerationType = "image_gen" | "video_gen" | "ui_design" | "workflow" | "other";
 type PromptType =
   | "image_gen"
@@ -50,6 +52,7 @@ type DesignInspirationType =
   | "asset_pack"
   | "other";
 type DesignPlatform = "web" | "ios" | "android" | "cross_platform" | "other";
+type DesignInspirationStatus = "active" | "archived";
 
 type TypedTagInput = {
   name: string;
@@ -76,7 +79,8 @@ type DesignInspirationInput = {
 
 type PromptProfileInput = Record<string, unknown>;
 
-type IngestItem = {
+type CreateItem = {
+  operation?: "create";
   promptText?: string;
   tagNames?: string[];
   typedTags?: TypedTagInput[];
@@ -105,13 +109,56 @@ type IngestItem = {
   domain?: string;
 };
 
-type IngestActionResult = {
-  assetId?: string;
+type UpdateItem = {
+  operation: "update";
+  target: Target;
+  id?: string;
+  ingestKey?: string;
+  promptText?: string;
+  tagNames?: string[];
+  typedTags?: TypedTagInput[];
+  folderId?: string | null;
+  pillar?: Pillar | null;
+  promptType?: PromptType | null;
+  domain?: string | null;
+  modelName?: string | null;
+  modelProvider?: ModelProvider | null;
+  workflowType?: WorkflowType | null;
+  promptSections?: PromptSectionsInput | null;
+  promptProfile?: PromptProfileInput | null;
+  promptId?: string | null;
+  sourceUrl?: string | null;
+  fileName?: string | null;
+  contentType?: string | null;
+  generationType?: GenerationType | null;
+  assetRole?: AssetRole | null;
+  ingestSource?: IngestSource | null;
+  title?: string | null;
+  summary?: string | null;
+  inspirationType?: DesignInspirationType | null;
+  platform?: DesignPlatform | null;
+  status?: DesignInspirationStatus | null;
+  assetId?: string | null;
+};
+
+type DeleteItem = {
+  operation: "delete";
+  target: Target;
+  id?: string;
+  ingestKey?: string;
+};
+
+type SkillItem = CreateItem | UpdateItem | DeleteItem;
+
+type SkillActionResult = {
+  target?: Target;
+  deleted?: boolean;
   promptId?: string;
+  assetId?: string;
   designInspirationId?: string;
 };
 
-type IngestResult = IngestActionResult & {
+type SkillResult = SkillActionResult & {
   error?: string;
   input?: string;
 };
@@ -147,7 +194,7 @@ function resolveOwnerUserId(): string {
   return value;
 }
 
-function stableIngestKey(item: IngestItem): string {
+function stableIngestKey(item: CreateItem): string {
   const source = [
     item.promptText ?? "",
     item.promptSections?.finalPrompt ?? "",
@@ -160,7 +207,46 @@ function stableIngestKey(item: IngestItem): string {
   return createHash("sha256").update(source).digest("hex").slice(0, 24);
 }
 
-function buildArgs(item: IngestItem, ownerUserId: string): Record<string, unknown> {
+function getOperation(item: SkillItem): Operation {
+  return item.operation ?? "create";
+}
+
+function assertSelector(item: UpdateItem | DeleteItem) {
+  if (!item.id && !item.ingestKey) {
+    throw new Error("Update/delete requires either `id` or `ingestKey`.");
+  }
+}
+
+function assertNoMediaReplacement(item: UpdateItem) {
+  const unsupportedFields = [
+    "filePath",
+    "imagePath",
+    "fileBase64",
+    "imageBase64",
+    "url",
+    "imageUrl",
+    "designInspiration",
+  ];
+  for (const field of unsupportedFields) {
+    if (field in item) {
+      throw new Error(
+        `Update does not replace media payloads. Use delete + create instead of \`${field}\`.`,
+      );
+    }
+  }
+}
+
+function assignIfDefined(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  if (value !== undefined) {
+    target[key] = value;
+  }
+}
+
+function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, unknown> {
   const args: Record<string, unknown> = {
     ownerUserId,
     ingestSource: item.ingestSource ?? "agent",
@@ -214,39 +300,144 @@ function buildArgs(item: IngestItem, ownerUserId: string): Record<string, unknow
   return args;
 }
 
-async function ingestOne(
-  item: IngestItem,
+function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, unknown> {
+  assertSelector(item);
+  assertNoMediaReplacement(item);
+
+  const args: Record<string, unknown> = {
+    ownerUserId,
+    target: item.target,
+  };
+
+  assignIfDefined(args, "id", item.id);
+  assignIfDefined(args, "ingestKey", item.ingestKey);
+
+  if (item.target === "prompt") {
+    assignIfDefined(args, "promptText", item.promptText);
+    assignIfDefined(args, "tagNames", item.tagNames);
+    assignIfDefined(args, "typedTags", item.typedTags);
+    assignIfDefined(args, "folderId", item.folderId);
+    assignIfDefined(args, "pillar", item.pillar);
+    assignIfDefined(args, "promptType", item.promptType);
+    assignIfDefined(args, "domain", item.domain);
+    assignIfDefined(args, "modelName", item.modelName);
+    assignIfDefined(args, "modelProvider", item.modelProvider);
+    assignIfDefined(args, "workflowType", item.workflowType);
+    assignIfDefined(args, "promptSections", item.promptSections);
+    assignIfDefined(args, "promptProfile", item.promptProfile);
+    return args;
+  }
+
+  if (item.target === "asset") {
+    assignIfDefined(args, "tagNames", item.tagNames);
+    assignIfDefined(args, "typedTags", item.typedTags);
+    assignIfDefined(args, "folderId", item.folderId);
+    assignIfDefined(args, "promptId", item.promptId);
+    assignIfDefined(args, "sourceUrl", item.sourceUrl);
+    assignIfDefined(args, "fileName", item.fileName);
+    assignIfDefined(args, "contentType", item.contentType);
+    assignIfDefined(args, "modelName", item.modelName);
+    assignIfDefined(args, "pillar", item.pillar);
+    assignIfDefined(args, "generationType", item.generationType);
+    assignIfDefined(args, "assetRole", item.assetRole);
+    assignIfDefined(args, "ingestSource", item.ingestSource);
+    return args;
+  }
+
+  assignIfDefined(args, "title", item.title);
+  assignIfDefined(args, "summary", item.summary);
+  assignIfDefined(args, "sourceUrl", item.sourceUrl);
+  assignIfDefined(args, "inspirationType", item.inspirationType);
+  assignIfDefined(args, "platform", item.platform);
+  assignIfDefined(args, "workflowType", item.workflowType);
+  assignIfDefined(args, "status", item.status);
+  assignIfDefined(args, "tagNames", item.tagNames);
+  assignIfDefined(args, "typedTags", item.typedTags);
+  assignIfDefined(args, "folderId", item.folderId);
+  assignIfDefined(args, "assetId", item.assetId);
+  assignIfDefined(args, "promptId", item.promptId);
+  return args;
+}
+
+function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<string, unknown> {
+  assertSelector(item);
+
+  const args: Record<string, unknown> = {
+    ownerUserId,
+    target: item.target,
+  };
+  assignIfDefined(args, "id", item.id);
+  assignIfDefined(args, "ingestKey", item.ingestKey);
+  return args;
+}
+
+function buildActionRequest(
+  item: SkillItem,
+  ownerUserId: string,
+): { path: string; args: Record<string, unknown> } {
+  const operation = getOperation(item);
+  if (operation === "create") {
+    return {
+      path: "ingest:ingestFromApi",
+      args: buildCreateArgs(item as CreateItem, ownerUserId),
+    };
+  }
+
+  if (operation === "update") {
+    return {
+      path: "ingest:updateFromApi",
+      args: buildUpdateArgs(item as UpdateItem, ownerUserId),
+    };
+  }
+
+  return {
+    path: "ingest:deleteFromApi",
+    args: buildDeleteArgs(item as DeleteItem, ownerUserId),
+  };
+}
+
+function summarizeInput(item: SkillItem): string {
+  const operation = getOperation(item);
+  if (operation === "delete") {
+    return `${item.target}:${item.ingestKey ?? item.id ?? "unknown"}`;
+  }
+  if (operation === "update") {
+    return `${item.target}:${item.ingestKey ?? item.id ?? item.promptText ?? "unknown"}`;
+  }
+  return (
+    item.promptText?.slice(0, 80) ??
+    item.designInspiration?.title ??
+    item.filePath ??
+    item.imagePath ??
+    item.url ??
+    item.imageUrl ??
+    "unknown"
+  );
+}
+
+async function mutateOne(
+  item: SkillItem,
   ownerUserId: string,
   convexUrl: string,
-): Promise<IngestResult> {
+): Promise<SkillResult> {
   try {
-    const args = buildArgs(item, ownerUserId);
+    const request = buildActionRequest(item, ownerUserId);
     const response = await fetch(`${convexUrl}/api/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: "ingest:ingestFromApi",
-        args,
-      }),
+      body: JSON.stringify(request),
     });
 
     const result = (await response.json()) as {
       status?: string;
-      value?: IngestActionResult;
+      value?: SkillActionResult;
       errorMessage?: string;
     };
 
     if (!response.ok || result.status !== "success") {
       return {
         error: result.errorMessage ?? `HTTP ${response.status}`,
-        input:
-          item.promptText?.slice(0, 80) ??
-          item.designInspiration?.title ??
-          item.filePath ??
-          item.imagePath ??
-          item.url ??
-          item.imageUrl ??
-          "unknown",
+        input: summarizeInput(item),
       };
     }
 
@@ -254,14 +445,7 @@ async function ingestOne(
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : String(error),
-      input:
-        item.promptText?.slice(0, 80) ??
-        item.designInspiration?.title ??
-        item.filePath ??
-        item.imagePath ??
-        item.url ??
-        item.imageUrl ??
-        "unknown",
+      input: summarizeInput(item),
     };
   }
 }
@@ -272,7 +456,7 @@ if (!rawArg) {
   process.exit(1);
 }
 
-let input: IngestItem | IngestItem[];
+let input: SkillItem | SkillItem[];
 try {
   input = JSON.parse(rawArg);
 } catch (error) {
@@ -292,13 +476,13 @@ try {
 
 const items = Array.isArray(input) ? input : [input];
 if (items.length === 0) {
-  console.error("No items to ingest.");
+  console.error("No items to process.");
   process.exit(1);
 }
 
-const results: IngestResult[] = [];
+const results: SkillResult[] = [];
 for (const item of items) {
-  results.push(await ingestOne(item, ownerUserId, convexUrl));
+  results.push(await mutateOne(item, ownerUserId, convexUrl));
 }
 
 if (items.length === 1) {

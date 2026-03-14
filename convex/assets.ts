@@ -1,4 +1,4 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
@@ -234,6 +234,89 @@ export const setAssetDesignInspiration = mutation({
   },
 });
 
+export const updateAssetMetadata = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    tagIds: v.array(v.id("tags")),
+    folderId: v.optional(v.id("folders")),
+    promptId: v.optional(v.id("prompts")),
+    sourceUrl: v.optional(v.string()),
+    fileName: v.optional(v.string()),
+    contentType: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    pillar: pillarValidator,
+    generationType: generationTypeValidator,
+    assetRole: assetRoleValidator,
+    ingestSource: ingestSourceValidator,
+  },
+  returns: v.id("assets"),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
+    if (args.promptId) {
+      const prompt = await ctx.db.get(args.promptId);
+      if (!prompt) {
+        throw new ConvexError("Linked prompt not found.");
+      }
+      if (!canActorAccessOwnerUserId(ownerUserId, prompt.ownerUserId)) {
+        throw new ConvexError("Linked prompt does not belong to this user.");
+      }
+    }
+
+    const tagIds = dedupeIds(args.tagIds);
+    await ctx.db.patch(args.assetId, {
+      tagIds,
+      folderId: args.folderId,
+      promptId: args.promptId,
+      sourceUrl: args.sourceUrl,
+      fileName: args.fileName,
+      contentType: args.contentType,
+      modelName: args.modelName,
+      pillar: args.pillar,
+      generationType: args.generationType,
+      assetRole: args.assetRole,
+      ingestSource: args.ingestSource,
+    });
+
+    await bumpTagUsage(ctx, asset.tagIds, -1);
+    await bumpTagUsage(ctx, tagIds, 1);
+
+    const links = await ctx.db
+      .query("assetTags")
+      .withIndex("by_asset", (q) => q.eq("assetId", args.assetId))
+      .collect();
+    for (const link of links) {
+      await ctx.db.delete(link._id);
+    }
+    for (const tagId of tagIds) {
+      await ctx.db.insert("assetTags", {
+        assetId: args.assetId,
+        tagId,
+        createdAt: asset.createdAt,
+      });
+    }
+
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
+    });
+
+    return args.assetId;
+  },
+});
+
 export const getAsset = query({
   args: {
     id: v.id("assets"),
@@ -283,6 +366,30 @@ export const getAsset = query({
       return null;
     }
     return asset;
+  },
+});
+
+export const getAssetIdForIngestKey = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    ingestKey: v.string(),
+  },
+  returns: v.union(v.null(), v.id("assets")),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    const ingestKey = args.ingestKey.trim();
+    if (!ownerUserId || !ingestKey) {
+      return null;
+    }
+
+    const existing = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_ingestKey", (q) =>
+        q.eq("ownerUserId", ownerUserId).eq("ingestKey", ingestKey),
+      )
+      .unique();
+
+    return existing?._id ?? null;
   },
 });
 

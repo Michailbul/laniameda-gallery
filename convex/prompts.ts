@@ -1,4 +1,4 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { bumpTagUsage, dedupeIds } from "./helpers";
@@ -19,6 +19,9 @@ const reindexPromptAction = makeFunctionReference<"action">(
 );
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
+);
+const reindexDesignInspirationAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexDesignInspiration",
 );
 
 const dedupePromptIds = <T extends { _id: string }>(rows: T[]) => {
@@ -185,13 +188,46 @@ export const updatePrompt = mutation({
         q.eq("promptId", args.id).gte("createdAt", 0),
       )
       .collect();
+    const linkedDesignInspirations = await ctx.db
+      .query("designInspirations")
+      .withIndex("by_promptId", (q) => q.eq("promptId", args.id))
+      .collect();
     for (const asset of linkedAssets) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: asset._id,
       });
     }
+    for (const designInspiration of linkedDesignInspirations) {
+      await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
+        designInspirationId: designInspiration._id,
+      });
+    }
 
     return args.id;
+  },
+});
+
+export const getPromptIdForIngestKey = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    ingestKey: v.string(),
+  },
+  returns: v.union(v.null(), v.id("prompts")),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    const ingestKey = args.ingestKey.trim();
+    if (!ownerUserId || !ingestKey) {
+      return null;
+    }
+
+    const existing = await ctx.db
+      .query("prompts")
+      .withIndex("by_owner_ingestKey", (q) =>
+        q.eq("ownerUserId", ownerUserId).eq("ingestKey", ingestKey),
+      )
+      .unique();
+
+    return existing?._id ?? null;
   },
 });
 
@@ -369,6 +405,10 @@ export const deletePrompt = internalMutation({
         q.eq("promptId", args.id).gte("createdAt", 0),
       )
       .collect();
+    const linkedDesignInspirations = await ctx.db
+      .query("designInspirations")
+      .withIndex("by_promptId", (q) => q.eq("promptId", args.id))
+      .collect();
     // Delete linked promptTags
     const links = await ctx.db
       .query("promptTags")
@@ -377,11 +417,22 @@ export const deletePrompt = internalMutation({
     for (const link of links) {
       await ctx.db.delete(link._id);
     }
+    for (const designInspiration of linkedDesignInspirations) {
+      await ctx.db.patch(designInspiration._id, {
+        promptId: undefined,
+        updatedAt: Date.now(),
+      });
+    }
     await ctx.db.delete(args.id);
     await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: args.id });
     for (const asset of linkedAssets) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: asset._id,
+      });
+    }
+    for (const designInspiration of linkedDesignInspirations) {
+      await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
+        designInspirationId: designInspiration._id,
       });
     }
     return null;
@@ -400,6 +451,10 @@ export const bulkDeletePrompts = internalMutation({
           q.eq("promptId", id).gte("createdAt", 0),
         )
         .collect();
+      const linkedDesignInspirations = await ctx.db
+        .query("designInspirations")
+        .withIndex("by_promptId", (q) => q.eq("promptId", id))
+        .collect();
       const links = await ctx.db
         .query("promptTags")
         .withIndex("by_prompt", (q) => q.eq("promptId", id))
@@ -407,11 +462,22 @@ export const bulkDeletePrompts = internalMutation({
       for (const link of links) {
         await ctx.db.delete(link._id);
       }
+      for (const designInspiration of linkedDesignInspirations) {
+        await ctx.db.patch(designInspiration._id, {
+          promptId: undefined,
+          updatedAt: Date.now(),
+        });
+      }
       await ctx.db.delete(id);
       await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: id });
       for (const asset of linkedAssets) {
         await ctx.scheduler.runAfter(0, reindexAssetAction, {
           assetId: asset._id,
+        });
+      }
+      for (const designInspiration of linkedDesignInspirations) {
+        await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
+          designInspirationId: designInspiration._id,
         });
       }
       count++;
