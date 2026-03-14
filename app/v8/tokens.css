@@ -55,6 +55,9 @@
   --v7-pillar-designs: #5d6bfa;
   --v7-pillar-dump: #2eb8b4;
 
+  /* Scope pill shadow */
+  --v7-scope-pill-shadow: rgba(44, 24, 12, 0.08);
+
   /* Shadows (hard, offset) */
   --v7-shadow-sm: 2px 2px 0 rgba(32, 23, 16, 0.12);
   --v7-shadow-md: 3px 3px 0 rgba(32, 23, 16, 0.16);
@@ -106,6 +109,8 @@
     --v7-accent-dim: rgba(255, 138, 118, 0.12);
     --v7-accent-hover: #ff9e8d;
 
+    --v7-scope-pill-shadow: rgba(0, 0, 0, 0.25);
+
     --v7-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.30);
     --v7-shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.40);
     --v7-shadow-lg: 4px 4px 0 rgba(0, 0, 0, 0.50);
@@ -146,6 +151,8 @@
   --v7-accent: #ff8a76;
   --v7-accent-dim: rgba(255, 138, 118, 0.12);
   --v7-accent-hover: #ff9e8d;
+
+  --v7-scope-pill-shadow: rgba(0, 0, 0, 0.25);
 
   --v7-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.30);
   --v7-shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.40);
@@ -412,6 +419,18 @@
   height: 20px;
   background: rgba(0, 0, 0, 0.10);
   flex-shrink: 0;
+}
+
+/* Search dock */
+.v7-search-dock {
+  border-radius: 999px;
+}
+
+/* Search input placeholder */
+.v7-search-dock input::placeholder,
+.v7-search-input input::placeholder {
+  color: var(--v7-text-ghost);
+  opacity: 1;
 }
 
 /* Grid background subtle pattern */

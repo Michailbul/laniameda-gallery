@@ -26,9 +26,6 @@ interface V72FilterBarProps {
   galleryScope: GalleryScope;
   canAccessMyGallery: boolean;
   onGalleryScopeChange: (scope: GalleryScope) => void;
-  assetSearchQuery: string;
-  onAssetSearchQueryChange: (query: string) => void;
-  semanticSearchLoading?: boolean;
   tags: TagItem[];
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
@@ -58,9 +55,6 @@ export function V72FilterBar({
   galleryScope,
   canAccessMyGallery,
   onGalleryScopeChange,
-  assetSearchQuery,
-  onAssetSearchQueryChange,
-  semanticSearchLoading = false,
   tags,
   selectedTags,
   onTagToggle,
@@ -144,7 +138,6 @@ export function V72FilterBar({
         }}
       >
         <div
-          className="flex flex-col gap-3"
           style={{ padding: "14px 16px 10px" }}
         >
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -155,7 +148,7 @@ export function V72FilterBar({
                   borderRadius: "14px",
                   border: "2px solid var(--v7-ink)",
                   overflow: "hidden",
-                  boxShadow: "0 10px 30px rgba(44, 24, 12, 0.08)",
+                  boxShadow: "0 10px 30px var(--v7-scope-pill-shadow, rgba(44, 24, 12, 0.08))",
                 }}
               >
                 <ScopePill
@@ -230,179 +223,6 @@ export function V72FilterBar({
               ) : null}
             </div>
           </div>
-
-          {hasTags ? (
-            <div
-              className="flex flex-col gap-2 rounded-[18px] px-1 py-1 md:flex-row md:items-center md:justify-between"
-              style={{
-                background:
-                  "linear-gradient(180deg, rgba(255,255,255,0.58), rgba(255,255,255,0.22))",
-                border: "1px solid rgba(44, 24, 12, 0.08)",
-              }}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 md:flex-initial md:min-w-[280px]">
-                  <div
-                    className="flex min-w-0 flex-1 items-center gap-2 px-3"
-                    style={{
-                      minHeight: "36px",
-                      border: "2px solid var(--v7-ink)",
-                      borderRadius: "999px",
-                      backgroundColor: "rgba(255, 253, 250, 0.9)",
-                    }}
-                  >
-                    <Search className="h-3.5 w-3.5 shrink-0" />
-                    <input
-                      value={assetSearchQuery}
-                      onChange={(event) =>
-                        onAssetSearchQueryChange(event.target.value)
-                      }
-                      placeholder="SEARCH VAULT..."
-                      className="min-w-0 flex-1 bg-transparent py-1 outline-none"
-                      style={{
-                        fontFamily: "var(--v7-font)",
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--v7-text-primary)",
-                      }}
-                      aria-label="Search gallery"
-                    />
-                    {assetSearchQuery ? (
-                      <button
-                        type="button"
-                        onClick={() => onAssetSearchQueryChange("")}
-                        className="flex h-5 w-5 items-center justify-center rounded-full transition-colors"
-                        style={{ color: "var(--v7-text-ghost)" }}
-                        aria-label="Clear gallery search"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    ) : semanticSearchLoading ? (
-                      <span
-                        style={{
-                          fontSize: "9px",
-                          fontWeight: 800,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.12em",
-                          color: "var(--v7-coral)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Searching
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {searchOpen ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5 md:flex-initial">
-                    <div
-                      className="flex min-w-0 flex-1 items-center gap-2 px-3"
-                      style={{
-                        minHeight: "36px",
-                        border: "2px solid var(--v7-ink)",
-                        borderRadius: "999px",
-                        backgroundColor: "rgba(255, 253, 250, 0.9)",
-                      }}
-                    >
-                      <Search className="h-3.5 w-3.5 shrink-0" />
-                      <input
-                        ref={searchInputRef}
-                        value={searchQuery}
-                        onChange={(event) =>
-                          setSearchQuery(event.target.value)
-                        }
-                        placeholder="FILTER TAGS..."
-                        className="min-w-0 flex-1 bg-transparent py-1 outline-none"
-                        style={{
-                          fontFamily: "var(--v7-font)",
-                          fontSize: "10px",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.12em",
-                          color: "var(--v7-text-primary)",
-                        }}
-                        aria-label="Search tags"
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") closeSearch();
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={closeSearch}
-                      className="flex h-9 w-9 items-center justify-center transition-colors"
-                      style={{
-                        color: "var(--v7-text-ghost)",
-                        border: "2px solid var(--v7-border-strong)",
-                        borderRadius: "999px",
-                      }}
-                      aria-label="Close search"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={openSearch}
-                    className="flex h-9 items-center gap-2 px-4 transition-colors"
-                    style={{
-                      border: "2px solid var(--v7-border-strong)",
-                      borderRadius: "999px",
-                      color: "var(--v7-text-ghost)",
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.16em",
-                      fontFamily: "var(--v7-font)",
-                      backgroundColor: "rgba(255, 253, 250, 0.7)",
-                    }}
-                    aria-label="Search tags"
-                  >
-                    <Search className="h-3 w-3" />
-                    Search tags
-                  </button>
-                )}
-
-                {selectedTags.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={onClearAllTags}
-                    className="flex items-center gap-1.5 px-3 py-2 transition-colors"
-                    style={{
-                      backgroundColor: "var(--v7-coral)",
-                      color: "#000",
-                      fontSize: "9px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.12em",
-                      borderRadius: "999px",
-                      boxShadow: "0 0 12px rgba(255, 122, 100, 0.3)",
-                      fontFamily: "var(--v7-font)",
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5" />
-                    Clear {selectedTags.length}
-                  </button>
-                ) : null}
-              </div>
-
-              <div
-                className="px-2"
-                style={{
-                  color: "var(--v7-text-ghost)",
-                  fontFamily: "var(--v7-font)",
-                  fontSize: "9px",
-                  fontWeight: 700,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {tagSummaryLabel}
-              </div>
-            </div>
-          ) : null}
         </div>
 
         <div
@@ -463,95 +283,194 @@ export function V72FilterBar({
                 margin: "0 16px",
               }}
             />
-            <div
-              ref={tagScrollRef}
-              className="flex items-center gap-1.5 overflow-x-auto px-4 py-2"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
-              onWheel={(event) => {
-                const element = tagScrollRef.current;
-                if (!element || event.deltaY === 0) return;
-                if (element.scrollWidth <= element.clientWidth) return;
-                const atStart = element.scrollLeft <= 0;
-                const atEnd =
-                  element.scrollLeft + element.clientWidth >=
-                  element.scrollWidth - 1;
-                if ((event.deltaY < 0 && atStart) || (event.deltaY > 0 && atEnd)) {
-                  return;
-                }
-                event.preventDefault();
-                element.scrollLeft += event.deltaY;
-              }}
-            >
-              {hasFilteredTags ? (
-                filteredTags.map((tag) => {
-                  const isActive = selectedTagSet.has(tag._id);
-                  return (
-                    <button
-                      key={tag._id}
-                      type="button"
-                      onClick={() => onTagToggle(tag._id)}
+            <div className="flex items-center gap-2 px-3 py-2">
+              {/* Inline tag search + clear */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {searchOpen ? (
+                  <div
+                    className="v7-search-input flex items-center gap-1.5 px-2.5"
+                    style={{
+                      minHeight: "30px",
+                      border: "2px solid var(--v7-ink)",
+                      borderRadius: "999px",
+                      backgroundColor: "var(--v7-surface-1)",
+                    }}
+                  >
+                    <Search className="h-3 w-3 shrink-0" style={{ color: "var(--v7-text-ghost)" }} />
+                    <input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="FILTER..."
+                      className="min-w-0 bg-transparent py-0.5 outline-none"
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "4px 11px",
                         fontFamily: "var(--v7-font)",
                         fontSize: "10px",
-                        fontWeight: isActive ? 700 : 600,
                         textTransform: "uppercase",
-                        letterSpacing: "0.10em",
-                        border: isActive
-                          ? "2px solid var(--v7-coral)"
-                          : "2px solid var(--v7-border)",
-                        color: isActive
-                          ? "var(--v7-coral)"
-                          : "var(--v7-text-secondary)",
-                        backgroundColor: isActive
-                          ? "var(--v7-accent-dim)"
-                          : "rgba(255, 255, 255, 0.52)",
-                        cursor: "pointer",
-                        transition: "all var(--v7-duration-fast)",
-                        borderRadius: "999px",
-                        boxShadow: isActive
-                          ? "0 0 10px rgba(255, 122, 100, 0.2)"
-                          : "inset 0 1px 0 rgba(255,255,255,0.55)",
-                        whiteSpace: "nowrap",
-                        flexShrink: 0,
+                        letterSpacing: "0.12em",
+                        color: "var(--v7-text-primary)",
+                        width: "80px",
                       }}
+                      aria-label="Search tags"
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") closeSearch();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={closeSearch}
+                      className="flex items-center justify-center"
+                      style={{ color: "var(--v7-text-ghost)" }}
+                      aria-label="Close tag search"
                     >
-                      {tag.name}
-                      {tag.usageCount != null && tag.usageCount > 0 ? (
-                        <span
-                          style={{
-                            opacity: 0.5,
-                            fontSize: "8px",
-                            fontWeight: 800,
-                          }}
-                        >
-                          {tag.usageCount}
-                        </span>
-                      ) : null}
+                      <X className="h-3 w-3" />
                     </button>
-                  );
-                })
-              ) : (
-                <div
-                  className="px-3 py-2"
-                  style={{
-                    color: "var(--v7-text-ghost)",
-                    fontFamily: "var(--v7-font)",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.14em",
-                  }}
-                >
-                  No tags match this search
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openSearch}
+                    className="flex items-center justify-center shrink-0 transition-colors"
+                    style={{
+                      width: "30px",
+                      height: "30px",
+                      border: "2px solid var(--v7-border-strong)",
+                      borderRadius: "999px",
+                      color: "var(--v7-text-ghost)",
+                    }}
+                    aria-label="Search tags"
+                  >
+                    <Search className="h-3 w-3" />
+                  </button>
+                )}
+                {selectedTags.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={onClearAllTags}
+                    className="flex items-center gap-1 px-2.5 py-1 transition-colors"
+                    style={{
+                      backgroundColor: "var(--v7-coral)",
+                      color: "#000",
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                      borderRadius: "999px",
+                      fontFamily: "var(--v7-font)",
+                    }}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                    Clear {selectedTags.length}
+                  </button>
+                ) : null}
+              </div>
+
+              {/* Scrollable tag pills */}
+              <div
+                ref={tagScrollRef}
+                className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1"
+                style={{
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+                onWheel={(event) => {
+                  const element = tagScrollRef.current;
+                  if (!element || event.deltaY === 0) return;
+                  if (element.scrollWidth <= element.clientWidth) return;
+                  const atStart = element.scrollLeft <= 0;
+                  const atEnd =
+                    element.scrollLeft + element.clientWidth >=
+                    element.scrollWidth - 1;
+                  if ((event.deltaY < 0 && atStart) || (event.deltaY > 0 && atEnd)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  element.scrollLeft += event.deltaY;
+                }}
+              >
+                {hasFilteredTags ? (
+                  filteredTags.map((tag) => {
+                    const isActive = selectedTagSet.has(tag._id);
+                    return (
+                      <button
+                        key={tag._id}
+                        type="button"
+                        onClick={() => onTagToggle(tag._id)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          padding: "4px 11px",
+                          fontFamily: "var(--v7-font)",
+                          fontSize: "10px",
+                          fontWeight: isActive ? 700 : 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.10em",
+                          border: isActive
+                            ? "2px solid var(--v7-coral)"
+                            : "2px solid var(--v7-border)",
+                          color: isActive
+                            ? "var(--v7-coral)"
+                            : "var(--v7-text-secondary)",
+                          backgroundColor: isActive
+                            ? "var(--v7-accent-dim)"
+                            : "var(--v7-surface-1)",
+                          cursor: "pointer",
+                          transition: "all var(--v7-duration-fast)",
+                          borderRadius: "999px",
+                          boxShadow: isActive
+                            ? "0 0 10px rgba(255, 122, 100, 0.2)"
+                            : "none",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {tag.name}
+                        {tag.usageCount != null && tag.usageCount > 0 ? (
+                          <span
+                            style={{
+                              opacity: 0.5,
+                              fontSize: "8px",
+                              fontWeight: 800,
+                            }}
+                          >
+                            {tag.usageCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div
+                    className="px-3 py-2"
+                    style={{
+                      color: "var(--v7-text-ghost)",
+                      fontFamily: "var(--v7-font)",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                    }}
+                  >
+                    No tags match this search
+                  </div>
+                )}
+              </div>
+
+              {/* Tag count */}
+              <div
+                className="shrink-0"
+                style={{
+                  color: "var(--v7-text-ghost)",
+                  fontFamily: "var(--v7-font)",
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {tagSummaryLabel}
+              </div>
             </div>
           </>
         ) : null}
