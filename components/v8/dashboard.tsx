@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
+import { ExpandingSearchDock } from "@/components/ui/expanding-search-dock";
 import { V72Sidebar } from "./sidebar";
 import {
   V72FilterBar,
@@ -145,20 +146,36 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sidebarCollapsed, setSidebarCollapsed] =
-    useState<boolean>(() => {
-      if (typeof window === "undefined") return false;
-      return (
-        localStorage.getItem("laniameda-sidebar-collapsed") ===
-        "true"
-      );
-    });
+    useState<boolean>(false);
 
-  const [theme, setTheme] = useState<"light" | "dark" | "system">(() => {
-    if (typeof window === "undefined") return "system";
-    return (localStorage.getItem("laniameda-theme") as "light" | "dark") ?? "system";
-  });
+  const [theme, setTheme] = useState<"light" | "dark" | "system">(
+    "system",
+  );
+  const [themePreferenceHydrated, setThemePreferenceHydrated] =
+    useState(false);
 
   useEffect(() => {
+    setSidebarCollapsed(
+      localStorage.getItem("laniameda-sidebar-collapsed") === "true",
+    );
+
+    const persistedTheme = localStorage.getItem("laniameda-theme");
+    if (
+      persistedTheme === "light" ||
+      persistedTheme === "dark" ||
+      persistedTheme === "system"
+    ) {
+      setTheme(persistedTheme);
+    }
+
+    setThemePreferenceHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!themePreferenceHydrated) {
+      return;
+    }
+
     const root = document.documentElement;
     if (theme === "system") {
       root.removeAttribute("data-theme");
@@ -166,7 +183,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       root.setAttribute("data-theme", theme);
     }
     localStorage.setItem("laniameda-theme", theme);
-  }, [theme]);
+  }, [theme, themePreferenceHydrated]);
 
   const [selectedImage, setSelectedImage] =
     useState<SelectedImage | null>(null);
@@ -1498,16 +1515,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               galleryScope={galleryScope}
               canAccessMyGallery={canAccessMyGallery}
               onGalleryScopeChange={setGalleryScope}
-              assetSearchQuery={assetSearchQuery}
-              onAssetSearchQueryChange={(query) => {
-                setAssetSearchQuery(query);
-                setSemanticError(undefined);
-                if (query.trim().length > 0 && semanticMode?.kind === "similar") {
-                  setSemanticMode(null);
-                  setSemanticResults(null);
-                }
-              }}
-              semanticSearchLoading={semanticLoading}
               tags={allTags}
               selectedTags={selectedTags}
               onTagToggle={handleTagToggle}
@@ -1519,6 +1526,27 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               viewMode={viewMode}
               onViewModeChange={setViewMode}
             />
+
+            {/* Central Search Dock */}
+            <div className="flex justify-center px-4 py-2">
+              <ExpandingSearchDock
+                value={assetSearchQuery}
+                onChange={(query) => {
+                  setAssetSearchQuery(query);
+                  setSemanticError(undefined);
+                  if (query.trim().length > 0 && semanticMode?.kind === "similar") {
+                    setSemanticMode(null);
+                    setSemanticResults(null);
+                  }
+                }}
+                onClear={() => {
+                  setAssetSearchQuery("");
+                  setSemanticError(undefined);
+                }}
+                placeholder="SEARCH VAULT..."
+                loading={semanticLoading}
+              />
+            </div>
 
             {(semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
