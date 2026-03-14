@@ -135,6 +135,8 @@ export function V72FilterBar({
           borderRadius: "28px",
           overflow: "hidden",
           marginBottom: "12px",
+          boxShadow:
+            "0 0 0 1px color-mix(in srgb, var(--gradient-3) 12%, transparent), 0 0 24px color-mix(in srgb, var(--gradient-3) 8%, transparent), 0 4px 16px rgba(0, 0, 0, 0.06)",
         }}
       >
         <div
@@ -349,8 +351,8 @@ export function V72FilterBar({
                     onClick={onClearAllTags}
                     className="flex items-center gap-1 px-2.5 py-1 transition-colors"
                     style={{
-                      backgroundColor: "var(--v7-coral)",
-                      color: "#000",
+                      background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+                      color: "#fff",
                       fontSize: "9px",
                       fontWeight: 800,
                       textTransform: "uppercase",
@@ -407,13 +409,13 @@ export function V72FilterBar({
                           textTransform: "uppercase",
                           letterSpacing: "0.10em",
                           border: isActive
-                            ? "2px solid var(--v7-coral)"
+                            ? "2px solid var(--gradient-3)"
                             : "2px solid var(--v7-border)",
                           color: isActive
-                            ? "var(--v7-coral)"
+                            ? "#fff"
                             : "var(--v7-text-secondary)",
-                          backgroundColor: isActive
-                            ? "var(--v7-accent-dim)"
+                          background: isActive
+                            ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
                             : "var(--v7-surface-1)",
                           cursor: "pointer",
                           transition: "all var(--v7-duration-fast)",
@@ -496,11 +498,13 @@ function SortPills({
           style={{
             padding: "4px 10px",
             borderRadius: "12px",
-            backgroundColor:
-              sortOrder === option.value ? "var(--v7-ink)" : "transparent",
+            background:
+              sortOrder === option.value
+                ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+                : "transparent",
             color:
               sortOrder === option.value
-                ? "var(--v7-paper)"
+                ? "#fff"
                 : "var(--v7-text-ghost)",
             fontSize: "9px",
             fontWeight: 700,
@@ -508,7 +512,7 @@ function SortPills({
             letterSpacing: "0.14em",
             border:
               sortOrder === option.value
-                ? "2px solid var(--v7-ink)"
+                ? "2px solid var(--gradient-1)"
                 : "2px solid transparent",
             transition: "all var(--v7-duration-fast)",
             cursor: "pointer",
@@ -549,11 +553,13 @@ function ViewModeToggle({
         className="flex items-center justify-center transition-colors"
         style={{
           padding: buttonPadding,
-          backgroundColor:
-            viewMode === "grid" ? "var(--v7-ink)" : "transparent",
+          background:
+            viewMode === "grid"
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+              : "transparent",
           color:
             viewMode === "grid"
-              ? "var(--v7-paper)"
+              ? "#fff"
               : "var(--v7-text-ghost)",
         }}
         aria-label="Grid view"
@@ -573,11 +579,13 @@ function ViewModeToggle({
         className="flex items-center justify-center transition-colors"
         style={{
           padding: buttonPadding,
-          backgroundColor:
-            viewMode === "canvas" ? "var(--v7-ink)" : "transparent",
+          background:
+            viewMode === "canvas"
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+              : "transparent",
           color:
             viewMode === "canvas"
-              ? "var(--v7-paper)"
+              ? "#fff"
               : "var(--v7-text-ghost)",
         }}
         aria-label="Canvas view"
@@ -610,13 +618,13 @@ function ScopePill({
       disabled={disabled}
       className="flex items-center px-3 py-1 transition-colors disabled:opacity-30"
       style={{
-        backgroundColor: isAccentActive
-          ? "var(--v7-coral)"
+        background: isAccentActive
+          ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
           : active
             ? "var(--v7-ink)"
             : "transparent",
         color: isAccentActive
-          ? "#000"
+          ? "#fff"
           : active
             ? "var(--v7-paper)"
             : "var(--v7-text-ghost)",

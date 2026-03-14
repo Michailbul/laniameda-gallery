@@ -155,6 +155,13 @@
     rgba(8, 4, 2, 0.1) 50%,
     transparent 100%
   );
+  --image-card-prompt-sheet-bg: linear-gradient(
+    180deg,
+    rgba(15, 12, 10, 0) 0%,
+    rgba(15, 12, 10, 0.14) 18%,
+    rgba(15, 12, 10, 0.5) 56%,
+    rgba(15, 12, 10, 0.7) 100%
+  );
   --image-card-overlay-text: rgba(255, 255, 255, 0.85);
   --image-card-text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   --image-card-action-bg: rgba(255, 255, 255, 0.08);
@@ -209,6 +216,18 @@
   --text-size-xl: 24px;
   --text-size-2xl: 32px;
   --text-size-3xl: 48px;
+
+  /* Gradient palette — coral (light mode) */
+  --gradient-1: #e8614f;
+  --gradient-2: #f06a58;
+  --gradient-3: #ff7a64;
+  --gradient-4: #ff8a74;
+  --gradient-5: #ff917d;
+  --gradient-6: #ffa791;
+  --gradient-7: #ffb7a8;
+  --gradient-8: #ffc9ba;
+  --gradient-9: #ffd6ca;
+  --gradient-10: #ffe2d8;
 
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 64px;
@@ -283,6 +302,18 @@
     --shadow-elevated: 0 20px 40px -10px rgba(0,0,0,0.40);
     --shadow-brutal: 4px 4px 0 0 rgba(0,0,0,0.50);
     --shadow-brutal-sm: 2px 2px 0 0 rgba(0,0,0,0.40);
+
+    /* Gradient palette — ember (dark mode) */
+    --gradient-1: #ff4800;
+    --gradient-2: #ff5400;
+    --gradient-3: #ff6000;
+    --gradient-4: #ff6d00;
+    --gradient-5: #ff7900;
+    --gradient-6: #ff8500;
+    --gradient-7: #ff9100;
+    --gradient-8: #ff9e00;
+    --gradient-9: #ffaa00;
+    --gradient-10: #ffb600;
   }
 }
 
@@ -327,6 +358,18 @@
   --shadow-elevated: 0 20px 40px -10px rgba(0,0,0,0.40);
   --shadow-brutal: 4px 4px 0 0 rgba(0,0,0,0.50);
   --shadow-brutal-sm: 2px 2px 0 0 rgba(0,0,0,0.40);
+
+  /* Gradient palette — ember (dark mode) */
+  --gradient-1: #ff4800;
+  --gradient-2: #ff5400;
+  --gradient-3: #ff6000;
+  --gradient-4: #ff6d00;
+  --gradient-5: #ff7900;
+  --gradient-6: #ff8500;
+  --gradient-7: #ff9100;
+  --gradient-8: #ff9e00;
+  --gradient-9: #ffaa00;
+  --gradient-10: #ffb600;
 }
 
 /* ===== PER-PILLAR ACCENT OVERRIDES ===== */
@@ -691,6 +734,22 @@
   to { opacity: 0; }
 }
 
+@keyframes gradient-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes coral-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes gradient-sweep {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 /* ===== REDUCED MOTION ===== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -992,6 +1051,20 @@
   .empty-state-cta:active {
     box-shadow: none !important;
     transform: translate(0, 0);
+  }
+
+  /* Gradient component utilities */
+  .animate-gradient-pulse {
+    animation: gradient-pulse 2s ease-in-out infinite;
+  }
+
+  .animate-coral-shimmer {
+    animation: coral-shimmer 1.8s ease-in-out infinite;
+  }
+
+  .animate-gradient-sweep {
+    animation: gradient-sweep 3s ease-in-out infinite;
+    background-size: 200% 200%;
   }
 
   /* Fade-out utility */

@@ -73,7 +73,7 @@ export const AnimatedDock = ({
         background: "rgba(255, 250, 245, 0.82)",
         border: "1px solid var(--border-default)",
         boxShadow:
-          "0 4px 12px rgba(32,23,16,0.08), 0 2px 4px rgba(32,23,16,0.04)",
+          "0 0 0 1px color-mix(in srgb, var(--gradient-3) 15%, transparent), 0 4px 20px color-mix(in srgb, var(--gradient-3) 12%, transparent), 0 2px 4px rgba(32,23,16,0.04)",
       }}
       layout
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
@@ -213,8 +213,12 @@ export const DockItem = ({ mouseX, children }: DockItemProps) => {
   return (
     <motion.div
       ref={ref}
-      style={{ width }}
-      className="aspect-square w-10 rounded-full bg-primary flex items-center justify-center"
+      style={{
+        width,
+        background:
+          "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))",
+      }}
+      className="aspect-square w-10 rounded-full flex items-center justify-center"
     >
       <motion.div
         style={{ scale: iconSpring }}

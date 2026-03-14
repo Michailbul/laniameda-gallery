@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
+import { GradientButton } from "@/components/ui/gradient-button";
+import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import { V72Sidebar } from "./sidebar";
 import {
   V72FilterBar,
@@ -1455,6 +1457,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   };
 
   return (
+    <CoralToastProvider>
     <div
       className="v7-brutal h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
@@ -1874,24 +1877,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       )}
 
       {/* Floating add (desktop only) */}
-      <button
-        type="button"
+      <GradientButton
+        variant="default"
+        size="icon"
+        glow
         onClick={() => setUploadOpen(true)}
-        className={`fixed bottom-6 z-40 flex items-center justify-center transition-all active:scale-95 ${selectedImage ? "hidden" : "hidden md:flex"}`}
-        style={{
-          right: "24px",
-          width: "52px",
-          height: "52px",
-          backgroundColor: "var(--v7-ink)",
-          color: "var(--v7-coral)",
-          border: "3px solid var(--v7-ink)",
-          boxShadow: "0 0 20px rgba(255, 122, 100, 0.2), 0 4px 16px rgba(0, 0, 0, 0.12)",
-          borderRadius: "16px",
-        }}
+        className={`fixed bottom-6 right-6 z-40 ${selectedImage ? "hidden" : "hidden md:flex"}`}
         aria-label="Add to library"
       >
         <Plus className="h-5 w-5" />
-      </button>
+      </GradientButton>
 
       {/* Mobile bottom nav */}
       {!selectedImage && (
@@ -1963,5 +1958,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         onClose={() => setWorkspaceOpen(false)}
       />
     </div>
+    </CoralToastProvider>
   );
 }

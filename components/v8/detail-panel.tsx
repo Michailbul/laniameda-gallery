@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatAssetCreatedAt, resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
+import { useCoralToastSafe } from "@/components/ui/coral-toast";
 
 type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
 
@@ -80,6 +81,7 @@ interface V72DetailPanelProps {
   onFindSimilar?: (imageId: string) => void;
   similarBusy?: boolean;
   similarActive?: boolean;
+  toast?: (title: string, message?: string, type?: "success" | "warning" | "info" | "default") => void;
 }
 
 const ACTIONS = [
@@ -132,7 +134,10 @@ export function V72DetailPanel({
   onFindSimilar,
   similarBusy = false,
   similarActive = false,
+  toast: externalToast,
 }: V72DetailPanelProps) {
+  const coralCtx = useCoralToastSafe();
+  const toastFn = externalToast ?? coralCtx?.toast ?? null;
   const { modelName, tagNames } = image;
   const [activeTab, setActiveTab] = useState<DetailTab>("INFO");
   const [copied, setCopied] = useState(false);
@@ -201,6 +206,13 @@ export function V72DetailPanel({
   }, [copyMenuOpen]);
 
   const showToast = useCallback((label: string) => {
+    if (toastFn) {
+      setCopied(true);
+      setCopyMenuOpen(false);
+      toastFn("Copied", label, "success");
+      setTimeout(() => setCopied(false), 1800);
+      return;
+    }
     setCopied(true);
     setCopiedLabel(label);
     setCopyMenuOpen(false);
@@ -214,7 +226,7 @@ export function V72DetailPanel({
         setCopied(false);
       }, 200);
     }, 1800);
-  }, []);
+  }, [toastFn]);
 
   const handleCopy = async (text?: string) => {
     await navigator.clipboard.writeText(text ?? image.prompt);
@@ -1209,8 +1221,8 @@ export function V72DetailPanel({
         </div>
       </div>
 
-      {/* Toast */}
-      {toastVisible && (
+      {/* Inline toast fallback — hidden when CoralToast is available */}
+      {!toastFn && toastVisible && (
         <div
           className={`pointer-events-none absolute inset-x-4 bottom-4 z-10 flex items-center justify-center ${toastExiting ? "animate-toast-exit-v7" : "animate-toast-enter-v7"}`}
         >
