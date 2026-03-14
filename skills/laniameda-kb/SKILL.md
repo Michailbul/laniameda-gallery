@@ -33,8 +33,16 @@ Use `references/schema-contract.md` for a quick map and `references/ingest-examp
 
 The script reads these env vars at runtime:
 
-- `KB_OWNER_USER_ID` — required
-- `CONVEX_URL` — required; falls back to `NEXT_PUBLIC_CONVEX_URL` if present
+- `KB_OWNER_USER_ID` — required. **Value: `278674008`** (Michael's Telegram user ID). Stored in `/root/.openclaw/.env`.
+- `CONVEX_URL` — required; falls back to `NEXT_PUBLIC_CONVEX_URL` if present.
+
+**Active deployment (always use dev):**
+```
+CONVEX_URL=https://perfect-buffalo-375.convex.cloud
+KB_OWNER_USER_ID=278674008
+```
+
+Both are already set in `/root/.openclaw/.env`. Do not use the prod deployment (`robust-gnu-269`) — it returns server errors on ingest.
 
 ## Supported content
 
@@ -73,12 +81,57 @@ Refresh installed GitHub-backed skills:
 bun run skills:update
 ```
 
+## Validator quick reference
+
+These are the valid enum values the Convex schema enforces — use these or ingest will fail:
+
+**`modelProvider`:** `openai`, `anthropic`, `google`, `xai`, `meta`, `flux`, `midjourney`, `runway`, `other`
+→ Use `other` for Kora Reality / Enhancor and any non-listed providers.
+
+**`workflowType`:** `component_prompt`, `page_prompt`, `system_prompt`, `asset_recipe`, `other`
+
+**`typedTags[].category`:** `model_name`, `style`, `content_type`, `platform`, `color`, `camera_angle`, `lighting`, `composition`, `car_make`, `car_model`, `car_angle`, `environment`, `design_style`, `design_type`, `workflow_type`, `component_type`, `custom`
+→ No `subject` — use `content_type` instead.
+
+**`promptSections` fields:** `finalPrompt` (required), `generationNotes` (optional), `negativePrompt` (optional)
+→ No other keys — extra fields cause validation errors.
+
+## Update workflow (important)
+
+**Always edit the canonical source first:**
+
+```
+~/work/laniameda/laniameda.gallery/skills/laniameda-kb/SKILL.md
+```
+
+Then push to GitHub:
+
+```bash
+cd ~/work/laniameda/laniameda.gallery
+git add skills/laniameda-kb/
+git commit -m "update laniameda-kb skill"
+git push
+```
+
+Then refresh installed copies across all agents:
+
+```bash
+bun run skills:update
+# or manually:
+npx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y
+```
+
+Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills/` are **disposable** — source of truth is always the repo.
+
 ## Script
 
 Example invocation:
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators"}'
+CONVEX_URL=https://perfect-buffalo-375.convex.cloud KB_OWNER_USER_ID=278674008 \
+  bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators"}'
 ```
+
+If env vars are already set in `.env`, you can omit the inline prefix.
 
 If the installed path is different for your agent runtime, use that runtime's installed `laniameda-kb/scripts/ingest.ts` path instead.
