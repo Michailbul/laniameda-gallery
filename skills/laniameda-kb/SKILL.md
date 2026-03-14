@@ -52,6 +52,16 @@ Both are already set in `/root/.openclaw/.env`. Do not use the prod deployment (
 - Design inspiration records for non-prompt design references
 - Batched ingestion via JSON array
 
+## CRITICAL: Screenshots and prompt images
+
+When Michael sends a **screenshot of a prompt** or **image containing text/JSON**:
+- **DO NOT** use that image as the `imagePath` or asset
+- **DO** read the image, extract the text/prompt from it, and put it in `finalPrompt`
+- The image is the delivery mechanism, not the content
+- The content is the prompt text inside it
+
+Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
+
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
