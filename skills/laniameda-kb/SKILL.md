@@ -148,6 +148,13 @@ bun run skills:update
 npx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y
 ```
 
+**When Michael says he pushed updates to the gallery repo:**
+Run this immediately:
+```bash
+cd ~/work/laniameda/laniameda.gallery && git pull && bun run skills:update
+```
+No need to ask — just pull and update.
+
 Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills/` are **disposable** — source of truth is always the repo.
 
 ## Script
