@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
-import { ExpandingSearchDock } from "@/components/ui/expanding-search-dock";
 import { V72Sidebar } from "./sidebar";
 import {
   V72FilterBar,
@@ -21,6 +20,8 @@ import { V72DetailPanel } from "./detail-panel";
 import { UploadModal } from "@/components/upload-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { AnimatedDock } from "@/components/ui/animated-dock";
+import { Home, Bell, User, Settings } from "lucide-react";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -1527,26 +1528,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               onViewModeChange={setViewMode}
             />
 
-            {/* Central Search Dock */}
-            <div className="flex justify-center px-4 py-2">
-              <ExpandingSearchDock
-                value={assetSearchQuery}
-                onChange={(query) => {
-                  setAssetSearchQuery(query);
-                  setSemanticError(undefined);
-                  if (query.trim().length > 0 && semanticMode?.kind === "similar") {
-                    setSemanticMode(null);
-                    setSemanticResults(null);
-                  }
-                }}
-                onClear={() => {
-                  setAssetSearchQuery("");
-                  setSemanticError(undefined);
-                }}
-                placeholder="SEARCH VAULT..."
-                loading={semanticLoading}
-              />
-            </div>
+            {/* Search Vault is now in the bottom dock */}
 
             {(semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
@@ -1919,6 +1901,46 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           onSignOut={onSignOut}
         />
       )}
+
+      {/* Desktop bottom dock — centered to content area */}
+      <div
+        className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none"
+        style={{
+          left: sidebarCollapsed
+            ? "var(--v7-sidebar-collapsed)"
+            : "var(--v7-sidebar-width)",
+          right: selectedImage ? "440px" : "0",
+          transition:
+            "left var(--v7-duration-normal) ease-out, right var(--v7-duration-normal) ease-out",
+        }}
+      >
+        <div className="pointer-events-auto">
+          <AnimatedDock
+            items={[
+              { link: "/", Icon: <Home size={20} /> },
+              { link: "#", Icon: <SearchIcon size={20} />, isSearch: true },
+              { link: "#", Icon: <Bell size={20} /> },
+              { link: "#", Icon: <User size={20} /> },
+              { link: "#", Icon: <Settings size={20} />, onClick: () => setUploadOpen(true) },
+            ]}
+            searchValue={assetSearchQuery}
+            onSearchChange={(query) => {
+              setAssetSearchQuery(query);
+              setSemanticError(undefined);
+              if (query.trim().length > 0 && semanticMode?.kind === "similar") {
+                setSemanticMode(null);
+                setSemanticResults(null);
+              }
+            }}
+            onSearchClear={() => {
+              setAssetSearchQuery("");
+              setSemanticError(undefined);
+            }}
+            searchPlaceholder="SEARCH VAULT..."
+            searchLoading={semanticLoading}
+          />
+        </div>
+      </div>
 
       {/* Modals */}
       <UploadModal
