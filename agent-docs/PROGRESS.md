@@ -11,6 +11,7 @@ Last updated: 2026-03-13
 ### 2026-03-13
 - Canonical repo-backed `laniameda-kb` skill added under `skills/laniameda-kb/` with GitHub/local `npx skills` install workflows
 - Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
+- Explicit ingest management contract added: `update` + `delete` actions/routes for prompts, assets, and design inspirations, plus skill support for all three operations
 
 ### 2026-03-07
 - Telegram integration split: dedicated login token (`TELEGRAM_LOGIN_BOT_TOKEN`) and dedicated Convex notification token (`TELEGRAM_NOTIFY_BOT_TOKEN`) with legacy fallback support

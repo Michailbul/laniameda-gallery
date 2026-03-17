@@ -1,4 +1,4 @@
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
@@ -319,6 +319,30 @@ export const getDesignInspiration = query({
       return null;
     }
     return inspiration;
+  },
+});
+
+export const getDesignInspirationIdForIngestKey = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    ingestKey: v.string(),
+  },
+  returns: v.union(v.null(), v.id("designInspirations")),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    const ingestKey = args.ingestKey.trim();
+    if (!ownerUserId || !ingestKey) {
+      return null;
+    }
+
+    const existing = await ctx.db
+      .query("designInspirations")
+      .withIndex("by_owner_ingestKey", (q) =>
+        q.eq("ownerUserId", ownerUserId).eq("ingestKey", ingestKey),
+      )
+      .unique();
+
+    return existing?._id ?? null;
   },
 });
 

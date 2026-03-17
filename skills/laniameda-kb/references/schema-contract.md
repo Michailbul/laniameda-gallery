@@ -53,5 +53,8 @@ These are maintained by backend mutations; callers usually pass tag names or typ
 ## Runtime notes
 
 - `ingest:ingestFromApi` is the canonical external ingest action.
+- `ingest:updateFromApi` is the canonical external metadata update action.
+- `ingest:deleteFromApi` is the canonical external delete action.
 - `app/api/ingest/route.ts` maps session-authenticated browser calls to the same backend contract.
+- `app/api/ingest/update/route.ts` and `app/api/ingest/delete/route.ts` expose session-authenticated update/delete routes.
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.

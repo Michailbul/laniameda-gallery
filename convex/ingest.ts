@@ -1,13 +1,14 @@
 "use node";
 
 import { Jimp, JimpMime } from "jimp";
-import { action } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+import { action, type ActionCtx } from "./_generated/server";
+import { v, ConvexError, type Infer } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import {
   assetRoleValidator,
+  designInspirationStatusValidator,
   designInspirationTypeValidator,
   designPlatformValidator,
   generationTypeValidator,
@@ -22,6 +23,17 @@ import {
 } from "./validators";
 
 type Pillar = "creators" | "cars" | "designs" | "dump";
+type PromptType = Infer<typeof promptTypeValidator>;
+type GenerationType = Infer<typeof generationTypeValidator>;
+type ModelProvider = Infer<typeof modelProviderValidator>;
+type WorkflowType = Infer<typeof workflowTypeValidator>;
+type PromptSections = Infer<typeof promptSectionsValidator>;
+type PromptProfile = Infer<typeof promptProfileValidator>;
+type AssetRole = Infer<typeof assetRoleValidator>;
+type IngestSource = Infer<typeof ingestSourceValidator>;
+type DesignInspirationType = Infer<typeof designInspirationTypeValidator>;
+type DesignPlatform = Infer<typeof designPlatformValidator>;
+type DesignInspirationStatus = Infer<typeof designInspirationStatusValidator>;
 type TagCategory =
   | "model_name"
   | "style"
@@ -57,6 +69,51 @@ const designInspirationInputValidator = v.object({
   inspirationType: designInspirationTypeValidator,
   platform: designPlatformValidator,
   workflowType: workflowTypeValidator,
+  ingestKey: v.optional(v.string()),
+});
+
+const targetValidator = v.union(
+  v.literal("prompt"),
+  v.literal("asset"),
+  v.literal("designInspiration"),
+);
+
+const updateArgsValidator = v.object({
+  ownerUserId: v.string(),
+  target: targetValidator,
+  id: v.optional(v.union(v.id("prompts"), v.id("assets"), v.id("designInspirations"))),
+  ingestKey: v.optional(v.string()),
+  promptText: v.optional(v.string()),
+  tagNames: v.optional(v.array(v.string())),
+  typedTags: v.optional(v.array(typedTagInputValidator)),
+  folderId: v.optional(v.union(v.null(), v.id("folders"))),
+  pillar: v.optional(v.union(v.null(), v.string())),
+  promptType: v.optional(v.union(v.null(), v.string())),
+  domain: v.optional(v.union(v.null(), v.string())),
+  modelName: v.optional(v.union(v.null(), v.string())),
+  modelProvider: v.optional(v.union(v.null(), v.string())),
+  workflowType: v.optional(v.union(v.null(), v.string())),
+  promptSections: v.optional(v.union(v.null(), v.any())),
+  promptProfile: v.optional(v.union(v.null(), v.any())),
+  promptId: v.optional(v.union(v.null(), v.id("prompts"))),
+  sourceUrl: v.optional(v.union(v.null(), v.string())),
+  fileName: v.optional(v.union(v.null(), v.string())),
+  contentType: v.optional(v.union(v.null(), v.string())),
+  generationType: v.optional(v.union(v.null(), v.string())),
+  assetRole: v.optional(v.union(v.null(), v.string())),
+  ingestSource: v.optional(v.union(v.null(), v.string())),
+  title: v.optional(v.union(v.null(), v.string())),
+  summary: v.optional(v.union(v.null(), v.string())),
+  inspirationType: v.optional(v.union(v.null(), v.string())),
+  platform: v.optional(v.union(v.null(), v.string())),
+  status: v.optional(v.union(v.null(), v.string())),
+  assetId: v.optional(v.union(v.null(), v.id("assets"))),
+});
+
+const deleteArgsValidator = v.object({
+  ownerUserId: v.string(),
+  target: targetValidator,
+  id: v.optional(v.union(v.id("prompts"), v.id("assets"), v.id("designInspirations"))),
   ingestKey: v.optional(v.string()),
 });
 
@@ -116,6 +173,132 @@ const normalizeTypedTags = (
     });
   }
   return normalized;
+};
+
+const resolveTagIds = async (
+  ctx: ActionCtx,
+  input: {
+    ownerUserId: string;
+    pillar?: Pillar;
+    tagNames?: string[];
+    typedTags?: Array<{
+      name: string;
+      category?: TagCategory;
+      pillar?: Pillar;
+      source?: TagSource;
+    }>;
+  },
+) => {
+  const normalizedTagNames = normalizeTags(input.tagNames ?? []);
+  const tagInputs = normalizeTypedTags([
+    ...(input.typedTags ?? []),
+    ...normalizedTagNames.map((name) => ({
+      name,
+      category: undefined,
+      pillar: input.pillar,
+      source: "user" as const,
+    })),
+  ]);
+
+  if (tagInputs.length === 0) {
+    return [] as Id<"tags">[];
+  }
+
+  return (await ctx.runMutation(getOrCreateTagsWithMetadataMutation, {
+    tags: tagInputs,
+  })) as Id<"tags">[];
+};
+
+const normalizeOptionalString = (value: string | null | undefined) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const hasOwn = <T extends object>(value: T, key: PropertyKey) =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const resolvePromptId = async (
+  ctx: ActionCtx,
+  ownerUserId: string,
+  selector: { id?: Id<"prompts">; ingestKey?: string },
+) => {
+  if (selector.id) {
+    const prompt = (await ctx.runQuery(api.prompts.getPrompt, {
+      id: selector.id,
+      ownerUserId,
+    })) as { _id: Id<"prompts"> } | null;
+    return prompt?._id;
+  }
+
+  const ingestKey = selector.ingestKey?.trim();
+  if (!ingestKey) {
+    return undefined;
+  }
+
+  return (await ctx.runQuery(internal.prompts.getPromptIdForIngestKey, {
+    ownerUserId,
+    ingestKey,
+  })) as Id<"prompts"> | null;
+};
+
+const resolveAssetId = async (
+  ctx: ActionCtx,
+  ownerUserId: string,
+  selector: { id?: Id<"assets">; ingestKey?: string },
+) => {
+  if (selector.id) {
+    const asset = (await ctx.runQuery(api.assets.getAsset, {
+      id: selector.id,
+      ownerUserId,
+    })) as { _id: Id<"assets"> } | null;
+    return asset?._id;
+  }
+
+  const ingestKey = selector.ingestKey?.trim();
+  if (!ingestKey) {
+    return undefined;
+  }
+
+  return (await ctx.runQuery(internal.assets.getAssetIdForIngestKey, {
+    ownerUserId,
+    ingestKey,
+  })) as Id<"assets"> | null;
+};
+
+const resolveDesignInspirationId = async (
+  ctx: ActionCtx,
+  ownerUserId: string,
+  selector: { id?: Id<"designInspirations">; ingestKey?: string },
+) => {
+  if (selector.id) {
+    const designInspiration = (await ctx.runQuery(
+      api.designInspirations.getDesignInspiration,
+      {
+        id: selector.id,
+        ownerUserId,
+      },
+    )) as { _id: Id<"designInspirations"> } | null;
+    return designInspiration?._id;
+  }
+
+  const ingestKey = selector.ingestKey?.trim();
+  if (!ingestKey) {
+    return undefined;
+  }
+
+  return (await ctx.runQuery(
+    internal.designInspirations.getDesignInspirationIdForIngestKey,
+    {
+      ownerUserId,
+      ingestKey,
+    },
+  )) as Id<"designInspirations"> | null;
 };
 
 export const ingestFromApi: ReturnType<typeof action> = action({
@@ -354,6 +537,312 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     return {
       assetId,
       promptId,
+      designInspirationId,
+    };
+  },
+});
+
+export const updateFromApi: ReturnType<typeof action> = action({
+  args: updateArgsValidator,
+  returns: v.object({
+    target: targetValidator,
+    promptId: v.optional(v.id("prompts")),
+    assetId: v.optional(v.id("assets")),
+    designInspirationId: v.optional(v.id("designInspirations")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    if (args.target === "prompt") {
+      const promptId = await resolvePromptId(ctx, ownerUserId, {
+        id: args.id as Id<"prompts"> | undefined,
+        ingestKey: args.ingestKey,
+      });
+      if (!promptId) {
+        throw new ConvexError("Prompt not found.");
+      }
+
+      const existing = await ctx.runQuery(api.prompts.getPrompt, {
+        id: promptId,
+        ownerUserId,
+      });
+      if (!existing) {
+        throw new ConvexError("Prompt not found.");
+      }
+
+      const nextPillar =
+        hasOwn(args, "pillar") ? (args.pillar ?? undefined) : existing.pillar;
+      const shouldReplaceTags = args.tagNames !== undefined || args.typedTags !== undefined;
+      const tagIds = shouldReplaceTags
+        ? await resolveTagIds(ctx, {
+            ownerUserId,
+            pillar: nextPillar as Pillar | undefined,
+            tagNames: args.tagNames ?? [],
+            typedTags: args.typedTags,
+          })
+        : existing.tagIds;
+
+      const nextPromptSections =
+        hasOwn(args, "promptSections")
+          ? (args.promptSections ?? undefined)
+          : existing.promptSections;
+      const nextText =
+        args.promptText?.trim() ||
+        nextPromptSections?.finalPrompt.trim() ||
+        existing.text;
+
+      const updatedPromptId = (await ctx.runMutation(api.prompts.updatePrompt, {
+        ownerUserId,
+        id: promptId,
+        text: nextText,
+        tagIds,
+        folderId:
+          hasOwn(args, "folderId") ? (args.folderId ?? undefined) : existing.folderId,
+        pillar: nextPillar as Pillar | undefined,
+        promptType:
+          hasOwn(args, "promptType")
+            ? ((args.promptType ?? undefined) as PromptType)
+            : existing.promptType,
+        domain:
+          hasOwn(args, "domain") ? normalizeOptionalString(args.domain) : existing.domain,
+        modelName:
+          hasOwn(args, "modelName")
+            ? normalizeOptionalString(args.modelName)
+            : existing.modelName,
+        modelProvider:
+          hasOwn(args, "modelProvider")
+            ? ((args.modelProvider ?? undefined) as ModelProvider)
+            : existing.modelProvider,
+        workflowType:
+          hasOwn(args, "workflowType")
+            ? ((args.workflowType ?? undefined) as WorkflowType)
+            : existing.workflowType,
+        promptSections: nextPromptSections as PromptSections,
+        promptProfile:
+          hasOwn(args, "promptProfile")
+            ? ((args.promptProfile ?? undefined) as PromptProfile)
+            : existing.promptProfile,
+      })) as Id<"prompts">;
+
+      return {
+        target: "prompt" as const,
+        promptId: updatedPromptId,
+      };
+    }
+
+    if (args.target === "asset") {
+      const assetId = await resolveAssetId(ctx, ownerUserId, {
+        id: args.id as Id<"assets"> | undefined,
+        ingestKey: args.ingestKey,
+      });
+      if (!assetId) {
+        throw new ConvexError("Asset not found.");
+      }
+
+      const existing = await ctx.runQuery(api.assets.getAsset, {
+        id: assetId,
+        ownerUserId,
+      });
+      if (!existing) {
+        throw new ConvexError("Asset not found.");
+      }
+
+      const nextPillar =
+        hasOwn(args, "pillar") ? (args.pillar ?? undefined) : existing.pillar;
+      const shouldReplaceTags = args.tagNames !== undefined || args.typedTags !== undefined;
+      const tagIds = shouldReplaceTags
+        ? await resolveTagIds(ctx, {
+            ownerUserId,
+            pillar: nextPillar as Pillar | undefined,
+            tagNames: args.tagNames ?? [],
+            typedTags: args.typedTags,
+          })
+        : existing.tagIds;
+
+      const updatedAssetId = (await ctx.runMutation(api.assets.updateAssetMetadata, {
+        ownerUserId,
+        assetId,
+        tagIds,
+        folderId:
+          hasOwn(args, "folderId") ? (args.folderId ?? undefined) : existing.folderId,
+        promptId:
+          hasOwn(args, "promptId") ? (args.promptId ?? undefined) : existing.promptId,
+        sourceUrl:
+          hasOwn(args, "sourceUrl")
+            ? normalizeOptionalString(args.sourceUrl)
+            : existing.sourceUrl,
+        fileName:
+          hasOwn(args, "fileName")
+            ? normalizeOptionalString(args.fileName)
+            : existing.fileName,
+        contentType:
+          hasOwn(args, "contentType")
+            ? normalizeOptionalString(args.contentType)
+            : existing.contentType,
+        modelName:
+          hasOwn(args, "modelName")
+            ? normalizeOptionalString(args.modelName)
+            : existing.modelName,
+        pillar: nextPillar as Pillar | undefined,
+        generationType:
+          hasOwn(args, "generationType")
+            ? ((args.generationType ?? undefined) as GenerationType)
+            : existing.generationType,
+        assetRole:
+          hasOwn(args, "assetRole")
+            ? ((args.assetRole ?? undefined) as AssetRole)
+            : existing.assetRole,
+        ingestSource:
+          hasOwn(args, "ingestSource")
+            ? ((args.ingestSource ?? undefined) as IngestSource)
+            : existing.ingestSource,
+      })) as Id<"assets">;
+
+      return {
+        target: "asset" as const,
+        assetId: updatedAssetId,
+      };
+    }
+
+    const designInspirationId = await resolveDesignInspirationId(ctx, ownerUserId, {
+      id: args.id as Id<"designInspirations"> | undefined,
+      ingestKey: args.ingestKey,
+    });
+    if (!designInspirationId) {
+      throw new ConvexError("Design inspiration not found.");
+    }
+
+    const existing = await ctx.runQuery(api.designInspirations.getDesignInspiration, {
+      id: designInspirationId,
+      ownerUserId,
+    });
+    if (!existing) {
+      throw new ConvexError("Design inspiration not found.");
+    }
+
+    const shouldReplaceTags = args.tagNames !== undefined || args.typedTags !== undefined;
+    const tagIds = shouldReplaceTags
+      ? await resolveTagIds(ctx, {
+          ownerUserId,
+          pillar: "designs",
+          tagNames: args.tagNames ?? [],
+          typedTags: args.typedTags,
+        })
+      : existing.tagIds;
+
+    const updatedDesignInspirationId = (await ctx.runMutation(
+      api.designInspirations.updateDesignInspiration,
+      {
+        ownerUserId,
+        id: designInspirationId,
+        title: hasOwn(args, "title") ? normalizeOptionalString(args.title) : existing.title,
+        summary: hasOwn(args, "summary")
+          ? normalizeOptionalString(args.summary)
+          : existing.summary,
+        sourceUrl: hasOwn(args, "sourceUrl")
+          ? normalizeOptionalString(args.sourceUrl)
+          : existing.sourceUrl,
+        inspirationType:
+          hasOwn(args, "inspirationType")
+            ? ((args.inspirationType ?? existing.inspirationType) as DesignInspirationType)
+            : existing.inspirationType,
+        platform:
+          hasOwn(args, "platform")
+            ? ((args.platform ?? undefined) as DesignPlatform)
+            : existing.platform,
+        workflowType:
+          hasOwn(args, "workflowType")
+            ? ((args.workflowType ?? undefined) as WorkflowType)
+            : existing.workflowType,
+        status: hasOwn(args, "status")
+          ? ((args.status ?? undefined) as DesignInspirationStatus)
+          : existing.status,
+        tagIds,
+        folderId:
+          hasOwn(args, "folderId") ? (args.folderId ?? undefined) : existing.folderId,
+        assetId: hasOwn(args, "assetId") ? (args.assetId ?? undefined) : existing.assetId,
+        promptId:
+          hasOwn(args, "promptId") ? (args.promptId ?? undefined) : existing.promptId,
+      },
+    )) as Id<"designInspirations">;
+
+    return {
+      target: "designInspiration" as const,
+      designInspirationId: updatedDesignInspirationId,
+    };
+  },
+});
+
+export const deleteFromApi: ReturnType<typeof action> = action({
+  args: deleteArgsValidator,
+  returns: v.object({
+    target: targetValidator,
+    deleted: v.boolean(),
+    promptId: v.optional(v.id("prompts")),
+    assetId: v.optional(v.id("assets")),
+    designInspirationId: v.optional(v.id("designInspirations")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    if (args.target === "prompt") {
+      const promptId = await resolvePromptId(ctx, ownerUserId, {
+        id: args.id as Id<"prompts"> | undefined,
+        ingestKey: args.ingestKey,
+      });
+      if (!promptId) {
+        return { target: "prompt" as const, deleted: false };
+      }
+
+      await ctx.runMutation(internal.prompts.deletePrompt, { id: promptId });
+      return {
+        target: "prompt" as const,
+        deleted: true,
+        promptId,
+      };
+    }
+
+    if (args.target === "asset") {
+      const assetId = await resolveAssetId(ctx, ownerUserId, {
+        id: args.id as Id<"assets"> | undefined,
+        ingestKey: args.ingestKey,
+      });
+      if (!assetId) {
+        return { target: "asset" as const, deleted: false };
+      }
+
+      await ctx.runMutation(api.assets.deleteAsset, {
+        id: assetId,
+        ownerUserId,
+      });
+      return {
+        target: "asset" as const,
+        deleted: true,
+        assetId,
+      };
+    }
+
+    const designInspirationId = await resolveDesignInspirationId(ctx, ownerUserId, {
+      id: args.id as Id<"designInspirations"> | undefined,
+      ingestKey: args.ingestKey,
+    });
+    if (!designInspirationId) {
+      return { target: "designInspiration" as const, deleted: false };
+    }
+
+    await ctx.runMutation(api.designInspirations.deleteDesignInspiration, {
+      id: designInspirationId,
+      ownerUserId,
+    });
+    return {
+      target: "designInspiration" as const,
+      deleted: true,
       designInspirationId,
     };
   },

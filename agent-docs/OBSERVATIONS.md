@@ -34,6 +34,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 ## Ingest
 
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
+- `ingestKey` is not a patch key. Use `ingest:updateFromApi` or `ingest:deleteFromApi` for record changes after creation.
 - `laniameda-kb` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
 - Canonical agent skill source is `skills/laniameda-kb/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
 - Telegram ingest confirmations are sent by Convex using `TELEGRAM_NOTIFY_BOT_TOKEN` (legacy fallback `TELEGRAM_BOT_TOKEN`).
