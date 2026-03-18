@@ -3,7 +3,7 @@
 > Single source of truth for all work items.
 > Statuses: `🔥 active` | `✅ ready` | `📋 backlog` | `🧊 icebox` | `✔ done`
 
-Last updated: 2026-03-03
+Last updated: 2026-03-17
 
 ---
 
@@ -42,11 +42,7 @@ Last updated: 2026-03-03
 
 ## ✅ Ready — Defined, next in queue
 
-| ID | Title | P | Effort | Detail |
-|----|-------|---|--------|--------|
-| AUTH-01 | WorkOS + Google login (Phase 1) | P1 | L | `features/workos-auth/TICKET.md` |
-| AUTH-02 | Telegram ↔ WorkOS account linking (Phase 2) | P1 | XL | `features/workos-auth/TICKET.md` |
-| AUTH-03 | Unified identity in all queries (Phase 3) | P2 | M | `features/workos-auth/TICKET.md` |
+No queued ready items. Promote from backlog after the production hardening pass lands.
 
 ---
 

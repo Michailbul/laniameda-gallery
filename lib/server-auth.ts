@@ -1,20 +1,24 @@
-import { getSessionUser, type TelegramUser } from "@/lib/telegram-auth";
+import { getAppUser } from "@/lib/server/app-user";
 
 export interface AuthenticatedUser {
   id: string;
+  ownerUserId: string;
+  convexUserId: string;
   source: "telegram";
   telegramId: string;
   name?: string;
 }
 
 export async function getAuthUser(): Promise<AuthenticatedUser | null> {
-  const telegramUser: TelegramUser | null = await getSessionUser();
-  if (telegramUser) {
+  const appUser = await getAppUser();
+  if (appUser) {
     return {
-      id: telegramUser.telegramId,
+      id: appUser.ownerUserId,
+      ownerUserId: appUser.ownerUserId,
+      convexUserId: appUser.convexUserId,
       source: "telegram",
-      telegramId: telegramUser.telegramId,
-      name: [telegramUser.firstName, telegramUser.lastName].filter(Boolean).join(" ") || undefined,
+      telegramId: appUser.telegramId ?? appUser.ownerUserId,
+      name: appUser.name,
     };
   }
 

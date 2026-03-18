@@ -123,6 +123,7 @@ export const convexRuns = {
       selectedTelegramMediaIds: string[];
       selectedUrls: string[];
       notes?: string;
+      allowPromptOnly?: boolean;
     };
     mediaFiles: Array<{
       mediaId: string;

@@ -28,7 +28,9 @@ Quick reference for all docs in this folder.
 
 ## Features
 
-Each feature has its own folder under `features/`. Structure per folder:
+Each feature has its own folder under `features/`. Keep only current or landed feature docs on `main`; branch-local planning docs should stay on the feature branch, not accumulate here.
+
+Structure per folder:
 
 ```
 features/<feature-name>/
@@ -43,9 +45,7 @@ features/<feature-name>/
 |--------|--------|----------|
 | `features/dashboard-polish/` | 🔥 Active sprint | `SPRINT.md` — SP-01 to SP-13 tickets |
 | `features/image-focus-mode/` | ✔ Done (Phase 1) | `PRD.md`, `TICKETS-PHASE1.md` |
-| `features/workos-auth/` | ✅ Ready | `TICKET.md` — phases 1–3 |
 | `features/gallery-entry-v2/` | 📋 Backlog | `TICKET.md` — entry model (multi-image/prompt mapping) + hover actions + side-panel carousel |
-| `features/image-prompt-generator/` | 📋 Backlog | `research/` — placeholder |
 
 ---
 

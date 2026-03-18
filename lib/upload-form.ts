@@ -2,6 +2,7 @@ import { buildIngestKey, parseTagNames } from "@/lib/ingest";
 
 export type UploadFormInput = {
   promptText: string;
+  allowPromptOnly?: boolean;
   url?: string | null;
   folderId?: string | null;
   tags?: string[];
@@ -15,6 +16,7 @@ export type UploadFormInput = {
 
 export const buildUploadFormData = ({
   promptText,
+  allowPromptOnly,
   url,
   folderId,
   tags,
@@ -32,6 +34,9 @@ export const buildUploadFormData = ({
   if (trimmedPrompt) {
     formData.append("prompt", trimmedPrompt);
     formData.append("promptText", trimmedPrompt);
+  }
+  if (allowPromptOnly) {
+    formData.append("allowPromptOnly", "true");
   }
 
   if (trimmedUrl) {

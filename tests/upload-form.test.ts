@@ -45,4 +45,16 @@ describe("buildUploadFormData", () => {
     expect(formData.get("folderId")).toBeNull();
     expect(formData.getAll("tags")).toEqual(["one", "two"]);
   });
+
+  test("marks intentional prompt-only submissions explicitly", () => {
+    const formData = buildUploadFormData({
+      promptText: "Just text",
+      allowPromptOnly: true,
+    });
+
+    expect(formData.get("prompt")).toBe("Just text");
+    expect(formData.get("allowPromptOnly")).toBe("true");
+    expect(formData.get("url")).toBeNull();
+    expect(formData.get("file")).toBeNull();
+  });
 });

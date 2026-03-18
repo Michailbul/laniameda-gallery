@@ -1,17 +1,9 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { requireAuth } from "@/lib/server-auth";
+import { getServerConvexClient } from "@/lib/server/convex";
 
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
-
-const getConvexClient = () => {
-  const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("CONVEX_URL is not configured.");
-  }
-  return new ConvexHttpClient(url);
-};
 
 const readJson = async (request: Request) => {
   try {
@@ -34,7 +26,7 @@ export async function POST(request: Request) {
       ownerUserId: authUser.id,
     };
 
-    const client = getConvexClient();
+    const client = getServerConvexClient();
     const result = await client.action(updateAction, payload);
 
     return NextResponse.json({ ok: true, result });
