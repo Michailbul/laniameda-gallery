@@ -151,25 +151,36 @@ const main = async () => {
         })
       : undefined;
 
-    await client.mutation(api.assets.createAsset, {
-      ownerUserId,
-      kind: "image",
-      storageId,
-      thumbStorageId,
-      sourceUrl: undefined,
-      fileName,
-      contentType,
-      size: buffer.byteLength,
-      width: metadata.width ?? undefined,
-      height: metadata.height ?? undefined,
-      thumbSize: thumbBuffer.byteLength,
-      thumbWidth: thumbMeta.width ?? undefined,
-      thumbHeight: thumbMeta.height ?? undefined,
-      promptId: promptResult?.promptId,
-      tagIds: [],
-      folderId: undefined,
-      ingestKey,
-    });
+    try {
+      await client.mutation(api.assets.createAsset, {
+        ownerUserId,
+        kind: "image",
+        storageId,
+        thumbStorageId,
+        sourceUrl: undefined,
+        fileName,
+        contentType,
+        size: buffer.byteLength,
+        width: metadata.width ?? undefined,
+        height: metadata.height ?? undefined,
+        thumbSize: thumbBuffer.byteLength,
+        thumbWidth: thumbMeta.width ?? undefined,
+        thumbHeight: thumbMeta.height ?? undefined,
+        promptId: promptResult?.promptId,
+        tagIds: [],
+        folderId: undefined,
+        ingestKey,
+      });
+    } catch (error) {
+      if (promptResult?.created) {
+        await client.action(api.ingest.deleteFromApi, {
+          ownerUserId,
+          target: "prompt",
+          id: promptResult.promptId,
+        });
+      }
+      throw error;
+    }
   }
 
   console.log(`Local ingest complete: ${files.length} file(s).`);

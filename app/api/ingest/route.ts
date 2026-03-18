@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { requireAuth } from "@/lib/server-auth";
 import { buildIngestKey, fileToBase64, parseTagNames } from "@/lib/ingest";
+import { getServerConvexClient } from "@/lib/server/convex";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const recordIngestFailureMutation = makeFunctionReference<"mutation">(
@@ -11,14 +11,6 @@ const recordIngestFailureMutation = makeFunctionReference<"mutation">(
 const resolveIngestFailureMutation = makeFunctionReference<"mutation">(
   "ingest_failures:resolveIngestFailure",
 );
-
-const getConvexClient = () => {
-  const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("CONVEX_URL is not configured.");
-  }
-  return new ConvexHttpClient(url);
-};
 
 const readJson = async (request: Request) => {
   try {
@@ -43,6 +35,23 @@ const parseOptionalJsonField = <T = unknown>(value: FormDataEntryValue | null) =
   }
 };
 
+const parseOptionalBoolean = (value: unknown) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return undefined;
+};
+
 const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
   const file =
     payload.file && typeof payload.file === "object"
@@ -52,6 +61,7 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
   return {
     ownerUserId: payload.ownerUserId,
     promptText: payload.promptText,
+    allowPromptOnly: payload.allowPromptOnly,
     url: payload.url,
     folderId: payload.folderId,
     ingestKey: payload.ingestKey,
@@ -80,6 +90,27 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
   };
 };
 
+const resolvePromptText = ({
+  promptText,
+  promptSections,
+}: {
+  promptText?: string;
+  promptSections?: Record<string, unknown>;
+}) => {
+  const trimmedPromptText = promptText?.trim();
+  if (trimmedPromptText) {
+    return trimmedPromptText;
+  }
+
+  const finalPrompt = promptSections?.finalPrompt;
+  if (typeof finalPrompt !== "string") {
+    return undefined;
+  }
+
+  const trimmedFinalPrompt = finalPrompt.trim();
+  return trimmedFinalPrompt || undefined;
+};
+
 export async function POST(request: Request) {
   let ownerUserId: string | undefined;
   let finalIngestKey: string | undefined;
@@ -91,6 +122,7 @@ export async function POST(request: Request) {
 
     const contentType = request.headers.get("content-type") || "";
     let promptText: string | undefined;
+    let allowPromptOnly: boolean | undefined;
     let url: string | undefined;
     let folderId: string | undefined;
     let ingestKey: string | undefined;
@@ -117,6 +149,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
       }
       promptText = typeof data.promptText === "string" ? data.promptText : undefined;
+      allowPromptOnly = parseOptionalBoolean(data.allowPromptOnly);
       url = typeof data.url === "string" ? data.url : undefined;
       folderId = typeof data.folderId === "string" ? data.folderId : undefined;
       ingestKey = typeof data.ingestKey === "string" ? data.ingestKey : undefined;
@@ -159,6 +192,7 @@ export async function POST(request: Request) {
       const form = await request.formData();
       const promptValue = form.get("prompt");
       const urlValue = form.get("url");
+      const allowPromptOnlyValue = form.get("allowPromptOnly");
       const folderValue = form.get("folderId");
       const ingestValue = form.get("ingestKey");
       const promptIngestValue = form.get("promptIngestKey");
@@ -166,6 +200,7 @@ export async function POST(request: Request) {
       const fileValue = form.get("file");
 
       promptText = typeof promptValue === "string" ? promptValue : undefined;
+      allowPromptOnly = parseOptionalBoolean(allowPromptOnlyValue);
       url = typeof urlValue === "string" ? urlValue : undefined;
       folderId = typeof folderValue === "string" ? folderValue : undefined;
       ingestKey = typeof ingestValue === "string" ? ingestValue : undefined;
@@ -212,6 +247,31 @@ export async function POST(request: Request) {
         parseOptionalJsonField<Record<string, unknown>>(designInspirationValue);
     }
 
+    const resolvedPromptText = resolvePromptText({
+      promptText,
+      promptSections,
+    });
+    const hasMediaInput = Boolean(url || file);
+    const hasDesignInspirationInput = Boolean(designInspiration);
+    const isPromptOnlyIngest =
+      Boolean(resolvedPromptText) &&
+      !hasMediaInput &&
+      !hasDesignInspirationInput;
+
+    if (!resolvedPromptText && !hasMediaInput && !hasDesignInspirationInput) {
+      return NextResponse.json(
+        { error: "Provide prompt content, URL, file, or design inspiration." },
+        { status: 400 },
+      );
+    }
+
+    if (isPromptOnlyIngest && allowPromptOnly !== true) {
+      return NextResponse.json(
+        { error: "Prompt-only ingest requires allowPromptOnly=true." },
+        { status: 400 },
+      );
+    }
+
     finalIngestKey = buildIngestKey({
       ingestKey,
       url,
@@ -222,6 +282,7 @@ export async function POST(request: Request) {
     const payload: Record<string, unknown> = {
       ownerUserId,
       promptText,
+      allowPromptOnly,
       url,
       folderId,
       ingestKey: finalIngestKey,
@@ -252,7 +313,7 @@ export async function POST(request: Request) {
 
     failurePayload = sanitizeFailurePayload(payload);
 
-    const client = getConvexClient();
+    const client = getServerConvexClient();
     const result = await client.action(ingestAction, payload);
 
     if (ownerUserId && finalIngestKey) {
@@ -270,7 +331,7 @@ export async function POST(request: Request) {
 
     if (ownerUserId) {
       try {
-        const client = getConvexClient();
+        const client = getServerConvexClient();
         const failureRecord = await client.mutation(recordIngestFailureMutation, {
           source: "api",
           ownerUserId,

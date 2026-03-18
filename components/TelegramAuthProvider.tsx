@@ -8,19 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-export interface TelegramUser {
-  telegramId: string;
-  firstName: string;
-  lastName?: string;
-  username?: string;
-  photoUrl?: string;
-}
+import type { AppUser, AuthMeResponse } from "@/lib/auth-types";
+import { requestJson } from "@/lib/app-api";
 
 interface TelegramAuthContextValue {
-  user: TelegramUser | null;
+  user: AppUser | null;
   isLoading: boolean;
-  /** Call after the Telegram widget callback succeeds to refresh session. */
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -37,14 +30,13 @@ export function useTelegramAuth() {
 }
 
 export function TelegramAuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<TelegramUser | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchMe = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth/me");
-      const data = await res.json();
-      setUser(data.user ?? null);
+      const data = await requestJson<AuthMeResponse>("/api/auth/me");
+      setUser(data.user);
     } catch {
       setUser(null);
     } finally {

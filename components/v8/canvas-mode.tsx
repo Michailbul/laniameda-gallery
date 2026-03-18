@@ -2,10 +2,9 @@
 
 import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { CanvasImage } from "@/components/canvas-view";
+import { requestJson } from "@/lib/app-api";
 
 const CanvasView = dynamic(
   () =>
@@ -115,13 +114,9 @@ function CanvasModeWithSync({
   const [localPositions, setLocalPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [syncDisabled, setSyncDisabled] = useState(false);
-  const queryArgs =
-    syncEnabled && !syncDisabled && ownerUserId ? { ownerUserId } : "skip";
-
-  const canvasPositionsRaw = useQuery(api.canvasPositions.listPositions, queryArgs);
-  const batchUpsertPositionsMutation = useMutation(
-    api.canvasPositions.batchUpsertPositions,
-  );
+  const [canvasPositionsRaw, setCanvasPositionsRaw] = useState<
+    Array<{ assetId: string; x: number; y: number }>
+  >([]);
   const pendingPositionUpdates = useRef(new Map<string, { x: number; y: number }>());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -131,9 +126,35 @@ function CanvasModeWithSync({
     };
   }, []);
 
+  useEffect(() => {
+    if (!syncEnabled || syncDisabled || !ownerUserId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void requestJson<{
+      positions: Array<{ assetId: string; x: number; y: number }>;
+    }>("/api/canvas/positions")
+      .then((payload) => {
+        if (!cancelled) {
+          setCanvasPositionsRaw(payload.positions ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCanvasPositionsRaw([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerUserId, syncDisabled, syncEnabled]);
+
   const positions = useMemo(() => {
     const map = new Map<string, { x: number; y: number }>();
-    if (canvasPositionsRaw) {
+    if (syncEnabled && !syncDisabled && ownerUserId) {
       for (const position of canvasPositionsRaw) {
         map.set(position.assetId, { x: position.x, y: position.y });
       }
@@ -142,7 +163,7 @@ function CanvasModeWithSync({
       map.set(assetId, position);
     }
     return map;
-  }, [canvasPositionsRaw, localPositions]);
+  }, [canvasPositionsRaw, localPositions, ownerUserId, syncDisabled, syncEnabled]);
 
   const persistPendingPositions = useCallback(async () => {
     const updates = Array.from(pendingPositionUpdates.current.entries()).map(
@@ -154,9 +175,12 @@ function CanvasModeWithSync({
     pendingPositionUpdates.current.clear();
     if (!updates.length || !syncEnabled || syncDisabled || !ownerUserId) return;
     try {
-      await batchUpsertPositionsMutation({
-        ownerUserId,
-        positions: updates,
+      await requestJson<{ count: number }>("/api/canvas/positions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          positions: updates,
+        }),
       });
     } catch {
       setSyncDisabled(true);
@@ -165,7 +189,6 @@ function CanvasModeWithSync({
       );
     }
   }, [
-    batchUpsertPositionsMutation,
     ownerUserId,
     syncDisabled,
     syncEnabled,

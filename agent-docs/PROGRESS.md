@@ -2,14 +2,20 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-03-13
+Last updated: 2026-03-17
 
 ---
 
 ## ✔ Shipped
 
+### 2026-03-17
+- Private gallery data access moved behind Next.js API routes so the browser no longer needs direct private Convex calls
+- Auth path cleaned up to Telegram-only runtime flow; dead WorkOS and AN route surface removed from the app
+- Env/docs/scripts refreshed to match the actual deployment contract, including `bun run typecheck`, stricter prod env checks, and server-side Convex access
+- Prompt-only workflows shipped: the dashboard now has a text-only prompt view, and prompt-only ingest requires explicit `allowPromptOnly` opt-in across maintained ingest paths
+
 ### 2026-03-13
-- Canonical repo-backed `laniameda-kb` skill added under `skills/laniameda-kb/` with GitHub/local `npx skills` install workflows
+- Canonical repo-backed `laniameda-kb` skill added under `skills/laniameda-kb/` with GitHub/local `bunx skills` install workflows
 - Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
 - Explicit ingest management contract added: `update` + `delete` actions/routes for prompts, assets, and design inspirations, plus skill support for all three operations
 

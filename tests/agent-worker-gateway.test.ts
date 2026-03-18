@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildAgentSdkAllowedTools,
   buildAgentSdkGatewayEnv,
+  normalizeIngestPayload,
   resolveSandboxPathInWorkspace,
 } from "@/agent-worker/agent-runtime";
 import { assertWorkerConfigValues, buildWorkerConfig } from "@/agent-worker/config";
@@ -62,6 +63,40 @@ describe("buildAgentSdkAllowedTools", () => {
 
     expect(tools.includes("Skill")).toBeTrue();
     expect(tools.includes("Read")).toBeTrue();
+  });
+});
+
+describe("normalizeIngestPayload", () => {
+  test("preserves explicit prompt-only opt-in while trimming prompt and selector values", () => {
+    const payload = normalizeIngestPayload({
+      prompts: [
+        {
+          final_prompt: "  cinematic portrait  ",
+          negative_prompt: "  low quality  ",
+          generation_notes: "  keep skin texture  ",
+          tags: [" portrait ", "portrait", " editorial "],
+        },
+      ],
+      selectedTelegramMediaIds: ["  ", "media-1", "media-1"],
+      selectedUrls: [" https://example.com/ref ", "https://example.com/ref"],
+      allowPromptOnly: true,
+      notes: "  preserve the workflow  ",
+    });
+
+    expect(payload).toEqual({
+      prompts: [
+        {
+          final_prompt: "cinematic portrait",
+          negative_prompt: "low quality",
+          generation_notes: "keep skin texture",
+          tags: ["portrait", "editorial"],
+        },
+      ],
+      selectedTelegramMediaIds: ["media-1"],
+      selectedUrls: ["https://example.com/ref"],
+      allowPromptOnly: true,
+      notes: "preserve the workflow",
+    });
   });
 });
 

@@ -1,85 +1,99 @@
 # Backend & Convex Setup
 
-Last updated: 2026-03-01
+Last updated: 2026-03-17
 
----
+## Source of truth
 
-## Convex tables (schema.ts)
+- Data model: `convex/schema.ts`
+- Validators: `convex/validators.ts`
+- Private app access boundary: Next API routes under `app/api/**`
+- Convex is the persistent store and action runtime
+
+## Runtime boundary
+
+- The browser does not need direct private access to Convex.
+- Private gallery reads and writes go through Next API routes.
+- Those routes resolve the current Telegram session, derive `ownerUserId`, and then call Convex server-side.
+- Public gallery access also flows through Next routes so the deployment contract stays consistent between localhost and Vercel.
+
+## Core tables
 
 | Table | Purpose |
-|-------|---------|
-| `assets` | Images/videos with owner, pillar, tags, storage refs |
-| `prompts` | Text prompts with owner, tags, folder |
-| `tags` | Normalized tag names + usage counts |
-| `folders` | Named groupings |
-| `assetTags` | asset ↔ tag join |
-| `promptTags` | prompt ↔ tag join |
-| `runs` | Durable AI run records (status, model, intent, usage) |
-| `run_events` | Per-run event stream (stream_text, tool_call, error, etc.) |
-| `run_artifacts` | Outputs attached to a run (prompt package, image, text) |
+|---|---|
+| `users` | Telegram-linked app users and canonical `ownerUserId` |
+| `assets` | Images and videos stored in Convex storage or linked by URL |
+| `prompts` | Prompt text plus model, workflow, folder, and tag metadata |
+| `folders` | Owner-scoped organization for prompts and assets |
+| `tags` | Global tag taxonomy used across assets and prompts |
+| `designInspirations` | Design-specific references under the `designs` pillar |
+| `canvasPositions` | Owner-scoped saved positions for canvas mode |
+| `semanticDocuments` | Embeddings and search corpus for semantic search |
+| `ingest_failures` | Retry/debug record for failed ingest attempts |
+| `runs`, `run_events`, `run_artifacts` | AI workspace execution history |
 
----
+## Important routes
 
-## Run lifecycle functions (convex/runs.ts)
-
-`createRun` → `claimRun` → `setRunRunning` → `appendRunEvent` → `completeRun` / `failRun` / `cancelRun`
-
-Runs track: `runtime`, `provider`, `model`, `mode`, `intent`, `source`, `usage`.
-
----
-
-## Key ingestion functions
-
-- `convex/ingest.ts` — `ingestFromApi` action (URL / file / prompt, idempotency via `ingestKey`)
-- `convex/agent_ingest.ts` — hidden ingest tool for agent-triggered saves
-- `/api/ingest` — Next.js route that calls the Convex action
-
----
+| Route | Responsibility |
+|---|---|
+| `/api/auth/me` | Resolve current session to app user |
+| `/api/gallery/assets` | Gallery data for `mine` and `public` scopes |
+| `/api/folders` | Owner-scoped folder list/create |
+| `/api/assets/[assetId]` | Owner-scoped delete |
+| `/api/assets/[assetId]/folder` | Owner-scoped folder assignment |
+| `/api/canvas/positions` | Owner-scoped canvas sync |
+| `/api/semantic/search` | Semantic search wrapper |
+| `/api/semantic/similar` | Similar-assets wrapper |
+| `/api/ingest` | Server-side ingest entrypoint |
 
 ## Environment variables
 
 ```bash
-# Required for all environments
+# Required app/runtime
 NEXT_PUBLIC_CONVEX_URL=...
 CONVEX_URL=...
-KB_OWNER_USER_ID=...          # Michael's Telegram user ID
-
-# Auth
+SESSION_SECRET=...
 TELEGRAM_LOGIN_BOT_TOKEN=...
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
+
+# Convex/server features
 TELEGRAM_NOTIFY_BOT_TOKEN=...
+CURATION_ADMIN_SECRET=...
+CURATION_ADMIN_USER_IDS=...
+NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=...
 
-# WorkOS (for Google login + account linking — see features/workos-auth/TICKET.md)
-WORKOS_API_KEY=...
-WORKOS_CLIENT_ID=...
-WORKOS_REDIRECT_URI=...
-WORKOS_COOKIE_PASSWORD=...    # 32+ char secret for session encryption
+# Ingest ownership
+KB_OWNER_USER_ID=...
+LOCAL_INGEST_OWNER_USER_ID=...
 
-# AI runtime
+# Semantic / AI
+GEMINI_API_KEY=...
 AI_GATEWAY_API_KEY=...
 AI_TEXT_MODEL=...
 AI_IMAGE_MODEL_NANO_BANANA=...
 AI_IMAGE_MODEL_NANO_BANANA_FAST=...
-
-# Optional
-ENABLE_AGENT_WORKER=false
-AGENT_WORKER_URL=...
-AGENT_WORKER_SHARED_SECRET=...
 ```
 
----
+## Convex auth config
 
-## After schema changes
+- `convex/auth.config.ts` is intentionally minimal.
+- The live app currently authenticates in Next.js with Telegram sessions.
+- Do not add a Convex JWT provider unless the app is explicitly migrating to first-class Convex auth.
+
+## Schema or contract changes
+
+Run this whenever backend contracts change:
 
 ```bash
-bunx convex dev      # pushes schema, regenerates types
-bun run typecheck    # verify no type errors
-bun test             # verify no test breakage
+bunx convex dev
+bun run typecheck
+bun run lint
+bun test
 ```
 
----
+If you change ingest contracts in any of these files, update `skills/laniameda-kb/**` in the same change:
 
-## Recommended future Convex components
-
-- `@convex-dev/workflow` — durable retries for long-running orchestration
-- `@convex-dev/rate-limiter` — per-user run throttling
-- `@convex-dev/persistent-text-streaming` — streaming persistence
+- `convex/schema.ts`
+- `convex/validators.ts`
+- `convex/ingest.ts`
+- `convex/agent_ingest.ts`
+- `app/api/ingest/route.ts`

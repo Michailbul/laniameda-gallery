@@ -305,6 +305,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
   args: {
     ownerUserId: v.string(),
     promptText: v.optional(v.string()),
+    allowPromptOnly: v.optional(v.boolean()),
     url: v.optional(v.string()),
     file: v.optional(
       v.object({
@@ -351,8 +352,20 @@ export const ingestFromApi: ReturnType<typeof action> = action({
 
     const promptText = args.promptText?.trim() || undefined;
     const resolvedPromptText = promptText || args.promptSections?.finalPrompt.trim() || undefined;
-    if (!resolvedPromptText && !args.url && !args.file && !args.designInspiration) {
+    const hasMediaInput = Boolean(args.url || args.file);
+    const hasDesignInspirationInput = Boolean(args.designInspiration);
+    const isPromptOnlyIngest =
+      Boolean(resolvedPromptText) &&
+      !hasMediaInput &&
+      !hasDesignInspirationInput;
+
+    if (!resolvedPromptText && !hasMediaInput && !hasDesignInspirationInput) {
       throw new ConvexError("Provide prompt content, URL, file, or design inspiration.");
+    }
+    if (isPromptOnlyIngest && args.allowPromptOnly !== true) {
+      throw new ConvexError(
+        "Prompt-only ingest requires allowPromptOnly=true.",
+      );
     }
 
     const inferredTagNames = normalizeTags([
@@ -375,147 +388,163 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       : [];
 
     let promptCreated = true;
-    const promptResult: { promptId: Id<"prompts">; created: boolean } | undefined = resolvedPromptText
-      ? ((await ctx.runMutation(api.prompts.createPrompt, {
-          ownerUserId,
-          text: resolvedPromptText,
-          tagIds,
-          folderId: args.folderId,
-          ingestKey: args.promptIngestKey ?? args.ingestKey,
-          pillar: args.pillar,
-          promptType: args.promptType,
-          workflowType: args.workflowType,
-          domain: args.domain,
-          modelName: args.modelName,
-          modelProvider: args.modelProvider,
-          promptSections: args.promptSections,
-          promptProfile: args.promptProfile,
-        })) as { promptId: Id<"prompts">; created: boolean })
-      : undefined;
-    const promptId: Id<"prompts"> | undefined = promptResult?.promptId;
-    if (promptResult) {
-      promptCreated = promptResult.created;
-    }
-
+    let promptId: Id<"prompts"> | undefined;
     let assetCreated = true;
     let assetId: Id<"assets"> | undefined;
-    if (args.url || args.file) {
-      let blob: Blob | null = null;
-      const fileName = args.file?.fileName;
-      let contentType = args.file?.contentType;
-      const sourceUrl = args.url;
-
-      if (args.file) {
-        blob = blobFromBase64(args.file.base64, contentType);
-      } else if (args.url) {
-        const response = await fetch(args.url);
-        if (!response.ok) {
-          throw new ConvexError("Failed to fetch remote media.");
-        }
-        contentType = response.headers.get("content-type") || undefined;
-        blob = await response.blob();
-      }
-
-      if (!blob) {
-        throw new ConvexError("No media available for ingestion.");
-      }
-
-      const arrayBuffer = await blob.arrayBuffer();
-      const fileBuffer = Buffer.from(arrayBuffer);
-      const normalizedContentType = contentType ?? "application/octet-stream";
-
-      let thumbStorageId: Id<"_storage"> | undefined;
-      let thumbSize: number | undefined;
-      let thumbWidth: number | undefined;
-      let thumbHeight: number | undefined;
-      let width: number | undefined;
-      let height: number | undefined;
-
-      const shouldGenerateThumb = normalizedContentType.startsWith("image/");
-      if (shouldGenerateThumb) {
-        try {
-          const originalImage = await Jimp.read(fileBuffer);
-          const originalWidth = originalImage.bitmap.width;
-          const originalHeight = originalImage.bitmap.height;
-          width = originalWidth ?? undefined;
-          height = originalHeight ?? undefined;
-
-          const generatedThumbHeight =
-            originalWidth && originalHeight
-              ? Math.max(1, Math.round((520 * originalHeight) / originalWidth))
-              : 520;
-          const thumb = originalImage
-            .clone()
-            .resize({ w: 520, h: generatedThumbHeight });
-          const thumbMime =
-            normalizedContentType.includes("png") &&
-            normalizedContentType !== "image/jpeg"
-              ? JimpMime.png
-              : JimpMime.jpeg;
-          const thumbBuffer = await thumb.getBuffer(thumbMime);
-          thumbWidth = thumb.bitmap.width ?? undefined;
-          thumbHeight = thumb.bitmap.height ?? undefined;
-          thumbSize = thumbBuffer.byteLength;
-          const thumbArrayBuffer = (thumbBuffer.buffer.slice(
-            thumbBuffer.byteOffset,
-            thumbBuffer.byteOffset + thumbBuffer.byteLength,
-          ) as ArrayBuffer);
-          const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-          thumbStorageId = await ctx.storage.store(thumbBlob);
-        } catch (error) {
-          console.warn("Thumbnail generation failed during ingest:", error);
-        }
-      }
-
-      const storageBlob = new Blob([fileBuffer], { type: normalizedContentType });
-      const storageId = await ctx.storage.store(storageBlob);
-      const result = (await ctx.runMutation(api.assets.createAsset, {
-        ownerUserId,
-        kind: normalizedContentType.startsWith("video/") ? "video" : "image",
-        storageId,
-        thumbStorageId,
-        sourceUrl,
-        fileName,
-        contentType: normalizedContentType,
-        size: storageBlob.size,
-        width,
-        height,
-        thumbSize,
-        thumbWidth,
-        thumbHeight,
-        promptId,
-        tagIds,
-        folderId: args.folderId,
-        ingestKey: args.ingestKey,
-        modelName: args.modelName,
-        pillar: args.pillar,
-        generationType: args.generationType,
-        assetRole: args.assetRole,
-        ingestSource: args.ingestSource ?? "api",
-      })) as { assetId: Id<"assets">; created: boolean };
-      assetId = result.assetId;
-      assetCreated = result.created;
-    }
-
     let designInspirationCreated = true;
     let designInspirationId: Id<"designInspirations"> | undefined;
-    if (args.designInspiration) {
-      const result = (await ctx.runMutation(createDesignInspirationMutation, {
-        ownerUserId,
-        title: args.designInspiration.title,
-        summary: args.designInspiration.summary,
-        sourceUrl: args.designInspiration.sourceUrl ?? args.url,
-        inspirationType: args.designInspiration.inspirationType,
-        platform: args.designInspiration.platform,
-        workflowType: args.designInspiration.workflowType ?? args.workflowType,
-        tagIds,
-        folderId: args.folderId,
-        ingestKey: args.designInspiration.ingestKey ?? args.ingestKey,
-        assetId,
-        promptId,
-      })) as { designInspirationId: Id<"designInspirations">; created: boolean };
-      designInspirationId = result.designInspirationId;
-      designInspirationCreated = result.created;
+
+    try {
+      const promptResult: { promptId: Id<"prompts">; created: boolean } | undefined = resolvedPromptText
+        ? ((await ctx.runMutation(api.prompts.createPrompt, {
+            ownerUserId,
+            text: resolvedPromptText,
+            tagIds,
+            folderId: args.folderId,
+            ingestKey: args.promptIngestKey ?? args.ingestKey,
+            pillar: args.pillar,
+            promptType: args.promptType,
+            workflowType: args.workflowType,
+            domain: args.domain,
+            modelName: args.modelName,
+            modelProvider: args.modelProvider,
+            promptSections: args.promptSections,
+            promptProfile: args.promptProfile,
+          })) as { promptId: Id<"prompts">; created: boolean })
+        : undefined;
+      promptId = promptResult?.promptId;
+      if (promptResult) {
+        promptCreated = promptResult.created;
+      }
+
+      if (hasMediaInput) {
+        let blob: Blob | null = null;
+        const fileName = args.file?.fileName;
+        let contentType = args.file?.contentType;
+        const sourceUrl = args.url;
+
+        if (args.file) {
+          blob = blobFromBase64(args.file.base64, contentType);
+        } else if (args.url) {
+          const response = await fetch(args.url);
+          if (!response.ok) {
+            throw new ConvexError("Failed to fetch remote media.");
+          }
+          contentType = response.headers.get("content-type") || undefined;
+          blob = await response.blob();
+        }
+
+        if (!blob) {
+          throw new ConvexError("No media available for ingestion.");
+        }
+
+        const arrayBuffer = await blob.arrayBuffer();
+        const fileBuffer = Buffer.from(arrayBuffer);
+        const normalizedContentType = contentType ?? "application/octet-stream";
+
+        let thumbStorageId: Id<"_storage"> | undefined;
+        let thumbSize: number | undefined;
+        let thumbWidth: number | undefined;
+        let thumbHeight: number | undefined;
+        let width: number | undefined;
+        let height: number | undefined;
+
+        const shouldGenerateThumb = normalizedContentType.startsWith("image/");
+        if (shouldGenerateThumb) {
+          try {
+            const originalImage = await Jimp.read(fileBuffer);
+            const originalWidth = originalImage.bitmap.width;
+            const originalHeight = originalImage.bitmap.height;
+            width = originalWidth ?? undefined;
+            height = originalHeight ?? undefined;
+
+            const generatedThumbHeight =
+              originalWidth && originalHeight
+                ? Math.max(1, Math.round((520 * originalHeight) / originalWidth))
+                : 520;
+            const thumb = originalImage
+              .clone()
+              .resize({ w: 520, h: generatedThumbHeight });
+            const thumbMime =
+              normalizedContentType.includes("png") &&
+              normalizedContentType !== "image/jpeg"
+                ? JimpMime.png
+                : JimpMime.jpeg;
+            const thumbBuffer = await thumb.getBuffer(thumbMime);
+            thumbWidth = thumb.bitmap.width ?? undefined;
+            thumbHeight = thumb.bitmap.height ?? undefined;
+            thumbSize = thumbBuffer.byteLength;
+            const thumbArrayBuffer = (thumbBuffer.buffer.slice(
+              thumbBuffer.byteOffset,
+              thumbBuffer.byteOffset + thumbBuffer.byteLength,
+            ) as ArrayBuffer);
+            const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
+            thumbStorageId = await ctx.storage.store(thumbBlob);
+          } catch (error) {
+            console.warn("Thumbnail generation failed during ingest:", error);
+          }
+        }
+
+        const storageBlob = new Blob([fileBuffer], { type: normalizedContentType });
+        const result = (await ctx.runMutation(api.assets.createAsset, {
+          ownerUserId,
+          kind: normalizedContentType.startsWith("video/") ? "video" : "image",
+          storageId: await ctx.storage.store(storageBlob),
+          thumbStorageId,
+          sourceUrl,
+          fileName,
+          contentType: normalizedContentType,
+          size: storageBlob.size,
+          width,
+          height,
+          thumbSize,
+          thumbWidth,
+          thumbHeight,
+          promptId,
+          tagIds,
+          folderId: args.folderId,
+          ingestKey: args.ingestKey,
+          modelName: args.modelName,
+          pillar: args.pillar,
+          generationType: args.generationType,
+          assetRole: args.assetRole,
+          ingestSource: args.ingestSource ?? "api",
+        })) as { assetId: Id<"assets">; created: boolean };
+        assetId = result.assetId;
+        assetCreated = result.created;
+      }
+
+      if (args.designInspiration) {
+        const result = (await ctx.runMutation(createDesignInspirationMutation, {
+          ownerUserId,
+          title: args.designInspiration.title,
+          summary: args.designInspiration.summary,
+          sourceUrl: args.designInspiration.sourceUrl ?? args.url,
+          inspirationType: args.designInspiration.inspirationType,
+          platform: args.designInspiration.platform,
+          workflowType: args.designInspiration.workflowType ?? args.workflowType,
+          tagIds,
+          folderId: args.folderId,
+          ingestKey: args.designInspiration.ingestKey ?? args.ingestKey,
+          assetId,
+          promptId,
+        })) as { designInspirationId: Id<"designInspirations">; created: boolean };
+        designInspirationId = result.designInspirationId;
+        designInspirationCreated = result.created;
+      }
+    } catch (error) {
+      const shouldRollbackPrompt =
+        promptCreated &&
+        Boolean(promptId) &&
+        !assetId &&
+        !designInspirationId &&
+        (hasMediaInput || hasDesignInspirationInput);
+
+      if (shouldRollbackPrompt && promptId) {
+        await ctx.runMutation(internal.prompts.deletePrompt, { id: promptId });
+      }
+
+      throw error;
     }
 
     const ingestKeyDuplicate = Boolean(args.ingestKey && !assetCreated);

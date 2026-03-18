@@ -82,6 +82,7 @@ type PromptProfileInput = Record<string, unknown>;
 type CreateItem = {
   operation?: "create";
   promptText?: string;
+  allowPromptOnly?: boolean;
   tagNames?: string[];
   typedTags?: TypedTagInput[];
   folderId?: string;
@@ -211,6 +212,18 @@ function getOperation(item: SkillItem): Operation {
   return item.operation ?? "create";
 }
 
+function isCreateItem(item: SkillItem): item is CreateItem {
+  return getOperation(item) === "create";
+}
+
+function isUpdateItem(item: SkillItem): item is UpdateItem {
+  return getOperation(item) === "update";
+}
+
+function isDeleteItem(item: SkillItem): item is DeleteItem {
+  return getOperation(item) === "delete";
+}
+
 function assertSelector(item: UpdateItem | DeleteItem) {
   if (!item.id && !item.ingestKey) {
     throw new Error("Update/delete requires either `id` or `ingestKey`.");
@@ -256,8 +269,12 @@ function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, 
   const fileBase64 = item.fileBase64 ?? item.imageBase64;
   const url = item.url ?? item.imageUrl;
   const pillar = item.pillar ?? (item.designInspiration ? "designs" : undefined);
+  const hasPromptText = Boolean(item.promptText?.trim());
+  const hasMediaInput = Boolean(filePath || fileBase64 || url);
+  const isPromptOnlyCreate = hasPromptText && !hasMediaInput && !item.designInspiration;
 
   if (item.promptText) args.promptText = item.promptText.trim();
+  if (item.allowPromptOnly) args.allowPromptOnly = true;
   if (item.tagNames?.length) args.tagNames = item.tagNames;
   if (item.typedTags?.length) args.typedTags = item.typedTags;
   if (item.folderId) args.folderId = item.folderId;
@@ -295,6 +312,12 @@ function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, 
     };
   } else if (url) {
     args.url = url;
+  }
+
+  if (isPromptOnlyCreate && item.allowPromptOnly !== true) {
+    throw new Error(
+      "Prompt-only create requests must set allowPromptOnly=true.",
+    );
   }
 
   return args;
@@ -375,34 +398,35 @@ function buildActionRequest(
   item: SkillItem,
   ownerUserId: string,
 ): { path: string; args: Record<string, unknown> } {
-  const operation = getOperation(item);
-  if (operation === "create") {
+  if (isCreateItem(item)) {
     return {
       path: "ingest:ingestFromApi",
-      args: buildCreateArgs(item as CreateItem, ownerUserId),
+      args: buildCreateArgs(item, ownerUserId),
     };
   }
 
-  if (operation === "update") {
+  if (isUpdateItem(item)) {
     return {
       path: "ingest:updateFromApi",
-      args: buildUpdateArgs(item as UpdateItem, ownerUserId),
+      args: buildUpdateArgs(item, ownerUserId),
     };
   }
 
   return {
     path: "ingest:deleteFromApi",
-    args: buildDeleteArgs(item as DeleteItem, ownerUserId),
+    args: buildDeleteArgs(item, ownerUserId),
   };
 }
 
 function summarizeInput(item: SkillItem): string {
-  const operation = getOperation(item);
-  if (operation === "delete") {
+  if (isDeleteItem(item)) {
     return `${item.target}:${item.ingestKey ?? item.id ?? "unknown"}`;
   }
-  if (operation === "update") {
+  if (isUpdateItem(item)) {
     return `${item.target}:${item.ingestKey ?? item.id ?? item.promptText ?? "unknown"}`;
+  }
+  if (!isCreateItem(item)) {
+    return "unknown";
   }
   return (
     item.promptText?.slice(0, 80) ??

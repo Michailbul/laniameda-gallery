@@ -53,6 +53,7 @@ These are maintained by backend mutations; callers usually pass tag names or typ
 ## Runtime notes
 
 - `ingest:ingestFromApi` is the canonical external ingest action.
+- Prompt-only ingests must set `allowPromptOnly: true`; mixed prompt+media ingests must not rely on implicit prompt creation alone. This applies across the maintained ingest surfaces, including the legacy agent-ingest path.
 - `ingest:updateFromApi` is the canonical external metadata update action.
 - `ingest:deleteFromApi` is the canonical external delete action.
 - `app/api/ingest/route.ts` maps session-authenticated browser calls to the same backend contract.

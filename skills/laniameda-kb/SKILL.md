@@ -28,7 +28,7 @@ Use `references/schema-contract.md` for a quick map and `references/ingest-examp
 ## Source of truth
 
 - Canonical skill source: `skills/laniameda-kb/`
-- Installed copies under `~/.openclaw/skills/`, `~/.codex/skills/`, and `~/.agents/skills/` are disposable `npx skills` installs.
+- Installed copies under `~/.openclaw/skills/`, `~/.codex/skills/`, and `~/.agents/skills/` are disposable `bunx skills` installs.
 - When ingest contracts change, update this skill in the same commit.
 
 ## Runtime env
@@ -48,7 +48,7 @@ Both are already set in `/root/.openclaw/.env`. Do not use the prod deployment (
 
 ## Supported content
 
-- Prompt-only saves
+- Prompt-only saves with explicit `allowPromptOnly: true`
 - File uploads from local disk or inline base64
 - Remote URL ingestion
 - Design inspiration records for non-prompt design references
@@ -69,6 +69,7 @@ Only use an image as `imagePath`/asset when it is a **generated output** (the re
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
+- Set `allowPromptOnly: true` when intentionally saving text without any file, URL, or design inspiration.
 - Always set `pillar` when possible.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
@@ -135,7 +136,7 @@ Then refresh installed copies across all agents:
 ```bash
 bun run skills:update
 # or manually:
-npx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y
+bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y
 ```
 
 **When Michael says he pushed updates to the gallery repo:**
@@ -153,7 +154,7 @@ Example invocation:
 
 ```bash
 CONVEX_URL=https://perfect-buffalo-375.convex.cloud KB_OWNER_USER_ID=278674008 \
-  bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators"}'
+  bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
 ```
 
 If env vars are already set in `.env`, you can omit the inline prefix.

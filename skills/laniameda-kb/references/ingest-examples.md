@@ -18,6 +18,17 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 }'
 ```
 
+## 1b) Explicit prompt-only save
+
+```bash
+bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+  "pillar": "creators",
+  "promptText": "cinematic fashion portrait in tokyo rain",
+  "allowPromptOnly": true,
+  "promptType": "image_gen"
+}'
+```
+
 ## 2) Design inspiration only
 
 ```bash
@@ -84,6 +95,7 @@ The underlying `ingest:ingestFromApi` action accepts:
 
 - `ownerUserId`
 - `promptText`
+- `allowPromptOnly` (required when saving prompt text without media or design inspiration)
 - `url`
 - `file`
 - `tagNames`

@@ -600,6 +600,7 @@ const normalizePromptPayload = (payload: AgentIngestPayload) => {
     ),
     selectedUrls: Array.from(new Set(payload.selectedUrls.map((url) => url.trim()).filter(Boolean))),
     notes: payload.notes?.trim() || undefined,
+    allowPromptOnly: payload.allowPromptOnly === true ? true : undefined,
   };
 };
 
