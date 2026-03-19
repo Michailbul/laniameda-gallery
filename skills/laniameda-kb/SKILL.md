@@ -37,14 +37,11 @@ The script reads these env vars at runtime:
 
 - `KB_OWNER_USER_ID` — required. **Value: `278674008`** (Michael's Telegram user ID). Stored in `/root/.openclaw/.env`.
 - `CONVEX_URL` — required; falls back to `NEXT_PUBLIC_CONVEX_URL` if present.
+- `NEXT_PUBLIC_CONVEX_URL` — optional browser/runtime mirror for app environments; keep it aligned with `CONVEX_URL`.
 
-**Active deployment (always use dev):**
-```
-CONVEX_URL=https://perfect-buffalo-375.convex.cloud
-KB_OWNER_USER_ID=278674008
-```
+Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do not hardcode deployment names in workflow docs; rotate the env values instead.
 
-Both are already set in `/root/.openclaw/.env`. Do not use the prod deployment (`robust-gnu-269`) — it returns server errors on ingest.
+Both runtime vars are already set in `/root/.openclaw/.env`.
 
 ## Supported content
 
@@ -163,7 +160,7 @@ Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills
 Example invocation:
 
 ```bash
-CONVEX_URL=https://perfect-buffalo-375.convex.cloud KB_OWNER_USER_ID=278674008 \
+CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=278674008 \
   bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
 ```
 

@@ -12,6 +12,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Queries and mutations must NOT call external APIs; always use actions for that.
 - Jimp (not sharp) is used for thumbnail generation — keeps os-specific binaries out of the Convex action bundle (`linux-arm64` compatible).
 - `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
+- Tightening Convex enum validators against live tables can block deploys if older rows still carry legacy literal values; migrate the data first or keep the validator backward-compatible until cleanup lands.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
 - Folders are owner-scoped in backend APIs; always pass `ownerUserId` to `folders.listFolders` and validate folder ownership before writing `folderId` to assets/prompts.
 
