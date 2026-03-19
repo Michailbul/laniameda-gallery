@@ -6,8 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
-import { GradientButton } from "@/components/ui/gradient-button";
-import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
+import { CoralToastProvider } from "@/components/ui/coral-toast";
+import BottomMenu from "@/components/ui/bottom-menu";
 import { V72Sidebar } from "./sidebar";
 import {
   V72FilterBar,
@@ -22,8 +22,6 @@ import { V72DetailPanel } from "./detail-panel";
 import { UploadModal } from "@/components/upload-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
-import { AnimatedDock } from "@/components/ui/animated-dock";
-import { Home, Bell, User, Settings } from "lucide-react";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -1876,18 +1874,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         </div>
       )}
 
-      {/* Floating add (desktop only) */}
-      <GradientButton
-        variant="default"
-        size="icon"
-        glow
-        onClick={() => setUploadOpen(true)}
-        className={`fixed bottom-6 right-6 z-40 ${selectedImage ? "hidden" : "hidden md:flex"}`}
-        aria-label="Add to library"
-      >
-        <Plus className="h-5 w-5" />
-      </GradientButton>
-
       {/* Mobile bottom nav */}
       {!selectedImage && (
         <MobileBottomNav
@@ -1910,14 +1896,19 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         }}
       >
         <div className="pointer-events-auto">
-          <AnimatedDock
-            items={[
-              { link: "/", Icon: <Home size={20} /> },
-              { link: "#", Icon: <SearchIcon size={20} />, isSearch: true },
-              { link: "#", Icon: <Bell size={20} /> },
-              { link: "#", Icon: <User size={20} /> },
-              { link: "#", Icon: <Settings size={20} />, onClick: () => setUploadOpen(true) },
-            ]}
+          <BottomMenu
+            user={user}
+            onAddClick={() => setUploadOpen(true)}
+            onHomeClick={() => {
+              document
+                .getElementById("v72-main-content")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            onResetClick={() => {
+              handleClearFilters();
+              clearSemanticMode();
+            }}
+            onSignOut={onSignOut}
             searchValue={assetSearchQuery}
             onSearchChange={(query) => {
               setAssetSearchQuery(query);
@@ -1927,12 +1918,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                 setSemanticResults(null);
               }
             }}
-            onSearchClear={() => {
-              setAssetSearchQuery("");
-              setSemanticError(undefined);
-            }}
+            onSearchClear={clearSemanticMode}
             searchPlaceholder="SEARCH VAULT..."
             searchLoading={semanticLoading}
+            theme={theme}
+            onThemeChange={setTheme}
           />
         </div>
       </div>

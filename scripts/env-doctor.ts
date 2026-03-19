@@ -68,12 +68,7 @@ const requiredByMode: Record<Mode, readonly string[]> = {
   ],
 };
 
-const optionalButRecommended = [
-  "APP_ENV_PROFILE",
-  "NEXT_PUBLIC_WORKOS_CLIENT_ID",
-  "NEXT_PUBLIC_WORKOS_REDIRECT_URI",
-  "WORKOS_CLIENT_ID",
-] as const;
+const optionalButRecommended = ["APP_ENV_PROFILE"] as const;
 
 const appEnv = parseEnvFile(APP_ENV);
 const appEnvLocal = parseEnvFile(APP_ENV_LOCAL);
@@ -118,10 +113,6 @@ if (isPresent(curationSecret) && curationSecret!.trim().length < 16) {
   warnings.push("CURATION_ADMIN_SECRET should be at least 16 characters long.");
 }
 
-const workosCookiePassword = process.env.WORKOS_COOKIE_PASSWORD;
-if (isPresent(workosCookiePassword) && workosCookiePassword!.trim().length < 32) {
-  errors.push("WORKOS_COOKIE_PASSWORD must be at least 32 characters long.");
-}
 
 for (const key of requiredByMode[mode]) {
   if (!isPresent(process.env[key])) {
@@ -204,9 +195,6 @@ if (!existsSync(CONVEX_ENV_LOCAL)) {
     );
   }
 
-  if (isPresent(convexEnvLocal.WORKOS_CLIENT_ID)) {
-    checks.push("Found convex/.env.local with WORKOS_CLIENT_ID");
-  }
 }
 
 console.log(`Env Doctor: ${mode}`);

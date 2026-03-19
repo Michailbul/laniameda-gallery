@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════
+   Laniameda Landing — Slim design tokens
+   Only what the landing page needs
+   ═══════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: #0e100f;
+  color: #fffce1;
+}

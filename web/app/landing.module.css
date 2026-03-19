@@ -1,0 +1,214 @@
+/* ═══════════════════════════════════════════════
+   Laniameda Gallery — Landing Page
+   Single sticky viewport with layered SVG morphs
+   ═══════════════════════════════════════════════ */
+
+.main {
+  background: #0e100f;
+  color: #fffce1;
+}
+
+/* ── Scroll container ── */
+.scrollWrap {
+  position: relative;
+  height: 750vh;
+}
+
+/* ── Single sticky viewport — all layers live here ── */
+.viewport {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Shared layer (content sections) ── */
+.layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  will-change: transform, opacity;
+  padding: 2rem;
+}
+
+/* ── SVG transition layer ── */
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════
+   Section 1 — Dark hero
+   ═══════════════════════════════════════════════ */
+
+.heroBg {
+  position: absolute;
+  inset: 0;
+  background: #0e100f;
+  z-index: 1;
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 48%,
+    rgba(255, 135, 9, 0.045) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.title {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-size: clamp(2.5rem, 11vw, 9rem);
+  font-weight: 400;
+  line-height: 0.9;
+  letter-spacing: -0.025em;
+  margin: 0;
+  display: flex;
+  user-select: none;
+}
+
+.letter {
+  display: inline-block;
+  opacity: 0;
+  animation: letterRise 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes letterRise {
+  from {
+    opacity: 0;
+    transform: translateY(50px) rotate(3deg);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+    filter: blur(0);
+  }
+}
+
+.rule {
+  width: 56px;
+  height: 1px;
+  margin: 1.5rem 0 1rem;
+  background: rgba(255, 252, 225, 0.18);
+  transform-origin: center;
+  transform: scaleX(0);
+  animation: ruleExpand 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.1s forwards;
+}
+
+@keyframes ruleExpand {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.subtitle {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: clamp(0.65rem, 1.4vw, 1rem);
+  font-weight: 400;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(255, 252, 225, 0.35);
+  margin: 0;
+  opacity: 0;
+  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 1.35s forwards;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.scrollCue {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  opacity: 0;
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 2s forwards;
+}
+
+.scrollLabel {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(255, 252, 225, 0.2);
+}
+
+.scrollBar {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(to bottom, rgba(255, 252, 225, 0.22), transparent);
+  animation: scrollPulse 2.5s ease-in-out 2.2s infinite;
+}
+
+@keyframes scrollPulse {
+  0%, 100% { opacity: 0.4; transform: scaleY(1); }
+  50% { opacity: 1; transform: scaleY(1.3) translateY(3px); }
+}
+
+/* ═══════════════════════════════════════════════
+   Shared typography
+   ═══════════════════════════════════════════════ */
+
+.sectionTitle {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-align: center;
+}
+
+.sectionDesc {
+  margin-top: 1.5rem;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: clamp(0.95rem, 1.8vw, 1.2rem);
+  line-height: 1.7;
+  text-align: center;
+  max-width: 38rem;
+}
+
+.dark { color: #0e100f; }
+.darkSub { color: rgba(14, 16, 15, 0.55); }
+
+.finalTitle {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 400;
+  color: #fffce1;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-align: center;
+}
