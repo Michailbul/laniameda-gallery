@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { motion } from "framer-motion";
 import Link from "next/link";
 
 const EMBER = [
@@ -46,7 +45,7 @@ export default function GradientMeshBackground() {
     window.addEventListener("resize", resize);
 
     // Initialize blobs
-    blobsRef.current = EMBER.map((color, i) => ({
+    blobsRef.current = EMBER.map((color) => ({
       color,
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,

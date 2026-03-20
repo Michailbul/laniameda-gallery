@@ -33,11 +33,9 @@ const ICONS = [Home, Search, Settings, Bell, Mail, Camera, Music, Heart, Star, Z
 
 function DockIcon({
   Icon,
-  index,
   mouseX,
 }: {
   Icon: (typeof ICONS)[number];
-  index: number;
   mouseX: ReturnType<typeof useMotionValue<number>>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -123,7 +121,7 @@ export default function ProximityColorShiftDock() {
         }}
       >
         {ICONS.map((Icon, i) => (
-          <DockIcon key={i} Icon={Icon} index={i} mouseX={mouseX} />
+          <DockIcon key={i} Icon={Icon} mouseX={mouseX} />
         ))}
       </div>
 

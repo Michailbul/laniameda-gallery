@@ -17,8 +17,6 @@ const EMBER = [
   "#ffb600",
 ] as const;
 
-const gradientCSS = `linear-gradient(90deg, ${EMBER.join(", ")}, ${EMBER[0]})`;
-
 function SkeletonLine({ width, height = 16, delay = 0 }: { width: string; height?: number; delay?: number }) {
   return (
     <motion.div

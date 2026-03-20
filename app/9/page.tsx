@@ -111,7 +111,7 @@ export default function EmberToastNotifications() {
       {/* Toast container */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3" style={{ width: 380 }}>
         <AnimatePresence mode="popLayout">
-          {toasts.map((toast, i) => {
+          {toasts.map((toast) => {
             const config = TOAST_CONFIG[toast.type];
             const Icon = config.icon;
             return (

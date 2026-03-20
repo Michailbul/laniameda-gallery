@@ -54,11 +54,6 @@ interface MasonryGridProps {
 
 const BATCH_SIZE = 24;
 
-const SKELETON_ASPECT_RATIOS = [
-  "3/4", "1/1", "4/5", "3/4", "16/9", "1/1",
-  "4/5", "3/4", "1/1", "3/4", "4/5", "16/9",
-];
-
 export function MasonryGrid({
   images,
   compactColumns,

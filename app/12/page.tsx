@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Home,
   Search,
   Bell,
   Settings,
-  User,
   Image,
   FolderOpen,
   Star,
@@ -115,7 +114,7 @@ function GalleryItem({ title, count, color }: { title: string; count: number; co
 }
 
 export default function EmberModeDarkTheme() {
-  const [activeTab, setActiveTab] = useState<"overview" | "gallery" | "settings">("overview");
+  const [activeTab] = useState<"overview" | "gallery" | "settings">("overview");
 
   return (
     <div

@@ -143,7 +143,22 @@ function useGlassDisplacement(enabled = true) {
     ? { backdropFilter: `url(#${filterId}) brightness(1.1) saturate(1.5)` }
     : {}
 
-  return { containerRef, svgFilter, backdropStyle, filterId }
+  const setContainerNode = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+  }, [])
+
+  return { setContainerNode, svgFilter, backdropStyle, filterId }
+}
+
+function assignForwardedRef<T>(ref: React.ForwardedRef<T>, value: T | null) {
+  if (typeof ref === "function") {
+    ref(value)
+    return
+  }
+
+  if (ref) {
+    ref.current = value
+  }
 }
 
 interface DockItem {
@@ -218,7 +233,7 @@ const Dock = React.forwardRef<HTMLDivElement, DockProps>(
     const [searchOpen, setSearchOpen] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const isSearchActive = searchOpen || searchValue.length > 0
-    const { containerRef, svgFilter, backdropStyle } = useGlassDisplacement(glassDisplacement)
+    const { setContainerNode, svgFilter, backdropStyle } = useGlassDisplacement(glassDisplacement)
 
     const handleSearchOpen = () => {
       setSearchOpen(true)
@@ -233,11 +248,10 @@ const Dock = React.forwardRef<HTMLDivElement, DockProps>(
     // Merge refs so both the forwarded ref and the glass measurement ref work
     const mergedRef = React.useCallback(
       (node: HTMLDivElement | null) => {
-        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node
-        if (typeof ref === "function") ref(node)
-        else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+        setContainerNode(node)
+        assignForwardedRef(ref, node)
       },
-      [ref, containerRef]
+      [ref, setContainerNode]
     )
 
     return (
