@@ -85,6 +85,7 @@ const semanticDocumentValidator = v.object({
 
 const semanticDocumentLookupValidator = v.object({
   _id: v.id("semanticDocuments"),
+  _creationTime: v.number(),
   sourceType: semanticSourceTypeValidator,
   sourceId: v.string(),
   assetId: v.optional(v.id("assets")),
@@ -390,7 +391,19 @@ export const getSemanticDocumentsByIds = internalQuery({
   returns: v.array(semanticDocumentLookupValidator),
   handler: async (ctx, args) => {
     const rows = await Promise.all(args.ids.map(async (id) => await ctx.db.get(id)));
-    return rows.filter((row): row is typeof rows[number] & { _id: Id<"semanticDocuments"> } => Boolean(row));
+    return rows
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .map((row) => ({
+        _id: row._id,
+        _creationTime: row._creationTime,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        assetId: row.assetId,
+        ownerUserId: row.ownerUserId,
+        pillar: row.pillar,
+        isPublic: row.isPublic,
+        kind: row.kind,
+      }));
   },
 });
 
