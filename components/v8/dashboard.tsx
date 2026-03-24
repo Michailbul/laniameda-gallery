@@ -1757,8 +1757,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       >
         <div className="flex min-h-0 flex-1">
           <div
-            className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
+            className={`v7-grid-bg min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
             style={{
+              backgroundColor: "var(--v7-surface-0)",
               borderRight: selectedImage
                 ? "3px solid var(--v7-ink)"
                 : "none",
@@ -1885,10 +1886,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
             <main
               id="v72-main-content"
-              className={`v7-grid-bg relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
-              style={{
-                backgroundColor: "var(--v7-surface-0)",
-              }}
+              className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
               {isPromptOnlyView ? (
                 isLoading ? (

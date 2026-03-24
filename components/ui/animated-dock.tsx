@@ -64,16 +64,11 @@ export const AnimatedDock = ({
       }}
       onMouseLeave={() => mouseX.set(Infinity)}
       className={cn(
-        "mx-auto flex h-16 items-center gap-4 rounded-2xl px-4",
+        "mx-auto flex h-16 items-center gap-4 rounded-2xl px-4 v7-island",
         className,
       )}
       style={{
-        backdropFilter: "blur(20px) saturate(120%)",
-        WebkitBackdropFilter: "blur(20px) saturate(120%)",
-        background: "rgba(255, 250, 245, 0.82)",
-        border: "1px solid var(--border-default)",
-        boxShadow:
-          "0 0 0 1px color-mix(in srgb, var(--gradient-3) 15%, transparent), 0 4px 20px color-mix(in srgb, var(--gradient-3) 12%, transparent), 0 2px 4px rgba(32,23,16,0.04)",
+        borderRadius: "16px",
       }}
       layout
       transition={{ type: "spring", stiffness: 300, damping: 30 }}

@@ -112,6 +112,10 @@ const embedQuery = async (query: string) => {
   return values;
 };
 
+// Drop results whose score is below this fraction of the top score.
+// e.g. 0.85 means "keep results within 85% of the best match".
+const RELATIVE_SCORE_CUTOFF = 0.85;
+
 const dedupeScoredAssets = (items: Array<{ assetId: Id<"assets">; score: number }>) => {
   const byAssetId = new Map<Id<"assets">, number>();
   for (const item of items) {
@@ -204,8 +208,13 @@ export const searchAssets = action({
       return [];
     }
 
+    // Drop results below the relative score cutoff
+    const topScore = orderedAssets[0].score;
+    const minScore = topScore * RELATIVE_SCORE_CUTOFF;
+    const thresholdedAssets = orderedAssets.filter((a) => a.score >= minScore);
+
     const hydrated = await ctx.runQuery(listScoredGalleryAssetsByIdsQueryRef, {
-      items: orderedAssets,
+      items: thresholdedAssets,
     });
 
     return hydrated
@@ -313,8 +322,13 @@ export const findSimilarAssets = action({
       return [];
     }
 
+    // Drop results below the relative score cutoff
+    const topScore = orderedAssets[0].score;
+    const minScore = topScore * RELATIVE_SCORE_CUTOFF;
+    const thresholdedAssets = orderedAssets.filter((a) => a.score >= minScore);
+
     const hydrated = await ctx.runQuery(listScoredGalleryAssetsByIdsQueryRef, {
-      items: orderedAssets,
+      items: thresholdedAssets,
     });
 
     return hydrated
