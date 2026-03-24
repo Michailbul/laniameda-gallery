@@ -28,6 +28,7 @@ const runIntentValidator = v.union(
   v.literal("replace_character"),
   v.literal("ingest"),
   v.literal("execute"),
+  v.literal("creator_assist"),
 );
 
 const runSourceValidator = v.union(
@@ -35,6 +36,7 @@ const runSourceValidator = v.union(
   v.literal("telegram"),
   v.literal("dev_telegram"),
   v.literal("api"),
+  v.literal("canvas"),
 );
 
 const runRuntimeValidator = v.union(v.literal("ai_sdk"), v.literal("agent_worker"));
