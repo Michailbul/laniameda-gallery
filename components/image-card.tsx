@@ -142,7 +142,7 @@ export const ImageCard = memo(function ImageCard({
   const dimmed = hasSelection && !isSelected;
 
   const cardClasses = [
-    "group relative cursor-pointer overflow-hidden break-inside-avoid rounded-xl animate-card-entrance card-base",
+    "group relative cursor-pointer overflow-hidden rounded-xl animate-card-entrance card-base",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
@@ -171,10 +171,8 @@ export const ImageCard = memo(function ImageCard({
       className={cardClasses}
       style={{
         aspectRatio,
-        breakInside: "avoid-column",
         animationDelay: entranceDelay,
         animationFillMode: "backwards",
-        marginBottom: "12px",
       }}
       onClick={selectImage}
     >

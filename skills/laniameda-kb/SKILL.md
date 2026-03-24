@@ -48,6 +48,16 @@ The script reads these env vars at runtime:
 - Metadata updates for prompts, assets, and design inspirations
 - Idempotent deletes for prompts, assets, and design inspirations
 
+## Semantic search
+
+All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).
+
+- **Image assets** are embedded as pure image data (no text metadata). A text query like "car" matches images that visually contain cars via cross-modal matching.
+- **Prompts** are embedded as prompt text only (no tags/pillar/model padding).
+- **Tags and metadata** are applied as post-filters, not included in embeddings.
+- Search via `semanticSearch:searchAssets` (text → assets) or `semanticSearch:findSimilarAssets` (image → similar images).
+- Backfill after schema changes: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`).
+
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.

@@ -20,6 +20,7 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
 - `semanticDocuments`
   - Async search index rows generated from assets, prompts, and design inspirations.
   - Backend-managed fields include `sourceType`, `sourceId`, linked record IDs, `searchText`, `contentHash`, embedding data, and owner/public scope keys.
+  - **Embedding strategy (pure-v1):** Image assets are embedded as image-only (no text metadata) using Gemini `gemini-embedding-2-preview` multimodal embeddings. Prompt sources are embedded as prompt text only (no tags/pillar/model metadata). This lets cross-modal matching work natively — a text query like "car" matches images that visually contain cars. Tags and metadata are applied as post-filters, not embedded.
 
 - `semantic_index_failures`
   - Backend-managed retry/failure rows for semantic indexing failures.
@@ -58,3 +59,5 @@ These are maintained by backend mutations; callers usually pass tag names or typ
 - `app/api/ingest/route.ts` maps session-authenticated browser calls to the same backend contract.
 - `app/api/ingest/update/route.ts` and `app/api/ingest/delete/route.ts` expose session-authenticated update/delete routes.
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
+- Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
+- Backfill existing records: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
