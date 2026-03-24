@@ -61,7 +61,12 @@ All ingested assets and prompts are automatically indexed for semantic search us
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
-- Always set `pillar` when possible.
+- **ALWAYS set `pillar`** — this is REQUIRED, not optional. Every asset and prompt must have a pillar. Use:
+  - `"creators"` — AI-generated images, portraits, AI model outputs (SOUL, SAUCE, Midjourney, kora, etc.)
+  - `"cars"` — automotive content
+  - `"designs"` — color palettes, UI references, brand design, typography, design inspiration, resources
+  - `"dump"` — uncategorized or mixed content
+  - If unsure, default to `"dump"` rather than omitting pillar. Never leave pillar empty.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
