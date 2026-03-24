@@ -63,11 +63,26 @@ When Michael sends a **screenshot of a prompt** or **image containing text/JSON*
 
 Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
 
+## Semantic search
+
+All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).
+
+- **Image assets** are embedded as pure image data (no text metadata). A text query like "car" matches images that visually contain cars via cross-modal matching.
+- **Prompts** are embedded as prompt text only (no tags/pillar/model padding).
+- **Tags and metadata** are applied as post-filters, not included in embeddings.
+- Search via `semanticSearch:searchAssets` (text → assets) or `semanticSearch:findSimilarAssets` (image → similar images).
+- Backfill after schema changes: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`).
+
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
 - Set `allowPromptOnly: true` when intentionally saving text without any file, URL, or design inspiration.
-- Always set `pillar` when possible.
+- **ALWAYS set `pillar`** — this is REQUIRED, not optional. Every asset and prompt must have a pillar. Use:
+  - `"creators"` — AI-generated images, portraits, AI model outputs (SOUL, SAUCE, Midjourney, kora, etc.)
+  - `"cars"` — automotive content
+  - `"designs"` — color palettes, UI references, brand design, typography, design inspiration, resources
+  - `"dump"` — uncategorized or mixed content
+  - If unsure, default to `"dump"` rather than omitting pillar. Never leave pillar empty.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.

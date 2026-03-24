@@ -1757,8 +1757,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       >
         <div className="flex min-h-0 flex-1">
           <div
-            className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
+            className={`v7-grid-bg min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
             style={{
+              backgroundColor: "var(--v7-surface-0)",
               borderRight: selectedImage
                 ? "3px solid var(--v7-ink)"
                 : "none",
@@ -1780,53 +1781,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               viewMode={viewMode}
               onViewModeChange={setViewMode}
             />
-
-            {canAccessMyGallery ? (
-              <div className="px-4 pb-2">
-                <div className="mx-auto flex max-w-[1180px] items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setGalleryContentMode("assets")}
-                    className="v7-chip"
-                    aria-pressed={galleryContentMode === "assets"}
-                    style={{
-                      backgroundColor:
-                        galleryContentMode === "assets"
-                          ? "var(--v7-coral)"
-                          : "var(--v7-surface-1)",
-                      color:
-                        galleryContentMode === "assets"
-                          ? "#111"
-                          : "var(--v7-text-primary)",
-                    }}
-                  >
-                    Images
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGalleryContentMode("prompts")}
-                    disabled={galleryScope !== "mine"}
-                    className="v7-chip"
-                    aria-pressed={galleryContentMode === "prompts"}
-                    style={{
-                      opacity: galleryScope === "mine" ? 1 : 0.5,
-                      cursor:
-                        galleryScope === "mine" ? "pointer" : "not-allowed",
-                      backgroundColor:
-                        galleryContentMode === "prompts"
-                          ? "var(--v7-coral)"
-                          : "var(--v7-surface-1)",
-                      color:
-                        galleryContentMode === "prompts"
-                          ? "#111"
-                          : "var(--v7-text-primary)",
-                    }}
-                  >
-                    Text-Only Prompts
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             {/* Search Vault is now in the bottom dock */}
 
@@ -1885,10 +1839,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
             <main
               id="v72-main-content"
-              className={`v7-grid-bg relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
-              style={{
-                backgroundColor: "var(--v7-surface-0)",
-              }}
+              className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
               {isPromptOnlyView ? (
                 isLoading ? (
