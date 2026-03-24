@@ -894,6 +894,56 @@ export const countAssets = query({
   },
 });
 
+export const tagAssetCounts = query({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
+  },
+  returns: v.array(v.object({ tagId: v.id("tags"), count: v.number() })),
+  handler: async (ctx, args) => {
+    let assets;
+    if (args.isPublic) {
+      assets = await ctx.db
+        .query("assets")
+        .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
+        .collect();
+    } else if (args.ownerUserId) {
+      const ownerUserId = args.ownerUserId.trim();
+      if (!ownerUserId) {
+        throw new ConvexError("ownerUserId is required when provided.");
+      }
+      const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+      const rows = [];
+      for (const ownerCandidate of ownerUserIds) {
+        const rowsForOwner = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+          )
+          .collect();
+        rows.push(...rowsForOwner);
+      }
+      assets = dedupeAssetIds(rows);
+    } else {
+      assets = await ctx.db.query("assets").collect();
+    }
+
+    const counts = new Map<Id<"tags">, number>();
+    for (const asset of assets) {
+      const seen = new Set<Id<"tags">>();
+      for (const tagId of asset.tagIds) {
+        if (seen.has(tagId)) continue;
+        seen.add(tagId);
+        counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries()).map(([tagId, count]) => ({
+      tagId,
+      count,
+    }));
+  },
+});
+
 export const deleteAsset = mutation({
   args: {
     id: v.id("assets"),

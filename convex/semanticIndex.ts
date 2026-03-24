@@ -85,6 +85,7 @@ const semanticDocumentValidator = v.object({
 
 const semanticDocumentLookupValidator = v.object({
   _id: v.id("semanticDocuments"),
+  _creationTime: v.number(),
   sourceType: semanticSourceTypeValidator,
   sourceId: v.string(),
   assetId: v.optional(v.id("assets")),
@@ -390,7 +391,19 @@ export const getSemanticDocumentsByIds = internalQuery({
   returns: v.array(semanticDocumentLookupValidator),
   handler: async (ctx, args) => {
     const rows = await Promise.all(args.ids.map(async (id) => await ctx.db.get(id)));
-    return rows.filter((row): row is typeof rows[number] & { _id: Id<"semanticDocuments"> } => Boolean(row));
+    return rows
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .map((row) => ({
+        _id: row._id,
+        _creationTime: row._creationTime,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        assetId: row.assetId,
+        ownerUserId: row.ownerUserId,
+        pillar: row.pillar,
+        isPublic: row.isPublic,
+        kind: row.kind,
+      }));
   },
 });
 
@@ -837,24 +850,15 @@ const reindexAssetSource = async (
   }
 
   try {
-    const searchText = compactSearchText([
-      source.pillar ? `pillar: ${source.pillar}` : undefined,
-      `kind: ${source.kind}`,
-      source.fileName ? `file: ${source.fileName}` : undefined,
-      source.sourceUrl ? `source url: ${source.sourceUrl}` : undefined,
-      source.modelName ? `model: ${source.modelName}` : undefined,
-      source.tagNames.length > 0 ? `tags: ${source.tagNames.join(", ")}` : undefined,
-      source.promptText ? `linked prompt: ${source.promptText}` : undefined,
-      source.designTitle ? `design title: ${source.designTitle}` : undefined,
-      source.designSummary ? `design summary: ${source.designSummary}` : undefined,
-      source.designSourceDomain
-        ? `design source domain: ${source.designSourceDomain}`
-        : undefined,
-    ]);
+    // Pure embedding strategy: image-only for images, prompt-text-only fallback.
+    // Let Gemini's cross-modal matching do the work — no metadata dilution.
     const shouldUseMultimodal =
       Boolean(source.storageUrl) &&
       normalizeOptionalString(source.contentType)?.startsWith("image/");
     const modality = shouldUseMultimodal ? "multimodal_image" : "text_only";
+    const searchText = shouldUseMultimodal
+      ? "[image]"
+      : compactSearchText([source.promptText ?? source.fileName ?? `asset`]);
     const scopeFields = buildScopeFields(
       source.ownerUserId,
       "asset",
@@ -863,6 +867,7 @@ const reindexAssetSource = async (
     );
     const contentHash = await sha256Hex(
       JSON.stringify({
+        v: "pure-v1", // invalidates all prior embeddings on backfill
         modality,
         searchText,
         storageId: source.storageId,
@@ -885,10 +890,11 @@ const reindexAssetSource = async (
 
     let embedding = existing?.embedding;
     if (!shouldReuseEmbedding) {
-      const parts: Array<Record<string, unknown>> = [{ text: searchText }];
-      if (shouldUseMultimodal && source.storageUrl) {
-        parts.push(await fetchInlineImagePart(source.storageUrl, source.contentType));
-      }
+      // Image assets: embed image bytes only (no text). Text fallback: embed searchText.
+      const parts: Array<Record<string, unknown>> =
+        shouldUseMultimodal && source.storageUrl
+          ? [await fetchInlineImagePart(source.storageUrl, source.contentType)]
+          : [{ text: searchText }];
       embedding = (await embedWithGemini(parts)).values;
     }
 
@@ -971,18 +977,11 @@ const reindexPromptSource = async (
   }
 
   try {
-    const searchText = compactSearchText([
-      source.text,
-      source.tagNames.length > 0 ? `tags: ${source.tagNames.join(", ")}` : undefined,
-      source.pillar ? `pillar: ${source.pillar}` : undefined,
-      source.promptType ? `prompt type: ${source.promptType}` : undefined,
-      source.workflowType ? `workflow type: ${source.workflowType}` : undefined,
-      source.modelName ? `model: ${source.modelName}` : undefined,
-      source.modelProvider ? `model provider: ${source.modelProvider}` : undefined,
-      source.domain ? `domain: ${source.domain}` : undefined,
-    ]);
+    // Pure prompt text only — metadata stays as keyword filters, not in the embedding.
+    const searchText = source.text;
     const contentHash = await sha256Hex(
       JSON.stringify({
+        v: "pure-v1", // invalidates all prior embeddings on backfill
         searchText,
         pillar: source.pillar,
       }),
