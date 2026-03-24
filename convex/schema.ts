@@ -294,7 +294,6 @@ export default defineSchema({
       v.literal("replace_character"),
       v.literal("ingest"),
       v.literal("execute"),
-      v.literal("creator_assist"),
     ),
     source: v.union(
       v.literal("dashboard"),
@@ -302,7 +301,6 @@ export default defineSchema({
       v.literal("telegram"),
       v.literal("dev_telegram"),
       v.literal("api"),
-      v.literal("canvas"),
     ),
     sourceChatId: v.optional(v.string()),
     sourceThreadId: v.optional(v.string()),

@@ -638,4 +638,3 @@ export const bulkDeletePrompts = internalMutation({
     return count;
   },
 });
-
