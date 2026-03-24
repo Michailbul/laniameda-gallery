@@ -45,31 +45,30 @@ export function useCoralToastSafe(): CoralToastContextValue | null {
   return useContext(CoralToastContext);
 }
 
-/* ── Accent color per type ── */
+/* ── Accent bar color per type ── */
 
-function accentColor(type: ToastType) {
+function accentGradient(type: ToastType) {
   switch (type) {
     case "success":
-      return "var(--v7-coral, #e8715a)";
+      return "linear-gradient(180deg, var(--gradient-3), var(--gradient-5))";
     case "warning":
-      return "#d97706";
+      return "linear-gradient(180deg, var(--gradient-1), var(--gradient-3))";
     case "info":
-      return "#6366f1";
+      return "linear-gradient(180deg, var(--gradient-5), var(--gradient-8))";
     default:
-      return "var(--v7-text-secondary, #8a7e72)";
+      return "linear-gradient(180deg, var(--gradient-2), var(--gradient-4))";
   }
 }
 
 function ToastIcon({ type }: { type: ToastType }) {
-  const color = accentColor(type);
-  const size = 14;
+  const style = { color: "var(--gradient-3)", width: 16, height: 16 };
   switch (type) {
     case "success":
-      return <Check style={{ color, width: size, height: size }} strokeWidth={3} />;
+      return <Check style={style} />;
     case "warning":
-      return <AlertTriangle style={{ color, width: size, height: size }} strokeWidth={2.5} />;
+      return <AlertTriangle style={style} />;
     case "info":
-      return <Info style={{ color, width: size, height: size }} strokeWidth={2.5} />;
+      return <Info style={style} />;
     default:
       return null;
   }
@@ -77,7 +76,7 @@ function ToastIcon({ type }: { type: ToastType }) {
 
 /* ── Provider ── */
 
-const AUTO_DISMISS_MS = 2800;
+const AUTO_DISMISS_MS = 3500;
 const MAX_TOASTS = 4;
 
 export function CoralToastProvider({
@@ -114,14 +113,9 @@ export function CoralToastProvider({
     <CoralToastContext.Provider value={{ toast }}>
       {children}
 
-      {/* Toast stack — fixed center, above dock */}
+      {/* Toast stack — bottom-right */}
       <div
-        className="pointer-events-none fixed z-[100] flex flex-col items-center gap-2"
-        style={{
-          bottom: 88,
-          left: "50%",
-          transform: "translateX(-50%)",
-        }}
+        className="pointer-events-none fixed bottom-6 right-6 z-[100] flex flex-col-reverse items-end gap-2"
         aria-live="polite"
       >
         <AnimatePresence mode="popLayout">
@@ -129,81 +123,65 @@ export function CoralToastProvider({
             <motion.div
               key={t.id}
               layout
-              initial={{ opacity: 0, y: 16, scale: 0.92, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -8, scale: 0.95, filter: "blur(4px)" }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              className="pointer-events-auto relative cursor-pointer"
+              initial={{ opacity: 0, y: 24, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.95 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="pointer-events-auto flex overflow-hidden rounded-xl"
+              style={{
+                backgroundColor: "var(--surface-0)",
+                border: "1px solid var(--border-default)",
+                boxShadow: "var(--shadow-lg)",
+                minWidth: 260,
+                maxWidth: 360,
+              }}
               onClick={() => dismiss(t.id)}
             >
+              {/* Accent bar */}
               <div
-                className="flex items-center gap-2.5 rounded-full"
-                style={{
-                  padding: "8px 16px 8px 10px",
-                  backgroundColor: "var(--v7-surface-1, #f5efe8)",
-                  border: "1px solid var(--v7-border-default, rgba(32,23,16,0.08))",
-                  boxShadow:
-                    "0 4px 24px rgba(32, 23, 16, 0.10), 0 1px 4px rgba(32, 23, 16, 0.06)",
-                }}
-              >
-                {/* Icon with progress ring */}
-                <div
-                  className="relative flex items-center justify-center shrink-0"
-                  style={{ width: 24, height: 24 }}
-                >
-                  {t.duration > 0 && (
-                    <svg
-                      className="absolute inset-0"
-                      viewBox="0 0 24 24"
-                      style={{ transform: "rotate(-90deg)" }}
-                    >
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="10.5"
-                        fill="none"
-                        stroke="var(--v7-border-default, rgba(32,23,16,0.08))"
-                        strokeWidth="1.5"
-                      />
-                      <motion.circle
-                        cx="12"
-                        cy="12"
-                        r="10.5"
-                        fill="none"
-                        stroke={accentColor(t.type)}
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeDasharray={2 * Math.PI * 10.5}
-                        initial={{ strokeDashoffset: 0 }}
-                        animate={{ strokeDashoffset: 2 * Math.PI * 10.5 }}
-                        transition={{
-                          duration: t.duration / 1000,
-                          ease: "linear",
-                        }}
-                      />
-                    </svg>
-                  )}
-                  <ToastIcon type={t.type} />
-                </div>
+                className="w-1 shrink-0"
+                style={{ background: accentGradient(t.type) }}
+              />
 
-                {/* Text */}
-                <div className="flex items-baseline gap-1.5">
+              {/* Content */}
+              <div className="flex flex-1 items-start gap-2.5 px-3.5 py-3">
+                <ToastIcon type={t.type} />
+                <div className="flex flex-col gap-0.5">
                   <span
-                    className="text-[13px] font-semibold leading-none"
-                    style={{ color: "var(--v7-text-primary, #201710)" }}
+                    className="text-xs font-semibold"
+                    style={{ color: "var(--text-primary)" }}
                   >
                     {t.title}
                   </span>
                   {t.message && (
                     <span
-                      className="text-[10px] font-bold uppercase leading-none tracking-[0.06em]"
-                      style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                      className="text-xs"
+                      style={{ color: "var(--text-tertiary)" }}
                     >
                       {t.message}
                     </span>
                   )}
                 </div>
               </div>
+
+              {/* Progress bar */}
+              {t.duration > 0 && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px]">
+                  <motion.div
+                    className="h-full"
+                    style={{
+                      background:
+                        "linear-gradient(90deg, var(--gradient-1), var(--gradient-5))",
+                    }}
+                    initial={{ width: "100%" }}
+                    animate={{ width: "0%" }}
+                    transition={{
+                      duration: t.duration / 1000,
+                      ease: "linear",
+                    }}
+                  />
+                </div>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

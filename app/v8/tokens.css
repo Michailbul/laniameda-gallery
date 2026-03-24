@@ -33,7 +33,7 @@
   --v7-text-primary: var(--v7-ink);
   --v7-text-secondary: #4c3a2d;
   --v7-text-tertiary: #7d6755;
-  --v7-text-ghost: #7d6755;
+  --v7-text-ghost: #ab9381;
 
   /* Borders */
   --v7-border: rgba(32, 23, 16, 0.16);
@@ -164,17 +164,21 @@
 /* ── Dark island overrides ── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .v7-island {
-    background: var(--v7-surface-1);
+    background: rgba(26, 25, 24, 0.92);
+    border-color: rgba(255, 138, 118, 0.10);
     box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.30),
-      0 2px 8px rgba(0, 0, 0, 0.20);
+      0 0 20px rgba(255, 138, 118, 0.06),
+      0 0 40px rgba(255, 138, 118, 0.02),
+      0 4px 16px rgba(0, 0, 0, 0.30);
   }
 }
 [data-theme="dark"] .v7-island {
-  background: var(--v7-surface-1);
+  background: rgba(26, 25, 24, 0.92);
+  border-color: rgba(255, 138, 118, 0.10);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.30),
-    0 2px 8px rgba(0, 0, 0, 0.20);
+    0 0 20px rgba(255, 138, 118, 0.06),
+    0 0 40px rgba(255, 138, 118, 0.02),
+    0 4px 16px rgba(0, 0, 0, 0.30);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -189,14 +193,14 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .v7-grid-bg {
     background-image:
-      linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
+      linear-gradient(rgba(240, 232, 224, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(240, 232, 224, 0.03) 1px, transparent 1px);
   }
 }
 [data-theme="dark"] .v7-grid-bg {
   background-image:
-    linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
+    linear-gradient(rgba(240, 232, 224, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(240, 232, 224, 0.03) 1px, transparent 1px);
 }
 
 /* ── Brutalist utility classes ── */
@@ -399,14 +403,15 @@
 
 /* ── Floating island ── */
 .v7-island {
-  position: relative;
-  background: var(--v7-surface-1);
-  border: none;
+  background: rgba(255, 253, 250, 0.92);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 122, 100, 0.12);
   border-radius: 12px;
   box-shadow:
-    0 8px 32px rgba(32, 23, 16, 0.08),
-    0 2px 8px rgba(32, 23, 16, 0.04);
-  overflow: hidden;
+    0 0 20px rgba(255, 122, 100, 0.08),
+    0 0 40px rgba(255, 122, 100, 0.03),
+    0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 .v7-island-divider {

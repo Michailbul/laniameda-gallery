@@ -1,9 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { ImageIcon, Loader2, Trash2 } from "lucide-react";
-import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import { memo, useEffect, useMemo, useState } from "react";
+import { ImageIcon, Loader2, Maximize2, Trash2 } from "lucide-react";
 
 interface ImageCardProps {
   image: {
@@ -76,8 +75,6 @@ export const ImageCard = memo(function ImageCard({
   const [isLoading, setIsLoading] = useState(!initiallyLoaded);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
-  const coralCtx = useCoralToastSafe();
-  const toastFn = coralCtx?.toast;
 
   const aspectRatio = useMemo(() => {
     if (!image.width || !image.height) return "1 / 1";
@@ -142,7 +139,7 @@ export const ImageCard = memo(function ImageCard({
   const dimmed = hasSelection && !isSelected;
 
   const cardClasses = [
-    "group relative cursor-pointer overflow-hidden rounded-xl animate-card-entrance card-base",
+    "group relative cursor-pointer overflow-hidden break-inside-avoid rounded-xl animate-card-entrance card-base",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
@@ -155,24 +152,15 @@ export const ImageCard = memo(function ImageCard({
     onDelete?.(image.id);
   };
 
-  const handlePromptCopy = useCallback(
-    async (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      await navigator.clipboard.writeText(image.prompt);
-      toastFn?.("Copied", "PROMPT COPIED", "success");
-    },
-    [image.prompt, toastFn],
-  );
-
   return (
     <div
       className={cardClasses}
       style={{
         aspectRatio,
+        breakInside: "avoid-column",
         animationDelay: entranceDelay,
         animationFillMode: "backwards",
+        marginBottom: "12px",
       }}
       onClick={selectImage}
     >
@@ -266,47 +254,40 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Hover overlay — cinematic warm gradient with a feathered prompt sheet */}
+      {/* Hover overlay — cinematic warm gradient with view details */}
       <div
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100"
         style={{
           background: "var(--image-card-overlay-gradient)",
         }}
       >
-        <div
-          className="absolute bottom-0 left-0 right-0 flex min-h-[50%] flex-col gap-3 overflow-hidden p-3 pt-5"
-          style={{
-            maxHeight: "62%",
-          }}
-        >
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background: "var(--image-card-prompt-sheet-bg)",
-              backdropFilter: "blur(4px)",
-              WebkitBackdropFilter: "blur(4px)",
-              maskImage:
-                "linear-gradient(to bottom, transparent 0%, black 32%, black 100%)",
-              WebkitMaskImage:
-                "linear-gradient(to bottom, transparent 0%, black 32%, black 100%)",
-            }}
-          />
-
-          <button
-            type="button"
-            onClick={(event) => {
-              void handlePromptCopy(event);
-            }}
-            className="relative z-10 min-h-0 flex-1 overflow-y-auto pr-2 text-left text-[10px] font-mono leading-snug tracking-wide overscroll-contain"
+        {/* Bottom content */}
+        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between p-3">
+          <p
+            className="flex-1 pr-2 text-[10px] font-mono leading-snug tracking-wide"
             style={{
               color: "var(--image-card-overlay-text)",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
               textShadow: "var(--image-card-text-shadow)",
-              scrollbarWidth: "thin",
             }}
-            aria-label="Copy prompt to clipboard"
           >
             {image.prompt}
-          </button>
+          </p>
+
+          {/* View details indicator */}
+          <div
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center backdrop-blur-xl"
+            style={{
+              color: "var(--image-card-overlay-text)",
+              backgroundColor: "var(--image-card-action-bg)",
+              border: "1px solid var(--image-card-action-border)",
+            }}
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </div>
         </div>
       </div>
 

@@ -135,6 +135,8 @@ export function V72FilterBar({
           borderRadius: "28px",
           overflow: "hidden",
           marginBottom: "12px",
+          boxShadow:
+            "0 0 0 1px color-mix(in srgb, var(--gradient-3) 12%, transparent), 0 0 24px color-mix(in srgb, var(--gradient-3) 8%, transparent), 0 4px 16px rgba(0, 0, 0, 0.06)",
         }}
       >
         <div
