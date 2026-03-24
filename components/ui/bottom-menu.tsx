@@ -446,7 +446,7 @@ export default function BottomMenu({
             style={{ transformOrigin: "bottom center" }}
             className="absolute bottom-[70px] overflow-hidden"
           >
-            <div className="rounded-[18px] border border-border bg-background/75 backdrop-blur-2xl saturate-150">
+            <div className="rounded-[18px] border border-border bg-background/95 backdrop-blur-xl">
               <AnimatePresence initial={false} mode="popLayout">
                 <motion.div
                   key={view}
@@ -479,7 +479,7 @@ export default function BottomMenu({
         ) : null}
       </AnimatePresence>
 
-      <div className="z-10 mt-3 flex items-center gap-1 rounded-[18px] border border-border bg-background/75 p-1 backdrop-blur-2xl saturate-150">
+      <div className="z-10 mt-3 flex items-center gap-1 rounded-[18px] border border-border bg-background/95 p-1 backdrop-blur-xl">
         {MAIN_NAV.map(({ icon, name }) => (
           <button
             key={name}

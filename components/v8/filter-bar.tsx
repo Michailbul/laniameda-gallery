@@ -118,7 +118,7 @@ export function V72FilterBar({
   return (
     <div
       id="v8-filter-bar"
-      className="v7-blur-fringe flex justify-center"
+      className="flex justify-center"
       style={{
         position: "sticky",
         top: 0,
