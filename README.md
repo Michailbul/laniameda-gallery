@@ -91,4 +91,4 @@ See `agent-docs/` for detailed docs:
 - `DESIGN.md` — UI design system
 - `OPENCLAW-EXPLANATION.md` — how OpenClaw integration works
 
-The canonical `laniameda-kb` skill now lives in [`skills/laniameda-kb`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-kb). Install it from this repo with `npx skills` so laptops and VPS machines can track updates from GitHub.
+The canonical `laniameda-kb` skill now lives in [`skills/laniameda-kb`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-kb). Install it from this repo with `bunx skills` so laptops and VPS machines can track updates from GitHub.

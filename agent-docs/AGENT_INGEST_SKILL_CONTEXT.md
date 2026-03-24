@@ -37,6 +37,7 @@ Call Convex action directly:
 {
   ownerUserId: string; // required
   promptText?: string;
+  allowPromptOnly?: boolean;
   url?: string;
   file?: {
     base64: string;
@@ -59,7 +60,8 @@ Validation rules:
 
 1. `ownerUserId` must be non-empty.
 2. At least one of `promptText`, `url`, `file` must be present.
-3. Tags are normalized/deduped before storage.
+3. Prompt-only saves must set `allowPromptOnly: true`.
+4. Tags are normalized/deduped before storage.
 
 ---
 

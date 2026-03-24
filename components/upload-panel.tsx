@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "convex/react";
 import Image from "next/image";
-import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { requestJson } from "@/lib/app-api";
 import { parseTagNames } from "@/lib/ingest";
 import { buildUploadFormData } from "@/lib/upload-form";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
   ownerUserId?: string;
+  onDataChanged?: () => void;
   className?: string;
 };
 
@@ -88,6 +89,7 @@ export function UploadPanel({
   availableTags = [],
   folders = [],
   ownerUserId,
+  onDataChanged,
   className,
 }: UploadPanelProps) {
   const [promptText, setPromptText] = useState("");
@@ -104,6 +106,7 @@ export function UploadPanel({
   const [promptType, setPromptType] = useState(NO_VALUE);
   const [domainInput, setDomainInput] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [saveAsTextOnlyPrompt, setSaveAsTextOnlyPrompt] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<StatusMessage>(null);
@@ -113,12 +116,15 @@ export function UploadPanel({
   const highlightRef = useRef<HTMLPreElement | null>(null);
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const createFolderMutation = useMutation(api.folders.createFolder);
   const canCreateFolders = Boolean(ownerUserId?.trim());
 
   const canSubmit = Boolean(
     promptText.trim().length > 0 || urlInput.trim().length > 0 || selectedFiles.length > 0,
   );
+  const hasMediaInputs =
+    urlInput.trim().length > 0 || selectedFiles.length > 0;
+  const isPromptOnlyDraft =
+    promptText.trim().length > 0 && !hasMediaInputs;
 
   const previews = useMemo<FilePreview[]>(() => {
     return selectedFiles.map((file) => {
@@ -217,6 +223,7 @@ export function UploadPanel({
     setTagInput("");
     setTags([]);
     setSelectedFiles([]);
+    setSaveAsTextOnlyPrompt(false);
     setFolderSelection(NO_FOLDER_VALUE);
     setFolderDraftName("");
     setCreatingFolder(false);
@@ -246,16 +253,21 @@ export function UploadPanel({
     setCreatingFolder(true);
     setStatus(null);
     try {
-      const result = await createFolderMutation({
-        ownerUserId: normalizedOwnerUserId,
-        name,
+      const result = await requestJson<{
+        folder: { _id: string };
+        created: boolean;
+      }>("/api/folders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
       });
-      setFolderSelection(result.folderId);
+      setFolderSelection(result.folder._id);
       setFolderDraftName("");
       setStatus({
         type: "success",
         message: result.created ? "Folder created." : "Using existing folder.",
       });
+      onDataChanged?.();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create folder.";
@@ -290,8 +302,14 @@ export function UploadPanel({
         pillarSelection === NO_VALUE ? undefined : pillarSelection;
       const resolvedPromptType =
         promptType === NO_VALUE ? undefined : promptType;
+      if (isPromptOnlyDraft && !saveAsTextOnlyPrompt) {
+        throw new Error(
+          "Enable “save as text-only prompt” to ingest prompt-only content.",
+        );
+      }
       const formData = buildUploadFormData({
         promptText,
+        allowPromptOnly: isPromptOnlyDraft && saveAsTextOnlyPrompt,
         url: urlInput,
         folderId: resolvedFolderId,
         tags,
@@ -318,6 +336,7 @@ export function UploadPanel({
 
       clearForm();
       setStatus({ type: "success", message: "Ingest queued. The gallery will update shortly." });
+      onDataChanged?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus({ type: "error", message });
@@ -426,6 +445,33 @@ export function UploadPanel({
             </div>
             <div className="absolute bottom-4 right-4 text-xs font-mono text-muted-foreground">
               {promptText.length} / 2000
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="save-as-text-only-prompt"
+                checked={saveAsTextOnlyPrompt}
+                onCheckedChange={(checked) => setSaveAsTextOnlyPrompt(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <Label
+                  htmlFor="save-as-text-only-prompt"
+                  className="text-[13px] font-semibold text-muted-foreground"
+                >
+                  Save as text-only prompt
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Required when you want to ingest prompt text without any file or URL.
+                </p>
+                {isPromptOnlyDraft && !saveAsTextOnlyPrompt ? (
+                  <p className="text-[11px] font-medium text-amber-700">
+                    This draft has no media attached. Turn this on to save it intentionally as text-only.
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
 

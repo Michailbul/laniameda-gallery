@@ -1,8 +1,8 @@
-import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import type { AiProvider, AiRunMode, AiRuntime } from "@/lib/ai/models";
 import type { CompactUsage } from "@/lib/ai/schemas";
 import type { RunIntent, RunSource } from "@/lib/run-contract";
+import { getServerConvexClient } from "@/lib/server/convex";
 
 const createRunMutation = makeFunctionReference<"mutation">("runs:createRun");
 const setRunRunningMutation = makeFunctionReference<"mutation">("runs:setRunRunning");
@@ -12,15 +12,7 @@ const failRunMutation = makeFunctionReference<"mutation">("runs:failRun");
 const cancelRunMutation = makeFunctionReference<"mutation">("runs:cancelRun");
 const getRunQuery = makeFunctionReference<"query">("runs:getRun");
 
-const getConvexClient = () => {
-  const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("CONVEX_URL is not configured.");
-  }
-  return new ConvexHttpClient(url);
-};
-
-const client = () => getConvexClient();
+const client = () => getServerConvexClient();
 
 export const convexRuns = {
   createRun: (args: {

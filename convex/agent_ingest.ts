@@ -220,6 +220,7 @@ export const ingestFromAgentPayload = action({
       selectedTelegramMediaIds: v.array(v.string()),
       selectedUrls: v.array(v.string()),
       notes: v.optional(v.string()),
+      allowPromptOnly: v.optional(v.boolean()),
     }),
     mediaFiles: v.array(ingestMediaValidator),
   },
@@ -244,6 +245,7 @@ export const ingestFromAgentPayload = action({
 
     const selectedMediaIds = normalizeUniqueStrings(args.payload.selectedTelegramMediaIds);
     const selectedUrls = normalizeUniqueStrings(args.payload.selectedUrls);
+    const allowPromptOnly = args.payload.allowPromptOnly === true;
     const normalizedDesignInspirations = (args.payload.designInspirations ?? []).map((item) => ({
       title: item.title?.trim() || undefined,
       summary: item.summary?.trim() || undefined,
@@ -255,6 +257,10 @@ export const ingestFromAgentPayload = action({
       linkedPromptIndex: item.linkedPromptIndex,
       linkedMediaId: item.linkedMediaId?.trim() || undefined,
     }));
+    const hasLinkedGalleryRecords = selectedMediaIds.length > 0 || normalizedDesignInspirations.length > 0;
+    if (!hasLinkedGalleryRecords && !allowPromptOnly) {
+      throw new ConvexError("Prompt-only ingest requires allowPromptOnly=true.");
+    }
 
     const tagInputs = normalizeTagInputs([
       ...normalizedPrompts.flatMap((prompt) =>
@@ -289,139 +295,180 @@ export const ingestFromAgentPayload = action({
     }
 
     const promptIds: Id<"prompts">[] = [];
-    for (const [index, prompt] of normalizedPrompts.entries()) {
-      const perPromptTagIds = prompt.tags
-        .map((name) => tagIdByName.get(name.toLowerCase()))
-        .filter((id): id is Id<"tags"> => Boolean(id));
-      const promptRecord = await ctx.runMutation(api.prompts.createPrompt, {
-        ownerUserId,
-        text: buildPromptArtifactText(prompt),
-        tagIds: perPromptTagIds,
-        ingestKey: `run:${args.runId}:prompt:${index + 1}`,
-        pillar: prompt.pillar,
-        promptType: prompt.promptType,
-        workflowType: prompt.workflowType,
-        domain: prompt.domain,
-        modelName: prompt.modelName,
-        modelProvider: prompt.modelProvider,
-        promptSections: {
-          finalPrompt: prompt.finalPrompt,
-          negativePrompt: prompt.negativePrompt,
-          generationNotes: prompt.generationNotes,
-        },
-        promptProfile: prompt.promptProfile,
-      });
-      promptIds.push(promptRecord.promptId);
-    }
-
-    const mediaById = new Map<string, (typeof args.mediaFiles)[number]>();
-    for (const media of args.mediaFiles) {
-      const mediaId = media.mediaId.trim();
-      if (!mediaId) {
-        continue;
-      }
-      mediaById.set(mediaId, media);
-    }
-
+    const createdPromptIds = new Set<Id<"prompts">>();
     const assetByMediaId = new Map<string, Id<"assets">>();
+    const linkedPromptIds = new Set<Id<"prompts">>();
     const skippedMediaIds: string[] = [];
     const assetIds: Id<"assets">[] = [];
-
-    for (const mediaId of selectedMediaIds) {
-      const media = mediaById.get(mediaId);
-      if (!media) {
-        skippedMediaIds.push(mediaId);
-        continue;
-      }
-      if (media.kind !== "image" && media.kind !== "video") {
-        skippedMediaIds.push(mediaId);
-        continue;
-      }
-
-      const linkedPromptId = resolvePromptIdByIndex(promptIds, media.linkedPromptIndex);
-      const linkedPrompt = media.linkedPromptIndex
-        ? normalizedPrompts[Math.trunc(media.linkedPromptIndex) - 1]
-        : normalizedPrompts[0];
-
-      const blob = toStorageBlob(media.base64, media.mimeType);
-      const storageId = await ctx.storage.store(blob);
-      const assetRecord = await ctx.runMutation(api.assets.createAsset, {
-        ownerUserId,
-        kind: media.kind,
-        storageId,
-        fileName: media.fileName,
-        contentType: media.mimeType,
-        size: blob.size,
-        promptId: linkedPromptId,
-        tagIds,
-        ingestKey: `run:${args.runId}:media:${mediaId}`,
-        pillar: linkedPrompt?.pillar ?? "dump",
-        generationType:
-          linkedPrompt?.promptType === "video_gen"
-            ? "video_gen"
-            : linkedPrompt?.promptType === "ui_design"
-              ? "ui_design"
-              : "image_gen",
-        assetRole: "generated_output",
-        ingestSource: "agent",
-      });
-      assetByMediaId.set(mediaId, assetRecord.assetId);
-      assetIds.push(assetRecord.assetId);
-    }
-
     const designInspirationIds: Id<"designInspirations">[] = [];
-    for (const [index, inspiration] of normalizedDesignInspirations.entries()) {
-      const linkedPromptId = resolvePromptIdByIndex(promptIds, inspiration.linkedPromptIndex);
-      const linkedAssetId = inspiration.linkedMediaId
-        ? assetByMediaId.get(inspiration.linkedMediaId)
-        : undefined;
-      const inspirationTagIds = inspiration.tags
-        .map((name) => tagIdByName.get(name.toLowerCase()))
-        .filter((id): id is Id<"tags"> => Boolean(id));
 
-      const record = (await ctx.runMutation(createDesignInspirationMutation, {
+    try {
+      for (const [index, prompt] of normalizedPrompts.entries()) {
+        const perPromptTagIds = prompt.tags
+          .map((name) => tagIdByName.get(name.toLowerCase()))
+          .filter((id): id is Id<"tags"> => Boolean(id));
+        const promptRecord = await ctx.runMutation(api.prompts.createPrompt, {
+          ownerUserId,
+          text: buildPromptArtifactText(prompt),
+          tagIds: perPromptTagIds,
+          ingestKey: `run:${args.runId}:prompt:${index + 1}`,
+          pillar: prompt.pillar,
+          promptType: prompt.promptType,
+          workflowType: prompt.workflowType,
+          domain: prompt.domain,
+          modelName: prompt.modelName,
+          modelProvider: prompt.modelProvider,
+          promptSections: {
+            finalPrompt: prompt.finalPrompt,
+            negativePrompt: prompt.negativePrompt,
+            generationNotes: prompt.generationNotes,
+          },
+          promptProfile: prompt.promptProfile,
+        });
+        promptIds.push(promptRecord.promptId);
+        if (promptRecord.created) {
+          createdPromptIds.add(promptRecord.promptId);
+        }
+      }
+
+      const mediaById = new Map<string, (typeof args.mediaFiles)[number]>();
+      for (const media of args.mediaFiles) {
+        const mediaId = media.mediaId.trim();
+        if (!mediaId) {
+          continue;
+        }
+        mediaById.set(mediaId, media);
+      }
+
+      for (const mediaId of selectedMediaIds) {
+        const media = mediaById.get(mediaId);
+        if (!media) {
+          skippedMediaIds.push(mediaId);
+          continue;
+        }
+        if (media.kind !== "image" && media.kind !== "video") {
+          skippedMediaIds.push(mediaId);
+          continue;
+        }
+
+        const linkedPromptId = resolvePromptIdByIndex(promptIds, media.linkedPromptIndex);
+        const linkedPrompt = media.linkedPromptIndex
+          ? normalizedPrompts[Math.trunc(media.linkedPromptIndex) - 1]
+          : normalizedPrompts[0];
+
+        const blob = toStorageBlob(media.base64, media.mimeType);
+        const storageId = await ctx.storage.store(blob);
+        const assetRecord = await ctx.runMutation(api.assets.createAsset, {
+          ownerUserId,
+          kind: media.kind,
+          storageId,
+          fileName: media.fileName,
+          contentType: media.mimeType,
+          size: blob.size,
+          promptId: linkedPromptId,
+          tagIds,
+          ingestKey: `run:${args.runId}:media:${mediaId}`,
+          pillar: linkedPrompt?.pillar ?? "dump",
+          generationType:
+            linkedPrompt?.promptType === "video_gen"
+              ? "video_gen"
+              : linkedPrompt?.promptType === "ui_design"
+                ? "ui_design"
+                : "image_gen",
+          assetRole: "generated_output",
+          ingestSource: "agent",
+        });
+        assetByMediaId.set(mediaId, assetRecord.assetId);
+        assetIds.push(assetRecord.assetId);
+        if (linkedPromptId) {
+          linkedPromptIds.add(linkedPromptId);
+        }
+      }
+
+      for (const [index, inspiration] of normalizedDesignInspirations.entries()) {
+        const linkedPromptId = resolvePromptIdByIndex(promptIds, inspiration.linkedPromptIndex);
+        const linkedAssetId = inspiration.linkedMediaId
+          ? assetByMediaId.get(inspiration.linkedMediaId)
+          : undefined;
+        const inspirationTagIds = inspiration.tags
+          .map((name) => tagIdByName.get(name.toLowerCase()))
+          .filter((id): id is Id<"tags"> => Boolean(id));
+
+        const record = (await ctx.runMutation(createDesignInspirationMutation, {
+          ownerUserId,
+          title: inspiration.title,
+          summary: inspiration.summary,
+          sourceUrl: inspiration.sourceUrl,
+          inspirationType: inspiration.inspirationType,
+          platform: inspiration.platform,
+          workflowType: inspiration.workflowType,
+          tagIds: inspirationTagIds,
+          ingestKey: `run:${args.runId}:inspiration:${index + 1}`,
+          assetId: linkedAssetId,
+          promptId: linkedPromptId,
+        })) as { designInspirationId: Id<"designInspirations">; created: boolean };
+        designInspirationIds.push(record.designInspirationId);
+        if (linkedPromptId) {
+          linkedPromptIds.add(linkedPromptId);
+        }
+      }
+
+      if (!allowPromptOnly) {
+        for (const promptId of promptIds) {
+          if (!linkedPromptIds.has(promptId) && createdPromptIds.has(promptId)) {
+            await ctx.runMutation(internal.prompts.deletePrompt, { id: promptId });
+          }
+        }
+      }
+
+      const retainedPromptIds = allowPromptOnly
+        ? promptIds
+        : promptIds.filter((promptId) => linkedPromptIds.has(promptId));
+      if (
+        retainedPromptIds.length === 0 &&
+        assetIds.length === 0 &&
+        designInspirationIds.length === 0
+      ) {
+        throw new ConvexError("Agent ingest did not produce any gallery records.");
+      }
+
+      if (selectedUrls.length > 0) {
+        await ctx.runMutation(api.runs.appendRunEvent, {
+          runId: args.runId,
+          type: "system",
+          payload: {
+            phase: "agent_ingest_selected_urls",
+            selectedUrls,
+            notes: args.payload.notes?.trim() || undefined,
+          },
+        });
+      }
+
+      await ctx.scheduler.runAfter(0, internal.notifications.notifyKBIngest, {
         ownerUserId,
-        title: inspiration.title,
-        summary: inspiration.summary,
-        sourceUrl: inspiration.sourceUrl,
-        inspirationType: inspiration.inspirationType,
-        platform: inspiration.platform,
-        workflowType: inspiration.workflowType,
-        tagIds: inspirationTagIds,
-        ingestKey: `run:${args.runId}:inspiration:${index + 1}`,
-        assetId: linkedAssetId,
-        promptId: linkedPromptId,
-      })) as { designInspirationId: Id<"designInspirations">; created: boolean };
-      designInspirationIds.push(record.designInspirationId);
-    }
-
-    if (selectedUrls.length > 0) {
-      await ctx.runMutation(api.runs.appendRunEvent, {
-        runId: args.runId,
-        type: "system",
-        payload: {
-          phase: "agent_ingest_selected_urls",
-          selectedUrls,
-          notes: args.payload.notes?.trim() || undefined,
-        },
+        pillar: normalizedPrompts[0]?.pillar ?? "dump",
+        promptText: normalizedPrompts[0]?.finalPrompt,
+        tagNames: tagInputs.map((tag) => tag.name),
+        assetId: assetIds[0],
+        promptId: retainedPromptIds[0],
+        isDuplicate: false,
       });
+
+      return {
+        promptIds: retainedPromptIds,
+        assetIds,
+        designInspirationIds,
+        skippedMediaIds,
+      };
+    } catch (error) {
+      if (assetIds.length === 0 && designInspirationIds.length === 0) {
+        for (const promptId of promptIds) {
+          if (createdPromptIds.has(promptId)) {
+            await ctx.runMutation(internal.prompts.deletePrompt, { id: promptId });
+          }
+        }
+      }
+      throw error;
     }
-
-    await ctx.scheduler.runAfter(0, internal.notifications.notifyKBIngest, {
-      ownerUserId,
-      pillar: normalizedPrompts[0]?.pillar ?? "dump",
-      promptText: normalizedPrompts[0]?.finalPrompt,
-      tagNames: tagInputs.map((tag) => tag.name),
-      assetId: assetIds[0],
-      promptId: promptIds[0],
-      isDuplicate: false,
-    });
-
-    return {
-      promptIds,
-      assetIds,
-      designInspirationIds,
-      skippedMediaIds,
-    };
   },
 });

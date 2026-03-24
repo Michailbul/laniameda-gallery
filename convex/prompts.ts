@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
+import type { Doc } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
@@ -31,6 +32,61 @@ const dedupePromptIds = <T extends { _id: string }>(rows: T[]) => {
     seen.add(row._id);
     return true;
   });
+};
+
+const promptResultFields = {
+  _id: v.id("prompts"),
+  _creationTime: v.number(),
+  ownerUserId: v.optional(v.string()),
+  text: v.string(),
+  tagIds: v.array(v.id("tags")),
+  folderId: v.optional(v.id("folders")),
+  ingestKey: v.optional(v.string()),
+  pillar: pillarValidator,
+  promptType: promptTypeValidator,
+  domain: v.optional(v.string()),
+  modelName: v.optional(v.string()),
+  modelProvider: modelProviderValidator,
+  workflowType: workflowTypeValidator,
+  promptSections: promptSectionsValidator,
+  promptProfile: promptProfileValidator,
+  createdAt: v.number(),
+} as const;
+
+const promptOnlyGalleryResultValidator = v.object({
+  ...promptResultFields,
+  linkedAssetCount: v.number(),
+  linkedDesignInspirationCount: v.number(),
+});
+
+const matchesPromptSearch = (
+  prompt: {
+    text: string;
+    domain?: string;
+    modelName?: string;
+    pillar?: string;
+    promptType?: string;
+    workflowType?: string;
+    promptSections?: { finalPrompt?: string };
+  },
+  query?: string,
+) => {
+  const needle = query?.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+
+  return [
+    prompt.text,
+    prompt.promptSections?.finalPrompt,
+    prompt.domain,
+    prompt.modelName,
+    prompt.pillar,
+    prompt.promptType,
+    prompt.workflowType,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLowerCase().includes(needle));
 };
 
 export const createPrompt = mutation({
@@ -392,6 +448,103 @@ export const searchPrompts = query({
       .take(limit * 3);
     const results = rows.filter((row) => canActorAccessOwnerUserId(ownerUserId, row.ownerUserId));
     return results.slice(0, limit);
+  },
+});
+
+export const listPromptOnlyGalleryPrompts = query({
+  args: {
+    ownerUserId: v.string(),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    folderId: v.optional(v.id("folders")),
+    pillar: pillarValidator,
+    modelName: v.optional(v.string()),
+    search: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(promptOnlyGalleryResultValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const limit = Math.min(args.limit ?? 200, 200);
+    const requiredTagIds = new Set(args.tagIds ?? []);
+    const results: Array<Doc<"prompts"> & {
+      linkedAssetCount: number;
+      linkedDesignInspirationCount: number;
+    }> = [];
+
+    for (const ownerCandidate of ownerUserIds) {
+      const rows = args.folderId
+        ? await ctx.db
+            .query("prompts")
+            .withIndex("by_owner_folder_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+            )
+            .order("desc")
+            .collect()
+        : args.pillar
+          ? await ctx.db
+              .query("prompts")
+              .withIndex("by_owner_pillar_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("pillar", args.pillar).gte("createdAt", 0),
+              )
+              .order("desc")
+              .collect()
+          : await ctx.db
+              .query("prompts")
+              .withIndex("by_owner_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+              )
+              .order("desc")
+              .collect();
+
+      for (const prompt of rows) {
+        if (args.modelName && prompt.modelName !== args.modelName) {
+          continue;
+        }
+        if (
+          requiredTagIds.size > 0 &&
+          !prompt.tagIds.some((tagId) => requiredTagIds.has(tagId))
+        ) {
+          continue;
+        }
+        if (!matchesPromptSearch(prompt, args.search)) {
+          continue;
+        }
+
+        const [linkedAssets, linkedDesignInspirations] = await Promise.all([
+          ctx.db
+            .query("assets")
+            .withIndex("by_owner_prompt_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate).eq("promptId", prompt._id).gte("createdAt", 0),
+            )
+            .take(1),
+          ctx.db
+            .query("designInspirations")
+            .withIndex("by_owner_promptId", (q) =>
+              q.eq("ownerUserId", ownerCandidate).eq("promptId", prompt._id),
+            )
+            .take(1),
+        ]);
+
+        if (linkedAssets.length > 0 || linkedDesignInspirations.length > 0) {
+          continue;
+        }
+
+        results.push({
+          ...prompt,
+          linkedAssetCount: 0,
+          linkedDesignInspirationCount: 0,
+        });
+      }
+    }
+
+    return dedupePromptIds(results)
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, limit);
   },
 });
 

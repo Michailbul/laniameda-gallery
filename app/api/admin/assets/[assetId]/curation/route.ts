@@ -1,21 +1,13 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { requireAuth } from "@/lib/server-auth";
 import type { Id } from "@/convex/_generated/dataModel";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
+import { getServerConvexClient } from "@/lib/server/convex";
 
 const setAssetCurationMutation = makeFunctionReference<"mutation">(
   "assets:setAssetCuration",
 );
-
-const getConvexClient = () => {
-  const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("CONVEX_URL is not configured.");
-  }
-  return new ConvexHttpClient(url);
-};
 
 const resolveCuratorUserIds = () =>
   parseUserIdList(
@@ -61,7 +53,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const client = getConvexClient();
+    const client = getServerConvexClient();
     const result = await client.mutation(setAssetCurationMutation, {
       assetId: assetId as Id<"assets">,
       actorUserId: authUser.id,

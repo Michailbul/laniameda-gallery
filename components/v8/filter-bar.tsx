@@ -349,7 +349,8 @@ export function V72FilterBar({
                     onClick={onClearAllTags}
                     className="flex items-center gap-1 px-2.5 py-1 transition-colors"
                     style={{
-                      background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+                      background:
+                        "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
                       color: "#fff",
                       fontSize: "9px",
                       fontWeight: 800,
@@ -409,9 +410,7 @@ export function V72FilterBar({
                           border: isActive
                             ? "2px solid var(--gradient-3)"
                             : "2px solid var(--v7-border)",
-                          color: isActive
-                            ? "#fff"
-                            : "var(--v7-text-secondary)",
+                          color: isActive ? "#fff" : "var(--v7-text-secondary)",
                           background: isActive
                             ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
                             : "var(--v7-surface-1)",

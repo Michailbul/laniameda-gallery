@@ -288,6 +288,7 @@ export default defineSchema({
       v.literal("canceled"),
     ),
     intent: v.union(
+      v.literal("creator_assist"),
       v.literal("transfer_style"),
       v.literal("transfer_pose"),
       v.literal("replace_character"),
@@ -297,6 +298,7 @@ export default defineSchema({
     ),
     source: v.union(
       v.literal("dashboard"),
+      v.literal("canvas"),
       v.literal("telegram"),
       v.literal("dev_telegram"),
       v.literal("api"),

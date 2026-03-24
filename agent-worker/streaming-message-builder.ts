@@ -30,6 +30,7 @@ const buildBaseInstructions = ({
     "Generate an actionable prompt package for image creation.",
     "You must call the tool submit_ingest_payload exactly once before finalizing your answer.",
     "The submit_ingest_payload payload must never include any user identifier fields.",
+    "If you intentionally want to save text without attached media or design inspirations, include allowPromptOnly: true. Otherwise do not submit prompt-only payloads.",
     `Intent: ${intent}`,
     `Source: ${source}`,
     "Return concise output with:",

@@ -98,7 +98,7 @@ CONVEX_URL=https://<your-convex-deployment>.convex.cloud
 
 Important:
 - The canonical skill source lives in `skills/laniameda-kb/` inside this repo.
-- Install that skill with `npx skills` so `skills check` / `skills update` can track GitHub-backed installs on VPS and other machines.
+- Install that skill with `bunx skills` so `skills check` / `skills update` can track GitHub-backed installs on VPS and other machines.
 - The skill script now reads `CONVEX_URL` from env instead of hardcoding a deployment URL.
 
 ## 5) Telegram integration boundaries

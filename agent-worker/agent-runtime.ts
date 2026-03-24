@@ -42,6 +42,7 @@ const ingestPayloadSchema = z
     selectedTelegramMediaIds: z.array(z.string()),
     selectedUrls: z.array(z.string()),
     notes: z.optional(z.string()),
+    allowPromptOnly: z.optional(z.boolean()),
     userId: z.optional(z.never()),
     ownerUserId: z.optional(z.never()),
   })
@@ -59,6 +60,7 @@ export type AgentIngestPayload = {
   selectedTelegramMediaIds: string[];
   selectedUrls: string[];
   notes?: string;
+  allowPromptOnly?: boolean;
 };
 
 type IngestToolCapture = {
@@ -332,7 +334,9 @@ const normalizeUniqueStrings = (values: string[]) => {
   return Array.from(new Set(cleaned));
 };
 
-const normalizeIngestPayload = (input: z.infer<typeof ingestPayloadSchema>): AgentIngestPayload => {
+export const normalizeIngestPayload = (
+  input: z.infer<typeof ingestPayloadSchema>,
+): AgentIngestPayload => {
   const prompts: AgentIngestPrompt[] = [];
   for (const prompt of input.prompts) {
     const finalPrompt = prompt.final_prompt.trim();
@@ -361,6 +365,7 @@ const normalizeIngestPayload = (input: z.infer<typeof ingestPayloadSchema>): Age
     selectedTelegramMediaIds: normalizeUniqueStrings(input.selectedTelegramMediaIds),
     selectedUrls: normalizeUniqueStrings(input.selectedUrls),
     notes: input.notes?.trim() || undefined,
+    allowPromptOnly: input.allowPromptOnly === true ? true : undefined,
   };
 };
 

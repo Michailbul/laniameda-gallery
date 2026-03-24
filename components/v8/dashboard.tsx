@@ -3,11 +3,9 @@
 import "@/app/v8/tokens.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
 import { Plus, Search as SearchIcon } from "lucide-react";
+import { GradientButton } from "@/components/ui/gradient-button";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
-import BottomMenu from "@/components/ui/bottom-menu";
 import { V72Sidebar } from "./sidebar";
 import {
   V72FilterBar,
@@ -19,12 +17,22 @@ import {
 import { CanvasMode } from "./canvas-mode";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { V72DetailPanel } from "./detail-panel";
+import { PromptOnlyList } from "./prompt-only-list";
 import { UploadModal } from "@/components/upload-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { AnimatedDock } from "@/components/ui/animated-dock";
+import { Home, Bell, User, Settings } from "lucide-react";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
-import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import { buildQueryString, requestJson } from "@/lib/app-api";
+import type {
+  FolderRecord,
+  GalleryAsset,
+  PromptOnlyGalleryPrompt,
+  SemanticGalleryAsset,
+  TagRecord,
+} from "@/lib/gallery-types";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { resolveScopeFolderFilter } from "@/lib/gallery-filters";
 
@@ -33,8 +41,6 @@ const INTENT_LABELS = {
   transfer_pose: "Transfer Pose",
   replace_character: "Replace Character",
 } as const;
-
-const DEFAULT_DEV_OWNER_USER_ID = "278674008";
 
 type SelectedImage = {
   id: string;
@@ -53,14 +59,12 @@ type SelectedImage = {
   isFeatured?: boolean;
 };
 
-type SemanticGalleryAsset = FunctionReturnType<
-  typeof api.semanticSearch.searchAssets
->[number];
-
 type SemanticMode =
   | { kind: "query"; query: string }
   | { kind: "similar"; assetId: string; prompt: string }
   | null;
+
+type GalleryContentMode = "assets" | "prompts";
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -112,11 +116,30 @@ const buildAssetSearchHaystack = (asset: {
     .join(" ")
     .toLowerCase();
 
+const buildPromptSearchHaystack = (
+  prompt: PromptOnlyGalleryPrompt,
+  tagNameById: Map<Id<"tags">, string>,
+) =>
+  [
+    prompt.text,
+    prompt.promptSections?.finalPrompt,
+    prompt.modelName,
+    prompt.pillar,
+    prompt.domain,
+    prompt.promptType,
+    prompt.workflowType,
+    ...prompt.tagIds
+      .map((tagId: Id<"tags">) => tagNameById.get(tagId))
+      .filter((tagName: string | undefined): tagName is string => Boolean(tagName)),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+
 export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
-      ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() ||
-        DEFAULT_DEV_OWNER_USER_ID
+      ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || null
       : null;
   const ownerUserId = (
     devOwnerUserIdOverride ||
@@ -130,10 +153,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
   );
+  const [galleryContentMode, setGalleryContentMode] =
+    useState<GalleryContentMode>("assets");
   const canDeleteInCurrentView =
     canDeleteAssets && galleryScope === "mine";
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
+  const isPromptOnlyView =
+    galleryContentMode === "prompts" &&
+    canAccessMyGallery &&
+    galleryScope === "mine";
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] =
@@ -227,6 +256,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [semanticError, setSemanticError] = useState<string>();
   const semanticRequestIdRef = useRef(0);
+  const [tags, setTags] = useState<TagRecord[]>([]);
+  const [folders, setFolders] = useState<FolderRecord[]>([]);
+  const [minePromptOnlyPrompts, setMinePromptOnlyPrompts] = useState<
+    PromptOnlyGalleryPrompt[] | null
+  >(null);
+  const [mineAllAssets, setMineAllAssets] = useState<GalleryAsset[] | null>(null);
+  const [publicAllAssets, setPublicAllAssets] = useState<GalleryAsset[] | null>(null);
+  const [mineGalleryAssets, setMineGalleryAssets] = useState<GalleryAsset[] | null>(null);
+  const [publicGalleryAssets, setPublicGalleryAssets] = useState<GalleryAsset[] | null>(null);
+  const [galleryDataVersion, setGalleryDataVersion] = useState(0);
 
   const curatorUserIds = useMemo(() => {
     const configured = parseUserIdList(
@@ -235,32 +274,152 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     if (configured && configured.length > 0) {
       return configured;
     }
-    if (process.env.NODE_ENV !== "production") {
-      return [DEFAULT_DEV_OWNER_USER_ID];
+    if (process.env.NODE_ENV !== "production" && devOwnerUserIdOverride) {
+      return [devOwnerUserIdOverride];
     }
     return [];
-  }, []);
+  }, [devOwnerUserIdOverride]);
   const canCuratePublic = useMemo(() => {
     return canActorAccessByUserId(ownerUserId, curatorUserIds);
   }, [ownerUserId, curatorUserIds]);
+  const refreshGalleryData = useCallback(() => {
+    setGalleryDataVersion((current) => current + 1);
+  }, []);
 
-  const deleteAssetMutation = useMutation(api.assets.deleteAsset);
-  const setAssetFolderMutation = useMutation(
-    api.assets.setAssetFolder,
-  );
-  const createFolderMutation = useMutation(
-    api.folders.createFolder,
-  );
-  const semanticSearchAction = useAction(api.semanticSearch.searchAssets);
-  const findSimilarAssetsAction = useAction(
-    api.semanticSearch.findSimilarAssets,
-  );
+  useEffect(() => {
+    let cancelled = false;
+
+    void requestJson<{ tags: TagRecord[] }>("/api/tags")
+      .then((payload) => {
+        if (!cancelled) {
+          setTags(payload.tags ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTags([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryDataVersion]);
+
+  useEffect(() => {
+    if (!canAccessMyGallery) {
+      setFolders([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void requestJson<{ folders: FolderRecord[] }>("/api/folders")
+      .then((payload) => {
+        if (!cancelled) {
+          setFolders(payload.folders ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFolders([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAccessMyGallery, galleryDataVersion, ownerUserId]);
+
+  useEffect(() => {
+    if (!canAccessMyGallery) {
+      setMinePromptOnlyPrompts([]);
+      return;
+    }
+
+    let cancelled = false;
+    setMinePromptOnlyPrompts(null);
+
+    void requestJson<{ prompts: PromptOnlyGalleryPrompt[] }>(
+      "/api/gallery/prompts?limit=200",
+    )
+      .then((payload) => {
+        if (!cancelled) {
+          setMinePromptOnlyPrompts(payload.prompts ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMinePromptOnlyPrompts([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAccessMyGallery, galleryDataVersion, ownerUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const scope = galleryScope === "mine" && canAccessMyGallery
+      ? "mine"
+      : "public";
+    if (scope === "mine") {
+      setMineAllAssets(null);
+    } else {
+      setPublicAllAssets(null);
+    }
+    const query = buildQueryString({
+      scope,
+      kind: "image",
+      limit: 200,
+    });
+
+    void requestJson<{ assets: GalleryAsset[] }>(
+      `/api/gallery/assets?${query}`,
+    )
+      .then((payload) => {
+        if (cancelled) return;
+        if (scope === "mine") {
+          setMineAllAssets(payload.assets ?? []);
+        } else {
+          setPublicAllAssets(payload.assets ?? []);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        if (scope === "mine") {
+          setMineAllAssets([]);
+        } else {
+          setPublicAllAssets([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAccessMyGallery, galleryDataVersion, galleryScope]);
 
   useEffect(() => {
     if (!canAccessMyGallery && galleryScope === "mine") {
       setGalleryScope("public");
     }
   }, [canAccessMyGallery, galleryScope]);
+
+  useEffect(() => {
+    if (
+      galleryContentMode === "prompts" &&
+      (!canAccessMyGallery || galleryScope !== "mine")
+    ) {
+      setGalleryContentMode("assets");
+    }
+  }, [canAccessMyGallery, galleryContentMode, galleryScope]);
+
+  useEffect(() => {
+    if (galleryContentMode === "prompts" && viewMode !== "grid") {
+      setViewMode("grid");
+    }
+  }, [galleryContentMode, viewMode]);
 
   useEffect(() => {
     setExitingAssetIds(new Set());
@@ -278,6 +437,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSemanticError(undefined);
     setSemanticLoading(false);
   }, [galleryScope]);
+
+  useEffect(() => {
+    setSelectedImage(null);
+    setSheetDismissing(false);
+    setSheetDragY(0);
+    setSemanticMode(null);
+    setSemanticResults(null);
+    setSemanticError(undefined);
+    setSemanticLoading(false);
+  }, [galleryContentMode]);
 
   useEffect(() => {
     setFolderError(undefined);
@@ -367,11 +536,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
       setFolderError(undefined);
       try {
-        const result = await createFolderMutation({
-          ownerUserId,
-          name: trimmedName,
+        const result = await requestJson<{
+          folder: { _id: string };
+          created: boolean;
+        }>("/api/folders", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: trimmedName }),
         });
-        return result.folderId;
+        refreshGalleryData();
+        return result.folder._id;
       } catch (error) {
         setFolderError(
           error instanceof Error
@@ -381,7 +555,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         return null;
       }
     },
-    [canAccessMyGallery, createFolderMutation, ownerUserId],
+    [canAccessMyGallery, refreshGalleryData],
   );
 
   const setAssetFolder = useCallback(
@@ -395,14 +569,17 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       setFolderError(undefined);
       setFolderLoadingAssetId(assetId);
       try {
-        const result = await setAssetFolderMutation({
-          ownerUserId,
-          assetId: assetId as Id<"assets">,
-          folderId: folderId
-            ? (folderId as Id<"folders">)
-            : undefined,
+        const result = await requestJson<{
+          asset: { folderId?: string | null };
+        }>(`/api/assets/${assetId}/folder`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            folderId: folderId || null,
+          }),
         });
-        const nextFolderId = result.folderId ?? undefined;
+        const nextFolderId = result.asset.folderId ?? undefined;
+        refreshGalleryData();
         setSelectedImage((current) =>
           current && current.id === assetId
             ? {
@@ -437,9 +614,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       canAccessMyGallery,
       folderLoadingAssetId,
       galleryScope,
-      ownerUserId,
+      refreshGalleryData,
       selectedFolderId,
-      setAssetFolderMutation,
     ],
   );
 
@@ -486,10 +662,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       setDeletingAssetId(assetId);
 
       try {
-        await deleteAssetMutation({
-          id: assetId as Id<"assets">,
-          ownerUserId,
+        await requestJson<{ ok: boolean }>(`/api/assets/${assetId}`, {
+          method: "DELETE",
         });
+        refreshGalleryData();
 
         setLoadedImageIds((previous) => {
           if (!previous.has(assetId)) return previous;
@@ -527,35 +703,21 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     },
     [
       canDeleteInCurrentView,
-      deleteAssetMutation,
       deletingAssetId,
-      ownerUserId,
+      refreshGalleryData,
     ],
   );
 
   // Image navigation
-  const tags = useQuery(api.tags.listTags, {});
-  const tagAssetCounts = useQuery(
-    api.assets.tagAssetCounts,
-    galleryScope === "mine" && canAccessMyGallery
-      ? { ownerUserId }
-      : galleryScope === "public"
-        ? { isPublic: true }
-        : "skip",
-  );
-  const folders = useQuery(
-    api.folders.listFolders,
-    canAccessMyGallery ? { ownerUserId } : "skip",
-  );
   const folderNameById = useMemo(
     () =>
       new Map<string, string>(
-        (folders ?? []).map((folder) => [folder._id, folder.name]),
+        folders.map((folder) => [folder._id, folder.name]),
       ),
     [folders],
   );
   const knownFolderIds = useMemo(
-    () => (folders ? folders.map((folder) => folder._id) : null),
+    () => folders.map((folder) => folder._id),
     [folders],
   );
   const effectiveSelectedFolderId = useMemo(
@@ -563,7 +725,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       resolveScopeFolderFilter({
         galleryScope,
         selectedFolderId,
-        knownFolderIds,
+        knownFolderIds: knownFolderIds.length > 0 ? knownFolderIds : null,
       }),
     [galleryScope, knownFolderIds, selectedFolderId],
   );
@@ -574,33 +736,22 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     }
   }, [effectiveSelectedFolderId, selectedFolderId]);
 
-  const mineAllAssets = useQuery(
-    api.assets.listGalleryAssets,
-    galleryScope === "mine" && canAccessMyGallery
-      ? {
-          ownerUserId,
-          kind: "image",
-          limit: 200,
-        }
-      : "skip",
+  const allAssets = useMemo(
+    () => (galleryScope === "mine" ? mineAllAssets : publicAllAssets) ?? [],
+    [galleryScope, mineAllAssets, publicAllAssets],
   );
-
-  const publicAllAssets = useQuery(
-    api.assets.listPublicGalleryAssets,
-    galleryScope === "public"
-      ? {
-          kind: "image",
-          limit: 200,
-        }
-      : "skip",
+  const promptOnlyRecords = useMemo(
+    () => minePromptOnlyPrompts ?? [],
+    [minePromptOnlyPrompts],
   );
-
-  const allAssets =
-    galleryScope === "mine" ? mineAllAssets : publicAllAssets;
+  const activeFilterRecords = useMemo(
+    () => (isPromptOnlyView ? promptOnlyRecords : allAssets),
+    [allAssets, isPromptOnlyView, promptOnlyRecords],
+  );
 
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
-    for (const tag of tags ?? []) {
+    for (const tag of tags) {
       const key = canonicalTagKey(tag.name) || tag._id;
       if (!deduped.has(key)) {
         deduped.set(key, tag.name);
@@ -611,13 +762,26 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     );
   }, [tags]);
 
-  const assetCountByTagId = useMemo(() => {
-    const map = new Map<Id<"tags">, number>();
-    for (const entry of tagAssetCounts ?? []) {
-      map.set(entry.tagId, entry.count);
+  const tagUsageById = useMemo(() => {
+    const usage = new Map<Id<"tags">, number>();
+    for (const record of activeFilterRecords) {
+      const seenTagIds = new Set<Id<"tags">>();
+      for (const tagId of record.tagIds) {
+        if (seenTagIds.has(tagId)) continue;
+        seenTagIds.add(tagId);
+        usage.set(tagId, (usage.get(tagId) ?? 0) + 1);
+      }
+    }
+    return usage;
+  }, [activeFilterRecords]);
+
+  const tagNameById = useMemo(() => {
+    const map = new Map<Id<"tags">, string>();
+    for (const tag of tags) {
+      map.set(tag._id, tag.name);
     }
     return map;
-  }, [tagAssetCounts]);
+  }, [tags]);
 
   const dedupedTags = useMemo(() => {
     const groups = new Map<
@@ -628,43 +792,54 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         usageCount: number;
         sourceIds: Id<"tags">[];
         sourceIdSet: Set<Id<"tags">>;
-        bestCount: number;
+        primaryCount: number;
       }
     >();
 
-    for (const tag of tags ?? []) {
-      const key = canonicalTagKey(tag.name) || tag._id;
-      const count = assetCountByTagId.get(tag._id) ?? 0;
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, {
-          _id: key,
-          name: tag.name || "untitled",
-          usageCount: count,
-          sourceIds: [tag._id],
-          sourceIdSet: new Set([tag._id]),
-          bestCount: count,
-        });
-        continue;
-      }
+    for (const record of activeFilterRecords) {
+      const seenCanonicalKeys = new Set<string>();
+      for (const [index, tagId] of record.tagIds.entries()) {
+        const tagName =
+          ("tagNames" in record ? record.tagNames[index] : undefined) ??
+          tagNameById.get(tagId) ??
+          "";
+        const key = canonicalTagKey(tagName) || tagId;
+        if (seenCanonicalKeys.has(key)) {
+          continue;
+        }
+        seenCanonicalKeys.add(key);
 
-      existing.usageCount += count;
-      if (!existing.sourceIdSet.has(tag._id)) {
-        existing.sourceIdSet.add(tag._id);
-        existing.sourceIds.push(tag._id);
-      }
-      if (count > existing.bestCount) {
-        existing.bestCount = count;
-        existing.name = tag.name;
+        const usage = tagUsageById.get(tagId) ?? 0;
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, {
+            _id: key,
+            name: tagName || "untitled",
+            usageCount: 1,
+            sourceIds: [tagId],
+            sourceIdSet: new Set([tagId]),
+            primaryCount: usage,
+          });
+          continue;
+        }
+
+        existing.usageCount += 1;
+        if (!existing.sourceIdSet.has(tagId)) {
+          existing.sourceIdSet.add(tagId);
+          existing.sourceIds.push(tagId);
+        }
+        if (tagName && usage > existing.primaryCount) {
+          existing.primaryCount = usage;
+          existing.name = tagName;
+        }
       }
     }
 
     return Array.from(groups.values())
-      .filter((tag) => tag.usageCount > 0)
       .map(
         ({
           sourceIdSet: _sourceIdSet,
-          bestCount: _bestCount,
+          primaryCount: _primaryCount,
           ...tag
         }) => tag,
       )
@@ -673,7 +848,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         if (usageDiff !== 0) return usageDiff;
         return a.name.localeCompare(b.name);
       });
-  }, [tags, assetCountByTagId]);
+  }, [activeFilterRecords, tagNameById, tagUsageById]);
 
   const sourceIdsByTagKey = useMemo(() => {
     const map = new Map<string, Id<"tags">[]>();
@@ -694,38 +869,58 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     return ids.size > 0 ? Array.from(ids) : undefined;
   }, [selectedTags, sourceIdsByTagKey]);
 
-  const mineGalleryAssets = useQuery(
-    api.assets.listGalleryAssets,
-    galleryScope === "mine" && canAccessMyGallery
-      ? {
-          ownerUserId,
-          kind: "image",
-          tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
-          folderId: effectiveSelectedFolderId
-            ? (effectiveSelectedFolderId as Id<"folders">)
-            : undefined,
-          modelName: selectedModelName ?? undefined,
-          limit: 120,
-        }
-      : "skip",
-  );
+  useEffect(() => {
+    let cancelled = false;
+    const scope = galleryScope === "mine" && canAccessMyGallery
+      ? "mine"
+      : "public";
+    if (scope === "mine") {
+      setMineGalleryAssets(null);
+    } else {
+      setPublicGalleryAssets(null);
+    }
+    const query = buildQueryString({
+      scope,
+      kind: "image",
+      tagIds: selectedTagIds,
+      folderId: effectiveSelectedFolderId || undefined,
+      modelName: selectedModelName ?? undefined,
+      pillar: selectedPillar ?? undefined,
+      limit: 120,
+    });
 
-  const publicGalleryAssets = useQuery(
-    api.assets.listPublicGalleryAssets,
-    galleryScope === "public"
-      ? {
-          kind: "image",
-          tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
-          folderId: effectiveSelectedFolderId
-            ? (effectiveSelectedFolderId as Id<"folders">)
-            : undefined,
-          modelName: selectedModelName ?? undefined,
-          limit: 120,
+    void requestJson<{ assets: GalleryAsset[] }>(
+      `/api/gallery/assets?${query}`,
+    )
+      .then((payload) => {
+        if (cancelled) return;
+        if (scope === "mine") {
+          setMineGalleryAssets(payload.assets ?? []);
+        } else {
+          setPublicGalleryAssets(payload.assets ?? []);
         }
-      : "skip",
-  );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        if (scope === "mine") {
+          setMineGalleryAssets([]);
+        } else {
+          setPublicGalleryAssets([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canAccessMyGallery,
+    effectiveSelectedFolderId,
+    galleryDataVersion,
+    galleryScope,
+    selectedModelName,
+    selectedPillar,
+    selectedTagIds,
+  ]);
 
   const galleryAssets =
     galleryScope === "mine"
@@ -735,10 +930,45 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     () => galleryAssets ?? [],
     [galleryAssets],
   );
+  const basePromptOnlyRecords = useMemo(() => {
+    return promptOnlyRecords.filter((prompt) => {
+      if (
+        effectiveSelectedFolderId &&
+        prompt.folderId !== effectiveSelectedFolderId
+      ) {
+        return false;
+      }
+      if (selectedModelName && prompt.modelName !== selectedModelName) {
+        return false;
+      }
+      if (selectedPillar && prompt.pillar !== selectedPillar) {
+        return false;
+      }
+      if (
+        selectedTagIds &&
+        !prompt.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    effectiveSelectedFolderId,
+    promptOnlyRecords,
+    selectedModelName,
+    selectedPillar,
+    selectedTagIds,
+  ]);
   const isSimilarMode = semanticMode?.kind === "similar";
 
   useEffect(() => {
-    if (isSimilarMode) {
+    if (isPromptOnlyView || isSimilarMode) {
+      if (isPromptOnlyView) {
+        setSemanticMode(null);
+        setSemanticResults(null);
+        setSemanticError(undefined);
+        setSemanticLoading(false);
+      }
       return;
     }
 
@@ -771,19 +1001,23 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSemanticLoading(true);
     setSemanticError(undefined);
 
-    void semanticSearchAction({
-      ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
-      scope: galleryScope,
-      query: debouncedAssetSearchQuery,
-      pillar: selectedPillar ?? undefined,
-      folderId:
-        galleryScope === "mine" && effectiveSelectedFolderId
-          ? (effectiveSelectedFolderId as Id<"folders">)
-          : undefined,
-      modelName: selectedModelName ?? undefined,
-      kind: "image",
-      limit: 120,
-    })
+    void requestJson<{ results: SemanticGalleryAsset[] }>(
+      "/api/semantic/search",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scope: galleryScope,
+          query: debouncedAssetSearchQuery,
+          pillar: selectedPillar ?? undefined,
+          folderId: effectiveSelectedFolderId || undefined,
+          modelName: selectedModelName ?? undefined,
+          kind: "image",
+          limit: 120,
+        }),
+      },
+    )
+      .then((payload) => payload.results ?? [])
       .then((results) => {
         if (semanticRequestIdRef.current !== requestId) {
           return;
@@ -820,28 +1054,28 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     debouncedAssetSearchQuery,
     effectiveSelectedFolderId,
     galleryScope,
+    isPromptOnlyView,
     isSimilarMode,
     ownerUserId,
     selectedModelName,
     selectedPillar,
-    semanticSearchAction,
   ]);
 
-  const imageCount = allAssets?.length;
+  const imageCount = allAssets.length;
 
   const modelTags = useMemo(() => {
     const grouped = new Map<
       string,
       { name: string; usageCount: number }
     >();
-    for (const asset of allAssets ?? []) {
-      if (!asset.modelName) continue;
-      const key = asset.modelName.trim().toLowerCase();
+    for (const record of activeFilterRecords) {
+      if (!record.modelName) continue;
+      const key = record.modelName.trim().toLowerCase();
       if (!key) continue;
       const existing = grouped.get(key);
       if (!existing) {
         grouped.set(key, {
-          name: asset.modelName,
+          name: record.modelName,
           usageCount: 1,
         });
         continue;
@@ -853,7 +1087,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       if (usageDiff !== 0) return usageDiff;
       return a.name.localeCompare(b.name);
     });
-  }, [allAssets]);
+  }, [activeFilterRecords]);
 
   const [loadedImageIds, setLoadedImageIds] = useState(
     () => new Set<string>(),
@@ -881,6 +1115,12 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSelectedPillar(null);
     setSelectedFolderId(null);
     setSelectedModelName(null);
+    setAssetSearchQuery("");
+    setDebouncedAssetSearchQuery("");
+    setSemanticMode(null);
+    setSemanticResults(null);
+    setSemanticError(undefined);
+    setSemanticLoading(false);
   };
   const clearSemanticMode = useCallback(() => {
     setAssetSearchQuery("");
@@ -902,6 +1142,23 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       buildAssetSearchHaystack(asset).includes(search),
     );
   }, [assetSearchQuery, baseGalleryAssets]);
+  const displayPromptOnlyRecords = useMemo(() => {
+    const search = assetSearchQuery.trim().toLowerCase();
+    const filtered = search
+      ? basePromptOnlyRecords.filter((prompt) =>
+          buildPromptSearchHaystack(prompt, tagNameById).includes(search),
+        )
+      : basePromptOnlyRecords;
+
+    const sorted = [...filtered];
+    if (sortOrder === "popular") {
+      sorted.sort((left, right) => right.tagIds.length - left.tagIds.length);
+      return sorted;
+    }
+
+    sorted.sort((left, right) => right.createdAt - left.createdAt);
+    return sorted;
+  }, [assetSearchQuery, basePromptOnlyRecords, sortOrder, tagNameById]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -1070,12 +1327,18 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       setSemanticError(undefined);
 
       try {
-        const results = await findSimilarAssetsAction({
-          ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
-          scope: galleryScope,
-          assetId: imageId as Id<"assets">,
-          limit: 120,
+        const payload = await requestJson<{
+          results: SemanticGalleryAsset[];
+        }>("/api/semantic/similar", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            scope: galleryScope,
+            assetId: imageId,
+            limit: 120,
+          }),
         });
+        const results = payload.results ?? [];
 
         if (semanticRequestIdRef.current !== requestId) {
           return;
@@ -1097,7 +1360,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         );
       }
     },
-    [findSimilarAssetsAction, galleryScope, images, ownerUserId],
+    [galleryScope, images],
   );
 
   // Swipe gestures for mobile detail sheet
@@ -1298,20 +1561,25 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   );
 
   // Distinguish loading / empty / no-matches / has-images
-  const isLoading =
-    galleryScope === "mine"
+  const isLoading = isPromptOnlyView
+    ? canAccessMyGallery && minePromptOnlyPrompts === null
+    : galleryScope === "mine"
       ? canAccessMyGallery &&
-        mineGalleryAssets === undefined
-      : publicGalleryAssets === undefined;
+        mineGalleryAssets === null
+      : publicGalleryAssets === null;
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
     effectiveSelectedFolderId !== null ||
     selectedModelName !== null ||
     assetSearchQuery.trim().length > 0 ||
-    semanticMode?.kind === "similar";
+    (!isPromptOnlyView && semanticMode?.kind === "similar");
   const hasImages = images.length > 0;
-  const isNoMatches = !isLoading && !hasImages && hasFilters;
+  const hasPromptCards = displayPromptOnlyRecords.length > 0;
+  const isNoMatches =
+    !isLoading &&
+    !(isPromptOnlyView ? hasPromptCards : hasImages) &&
+    hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
     ? "var(--v7-sidebar-collapsed)"
@@ -1385,7 +1653,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         ? deleteAssetError
         : undefined
       : undefined,
-    folders: folders ?? [],
+    folders,
     canManageFolder: canManageFoldersInCurrentView,
     onSetFolder: canManageFoldersInCurrentView
       ? (imageId: string, folderId: string | null) => {
@@ -1470,7 +1738,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
-          folders={folders ?? []}
+          folders={folders}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={setSelectedFolderId}
           galleryScope={galleryScope}
@@ -1514,9 +1782,56 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               onViewModeChange={setViewMode}
             />
 
+            {canAccessMyGallery ? (
+              <div className="px-4 pb-2">
+                <div className="mx-auto flex max-w-[1180px] items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGalleryContentMode("assets")}
+                    className="v7-chip"
+                    aria-pressed={galleryContentMode === "assets"}
+                    style={{
+                      backgroundColor:
+                        galleryContentMode === "assets"
+                          ? "var(--v7-coral)"
+                          : "var(--v7-surface-1)",
+                      color:
+                        galleryContentMode === "assets"
+                          ? "#111"
+                          : "var(--v7-text-primary)",
+                    }}
+                  >
+                    Images
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGalleryContentMode("prompts")}
+                    disabled={galleryScope !== "mine"}
+                    className="v7-chip"
+                    aria-pressed={galleryContentMode === "prompts"}
+                    style={{
+                      opacity: galleryScope === "mine" ? 1 : 0.5,
+                      cursor:
+                        galleryScope === "mine" ? "pointer" : "not-allowed",
+                      backgroundColor:
+                        galleryContentMode === "prompts"
+                          ? "var(--v7-coral)"
+                          : "var(--v7-surface-1)",
+                      color:
+                        galleryContentMode === "prompts"
+                          ? "#111"
+                          : "var(--v7-text-primary)",
+                    }}
+                  >
+                    Text-Only Prompts
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {/* Search Vault is now in the bottom dock */}
 
-            {(semanticMode?.kind === "similar" || semanticError) && (
+            {!isPromptOnlyView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -1573,7 +1888,138 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               id="v72-main-content"
               className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
-              {isLoading ? (
+              {isPromptOnlyView ? (
+                isLoading ? (
+                  <PromptOnlyList
+                    prompts={[]}
+                    loading
+                    folderNameById={folderNameById}
+                    tagNameById={tagNameById}
+                  />
+                ) : hasPromptCards ? (
+                  <PromptOnlyList
+                    prompts={displayPromptOnlyRecords}
+                    folderNameById={folderNameById}
+                    tagNameById={tagNameById}
+                  />
+                ) : isNoMatches ? (
+                  <div
+                    className="flex min-h-[50vh] flex-col items-center justify-center px-8 py-12 text-center v7-animate-fade-in"
+                    aria-live="polite"
+                  >
+                    <div
+                      className="flex items-center justify-center mb-5"
+                      style={{
+                        width: "52px",
+                        height: "52px",
+                        border: "3px solid var(--v7-ink)",
+                        backgroundColor: "var(--v7-accent-dim)",
+                        boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
+                        borderRadius: "12px",
+                      }}
+                    >
+                      <SearchIcon
+                        className="h-5 w-5"
+                        style={{
+                          color: "var(--v7-coral)",
+                        }}
+                      />
+                    </div>
+                    <h2
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "16px",
+                        fontWeight: 900,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.18em",
+                        color: "var(--v7-text-primary)",
+                      }}
+                    >
+                      NO PROMPTS FOUND
+                    </h2>
+                    <p
+                      className="mt-2"
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "11px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.10em",
+                        color: "var(--v7-text-tertiary)",
+                        maxWidth: "320px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      ADJUST FILTERS OR SEARCH TERMS TO FIND
+                      THE PROMPT YOU ARE LOOKING FOR.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleClearFilters}
+                      className="v7-btn-brutal mt-6"
+                      style={{ borderRadius: "12px" }}
+                    >
+                      CLEAR ALL FILTERS
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex min-h-[50vh] flex-col items-center justify-center px-8 py-12 text-center v7-animate-fade-in">
+                    <div
+                      className="flex items-center justify-center mb-5"
+                      style={{
+                        width: "52px",
+                        height: "52px",
+                        border: "3px solid var(--v7-ink)",
+                        backgroundColor: "var(--v7-accent-dim)",
+                        boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
+                        borderRadius: "12px",
+                      }}
+                    >
+                      <Plus
+                        className="h-5 w-5"
+                        style={{
+                          color: "var(--v7-coral)",
+                        }}
+                      />
+                    </div>
+                    <h2
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "18px",
+                        fontWeight: 900,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.18em",
+                        color: "var(--v7-text-primary)",
+                      }}
+                    >
+                      NO TEXT-ONLY PROMPTS YET
+                    </h2>
+                    <p
+                      className="mt-2"
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "11px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.10em",
+                        color: "var(--v7-text-tertiary)",
+                        maxWidth: "360px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      SAVE WORKFLOWS, NOTES, AND REFERENCE PROMPTS
+                      HERE WHEN YOU WANT THEM STORED WITHOUT MEDIA.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setUploadOpen(true)}
+                      className="v7-btn-brutal mt-6"
+                      style={{ borderRadius: "12px" }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      ADD PROMPT
+                    </button>
+                  </div>
+                )
+              ) : isLoading ? (
                 <MasonryGrid
                   images={[]}
                   loading
@@ -1856,6 +2302,18 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         </div>
       )}
 
+      {/* Floating add (desktop only) */}
+      <GradientButton
+        variant="default"
+        size="icon"
+        glow
+        onClick={() => setUploadOpen(true)}
+        className={`fixed bottom-6 right-6 z-40 ${selectedImage ? "hidden" : "hidden md:flex"}`}
+        aria-label="Add to library"
+      >
+        <Plus className="h-5 w-5" />
+      </GradientButton>
+
       {/* Mobile bottom nav */}
       {!selectedImage && (
         <MobileBottomNav
@@ -1878,19 +2336,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         }}
       >
         <div className="pointer-events-auto">
-          <BottomMenu
-            user={user}
-            onAddClick={() => setUploadOpen(true)}
-            onHomeClick={() => {
-              document
-                .getElementById("v72-main-content")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-            onResetClick={() => {
-              handleClearFilters();
-              clearSemanticMode();
-            }}
-            onSignOut={onSignOut}
+          <AnimatedDock
+            items={[
+              { link: "/", Icon: <Home size={20} /> },
+              { link: "#", Icon: <SearchIcon size={20} />, isSearch: true },
+              { link: "#", Icon: <Bell size={20} /> },
+              { link: "#", Icon: <User size={20} /> },
+              { link: "#", Icon: <Settings size={20} />, onClick: () => setUploadOpen(true) },
+            ]}
             searchValue={assetSearchQuery}
             onSearchChange={(query) => {
               setAssetSearchQuery(query);
@@ -1900,11 +2353,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                 setSemanticResults(null);
               }
             }}
-            onSearchClear={clearSemanticMode}
-            searchPlaceholder="SEARCH VAULT..."
-            searchLoading={semanticLoading}
-            theme={theme}
-            onThemeChange={setTheme}
+            onSearchClear={() => {
+              setAssetSearchQuery("");
+              setSemanticError(undefined);
+            }}
+            searchPlaceholder={
+              isPromptOnlyView ? "SEARCH TEXT-ONLY PROMPTS..." : "SEARCH VAULT..."
+            }
+            searchLoading={isPromptOnlyView ? false : semanticLoading}
           />
         </div>
       </div>
@@ -1914,10 +2370,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         open={isUploadOpen}
         onClose={() => setUploadOpen(false)}
         availableTags={availableUploadTags}
-        folders={folders ?? []}
+        folders={folders}
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }
+        onDataChanged={refreshGalleryData}
       />
 
       <AiWorkspacePanel

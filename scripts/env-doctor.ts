@@ -48,6 +48,13 @@ const parseEnvFile = (filePath: string): EnvMap => {
 };
 
 const isPresent = (value: string | undefined) => Boolean(value && value.trim().length > 0);
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  return fallback;
+};
 
 const mode = parseMode();
 
@@ -113,7 +120,6 @@ if (isPresent(curationSecret) && curationSecret!.trim().length < 16) {
   warnings.push("CURATION_ADMIN_SECRET should be at least 16 characters long.");
 }
 
-
 for (const key of requiredByMode[mode]) {
   if (!isPresent(process.env[key])) {
     errors.push(`Missing required env var for ${mode}: ${key}`);
@@ -166,6 +172,24 @@ if (mode === "dev-sim") {
   warnings.push("DEV_TELEGRAM_SIM_ENABLED is true outside dev-sim mode.");
 }
 
+if (mode === "prod-telegram") {
+  if (parseBoolean(process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED, false)) {
+    errors.push("NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED must be false in prod-telegram mode.");
+  }
+  if (parseBoolean(process.env.DEV_AUTH_BYPASS_ENABLED, false)) {
+    errors.push("DEV_AUTH_BYPASS_ENABLED must be false in prod-telegram mode.");
+  }
+  if (parseBoolean(process.env.DEV_AUTH_BYPASS_ALLOW_NON_LOCAL, false)) {
+    errors.push("DEV_AUTH_BYPASS_ALLOW_NON_LOCAL must be false in prod-telegram mode.");
+  }
+  if (parseBoolean(process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS, false)) {
+    errors.push("DEV_TELEGRAM_SIM_AUTH_BYPASS must be false in prod-telegram mode.");
+  }
+  if (parseBoolean(process.env.DEV_TELEGRAM_SIM_ALLOW_NON_LOCAL, false)) {
+    errors.push("DEV_TELEGRAM_SIM_ALLOW_NON_LOCAL must be false in prod-telegram mode.");
+  }
+}
+
 if (!isPresent(process.env.AI_GATEWAY_API_KEY)) {
   warnings.push(
     "AI_GATEWAY_API_KEY is not set. AI runs that depend on gateway models will fail without it.",
@@ -194,7 +218,6 @@ if (!existsSync(CONVEX_ENV_LOCAL)) {
       "convex/.env.local exists but TELEGRAM_NOTIFY_BOT_TOKEN is missing (notifications will not be sent).",
     );
   }
-
 }
 
 console.log(`Env Doctor: ${mode}`);

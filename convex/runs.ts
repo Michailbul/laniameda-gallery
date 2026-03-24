@@ -23,6 +23,7 @@ const runStatusValidator = v.union(
 );
 
 const runIntentValidator = v.union(
+  v.literal("creator_assist"),
   v.literal("transfer_style"),
   v.literal("transfer_pose"),
   v.literal("replace_character"),
@@ -33,6 +34,7 @@ const runIntentValidator = v.union(
 
 const runSourceValidator = v.union(
   v.literal("dashboard"),
+  v.literal("canvas"),
   v.literal("telegram"),
   v.literal("dev_telegram"),
   v.literal("api"),

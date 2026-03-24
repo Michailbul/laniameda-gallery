@@ -1,53 +1,84 @@
 # Auth — laniameda.gallery
 
-## Architecture: Telegram-only identity
+Last updated: 2026-03-17
 
-The gallery trusts Telegram as the canonical identity source. `convex/users` stores each Telegram session with `telegramId`, `ownerUserId` (matching the Telegram ID), and optional profile metadata. Fields like `workosUserId` still exist for historical reasons, but no runtime path currently populates or reads them on `main`.
+## Current model
 
-### Identity resolution
-- **Telegram login**: `ownerUserId` is the verified `telegramId`. The Telegram session cookie is minted server-side after verifying the widget hash with `TELEGRAM_LOGIN_BOT_TOKEN`.
-- **Dev bypass**: `POST /api/auth/dev-login` (enabled by `DEV_AUTH_BYPASS_ENABLED`) simulates a Telegram session for local hosts using `DEV_AUTH_TELEGRAM_ID`. It sets the same session cookie so the rest of the app can reuse the normal flow.
-- **Agent ingestion**: `KB_OWNER_USER_ID` scopes OpenClaw data to Michael’s Telegram ID. The ingest skill never needs to look up another identity.
+- Auth is Telegram-only.
+- The browser authenticates with the Telegram login widget.
+- Next.js owns the session via an HttpOnly `tg_session` cookie.
+- Convex user rows are resolved or created on the server from the Telegram session.
+- Private gallery access goes through Next API routes, not direct client-side Convex calls.
 
-### Auth flow
-1. Client loads `components/TelegramAuthProvider` → it fetches `/api/auth/me`.
-2. The login widget posts to `/api/auth/telegram`.
-3. The server verifies `hash`, `auth_date`, and bot token, then sets the signed `SESSION_SECRET` cookie.
-4. The client refreshes `/api/auth/me`, which now returns the Telegram payload.
-5. Protected routes call `requireAuth()` → `lib/server-auth.ts` reads the same session cookie and exposes `{ source: "telegram", telegramId }`.
+## Runtime flow
 
-### Required env vars
+1. The Telegram widget posts to `/api/auth/telegram`.
+2. The server verifies the Telegram payload hash with `TELEGRAM_LOGIN_BOT_TOKEN`.
+3. On success, the server writes the signed session cookie.
+4. The client calls `GET /api/auth/me`.
+5. `/api/auth/me` resolves or creates the matching Convex `users` row and returns the app user.
+6. Protected routes call `requireAppUser()` and use `ownerUserId` server-side when querying or mutating Convex.
+
+## Visibility rules
+
+- Guests can browse public gallery content.
+- Signed-in users can browse their own gallery and perform protected actions.
+- Protected actions include ingest, delete, folder assignment, canvas position sync, and private semantic search.
+
+## Required env vars
+
 ```bash
-NEXT_PUBLIC_CONVEX_URL=...        # Public Convex endpoint used in the browser
-CONVEX_URL=...                    # Server-side Convex endpoint for Next.js routes
-TELEGRAM_LOGIN_BOT_TOKEN=...      # Bot token for Telegram widget validation
-TELEGRAM_NOTIFY_BOT_TOKEN=...     # Bot token used by Convex notifications (e.g., ingest confirmations)
-NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=... # Bot username for the login widget (no @)
-SESSION_SECRET=...                # ≥32 character secret for signing the Telegram session JWT
-KB_OWNER_USER_ID=...              # Michael’s Telegram ID for agent ingestion scoping
+NEXT_PUBLIC_CONVEX_URL=...
+CONVEX_URL=...
+SESSION_SECRET=...                    # 32+ chars
+TELEGRAM_LOGIN_BOT_TOKEN=...
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
 ```
 
-### Dev-only toggles
+Convex-only runtime:
+
+```bash
+TELEGRAM_NOTIFY_BOT_TOKEN=...         # "saved" notifications
+```
+
+Agent and CLI ingestion:
+
+```bash
+KB_OWNER_USER_ID=...                  # canonical owner for OpenClaw skill
+LOCAL_INGEST_OWNER_USER_ID=...        # optional override for local ingest script
+```
+
+## Local dev bypass
+
+Use the built-in bypass when you do not want to rotate BotFather domains for temporary tunnels:
+
 ```bash
 NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true
 DEV_AUTH_BYPASS_ENABLED=true
-DEV_AUTH_TELEGRAM_ID=278674008
-DEV_AUTH_FIRST_NAME=Dev
-DEV_AUTH_USERNAME=dev
+DEV_AUTH_TELEGRAM_ID=<your_telegram_id>
+DEV_AUTH_FIRST_NAME=Michael
 ```
-These enable `POST /api/auth/dev-login` and the dev button in the login card. Production rejects the dev route and enforces Telegram bits only.
 
-### Key files
+- This enables `POST /api/auth/dev-login`.
+- It is blocked in production.
+- It is blocked for non-local hosts unless `DEV_AUTH_BYPASS_ALLOW_NON_LOCAL=true`.
+
+## Production checklist
+
+- Set the production app domain in BotFather with `/setdomain`.
+- Keep `SESSION_SECRET` at 32+ chars.
+- Use HTTPS so the auth cookie stays secure.
+- Keep `NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS` unset unless the login bot must DM the user.
+- Keep `TELEGRAM_LOGIN_BOT_TOKEN` and `TELEGRAM_NOTIFY_BOT_TOKEN` server-only.
+
+## Key files
+
 | File | Purpose |
 |---|---|
-| `lib/telegram-auth.ts` | Telegram payload verification, JWT session cookie helpers |
-| `lib/server-auth.ts` | Server helper that reads the Telegram session cookie and throws if unauthenticated |
-| `app/api/auth/telegram/route.ts` | Verifies the widget payload, sets the session cookie, returns user info |
-| `app/api/auth/me/route.ts` | Returns the current Telegram user (used by `TelegramAuthProvider`) |
-| `app/api/auth/logout/route.ts` | Clears the session cookie |
-| `components/TelegramAuthProvider.tsx` | React context that drives login/logout flow |
-| `lib/use-current-user.ts` | Maps the Telegram session to a Convex user via `api.users.resolveByTelegramId` |
-| `components/ConvexClientProvider.tsx` | Provides Convex client wired to `NEXT_PUBLIC_CONVEX_URL` |
-
-### Notes
-- There is no active WorkOS route or provider on `main`. If WorkOS support is reintroduced, the required env vars and the auth helper should be updated concurrently.
+| `lib/telegram-auth.ts` | Telegram payload verification and session cookie helpers |
+| `lib/server/app-user.ts` | Resolve current session to Convex `users` row |
+| `components/TelegramAuthProvider.tsx` | Client auth state sourced from `/api/auth/me` |
+| `app/api/auth/telegram/route.ts` | Telegram login callback |
+| `app/api/auth/me/route.ts` | Current authenticated app user |
+| `app/api/auth/logout/route.ts` | Session teardown |
+| `convex/users.ts` | Convex user lookup and creation |

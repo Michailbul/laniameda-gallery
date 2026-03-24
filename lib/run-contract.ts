@@ -9,6 +9,7 @@ export const RUN_STATUSES = [
 ] as const;
 
 export const RUN_INTENTS = [
+  "creator_assist",
   "transfer_style",
   "transfer_pose",
   "replace_character",
@@ -16,7 +17,13 @@ export const RUN_INTENTS = [
   "execute",
 ] as const;
 
-export const RUN_SOURCES = ["dashboard", "telegram", "dev_telegram", "api"] as const;
+export const RUN_SOURCES = [
+  "dashboard",
+  "canvas",
+  "telegram",
+  "dev_telegram",
+  "api",
+] as const;
 export const RUN_RUNTIMES = ["ai_sdk"] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
