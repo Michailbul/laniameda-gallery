@@ -1879,7 +1879,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             "left var(--v7-duration-normal) ease-out, right var(--v7-duration-normal) ease-out",
         }}
       >
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto v7-dock-blur-fringe">
           <BottomMenu
             user={user}
             onAddClick={() => setUploadOpen(true)}
