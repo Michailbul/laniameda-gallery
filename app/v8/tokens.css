@@ -189,14 +189,14 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .v7-grid-bg {
     background-image:
-      linear-gradient(rgba(240, 232, 224, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(240, 232, 224, 0.03) 1px, transparent 1px);
+      linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
   }
 }
 [data-theme="dark"] .v7-grid-bg {
   background-image:
-    linear-gradient(rgba(240, 232, 224, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(240, 232, 224, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
 }
 
 /* ── Brutalist utility classes ── */

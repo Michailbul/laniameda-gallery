@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun run ingest:local && next dev --webpack -p ${APP_PORT:-3317}",
+    "dev": "next dev --webpack -p ${APP_PORT:-3317}",
     "dev:preview": "next dev --webpack -p ${PORT:-3317}",
     "build": "next build --webpack",
     "start": "next start",
@@ -12,7 +12,6 @@
     "skills:install:github": "npx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
     "skills:update": "npx skills check && npx skills update",
     "backfill:semantic": "bun scripts/backfill-semantic-index.ts",
-    "ingest:local": "bun scripts/ingest-local-assets.ts",
     "env:doctor": "bun scripts/env-doctor.ts --mode dev-telegram",
     "env:doctor:sim": "bun scripts/env-doctor.ts --mode dev-sim",
     "env:doctor:telegram": "bun scripts/env-doctor.ts --mode dev-telegram",
@@ -62,11 +61,9 @@
     "typescript": "^5"
   },
   "ignoreScripts": [
-    "sharp",
     "unrs-resolver"
   ],
   "trustedDependencies": [
-    "sharp",
     "unrs-resolver"
   ]
 }

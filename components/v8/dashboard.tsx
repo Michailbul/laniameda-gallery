@@ -603,27 +603,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     );
   }, [tags]);
 
-  const tagUsageById = useMemo(() => {
-    const usage = new Map<Id<"tags">, number>();
-    for (const asset of allAssets ?? []) {
-      const seenTagIds = new Set<Id<"tags">>();
-      for (const tagId of asset.tagIds) {
-        if (seenTagIds.has(tagId)) continue;
-        seenTagIds.add(tagId);
-        usage.set(tagId, (usage.get(tagId) ?? 0) + 1);
-      }
-    }
-    return usage;
-  }, [allAssets]);
-
-  const tagNameById = useMemo(() => {
-    const map = new Map<Id<"tags">, string>();
-    for (const tag of tags ?? []) {
-      map.set(tag._id, tag.name);
-    }
-    return map;
-  }, [tags]);
-
   const dedupedTags = useMemo(() => {
     const groups = new Map<
       string,
@@ -633,54 +612,42 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         usageCount: number;
         sourceIds: Id<"tags">[];
         sourceIdSet: Set<Id<"tags">>;
-        primaryCount: number;
+        bestCount: number;
       }
     >();
 
-    for (const asset of allAssets ?? []) {
-      const seenCanonicalKeys = new Set<string>();
-      for (const [index, tagId] of asset.tagIds.entries()) {
-        const tagName =
-          asset.tagNames[index] ??
-          tagNameById.get(tagId) ??
-          "";
-        const key = canonicalTagKey(tagName) || tagId;
-        if (seenCanonicalKeys.has(key)) {
-          continue;
-        }
-        seenCanonicalKeys.add(key);
+    for (const tag of tags ?? []) {
+      const key = canonicalTagKey(tag.name) || tag._id;
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, {
+          _id: key,
+          name: tag.name || "untitled",
+          usageCount: tag.usageCount,
+          sourceIds: [tag._id],
+          sourceIdSet: new Set([tag._id]),
+          bestCount: tag.usageCount,
+        });
+        continue;
+      }
 
-        const usage = tagUsageById.get(tagId) ?? 0;
-        const existing = groups.get(key);
-        if (!existing) {
-          groups.set(key, {
-            _id: key,
-            name: tagName || "untitled",
-            usageCount: 1,
-            sourceIds: [tagId],
-            sourceIdSet: new Set([tagId]),
-            primaryCount: usage,
-          });
-          continue;
-        }
-
-        existing.usageCount += 1;
-        if (!existing.sourceIdSet.has(tagId)) {
-          existing.sourceIdSet.add(tagId);
-          existing.sourceIds.push(tagId);
-        }
-        if (tagName && usage > existing.primaryCount) {
-          existing.primaryCount = usage;
-          existing.name = tagName;
-        }
+      existing.usageCount += tag.usageCount;
+      if (!existing.sourceIdSet.has(tag._id)) {
+        existing.sourceIdSet.add(tag._id);
+        existing.sourceIds.push(tag._id);
+      }
+      if (tag.usageCount > existing.bestCount) {
+        existing.bestCount = tag.usageCount;
+        existing.name = tag.name;
       }
     }
 
     return Array.from(groups.values())
+      .filter((tag) => tag.usageCount > 0)
       .map(
         ({
           sourceIdSet: _sourceIdSet,
-          primaryCount: _primaryCount,
+          bestCount: _bestCount,
           ...tag
         }) => tag,
       )
@@ -689,7 +656,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         if (usageDiff !== 0) return usageDiff;
         return a.name.localeCompare(b.name);
       });
-  }, [allAssets, tagNameById, tagUsageById]);
+  }, [tags]);
 
   const sourceIdsByTagKey = useMemo(() => {
     const map = new Map<string, Id<"tags">[]>();
