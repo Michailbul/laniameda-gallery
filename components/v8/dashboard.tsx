@@ -535,6 +535,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   // Image navigation
   const tags = useQuery(api.tags.listTags, {});
+  const tagAssetCounts = useQuery(
+    api.assets.tagAssetCounts,
+    galleryScope === "mine" && canAccessMyGallery
+      ? { ownerUserId }
+      : galleryScope === "public"
+        ? { isPublic: true }
+        : "skip",
+  );
   const folders = useQuery(
     api.folders.listFolders,
     canAccessMyGallery ? { ownerUserId } : "skip",
@@ -603,6 +611,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     );
   }, [tags]);
 
+  const assetCountByTagId = useMemo(() => {
+    const map = new Map<Id<"tags">, number>();
+    for (const entry of tagAssetCounts ?? []) {
+      map.set(entry.tagId, entry.count);
+    }
+    return map;
+  }, [tagAssetCounts]);
+
   const dedupedTags = useMemo(() => {
     const groups = new Map<
       string,
@@ -618,26 +634,27 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
     for (const tag of tags ?? []) {
       const key = canonicalTagKey(tag.name) || tag._id;
+      const count = assetCountByTagId.get(tag._id) ?? 0;
       const existing = groups.get(key);
       if (!existing) {
         groups.set(key, {
           _id: key,
           name: tag.name || "untitled",
-          usageCount: tag.usageCount,
+          usageCount: count,
           sourceIds: [tag._id],
           sourceIdSet: new Set([tag._id]),
-          bestCount: tag.usageCount,
+          bestCount: count,
         });
         continue;
       }
 
-      existing.usageCount += tag.usageCount;
+      existing.usageCount += count;
       if (!existing.sourceIdSet.has(tag._id)) {
         existing.sourceIdSet.add(tag._id);
         existing.sourceIds.push(tag._id);
       }
-      if (tag.usageCount > existing.bestCount) {
-        existing.bestCount = tag.usageCount;
+      if (count > existing.bestCount) {
+        existing.bestCount = count;
         existing.name = tag.name;
       }
     }
@@ -656,7 +673,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         if (usageDiff !== 0) return usageDiff;
         return a.name.localeCompare(b.name);
       });
-  }, [tags]);
+  }, [tags, assetCountByTagId]);
 
   const sourceIdsByTagKey = useMemo(() => {
     const map = new Map<string, Id<"tags">[]>();
