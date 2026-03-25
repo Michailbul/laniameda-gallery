@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MessageCircle, ShieldCheck } from "lucide-react";
 import { useTelegramAuth } from "./TelegramAuthProvider";
 import { AuthPanel } from "@/components/ui/auth-panel";
@@ -8,9 +8,6 @@ import { AuthPanel } from "@/components/ui/auth-panel";
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
   ?.trim()
   .replace(/^@+/, "");
-const REQUEST_ACCESS_MODE = process.env.NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS
-  ?.trim()
-  .toLowerCase();
 const parseBoolean = (value: string | undefined, fallback: boolean) => {
   if (!value) return fallback;
   const normalized = value.trim().toLowerCase();
@@ -21,6 +18,16 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
 const DEV_AUTH_BYPASS_ENABLED =
   process.env.NODE_ENV !== "production" &&
   parseBoolean(process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED, false);
+const TELEGRAM_AUTH_ERROR_MESSAGES: Record<string, string> = {
+  invalid_payload: "Telegram returned an invalid login payload. Please try again.",
+  missing_bot_token: "Server auth is misconfigured. Add the Telegram login bot token.",
+  invalid_hash: "Telegram login could not be verified. Please try again.",
+  expired: "Telegram login expired before it reached the app. Please try again.",
+};
+
+const TELEGRAM_LOGIN_LINK = BOT_USERNAME
+  ? `https://t.me/${BOT_USERNAME}?start=login`
+  : null;
 
 interface TelegramLoginButtonProps {
   size?: "small" | "medium" | "large";
@@ -29,7 +36,6 @@ interface TelegramLoginButtonProps {
 export function TelegramLoginButton({
   size = "medium",
 }: TelegramLoginButtonProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [widgetError, setWidgetError] = useState<string | null>(null);
   const [devLoginLoading, setDevLoginLoading] = useState(false);
   const [devLoginError, setDevLoginError] = useState<string | null>(null);
@@ -42,9 +48,7 @@ export function TelegramLoginButton({
           helper: "text-[10px]",
           wrapper: "px-3 py-3",
           iconShell: "h-8 w-8",
-          widgetMaxWidth: "188px",
           compact: true,
-          scriptSize: "small" as const,
         }
       : size === "large"
         ? {
@@ -53,9 +57,7 @@ export function TelegramLoginButton({
             helper: "text-[11px]",
             wrapper: "px-5 py-5",
             iconShell: "h-11 w-11",
-            widgetMaxWidth: "252px",
             compact: false,
-            scriptSize: "large" as const,
           }
         : {
             title: "text-[15px]",
@@ -63,9 +65,7 @@ export function TelegramLoginButton({
             helper: "text-[11px]",
             wrapper: "px-4 py-4",
             iconShell: "h-10 w-10",
-            widgetMaxWidth: "220px",
             compact: false,
-            scriptSize: "medium" as const,
           };
 
   const handleDevLogin = useCallback(async () => {
@@ -91,79 +91,41 @@ export function TelegramLoginButton({
   }, [devLoginLoading, refresh]);
 
   useEffect(() => {
-    if (DEV_AUTH_BYPASS_ENABLED) {
+    if (typeof window === "undefined") {
       return;
     }
 
-    const container = containerRef.current;
-    if (!container) return;
-
-    if (!BOT_USERNAME) {
-      console.error(
-        "Missing NEXT_PUBLIC_TELEGRAM_BOT_USERNAME; Telegram login widget is disabled.",
-      );
+    const url = new URL(window.location.href);
+    const authErrorCode = url.searchParams.get("tgAuthError");
+    if (!authErrorCode) {
       return;
     }
 
-    const globalWindow = window as unknown as {
-      __onTelegramAuth?: (data: Record<string, unknown>) => Promise<void>;
-    };
+    setWidgetError(
+      TELEGRAM_AUTH_ERROR_MESSAGES[authErrorCode] ||
+        "Telegram authentication failed. Please try again.",
+    );
+    url.searchParams.delete("tgAuthError");
+    window.history.replaceState({}, "", url.toString());
+  }, []);
 
-    // Global callback invoked by the Telegram widget script.
-    globalWindow.__onTelegramAuth = async (
-      data: Record<string, unknown>,
-    ) => {
-      const response = await fetch("/api/auth/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(body?.error ?? "Telegram authentication failed.");
-      }
-
-      await refresh();
-    };
-
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.dataset.telegramLogin = BOT_USERNAME;
-    script.dataset.size = sizeConfig.scriptSize;
-    if (REQUEST_ACCESS_MODE === "write") {
-      script.dataset.requestAccess = "write";
-    }
-    script.dataset.onauth = "__onTelegramAuth(user)";
-
-    container.innerHTML = "";
-    container.appendChild(script);
-
-    const detectWidgetError = () => {
-      const text = container.textContent?.trim().toLowerCase() ?? "";
-      if (!text) return;
-      if (text.includes("bot domain invalid")) {
-        const host = window.location.host;
-        setWidgetError(
-          `Telegram widget rejected this domain (${host}). Add it in BotFather using /setdomain for @${BOT_USERNAME}.`,
-        );
-      }
-    };
-
-    const observer = new MutationObserver(detectWidgetError);
-    observer.observe(container, { childList: true, subtree: true, characterData: true });
-    const timer = window.setTimeout(detectWidgetError, 900);
-
-    return () => {
-      window.clearTimeout(timer);
-      observer.disconnect();
-      container.innerHTML = "";
-      delete globalWindow.__onTelegramAuth;
-    };
-  }, [refresh, sizeConfig.scriptSize]);
+  /* ── Login link button (replaces old widget) ── */
+  const loginLinkButton = TELEGRAM_LOGIN_LINK ? (
+    <a
+      href={TELEGRAM_LOGIN_LINK}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] font-semibold transition-colors"
+      style={{
+        borderColor: "rgba(var(--brand-telegram-rgb), 0.5)",
+        backgroundColor: "rgba(var(--brand-telegram-rgb), 0.12)",
+        color: "var(--brand-telegram-ink)",
+      }}
+    >
+      <MessageCircle className="h-4 w-4" />
+      Log in with Telegram
+    </a>
+  ) : null;
 
   /* ── Compact sidebar variant — neobrutalist ── */
   if (sizeConfig.compact) {
@@ -240,21 +202,18 @@ export function TelegramLoginButton({
                   </p>
                 )}
               </>
-            ) : BOT_USERNAME ? (
+            ) : TELEGRAM_LOGIN_LINK ? (
               <>
-                <div className="flex justify-start">
-                  <div
-                    style={{
-                      maxWidth: sizeConfig.widgetMaxWidth,
-                      width: "100%",
-                    }}
-                  >
-                    <div
-                      ref={containerRef}
-                      className="min-h-[34px] overflow-x-auto overflow-y-hidden"
-                    />
-                  </div>
-                </div>
+                <a
+                  href={TELEGRAM_LOGIN_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-brutal inline-flex w-full items-center justify-center gap-1.5 text-[11px]"
+                  style={{ borderRadius: "3px" }}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Log in with Telegram
+                </a>
                 {widgetError && (
                   <p
                     className="mt-1.5 font-mono text-[9px]"
@@ -410,7 +369,7 @@ export function TelegramLoginButton({
               </p>
             )}
           </div>
-        ) : BOT_USERNAME ? (
+        ) : loginLinkButton ? (
           <div
             className="rounded-2xl border px-3 py-3"
             style={{
@@ -445,19 +404,10 @@ export function TelegramLoginButton({
                 1 tap
               </span>
             </div>
-            <div className="flex justify-start">
-              <div
-                style={{
-                  maxWidth: sizeConfig.widgetMaxWidth,
-                  width: "100%",
-                }}
-              >
-                <div ref={containerRef} className="min-h-[34px] overflow-x-auto overflow-y-hidden" />
-              </div>
-            </div>
+            {loginLinkButton}
             {!widgetError && (
               <p className="mt-2 text-[11px]" style={{ color: "var(--text-ghost)", lineHeight: 1.35 }}>
-                No password needed. Telegram confirms your identity instantly.
+                Opens Telegram. Tap Accept to sign in instantly.
               </p>
             )}
             {widgetError && (
