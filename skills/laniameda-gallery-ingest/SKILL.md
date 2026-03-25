@@ -1,5 +1,5 @@
 ---
-name: laniameda-kb
+name: laniameda-gallery-ingest
 description: >-
   Save prompts, images, tutorials, links, and design inspiration to the
   laniameda-gallery Convex knowledge base. Use when an agent needs to ingest
@@ -7,7 +7,7 @@ description: >-
   aligned with the current repo ingest contract.
 ---
 
-# laniameda-kb
+# laniameda-gallery-ingest
 
 Use this skill to ingest content into `laniameda.gallery` through the canonical backend contract in this repo.
 
@@ -27,7 +27,7 @@ Use `references/schema-contract.md` for a quick map and `references/ingest-examp
 
 ## Source of truth
 
-- Canonical skill source: `skills/laniameda-kb/`
+- Canonical skill source: `skills/laniameda-gallery-ingest/`
 - Installed copies under `~/.openclaw/skills/`, `~/.codex/skills/`, and `~/.agents/skills/` are disposable `bunx skills` installs.
 - When ingest contracts change, update this skill in the same commit.
 
@@ -126,15 +126,15 @@ These are the valid enum values the Convex schema enforces — use these or inge
 **Always edit the canonical source first:**
 
 ```
-~/work/laniameda/laniameda.gallery/skills/laniameda-kb/SKILL.md
+~/work/laniameda/laniameda.gallery/skills/laniameda-gallery-ingest/SKILL.md
 ```
 
 Then push to GitHub:
 
 ```bash
 cd ~/work/laniameda/laniameda.gallery
-git add skills/laniameda-kb/
-git commit -m "update laniameda-kb skill"
+git add skills/laniameda-gallery-ingest/
+git commit -m "update laniameda-gallery-ingest skill"
 git push
 ```
 
@@ -143,7 +143,7 @@ Then refresh installed copies across all agents:
 ```bash
 bun run skills:update
 # or manually:
-bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y
+bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest -g -a openclaw -a codex -a cline -y
 ```
 
 **When Michael says he pushed updates to the gallery repo:**
@@ -161,9 +161,9 @@ Example invocation:
 
 ```bash
 CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=278674008 \
-  bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
+  bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
 ```
 
 If env vars are already set in `.env`, you can omit the inline prefix.
 
-If the installed path is different for your agent runtime, use that runtime's installed `laniameda-kb/scripts/ingest.ts` path instead.
+If the installed path is different for your agent runtime, use that runtime's installed `laniameda-gallery-ingest/scripts/ingest.ts` path instead.
