@@ -193,10 +193,10 @@ const floatingAnimation = {
     transition: {
       duration: 4,
       repeat: Infinity,
-      ease: "easeInOut"
-    }
-  }
-}
+      ease: "easeInOut" as const,
+    },
+  },
+} satisfies import("motion/react").Variants
 
 const DockIconButton = React.forwardRef<HTMLButtonElement, DockIconButtonProps>(
   ({ icon: Icon, label, onClick, className }, ref) => {
