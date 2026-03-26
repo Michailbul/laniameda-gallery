@@ -33,9 +33,10 @@ const main = async () => {
       const res = await client.action(api.ingest.ingestFromApi, args);
       ok++;
       console.log(`[${i + 1}/${lines.length}] ok`, res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       failed++;
-      console.error(`[${i + 1}/${lines.length}] failed`, err?.message ?? err);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[${i + 1}/${lines.length}] failed`, message);
     }
   }
 

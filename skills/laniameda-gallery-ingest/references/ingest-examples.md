@@ -3,7 +3,7 @@
 ## 1) Direct script call with prompt + local image
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "pillar": "creators",
   "promptText": "cinematic fashion portrait in tokyo rain",
   "promptType": "image_gen",
@@ -21,7 +21,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 ## 1b) Explicit prompt-only save
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "pillar": "creators",
   "promptText": "cinematic fashion portrait in tokyo rain",
   "allowPromptOnly": true,
@@ -32,7 +32,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 ## 2) Design inspiration only
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "pillar": "designs",
   "typedTags": [
     { "name": "saas", "category": "design_type", "pillar": "designs", "source": "agent" },
@@ -53,7 +53,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 ## 3) Prompt variations sharing one prompt record
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '[
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '[
   {
     "pillar": "cars",
     "promptText": "low-angle porsche rolling shot at sunset",
@@ -76,7 +76,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '[
 ## 4) Remote URL ingest with structured prompt sections
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "pillar": "designs",
   "url": "https://example.com/reference.png",
   "promptSections": {
@@ -129,7 +129,7 @@ It returns:
 ## 6) Update a prompt by ingestKey
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
   "ingestKey": "cars:porsche:rolling:v1",
@@ -142,7 +142,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 ## 7) Update an asset's metadata and clear its folder
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "asset",
   "ingestKey": "cars:porsche:rolling:v1:a",
@@ -155,7 +155,7 @@ bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
 ## 8) Delete a design inspiration by ingestKey
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "delete",
   "target": "designInspiration",
   "ingestKey": "design:stripe:pricing:v1"

@@ -15,7 +15,7 @@ Read these files first:
 
 **laniameda.gallery** — a personal AI creatorship vault.
 
-Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-kb` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 4 content pillars.
+Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-gallery-ingest` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 4 content pillars.
 
 ### 4 content pillars
 | Pillar | Description |
@@ -27,7 +27,7 @@ Michael finds things he likes (screenshots, prompts, reference images, designs) 
 
 ### How ingestion works
 1. Michael sends an image or prompt to OpenClaw via Telegram
-2. OpenClaw uses the `laniameda-kb` skill to call the Convex ingest API
+2. OpenClaw uses the `laniameda-gallery-ingest` skill to call the Convex ingest API
 3. Convex stores the prompt + asset with owner scoping
 4. Gallery displays it in the right pillar
 
@@ -59,7 +59,7 @@ Michael finds things he likes (screenshots, prompts, reference images, designs) 
 - Use **indexes** for all queries that filter or sort
 - Queries and mutations **must not call external APIs** — use actions for that
 - Use actions to call external services, then store results via mutation
-- When backend schema or ingest contracts change (`convex/schema.ts`, `convex/validators.ts`, `convex/ingest.ts`, `convex/agent_ingest.ts`, `app/api/ingest/route.ts`), update `skills/laniameda-kb/**` in the same change.
+- When backend schema or ingest contracts change (`convex/schema.ts`, `convex/validators.ts`, `convex/ingest.ts`, `convex/agent_ingest.ts`, `app/api/ingest/route.ts`), update `skills/laniameda-gallery-ingest/**` in the same change.
 
 ## TypeScript & schema conventions
 - Use `v.*` validators for all Convex function args
@@ -107,7 +107,7 @@ scripts/         Dev utility scripts
 | `AUTH.md` | Telegram auth setup |
 | `DESIGN.md` | UI design system and visual direction |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
-| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the laniameda-kb skill work |
+| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the laniameda-gallery-ingest skill work |
 
 ## Feature PRD workflow
 - When starting a new feature on a new branch, do **not** add that feature's full PRD documents to `main`.

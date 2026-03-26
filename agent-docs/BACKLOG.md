@@ -55,12 +55,14 @@ No queued ready items. Promote from backlog after the production hardening pass 
 | AI-01 | Image → Prompt Generator (reverse-engineer prompt from image) | P1 | L | Vision model (Claude/Gemini). Button on images with no prompt. NB cinematic structure output. |
 | AI-02 | Image Focus Mode Phase 2 — transitions + keyboard nav | P2 | M | PRD: `features/image-focus-mode/PRD.md` §10 Phase 2 |
 | AI-03 | Image Focus Mode Phase 3 — preloading + related prompts | P3 | M | PRD: `features/image-focus-mode/PRD.md` §10 Phase 3 |
+| AI-04 | Auto-tagging on ingest via embedding neighbors | P2 | M | After reindexAsset succeeds → vectorSearch 10 nearest neighbors → inherit tags (freq ≥2/10, top 5). Add `source` field to `assetTags` (`user`/`agent`/`auto`). No tag creation, reuses existing. See `agent-docs/SEMANTIC_SEARCH.md` § Future. |
+| AI-05 | Smart clustering — auto-generate collections from embedding space | P3 | L | K-means/HDBSCAN over `semanticDocuments` vectors. Phase 2 feature. Also tracked as ORG-006 in HQ backlog. |
 
 ### Ingest / Content
 
 | ID | Title | P | Effort | Notes |
 |----|-------|---|--------|-------|
-| ING-01 | Agent auto-classification into pillars on ingest | P1 | M | laniameda-kb skill calls classifier action on save |
+| ING-01 | Agent auto-classification into pillars on ingest | P1 | M | laniameda-gallery-ingest skill calls classifier action on save |
 | ING-02 | Bulk re-classify existing assets into pillars | P2 | S | One-time migration action |
 | ING-03 | Telegram ingest: photo + caption in one message | P1 | M | Currently only processes text or URL |
 
@@ -73,6 +75,7 @@ No queued ready items. Promote from backlog after the production hardening pass 
 | UI-03 | Tab state persists globally (not reset on image switch) | P3 | XS | IFM PRD open question |
 | UI-04 | Contextual related tags/prompts in side panel | P3 | L | IFM Phase 3 |
 | UI-05 | Gallery Entry V2: hover actions + side-panel carousel + prompt/image arrays | P0 | XL | Ticket: `features/gallery-entry-v2/TICKET.md` (includes Convex schema/backend/frontend/docs tasks) |
+| UI-06 | Designs Pillar — skills/workflows library with structured cards + fullscreen modal | P1 | L | PRD: `features/designs-pillar/PRD.md`. Pillar-aware dashboard switching, DesignSkillCard, DesignSkillModal, schema additions (workflowSteps, agentPrompt, toolNames). |
 
 ### Infrastructure
 

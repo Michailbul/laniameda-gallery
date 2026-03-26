@@ -15,7 +15,7 @@ Last updated: 2026-03-17
 - Prompt-only workflows shipped: the dashboard now has a text-only prompt view, and prompt-only ingest requires explicit `allowPromptOnly` opt-in across maintained ingest paths
 
 ### 2026-03-13
-- Canonical repo-backed `laniameda-kb` skill added under `skills/laniameda-kb/` with GitHub/local `bunx skills` install workflows
+- Canonical repo-backed `laniameda-gallery-ingest` skill added under `skills/laniameda-gallery-ingest/` with GitHub/local `bunx skills` install workflows
 - Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
 - Explicit ingest management contract added: `update` + `delete` actions/routes for prompts, assets, and design inspirations, plus skill support for all three operations
 
@@ -57,7 +57,7 @@ Last updated: 2026-03-17
 - Core Convex queries/mutations/actions for assets, prompts, tags, folders
 - Ingestion action with idempotency key (`ingestKey`)
 - `/api/ingest` route + ingest helpers
-- `laniameda-kb` OpenClaw skill (Telegram → Convex ingest)
+- `laniameda-gallery-ingest` OpenClaw skill (Telegram → Convex ingest)
 - ESLint + Bun test baseline green (60 tests)
 
 ---

@@ -3,14 +3,14 @@
 Use this handover when an agent on the VPS needs to:
 
 1. pull the latest `main` branch of `laniameda-gallery`
-2. align the VPS with the canonical `laniameda-kb` skill from this repo
+2. align the VPS with the canonical `laniameda-gallery-ingest` skill from this repo
 3. make future updates trackable via `npx skills`
 
 ## Goal
 
 Install the canonical GitHub-backed skill from:
 
-`https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb`
+`https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest`
 
 Target agent runtimes:
 
@@ -18,14 +18,14 @@ Target agent runtimes:
 - Codex
 - Cline/agents
 
-Do not assume the installer will materialize separate folders for every runtime. On the local machine, `npx skills` installed the skill under `~/.agents/skills/laniameda-kb` and marked it as usable by multiple runtimes.
+Do not assume the installer will materialize separate folders for every runtime. On the local machine, `npx skills` installed the skill under `~/.agents/skills/laniameda-gallery-ingest` and marked it as usable by multiple runtimes.
 
 ## Current setup and rules
 
 - The canonical source of truth is this repo on `main`.
-- The canonical skill folder is `skills/laniameda-kb/`.
+- The canonical skill folder is `skills/laniameda-gallery-ingest/`.
 - Installed skill copies under home directories are disposable runtime installs, not editable source.
-- Never hand-edit `~/.openclaw/skills/laniameda-kb`, `~/.codex/skills/laniameda-kb`, or `~/.agents/skills/laniameda-kb`.
+- Never hand-edit `~/.openclaw/skills/laniameda-gallery-ingest`, `~/.codex/skills/laniameda-gallery-ingest`, or `~/.agents/skills/laniameda-gallery-ingest`.
 - If the ingest contract changes in the repo, the skill must change in the same repo commit.
 - Preferred steady state on the VPS: GitHub-backed install from this repo.
 - Acceptable fallback if GitHub-backed install hangs: local-path install from the checked-out repo.
@@ -99,7 +99,7 @@ Run from the repo root:
 bun run skills:install:github
 ```
 
-This should register the GitHub source with `npx skills` and install `laniameda-kb` globally for OpenClaw, Codex, and Cline.
+This should register the GitHub source with `npx skills` and install `laniameda-gallery-ingest` globally for OpenClaw, Codex, and Cline.
 
 If the runtime already has an older manual copy, this command should replace it with the tracked install. Do not hand-edit installed copies afterward.
 
@@ -108,9 +108,9 @@ If the runtime already has an older manual copy, this command should replace it 
 On the local machine, `npx skills add <github-url>` recognized the source correctly but stalled during the clone step. If that happens on the VPS, fall back to a repo-local install so the server is at least aligned to the canonical repo copy:
 
 ```bash
-npx skills add ./skills/laniameda-kb -g -a codex -y
-npx skills add ./skills/laniameda-kb -g -a openclaw -y
-npx skills add ./skills/laniameda-kb -g -a cline -y
+npx skills add ./skills/laniameda-gallery-ingest -g -a codex -y
+npx skills add ./skills/laniameda-gallery-ingest -g -a openclaw -y
+npx skills add ./skills/laniameda-gallery-ingest -g -a cline -y
 ```
 
 This fallback aligns the installed skill immediately, but it is local-path based rather than GitHub-tracked. If you have to use the fallback, report it explicitly.
@@ -118,7 +118,7 @@ This fallback aligns the installed skill immediately, but it is local-path based
 ## Step 5: verify installation locations
 
 ```bash
-find ~/.openclaw/skills/laniameda-kb ~/.codex/skills/laniameda-kb ~/.agents/skills/laniameda-kb -maxdepth 3 -type f 2>/dev/null | sort
+find ~/.openclaw/skills/laniameda-gallery-ingest ~/.codex/skills/laniameda-gallery-ingest ~/.agents/skills/laniameda-gallery-ingest -maxdepth 3 -type f 2>/dev/null | sort
 ```
 
 Confirm the script exists:
@@ -133,12 +133,12 @@ At minimum, confirm one installed path now contains:
 Also inspect the installed `SKILL.md` header to confirm it is the new canonical version:
 
 ```bash
-sed -n '1,40p' ~/.agents/skills/laniameda-kb/SKILL.md 2>/dev/null
+sed -n '1,40p' ~/.agents/skills/laniameda-gallery-ingest/SKILL.md 2>/dev/null
 ```
 
 It should mention:
 
-- canonical source: `skills/laniameda-kb/`
+- canonical source: `skills/laniameda-gallery-ingest/`
 - `CONVEX_URL` runtime env
 - `references/schema-contract.md`
 
@@ -163,7 +163,7 @@ Expected result:
 
 Important:
 
-- `npx skills update` updates the entire installed catalog, not just `laniameda-kb`
+- `npx skills update` updates the entire installed catalog, not just `laniameda-gallery-ingest`
 - if you only want to verify the command path works, let it start and confirm it discovers updates; do not leave a long unrelated bulk update running unless that is intended maintenance
 
 ## Step 7: smoke-test the installed skill
@@ -171,7 +171,7 @@ Important:
 Check the script can start and fail for the right reason if input is missing:
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts
 ```
 
 Expected result:
@@ -181,7 +181,7 @@ Expected result:
 Then run a JSON parse check:
 
 ```bash
-bun run ~/.agents/skills/laniameda-kb/scripts/ingest.ts '{}'
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{}'
 ```
 
 Expected result:
@@ -192,8 +192,8 @@ Expected result:
 
 From now on:
 
-- edit only `skills/laniameda-kb/` in this repo
-- never hand-edit `~/.openclaw/skills/laniameda-kb`, `~/.codex/skills/laniameda-kb`, or `~/.agents/skills/laniameda-kb`
+- edit only `skills/laniameda-gallery-ingest/` in this repo
+- never hand-edit `~/.openclaw/skills/laniameda-gallery-ingest`, `~/.codex/skills/laniameda-gallery-ingest`, or `~/.agents/skills/laniameda-gallery-ingest`
 - after pulling new commits on the VPS, run:
 
 ```bash

@@ -1,7 +1,8 @@
 "use node";
 
+import { Jimp, JimpMime } from "jimp";
 import { ConvexError, v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
@@ -174,11 +175,15 @@ const normalizeTagInputs = (
   return [...deduped.values()];
 };
 
-const toStorageBlob = (base64: string, mimeType?: string) => {
+const decodeBase64Buffer = (base64: string) => {
   const buffer = Buffer.from(base64, "base64");
   if (buffer.byteLength === 0) {
     throw new ConvexError("Empty media payload.");
   }
+  return buffer;
+};
+
+const toStorageBlob = (buffer: Buffer, mimeType?: string) => {
   return new Blob([buffer], { type: mimeType || "application/octet-stream" });
 };
 
@@ -208,6 +213,79 @@ const resolvePromptIdByIndex = (
     return undefined;
   }
   return promptIds[normalized - 1];
+};
+
+const dedupeIds = <T>(values: T[]) => {
+  return Array.from(new Set(values));
+};
+
+const buildUrlTitle = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+    return `${hostname}${path}` || url;
+  } catch {
+    return url;
+  }
+};
+
+const createThumbnail = async (
+  ctx: ActionCtx,
+  buffer: Buffer,
+  mimeType?: string,
+) => {
+  const normalizedContentType = mimeType || "application/octet-stream";
+  if (!normalizedContentType.startsWith("image/")) {
+    return {
+      thumbStorageId: undefined,
+      thumbSize: undefined,
+      thumbWidth: undefined,
+      thumbHeight: undefined,
+      width: undefined,
+      height: undefined,
+    };
+  }
+
+  try {
+    const originalImage = await Jimp.read(buffer);
+    const originalWidth = originalImage.bitmap.width;
+    const originalHeight = originalImage.bitmap.height;
+    const generatedThumbHeight =
+      originalWidth && originalHeight
+        ? Math.max(1, Math.round((520 * originalHeight) / originalWidth))
+        : 520;
+    const thumb = originalImage.clone().resize({ w: 520, h: generatedThumbHeight });
+    const thumbMime =
+      normalizedContentType.includes("png") && normalizedContentType !== "image/jpeg"
+        ? JimpMime.png
+        : JimpMime.jpeg;
+    const thumbBuffer = await thumb.getBuffer(thumbMime);
+    const thumbArrayBuffer = thumbBuffer.buffer.slice(
+      thumbBuffer.byteOffset,
+      thumbBuffer.byteOffset + thumbBuffer.byteLength,
+    ) as ArrayBuffer;
+    const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
+
+    return {
+      thumbStorageId: await ctx.storage.store(thumbBlob),
+      thumbSize: thumbBuffer.byteLength,
+      thumbWidth: thumb.bitmap.width ?? undefined,
+      thumbHeight: thumb.bitmap.height ?? undefined,
+      width: originalWidth ?? undefined,
+      height: originalHeight ?? undefined,
+    };
+  } catch (error) {
+    console.warn("Thumbnail generation failed during agent ingest:", error);
+    return {
+      thumbStorageId: undefined,
+      thumbSize: undefined,
+      thumbWidth: undefined,
+      thumbHeight: undefined,
+      width: undefined,
+      height: undefined,
+    };
+  }
 };
 
 export const ingestFromAgentPayload = action({
@@ -257,7 +335,10 @@ export const ingestFromAgentPayload = action({
       linkedPromptIndex: item.linkedPromptIndex,
       linkedMediaId: item.linkedMediaId?.trim() || undefined,
     }));
-    const hasLinkedGalleryRecords = selectedMediaIds.length > 0 || normalizedDesignInspirations.length > 0;
+    const hasLinkedGalleryRecords =
+      selectedMediaIds.length > 0 ||
+      normalizedDesignInspirations.length > 0 ||
+      selectedUrls.length > 0;
     if (!hasLinkedGalleryRecords && !allowPromptOnly) {
       throw new ConvexError("Prompt-only ingest requires allowPromptOnly=true.");
     }
@@ -293,6 +374,9 @@ export const ingestFromAgentPayload = action({
     for (const [index, tag] of tagInputs.entries()) {
       tagIdByName.set(tag.name.toLowerCase(), tagIds[index]);
     }
+    const systemTagIds = ["agent-ingest", "telegram"]
+      .map((name) => tagIdByName.get(name))
+      .filter((id): id is Id<"tags"> => Boolean(id));
 
     const promptIds: Id<"prompts">[] = [];
     const createdPromptIds = new Set<Id<"prompts">>();
@@ -355,18 +439,36 @@ export const ingestFromAgentPayload = action({
         const linkedPrompt = media.linkedPromptIndex
           ? normalizedPrompts[Math.trunc(media.linkedPromptIndex) - 1]
           : normalizedPrompts[0];
-
-        const blob = toStorageBlob(media.base64, media.mimeType);
+        const promptTagIds = (linkedPrompt?.tags ?? [])
+          .map((name) => tagIdByName.get(name.toLowerCase()))
+          .filter((id): id is Id<"tags"> => Boolean(id));
+        const assetTagIds = dedupeIds([...promptTagIds, ...systemTagIds]);
+        const buffer = decodeBase64Buffer(media.base64);
+        const blob = toStorageBlob(buffer, media.mimeType);
         const storageId = await ctx.storage.store(blob);
+        const {
+          thumbStorageId,
+          thumbSize,
+          thumbWidth,
+          thumbHeight,
+          width,
+          height,
+        } = await createThumbnail(ctx, buffer, media.mimeType);
         const assetRecord = await ctx.runMutation(api.assets.createAsset, {
           ownerUserId,
           kind: media.kind,
           storageId,
+          thumbStorageId,
           fileName: media.fileName,
           contentType: media.mimeType,
           size: blob.size,
+          width,
+          height,
+          thumbSize,
+          thumbWidth,
+          thumbHeight,
           promptId: linkedPromptId,
-          tagIds,
+          tagIds: assetTagIds,
           ingestKey: `run:${args.runId}:media:${mediaId}`,
           pillar: linkedPrompt?.pillar ?? "dump",
           generationType:
@@ -382,6 +484,25 @@ export const ingestFromAgentPayload = action({
         assetIds.push(assetRecord.assetId);
         if (linkedPromptId) {
           linkedPromptIds.add(linkedPromptId);
+        }
+      }
+
+      const defaultLinkedPromptId = promptIds[0];
+      for (const [index, selectedUrl] of selectedUrls.entries()) {
+        const record = (await ctx.runMutation(createDesignInspirationMutation, {
+          ownerUserId,
+          title: buildUrlTitle(selectedUrl),
+          summary: args.payload.notes?.trim() || undefined,
+          sourceUrl: selectedUrl,
+          inspirationType: "other",
+          workflowType: normalizedPrompts[0]?.workflowType,
+          tagIds: systemTagIds,
+          ingestKey: `run:${args.runId}:url:${index + 1}`,
+          promptId: defaultLinkedPromptId,
+        })) as { designInspirationId: Id<"designInspirations">; created: boolean };
+        designInspirationIds.push(record.designInspirationId);
+        if (defaultLinkedPromptId) {
+          linkedPromptIds.add(defaultLinkedPromptId);
         }
       }
 

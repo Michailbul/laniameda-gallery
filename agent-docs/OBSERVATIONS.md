@@ -28,6 +28,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 - Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
 - Telegram auth now prefers `TELEGRAM_LOGIN_BOT_TOKEN` (with legacy fallback to `TELEGRAM_BOT_TOKEN` during migration).
+- Telegram auth is origin-bound. `https://oauth.telegram.org/embed/<bot>?origin=...` should return the widget HTML for the canonical production host and `"Bot domain invalid"` for unregistered Vercel aliases; keep aliases redirected to a single approved host.
 - Gallery is guest-visible; auth required only for protected actions (upload, save, edit).
 - `KB_OWNER_USER_ID` env var scopes agent-ingested content to the correct owner — never hardcode this, always read from env.
 - For localhost work without tunnel domain churn, enable dev bypass (`NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` + `DEV_AUTH_BYPASS_ENABLED=true`) and use `/api/auth/dev-login` from the login card.
@@ -36,8 +37,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
 - `ingestKey` is not a patch key. Use `ingest:updateFromApi` or `ingest:deleteFromApi` for record changes after creation.
-- `laniameda-kb` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
-- Canonical agent skill source is `skills/laniameda-kb/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
+- `laniameda-gallery-ingest` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
+- Canonical agent skill source is `skills/laniameda-gallery-ingest/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
 - Telegram ingest confirmations are sent by Convex using `TELEGRAM_NOTIFY_BOT_TOKEN` (legacy fallback `TELEGRAM_BOT_TOKEN`).
 - The Next.js Telegram webhook route has been removed; ingest is OpenClaw -> Convex action.
 - Prompt-only saves are explicit-only: use `allowPromptOnly=true` when intentionally storing text without media or design inspirations. Selected URLs alone do not count as persisted gallery records.
@@ -48,3 +49,4 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Worktree automation copies `.env.example` and runs `bun install` automatically via `scripts/worktree-create.sh`.
 - Clearing `.next` before type checks avoids stale route validator files breaking `tsc`.
 - Quality gates (`bun run lint` + `bun test`) are the reliable baseline; run before every commit.
+- Local `vercel --prod` deploys can upload the root `.env` into the build context unless `.vercelignore` excludes it; keep `.env*` and `convex/.env*` out of Vercel uploads so builds use project-configured envs instead of local secrets.

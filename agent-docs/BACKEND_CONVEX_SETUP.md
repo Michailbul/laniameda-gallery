@@ -90,7 +90,7 @@ bun run lint
 bun test
 ```
 
-If you change ingest contracts in any of these files, update `skills/laniameda-kb/**` in the same change:
+If you change ingest contracts in any of these files, update `skills/laniameda-gallery-ingest/**` in the same change:
 
 - `convex/schema.ts`
 - `convex/validators.ts`
