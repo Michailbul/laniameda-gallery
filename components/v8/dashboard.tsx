@@ -260,6 +260,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     if (!canAccessMyGallery && galleryScope === "mine") {
       setGalleryScope("public");
     }
+    if (canAccessMyGallery && galleryScope === "public") {
+      setGalleryScope("mine");
+    }
   }, [canAccessMyGallery, galleryScope]);
 
   useEffect(() => {
