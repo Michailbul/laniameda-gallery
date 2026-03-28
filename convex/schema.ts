@@ -119,6 +119,8 @@ export default defineSchema({
     generationType: generationTypeValidator,
     assetRole: assetRoleValidator,
     ingestSource: ingestSourceValidator,
+    assetPackId: v.optional(v.id("assetPacks")),
+    packSlotIndex: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -137,7 +139,29 @@ export default defineSchema({
     .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
     .index("by_owner_assetRole_createdAt", ["ownerUserId", "assetRole", "createdAt"])
-    .index("by_owner_pillar_assetRole_createdAt", ["ownerUserId", "pillar", "assetRole", "createdAt"]),
+    .index("by_owner_pillar_assetRole_createdAt", ["ownerUserId", "pillar", "assetRole", "createdAt"])
+    .index("by_assetPack_packSlotIndex", ["assetPackId", "packSlotIndex"]),
+  assetPacks: defineTable({
+    ownerUserId: v.optional(v.string()),
+    title: v.string(),
+    description: v.optional(v.string()),
+    pillar: optionalPillarValidator,
+    tagIds: v.array(v.id("tags")),
+    ingestKey: v.optional(v.string()),
+    coverAssetId: v.optional(v.id("assets")),
+    modelName: v.optional(v.string()),
+    domain: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
+    isFeatured: v.optional(v.boolean()),
+    itemCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ingestKey", ["ingestKey"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
+    .index("by_isPublic_createdAt", ["isPublic", "createdAt"]),
   designInspirations: defineTable({
     ownerUserId: v.optional(v.string()),
     pillar: v.literal("designs"),

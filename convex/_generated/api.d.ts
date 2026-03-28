@@ -9,6 +9,7 @@
  */
 
 import type * as agent_ingest from "../agent_ingest.js";
+import type * as assetPacks from "../assetPacks.js";
 import type * as assets from "../assets.js";
 import type * as authz from "../authz.js";
 import type * as canvasPositions from "../canvasPositions.js";
@@ -37,6 +38,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agent_ingest: typeof agent_ingest;
+  assetPacks: typeof assetPacks;
   assets: typeof assets;
   authz: typeof authz;
   canvasPositions: typeof canvasPositions;

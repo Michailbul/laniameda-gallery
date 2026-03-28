@@ -32,6 +32,7 @@ interface CarouselImage {
   fullSrc: string;
   width?: number;
   height?: number;
+  prompt?: string;
 }
 
 interface V72DetailPanelProps {
@@ -228,25 +229,27 @@ export function V72DetailPanel({
     }, 1800);
   }, [toastFn]);
 
+  const activePrompt = currentSlide.prompt ?? image.prompt;
+
   const handleCopy = async (text?: string) => {
-    await navigator.clipboard.writeText(text ?? image.prompt);
+    await navigator.clipboard.writeText(text ?? activePrompt);
     showToast("PROMPT COPIED");
   };
 
   const handleCopyUrl = async () => {
-    await navigator.clipboard.writeText(image.fullSrc);
+    await navigator.clipboard.writeText(currentSlide.fullSrc);
     showToast("URL COPIED");
   };
 
   const handleCopyPackage = async () => {
     const parts = [
-      image.prompt,
+      activePrompt,
       image.modelName ? `Model: ${image.modelName}` : "",
       image.pillar ? `Pillar: ${image.pillar}` : "",
       image.tagNames?.length
         ? `Tags: ${image.tagNames.join(", ")}`
         : "",
-      `Image: ${image.fullSrc}`,
+      `Image: ${currentSlide.fullSrc}`,
       image.sourceUrl ? `Source: ${image.sourceUrl}` : "",
     ].filter(Boolean);
     await navigator.clipboard.writeText(parts.join("\n"));
@@ -724,7 +727,7 @@ export function V72DetailPanel({
                     wordBreak: "break-word",
                   }}
                 >
-                  {image.prompt}
+                  {activePrompt}
                 </p>
               </div>
 
