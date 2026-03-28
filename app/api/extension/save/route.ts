@@ -8,26 +8,16 @@ const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Gallery-API-Key",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 function corsJson(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: CORS_HEADERS });
 }
 
-function validateApiKey(request: Request): boolean {
-  const key = request.headers.get("x-gallery-api-key");
-  const expected = process.env.EXTENSION_API_KEY;
-  if (!expected) return false;
-  return key === expected;
-}
-
+// TODO: add proper auth (API key or session-based) before sharing with others
 export async function POST(request: Request) {
   try {
-    if (!validateApiKey(request)) {
-      return corsJson({ error: "Unauthorized" }, 401);
-    }
-
     const ownerUserId = process.env.EXTENSION_OWNER_USER_ID;
     if (!ownerUserId) {
       return corsJson({ error: "Extension owner not configured." }, 500);

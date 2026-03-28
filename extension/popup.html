@@ -5,7 +5,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 300px;
+      width: 280px;
       padding: 16px;
       background: #fffaf5;
       color: #201710;
@@ -16,9 +16,6 @@
       font-size: 16px;
       font-weight: 700;
       margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
     }
     .subtitle {
       font-size: 11px;
@@ -34,7 +31,7 @@
       letter-spacing: 0.5px;
       margin-bottom: 4px;
     }
-    input, select {
+    select {
       display: block;
       width: 100%;
       padding: 8px 10px;
@@ -46,17 +43,12 @@
       border-radius: 4px;
       margin-bottom: 12px;
     }
-    input:focus, select:focus {
+    select:focus {
       outline: none;
       border-color: #ff7a64;
     }
-    input::placeholder { color: #a89888; }
-    .row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
     button {
+      width: 100%;
       padding: 8px 16px;
       background: #ff7a64;
       color: #fff;
@@ -73,22 +65,6 @@
       transform: translate(1px, 1px);
       box-shadow: 1px 1px 0 #201710;
     }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      margin-left: auto;
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #ccc;
-    }
-    .dot--ok { background: #4caf50; }
-    .dot--err { background: #f44336; }
-    .dot--pending { background: #ff9800; }
     .hint {
       font-size: 11px;
       color: #a89888;
@@ -103,20 +79,8 @@
   </style>
 </head>
 <body>
-  <h1>
-    <span>Save to Gallery</span>
-    <span class="status" id="status">
-      <span class="dot" id="dot"></span>
-      <span id="statusText">Not configured</span>
-    </span>
-  </h1>
+  <h1>Save to Gallery</h1>
   <p class="subtitle">laniameda.gallery</p>
-
-  <label for="apiKey">API Key</label>
-  <input type="password" id="apiKey" placeholder="Enter your gallery API key">
-
-  <label for="apiUrl">API URL</label>
-  <input type="text" id="apiUrl" placeholder="https://laniameda-galery.vercel.app/api/extension/save">
 
   <label for="defaultPillar">Default Pillar</label>
   <select id="defaultPillar">
@@ -126,14 +90,11 @@
     <option value="designs">designs</option>
   </select>
 
-  <div class="row">
-    <button id="save">Save settings</button>
-  </div>
+  <button id="save">Save settings</button>
 
   <hr>
   <p class="hint">
-    Hover any image on any website → click "Save" badge → image is saved to your gallery.
-    Optionally paste a prompt after saving.
+    Hover any image on any website, click the "Save" badge. Optionally paste a prompt after saving.
   </p>
 
   <script src="popup.js"></script>
