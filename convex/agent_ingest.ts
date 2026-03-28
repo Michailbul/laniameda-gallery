@@ -184,7 +184,7 @@ const decodeBase64Buffer = (base64: string) => {
 };
 
 const toStorageBlob = (buffer: Buffer, mimeType?: string) => {
-  return new Blob([buffer], { type: mimeType || "application/octet-stream" });
+  return new Blob([new Uint8Array(buffer)], { type: mimeType || "application/octet-stream" });
 };
 
 const buildPromptArtifactText = (prompt: {

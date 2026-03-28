@@ -369,6 +369,25 @@ export const getAsset = query({
   },
 });
 
+export const getGalleryAsset = query({
+  args: {
+    id: v.id("assets"),
+    ownerUserId: v.optional(v.string()),
+  },
+  returns: v.union(v.null(), galleryAssetResultValidator),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.id);
+    if (!asset) {
+      return null;
+    }
+    if (args.ownerUserId && !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) {
+      return null;
+    }
+    const [hydrated] = await hydrateGalleryAssetResults(ctx, [asset]);
+    return hydrated ?? null;
+  },
+});
+
 export const getAssetIdForIngestKey = internalQuery({
   args: {
     ownerUserId: v.string(),
