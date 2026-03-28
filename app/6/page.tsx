@@ -1,238 +1,477 @@
 "use client";
+import { useCurrentUser } from "@/lib/use-current-user";
+import { V72Dashboard } from "@/components/v8/dashboard";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import Link from "next/link";
-
-const EMBER = [
-  "#ff4800",
-  "#ff5400",
-  "#ff6000",
-  "#ff6d00",
-  "#ff7900",
-  "#ff8500",
-  "#ff9100",
-  "#ff9e00",
-  "#ffaa00",
-  "#ffb600",
-] as const;
-
-function SkeletonLine({ width, height = 16, delay = 0 }: { width: string; height?: number; delay?: number }) {
+export default function Page() {
+  const { user, signOut } = useCurrentUser();
+  const dashboardUser = user
+    ? {
+        id: user.ownerUserId,
+        email: user.email ?? null,
+        firstName: user.name ?? null,
+        username: user.telegramUsername ?? null,
+        photoUrl: user.avatarUrl ?? null,
+      }
+    : null;
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay }}
-      className="relative overflow-hidden rounded-md"
-      style={{ width, height, background: "#ffffff08" }}
-    >
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `linear-gradient(90deg, transparent, ${EMBER[4]}15, ${EMBER[8]}10, transparent)`,
-          backgroundSize: "200% 100%",
-          animation: "ember-shimmer 2s ease-in-out infinite",
-          animationDelay: `${delay}s`,
-        }}
-      />
-    </motion.div>
-  );
-}
-
-function SkeletonCard({ delay = 0 }: { delay?: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
-      className="rounded-xl border p-5"
-      style={{ borderColor: "#ffffff08", background: "#ffffff04" }}
-    >
-      <div className="flex gap-4">
-        {/* Avatar */}
-        <div
-          className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-full"
-          style={{ background: "#ffffff08" }}
-        >
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `linear-gradient(90deg, transparent, ${EMBER[2]}15, transparent)`,
-              backgroundSize: "200% 100%",
-              animation: "ember-shimmer 2s ease-in-out infinite",
-              animationDelay: `${delay}s`,
-            }}
-          />
-        </div>
-        <div className="flex-1 space-y-2.5">
-          <SkeletonLine width="60%" height={14} delay={delay} />
-          <SkeletonLine width="40%" height={10} delay={delay + 0.1} />
-        </div>
-      </div>
-      <div className="mt-4 space-y-2">
-        <SkeletonLine width="100%" height={12} delay={delay + 0.2} />
-        <SkeletonLine width="90%" height={12} delay={delay + 0.25} />
-        <SkeletonLine width="70%" height={12} delay={delay + 0.3} />
-      </div>
-      {/* Image placeholder */}
-      <div
-        className="relative mt-4 overflow-hidden rounded-lg"
-        style={{ height: 140, background: "#ffffff06" }}
-      >
-        <div
-          className="absolute inset-0"
-          style={{
-            background: `linear-gradient(120deg, transparent 30%, ${EMBER[0]}08, ${EMBER[4]}10, ${EMBER[8]}08, transparent 70%)`,
-            backgroundSize: "200% 100%",
-            animation: "ember-shimmer 2.5s ease-in-out infinite",
-            animationDelay: `${delay + 0.15}s`,
-          }}
-        />
-      </div>
-      <div className="mt-4 flex gap-3">
-        <SkeletonLine width="80px" height={28} delay={delay + 0.35} />
-        <SkeletonLine width="80px" height={28} delay={delay + 0.4} />
-      </div>
-    </motion.div>
-  );
-}
-
-function SkeletonList({ delay = 0 }: { delay?: number }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
-      className="space-y-3"
-    >
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="flex items-center gap-3 rounded-lg border p-3"
-          style={{ borderColor: "#ffffff06", background: "#ffffff03" }}
-        >
-          <div
-            className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded"
-            style={{ background: "#ffffff08" }}
-          >
-            <div
-              className="absolute inset-0"
-              style={{
-                background: `linear-gradient(90deg, transparent, ${EMBER[i * 2]}12, transparent)`,
-                backgroundSize: "200% 100%",
-                animation: "ember-shimmer 2s ease-in-out infinite",
-                animationDelay: `${(delay ?? 0) + i * 0.1}s`,
-              }}
-            />
-          </div>
-          <div className="flex-1 space-y-1.5">
-            <SkeletonLine width={`${70 - i * 8}%`} height={12} delay={(delay ?? 0) + i * 0.1} />
-            <SkeletonLine width={`${50 - i * 5}%`} height={9} delay={(delay ?? 0) + i * 0.12} />
-          </div>
-          <SkeletonLine width="48px" height={20} delay={(delay ?? 0) + i * 0.15} />
-        </div>
-      ))}
-    </motion.div>
-  );
-}
-
-export default function EmberLoadingSkeleton() {
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => setLoading((l) => !l), 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div
-      className="flex min-h-screen flex-col items-center justify-center px-6 py-16"
-      style={{ background: "#0a0a0a", fontFamily: "var(--font-geist-sans)" }}
-    >
+    <div className="variation-6">
       <style>{`
-        @keyframes ember-shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
+        /* ═══════════════════════════════════════════════════════════
+           A. CSS Variables on .variation-6
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 {
+          --v7-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          --v7-font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          --v7-ink: #09090b;
+          --v7-coral: #18181b;
+          --v7-paper: #ffffff;
+          --v7-paper-muted: #fafafa;
+          --v7-sidebar-bg: #fafafa;
+          --v7-sidebar-width: 240px;
+          --v7-sidebar-text: #09090b;
+          --v7-sidebar-text-muted: #71717a;
+          --v7-sidebar-text-ghost: #a1a1aa;
+          --v7-sidebar-border: #f4f4f5;
+          --v7-sidebar-surface: #f4f4f5;
+          --v7-sidebar-surface-hover: #f4f4f5;
+          --v7-surface-0: #ffffff;
+          --v7-surface-1: #fafafa;
+          --v7-surface-2: #f4f4f5;
+          --v7-surface-3: #e4e4e7;
+          --v7-surface-4: #d4d4d8;
+          --v7-text-primary: #09090b;
+          --v7-text-secondary: #3f3f46;
+          --v7-text-tertiary: #71717a;
+          --v7-text-ghost: #a1a1aa;
+          --v7-border: #e4e4e7;
+          --v7-border-strong: #d4d4d8;
+          --v7-border-thick: 1px;
+          --v7-border-brutal: 1px;
+          --v7-accent: #18181b;
+          --v7-accent-dim: rgba(24,24,27,0.04);
+          --v7-accent-hover: #27272a;
+          --v7-pillar-creators: #f59e0b;
+          --v7-pillar-cars: #ef4444;
+          --v7-pillar-designs: #6366f1;
+          --v7-pillar-dump: #14b8a6;
+          --v7-shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+          --v7-shadow-md: 0 1px 3px rgba(0,0,0,0.06);
+          --v7-shadow-lg: 0 4px 6px rgba(0,0,0,0.05);
+          --v7-shadow-accent: 0 0 0 1px #d4d4d8;
+          --v7-shadow-dark: 0 4px 12px rgba(0,0,0,0.06);
+          --v7-radius: 6px;
+          --v7-duration-fast: 100ms;
+          --v7-duration-normal: 150ms;
+          --v7-scope-pill-shadow: rgba(0,0,0,0.02);
+          --v7-filter-height: 44px;
+          --v7-success: #22c55e;
+          --gradient-1: #18181b;
+          --gradient-3: #27272a;
+          --gradient-5: #3f3f46;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           B. SIDEBAR ROOT — clean white, hairline right border
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 aside.fixed {
+          background-color: #fafafa !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          border-right: 1px solid #e4e4e7 !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           C. SIDEBAR HEADER — clean, no decorations
+           ═══════════════════════════════════════════════════════════ */
+        /* Header container */
+        .variation-6 aside > div:first-child {
+          border-bottom: 1px solid #e4e4e7 !important;
+          height: 52px !important;
+        }
+        /* Logo text — no shadow, no uppercase, smaller tracking */
+        .variation-6 aside > div:first-child span[style*="textShadow"],
+        .variation-6 aside > div:first-child span[style*="text-shadow"] {
+          text-shadow: none !important;
+        }
+        .variation-6 aside > div:first-child .flex.select-none span {
+          font-size: 13px !important;
+          font-weight: 600 !important;
+          letter-spacing: 0.04em !important;
+          text-shadow: none !important;
+          color: #09090b !important;
+        }
+        /* Diamond logo — zinc instead of coral */
+        .variation-6 aside span[style*="rotate(45deg)"] {
+          background-color: #18181b !important;
+          width: 6px !important;
+          height: 6px !important;
+        }
+        /* Collapse button — clean */
+        .variation-6 aside > div:first-child button {
+          border: 1px solid #e4e4e7 !important;
+          border-radius: 6px !important;
+          width: 28px !important;
+          height: 28px !important;
+        }
+        /* Expand button */
+        .variation-6 aside > button.absolute {
+          border: 1px solid #e4e4e7 !important;
+          border-radius: 6px !important;
+          background-color: #ffffff !important;
+          color: #71717a !important;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           D. NAV ITEMS — rounded active background, no left border
+           ═══════════════════════════════════════════════════════════ */
+        /* GLOBAL sidebar text override — kill ALL uppercase everywhere */
+        .variation-6 aside span,
+        .variation-6 aside a span,
+        .variation-6 aside button span,
+        .variation-6 aside p {
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
+        }
+        /* Nav section container */
+        .variation-6 aside > div:nth-child(2),
+        .variation-6 aside > div:nth-child(3) {
+          border-bottom: 1px solid #e4e4e7 !important;
+          padding: 4px 8px !important;
+        }
+        /* NavItem link/button — remove left border, add rounded bg */
+        .variation-6 aside > div:nth-child(2) > a,
+        .variation-6 aside > div:nth-child(2) > button,
+        .variation-6 aside > div:nth-child(3) > a,
+        .variation-6 aside > div:nth-child(3) > button {
+          border-left: 0px solid transparent !important;
+          border-radius: 6px !important;
+          margin: 1px 0 !important;
+        }
+        /* NavItem inner content */
+        .variation-6 aside > div:nth-child(2) > a > div,
+        .variation-6 aside > div:nth-child(2) > button > div,
+        .variation-6 aside > div:nth-child(3) > a > div,
+        .variation-6 aside > div:nth-child(3) > button > div {
+          padding: 8px 10px !important;
+          gap: 10px !important;
+        }
+        /* Nav label text */
+        .variation-6 aside > div:nth-child(2) span,
+        .variation-6 aside > div:nth-child(3) span {
+          font-size: 13px !important;
+          font-weight: 500 !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           E. SCROLL AREA — section headers & filter rows
+           ═══════════════════════════════════════════════════════════ */
+        /* Section header text ("MODELS", "FOLDERS") — no uppercase, clean */
+        .variation-6 aside .flex.items-center.justify-between.px-4.py-2\\.5 span {
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          color: #a1a1aa !important;
+        }
+        /* "CLEAR" button */
+        .variation-6 aside .flex.items-center.justify-between.px-4.py-2\\.5 button {
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+        }
+        /* Section dividers — thinner */
+        .variation-6 aside [style*="borderBottom: 2px"],
+        .variation-6 aside [style*="border-bottom: 2px"] {
+          border-bottom-width: 1px !important;
+          border-bottom-color: #f4f4f5 !important;
+        }
+        /* FilterRow buttons — rounded hover, more padding */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5 {
+          border-radius: 6px !important;
+          margin: 1px 6px !important;
+          padding: 6px 10px !important;
+          width: calc(100% - 12px) !important;
+        }
+        /* FilterRow active state */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5[style*="sidebar-surface"] {
+          background-color: #f4f4f5 !important;
+        }
+        /* FilterRow label text — no uppercase */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5 span.min-w-0 {
+          font-size: 13px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+        }
+        /* Active filter row label */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5[style*="sidebar-text"] span.min-w-0 {
+          font-weight: 600 !important;
+        }
+        /* FilterRow count */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5 span[style*="tabular-nums"] {
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          color: #a1a1aa !important;
+          background: #f4f4f5;
+          padding: 1px 6px;
+          border-radius: 4px;
+        }
+        /* FilterRow dots — round, smaller */
+        .variation-6 aside button.flex.w-full.items-center.gap-2\\.5 span.flex.h-3 span {
+          border-radius: 50% !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           F. STATS SECTION — cleaner, smaller
+           ═══════════════════════════════════════════════════════════ */
+        /* Stats grid */
+        .variation-6 aside .grid.grid-cols-2 {
+          border-top: 1px solid #e4e4e7 !important;
+        }
+        .variation-6 aside .grid.grid-cols-2 > div:first-child {
+          border-right: 1px solid #e4e4e7 !important;
+        }
+        /* Stat numbers — smaller, lighter */
+        .variation-6 aside .grid.grid-cols-2 p[style*="28px"] {
+          font-size: 22px !important;
+          font-weight: 700 !important;
+          font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
+          color: #09090b !important;
+        }
+        /* Stat labels — no uppercase */
+        .variation-6 aside .grid.grid-cols-2 p[style*="8px"][style*="uppercase"] {
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          color: #a1a1aa !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           G. PROFILE SECTION — clean
+           ═══════════════════════════════════════════════════════════ */
+        /* Profile container */
+        .variation-6 aside .px-3.py-3 {
+          border-top: 1px solid #e4e4e7 !important;
+        }
+        /* Avatar image — circular */
+        .variation-6 aside img {
+          border-radius: 50% !important;
+          border: 1px solid #e4e4e7 !important;
+        }
+        /* Avatar fallback div — circular */
+        .variation-6 aside .px-3.py-3 div[style*="28px"][style*="28px"] {
+          border-radius: 50% !important;
+          border: 1px solid #e4e4e7 !important;
+        }
+        /* Username text — no uppercase */
+        .variation-6 aside .px-3.py-3 span.truncate {
+          font-size: 12px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+        }
+        /* Online status text */
+        .variation-6 aside .px-3.py-3 span[style*="success"] {
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+        }
+        /* Sign out button */
+        .variation-6 aside .px-3.py-3 button.flex.w-full {
+          font-size: 12px !important;
+          font-weight: 500 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          border-radius: 6px !important;
+          border: 1px solid #e4e4e7 !important;
+          padding: 6px 10px !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           H. FILTER BAR — clean island
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 .v7-island {
+          border-radius: 10px !important;
+          border: 1px solid #e4e4e7 !important;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+          background: #ffffff !important;
+        }
+        /* Scope pill container */
+        .variation-6 .v7-island > div > div > div > div:first-child {
+          border: 1px solid #d4d4d8 !important;
+          border-radius: 6px !important;
+        }
+        .variation-6 .v7-island > div > div > div > div:first-child > div {
+          background-color: #d4d4d8 !important;
+          width: 1px !important;
+        }
+        /* All buttons inside filter bar — clean */
+        .variation-6 .v7-island button {
+          font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+          font-size: 13px !important;
+        }
+        /* Dividers in filter bar */
+        .variation-6 .v7-island > div > div > div > div[style*="1px"] {
+          background-color: #e4e4e7 !important;
+        }
+        /* Tag row divider */
+        .variation-6 .v7-island > div[style*="1px"][style*="margin"] {
+          background-color: #f4f4f5 !important;
+        }
+        /* Tags — clean chips */
+        .variation-6 .v7-island button[style*="10px"][style*="uppercase"] {
+          border-radius: 6px !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+          font-size: 12px !important;
+          border-width: 1px !important;
+        }
+        /* Tag count summary */
+        .variation-6 .v7-island div[style*="9px"][style*="ghost"] {
+          font-size: 12px !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           I. BUTTONS — shadcn style
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 button {
+          border-radius: 6px !important;
+        }
+        .variation-6 .v7-chip {
+          border-radius: 6px !important;
+          border: 1px solid #e4e4e7 !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+          font-size: 13px !important;
+        }
+        .variation-6 .v7-chip:hover {
+          background-color: #f4f4f5 !important;
+          border-color: #d4d4d8 !important;
+        }
+        .variation-6 .v7-chip[data-active="true"] {
+          background-color: #18181b !important;
+          border-color: #18181b !important;
+          color: #ffffff !important;
+          box-shadow: none !important;
+        }
+        .variation-6 .v7-btn-brutal {
+          border-radius: 6px !important;
+          box-shadow: none !important;
+          border: 1px solid #18181b !important;
+          background-color: #18181b !important;
+          color: #fafafa !important;
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+          font-size: 13px !important;
+          padding: 8px 16px !important;
+        }
+        .variation-6 .v7-btn-brutal:hover {
+          background-color: #27272a !important;
+          border-color: #27272a !important;
+          color: #fafafa !important;
+          box-shadow: none !important;
+        }
+        .variation-6 .v7-btn-brutal:active {
+          transform: none !important;
+        }
+        .variation-6 .v7-btn-ghost {
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+        }
+        .variation-6 .v7-label {
+          text-transform: none !important;
+          letter-spacing: -0.01em !important;
+          font-weight: 500 !important;
+          font-size: 13px !important;
+          color: #71717a !important;
+        }
+        .variation-6 .v7-value {
+          letter-spacing: -0.01em !important;
+          font-weight: 400 !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           J. CARDS — clean, zinc ring on hover
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 .card-base,
+        .variation-6 .rounded-xl {
+          border-radius: 8px !important;
+          border: 1px solid #e4e4e7 !important;
+        }
+        .variation-6 .card-base:hover {
+          box-shadow: 0 0 0 2px #18181b !important;
+          border-color: #18181b !important;
+        }
+        .variation-6 .card-selected {
+          box-shadow: 0 0 0 2px #18181b !important;
+          border-color: #18181b !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           K. GRID & DETAIL PANEL
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 .v7-grid-bg {
+          background-image: none !important;
+          background-color: #ffffff !important;
+        }
+        .variation-6 .md-sidebar-offset > div > aside {
+          border-left: 1px solid #e4e4e7 !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          background-color: #fafafa !important;
+          backdrop-filter: none !important;
+        }
+        /* Mobile sheet */
+        .variation-6 > div[role="dialog"] > div:last-child {
+          border-top: 1px solid #e4e4e7 !important;
+          box-shadow: 0 -4px 12px rgba(0,0,0,0.05) !important;
+          border-radius: 12px 12px 0 0 !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           L. SCROLLBAR & BOTTOM DOCK
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 ::-webkit-scrollbar {
+          width: 6px;
+        }
+        .variation-6 ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .variation-6 ::-webkit-scrollbar-thumb {
+          background: #d4d4d8;
+          border-radius: 3px;
+        }
+        .variation-6 ::-webkit-scrollbar-thumb:hover {
+          background: #a1a1aa;
+        }
+        /* Bottom dock */
+        .variation-6 .v7-island:last-child {
+          border-radius: 10px !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           M. THEME SWITCH — zinc style
+           ═══════════════════════════════════════════════════════════ */
+        .variation-6 aside form label {
+          border-radius: 999px !important;
         }
       `}</style>
-
-      <div className="mb-12 text-center">
-        <p className="mb-2 text-sm font-mono uppercase tracking-widest" style={{ color: EMBER[4] }}>
-          Route /6
-        </p>
-        <h1
-          className="text-4xl font-bold"
-          style={{ fontFamily: "var(--font-display)", color: "#f0e8e0" }}
-        >
-          Ember Loading Skeleton
-        </h1>
-        <p className="mt-3 text-sm" style={{ color: "#f0e8e080" }}>
-          Warm shimmer skeletons instead of cold gray. Auto-toggles every 5s.
-        </p>
-        <button
-          onClick={() => setLoading((l) => !l)}
-          className="mt-3 rounded-full border px-4 py-1.5 text-xs font-mono transition-colors"
-          style={{
-            borderColor: EMBER[4] + "40",
-            color: EMBER[4],
-            background: EMBER[4] + "10",
-          }}
-        >
-          {loading ? "Show loaded" : "Show skeleton"}
-        </button>
-      </div>
-
-      <div className="grid w-full max-w-4xl grid-cols-2 gap-6">
-        {/* Card skeletons */}
-        <div className="space-y-4">
-          <h3 className="text-xs font-mono uppercase tracking-wider" style={{ color: "#f0e8e040" }}>
-            Card Skeletons
-          </h3>
-          <SkeletonCard delay={0} />
-          <SkeletonCard delay={0.3} />
-        </div>
-
-        {/* List skeleton */}
-        <div className="space-y-4">
-          <h3 className="text-xs font-mono uppercase tracking-wider" style={{ color: "#f0e8e040" }}>
-            List Skeleton
-          </h3>
-          <SkeletonList delay={0.1} />
-
-          {/* Paragraph skeleton */}
-          <div className="mt-6">
-            <h3
-              className="mb-3 text-xs font-mono uppercase tracking-wider"
-              style={{ color: "#f0e8e040" }}
-            >
-              Text Skeleton
-            </h3>
-            <div
-              className="space-y-2 rounded-xl border p-5"
-              style={{ borderColor: "#ffffff08", background: "#ffffff04" }}
-            >
-              <SkeletonLine width="45%" height={20} delay={0.2} />
-              <div className="mt-3 space-y-2">
-                {[100, 95, 88, 92, 60].map((w, i) => (
-                  <SkeletonLine key={i} width={`${w}%`} height={11} delay={0.25 + i * 0.05} />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <nav className="mt-16 flex items-center gap-6 text-sm" style={{ color: "#f0e8e060" }}>
-        <Link href="/5" className="hover:underline" style={{ color: "#f0e8e090" }}>
-          ← Prev
-        </Link>
-        <Link href="/" className="hover:underline" style={{ color: EMBER[4] }}>
-          Index
-        </Link>
-        <Link href="/7" className="hover:underline" style={{ color: "#f0e8e090" }}>
-          Next →
-        </Link>
-      </nav>
+      <V72Dashboard user={dashboardUser} onSignOut={signOut} />
     </div>
   );
 }

@@ -259,6 +259,28 @@
   --text-inverse: #fafafa;
 }
 
+/* ===== THEME TRANSITION ===== */
+html.theme-transitioning {
+  & body,
+  & aside,
+  & main,
+  & nav,
+  & header,
+  & .v7-brutal,
+  & .v7-grid-bg,
+  & .v7-island,
+  & .v7-chip,
+  & .v7-btn-brutal,
+  & .v7-btn-ghost,
+  & [class*="card-base"],
+  & [class*="sidebar"],
+  & [class*="filter"],
+  & [class*="bottom-menu"],
+  & [aria-live="polite"] > div > div {
+    transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease !important;
+  }
+}
+
 /* ===== DARK MODE ===== */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -282,10 +304,10 @@
     --text-tertiary: #8a7b6c;
     --text-ghost: #5c5048;
 
-    --coral: #ff8a76;
-    --coral-hover: #ff9e8d;
-    --accent-subtle: rgba(255, 138, 118, 0.12);
-    --accent-glow: rgba(255, 138, 118, 0.18);
+    --coral: #ff7a64;
+    --coral-hover: #ff9484;
+    --accent-subtle: rgba(255, 122, 100, 0.12);
+    --accent-glow: rgba(255, 122, 100, 0.18);
     --warm-accent: #f0756a;
     --warm-subtle: rgba(240, 117, 106, 0.14);
 
@@ -303,17 +325,17 @@
     --shadow-brutal: 4px 4px 0 0 rgba(0,0,0,0.50);
     --shadow-brutal-sm: 2px 2px 0 0 rgba(0,0,0,0.40);
 
-    /* Gradient palette — ember (dark mode) */
-    --gradient-1: #ff4800;
-    --gradient-2: #ff5400;
-    --gradient-3: #ff6000;
-    --gradient-4: #ff6d00;
-    --gradient-5: #ff7900;
-    --gradient-6: #ff8500;
-    --gradient-7: #ff9100;
-    --gradient-8: #ff9e00;
-    --gradient-9: #ffaa00;
-    --gradient-10: #ffb600;
+    /* Gradient palette — same coral in both themes */
+    --gradient-1: #e8614f;
+    --gradient-2: #f06a58;
+    --gradient-3: #ff7a64;
+    --gradient-4: #ff8a74;
+    --gradient-5: #ff917d;
+    --gradient-6: #ffa791;
+    --gradient-7: #ffb7a8;
+    --gradient-8: #ffc9ba;
+    --gradient-9: #ffd6ca;
+    --gradient-10: #ffe2d8;
   }
 }
 
@@ -359,17 +381,17 @@
   --shadow-brutal: 4px 4px 0 0 rgba(0,0,0,0.50);
   --shadow-brutal-sm: 2px 2px 0 0 rgba(0,0,0,0.40);
 
-  /* Gradient palette — ember (dark mode) */
-  --gradient-1: #ff4800;
-  --gradient-2: #ff5400;
-  --gradient-3: #ff6000;
-  --gradient-4: #ff6d00;
-  --gradient-5: #ff7900;
-  --gradient-6: #ff8500;
-  --gradient-7: #ff9100;
-  --gradient-8: #ff9e00;
-  --gradient-9: #ffaa00;
-  --gradient-10: #ffb600;
+  /* Gradient palette — same coral in both themes */
+  --gradient-1: #e8614f;
+  --gradient-2: #f06a58;
+  --gradient-3: #ff7a64;
+  --gradient-4: #ff8a74;
+  --gradient-5: #ff917d;
+  --gradient-6: #ffa791;
+  --gradient-7: #ffb7a8;
+  --gradient-8: #ffc9ba;
+  --gradient-9: #ffd6ca;
+  --gradient-10: #ffe2d8;
 }
 
 /* ===== PER-PILLAR ACCENT OVERRIDES ===== */
@@ -898,6 +920,15 @@
   .interactive-ghost:focus-visible {
     background-color: var(--surface-2);
     color: var(--text-primary);
+  }
+
+  .dock-item {
+    color: var(--v7-text-secondary, rgba(32,23,16,0.6));
+    font-family: var(--v7-font, inherit);
+  }
+  .dock-item:hover {
+    background-color: var(--v7-surface-2, rgba(32,23,16,0.04));
+    color: var(--v7-text-primary, #201710);
   }
 
   .interactive-surface {

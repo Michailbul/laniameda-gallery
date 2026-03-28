@@ -178,12 +178,22 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     }
 
     const root = document.documentElement;
+
+    // Enable smooth transition
+    root.classList.add("theme-transitioning");
+
     if (theme === "system") {
       root.removeAttribute("data-theme");
     } else {
       root.setAttribute("data-theme", theme);
     }
     localStorage.setItem("laniameda-theme", theme);
+
+    // Remove transition class after animation completes
+    const timer = setTimeout(() => {
+      root.classList.remove("theme-transitioning");
+    }, 350);
+    return () => clearTimeout(timer);
   }, [theme, themePreferenceHydrated]);
 
   const [selectedImage, setSelectedImage] =
@@ -1471,9 +1481,12 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   };
 
   return (
-    <CoralToastProvider>
+    <CoralToastProvider
+      contentLeft={sidebarCollapsed ? "var(--v7-sidebar-collapsed)" : "var(--v7-sidebar-width)"}
+      contentRight={selectedImage ? "380px" : "0"}
+    >
     <div
-      className="v7-brutal h-[100dvh] overflow-hidden"
+      className="v7-brutal v7-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
       style={{ backgroundColor: "var(--v7-surface-0)" }}
     >
@@ -1521,13 +1534,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       >
         <div className="flex min-h-0 flex-1">
           <div
-            className={`v7-grid-bg min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
-            style={{
-              backgroundColor: "var(--v7-surface-0)",
-              borderRight: selectedImage
-                ? "3px solid var(--v7-ink)"
-                : "none",
-            }}
+            className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
+            style={{}}
           >
             {/* Filter Bar */}
             <V72FilterBar
@@ -1820,9 +1828,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
           {selectedImage && (
             <aside
-              className="hidden w-[440px] shrink-0 overflow-y-auto overscroll-contain md:block"
+              className="hidden w-[380px] shrink-0 overflow-y-auto overscroll-contain md:block"
               style={{
-                backgroundColor: "var(--v7-surface-1)",
+                backgroundColor: "color-mix(in srgb, var(--v7-surface-1) 75%, transparent)",
+                backdropFilter: "blur(16px)",
+                WebkitBackdropFilter: "blur(16px)",
               }}
             >
               <V72DetailPanel
@@ -1904,7 +1914,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           left: sidebarCollapsed
             ? "var(--v7-sidebar-collapsed)"
             : "var(--v7-sidebar-width)",
-          right: selectedImage ? "440px" : "0",
+          right: selectedImage ? "380px" : "0",
           transition:
             "left var(--v7-duration-normal) ease-out, right var(--v7-duration-normal) ease-out",
         }}

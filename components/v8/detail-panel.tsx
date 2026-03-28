@@ -18,7 +18,7 @@ import {
   Package,
   Search,
 } from "lucide-react";
-import { formatAssetCreatedAt, resolvePillarLabel } from "@/lib/gallery-focus";
+import { resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 
@@ -305,10 +305,6 @@ export function V72DetailPanel({
     () => resolvePillarLabel(image.pillar),
     [image.pillar],
   );
-  const createdAtLabel = useMemo(
-    () => formatAssetCreatedAt(image.createdAt),
-    [image.createdAt],
-  );
   const relativeDate = useMemo(() => {
     if (!image.createdAt) return undefined;
     const diff = Date.now() - image.createdAt;
@@ -330,43 +326,42 @@ export function V72DetailPanel({
       key={image.id}
       style={{ fontFamily: "var(--v7-font)" }}
     >
-      {/* ── Black Header Bar ── */}
+      {/* ── Header Bar ── */}
       <div
-        className="flex items-center justify-between px-4"
+        className="flex items-center justify-between px-3"
         style={{
-          height: "48px",
-          backgroundColor: "var(--v7-ink)",
-          borderBottom: "3px solid var(--v7-coral)",
+          height: "40px",
+          backgroundColor: "transparent",
+          borderBottom: "1px solid var(--v7-border)",
           flexShrink: 0,
         }}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           {onPrev && (
             <button
               type="button"
               onClick={onPrev}
               disabled={!canGoPrev}
-              className="flex items-center justify-center transition-colors disabled:opacity-20"
+              className="flex items-center justify-center transition-colors disabled:opacity-20 hover:bg-black/5"
               style={{
-                width: "28px",
-                height: "28px",
-                color: "var(--v7-paper)",
-                border: "2px solid rgba(255,255,255,0.2)",
-                borderRadius: "var(--v7-radius)",
+                width: "26px",
+                height: "26px",
+                color: "var(--v7-text-secondary)",
+                borderRadius: "6px",
               }}
               aria-label="Previous image"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           )}
           {imagePosition && (
             <span
-              className="px-1.5"
+              className="px-1"
               style={{
                 fontSize: "11px",
                 fontVariantNumeric: "tabular-nums",
-                fontWeight: 700,
-                color: "rgba(255,255,255,0.5)",
+                fontWeight: 600,
+                color: "var(--v7-text-tertiary)",
               }}
             >
               {imagePosition}
@@ -377,30 +372,28 @@ export function V72DetailPanel({
               type="button"
               onClick={onNext}
               disabled={!canGoNext}
-              className="flex items-center justify-center transition-colors disabled:opacity-20"
+              className="flex items-center justify-center transition-colors disabled:opacity-20 hover:bg-black/5"
               style={{
-                width: "28px",
-                height: "28px",
-                color: "var(--v7-paper)",
-                border: "2px solid rgba(255,255,255,0.2)",
-                borderRadius: "var(--v7-radius)",
+                width: "26px",
+                height: "26px",
+                color: "var(--v7-text-secondary)",
+                borderRadius: "6px",
               }}
               aria-label="Next image"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center justify-center transition-colors hover:bg-white/10"
+          className="flex items-center justify-center transition-colors hover:bg-black/5"
           style={{
-            width: "28px",
-            height: "28px",
-            color: "var(--v7-paper)",
-            border: "2px solid rgba(255,255,255,0.2)",
-            borderRadius: "var(--v7-radius)",
+            width: "26px",
+            height: "26px",
+            color: "var(--v7-text-tertiary)",
+            borderRadius: "6px",
           }}
         >
           <X className="h-3.5 w-3.5" />
@@ -415,7 +408,7 @@ export function V72DetailPanel({
           style={{
             aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
             border: "none",
-            borderBottom: "3px solid var(--v7-ink)",
+            borderBottom: "1px solid var(--v7-border)",
           }}
         >
           <Image
@@ -532,23 +525,20 @@ export function V72DetailPanel({
 
         {/* Quick metadata strip + actions */}
         <div
-          className="flex flex-wrap items-center gap-2 px-4 py-3"
+          className="flex flex-wrap items-center gap-1.5 px-3 py-2"
           style={{
-            borderBottom: "2px solid var(--v7-border-strong)",
+            borderBottom: "1px solid var(--v7-border)",
           }}
         >
           {modelName && (
             <span
               style={{
-                padding: "3px 10px",
-                fontSize: "9px",
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
+                padding: "2px 8px",
+                fontSize: "10px",
+                fontWeight: 700,
                 backgroundColor: "var(--v7-ink)",
                 color: "var(--v7-coral)",
-                border: "2px solid var(--v7-ink)",
-                borderRadius: "var(--v7-radius)",
+                borderRadius: "4px",
               }}
             >
               {modelName}
@@ -557,11 +547,12 @@ export function V72DetailPanel({
           {pillarLabel && (
             <span
               style={{
+                padding: "2px 7px",
                 fontSize: "10px",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
+                fontWeight: 600,
                 color: "var(--v7-text-tertiary)",
+                backgroundColor: "var(--v7-surface-2)",
+                borderRadius: "4px",
               }}
             >
               {pillarLabel}
@@ -571,27 +562,25 @@ export function V72DetailPanel({
             <span
               style={{
                 fontSize: "10px",
-                fontWeight: 600,
-                letterSpacing: "0.08em",
+                fontWeight: 500,
                 color: "var(--v7-text-ghost)",
               }}
             >
               {relativeDate}
             </span>
           )}
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1">
             <div ref={copyMenuRef} className="relative">
               <button
                 type="button"
                 onClick={() => setCopyMenuOpen(!copyMenuOpen)}
-                className="flex items-center justify-center transition-colors"
+                className="flex items-center justify-center transition-colors hover:bg-black/5"
                 aria-label="Copy options"
                 style={{
-                  width: "30px",
-                  height: "30px",
+                  width: "28px",
+                  height: "28px",
                   color: "var(--v7-text-tertiary)",
-                  border: "2px solid var(--v7-border-strong)",
-                  borderRadius: "var(--v7-radius)",
+                  borderRadius: "6px",
                 }}
               >
                 {copied ? (
@@ -608,15 +597,14 @@ export function V72DetailPanel({
                   className="absolute right-0 top-full z-10 mt-1 flex flex-col py-1"
                   style={{
                     backgroundColor: "var(--v7-ink)",
-                    border: "3px solid var(--v7-ink)",
-                    boxShadow: "var(--v7-shadow-dark)",
-                    minWidth: "200px",
-                    borderRadius: "var(--v7-radius)",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+                    minWidth: "180px",
+                    borderRadius: "8px",
                   }}
                 >
                   <CopyMenuItem
                     icon={Copy}
-                    label="COPY PROMPT"
+                    label="Copy prompt"
                     primary
                     onClick={() => void handleCopy()}
                   />
@@ -624,17 +612,17 @@ export function V72DetailPanel({
                     className="mx-2 my-0.5"
                     style={{
                       height: "1px",
-                      backgroundColor: "rgba(255,255,255,0.1)",
+                      backgroundColor: "rgba(255,255,255,0.08)",
                     }}
                   />
                   <CopyMenuItem
                     icon={LinkIcon}
-                    label="COPY IMAGE URL"
+                    label="Copy image URL"
                     onClick={() => void handleCopyUrl()}
                   />
                   <CopyMenuItem
                     icon={Package}
-                    label="COPY FULL PACKAGE"
+                    label="Copy full package"
                     onClick={() => void handleCopyPackage()}
                   />
                 </div>
@@ -643,14 +631,13 @@ export function V72DetailPanel({
             <button
               type="button"
               onClick={() => void handleDownload()}
-              className="flex items-center justify-center transition-colors"
+              className="flex items-center justify-center transition-colors hover:bg-black/5"
               aria-label="Download image"
               style={{
-                width: "30px",
-                height: "30px",
+                width: "28px",
+                height: "28px",
                 color: "var(--v7-text-tertiary)",
-                border: "2px solid var(--v7-border-strong)",
-                borderRadius: "var(--v7-radius)",
+                borderRadius: "6px",
               }}
             >
               {downloadStarted ? (
@@ -667,9 +654,9 @@ export function V72DetailPanel({
 
         {/* ── Tab Headers ── */}
         <div
-          className="flex items-center px-4"
+          className="flex items-center gap-0.5 px-3"
           style={{
-            borderBottom: "2px solid var(--v7-border-strong)",
+            borderBottom: "1px solid var(--v7-border)",
           }}
         >
           {DETAIL_TABS.map((tab) => (
@@ -677,25 +664,24 @@ export function V72DetailPanel({
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className="relative flex items-center px-3 py-2.5 transition-colors"
+              className="relative flex items-center px-2.5 py-2 transition-colors"
               style={{
-                fontSize: "9px",
-                fontWeight: activeTab === tab ? 800 : 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.16em",
+                fontSize: "11px",
+                fontWeight: activeTab === tab ? 700 : 500,
                 color:
                   activeTab === tab
                     ? "var(--v7-text-primary)"
                     : "var(--v7-text-ghost)",
               }}
             >
-              {tab}
+              {tab.charAt(0) + tab.slice(1).toLowerCase()}
               {activeTab === tab && (
                 <span
-                  className="absolute bottom-0 left-0 right-0"
+                  className="absolute bottom-0 left-1 right-1"
                   style={{
-                    height: "3px",
+                    height: "2px",
                     backgroundColor: "var(--v7-coral)",
+                    borderRadius: "1px",
                   }}
                 />
               )}
@@ -704,24 +690,18 @@ export function V72DetailPanel({
         </div>
 
         {/* ── Tab Content ── */}
-        <div className="px-4 pb-6">
+        <div className="px-3 pb-4">
           {activeTab === "INFO" && (
-            <div className="flex flex-col gap-0 pt-3">
+            <div className="flex flex-col gap-0 pt-2.5">
               {/* Prompt */}
-              <div
-                className="pb-3"
-                style={{
-                  borderBottom:
-                    "2px solid var(--v7-border-strong)",
-                }}
-              >
-                <SectionLabel>PROMPT</SectionLabel>
+              <div className="pb-2">
+                <SectionLabel>Prompt</SectionLabel>
                 <p
-                  className="mt-2"
+                  className="mt-1.5"
                   style={{
-                    fontSize: "11px",
-                    fontWeight: 500,
-                    lineHeight: 1.6,
+                    fontSize: "12px",
+                    fontWeight: 400,
+                    lineHeight: 1.55,
                     color: "var(--v7-text-secondary)",
                     fontFamily: "var(--v7-font)",
                     wordBreak: "break-word",
@@ -731,63 +711,10 @@ export function V72DetailPanel({
                 </p>
               </div>
 
-              {/* Details key-value grid */}
-              <div
-                className="py-3"
-                style={{
-                  borderBottom:
-                    "2px solid var(--v7-border-strong)",
-                }}
-              >
-                <SectionLabel>DETAILS</SectionLabel>
-                <div className="mt-2 flex flex-col gap-0">
-                  {modelName && (
-                    <DataRow
-                      label="MODEL"
-                      value={modelName}
-                      even
-                    />
-                  )}
-                  {pillarLabel && (
-                    <DataRow label="PILLAR" value={pillarLabel} />
-                  )}
-                  {createdAtLabel && (
-                    <DataRow
-                      label="CREATED"
-                      value={createdAtLabel}
-                      even
-                    />
-                  )}
-                  {image.sourceUrl && (
-                    <DataRow
-                      label="SOURCE"
-                      value={
-                        <a
-                          href={image.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline decoration-2 underline-offset-2"
-                          style={{ color: "var(--v7-coral)" }}
-                        >
-                          OPEN SOURCE
-                        </a>
-                      }
-                    />
-                  )}
-                  {image.width && image.height && (
-                    <DataRow
-                      label="SIZE"
-                      value={`${image.width} x ${image.height}`}
-                      even
-                    />
-                  )}
-                </div>
-              </div>
-
               {/* Tags */}
-              <div className="py-3">
-                <SectionLabel>TAGS</SectionLabel>
-                <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="pt-2.5">
+                <SectionLabel>Tags</SectionLabel>
+                <div className="mt-1.5 flex flex-wrap gap-1">
                   {tagNames && tagNames.length > 0 ? (
                     tagNames.map((tag) => (
                       <span key={tag} className="v7-chip">
@@ -797,14 +724,12 @@ export function V72DetailPanel({
                   ) : (
                     <span
                       style={{
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.14em",
+                        fontSize: "11px",
                         color: "var(--v7-text-ghost)",
-                        fontWeight: 600,
+                        fontWeight: 500,
                       }}
                     >
-                      NO TAGS
+                      No tags
                     </span>
                   )}
                 </div>
@@ -813,17 +738,16 @@ export function V72DetailPanel({
           )}
 
           {activeTab === "ACTIONS" && (
-            <div className="flex flex-col gap-0 pt-3">
+            <div className="flex flex-col gap-0 pt-2.5">
               {/* AI Actions */}
               <div
-                className="pb-3"
+                className="pb-2.5"
                 style={{
-                  borderBottom:
-                    "2px solid var(--v7-border-strong)",
+                  borderBottom: "1px solid var(--v7-border)",
                 }}
               >
-                <SectionLabel>AI ACTIONS</SectionLabel>
-                <div className="mt-2 flex flex-col gap-1.5">
+                <SectionLabel>AI Actions</SectionLabel>
+                <div className="mt-1.5 flex flex-col gap-1">
                   {onFindSimilar ? (
                     <button
                       type="button"
@@ -895,9 +819,9 @@ export function V72DetailPanel({
               </div>
 
               {/* Quick Copy/Download */}
-              <div className="py-3">
-                <SectionLabel>EXPORT</SectionLabel>
-                <div className="mt-2 flex flex-col gap-1.5">
+              <div className="pt-2.5">
+                <SectionLabel>Export</SectionLabel>
+                <div className="mt-1.5 flex flex-col gap-1">
                   <button
                     type="button"
                     onClick={() => void handleCopy()}
@@ -937,17 +861,16 @@ export function V72DetailPanel({
           )}
 
           {activeTab === "MANAGE" && (
-            <div className="flex flex-col gap-0 pt-3">
+            <div className="flex flex-col gap-0 pt-2.5">
               {/* Folder */}
               {canManageFolder && (
                 <div
-                  className="pb-3"
+                  className="pb-2.5"
                   style={{
-                    borderBottom:
-                      "2px solid var(--v7-border-strong)",
+                    borderBottom: "1px solid var(--v7-border)",
                   }}
                 >
-                  <SectionLabel>FOLDER</SectionLabel>
+                  <SectionLabel>Folder</SectionLabel>
                   <div className="mt-2">
                     <select
                       aria-label="Select folder"
@@ -1048,14 +971,13 @@ export function V72DetailPanel({
               {/* Curation */}
               {canCuratePublic && onSetPublicState && (
                 <div
-                  className="py-3"
+                  className="py-2.5"
                   style={{
-                    borderBottom:
-                      "2px solid var(--v7-border-strong)",
+                    borderBottom: "1px solid var(--v7-border)",
                   }}
                 >
-                  <SectionLabel>CURATION</SectionLabel>
-                  <div className="mt-2 flex flex-col gap-1.5">
+                  <SectionLabel>Curation</SectionLabel>
+                  <div className="mt-1.5 flex flex-col gap-1">
                     <button
                       type="button"
                       onClick={() =>
@@ -1259,74 +1181,17 @@ export function V72DetailPanel({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="pb-1"
+    <span
       style={{
-        borderBottom: "3px solid var(--v7-coral)",
-        display: "inline-block",
+        fontSize: "10px",
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        color: "var(--v7-text-ghost)",
+        textTransform: "uppercase",
       }}
     >
-      <span
-        style={{
-          fontSize: "8px",
-          fontWeight: 900,
-          textTransform: "uppercase",
-          letterSpacing: "0.20em",
-          color: "var(--v7-text-primary)",
-        }}
-      >
-        {children}
-      </span>
-    </div>
-  );
-}
-
-/* ── Data Row ── */
-
-function DataRow({
-  label,
-  value,
-  even,
-}: {
-  label: string;
-  value: React.ReactNode;
-  even?: boolean;
-}) {
-  return (
-    <div
-      className="flex items-start gap-3 px-2 py-1.5"
-      style={{
-        backgroundColor: even
-          ? "var(--v7-surface-2)"
-          : "transparent",
-      }}
-    >
-      <span
-        className="mt-px min-w-[72px]"
-        style={{
-          fontFamily: "var(--v7-font)",
-          fontSize: "9px",
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: "0.16em",
-          color: "var(--v7-text-ghost)",
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          fontFamily: "var(--v7-font)",
-          fontSize: "11px",
-          fontWeight: 500,
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          color: "var(--v7-text-secondary)",
-        }}
-      >
-        {value}
-      </span>
-    </div>
+      {children}
+    </span>
   );
 }
 
@@ -1347,13 +1212,11 @@ function CopyMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-white/10"
+      className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-white/10"
       style={{
         color: primary ? "var(--v7-coral)" : "rgba(255,255,255,0.7)",
-        fontWeight: primary ? 800 : 600,
-        fontSize: "10px",
-        textTransform: "uppercase",
-        letterSpacing: "0.12em",
+        fontWeight: primary ? 600 : 400,
+        fontSize: "12px",
       }}
     >
       <Icon

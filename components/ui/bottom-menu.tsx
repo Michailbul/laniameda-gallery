@@ -115,7 +115,7 @@ export default function BottomMenu({
   }, []);
 
   const sharedHover =
-    "group w-full rounded-[12px] px-3 py-2 text-left text-[15px] text-muted-foreground transition-all duration-75 hover:bg-muted/80 hover:text-foreground";
+    "group w-full rounded-[12px] px-3 py-2 text-left text-[14px] transition-all duration-75 dock-item";
 
   const actionItems = useMemo(
     () =>
@@ -165,7 +165,7 @@ export default function BottomMenu({
                 <HugeiconsIcon
                   icon={icon}
                   size={20}
-                  className="text-muted-foreground transition-all duration-75 group-hover:text-foreground"
+                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))", transition: "color 75ms" }}
                 />
                 <span className="transition-all duration-75">{text}</span>
               </button>
@@ -199,7 +199,13 @@ export default function BottomMenu({
                 value={searchValue}
                 onChange={(event) => onSearchChange?.(event.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-[12px] border border-border bg-muted/80 py-[6px] pl-9 pr-3 text-[14.5px] text-foreground placeholder:text-muted-foreground/50 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-[12px] py-[6px] pl-9 pr-3 text-[14px] focus:outline-none"
+                style={{
+                  backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))",
+                  border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+                  color: "var(--v7-text-primary, #201710)",
+                  fontFamily: "var(--v7-font, inherit)",
+                }}
               />
             </div>
             <div className="flex gap-1.5">
@@ -211,15 +217,16 @@ export default function BottomMenu({
                 }}
                 className={cn(
                   sharedHover,
-                  "flex flex-1 items-center justify-center gap-1.5 bg-muted hover:bg-accent",
+                  "flex flex-1 items-center justify-center gap-1.5",
                 )}
+                style={{ backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))" }}
                 disabled={!onResetClick}
               >
                 <HugeiconsIcon
                   icon={FilterHorizontalIcon}
                   size={14}
                   strokeWidth={2}
-                  className="text-muted-foreground transition-all duration-75 group-hover:text-foreground"
+                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
                 />
                 <span className="transition-all duration-75">Reset</span>
               </button>
@@ -231,14 +238,15 @@ export default function BottomMenu({
                 }}
                 className={cn(
                   sharedHover,
-                  "flex flex-1 items-center justify-center gap-1.5 bg-muted hover:bg-accent",
+                  "flex flex-1 items-center justify-center gap-1.5",
                 )}
+                style={{ backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))" }}
               >
                 <HugeiconsIcon
                   icon={AutoConversationsIcon}
                   size={14}
                   strokeWidth={2}
-                  className="text-muted-foreground transition-all duration-75 group-hover:text-foreground"
+                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
                 />
                 <span className="transition-all duration-75">
                   {searchLoading ? "Searching" : "Clear"}
@@ -270,7 +278,13 @@ export default function BottomMenu({
       case "profile": {
         const content = user ? (
           <div className="min-w-[260px] space-y-2 p-[8px] py-1">
-            <div className="rounded-[14px] border border-border bg-muted/40 px-3 py-3">
+            <div
+              className="rounded-[14px] px-3 py-3"
+              style={{
+                backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))",
+                border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+              }}
+            >
               <div className="flex items-center gap-3">
                 {user.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -280,16 +294,28 @@ export default function BottomMenu({
                     className="h-10 w-10 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
+                    style={{
+                      backgroundColor: "var(--v7-surface-3, rgba(32,23,16,0.06))",
+                      color: "var(--v7-text-primary, #201710)",
+                    }}
+                  >
                     {profileName.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="truncate text-[14px] font-medium text-foreground">
+                  <p
+                    className="truncate text-[14px] font-medium"
+                    style={{ color: "var(--v7-text-primary, #201710)" }}
+                  >
                     {profileName}
                   </p>
                   {user.email ? (
-                    <p className="truncate text-[12px] text-muted-foreground">
+                    <p
+                      className="truncate text-[12px]"
+                      style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                    >
                       {user.email}
                     </p>
                   ) : null}
@@ -303,7 +329,8 @@ export default function BottomMenu({
                   onSignOut();
                   setView("default");
                 }}
-                className="w-full rounded-[12px] px-3 py-2 text-left text-[15px] text-destructive transition-all duration-75 hover:bg-destructive/10"
+                className="w-full rounded-[12px] px-3 py-2 text-left text-[14px] transition-all duration-75"
+                style={{ color: "var(--v7-status-error, #dc2626)" }}
               >
                 Logout
               </button>
@@ -312,10 +339,10 @@ export default function BottomMenu({
         ) : (
           <div className="min-w-[280px] space-y-3 p-[10px]">
             <div className="px-1">
-              <p className="text-[14px] font-medium text-foreground">
+              <p className="text-[14px] font-medium" style={{ color: "var(--v7-text-primary, #201710)" }}>
                 Sign in to manage your vault
               </p>
-              <p className="mt-1 text-[12px] text-muted-foreground">
+              <p className="mt-1 text-[12px]" style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}>
                 Telegram auth unlocks uploads, folders, and edits.
               </p>
             </div>
@@ -348,22 +375,19 @@ export default function BottomMenu({
                 key={key}
                 type="button"
                 onClick={() => onThemeChange?.(key)}
-                className={cn(
-                  "flex items-center justify-center gap-2 rounded-[12px] px-3 py-2 transition-all duration-100",
-                  theme === key
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-muted",
-                )}
+                className="flex items-center justify-center gap-2 rounded-[12px] px-3 py-2 transition-all duration-100"
+                style={{
+                  backgroundColor: theme === key ? "var(--v7-surface-2, rgba(32,23,16,0.06))" : "transparent",
+                  color: theme === key ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
+                }}
               >
                 <HugeiconsIcon
                   icon={icon}
                   size={18}
-                  className={cn(
-                    "transition-all duration-75",
-                    theme === key
-                      ? "text-foreground"
-                      : "text-muted-foreground",
-                  )}
+                  style={{
+                    color: theme === key ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
+                    transition: "color 75ms",
+                  }}
                 />
                 <span>{text}</span>
               </button>
@@ -403,7 +427,7 @@ export default function BottomMenu({
         ref={hiddenRef}
         className="pointer-events-none invisible absolute left-[-9999px] top-[-9999px]"
       >
-        <div className="rounded-[18px] border border-border bg-background/95 py-1">
+        <div className="rounded-[18px] py-1" style={{ backgroundColor: "var(--v7-paper, #fffaf5)", border: "1px solid var(--v7-border, rgba(32,23,16,0.08))" }}>
           {measurementContent}
         </div>
       </div>
@@ -446,7 +470,14 @@ export default function BottomMenu({
             style={{ transformOrigin: "bottom center" }}
             className="absolute bottom-[70px] overflow-hidden"
           >
-            <div className="rounded-[18px] border border-border bg-background/95 backdrop-blur-xl">
+            <div
+              className="rounded-[18px] backdrop-blur-xl"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--v7-paper, #fffaf5) 95%, transparent)",
+                border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+                boxShadow: "0 4px 20px rgba(32,23,16,0.1)",
+              }}
+            >
               <AnimatePresence initial={false} mode="popLayout">
                 <motion.div
                   key={view}
@@ -479,15 +510,24 @@ export default function BottomMenu({
         ) : null}
       </AnimatePresence>
 
-      <div className="z-10 mt-3 flex items-center gap-1 rounded-[18px] border border-border bg-background/95 p-1 backdrop-blur-xl">
+      <div
+        className="z-10 mt-3 flex items-center gap-1 rounded-[18px] p-1 backdrop-blur-xl"
+        style={{
+          backgroundColor: "color-mix(in srgb, var(--v7-paper, #fffaf5) 92%, transparent)",
+          border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+          boxShadow: "0 2px 12px rgba(32,23,16,0.08)",
+        }}
+      >
         {MAIN_NAV.map(({ icon, name }) => (
           <button
             key={name}
             type="button"
-            className={cn(
-              "rounded-[16px] p-3 transition-all",
-              view === name ? "bg-accent" : "hover:bg-muted",
-            )}
+            className="rounded-[16px] p-3 transition-all"
+            style={{
+              backgroundColor: view === name ? "var(--v7-surface-2, rgba(32,23,16,0.04))" : "transparent",
+            }}
+            onMouseEnter={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "var(--v7-surface-2, rgba(32,23,16,0.04))"; }}
+            onMouseLeave={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "transparent"; }}
             onClick={() =>
               setView((currentView) =>
                 currentView === name ? "default" : name,
@@ -498,10 +538,10 @@ export default function BottomMenu({
             <HugeiconsIcon
               icon={icon}
               size={22}
-              className={cn(
-                "transition-all",
-                view === name ? "text-foreground" : "text-muted-foreground",
-              )}
+              style={{
+                color: view === name ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
+                transition: "color 150ms",
+              }}
             />
           </button>
         ))}

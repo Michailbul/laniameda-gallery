@@ -79,7 +79,7 @@
   :root:not([data-theme="light"]) {
     --v7-ink: #f0e8e0;
     --v7-bg-inverse: #fffaf5;
-    --v7-coral: #ff8a76;
+    --v7-coral: #ff7a64;
     --v7-paper: #111110;
     --v7-paper-muted: #1a1918;
 
@@ -105,9 +105,9 @@
     --v7-border: rgba(240, 232, 224, 0.10);
     --v7-border-strong: rgba(240, 232, 224, 0.18);
 
-    --v7-accent: #ff8a76;
-    --v7-accent-dim: rgba(255, 138, 118, 0.12);
-    --v7-accent-hover: #ff9e8d;
+    --v7-accent: #ff7a64;
+    --v7-accent-dim: rgba(255, 122, 100, 0.12);
+    --v7-accent-hover: #ff9484;
 
     --v7-scope-pill-shadow: rgba(0, 0, 0, 0.25);
 
@@ -122,7 +122,7 @@
 [data-theme="dark"] {
   --v7-ink: #f0e8e0;
   --v7-bg-inverse: #fffaf5;
-  --v7-coral: #ff8a76;
+  --v7-coral: #ff7a64;
   --v7-paper: #111110;
   --v7-paper-muted: #1a1918;
 
@@ -148,16 +148,16 @@
   --v7-border: rgba(240, 232, 224, 0.10);
   --v7-border-strong: rgba(240, 232, 224, 0.18);
 
-  --v7-accent: #ff8a76;
-  --v7-accent-dim: rgba(255, 138, 118, 0.12);
-  --v7-accent-hover: #ff9e8d;
+  --v7-accent: #ff7a64;
+  --v7-accent-dim: rgba(255, 122, 100, 0.12);
+  --v7-accent-hover: #ff9484;
 
   --v7-scope-pill-shadow: rgba(0, 0, 0, 0.25);
 
   --v7-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.30);
   --v7-shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.40);
   --v7-shadow-lg: 4px 4px 0 rgba(0, 0, 0, 0.50);
-  --v7-shadow-accent: 3px 3px 0 rgba(255, 138, 118, 0.25);
+  --v7-shadow-accent: 3px 3px 0 rgba(255, 122, 100, 0.25);
   --v7-shadow-dark: 3px 3px 0 rgba(0, 0, 0, 0.60);
 }
 
@@ -536,4 +536,54 @@
     linear-gradient(rgba(32, 23, 16, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(32, 23, 16, 0.03) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+/* ── Shadow + Stroke (V17 — default panel style) ── */
+
+/* Sidebar: coral stroke + shadow, rounded outer corners */
+.v7-brutal > .hidden.md\:block > aside {
+  border-right: 3px solid var(--v7-coral) !important;
+  box-shadow: 4px 0 24px rgba(32,23,16,0.06), 1px 0 6px rgba(32,23,16,0.03) !important;
+  border-top-right-radius: 8px !important;
+  border-bottom-right-radius: 8px !important;
+}
+
+/* Sidebar internal borders — softer 1px */
+.v7-brutal > .hidden.md\:block > aside * {
+  border-color: rgba(32,23,16,0.08) !important;
+}
+.v7-brutal > .hidden.md\:block > aside > div:first-child {
+  border-bottom: 1px solid rgba(32,23,16,0.08) !important;
+}
+
+/* Content area border when detail open — thin ink */
+.v7-brutal .md-sidebar-offset .v7-grid-bg {
+  border-right-width: 1px !important;
+  border-right-color: var(--v7-border) !important;
+}
+
+/* Detail panel: coral left stroke + shadow, round corners */
+.v7-brutal .md-sidebar-offset > div > aside {
+  border-left: 3px solid var(--v7-coral) !important;
+  box-shadow: -4px 0 24px rgba(32,23,16,0.06), -1px 0 6px rgba(32,23,16,0.03) !important;
+  border-top-left-radius: 8px !important;
+  border-bottom-left-radius: 8px !important;
+}
+
+/* Detail panel internal borders — softer */
+.v7-brutal .md-sidebar-offset > div > aside * {
+  border-color: rgba(32,23,16,0.08) !important;
+}
+
+/* Inner buttons — slightly rounder */
+.v7-brutal button {
+  border-radius: 6px;
+}
+
+/* Mobile sheet — stroke + shadow */
+.v7-brutal > div[role="dialog"] > div:last-child {
+  border-top: 3px solid var(--v7-coral) !important;
+  box-shadow: 0 -4px 24px rgba(32,23,16,0.08) !important;
+  border-top-left-radius: 16px !important;
+  border-top-right-radius: 16px !important;
 }

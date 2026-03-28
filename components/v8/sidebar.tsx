@@ -9,14 +9,13 @@ import {
   FolderOpen,
   Home,
   LogOut,
-  Moon,
   Plus,
   Search,
-  Sun,
   LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Switch as FramerMotionSwitch } from "@/components/ui/framer-motion-switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
 
@@ -106,7 +105,9 @@ export function V72Sidebar({
       className="fixed left-0 top-0 z-40 flex h-dvh flex-col overflow-hidden"
       style={{
         width: sidebarWidth,
-        backgroundColor: "var(--v7-sidebar-bg)",
+        backgroundColor: "color-mix(in srgb, var(--v7-sidebar-bg) 75%, transparent)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
         borderRight: "3px solid var(--v7-coral)",
         transition: `width var(--v7-duration-normal) ease-out`,
         fontFamily: "var(--v7-font)",
@@ -176,24 +177,11 @@ export function V72Sidebar({
         {!collapsed && (
           <div className="flex items-center gap-1.5">
             {onThemeChange && (
-              <button
-                type="button"
-                onClick={() => {
-                  const next = theme === "dark" ? "light" : "dark";
-                  onThemeChange(next);
-                }}
-                className="flex items-center justify-center transition-colors"
-                style={{
-                  width: "24px",
-                  height: "24px",
-                  color: "var(--v7-sidebar-text-ghost)",
-                  border: "2px solid var(--v7-sidebar-border)",
-                  borderRadius: "var(--v7-radius)",
-                }}
-                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              >
-                {theme === "dark" ? <Sun className="h-3 w-3" /> : <Moon className="h-3 w-3" />}
-              </button>
+              <FramerMotionSwitch
+                checked={theme === "dark"}
+                setChecked={(checked) => onThemeChange(checked ? "dark" : "light")}
+                className="shrink-0"
+              />
             )}
             <button
               type="button"

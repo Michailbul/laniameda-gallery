@@ -82,8 +82,12 @@ const MAX_TOASTS = 4;
 
 export function CoralToastProvider({
   children,
+  contentLeft,
+  contentRight,
 }: {
   children: React.ReactNode;
+  contentLeft?: string;
+  contentRight?: string;
 }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const idRef = useRef(0);
@@ -114,13 +118,14 @@ export function CoralToastProvider({
     <CoralToastContext.Provider value={{ toast }}>
       {children}
 
-      {/* Toast stack — fixed center, above dock */}
+      {/* Toast stack — centered to content area (matches dock positioning) */}
       <div
-        className="pointer-events-none fixed z-[100] flex flex-col items-center gap-2"
+        className="pointer-events-none fixed z-[100] flex flex-col items-center justify-center gap-2"
         style={{
           bottom: 88,
-          left: "50%",
-          transform: "translateX(-50%)",
+          left: contentLeft || "0",
+          right: contentRight || "0",
+          transition: "left 250ms ease-out, right 250ms ease-out",
         }}
         aria-live="polite"
       >

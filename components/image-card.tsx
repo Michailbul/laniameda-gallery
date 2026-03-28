@@ -247,7 +247,7 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Model + pillar badges — bottom-left, always visible */}
       {(image.modelName || pillarMeta) && (
-        <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5">
+        <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0">
           {image.modelName && (
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
