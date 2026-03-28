@@ -1,0 +1,9 @@
+# Prevent local secrets from being uploaded when deploying with the Vercel CLI.
+.env*
+!.env.example
+!.env.profile.dev-sim.example
+!.env.profile.dev-telegram.example
+!.env.profile.prod-telegram.example
+
+convex/.env*
+!convex/.env.example
