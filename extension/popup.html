@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      padding: 16px;
+      background: #fffaf5;
+      color: #201710;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 13px;
+    }
+    h1 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #6b5e50;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b5e50;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    input, select {
+      display: block;
+      width: 100%;
+      padding: 8px 10px;
+      background: #fff;
+      color: #201710;
+      font-family: inherit;
+      font-size: 13px;
+      border: 1.5px solid #d4c8b8;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #ff7a64;
+    }
+    input::placeholder { color: #a89888; }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      padding: 8px 16px;
+      background: #ff7a64;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1.5px solid #201710;
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 2px 2px 0 #201710;
+    }
+    button:hover { background: #e86a55; }
+    button:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 #201710;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-left: auto;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+    .dot--ok { background: #4caf50; }
+    .dot--err { background: #f44336; }
+    .dot--pending { background: #ff9800; }
+    .hint {
+      font-size: 11px;
+      color: #a89888;
+      margin-top: 12px;
+      line-height: 1.4;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #e8ddd0;
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    <span>Save to Gallery</span>
+    <span class="status" id="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">Not configured</span>
+    </span>
+  </h1>
+  <p class="subtitle">laniameda.gallery</p>
+
+  <label for="apiKey">API Key</label>
+  <input type="password" id="apiKey" placeholder="Enter your gallery API key">
+
+  <label for="apiUrl">API URL</label>
+  <input type="text" id="apiUrl" placeholder="https://laniameda-galery.vercel.app/api/extension/save">
+
+  <label for="defaultPillar">Default Pillar</label>
+  <select id="defaultPillar">
+    <option value="dump">dump</option>
+    <option value="creators">creators</option>
+    <option value="cars">cars</option>
+    <option value="designs">designs</option>
+  </select>
+
+  <div class="row">
+    <button id="save">Save settings</button>
+  </div>
+
+  <hr>
+  <p class="hint">
+    Hover any image on any website → click "Save" badge → image is saved to your gallery.
+    Optionally paste a prompt after saving.
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

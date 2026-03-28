@@ -1,0 +1,216 @@
+/* ── Save to Gallery badge ── */
+
+.stg-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: #fffaf5;
+  color: #201710;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  border: 2px solid #201710;
+  border-radius: 4px;
+  box-shadow: 2px 2px 0 #201710;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.stg-badge svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.stg-badge:hover {
+  background: #fff0e8;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 #201710;
+}
+
+.stg-badge:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #201710;
+}
+
+.stg-badge--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.stg-badge--saving {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.stg-badge--saved {
+  background: #e8f5e9;
+  border-color: #2e7d32;
+  color: #2e7d32;
+  box-shadow: 2px 2px 0 #2e7d32;
+}
+
+.stg-badge--error {
+  background: #fce4ec;
+  border-color: #c62828;
+  color: #c62828;
+  box-shadow: 2px 2px 0 #c62828;
+}
+
+/* ── Prompt popover ── */
+
+.stg-popover {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 2147483647;
+  width: 260px;
+  padding: 12px;
+  background: #fffaf5;
+  color: #201710;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  border: 2px solid #201710;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #201710;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.stg-popover--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.stg-popover__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #2e7d32;
+}
+
+.stg-popover__title svg {
+  width: 16px;
+  height: 16px;
+}
+
+.stg-popover__label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b5e50;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stg-popover__textarea {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 8px;
+  margin: 0 0 8px;
+  background: #fff;
+  color: #201710;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1.5px solid #d4c8b8;
+  border-radius: 4px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.stg-popover__textarea:focus {
+  outline: none;
+  border-color: #ff7a64;
+}
+
+.stg-popover__textarea::placeholder {
+  color: #a89888;
+}
+
+.stg-popover__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stg-popover__select {
+  flex: 1;
+  padding: 4px 6px;
+  background: #fff;
+  color: #201710;
+  font-family: inherit;
+  font-size: 12px;
+  border: 1.5px solid #d4c8b8;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.stg-popover__select:focus {
+  outline: none;
+  border-color: #ff7a64;
+}
+
+.stg-popover__btn {
+  padding: 4px 10px;
+  background: #ff7a64;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid #201710;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stg-popover__btn:hover {
+  background: #e86a55;
+}
+
+.stg-popover__close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #a89888;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.stg-popover__close:hover {
+  color: #201710;
+}
+
+/* ── Wrapper for positioning ── */
+
+.stg-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+/* Don't badge tiny images, icons, avatars */
+img[width="1"], img[height="1"],
+img[src*="data:image/gif"],
+img[src*="pixel"],
+img[src*="spacer"] {
+  /* excluded via JS, not CSS — just a safety net */
+}
