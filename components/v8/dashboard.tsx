@@ -949,8 +949,28 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   const images = useMemo(() => {
     if (!displayGalleryAssets) return [];
+
+    // For asset packs: find the cover asset per pack, suppress all other members
+    const packMemberIds = new Set<string>();
+    const packCountById = new Map<string, number>(); // assetId -> total pack size
+    const packIdToMembers = new Map<string, string[]>(); // packId -> [assetIds sorted by slot]
+    for (const asset of displayGalleryAssets) {
+      if (!asset.assetPackId) continue;
+      const packId = asset.assetPackId as string;
+      if (!packIdToMembers.has(packId)) packIdToMembers.set(packId, []);
+      packIdToMembers.get(packId)!.push(asset._id);
+    }
+    for (const [, members] of packIdToMembers) {
+      // First member (lowest packSlotIndex) is the cover; rest are suppressed
+      const sorted = [...members];
+      // mark all but the first as suppressed
+      for (let i = 1; i < sorted.length; i++) packMemberIds.add(sorted[i]);
+      // store count on the cover asset
+      packCountById.set(sorted[0], sorted.length);
+    }
+
     const mapped = displayGalleryAssets
-      .filter((asset) => !hiddenAssetIds.has(asset._id))
+      .filter((asset) => !hiddenAssetIds.has(asset._id) && !packMemberIds.has(asset._id))
       .map((asset) => ({
         id: asset._id,
         src:
@@ -977,6 +997,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         isPublic: asset.isPublic ?? false,
         isFeatured: asset.isFeatured ?? false,
         initiallyLoaded: loadedImageIds.has(asset._id),
+        packMemberCount: packCountById.get(asset._id),
       }));
     if (sortOrder === "featured") {
       mapped.sort((a, b) => {
@@ -1320,42 +1341,50 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     ? "var(--v7-sidebar-collapsed)"
     : "var(--v7-sidebar-width)";
 
-  // Carousel: find sibling images sharing the same promptId
+  // Carousel: group by assetPackId first, then fall back to promptId
   const carouselImages = useMemo(() => {
     if (!selectedImage || displayGalleryAssets.length === 0) return undefined;
     const selectedAsset = displayGalleryAssets.find(
       (a) => a._id === selectedImage.id,
     );
-    const promptId = selectedAsset?.promptId;
-    if (!promptId) return undefined;
+    if (!selectedAsset) return undefined;
 
+    const toSlide = (asset: typeof selectedAsset) => ({
+      id: asset._id,
+      thumbSrc:
+        asset.thumbUrl ??
+        asset.url ??
+        asset.sourceUrl ??
+        "/placeholder.svg",
+      fullSrc:
+        asset.url ??
+        asset.sourceUrl ??
+        "/placeholder.svg",
+      width: asset.thumbWidth ?? asset.width ?? undefined,
+      height: asset.thumbHeight ?? asset.height ?? undefined,
+      prompt: asset.promptText ?? undefined,
+    });
+
+    // Pack-based carousel: all members of the same assetPackId
+    const packId = selectedAsset.assetPackId;
+    if (packId) {
+      const packMembers = displayGalleryAssets
+        .filter((a) => a.assetPackId === packId)
+        .sort((a, b) => (a.packSlotIndex ?? 0) - (b.packSlotIndex ?? 0));
+      if (packMembers.length > 1) return packMembers.map(toSlide);
+    }
+
+    // Legacy promptId-based carousel
+    const promptId = selectedAsset.promptId;
+    if (!promptId) return undefined;
     const siblings = displayGalleryAssets.filter(
-      (a) =>
-        a.promptId === promptId &&
-        !hiddenAssetIds.has(a._id),
+      (a) => a.promptId === promptId && !hiddenAssetIds.has(a._id),
     );
     if (siblings.length <= 1) return undefined;
-
     const rest = siblings
       .filter((a) => a._id !== selectedImage.id)
       .sort((a, b) => a.createdAt - b.createdAt);
-    return [selectedAsset, ...rest]
-      .filter(Boolean)
-      .map((asset) => ({
-        id: asset._id,
-        thumbSrc:
-          asset.thumbUrl ??
-          asset.url ??
-          asset.sourceUrl ??
-          "/placeholder.svg",
-        fullSrc:
-          asset.url ??
-          asset.sourceUrl ??
-          "/placeholder.svg",
-        width: asset.thumbWidth ?? asset.width ?? undefined,
-        height:
-          asset.thumbHeight ?? asset.height ?? undefined,
-      }));
+    return [selectedAsset, ...rest].filter(Boolean).map(toSlide);
   }, [displayGalleryAssets, hiddenAssetIds, selectedImage]);
 
   const expandedDetailProps = {

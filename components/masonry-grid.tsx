@@ -22,6 +22,7 @@ interface GalleryImage {
   folderId?: string;
   isPublic?: boolean;
   isFeatured?: boolean;
+  packMemberCount?: number;
 }
 
 interface MasonryGridProps {

@@ -23,6 +23,7 @@ interface ImageCardProps {
     folderId?: string;
     isPublic?: boolean;
     isFeatured?: boolean;
+    packMemberCount?: number;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -227,6 +228,22 @@ export const ImageCard = memo(function ImageCard({
           unoptimized
         />
       </div>
+
+      {/* Pack badge — top-right */}
+      {image.packMemberCount !== undefined && image.packMemberCount > 1 && (
+        <div
+          className="absolute right-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.75)",
+            color: "var(--v7-coral, #ff6b4a)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,107,74,0.4)",
+          }}
+        >
+          ▤ {image.packMemberCount}
+        </div>
+      )}
 
       {/* Model + pillar badges — bottom-left, always visible */}
       {(image.modelName || pillarMeta) && (
