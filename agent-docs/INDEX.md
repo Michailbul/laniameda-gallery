@@ -22,6 +22,7 @@ Quick reference for all docs in this folder.
 | `AUTH.md` | Auth architecture — Telegram login, session, env vars |
 | `ENV_MATRIX.md` | Local vs Vercel vs Convex vs OpenClaw env variables + production smoke tests |
 | `BACKEND_CONVEX_SETUP.md` | Convex tables, run lifecycle, env vars, schema change workflow |
+| `SEMANTIC_SEARCH.md` | Semantic search — Gemini embeddings, vector search, indexing flow, UI integration |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands, env setup, test workflow |
 
 ---
@@ -46,6 +47,7 @@ features/<feature-name>/
 | `features/dashboard-polish/` | 🔥 Active sprint | `SPRINT.md` — SP-01 to SP-13 tickets |
 | `features/image-focus-mode/` | ✔ Done (Phase 1) | `PRD.md`, `TICKETS-PHASE1.md` |
 | `features/gallery-entry-v2/` | 📋 Backlog | `TICKET.md` — entry model (multi-image/prompt mapping) + hover actions + side-panel carousel |
+| `features/designs-pillar/` | 📋 Backlog | `PRD.md` — designs pillar as skills/workflows library with fullscreen modal, structured cards, agent prompt copy |
 
 ---
 

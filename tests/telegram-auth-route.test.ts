@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { NextRequest } from "next/server";
 
 type ParsedPayload = {
   id: number;
@@ -40,26 +41,31 @@ mock.module("@/lib/telegram-auth", () => ({
   },
 }));
 
+const resetState = () => {
+  state.parseResult = {
+    id: 278674008,
+    first_name: "Michael",
+    last_name: "Dev",
+    username: "laniameda",
+    photo_url: "https://example.com/avatar.jpg",
+    auth_date: 1_710_000_000,
+    hash: "a".repeat(64),
+  };
+  state.verifyResult = true;
+  state.freshResult = true;
+  state.parseCalls = [];
+  state.verifyCalls = [];
+  state.freshCalls = [];
+  state.createSessionCookieCalls = [];
+  process.env.TELEGRAM_LOGIN_BOT_TOKEN = "123456:login_bot_token";
+  delete process.env.TELEGRAM_BOT_TOKEN;
+};
+
+beforeEach(() => {
+  resetState();
+});
+
 describe("POST /api/auth/telegram", () => {
-  beforeEach(() => {
-    state.parseResult = {
-      id: 278674008,
-      first_name: "Michael",
-      last_name: "Dev",
-      username: "laniameda",
-      photo_url: "https://example.com/avatar.jpg",
-      auth_date: 1_710_000_000,
-      hash: "a".repeat(64),
-    };
-    state.verifyResult = true;
-    state.freshResult = true;
-    state.parseCalls = [];
-    state.verifyCalls = [];
-    state.freshCalls = [];
-    state.createSessionCookieCalls = [];
-    process.env.TELEGRAM_LOGIN_BOT_TOKEN = "123456:login_bot_token";
-    delete process.env.TELEGRAM_BOT_TOKEN;
-  });
 
   test("returns 400 for invalid JSON", async () => {
     const { POST } = await import(routePath);
@@ -185,5 +191,57 @@ describe("POST /api/auth/telegram", () => {
     expect(state.createSessionCookieCalls).toEqual([payload.user]);
     expect(state.verifyCalls.length).toBe(1);
     expect(state.freshCalls[0]?.maxAge).toBe(5 * 60);
+  });
+});
+
+describe("GET /api/auth/telegram", () => {
+  test("creates session and redirects back to the requested path", async () => {
+    const { GET } = await import(routePath);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/auth/telegram?returnTo=%2Fbackend-review&id=278674008&first_name=Michael&last_name=Dev&username=laniameda&photo_url=https%3A%2F%2Fexample.com%2Favatar.jpg&auth_date=1710000000&hash=" +
+          "a".repeat(64),
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/backend-review");
+    expect(state.createSessionCookieCalls).toEqual([
+      {
+        telegramId: "278674008",
+        firstName: "Michael",
+        lastName: "Dev",
+        username: "laniameda",
+        photoUrl: "https://example.com/avatar.jpg",
+      },
+    ]);
+  });
+
+  test("redirects to root with tgAuthError when the payload is invalid", async () => {
+    state.parseResult = null;
+    const { GET } = await import(routePath);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/auth/telegram?returnTo=%2F"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/?tgAuthError=invalid_payload");
+    expect(state.createSessionCookieCalls.length).toBe(0);
+  });
+
+  test("falls back to the site root for external returnTo values", async () => {
+    const { GET } = await import(routePath);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/auth/telegram?returnTo=https%3A%2F%2Fevil.example%2Fsteal&id=278674008&first_name=Michael&last_name=Dev&username=laniameda&photo_url=https%3A%2F%2Fexample.com%2Favatar.jpg&auth_date=1710000000&hash=" +
+          "a".repeat(64),
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/");
   });
 });

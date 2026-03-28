@@ -6,6 +6,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev:preview"],
       "autoPort": true
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/michael/work/laniameda/laniameda-gallery-landing && bun run dev --port 3099"],
+      "port": 3099
     }
   ]
 }

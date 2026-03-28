@@ -12,9 +12,9 @@ Last updated: 2026-03-17
 
 ## Runtime flow
 
-1. The Telegram widget posts to `/api/auth/telegram`.
+1. The Telegram widget redirects to `/api/auth/telegram?returnTo=...` with the signed Telegram payload.
 2. The server verifies the Telegram payload hash with `TELEGRAM_LOGIN_BOT_TOKEN`.
-3. On success, the server writes the signed session cookie.
+3. On success, the server writes the signed session cookie and redirects back to the requested page.
 4. The client calls `GET /api/auth/me`.
 5. `/api/auth/me` resolves or creates the matching Convex `users` row and returns the app user.
 6. Protected routes call `requireAppUser()` and use `ownerUserId` server-side when querying or mutating Convex.
@@ -66,10 +66,19 @@ DEV_AUTH_FIRST_NAME=Michael
 ## Production checklist
 
 - Set the production app domain in BotFather with `/setdomain`.
+- Keep a single Telegram-approved production host and redirect other Vercel aliases to it.
 - Keep `SESSION_SECRET` at 32+ chars.
 - Use HTTPS so the auth cookie stays secure.
 - Keep `NEXT_PUBLIC_TELEGRAM_REQUEST_ACCESS` unset unless the login bot must DM the user.
 - Keep `TELEGRAM_LOGIN_BOT_TOKEN` and `TELEGRAM_NOTIFY_BOT_TOKEN` server-only.
+
+Optional host config:
+
+```bash
+APP_CANONICAL_HOST=laniameda-galery.vercel.app
+```
+
+- Use this when production can be reached from multiple Vercel aliases. Telegram auth is origin-bound, so unregistered aliases should 308-redirect to the canonical host before rendering the widget.
 
 ## Key files
 
