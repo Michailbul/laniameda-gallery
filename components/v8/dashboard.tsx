@@ -221,6 +221,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
+  const [replacingThumbAssetId, setReplacingThumbAssetId] =
+    useState<string | null>(null);
   const [exitingAssetIds, setExitingAssetIds] = useState<
     Set<string>
   >(() => new Set());
@@ -260,6 +262,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   );
   const createFolderMutation = useMutation(
     api.folders.createFolder,
+  );
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const processAndReplaceThumbnail = useAction(
+    api.thumbnails.processAndReplaceThumbnail,
   );
   const semanticSearchAction = useAction(api.semanticSearch.searchAssets);
   const findSimilarAssetsAction = useAction(
@@ -1134,6 +1140,35 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     [findSimilarAssetsAction, galleryScope, images, ownerUserId],
   );
 
+  const handleReplaceThumbnail = useCallback(
+    async (imageId: string, file: File) => {
+      if (!ownerUserId || replacingThumbAssetId) return;
+      setReplacingThumbAssetId(imageId);
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadRes = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!uploadRes.ok) {
+          throw new Error("Upload failed");
+        }
+        const { storageId } = (await uploadRes.json()) as {
+          storageId: string;
+        };
+        await processAndReplaceThumbnail({
+          ownerUserId,
+          assetId: imageId as Id<"assets">,
+          storageId: storageId as Id<"_storage">,
+        });
+      } finally {
+        setReplacingThumbAssetId(null);
+      }
+    },
+    [ownerUserId, replacingThumbAssetId, generateUploadUrl, processAndReplaceThumbnail],
+  );
+
   // Swipe gestures for mobile detail sheet
   const swipeHandlers = useMemo(
     () => ({
@@ -1478,6 +1513,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     similarActive:
       semanticMode?.kind === "similar" &&
       semanticMode.assetId === selectedImage?.id,
+    onReplaceThumbnail: canDeleteInCurrentView
+      ? handleReplaceThumbnail
+      : undefined,
+    replacingThumbnail:
+      replacingThumbAssetId === selectedImage?.id,
   };
 
   return (

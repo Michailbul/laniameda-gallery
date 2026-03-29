@@ -27,6 +27,7 @@ import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as tags from "../tags.js";
+import type * as thumbnails from "../thumbnails.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
   tags: typeof tags;
+  thumbnails: typeof thumbnails;
   users: typeof users;
   validators: typeof validators;
 }>;

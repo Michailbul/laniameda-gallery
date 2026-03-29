@@ -17,6 +17,8 @@ import {
   Link as LinkIcon,
   Package,
   Search,
+  ImagePlus,
+  Loader2,
 } from "lucide-react";
 import { resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
@@ -82,6 +84,8 @@ interface V72DetailPanelProps {
   onFindSimilar?: (imageId: string) => void;
   similarBusy?: boolean;
   similarActive?: boolean;
+  onReplaceThumbnail?: (imageId: string, file: File) => Promise<void>;
+  replacingThumbnail?: boolean;
   toast?: (title: string, message?: string, type?: "success" | "warning" | "info" | "default") => void;
 }
 
@@ -135,6 +139,8 @@ export function V72DetailPanel({
   onFindSimilar,
   similarBusy = false,
   similarActive = false,
+  onReplaceThumbnail,
+  replacingThumbnail = false,
   toast: externalToast,
 }: V72DetailPanelProps) {
   const coralCtx = useCoralToastSafe();
@@ -155,6 +161,26 @@ export function V72DetailPanel({
   >({});
   const panelRef = useRef<HTMLDivElement>(null);
   const copyMenuRef = useRef<HTMLDivElement>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
+
+  const handleReplaceThumbnail = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onReplaceThumbnail) return;
+    try {
+      await onReplaceThumbnail(image.id, file);
+      if (toastFn) {
+        toastFn("Thumbnail replaced", undefined, "success");
+      }
+    } catch {
+      if (toastFn) {
+        toastFn("Failed to replace thumbnail", undefined, "warning");
+      }
+    }
+    // Reset input so the same file can be re-selected
+    if (thumbInputRef.current) {
+      thumbInputRef.current.value = "";
+    }
+  }, [image.id, onReplaceThumbnail, toastFn]);
 
   const allSlides: CarouselImage[] = useMemo(
     () =>
@@ -570,6 +596,38 @@ export function V72DetailPanel({
             </span>
           )}
           <div className="ml-auto flex items-center gap-1">
+            {onReplaceThumbnail && (
+              <>
+                <input
+                  ref={thumbInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void handleReplaceThumbnail(e)}
+                />
+                <button
+                  type="button"
+                  onClick={() => thumbInputRef.current?.click()}
+                  disabled={replacingThumbnail}
+                  className="flex items-center justify-center transition-colors hover:bg-black/5"
+                  aria-label="Replace thumbnail"
+                  title="Replace thumbnail"
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    color: "var(--v7-text-tertiary)",
+                    borderRadius: "6px",
+                    opacity: replacingThumbnail ? 0.5 : 1,
+                  }}
+                >
+                  {replacingThumbnail ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </>
+            )}
             <div ref={copyMenuRef} className="relative">
               <button
                 type="button"

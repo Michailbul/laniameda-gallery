@@ -963,6 +963,46 @@ export const tagAssetCounts = query({
   },
 });
 
+export const replaceAssetThumbnail = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    newThumbStorageId: v.id("_storage"),
+    thumbWidth: v.optional(v.number()),
+    thumbHeight: v.optional(v.number()),
+    thumbSize: v.optional(v.number()),
+  },
+  returns: v.id("assets"),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    // Delete old thumbnail from storage
+    if (asset.thumbStorageId && asset.thumbStorageId !== args.newThumbStorageId) {
+      await ctx.storage.delete(asset.thumbStorageId);
+    }
+
+    await ctx.db.patch(args.assetId, {
+      thumbStorageId: args.newThumbStorageId,
+      thumbWidth: args.thumbWidth,
+      thumbHeight: args.thumbHeight,
+      thumbSize: args.thumbSize,
+    });
+
+    return args.assetId;
+  },
+});
+
 export const deleteAsset = mutation({
   args: {
     id: v.id("assets"),
