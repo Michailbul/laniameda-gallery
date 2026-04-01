@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack -p ${APP_PORT:-3317}",
+    "convex:dev": "bun scripts/convex-dev.ts --local",
     "dev:preview": "next dev --webpack -p ${PORT:-3317}",
     "build": "next build --webpack",
     "start": "next start",
@@ -11,7 +12,7 @@
     "typecheck": "rm -rf .next && tsc --noEmit",
     "test": "bun test",
     "skills:install:local": "bunx skills add ./skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
-    "skills:install:github": "bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
+    "skills:install:github": "bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-kb -g -a openclaw -a codex -a cline -y",
     "skills:update": "bunx skills check && bunx skills update",
     "backfill:semantic": "bun scripts/backfill-semantic-index.ts",
     "env:doctor": "bun scripts/env-doctor.ts --mode dev-telegram",

@@ -156,7 +156,7 @@ Then refresh installed copies across all agents:
 ```bash
 bun run skills:update
 # or manually:
-bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest -g -a openclaw -a codex -a cline -y
+bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest -g -a openclaw -a codex -a cline -y
 ```
 
 **When Michael says he pushed updates to the gallery repo:**

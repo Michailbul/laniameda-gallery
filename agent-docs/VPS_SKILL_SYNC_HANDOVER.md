@@ -10,7 +10,7 @@ Use this handover when an agent on the VPS needs to:
 
 Install the canonical GitHub-backed skill from:
 
-`https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest`
+`https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest`
 
 Target agent runtimes:
 
