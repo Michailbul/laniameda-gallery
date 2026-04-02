@@ -1,14 +1,22 @@
-import { internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import {
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
-import { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import {
+  designCaptureKindValidator,
   designInspirationStatusValidator,
   designInspirationTypeValidator,
   designPlatformValidator,
+  designSaveIntentValidator,
   workflowTypeValidator,
 } from "./validators";
 
@@ -21,6 +29,12 @@ const designInspirationResultValidator = v.object({
   summary: v.optional(v.string()),
   sourceUrl: v.optional(v.string()),
   sourceDomain: v.optional(v.string()),
+  sourceTitle: v.optional(v.string()),
+  userNote: v.optional(v.string()),
+  captureKind: v.optional(designCaptureKindValidator),
+  saveIntent: v.optional(designSaveIntentValidator),
+  templateKey: v.optional(v.string()),
+  sourceFingerprint: v.optional(v.string()),
   searchText: v.string(),
   inspirationType: designInspirationTypeValidator,
   platform: designPlatformValidator,
@@ -33,6 +47,15 @@ const designInspirationResultValidator = v.object({
   promptId: v.optional(v.id("prompts")),
   createdAt: v.number(),
   updatedAt: v.number(),
+});
+
+const designGalleryEntryResultValidator = v.object({
+  ...designInspirationResultValidator.fields,
+  tagNames: v.array(v.string()),
+  previewUrl: v.optional(v.string()),
+  previewThumbUrl: v.optional(v.string()),
+  previewWidth: v.optional(v.number()),
+  previewHeight: v.optional(v.number()),
 });
 const reindexDesignInspirationAction = makeFunctionReference<"action">(
   "semanticIndex:reindexDesignInspiration",
@@ -69,6 +92,65 @@ const dedupeInspirationIds = <T extends { _id: string }>(rows: T[]) => {
   });
 };
 
+const resolveTagNameMap = async (
+  ctx: QueryCtx,
+  inspirations: Doc<"designInspirations">[],
+) => {
+  const tagIds = dedupeIds(inspirations.flatMap((inspiration) => inspiration.tagIds));
+  if (tagIds.length === 0) {
+    return new Map<Id<"tags">, string>();
+  }
+
+  const entries = await Promise.all(
+    tagIds.map(async (tagId) => {
+      const tag = await ctx.db.get(tagId);
+      return [tagId, tag?.name] as const;
+    }),
+  );
+
+  return new Map(
+    entries.filter((entry): entry is [Id<"tags">, string] => Boolean(entry[1])),
+  );
+};
+
+const resolvePreviewMap = async (
+  ctx: QueryCtx,
+  inspirations: Doc<"designInspirations">[],
+) => {
+  const assetIds = dedupeIds(
+    inspirations
+      .map((inspiration) => inspiration.assetId)
+      .filter((assetId): assetId is Id<"assets"> => Boolean(assetId)),
+  );
+  const assets = await Promise.all(assetIds.map(async (assetId) => await ctx.db.get(assetId)));
+  const previewEntries = await Promise.all(
+    assets
+      .filter((asset): asset is Doc<"assets"> => Boolean(asset))
+      .map(async (asset) => {
+        const [previewUrl, previewThumbUrl] = await Promise.all([
+          asset.storageId
+            ? ctx.storage.getUrl(asset.storageId).then((value) => value ?? undefined)
+            : Promise.resolve(asset.sourceUrl),
+          asset.thumbStorageId
+            ? ctx.storage.getUrl(asset.thumbStorageId).then((value) => value ?? undefined)
+            : Promise.resolve(undefined),
+        ]);
+
+        return [
+          asset._id,
+          {
+            previewUrl,
+            previewThumbUrl,
+            previewWidth: asset.width,
+            previewHeight: asset.height,
+          },
+        ] as const;
+      }),
+  );
+
+  return new Map(previewEntries);
+};
+
 const ensureLinkedOwnership = async (
   ctx: MutationCtx,
   ownerUserId: string,
@@ -101,9 +183,15 @@ export const createDesignInspiration = mutation({
     title: v.optional(v.string()),
     summary: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
+    sourceTitle: v.optional(v.string()),
+    userNote: v.optional(v.string()),
     inspirationType: designInspirationTypeValidator,
     platform: designPlatformValidator,
     workflowType: workflowTypeValidator,
+    captureKind: v.optional(designCaptureKindValidator),
+    saveIntent: v.optional(designSaveIntentValidator),
+    templateKey: v.optional(v.string()),
+    sourceFingerprint: v.optional(v.string()),
     status: designInspirationStatusValidator,
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
@@ -124,7 +212,9 @@ export const createDesignInspiration = mutation({
     const title = args.title?.trim() || undefined;
     const summary = args.summary?.trim() || undefined;
     const sourceUrl = args.sourceUrl?.trim() || undefined;
-    if (!title && !summary && !sourceUrl && !args.assetId && !args.promptId) {
+    const sourceTitle = args.sourceTitle?.trim() || undefined;
+    const userNote = args.userNote?.trim() || undefined;
+    if (!title && !summary && !sourceUrl && !sourceTitle && !userNote && !args.assetId && !args.promptId) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
 
@@ -154,8 +244,14 @@ export const createDesignInspiration = mutation({
       title,
       summary,
       sourceUrl,
+      sourceTitle,
+      userNote,
       sourceDomain: parseSourceDomain(sourceUrl),
-      searchText: buildSearchText([title, summary, sourceUrl]),
+      captureKind: args.captureKind,
+      saveIntent: args.saveIntent,
+      templateKey: args.templateKey?.trim() || undefined,
+      sourceFingerprint: args.sourceFingerprint?.trim() || undefined,
+      searchText: buildSearchText([title, sourceTitle, summary, userNote, sourceUrl]),
       inspirationType: args.inspirationType,
       platform: args.platform,
       workflowType: args.workflowType,
@@ -201,9 +297,15 @@ export const updateDesignInspiration = mutation({
     title: v.optional(v.string()),
     summary: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
+    sourceTitle: v.optional(v.string()),
+    userNote: v.optional(v.string()),
     inspirationType: designInspirationTypeValidator,
     platform: designPlatformValidator,
     workflowType: workflowTypeValidator,
+    captureKind: v.optional(designCaptureKindValidator),
+    saveIntent: v.optional(designSaveIntentValidator),
+    templateKey: v.optional(v.string()),
+    sourceFingerprint: v.optional(v.string()),
     status: designInspirationStatusValidator,
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
@@ -234,7 +336,9 @@ export const updateDesignInspiration = mutation({
     const title = args.title?.trim() || undefined;
     const summary = args.summary?.trim() || undefined;
     const sourceUrl = args.sourceUrl?.trim() || undefined;
-    if (!title && !summary && !sourceUrl && !args.assetId && !args.promptId) {
+    const sourceTitle = args.sourceTitle?.trim() || undefined;
+    const userNote = args.userNote?.trim() || undefined;
+    if (!title && !summary && !sourceUrl && !sourceTitle && !userNote && !args.assetId && !args.promptId) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
 
@@ -244,8 +348,14 @@ export const updateDesignInspiration = mutation({
       title,
       summary,
       sourceUrl,
+      sourceTitle,
+      userNote,
       sourceDomain: parseSourceDomain(sourceUrl),
-      searchText: buildSearchText([title, summary, sourceUrl]),
+      captureKind: args.captureKind,
+      saveIntent: args.saveIntent,
+      templateKey: args.templateKey?.trim() || undefined,
+      sourceFingerprint: args.sourceFingerprint?.trim() || undefined,
+      searchText: buildSearchText([title, sourceTitle, summary, userNote, sourceUrl]),
       inspirationType: args.inspirationType,
       platform: args.platform,
       workflowType: args.workflowType,
@@ -346,6 +456,35 @@ export const getDesignInspirationIdForIngestKey = internalQuery({
   },
 });
 
+export const getDesignInspirationIdForSourceFingerprint = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    sourceFingerprint: v.string(),
+  },
+  returns: v.union(v.null(), v.id("designInspirations")),
+  handler: async (ctx, args) => {
+    const ownerUserIds = resolveUserIdCandidates(args.ownerUserId.trim());
+    const sourceFingerprint = args.sourceFingerprint.trim();
+    if (!sourceFingerprint) {
+      return null;
+    }
+
+    for (const ownerCandidate of ownerUserIds) {
+      const existing = await ctx.db
+        .query("designInspirations")
+        .withIndex("by_owner_sourceFingerprint", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("sourceFingerprint", sourceFingerprint),
+        )
+        .unique();
+      if (existing) {
+        return existing._id;
+      }
+    }
+
+    return null;
+  },
+});
+
 export const listDesignInspirations = query({
   args: {
     ownerUserId: v.string(),
@@ -377,7 +516,7 @@ export const listDesignInspirations = query({
         .withIndex("by_tag_createdAt", (q) => q.eq("tagId", tagId).gte("createdAt", 0))
         .order("desc")
         .take(limit * 2);
-      const results = [];
+      const results: Doc<"designInspirations">[] = [];
       for (const link of links) {
         const inspiration = await ctx.db.get(link.designInspirationId);
         if (inspiration && canActorAccessOwnerUserId(ownerUserId, inspiration.ownerUserId)) {
@@ -391,7 +530,7 @@ export const listDesignInspirations = query({
       return deduped.filter((item) => item.searchText.includes(search)).slice(0, limit);
     }
 
-    const rows = [];
+    const rows: Doc<"designInspirations">[] = [];
     for (const ownerCandidate of ownerUserIds) {
       const scoped = await (inspirationType
         ? ctx.db
@@ -434,6 +573,102 @@ export const listDesignInspirations = query({
       return deduped;
     }
     return deduped.filter((item) => item.searchText.includes(search)).slice(0, limit);
+  },
+});
+
+export const listDesignGalleryEntries = query({
+  args: {
+    ownerUserId: v.string(),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    matchAllTags: v.optional(v.boolean()),
+    folderId: v.optional(v.id("folders")),
+    inspirationType: v.optional(designInspirationTypeValidator),
+    platform: designPlatformValidator,
+    workflowType: workflowTypeValidator,
+    captureKind: v.optional(designCaptureKindValidator),
+    saveIntent: v.optional(designSaveIntentValidator),
+    sourceDomain: v.optional(v.string()),
+    search: v.optional(v.string()),
+    dateFrom: v.optional(v.number()),
+    dateTo: v.optional(v.number()),
+    requireAsset: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(designGalleryEntryResultValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const limit = Math.min(args.limit ?? 50, 200);
+    const takeLimit = Math.max(limit * 4, 100);
+    const search = args.search?.trim().toLowerCase();
+    const sourceDomain = args.sourceDomain?.trim().toLowerCase();
+    const tagIds = dedupeIds(args.tagIds ?? []);
+
+    const rows: Doc<"designInspirations">[] = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const scoped = await ctx.db
+        .query("designInspirations")
+        .withIndex("by_owner_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gte("createdAt", args.dateFrom ?? 0),
+        )
+        .order("desc")
+        .take(takeLimit);
+      rows.push(...scoped);
+    }
+
+    const prefiltered = dedupeInspirationIds(rows)
+      .filter((item) => (args.folderId ? item.folderId === args.folderId : true))
+      .filter((item) =>
+        args.inspirationType ? item.inspirationType === args.inspirationType : true,
+      )
+      .filter((item) => (args.platform ? item.platform === args.platform : true))
+      .filter((item) => (args.workflowType ? item.workflowType === args.workflowType : true))
+      .filter((item) => (args.captureKind ? item.captureKind === args.captureKind : true))
+      .filter((item) => (args.saveIntent ? item.saveIntent === args.saveIntent : true))
+      .filter((item) => (sourceDomain ? item.sourceDomain === sourceDomain : true))
+      .filter((item) => (args.dateTo ? item.createdAt <= args.dateTo : true))
+      .filter((item) => (args.requireAsset ? Boolean(item.assetId) : true))
+      .filter((item) => {
+        if (tagIds.length === 0) {
+          return true;
+        }
+        return args.matchAllTags
+          ? tagIds.every((tagId) => item.tagIds.includes(tagId))
+          : tagIds.some((tagId) => item.tagIds.includes(tagId));
+      })
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, limit);
+
+    const [tagNameById, previewByAssetId] = await Promise.all([
+      resolveTagNameMap(ctx, prefiltered),
+      resolvePreviewMap(ctx, prefiltered),
+    ]);
+
+    return prefiltered
+      .map((item) => {
+        const preview = item.assetId ? previewByAssetId.get(item.assetId) : undefined;
+        const tagNames = item.tagIds
+          .map((tagId) => tagNameById.get(tagId))
+          .filter((tagName): tagName is string => Boolean(tagName));
+        return {
+          ...item,
+          tagNames,
+          previewUrl: preview?.previewUrl,
+          previewThumbUrl: preview?.previewThumbUrl,
+          previewWidth: preview?.previewWidth,
+          previewHeight: preview?.previewHeight,
+        };
+      })
+      .filter((item) => {
+        if (!search) {
+          return true;
+        }
+        return `${item.searchText} ${item.tagNames.join(" ")}`.includes(search);
+      });
   },
 });
 

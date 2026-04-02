@@ -51,6 +51,13 @@ type SelectedImage = {
   folderId?: string;
   isPublic?: boolean;
   isFeatured?: boolean;
+  isDesignInspiration?: boolean;
+  designTitle?: string;
+  sourceDomain?: string;
+  captureKind?: string;
+  saveIntent?: string;
+  inspirationType?: string;
+  userNote?: string;
 };
 
 type SemanticGalleryAsset = FunctionReturnType<
@@ -746,6 +753,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       : "skip",
   );
 
+  const mineDesignEntries = useQuery(
+    api.designInspirations.listDesignGalleryEntries,
+    galleryScope === "mine" &&
+      canAccessMyGallery &&
+      selectedPillar === "designs"
+      ? { ownerUserId, requireAsset: true, limit: 120 }
+      : "skip",
+  );
+  const isDesignsPillar = selectedPillar === "designs";
+
   const galleryAssets =
     galleryScope === "mine"
       ? mineGalleryAssets
@@ -964,6 +981,38 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       : lexicalFilteredAssets;
 
   const images = useMemo(() => {
+    // Design inspirations have their own data source
+    if (isDesignsPillar && mineDesignEntries) {
+      return mineDesignEntries
+        .filter((entry) => !hiddenAssetIds.has(entry._id) && entry.previewUrl)
+        .map((entry) => ({
+          id: entry._id,
+          src: entry.previewThumbUrl ?? entry.previewUrl ?? "/placeholder.svg",
+          fullSrc: entry.previewUrl ?? "/placeholder.svg",
+          prompt: entry.title ?? entry.sourceTitle ?? entry.sourceDomain ?? "Design reference",
+          author: "Extension",
+          likes: 0,
+          width: entry.previewWidth ?? undefined,
+          height: entry.previewHeight ?? undefined,
+          modelName: undefined as string | undefined,
+          pillar: "designs" as string | undefined,
+          tagNames: entry.tagNames ?? [],
+          sourceUrl: entry.sourceUrl ?? undefined,
+          createdAt: entry.createdAt,
+          folderId: entry.folderId ?? undefined,
+          isPublic: false,
+          isFeatured: false,
+          initiallyLoaded: loadedImageIds.has(entry._id),
+          isDesignInspiration: true,
+          designTitle: entry.title ?? undefined,
+          sourceDomain: entry.sourceDomain ?? undefined,
+          captureKind: entry.captureKind ?? undefined,
+          saveIntent: entry.saveIntent ?? undefined,
+          inspirationType: entry.inspirationType ?? undefined,
+          userNote: entry.userNote ?? undefined,
+        }));
+    }
+
     if (!displayGalleryAssets) return [];
 
     // For asset packs: find the cover asset per pack, suppress all other members
@@ -1031,7 +1080,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       );
     }
     return mapped;
-  }, [displayGalleryAssets, hiddenAssetIds, loadedImageIds, sortOrder]);
+  }, [displayGalleryAssets, hiddenAssetIds, loadedImageIds, sortOrder, isDesignsPillar, mineDesignEntries]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -1041,6 +1090,52 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     );
   }, [images, selectedImage]);
 
+  const handleImageSelect = useCallback(
+    (img: SelectedImage) => {
+      // Enrich with design-specific fields from mineDesignEntries
+      if (isDesignsPillar && mineDesignEntries) {
+        const entry = mineDesignEntries.find((e) => e._id === img.id);
+        if (entry) {
+          setSelectedImage({
+            ...img,
+            isDesignInspiration: true,
+            designTitle: entry.title ?? undefined,
+            sourceDomain: entry.sourceDomain ?? undefined,
+            captureKind: entry.captureKind ?? undefined,
+            saveIntent: entry.saveIntent ?? undefined,
+            inspirationType: entry.inspirationType ?? undefined,
+            userNote: entry.userNote ?? undefined,
+          });
+          return;
+        }
+      }
+      setSelectedImage(img);
+    },
+    [isDesignsPillar, mineDesignEntries],
+  );
+
+  const selectImageByEntry = useCallback(
+    (entry: (typeof images)[number]) => {
+      handleImageSelect({
+        id: entry.id,
+        thumbSrc: entry.src,
+        fullSrc: entry.fullSrc,
+        prompt: entry.prompt,
+        width: entry.width,
+        height: entry.height,
+        modelName: entry.modelName,
+        pillar: entry.pillar,
+        tagNames: entry.tagNames,
+        sourceUrl: entry.sourceUrl,
+        createdAt: entry.createdAt,
+        folderId: entry.folderId,
+        isPublic: entry.isPublic,
+        isFeatured: entry.isFeatured,
+      });
+    },
+    [handleImageSelect],
+  );
+
   const canGoPrev = currentImageIndex > 0;
   const canGoNext =
     currentImageIndex >= 0 &&
@@ -1048,45 +1143,13 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   const goToPrev = useCallback(() => {
     if (!canGoPrev) return;
-    const prev = images[currentImageIndex - 1];
-    setSelectedImage({
-      id: prev.id,
-      thumbSrc: prev.src,
-      fullSrc: prev.fullSrc,
-      prompt: prev.prompt,
-      width: prev.width,
-      height: prev.height,
-      modelName: prev.modelName,
-      pillar: prev.pillar,
-      tagNames: prev.tagNames,
-      sourceUrl: prev.sourceUrl,
-      createdAt: prev.createdAt,
-      folderId: prev.folderId,
-      isPublic: prev.isPublic,
-      isFeatured: prev.isFeatured,
-    });
-  }, [canGoPrev, currentImageIndex, images]);
+    selectImageByEntry(images[currentImageIndex - 1]);
+  }, [canGoPrev, currentImageIndex, images, selectImageByEntry]);
 
   const goToNext = useCallback(() => {
     if (!canGoNext) return;
-    const next = images[currentImageIndex + 1];
-    setSelectedImage({
-      id: next.id,
-      thumbSrc: next.src,
-      fullSrc: next.fullSrc,
-      prompt: next.prompt,
-      width: next.width,
-      height: next.height,
-      modelName: next.modelName,
-      pillar: next.pillar,
-      tagNames: next.tagNames,
-      sourceUrl: next.sourceUrl,
-      createdAt: next.createdAt,
-      folderId: next.folderId,
-      isPublic: next.isPublic,
-      isFeatured: next.isFeatured,
-    });
-  }, [canGoNext, currentImageIndex, images]);
+    selectImageByEntry(images[currentImageIndex + 1]);
+  }, [canGoNext, currentImageIndex, images, selectImageByEntry]);
 
   const imagePosition =
     currentImageIndex >= 0
@@ -1368,10 +1431,12 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
-    galleryScope === "mine"
-      ? canAccessMyGallery &&
-        mineGalleryAssets === undefined
-      : publicGalleryAssets === undefined;
+    isDesignsPillar && galleryScope === "mine"
+      ? canAccessMyGallery && mineDesignEntries === undefined
+      : galleryScope === "mine"
+        ? canAccessMyGallery &&
+          mineGalleryAssets === undefined
+        : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
@@ -1658,7 +1723,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   images={[]}
                   loading
                   compactColumns={false}
-                  onImageSelect={setSelectedImage}
+                  onImageSelect={handleImageSelect}
                   onImageLoad={markImageLoaded}
                 />
               ) : hasImages ? (
@@ -1666,7 +1731,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <CanvasMode
                     images={images}
                     selectedImage={selectedImage}
-                    onImageSelect={setSelectedImage}
+                    onImageSelect={handleImageSelect}
                     loading={isLoading}
                     ownerUserId={ownerUserId}
                     syncEnabled={canAccessMyGallery}
@@ -1676,7 +1741,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     images={images}
                     compactColumns={Boolean(selectedImage)}
                     selectedImageId={selectedImage?.id}
-                    onImageSelect={setSelectedImage}
+                    onImageSelect={handleImageSelect}
                     onImageLoad={markImageLoaded}
                     canDelete={canDeleteInCurrentView}
                     deletingImageId={deletingAssetId}

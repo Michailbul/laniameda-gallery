@@ -228,6 +228,20 @@ export const designInspirationTypeValidator = v.union(
   v.literal("other"),
 );
 
+export const designCaptureKindValidator = v.union(
+  v.literal("website"),
+  v.literal("image"),
+  v.literal("component"),
+  v.literal("tutorial"),
+);
+
+export const designSaveIntentValidator = v.union(
+  v.literal("utility"),
+  v.literal("inspiration"),
+  v.literal("component"),
+  v.literal("tutorial"),
+);
+
 export const designPlatformValidator = v.optional(v.union(
   v.literal("web"),
   v.literal("ios"),
@@ -240,6 +254,15 @@ export const designInspirationStatusValidator = v.optional(v.union(
   v.literal("active"),
   v.literal("archived"),
 ));
+
+export const designSaveTemplateDefaultsValidator = v.object({
+  captureKind: v.optional(designCaptureKindValidator),
+  saveIntent: v.optional(designSaveIntentValidator),
+  inspirationType: v.optional(designInspirationTypeValidator),
+  platform: designPlatformValidator,
+  workflowType: workflowTypeValidator,
+  tagNames: v.optional(v.array(v.string())),
+});
 
 export const assetRoleValidator = v.optional(v.union(
   v.literal("generated_output"),

@@ -3,99 +3,378 @@
 <head>
   <meta charset="utf-8">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+    :root {
+      --ink: #1a1410;
+      --paper: #faf6f1;
+      --surface: #f3ede5;
+      --text-2: #5c4a3a;
+      --text-3: #8a7768;
+      --coral: #ff7a64;
+      --coral-soft: rgba(255, 122, 100, 0.08);
+      --border: rgba(32, 23, 16, 0.10);
+      --border-focus: rgba(32, 23, 16, 0.22);
+
+      --c-creators: #ff7a64;
+      --c-cars: #e5534b;
+      --c-designs: #5d6bfa;
+      --c-dump: #2eb8b4;
+
+      --sans: 'Space Grotesk', system-ui, sans-serif;
+      --mono: 'DM Mono', 'SF Mono', ui-monospace, monospace;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      width: 280px;
-      padding: 16px;
-      background: #fffaf5;
-      color: #201710;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      font-size: 13px;
+      width: 340px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 12px;
+      -webkit-font-smoothing: antialiased;
     }
-    h1 {
-      font-size: 16px;
+
+    /* ── Header ── */
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .logo span {
+      font-family: var(--sans);
+      font-size: 13px;
       font-weight: 700;
-      margin-bottom: 4px;
+      letter-spacing: 0.06em;
+      color: var(--ink);
     }
-    .subtitle {
+
+    .logo-dot {
+      width: 5px;
+      height: 5px;
+      background: var(--coral);
+      border-radius: 1px;
+      transform: rotate(45deg);
+    }
+
+    .badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Delimiter ── */
+
+    .sep {
+      height: 1px;
+      background: var(--border);
+      margin: 0 20px;
+    }
+
+    /* ── Section ── */
+
+    .section {
+      padding: 16px 20px;
+    }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-3);
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    /* ── URL Input ── */
+
+    .url-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .url-input {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid var(--border-focus);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      font-family: var(--mono);
       font-size: 11px;
-      color: #6b5e50;
-      margin-bottom: 16px;
+      transition: border-color 150ms, box-shadow 150ms;
     }
-    label {
-      display: block;
-      font-size: 11px;
-      font-weight: 600;
-      color: #6b5e50;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
+
+    .url-input::placeholder {
+      color: var(--text-3);
+      opacity: 0.6;
     }
-    select {
-      display: block;
-      width: 100%;
-      padding: 8px 10px;
-      background: #fff;
-      color: #201710;
-      font-family: inherit;
-      font-size: 13px;
-      border: 1.5px solid #d4c8b8;
-      border-radius: 4px;
-      margin-bottom: 12px;
-    }
-    select:focus {
+
+    .url-input:focus {
       outline: none;
-      border-color: #ff7a64;
+      border-color: var(--coral);
+      box-shadow: 0 0 0 3px var(--coral-soft);
     }
-    button {
-      width: 100%;
-      padding: 8px 16px;
-      background: #ff7a64;
-      color: #fff;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      border: 1.5px solid #201710;
-      border-radius: 4px;
-      cursor: pointer;
-      box-shadow: 2px 2px 0 #201710;
-    }
-    button:hover { background: #e86a55; }
-    button:active {
-      transform: translate(1px, 1px);
-      box-shadow: 1px 1px 0 #201710;
-    }
-    .hint {
+
+    .url-hint {
       font-size: 11px;
-      color: #a89888;
-      margin-top: 12px;
+      color: var(--text-3);
+      margin-top: 6px;
       line-height: 1.4;
     }
-    hr {
+
+    /* ── Pillars ── */
+
+    .pillars {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .pillar-option {
+      position: relative;
+      display: block;
+      cursor: pointer;
+    }
+
+    .pillar-option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .pillar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border-left: 3px solid transparent;
+      transition: background 120ms, border-color 120ms;
+    }
+
+    .pillar-option:hover .pillar-row {
+      background: var(--coral-soft);
+    }
+
+    .pillar-option input:checked + .pillar-row {
+      background: color-mix(in srgb, var(--pcolor) 7%, var(--paper));
+      border-left-color: var(--pcolor);
+    }
+
+    .pillar-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 2px solid var(--pcolor);
+      flex-shrink: 0;
+      transition: background 120ms;
+    }
+
+    .pillar-option input:checked + .pillar-row .pillar-indicator {
+      background: var(--pcolor);
+    }
+
+    .pillar-info {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .pillar-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .pillar-desc {
+      font-size: 10px;
+      color: var(--text-3);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Save button ── */
+
+    .save-area {
+      padding: 4px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .save-btn {
+      width: 100%;
+      padding: 11px 16px;
       border: none;
-      border-top: 1px solid #e8ddd0;
-      margin: 12px 0;
+      border-radius: 8px;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: opacity 120ms, transform 80ms;
+    }
+
+    .save-btn:hover { opacity: 0.85; }
+    .save-btn:active { transform: scale(0.98); }
+
+    .status-msg {
+      min-height: 16px;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    /* ── How it works ── */
+
+    .how {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 20px;
+    }
+
+    .how-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+      text-align: center;
+    }
+
+    .how-num {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--coral);
+    }
+
+    .how-text {
+      font-size: 10px;
+      color: var(--text-3);
+      line-height: 1.35;
     }
   </style>
 </head>
 <body>
-  <h1>Save to Gallery</h1>
-  <p class="subtitle">laniameda.gallery</p>
+  <main>
+    <div class="header">
+      <div class="logo">
+        <span>lania</span>
+        <span class="logo-dot"></span>
+        <span>meda</span>
+      </div>
+      <span class="badge">clipper v1</span>
+    </div>
 
-  <label for="defaultPillar">Default Pillar</label>
-  <select id="defaultPillar">
-    <option value="dump">dump</option>
-    <option value="creators">creators</option>
-    <option value="cars">cars</option>
-    <option value="designs">designs</option>
-  </select>
+    <div class="sep"></div>
 
-  <button id="save">Save settings</button>
+    <div class="section">
+      <p class="section-label">workspace</p>
+      <div class="url-row">
+        <input
+          id="apiUrl"
+          class="url-input"
+          type="text"
+          placeholder="http://localhost:3317"
+          spellcheck="false"
+        >
+      </div>
+      <p class="url-hint">Gallery origin for the save API.</p>
+    </div>
 
-  <hr>
-  <p class="hint">
-    Hover any image on any website, click the "Save" badge. Optionally paste a prompt after saving.
-  </p>
+    <div class="sep"></div>
+
+    <div class="section">
+      <p class="section-label">default pillar</p>
+
+      <div class="pillars">
+        <label class="pillar-option" style="--pcolor: var(--c-creators);">
+          <input type="radio" name="defaultPillar" value="creators">
+          <span class="pillar-row">
+            <span class="pillar-indicator"></span>
+            <span class="pillar-info">
+              <span class="pillar-name">Creators</span>
+              <span class="pillar-desc">Portraits, editorial, characters</span>
+            </span>
+          </span>
+        </label>
+
+        <label class="pillar-option" style="--pcolor: var(--c-cars);">
+          <input type="radio" name="defaultPillar" value="cars">
+          <span class="pillar-row">
+            <span class="pillar-indicator"></span>
+            <span class="pillar-info">
+              <span class="pillar-name">Cars</span>
+              <span class="pillar-desc">Automotive, cinematic, motion</span>
+            </span>
+          </span>
+        </label>
+
+        <label class="pillar-option" style="--pcolor: var(--c-designs);">
+          <input type="radio" name="defaultPillar" value="designs">
+          <span class="pillar-row">
+            <span class="pillar-indicator"></span>
+            <span class="pillar-info">
+              <span class="pillar-name">Designs</span>
+              <span class="pillar-desc">UI, sites, components, interfaces</span>
+            </span>
+          </span>
+        </label>
+
+        <label class="pillar-option" style="--pcolor: var(--c-dump);">
+          <input type="radio" name="defaultPillar" value="dump">
+          <span class="pillar-row">
+            <span class="pillar-indicator"></span>
+            <span class="pillar-info">
+              <span class="pillar-name">Dump</span>
+              <span class="pillar-desc">Anything worth keeping</span>
+            </span>
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="save-area">
+      <button id="save" class="save-btn" type="button">Save settings</button>
+      <p id="status" class="status-msg" aria-live="polite"></p>
+    </div>
+
+    <footer class="how">
+      <div class="how-step">
+        <span class="how-num">01</span>
+        <span class="how-text">Hover image, hit save</span>
+      </div>
+      <div class="how-step">
+        <span class="how-num">02</span>
+        <span class="how-text">Sent to gallery API</span>
+      </div>
+      <div class="how-step">
+        <span class="how-num">03</span>
+        <span class="how-text">Refine later in app</span>
+      </div>
+    </footer>
+  </main>
 
   <script src="popup.js"></script>
 </body>

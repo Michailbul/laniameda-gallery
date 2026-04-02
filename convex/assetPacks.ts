@@ -177,7 +177,7 @@ export const listAssetPacks = query({
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    let q = ctx.db
+    const q = ctx.db
       .query("assetPacks")
       .withIndex("by_owner_createdAt", (q) =>
         q.eq("ownerUserId", args.ownerUserId),

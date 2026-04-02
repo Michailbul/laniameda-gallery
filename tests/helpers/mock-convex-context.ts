@@ -173,6 +173,14 @@ export const createMockConvexMutationCtx = () => {
     scheduler: {
       runAfter: async () => null,
     },
+    storage: {
+      store: async (blob: Blob) =>
+        await db.insert("_storage", {
+          size: blob.size,
+          type: blob.type,
+        }),
+      getUrl: async (storageId: string) => `https://convex.test/storage/${storageId}`,
+    },
   };
 
   return { ctx, db };

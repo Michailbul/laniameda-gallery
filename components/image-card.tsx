@@ -234,11 +234,11 @@ export const ImageCard = memo(function ImageCard({
         <div
           className="absolute right-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
-            backgroundColor: "rgba(0,0,0,0.75)",
-            color: "var(--v7-coral, #ff6b4a)",
+            backgroundColor: "var(--image-card-badge-bg)",
+            color: "var(--v7-coral)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,107,74,0.4)",
+            border: "1px solid color-mix(in srgb, var(--v7-coral) 40%, transparent)",
           }}
         >
           ▤ {image.packMemberCount}

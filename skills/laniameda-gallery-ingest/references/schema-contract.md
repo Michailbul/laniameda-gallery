@@ -15,7 +15,12 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
 - `designInspirations`
   - Use for non-prompt design references.
   - Key ingest fields: `ownerUserId`, `pillar: "designs"`, `title`, `summary`, `sourceUrl`, `sourceDomain`, `inspirationType`, `platform`, `workflowType`, `tagIds`, `folderId`, `ingestKey`, optional links to `assetId` and `promptId`.
+  - Extension save metadata may also appear on these rows: `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`.
   - Idempotency index: `by_owner_ingestKey`.
+
+- `designSaveTemplates`
+  - Owner-scoped default metadata for browser-extension design saves.
+  - Not used by the ingest script today, but part of the shared backend schema.
 
 - `semanticDocuments`
   - Async search index rows generated from assets, prompts, and design inspirations.

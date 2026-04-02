@@ -2,9 +2,12 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   assetRoleValidator,
+  designCaptureKindValidator,
   designInspirationStatusValidator,
   designInspirationTypeValidator,
   designPlatformValidator,
+  designSaveIntentValidator,
+  designSaveTemplateDefaultsValidator,
   generationTypeValidator,
   ingestSourceValidator,
   modelProviderValidator,
@@ -169,6 +172,12 @@ export default defineSchema({
     summary: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     sourceDomain: v.optional(v.string()),
+    sourceTitle: v.optional(v.string()),
+    userNote: v.optional(v.string()),
+    captureKind: v.optional(designCaptureKindValidator),
+    saveIntent: v.optional(designSaveIntentValidator),
+    templateKey: v.optional(v.string()),
+    sourceFingerprint: v.optional(v.string()),
     searchText: v.string(),
     inspirationType: designInspirationTypeValidator,
     platform: designPlatformValidator,
@@ -192,9 +201,23 @@ export default defineSchema({
     .index("by_owner_inspirationType_createdAt", ["ownerUserId", "inspirationType", "createdAt"])
     .index("by_owner_platform_createdAt", ["ownerUserId", "platform", "createdAt"])
     .index("by_owner_workflowType_createdAt", ["ownerUserId", "workflowType", "createdAt"])
+    .index("by_owner_captureKind_createdAt", ["ownerUserId", "captureKind", "createdAt"])
+    .index("by_owner_saveIntent_createdAt", ["ownerUserId", "saveIntent", "createdAt"])
+    .index("by_owner_sourceFingerprint", ["ownerUserId", "sourceFingerprint"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
     .index("by_owner_sourceDomain_createdAt", ["ownerUserId", "sourceDomain", "createdAt"])
     .searchIndex("search_text", { searchField: "searchText" }),
+  designSaveTemplates: defineTable({
+    ownerUserId: v.string(),
+    key: v.string(),
+    label: v.string(),
+    description: v.optional(v.string()),
+    defaults: designSaveTemplateDefaultsValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_key", ["ownerUserId", "key"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   designInspirationTags: defineTable({
     designInspirationId: v.id("designInspirations"),
     tagId: v.id("tags"),

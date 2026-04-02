@@ -53,6 +53,13 @@ interface V72DetailPanelProps {
     folderId?: string;
     isPublic?: boolean;
     isFeatured?: boolean;
+    isDesignInspiration?: boolean;
+    designTitle?: string;
+    sourceDomain?: string;
+    captureKind?: string;
+    saveIntent?: string;
+    inspirationType?: string;
+    userNote?: string;
   };
   carouselImages?: CarouselImage[];
   onClose: () => void;
@@ -258,8 +265,9 @@ export function V72DetailPanel({
   const activePrompt = currentSlide.prompt ?? image.prompt;
 
   const handleCopy = async (text?: string) => {
-    await navigator.clipboard.writeText(text ?? activePrompt);
-    showToast("PROMPT COPIED");
+    const content = text ?? activePrompt;
+    await navigator.clipboard.writeText(content);
+    showToast(text && text !== activePrompt ? "URL COPIED" : "PROMPT COPIED");
   };
 
   const handleCopyUrl = async () => {
@@ -556,7 +564,7 @@ export function V72DetailPanel({
             borderBottom: "1px solid var(--v7-border)",
           }}
         >
-          {modelName && (
+          {(modelName || (image.isDesignInspiration && image.sourceDomain)) && (
             <span
               style={{
                 padding: "2px 8px",
@@ -567,7 +575,7 @@ export function V72DetailPanel({
                 borderRadius: "4px",
               }}
             >
-              {modelName}
+              {image.isDesignInspiration ? image.sourceDomain : modelName}
             </span>
           )}
           {pillarLabel && (
@@ -661,10 +669,16 @@ export function V72DetailPanel({
                   }}
                 >
                   <CopyMenuItem
-                    icon={Copy}
-                    label="Copy prompt"
+                    icon={image.isDesignInspiration ? LinkIcon : Copy}
+                    label={image.isDesignInspiration ? "Copy source URL" : "Copy prompt"}
                     primary
-                    onClick={() => void handleCopy()}
+                    onClick={() =>
+                      void handleCopy(
+                        image.isDesignInspiration
+                          ? image.sourceUrl
+                          : undefined,
+                      )
+                    }
                   />
                   <div
                     className="mx-2 my-0.5"
@@ -751,23 +765,122 @@ export function V72DetailPanel({
         <div className="px-3 pb-4">
           {activeTab === "INFO" && (
             <div className="flex flex-col gap-0 pt-2.5">
-              {/* Prompt */}
-              <div className="pb-2">
-                <SectionLabel>Prompt</SectionLabel>
-                <p
-                  className="mt-1.5"
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 400,
-                    lineHeight: 1.55,
-                    color: "var(--v7-text-secondary)",
-                    fontFamily: "var(--v7-font)",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {activePrompt}
-                </p>
-              </div>
+              {image.isDesignInspiration ? (
+                <>
+                  {/* Design title */}
+                  {image.designTitle && (
+                    <div className="pb-2">
+                      <SectionLabel>Title</SectionLabel>
+                      <p
+                        className="mt-1.5"
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          lineHeight: 1.4,
+                          color: "var(--v7-text-primary)",
+                          fontFamily: "var(--v7-font)",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {image.designTitle}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Source URL */}
+                  {image.sourceUrl && (
+                    <div
+                      className="pb-2 pt-2.5"
+                      style={{
+                        borderTop: "1px solid var(--v7-border)",
+                      }}
+                    >
+                      <SectionLabel>Source</SectionLabel>
+                      <a
+                        href={image.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 flex items-center gap-1.5"
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--v7-coral)",
+                          fontFamily: "var(--v7-font)",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        <LinkIcon className="h-3 w-3 flex-shrink-0" />
+                        {image.sourceDomain ?? image.sourceUrl}
+                      </a>
+                    </div>
+                  )}
+
+                  {/* User note */}
+                  {image.userNote && (
+                    <div
+                      className="pb-2 pt-2.5"
+                      style={{
+                        borderTop: "1px solid var(--v7-border)",
+                      }}
+                    >
+                      <SectionLabel>Note</SectionLabel>
+                      <p
+                        className="mt-1.5"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 400,
+                          lineHeight: 1.55,
+                          color: "var(--v7-text-secondary)",
+                          fontFamily: "var(--v7-font)",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {image.userNote}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Design metadata chips */}
+                  <div
+                    className="pt-2.5"
+                    style={{
+                      borderTop: "1px solid var(--v7-border)",
+                    }}
+                  >
+                    <SectionLabel>Details</SectionLabel>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {image.captureKind && (
+                        <span className="v7-chip">{image.captureKind}</span>
+                      )}
+                      {image.saveIntent && (
+                        <span className="v7-chip">{image.saveIntent}</span>
+                      )}
+                      {image.inspirationType && (
+                        <span className="v7-chip">{image.inspirationType}</span>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Prompt */}
+                  <div className="pb-2">
+                    <SectionLabel>Prompt</SectionLabel>
+                    <p
+                      className="mt-1.5"
+                      style={{
+                        fontSize: "12px",
+                        fontWeight: 400,
+                        lineHeight: 1.55,
+                        color: "var(--v7-text-secondary)",
+                        fontFamily: "var(--v7-font)",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {activePrompt}
+                    </p>
+                  </div>
+                </>
+              )}
 
               {/* Tags */}
               <div className="pt-2.5">
@@ -852,7 +965,8 @@ export function V72DetailPanel({
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  {ACTIONS.map(({ intent, label, icon: Icon }) => (
+                  {!image.isDesignInspiration &&
+                    ACTIONS.map(({ intent, label, icon: Icon }) => (
                     <button
                       key={intent}
                       type="button"
@@ -880,17 +994,31 @@ export function V72DetailPanel({
               <div className="pt-2.5">
                 <SectionLabel>Export</SectionLabel>
                 <div className="mt-1.5 flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void handleCopy()}
-                    className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
-                    style={{
-                      border: "2px solid var(--v7-border-strong)",
-                    }}
-                  >
-                    <Copy className="h-3 w-3" />
-                    COPY PROMPT
-                  </button>
+                  {image.isDesignInspiration && image.sourceUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleCopy(image.sourceUrl)}
+                      className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                      style={{
+                        border: "2px solid var(--v7-border-strong)",
+                      }}
+                    >
+                      <LinkIcon className="h-3 w-3" />
+                      COPY SOURCE URL
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleCopy()}
+                      className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                      style={{
+                        border: "2px solid var(--v7-border-strong)",
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                      COPY PROMPT
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => void handleCopyPackage()}
