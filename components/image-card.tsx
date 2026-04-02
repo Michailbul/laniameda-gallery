@@ -8,6 +8,7 @@ import { useCoralToastSafe } from "@/components/ui/coral-toast";
 interface ImageCardProps {
   image: {
     id: string;
+    packId?: string;
     src: string;
     fullSrc: string;
     prompt: string;
@@ -24,6 +25,14 @@ interface ImageCardProps {
     isPublic?: boolean;
     isFeatured?: boolean;
     packMemberCount?: number;
+    previewImages: Array<{
+      id: string;
+      src: string;
+      fullSrc: string;
+      prompt: string;
+      width?: number;
+      height?: number;
+    }>;
   };
   eager?: boolean;
   onSelect?: (image: {
@@ -39,9 +48,17 @@ interface ImageCardProps {
     sourceUrl?: string;
     createdAt?: number;
     folderId?: string;
-    isPublic?: boolean;
-    isFeatured?: boolean;
-  }) => void;
+      isPublic?: boolean;
+      isFeatured?: boolean;
+      previewImages: Array<{
+        id: string;
+        src: string;
+        fullSrc: string;
+        prompt: string;
+        width?: number;
+        height?: number;
+      }>;
+    }) => void;
   selectedId?: string;
   initiallyLoaded?: boolean;
   onLoad?: () => void;
@@ -77,8 +94,25 @@ export const ImageCard = memo(function ImageCard({
   const [isLoading, setIsLoading] = useState(!initiallyLoaded);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
+  const [activePreviewIndex, setActivePreviewIndex] = useState(0);
+  const [previewCycling, setPreviewCycling] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
+
+  const previewImages = image.previewImages.length > 0
+    ? image.previewImages
+    : [
+        {
+          id: image.id,
+          src: image.src,
+          fullSrc: image.fullSrc,
+          prompt: image.prompt,
+          width: image.width,
+          height: image.height,
+        },
+      ];
+  const activePreview =
+    previewImages[activePreviewIndex] ?? previewImages[0]!;
 
   const aspectRatio = useMemo(() => {
     if (!image.width || !image.height) return "1 / 1";
@@ -87,12 +121,24 @@ export const ImageCard = memo(function ImageCard({
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      setCurrentSrc(image.src);
-      setIsLoading(!initiallyLoaded);
+      setCurrentSrc(activePreview.src);
+      setIsLoading(!initiallyLoaded || activePreviewIndex > 0);
       setHasError(false);
     });
     return () => cancelAnimationFrame(frame);
-  }, [image.src, image.fullSrc, initiallyLoaded]);
+  }, [activePreview.src, activePreviewIndex, initiallyLoaded]);
+
+  useEffect(() => {
+    if (!previewCycling || previewImages.length <= 1) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setActivePreviewIndex((current) => (current + 1) % previewImages.length);
+    }, 650);
+
+    return () => window.clearInterval(interval);
+  }, [previewCycling, previewImages.length]);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     if (e.currentTarget.naturalWidth > 0) {
@@ -103,8 +149,8 @@ export const ImageCard = memo(function ImageCard({
   };
 
   const handleImageError = () => {
-    if (currentSrc !== image.fullSrc) {
-      setCurrentSrc(image.fullSrc);
+    if (currentSrc !== activePreview.fullSrc) {
+      setCurrentSrc(activePreview.fullSrc);
       setIsLoading(true);
       setHasError(false);
       return;
@@ -137,6 +183,7 @@ export const ImageCard = memo(function ImageCard({
       folderId: image.folderId,
       isPublic: image.isPublic,
       isFeatured: image.isFeatured,
+      previewImages,
     });
 
   // Focus dimming: selected stays full, others dim when there is a selection
@@ -176,6 +223,15 @@ export const ImageCard = memo(function ImageCard({
         animationFillMode: "backwards",
       }}
       onClick={selectImage}
+      onMouseEnter={() => {
+        if (previewImages.length > 1) {
+          setPreviewCycling(true);
+        }
+      }}
+      onMouseLeave={() => {
+        setPreviewCycling(false);
+        setActivePreviewIndex(0);
+      }}
     >
       {/* Skeleton / Loading */}
       {(isLoading || hasError) && (
@@ -213,7 +269,7 @@ export const ImageCard = memo(function ImageCard({
       <div className="relative h-full w-full">
         <Image
           src={currentSrc || "/placeholder.svg"}
-          alt={image.prompt}
+          alt={activePreview.prompt}
           fill
           sizes={responsiveSizes}
           priority={eager}
@@ -234,11 +290,12 @@ export const ImageCard = memo(function ImageCard({
         <div
           className="absolute right-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
-            backgroundColor: "rgba(0,0,0,0.75)",
-            color: "var(--v7-coral, #ff6b4a)",
+            backgroundColor: "var(--image-card-badge-bg)",
+            color: "var(--coral)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,107,74,0.4)",
+            border:
+              "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
           }}
         >
           ▤ {image.packMemberCount}
@@ -322,7 +379,7 @@ export const ImageCard = memo(function ImageCard({
             }}
             aria-label="Copy prompt to clipboard"
           >
-            {image.prompt}
+            {activePreview.prompt}
           </button>
         </div>
       </div>

@@ -57,6 +57,8 @@ These are maintained by backend mutations; callers usually pass tag names or typ
 - Prompt-only ingests must set `allowPromptOnly: true`; mixed prompt+media ingests must not rely on implicit prompt creation alone. This applies across the maintained ingest surfaces, including the legacy agent-ingest path.
 - `ingest:updateFromApi` is the canonical external metadata update action.
 - `ingest:deleteFromApi` is the canonical external delete action.
+- Prompt-linked multi-asset variations are normalized into `assetPacks` automatically at the mutation layer.
+- Legacy prompt groups can be backfilled with `assetPacks:consolidateOwnerPromptPacks`.
 - `app/api/ingest/route.ts` maps session-authenticated browser calls to the same backend contract.
 - `app/api/ingest/update/route.ts` and `app/api/ingest/delete/route.ts` expose session-authenticated update/delete routes.
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.

@@ -52,6 +52,7 @@ Both runtime vars are already set in `/root/.openclaw/.env`.
 - Batched ingestion via JSON array
 - Metadata updates for prompts, assets, and design inspirations
 - Idempotent deletes for prompts, assets, and design inspirations
+- Automatic pack sync for multi-asset prompt variations that share a prompt record
 
 ## Semantic search
 
@@ -94,10 +95,12 @@ If you are about to save a prompt without an image, ask yourself: "Was there an 
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
+- Reusing one `promptIngestKey` across multiple media ingests now creates or updates an `assetPack` automatically.
 - Keep `ownerUserId` env-driven; callers never pass it directly.
 - `ingestKey` is only an idempotency key for `create`; it does not patch existing records.
 - For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
 - `update` is metadata-only for assets; replacing the underlying media file still requires `delete` + `create`.
+- Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
 
 ## Install/update workflow
 

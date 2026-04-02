@@ -2,6 +2,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
+import { syncPromptAssetPack } from "./assetPackHelpers";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
@@ -256,6 +257,12 @@ export const updatePrompt = mutation({
     for (const designInspiration of linkedDesignInspirations) {
       await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
         designInspirationId: designInspiration._id,
+      });
+    }
+    if (linkedAssets.length > 0) {
+      await syncPromptAssetPack(ctx, {
+        ownerUserId,
+        promptId: args.id,
       });
     }
 
@@ -638,4 +645,3 @@ export const bulkDeletePrompts = internalMutation({
     return count;
   },
 });
-
