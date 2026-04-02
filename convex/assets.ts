@@ -2,6 +2,10 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
+import {
+  reconcileAssetPackMembership,
+  syncPromptAssetPack,
+} from "./assetPackHelpers";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import {
@@ -130,6 +134,12 @@ export const createAsset = mutation({
     }
 
     await bumpTagUsage(ctx, tagIds, 1);
+    if (args.promptId) {
+      await syncPromptAssetPack(ctx, {
+        ownerUserId,
+        promptId: args.promptId,
+      });
+    }
     await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
 
     return { assetId, created: true };
@@ -277,6 +287,7 @@ export const updateAssetMetadata = mutation({
     }
 
     const tagIds = dedupeIds(args.tagIds);
+    const previousPromptId = asset.promptId;
     await ctx.db.patch(args.assetId, {
       tagIds,
       folderId: args.folderId,
@@ -312,6 +323,20 @@ export const updateAssetMetadata = mutation({
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
     });
+
+    const promptIdsToSync = Array.from(
+      new Set(
+        [previousPromptId, args.promptId].filter(
+          (promptId): promptId is Id<"prompts"> => Boolean(promptId),
+        ),
+      ),
+    );
+    for (const promptId of promptIdsToSync) {
+      await syncPromptAssetPack(ctx, {
+        ownerUserId,
+        promptId,
+      });
+    }
 
     return args.assetId;
   },
@@ -1041,7 +1066,11 @@ export const deleteAsset = mutation({
       await ctx.storage.delete(storageId);
     }
 
+    const packId = asset.assetPackId;
     await ctx.db.delete(args.id);
+    if (packId) {
+      await reconcileAssetPackMembership(ctx, packId);
+    }
     await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.id,

@@ -8,6 +8,11 @@ Last updated: 2026-03-17
 
 ## ✔ Shipped
 
+### 2026-04-02
+- Gallery packs promoted to a first-class dashboard card concept: pack members now collapse into one card with hover preview cycling and detail-panel carousel support
+- Prompt-linked multi-asset records now auto-sync into `assetPacks` at the mutation layer, so create/update/delete flows keep pack membership and cover state consistent
+- Added a backend consolidation path for legacy prompt groups via `assetPacks:consolidateOwnerPromptPacks`
+
 ### 2026-03-17
 - Private gallery data access moved behind Next.js API routes so the browser no longer needs direct private Convex calls
 - Auth path cleaned up to Telegram-only runtime flow; dead WorkOS and AN route surface removed from the app

@@ -73,6 +73,8 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '[
 ]'
 ```
 
+These variations now auto-sync into an `assetPack` because they share the same `promptIngestKey` / prompt record.
+
 ## 4) Remote URL ingest with structured prompt sections
 
 ```bash
@@ -174,3 +176,9 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   - Requires `target`
   - Requires either `id` or `ingestKey`
   - Returns `deleted: false` when the target is already absent
+
+## 10) Backfill legacy prompt groups into packs
+
+```bash
+bunx convex run assetPacks:consolidateOwnerPromptPacks '{"ownerUserId":"278674008","limit":200}'
+```

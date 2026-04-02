@@ -167,7 +167,7 @@
     }
   }
 
-  function showPopover(img, badge, imageUrl) {
+  function showPopover(img, badge, imageUrl, _saveResult) {
     // Hide the badge
     badge.classList.remove("stg-badge--visible");
 
