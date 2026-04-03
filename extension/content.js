@@ -1,24 +1,23 @@
 // Save to Gallery — Universal content script
-// Attaches a hover badge on any image ≥ 150×150px. Click → save to gallery.
+// Attaches a hover badge on images that are large enough both intrinsically and on screen.
 
 (() => {
   "use strict";
 
-  const MIN_SIZE = 150;
   const BADGE_ATTR = "data-stg-badge";
   const SAVE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
   const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  const imageQualification = globalThis.SaveToGalleryImageQualification;
 
   // ── Helpers ──
 
   function isQualifiedImage(img) {
-    if (img.hasAttribute(BADGE_ATTR)) return false;
-    const w = img.naturalWidth || img.width || img.offsetWidth;
-    const h = img.naturalHeight || img.height || img.offsetHeight;
-    if (w < MIN_SIZE || h < MIN_SIZE) return false;
-    const src = getImageUrl(img);
-    if (!src || src.startsWith("data:image/gif") || src.includes("spacer") || src.includes("pixel.")) return false;
-    return true;
+    if (!imageQualification) return false;
+
+    return imageQualification.isQualifiedImageElement(img, {
+      badgeAttr: BADGE_ATTR,
+      getImageUrl,
+    });
   }
 
   function getImageUrl(img) {
