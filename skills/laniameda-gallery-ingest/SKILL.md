@@ -35,20 +35,18 @@ Use `references/schema-contract.md` for a quick map and `references/ingest-examp
 
 The script reads these env vars at runtime:
 
-- `KB_OWNER_USER_ID` — required. **Value: `278674008`** (Michael's Telegram user ID). Stored in `/root/.openclaw/.env`.
+- `KB_OWNER_USER_ID` — required. Keep this env-driven; do not hardcode the owner in payloads or wrappers.
 - `CONVEX_URL` — required; falls back to `NEXT_PUBLIC_CONVEX_URL` if present.
 - `NEXT_PUBLIC_CONVEX_URL` — optional browser/runtime mirror for app environments; keep it aligned with `CONVEX_URL`.
 
 Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do not hardcode deployment names in workflow docs; rotate the env values instead.
-
-Both runtime vars are already set in `/root/.openclaw/.env`.
 
 ## Supported content
 
 - Prompt-only saves with explicit `allowPromptOnly: true`
 - File uploads from local disk or inline base64
 - Remote URL ingestion
-- Design inspiration records for non-prompt design references
+- Design inspiration records for non-prompt design references, including extension-style metadata like `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, and `sourceFingerprint`
 - Batched ingestion via JSON array
 - Metadata updates for prompts, assets, and design inspirations
 - Idempotent deletes for prompts, assets, and design inspirations
@@ -74,23 +72,28 @@ When Michael sends a **screenshot of a prompt** or **image containing text/JSON*
 
 Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
 
-## CRITICAL: Images are mandatory by default
+## CRITICAL: Never save without an image unless user approves
 
-**Every prompt ingest MUST include its associated image when one exists.** Prompt-only saves are the exception, not the default.
+**Do NOT use `allowPromptOnly: true` without explicit user approval.** This is a hard rule — no exceptions, no silent fallbacks.
+
+If you cannot attach an image (no file path, inline-only attachment, broken URL, extraction failure):
+1. **Stop.** Do not ingest.
+2. **Tell the user** exactly why the image is missing.
+3. **Ask:** "Should I save the prompt without the image, or do you have a file path for it?"
+4. Only proceed with `allowPromptOnly: true` if the user explicitly says yes.
 
 When ingesting from PDFs, documents, websites, or any source that contains both prompts and images:
 1. **Always extract images** alongside prompts — never skip them
 2. **Match each prompt to its image** by order/position in the source
 3. If images are too large (>5MB), compress to JPEG before uploading
-4. Only use `allowPromptOnly: true` when there genuinely is no image available
-5. **If images cannot be fetched or extracted, explicitly tell the user** before saving prompt-only — never silently drop images
+4. **If images cannot be fetched or extracted, stop and ask the user** — never silently drop images
 
-If you are about to save a prompt without an image, ask yourself: "Was there an image in the source material?" If yes — go back and get it.
+Common trap: user shares an image inline in a chat conversation. You cannot extract inline attachments to a file path. **Ask the user for the local file path before ingesting.** Do not save prompt-only and "attach later" — get the path first.
 
 ## Payload rules
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
-- **Default: include `imagePath` or `filePath` with every prompt.** Set `allowPromptOnly: true` only as a last resort when no image exists or can be obtained.
+- **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
 - Always set `pillar` when possible.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
@@ -99,6 +102,7 @@ If you are about to save a prompt without an image, ask yourself: "Was there an 
 - Keep `ownerUserId` env-driven; callers never pass it directly.
 - `ingestKey` is only an idempotency key for `create`; it does not patch existing records.
 - For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
+- Design inspiration create/update payloads may include `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`, and `status` when the source carries that metadata.
 - `update` is metadata-only for assets; replacing the underlying media file still requires `delete` + `create`.
 - Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
 
@@ -121,6 +125,11 @@ Refresh installed GitHub-backed skills:
 ```bash
 bun run skills:update
 ```
+
+These repo scripts now install/update both maintained gallery skills:
+
+- `laniameda-gallery-ingest`
+- `laniameda-gallery-query`
 
 ## Validator quick reference
 
@@ -160,6 +169,7 @@ Then refresh installed copies across all agents:
 bun run skills:update
 # or manually:
 bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest -g -a openclaw -a codex -a cline -y
+bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-query -g -a openclaw -a codex -a cline -y
 ```
 
 **When Michael says he pushed updates to the gallery repo:**
