@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { ImageIcon, Loader2, Trash2 } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImageIcon, Loader2, Play, Trash2 } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 
 interface ImageCardProps {
@@ -16,6 +16,8 @@ interface ImageCardProps {
     likes: number;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
     modelName?: string;
     pillar?: string;
     tagNames?: string[];
@@ -32,6 +34,8 @@ interface ImageCardProps {
       prompt: string;
       width?: number;
       height?: number;
+      kind?: "image" | "video";
+      contentType?: string;
     }>;
   };
   eager?: boolean;
@@ -42,6 +46,8 @@ interface ImageCardProps {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
     modelName?: string;
     pillar?: string;
     tagNames?: string[];
@@ -57,6 +63,8 @@ interface ImageCardProps {
         prompt: string;
         width?: number;
         height?: number;
+        kind?: "image" | "video";
+        contentType?: string;
       }>;
     }) => void;
   selectedId?: string;
@@ -167,6 +175,10 @@ export const ImageCard = memo(function ImageCard({
     ? PILLAR_META[image.pillar as keyof typeof PILLAR_META]
     : undefined;
 
+  const isVideo = image.kind === "video";
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasThumb = Boolean(image.src) && image.src !== image.fullSrc;
+
   const selectImage = () =>
     onSelect?.({
       id: image.id,
@@ -175,6 +187,8 @@ export const ImageCard = memo(function ImageCard({
       prompt: image.prompt,
       width: image.width,
       height: image.height,
+      kind: image.kind,
+      contentType: image.contentType,
       modelName: image.modelName,
       pillar: image.pillar,
       tagNames: image.tagNames,
@@ -227,10 +241,17 @@ export const ImageCard = memo(function ImageCard({
         if (previewImages.length > 1) {
           setPreviewCycling(true);
         }
+        if (isVideo && videoRef.current) {
+          videoRef.current.play().catch(() => {});
+        }
       }}
       onMouseLeave={() => {
         setPreviewCycling(false);
         setActivePreviewIndex(0);
+        if (isVideo && videoRef.current) {
+          videoRef.current.pause();
+          videoRef.current.currentTime = 0;
+        }
       }}
     >
       {/* Skeleton / Loading */}
@@ -265,25 +286,64 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Image */}
+      {/* Media */}
       <div className="relative h-full w-full">
-        <Image
-          src={currentSrc || "/placeholder.svg"}
-          alt={activePreview.prompt}
-          fill
-          sizes={responsiveSizes}
-          priority={eager}
-          className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
-            isLoading ? "opacity-0" : "opacity-100"
-          }`}
-          style={{
-            transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-          onLoad={handleImageLoad}
-          onError={handleImageError}
-          unoptimized
-        />
+        {isVideo ? (
+          <video
+            ref={videoRef}
+            src={image.fullSrc}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            poster={hasThumb ? image.src : undefined}
+            className="h-full w-full object-cover"
+            onLoadedData={() => {
+              setIsLoading(false);
+              onLoad?.();
+            }}
+            onError={() => {
+              setHasError(true);
+              setIsLoading(false);
+            }}
+          />
+        ) : (
+          <Image
+            src={currentSrc || "/placeholder.svg"}
+            alt={activePreview.prompt}
+            fill
+            sizes={responsiveSizes}
+            priority={eager}
+            className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
+              isLoading ? "opacity-0" : "opacity-100"
+            }`}
+            style={{
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            unoptimized
+          />
+        )}
       </div>
+
+      {/* Video play badge — top-left, always visible */}
+      {isVideo && (
+        <div
+          className="pointer-events-none absolute left-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+          style={{
+            backgroundColor: "var(--image-card-badge-bg)",
+            color: "var(--coral)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border:
+              "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+          }}
+        >
+          <Play className="h-2.5 w-2.5" fill="currentColor" />
+          VIDEO
+        </div>
+      )}
 
       {/* Pack badge — top-right */}
       {image.packMemberCount !== undefined && image.packMemberCount > 1 && (

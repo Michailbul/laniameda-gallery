@@ -1,5 +1,7 @@
 export type GalleryAssetRecord = {
   _id: string;
+  kind?: "image" | "video";
+  contentType?: string;
   promptId?: string;
   thumbUrl?: string;
   url?: string;
@@ -28,6 +30,8 @@ export type GalleryEntryPreview = {
   prompt: string;
   width?: number;
   height?: number;
+  kind?: "image" | "video";
+  contentType?: string;
 };
 
 export type GalleryEntry = {
@@ -41,6 +45,8 @@ export type GalleryEntry = {
   width?: number;
   height?: number;
   initiallyLoaded?: boolean;
+  kind?: "image" | "video";
+  contentType?: string;
   modelName?: string;
   pillar?: string;
   tagNames?: string[];
@@ -69,6 +75,8 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
   width: asset.thumbWidth ?? asset.width ?? undefined,
   height: asset.thumbHeight ?? asset.height ?? undefined,
+  kind: asset.kind,
+  contentType: asset.contentType,
 });
 
 const sortPackMembers = (
@@ -102,6 +110,8 @@ const buildEntry = (
     width: cover.thumbWidth ?? cover.width ?? undefined,
     height: cover.thumbHeight ?? cover.height ?? undefined,
     initiallyLoaded: loadedAssetIds?.has(cover._id) ?? false,
+    kind: cover.kind,
+    contentType: cover.contentType,
     modelName: cover.modelName ?? undefined,
     pillar: cover.pillar ?? undefined,
     tagNames,

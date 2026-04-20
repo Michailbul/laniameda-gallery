@@ -15,6 +15,8 @@ interface GalleryImage {
   width?: number;
   height?: number;
   initiallyLoaded?: boolean;
+  kind?: "image" | "video";
+  contentType?: string;
   modelName?: string;
   pillar?: string;
   tagNames?: string[];
@@ -31,6 +33,8 @@ interface GalleryImage {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
   }>;
 }
 
@@ -49,6 +53,8 @@ interface MasonryGridProps {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
     modelName?: string;
     pillar?: string;
     tagNames?: string[];
@@ -64,6 +70,8 @@ interface MasonryGridProps {
         prompt: string;
         width?: number;
         height?: number;
+        kind?: "image" | "video";
+        contentType?: string;
       }>;
     }) => void;
   onImageLoad?: (imageId: string) => void;

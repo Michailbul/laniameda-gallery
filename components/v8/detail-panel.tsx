@@ -35,6 +35,8 @@ interface CarouselImage {
   width?: number;
   height?: number;
   prompt?: string;
+  kind?: "image" | "video";
+  contentType?: string;
 }
 
 interface V72DetailPanelProps {
@@ -45,6 +47,8 @@ interface V72DetailPanelProps {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
     modelName?: string;
     pillar?: string;
     tagNames?: string[];
@@ -200,6 +204,8 @@ export function V72DetailPanel({
               fullSrc: image.fullSrc,
               width: image.width,
               height: image.height,
+              kind: image.kind,
+              contentType: image.contentType,
             },
           ],
     [
@@ -209,6 +215,8 @@ export function V72DetailPanel({
       image.fullSrc,
       image.width,
       image.height,
+      image.kind,
+      image.contentType,
     ],
   );
   const currentSlide = allSlides[carouselIndex] ?? allSlides[0];
@@ -445,44 +453,64 @@ export function V72DetailPanel({
             borderBottom: "1px solid var(--v7-border)",
           }}
         >
-          <Image
-            src={currentSlide.thumbSrc}
-            alt={image.prompt}
-            fill
-            sizes="440px"
-            className="object-cover"
-            style={{ borderRadius: 0 }}
-            priority
-            unoptimized
-          />
-          <Image
-            src={currentSlide.fullSrc}
-            alt={image.prompt}
-            fill
-            sizes="440px"
-            className="object-cover transition-opacity"
-            style={{
-              borderRadius: 0,
-              opacity: currentFullLoaded ? 1 : 0,
-              transitionDuration: "500ms",
-            }}
-            priority
-            onLoad={(e) => {
-              if (e.currentTarget.naturalWidth > 0) {
-                setFullLoadedMap((prev) => ({
-                  ...prev,
-                  [carouselIndex]: true,
-                }));
+          {currentSlide.kind === "video" ? (
+            <video
+              key={currentSlide.id}
+              src={currentSlide.fullSrc}
+              poster={
+                currentSlide.thumbSrc &&
+                currentSlide.thumbSrc !== currentSlide.fullSrc
+                  ? currentSlide.thumbSrc
+                  : undefined
               }
-            }}
-            onError={() => {
-              setFullLoadedMap((prev) => ({
-                ...prev,
-                [carouselIndex]: true,
-              }));
-            }}
-            unoptimized
-          />
+              controls
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-contain"
+              style={{ backgroundColor: "#000", borderRadius: 0 }}
+            />
+          ) : (
+            <>
+              <Image
+                src={currentSlide.thumbSrc}
+                alt={image.prompt}
+                fill
+                sizes="440px"
+                className="object-cover"
+                style={{ borderRadius: 0 }}
+                priority
+                unoptimized
+              />
+              <Image
+                src={currentSlide.fullSrc}
+                alt={image.prompt}
+                fill
+                sizes="440px"
+                className="object-cover transition-opacity"
+                style={{
+                  borderRadius: 0,
+                  opacity: currentFullLoaded ? 1 : 0,
+                  transitionDuration: "500ms",
+                }}
+                priority
+                onLoad={(e) => {
+                  if (e.currentTarget.naturalWidth > 0) {
+                    setFullLoadedMap((prev) => ({
+                      ...prev,
+                      [carouselIndex]: true,
+                    }));
+                  }
+                }}
+                onError={() => {
+                  setFullLoadedMap((prev) => ({
+                    ...prev,
+                    [carouselIndex]: true,
+                  }));
+                }}
+                unoptimized
+              />
+            </>
+          )}
 
           {/* Carousel dots */}
           {allSlides.length > 1 && (

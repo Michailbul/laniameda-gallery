@@ -18,6 +18,7 @@ import {
 } from "./filter-bar";
 import { CanvasMode } from "./canvas-mode";
 import { MasonryGrid } from "@/components/masonry-grid";
+import { PackGrid, PackDetailView } from "./pack-grid";
 import { V72DetailPanel } from "./detail-panel";
 import { UploadModal } from "@/components/upload-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
@@ -48,6 +49,8 @@ type SelectedImage = {
   prompt: string;
   width?: number;
   height?: number;
+  kind?: "image" | "video";
+  contentType?: string;
   modelName?: string;
   pillar?: string;
   tagNames?: string[];
@@ -63,7 +66,7 @@ type SelectedImage = {
   saveIntent?: string;
   inspirationType?: string;
   userNote?: string;
-  previewImages: GalleryEntryPreview[];
+  previewImages?: GalleryEntryPreview[];
 };
 
 type SemanticGalleryAsset = FunctionReturnType<
@@ -158,7 +161,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     string | null
   >(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeRaw(mode);
+    if (mode !== "packs") setSelectedPackId(null);
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
 
@@ -245,6 +252,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const [debouncedAssetSearchQuery, setDebouncedAssetSearchQuery] =
     useState("");
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [semanticMode, setSemanticMode] = useState<SemanticMode>(null);
   const [semanticResults, setSemanticResults] = useState<
     SemanticGalleryAsset[] | null
@@ -309,6 +317,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSemanticResults(null);
     setSemanticError(undefined);
     setSemanticLoading(false);
+    setSelectedPackId(null);
   }, [galleryScope]);
 
   useEffect(() => {
@@ -611,7 +620,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
-          kind: "image",
           limit: 200,
         }
       : "skip",
@@ -621,7 +629,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     api.assets.listPublicGalleryAssets,
     galleryScope === "public"
       ? {
-          kind: "image",
           limit: 200,
         }
       : "skip",
@@ -731,7 +738,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
-          kind: "image",
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: effectiveSelectedFolderId
@@ -747,7 +753,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     api.assets.listPublicGalleryAssets,
     galleryScope === "public"
       ? {
-          kind: "image",
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
           folderId: effectiveSelectedFolderId
@@ -823,7 +828,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           ? (effectiveSelectedFolderId as Id<"folders">)
           : undefined,
       modelName: selectedModelName ?? undefined,
-      kind: "image",
       limit: 120,
     })
       .then((results) => {
@@ -970,7 +974,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       ) {
         return false;
       }
-      return asset.kind === "image";
+      return true;
     });
   }, [
     effectiveSelectedFolderId,
@@ -1088,12 +1092,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     (entry: (typeof images)[number]) => {
       handleImageSelect({
         id: entry.id,
-        packId: entry.packId,
+        packId: "packId" in entry ? entry.packId : undefined,
         thumbSrc: entry.src,
         fullSrc: entry.fullSrc,
         prompt: entry.prompt,
         width: entry.width,
         height: entry.height,
+        kind: "kind" in entry ? entry.kind : undefined,
+        contentType: "contentType" in entry ? entry.contentType : undefined,
         modelName: entry.modelName,
         pillar: entry.pillar,
         tagNames: entry.tagNames,
@@ -1102,7 +1108,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         folderId: entry.folderId,
         isPublic: entry.isPublic,
         isFeatured: entry.isFeatured,
-        previewImages: entry.previewImages,
+        previewImages: entry.previewImages ?? [],
       });
     },
     [handleImageSelect],
@@ -1424,17 +1430,20 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     : "var(--v7-sidebar-width)";
 
   const carouselImages = useMemo(() => {
-    if (!selectedImage || selectedImage.previewImages.length <= 1) {
+    const previews = selectedImage?.previewImages ?? [];
+    if (!selectedImage || previews.length <= 1) {
       return undefined;
     }
 
-    return selectedImage.previewImages.map((preview) => ({
+    return previews.map((preview) => ({
       id: preview.id,
       thumbSrc: preview.src,
       fullSrc: preview.fullSrc,
       width: preview.width,
       height: preview.height,
       prompt: preview.prompt,
+      kind: preview.kind,
+      contentType: preview.contentType,
     }));
   }, [selectedImage]);
 
@@ -1581,6 +1590,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         <div className="flex min-h-0 flex-1">
           <div
             className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
+
             style={{}}
           >
             {/* Filter Bar */}
@@ -1659,7 +1669,54 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               id="v72-main-content"
               className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
-              {isLoading ? (
+              {viewMode === "packs" ? (
+                galleryScope === "mine" && canAccessMyGallery ? (
+                  selectedPackId ? (
+                    <PackDetailView
+                      packId={selectedPackId}
+                      selectedAssetId={
+                        selectedImage?.packId === selectedPackId
+                          ? selectedImage?.id
+                          : undefined
+                      }
+                      compact={Boolean(selectedImage)}
+                      onBack={() => { setSelectedPackId(null); setSelectedImage(null); }}
+                      onAssetSelect={(asset) => {
+                        handleImageSelect({
+                          ...asset,
+                          thumbSrc: asset.thumbSrc,
+                          fullSrc: asset.fullSrc,
+                          // Mini masonry handles navigation — no right-side carousel
+                          previewImages: [],
+                        });
+                      }}
+                    />
+                  ) : (
+                    <PackGrid
+                      ownerUserId={ownerUserId}
+                      selectedPillar={selectedPillar}
+                      selectedTagIds={selectedTagIds}
+                      selectedModelName={selectedModelName}
+                      onPackSelect={setSelectedPackId}
+                    />
+                  )
+                ) : (
+                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in">
+                    <p
+                      style={{
+                        fontFamily: "var(--v7-font)",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.12em",
+                        color: "var(--v7-text-tertiary)",
+                      }}
+                    >
+                      SWITCH TO MY GALLERY TO BROWSE PACKS.
+                    </p>
+                  </div>
+                )
+              ) : isLoading ? (
                 <MasonryGrid
                   images={[]}
                   loading

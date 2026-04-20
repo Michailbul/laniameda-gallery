@@ -44,9 +44,10 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 ## Supported content
 
 - Prompt-only saves with explicit `allowPromptOnly: true`
-- File uploads from local disk or inline base64
-- Remote URL ingestion
+- File uploads from local disk or inline base64 (images AND videos)
+- Remote URL ingestion (images AND videos)
 - Design inspiration records for non-prompt design references, including extension-style metadata like `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, and `sourceFingerprint`
+- **Video prompts**: prompts for AI video generation tools (e.g. Seedance 2.0) with attached `.mp4` / `.mov` / `.webm` output
 - Batched ingestion via JSON array
 - Metadata updates for prompts, assets, and design inspirations
 - Idempotent deletes for prompts, assets, and design inspirations
@@ -71,6 +72,34 @@ When Michael sends a **screenshot of a prompt** or **image containing text/JSON*
 - The content is the prompt text inside it
 
 Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
+
+## Video prompts (Seedance 2.0 and other AI video models)
+
+Video generations ingest through the **same script and payload shape** as images. The only differences:
+
+- Use `imagePath` / `filePath` / `url` pointing at a video file (`.mp4`, `.mov`, `.webm`). The server detects `video/*` content-type automatically and stores the asset with `kind: "video"`.
+- Set `generationType: "video_gen"` and `promptType: "video_gen"`.
+- Default `modelName` to `"Seedance 2.0"` when not specified. Pair with `modelProvider: "other"` unless a listed provider applies.
+- A poster/thumbnail is **not** generated automatically for videos. If you want a custom still for the gallery card, ingest the video first, then run the `update` op on the asset with an `imagePath` pointing at a still frame to replace the thumbnail.
+- The same prompt-only rule applies: **never save a video prompt without the video file unless the user explicitly approves** `allowPromptOnly: true`.
+
+Example:
+
+```bash
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "pillar": "creators",
+  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
+  "promptType": "video_gen",
+  "generationType": "video_gen",
+  "modelName": "Seedance 2.0",
+  "modelProvider": "other",
+  "imagePath": "/path/to/output.mp4",
+  "ingestKey": "creators:neon-alley-dolly:v1",
+  "tagNames": ["video", "cinematic", "neon"]
+}'
+```
+
+Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
 ## CRITICAL: Never save without an image unless user approves
 
@@ -103,7 +132,9 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - `ingestKey` is only an idempotency key for `create`; it does not patch existing records.
 - For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
 - Design inspiration create/update payloads may include `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`, and `status` when the source carries that metadata.
-- `update` is metadata-only for assets; replacing the underlying media file still requires `delete` + `create`.
+- `update` supports media attachment for prompts (`target: "prompt"` + `imagePath`/`filePath`) and media replacement for assets (`target: "asset"` + `imagePath`/`filePath`).
+- When attaching media to a prompt, an `assetIngestKey` is derived as `${ingestKey}:img` by default, or can be set explicitly.
+- Re-uploading media with the same `assetIngestKey` replaces the existing asset's file rather than creating a duplicate.
 - Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
 
 ## Install/update workflow
