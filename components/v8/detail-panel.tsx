@@ -42,6 +42,9 @@ interface CarouselImage {
 interface V72DetailPanelProps {
   image: {
     id: string;
+    packId?: string;
+    galleryItemId?: string;
+    galleryItemType?: "asset" | "pack" | "design";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -271,6 +274,7 @@ export function V72DetailPanel({
   }, [toastFn]);
 
   const activePrompt = currentSlide.prompt ?? image.prompt;
+  const currentAssetId = currentSlide.id ?? image.id;
 
   const handleCopy = async (text?: string) => {
     const content = text ?? activePrompt;
@@ -281,6 +285,14 @@ export function V72DetailPanel({
   const handleCopyUrl = async () => {
     await navigator.clipboard.writeText(currentSlide.fullSrc);
     showToast("URL COPIED");
+  };
+
+  const handleCopyGalleryId = async (
+    kind: "asset" | "pack" | "design",
+    id: string,
+  ) => {
+    await navigator.clipboard.writeText(`${kind}:${id}`);
+    showToast(`${kind.toUpperCase()} ID COPIED`);
   };
 
   const handleCopyPackage = async () => {
@@ -720,6 +732,25 @@ export function V72DetailPanel({
                     label="Copy image URL"
                     onClick={() => void handleCopyUrl()}
                   />
+                  <CopyMenuItem
+                    icon={Copy}
+                    label={`Copy ${image.isDesignInspiration ? "design" : "asset"} ID`}
+                    onClick={() =>
+                      void handleCopyGalleryId(
+                        image.isDesignInspiration ? "design" : "asset",
+                        image.isDesignInspiration ? image.id : currentAssetId,
+                      )
+                    }
+                  />
+                  {image.packId && (
+                    <CopyMenuItem
+                      icon={Package}
+                      label="Copy pack ID"
+                      onClick={() =>
+                        void handleCopyGalleryId("pack", image.packId!)
+                      }
+                    />
+                  )}
                   <CopyMenuItem
                     icon={Package}
                     label="Copy full package"

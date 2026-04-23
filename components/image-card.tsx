@@ -2,13 +2,15 @@
 
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImageIcon, Loader2, Play, Trash2 } from "lucide-react";
+import { Copy, ImageIcon, Loader2, Play, Trash2 } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 
 interface ImageCardProps {
   image: {
     id: string;
     packId?: string;
+    galleryItemId?: string;
+    galleryItemType?: "asset" | "pack" | "design";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -29,6 +31,8 @@ interface ImageCardProps {
     packMemberCount?: number;
     previewImages: Array<{
       id: string;
+      galleryItemId?: string;
+      galleryItemType?: "asset" | "pack" | "design";
       src: string;
       fullSrc: string;
       prompt: string;
@@ -41,6 +45,9 @@ interface ImageCardProps {
   eager?: boolean;
   onSelect?: (image: {
     id: string;
+    packId?: string;
+    galleryItemId?: string;
+    galleryItemType?: "asset" | "pack" | "design";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -58,6 +65,8 @@ interface ImageCardProps {
       isFeatured?: boolean;
       previewImages: Array<{
         id: string;
+        galleryItemId?: string;
+        galleryItemType?: "asset" | "pack" | "design";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -112,6 +121,8 @@ export const ImageCard = memo(function ImageCard({
     : [
         {
           id: image.id,
+          galleryItemId: image.id,
+          galleryItemType: "asset" as const,
           src: image.src,
           fullSrc: image.fullSrc,
           prompt: image.prompt,
@@ -174,6 +185,18 @@ export const ImageCard = memo(function ImageCard({
   const pillarMeta = image.pillar
     ? PILLAR_META[image.pillar as keyof typeof PILLAR_META]
     : undefined;
+  const galleryItemType =
+    image.galleryItemType ?? (image.packId ? "pack" : "asset");
+  const galleryItemId =
+    image.galleryItemId ??
+    (galleryItemType === "pack" ? image.packId ?? image.id : image.id);
+  const galleryCopyToken = `${galleryItemType}:${galleryItemId}`;
+  const galleryCopyLabel =
+    galleryItemType === "pack"
+      ? "PACK ID COPIED"
+      : galleryItemType === "design"
+        ? "DESIGN ID COPIED"
+        : "ASSET ID COPIED";
 
   const isVideo = image.kind === "video";
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -182,6 +205,9 @@ export const ImageCard = memo(function ImageCard({
   const selectImage = () =>
     onSelect?.({
       id: image.id,
+      packId: image.packId,
+      galleryItemId,
+      galleryItemType,
       thumbSrc: image.src,
       fullSrc: image.fullSrc,
       prompt: image.prompt,
@@ -226,6 +252,17 @@ export const ImageCard = memo(function ImageCard({
       toastFn?.("Copied", "PROMPT COPIED", "success");
     },
     [image.prompt, toastFn],
+  );
+
+  const handleIdCopy = useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      await navigator.clipboard.writeText(galleryCopyToken);
+      toastFn?.("Copied", galleryCopyLabel, "success");
+    },
+    [galleryCopyLabel, galleryCopyToken, toastFn],
   );
 
   return (
@@ -330,7 +367,7 @@ export const ImageCard = memo(function ImageCard({
       {/* Video play badge — top-left, always visible */}
       {isVideo && (
         <div
-          className="pointer-events-none absolute left-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+          className="pointer-events-none absolute left-11 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
             backgroundColor: "var(--image-card-badge-bg)",
             color: "var(--coral)",
@@ -344,6 +381,26 @@ export const ImageCard = memo(function ImageCard({
           VIDEO
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={(event) => {
+          void handleIdCopy(event);
+        }}
+        className="absolute left-2 top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100"
+        style={{
+          borderRadius: "8px",
+          backgroundColor: "var(--image-card-badge-bg)",
+          color: "var(--image-card-badge-text)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          borderColor: "var(--image-card-badge-border)",
+        }}
+        aria-label={`Copy ${galleryItemType} ID`}
+        title={`Copy ${galleryItemType} ID`}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
 
       {/* Pack badge — top-right */}
       {image.packMemberCount !== undefined && image.packMemberCount > 1 && (

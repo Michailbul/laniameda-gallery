@@ -7,6 +7,8 @@ import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 interface GalleryImage {
   id: string;
   packId?: string;
+  galleryItemId?: string;
+  galleryItemType?: "asset" | "pack" | "design";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -28,6 +30,8 @@ interface GalleryImage {
   packMemberCount?: number;
   previewImages: Array<{
     id: string;
+    galleryItemId?: string;
+    galleryItemType?: "asset" | "pack" | "design";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -48,6 +52,9 @@ interface MasonryGridProps {
   onDeleteImage?: (imageId: string) => void;
   onImageSelect?: (image: {
     id: string;
+    packId?: string;
+    galleryItemId?: string;
+    galleryItemType?: "asset" | "pack" | "design";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -65,6 +72,8 @@ interface MasonryGridProps {
       isFeatured?: boolean;
       previewImages: Array<{
         id: string;
+        galleryItemId?: string;
+        galleryItemType?: "asset" | "pack" | "design";
         src: string;
         fullSrc: string;
         prompt: string;

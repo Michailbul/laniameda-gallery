@@ -25,6 +25,8 @@ export type GalleryAssetRecord = {
 
 export type GalleryEntryPreview = {
   id: string;
+  galleryItemId?: string;
+  galleryItemType?: "asset" | "pack" | "design";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -37,6 +39,8 @@ export type GalleryEntryPreview = {
 export type GalleryEntry = {
   id: string;
   packId?: string;
+  galleryItemId?: string;
+  galleryItemType?: "asset" | "pack" | "design";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -70,6 +74,8 @@ const FALLBACK_SRC = "/placeholder.svg";
 
 const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
+  galleryItemId: asset._id,
+  galleryItemType: "asset",
   src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
@@ -102,6 +108,8 @@ const buildEntry = (
   return {
     id: cover._id,
     packId: cover.assetPackId ?? undefined,
+    galleryItemId: cover.assetPackId ?? cover._id,
+    galleryItemType: cover.assetPackId ? "pack" : "asset",
     src: cover.thumbUrl ?? cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",

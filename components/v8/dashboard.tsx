@@ -44,6 +44,8 @@ const DEFAULT_DEV_OWNER_USER_ID = "278674008";
 type SelectedImage = {
   id: string;
   packId?: string;
+  galleryItemId?: string;
+  galleryItemType?: "asset" | "pack" | "design";
   thumbSrc: string;
   fullSrc: string;
   prompt: string;
@@ -997,6 +999,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         .filter((entry) => !hiddenAssetIds.has(entry._id) && entry.previewUrl)
         .map((entry) => ({
           id: entry._id,
+          galleryItemId: entry._id,
+          galleryItemType: "design" as const,
           src: entry.previewThumbUrl ?? entry.previewUrl ?? "/placeholder.svg",
           fullSrc: entry.previewUrl ?? "/placeholder.svg",
           prompt: entry.title ?? entry.sourceTitle ?? entry.sourceDomain ?? "Design reference",
@@ -1023,6 +1027,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           previewImages: [
             {
               id: entry._id,
+              galleryItemId: entry._id,
+              galleryItemType: "design" as const,
               src:
                 entry.previewThumbUrl ??
                 entry.previewUrl ??
@@ -1093,6 +1099,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       handleImageSelect({
         id: entry.id,
         packId: "packId" in entry ? entry.packId : undefined,
+        galleryItemId:
+          "galleryItemId" in entry ? entry.galleryItemId : entry.id,
+        galleryItemType:
+          "galleryItemType" in entry ? entry.galleryItemType : "asset",
         thumbSrc: entry.src,
         fullSrc: entry.fullSrc,
         prompt: entry.prompt,
@@ -1688,6 +1698,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                           fullSrc: asset.fullSrc,
                           // Mini masonry handles navigation — no right-side carousel
                           previewImages: [],
+                          galleryItemId: asset.id,
+                          galleryItemType: "asset",
                         });
                       }}
                     />

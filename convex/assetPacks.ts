@@ -6,6 +6,11 @@ import {
   reconcileAssetPackMembership,
   syncPromptAssetPack,
 } from "./assetPackHelpers";
+import { canActorAccessOwnerUserId } from "./authz";
+import {
+  galleryAssetResultValidator,
+  hydrateGalleryAssetResults,
+} from "./galleryAssetResults";
 import {
   assetRoleValidator,
   generationTypeValidator,
@@ -262,6 +267,63 @@ export const getAssetPackWithAssets = query({
   },
 });
 
+export const getGalleryAssetPack = query({
+  args: {
+    packId: v.id("assetPacks"),
+    ownerUserId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      pack: v.object({
+        _id: v.id("assetPacks"),
+        _creationTime: v.number(),
+        ownerUserId: v.optional(v.string()),
+        title: v.string(),
+        description: v.optional(v.string()),
+        pillar: optionalPillarValidator,
+        tagIds: v.array(v.id("tags")),
+        ingestKey: v.optional(v.string()),
+        coverAssetId: v.optional(v.id("assets")),
+        modelName: v.optional(v.string()),
+        domain: v.optional(v.string()),
+        isPublic: v.optional(v.boolean()),
+        isFeatured: v.optional(v.boolean()),
+        itemCount: v.optional(v.number()),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+      }),
+      assets: v.array(galleryAssetResultValidator),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const pack = await ctx.db.get(args.packId);
+    if (!pack || !canActorAccessOwnerUserId(ownerUserId, pack.ownerUserId)) {
+      return null;
+    }
+
+    const assets = await ctx.db
+      .query("assets")
+      .withIndex("by_assetPack_packSlotIndex", (q) =>
+        q.eq("assetPackId", args.packId),
+      )
+      .collect();
+
+    assets.sort((a, b) => (a.packSlotIndex ?? 0) - (b.packSlotIndex ?? 0));
+    const hydratedAssets = await hydrateGalleryAssetResults(ctx, assets);
+
+    return {
+      pack,
+      assets: hydratedAssets,
+    };
+  },
+});
+
 export const listAssetPacks = query({
   args: {
     ownerUserId: v.string(),
@@ -304,6 +366,159 @@ export const listAssetPacks = query({
       return packs.filter((p) => p.pillar === args.pillar);
     }
     return packs;
+  },
+});
+
+export const listAssetPacksWithCovers = query({
+  args: {
+    ownerUserId: v.string(),
+    pillar: v.optional(optionalPillarValidator),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    modelName: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("assetPacks"),
+      title: v.string(),
+      description: v.optional(v.string()),
+      pillar: optionalPillarValidator,
+      modelName: v.optional(v.string()),
+      itemCount: v.optional(v.number()),
+      isPublic: v.optional(v.boolean()),
+      isFeatured: v.optional(v.boolean()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      coverUrl: v.union(v.null(), v.string()),
+      coverThumbUrl: v.union(v.null(), v.string()),
+      coverWidth: v.optional(v.number()),
+      coverHeight: v.optional(v.number()),
+      previewUrls: v.array(v.string()),
+      hasWorkflowAssets: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+    const q = ctx.db
+      .query("assetPacks")
+      .withIndex("by_owner_createdAt", (q) =>
+        q.eq("ownerUserId", args.ownerUserId),
+      )
+      .order("desc");
+
+    let packs = await q.take(limit);
+
+    if (args.pillar) {
+      packs = packs.filter((p) => p.pillar === args.pillar);
+    }
+
+    const tagFilterSet =
+      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const modelFilter = args.modelName ?? null;
+
+    const hydrated = await Promise.all(
+      packs.map(async (pack) => {
+        let coverUrl: string | null = null;
+        let coverThumbUrl: string | null = null;
+        let coverWidth: number | undefined;
+        let coverHeight: number | undefined;
+
+        if (pack.coverAssetId) {
+          const coverAsset = await ctx.db.get(pack.coverAssetId);
+          if (coverAsset) {
+            coverUrl = coverAsset.storageId
+              ? await ctx.storage.getUrl(coverAsset.storageId)
+              : coverAsset.sourceUrl ?? null;
+            coverThumbUrl = coverAsset.thumbStorageId
+              ? await ctx.storage.getUrl(coverAsset.thumbStorageId)
+              : coverUrl;
+            coverWidth = coverAsset.thumbWidth ?? coverAsset.width;
+            coverHeight = coverAsset.thumbHeight ?? coverAsset.height;
+          }
+        }
+
+        // Pull member assets to resolve preview thumbs, tags, models, kind.
+        const members = await ctx.db
+          .query("assets")
+          .withIndex("by_assetPack_packSlotIndex", (q) =>
+            q.eq("assetPackId", pack._id),
+          )
+          .collect();
+
+        const previewUrls: string[] = [];
+        for (const member of members.slice(0, 12)) {
+          const url = member.thumbStorageId
+            ? await ctx.storage.getUrl(member.thumbStorageId)
+            : member.storageId
+              ? await ctx.storage.getUrl(member.storageId)
+              : member.sourceUrl ?? null;
+          if (url) previewUrls.push(url);
+        }
+
+        if (!coverUrl && previewUrls.length > 0) {
+          coverUrl = previewUrls[0];
+          coverThumbUrl = previewUrls[0];
+          if (members[0]) {
+            coverWidth = members[0].thumbWidth ?? members[0].width;
+            coverHeight = members[0].thumbHeight ?? members[0].height;
+          }
+        }
+
+        // Aggregate member-asset tagIds and modelNames for filtering.
+        const memberTagIds = new Set<string>();
+        const memberModels = new Set<string>();
+        let hasWorkflowAssets = false;
+        for (const member of members) {
+          for (const tid of member.tagIds ?? []) memberTagIds.add(tid);
+          if (member.modelName) memberModels.add(member.modelName);
+          if (member.generationType === "workflow") hasWorkflowAssets = true;
+        }
+        if (pack.modelName) memberModels.add(pack.modelName);
+        for (const tid of pack.tagIds ?? []) memberTagIds.add(tid);
+
+        return {
+          pack,
+          hasWorkflowAssets,
+          memberTagIds,
+          memberModels,
+          result: {
+            _id: pack._id,
+            title: pack.title,
+            description: pack.description,
+            pillar: pack.pillar,
+            modelName: pack.modelName,
+            itemCount: pack.itemCount,
+            isPublic: pack.isPublic,
+            isFeatured: pack.isFeatured,
+            createdAt: pack.createdAt,
+            updatedAt: pack.updatedAt,
+            coverUrl,
+            coverThumbUrl,
+            coverWidth,
+            coverHeight,
+            previewUrls,
+            hasWorkflowAssets,
+          },
+        };
+      }),
+    );
+
+    return hydrated
+      .filter(({ memberTagIds, memberModels }) => {
+        if (tagFilterSet) {
+          let any = false;
+          for (const id of tagFilterSet) {
+            if (memberTagIds.has(id as string)) {
+              any = true;
+              break;
+            }
+          }
+          if (!any) return false;
+        }
+        if (modelFilter && !memberModels.has(modelFilter)) return false;
+        return true;
+      })
+      .map(({ result }) => result);
   },
 });
 
@@ -413,6 +628,7 @@ export const consolidateOwnerPromptPacks = mutation({
   args: {
     ownerUserId: v.string(),
     limit: v.optional(v.number()),
+    createdBefore: v.optional(v.number()),
   },
   returns: v.object({
     processedPromptCount: v.number(),
@@ -421,6 +637,8 @@ export const consolidateOwnerPromptPacks = mutation({
     createdPackCount: v.number(),
     removedPackCount: v.number(),
     updatedAssetCount: v.number(),
+    hasMore: v.boolean(),
+    nextCreatedBefore: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -428,13 +646,18 @@ export const consolidateOwnerPromptPacks = mutation({
       throw new ConvexError("ownerUserId is required.");
     }
 
-    const prompts = await ctx.db
+    const limit = Math.min(args.limit ?? 200, 500);
+    const promptWindow = await ctx.db
       .query("prompts")
       .withIndex("by_owner_createdAt", (q) =>
-        q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
+        args.createdBefore !== undefined
+          ? q.eq("ownerUserId", ownerUserId).lt("createdAt", args.createdBefore)
+          : q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
       )
       .order("desc")
-      .take(Math.min(args.limit ?? 200, 500));
+      .take(limit + 1);
+    const hasMore = promptWindow.length > limit;
+    const prompts = promptWindow.slice(0, limit);
 
     const packIds = new Set<Id<"assetPacks">>();
     let syncedPromptCount = 0;
@@ -480,6 +703,8 @@ export const consolidateOwnerPromptPacks = mutation({
       createdPackCount,
       removedPackCount,
       updatedAssetCount,
+      hasMore,
+      nextCreatedBefore: hasMore ? prompts[prompts.length - 1]?.createdAt : undefined,
     };
   },
 });

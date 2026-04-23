@@ -1,146 +1,269 @@
 ---
 name: laniameda-gallery-query
 description: >-
-  Query the laniameda-gallery to browse, search, retrieve, and download assets
-  with their prompts and images. Use when an agent needs to find gallery content,
-  fetch an image to work with locally, or retrieve a prompt from the vault.
+  Query the laniameda-gallery to browse, search, retrieve, and download vault
+  content. Use when an agent needs to find assets, prompts, or structured
+  designs-pillar references in the gallery and pull them into the current task.
 ---
 
 # laniameda-gallery-query
 
-Use this skill to **read** from the laniameda.gallery vault. Browse by pillar, semantic search by natural language, retrieve a specific asset with its prompt, or download images to a local tmp folder.
+Use this skill to read from `laniameda.gallery`.
+
+It covers two read surfaces:
+
+- asset-centric reads: browse assets, semantic search, fetch one asset, download media
+- pack reads: fetch a saved asset pack and its member assets from a copied gallery ID
+- designs-pillar reads: browse structured design inspirations and inspect one design entry with its linked preview asset
 
 Counterpart to `laniameda-gallery-ingest` (which writes).
-
-## When to trigger
-
-- "find me that car prompt", "get me the cinematic portrait", "show me what's in the gallery"
-- "search the gallery for scroll animations"
-- "download that image so I can work with it"
-- "what prompts do I have for Midjourney?"
-- "grab the reference image and use it for..."
-- Any time the agent needs to pull content FROM the gallery
 
 ## Runtime env
 
 - `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` — required
-- `KB_OWNER_USER_ID` — required for `scope=mine` (default: `278674008`)
+- `KB_OWNER_USER_ID` — required for owner-scoped reads (`scope: "mine"`) and all designs-pillar actions
 
-Both are set in the gallery's `.env.local` and OpenClaw's `.env`.
+Best practice:
+
+- keep `KB_OWNER_USER_ID` env-driven
+- do not hardcode Michael's Telegram ID into wrappers or prompts
+- use `scope: "public"` only for public asset discovery; design inspiration reads are owner-scoped
 
 ## Script
 
-```
-~/work/laniameda/laniameda.gallery/skills/laniameda-gallery-query/scripts/query.ts
-```
-
-Run from the gallery repo root so Convex imports resolve:
-
 ```bash
-cd ~/work/laniameda/laniameda.gallery && bun run skills/laniameda-gallery-query/scripts/query.ts '<JSON>'
+cd ~/work/laniameda/laniameda.gallery
+bun run skills/laniameda-gallery-query/scripts/query.ts '<JSON>'
 ```
 
 ## Actions
 
-### `list` — Browse assets by filters
+### `list`
+
+Browse assets with structured filters.
+
+Supported filters:
+
+- `scope`: `mine` or `public` (`mine` default)
+- `pillar`
+- `kind`
+- `modelName`
+- `folderId` (`mine` only)
+- `assetRole`
+- `search` (text filter on hydrated asset content)
+- `limit`
+
+Example:
 
 ```json
 {
   "action": "list",
   "scope": "mine",
-  "pillar": "creators",
-  "kind": "image",
-  "modelName": "Midjourney",
+  "pillar": "cars",
+  "assetRole": "reference",
+  "folderId": "folders:abc123",
   "limit": 10
 }
 ```
 
-Returns newest assets matching filters. Default scope: `mine`, default limit: `20`.
+### `search`
 
-### `search` — Semantic search (Gemini embeddings)
+Semantic asset search via `semanticSearch:searchAssets`.
+
+Supported filters:
+
+- `scope`
+- `query`
+- `pillar`
+- `kind`
+- `modelName`
+- `folderId` (`mine` only)
+- `assetRole`
+- `limit`
+
+Example:
 
 ```json
 {
   "action": "search",
-  "query": "cinematic car at sunset with dramatic lighting",
+  "query": "dark moody editorial portrait with film grain",
   "scope": "mine",
-  "pillar": "cars",
+  "pillar": "creators",
+  "assetRole": "generated_output",
   "limit": 5
 }
 ```
 
-Uses Gemini `embedding-2-preview` to embed your query and find nearest matches in the vector index. Works across text and images (cross-modal). Requires `SEMANTIC_EMBEDDINGS_ENABLED=true` on the Convex deployment.
+### `get`
 
-### `get` — Retrieve a single asset with full metadata
+Fetch one owner-scoped asset with hydrated prompt/tag metadata.
 
 ```json
 {
   "action": "get",
-  "assetId": "abc123def456"
+  "assetId": "asset:abc123"
 }
 ```
 
-Returns the asset with: `promptText`, `tagNames`, `url`, `thumbUrl`, `modelName`, `pillar`, dimensions, etc.
+Raw Convex asset IDs are also accepted for `assetId`, but copied gallery IDs use the typed `asset:<id>` form.
 
-### `download` — Fetch image to local filesystem
+### `getPack`
+
+Fetch one owner-scoped asset pack and its hydrated member assets.
+
+```json
+{
+  "action": "getPack",
+  "packId": "pack:abc123"
+}
+```
+
+### `getById`
+
+Resolve a copied gallery ID without first deciding which table to query.
+
+Supported copied ID formats:
+
+- `asset:<id>`
+- `pack:<id>`
+- `design:<id>`
+
+Example:
+
+```json
+{
+  "action": "getById",
+  "id": "pack:abc123"
+}
+```
+
+### `download`
+
+Download one owner-scoped asset to local disk.
 
 ```json
 {
   "action": "download",
-  "assetId": "abc123def456",
+  "assetId": "asset:abc123",
   "outDir": "/tmp/laniameda-gallery"
 }
 ```
 
-Downloads the full-resolution image to `outDir` (default: `/tmp/laniameda-gallery`). Returns `savedPath` + full asset metadata including `promptText`.
+### `listDesigns`
 
-**Typical agent workflow:**
-1. `search` to find the right asset
-2. `download` to save it locally
-3. Use the `savedPath` and `promptText` in the current task
+Browse structured entries from the `designInspirations` pillar.
 
-## Response shape
+Supported filters:
 
-All actions return JSON. Key fields per asset:
+- `inspirationType`
+- `platform`
+- `workflowType`
+- `captureKind`
+- `saveIntent`
+- `folderId`
+- `sourceDomain`
+- `search`
+- `dateFrom`
+- `dateTo`
+- `requireAsset`
+- `limit`
 
-| Field | Type | Notes |
-|---|---|---|
-| `id` | string | Convex asset ID |
-| `kind` | `"image"` \| `"video"` | |
-| `pillar` | string | creators, cars, designs, dump |
-| `modelName` | string | Midjourney, FLUX, etc. |
-| `promptText` | string | The prompt (hydrated from prompts table) |
-| `tagNames` | string[] | Hydrated tag names |
-| `url` | string | Full-res image URL (presigned, temporary) |
-| `thumbUrl` | string | Thumbnail URL |
-| `sourceUrl` | string | Original source if ingested from URL |
-| `fileName` | string | Original filename |
-| `width` / `height` | number | Dimensions |
-| `score` | number | Similarity score (search action only) |
+Example:
 
-## Examples
-
-**Find Midjourney car prompts:**
-```bash
-cd ~/work/laniameda/laniameda.gallery && bun run skills/laniameda-gallery-query/scripts/query.ts \
-  '{"action":"list","pillar":"cars","modelName":"Midjourney","limit":5}'
+```json
+{
+  "action": "listDesigns",
+  "platform": "web",
+  "captureKind": "website",
+  "saveIntent": "inspiration",
+  "search": "pricing",
+  "requireAsset": true,
+  "limit": 10
+}
 ```
 
-**Semantic search for a style:**
-```bash
-cd ~/work/laniameda/laniameda.gallery && bun run skills/laniameda-gallery-query/scripts/query.ts \
-  '{"action":"search","query":"dark moody editorial portrait with film grain","limit":3}'
+### `getDesign`
+
+Fetch one owner-scoped design inspiration and, when present, hydrate its linked preview asset.
+
+```json
+{
+  "action": "getDesign",
+  "designInspirationId": "design:abc123"
+}
 ```
 
-**Download an asset and get its prompt:**
-```bash
-cd ~/work/laniameda/laniameda.gallery && bun run skills/laniameda-gallery-query/scripts/query.ts \
-  '{"action":"download","assetId":"k57abc123def","outDir":"/tmp/gallery"}'
-```
+## Typical workflows
 
-## Limitations
+### Find and reuse an image prompt
 
-- `get` and `download` scan the owner's asset list (up to 200) to find the asset by ID. For very large vaults, consider using `search` first.
-- Presigned URLs from Convex storage are temporary. Download promptly after retrieval.
-- Semantic search requires `SEMANTIC_EMBEDDINGS_ENABLED=true` on the Convex deployment.
-- Video assets return a URL but `download` saves raw bytes — no transcoding.
+1. `search` to find the best asset
+2. `download` to save the asset locally
+3. use `savedPath` and `promptText` in the current task
+
+### Resolve a copied gallery item
+
+1. Use `getById` with the exact copied ID from the gallery UI
+2. If the ID starts with `pack:`, inspect the returned `assets` array and choose the needed member asset
+3. If media bytes are needed, run `download` with the chosen `asset:<id>`
+
+### Find a saved design reference
+
+1. `listDesigns` with `search`, `platform`, or `captureKind`
+2. `getDesign` to inspect the full record and linked preview asset
+
+## Response highlights
+
+Asset actions return compact asset objects with fields like:
+
+- `id`
+- `kind`
+- `pillar`
+- `modelName`
+- `promptText`
+- `tagNames`
+- `url`
+- `thumbUrl`
+- `folderId`
+- `assetRole`
+- `assetPackId`
+- `packSlotIndex`
+- `score` (semantic search only)
+
+Pack actions return:
+
+- `pack.id`
+- `pack.title`
+- `pack.description`
+- `pack.pillar`
+- `pack.modelName`
+- `pack.coverAssetId`
+- `pack.itemCount`
+- `assets` hydrated like asset results
+
+Design actions return compact design objects with fields like:
+
+- `id`
+- `title`
+- `summary`
+- `sourceUrl`
+- `sourceTitle`
+- `userNote`
+- `inspirationType`
+- `platform`
+- `workflowType`
+- `captureKind`
+- `saveIntent`
+- `templateKey`
+- `sourceFingerprint`
+- `previewUrl`
+- `previewThumbUrl`
+- `assetId`
+- `promptId`
+
+## Notes
+
+- Semantic asset search requires `SEMANTIC_EMBEDDINGS_ENABLED=true` on the Convex deployment.
+- The embedding model in this repo is `gemini-embedding-2-preview`.
+- `download` saves raw bytes; video assets are not transcoded.
+- Convex storage URLs are temporary. Download promptly after retrieval.
