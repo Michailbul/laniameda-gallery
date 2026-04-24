@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Grid3X3, Layers, Search, X } from "lucide-react";
+import { Grid3X3, Layers, Package, Search, X } from "lucide-react";
 
 export type SortOrder = "featured" | "newest" | "popular";
 export type GalleryScope = "mine" | "public";
-export type ViewMode = "grid" | "canvas";
+export type ViewMode = "grid" | "canvas" | "packs";
 
 const PILLAR_OPTIONS = [
   { label: "Creators", value: "creators" },
@@ -589,6 +589,32 @@ function ViewModeToggle({
         aria-label="Canvas view"
       >
         <Layers className="h-3.5 w-3.5" />
+      </button>
+      <div
+        style={{
+          width: "1px",
+          alignSelf: "stretch",
+          backgroundColor: "var(--v7-border-strong)",
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => onViewModeChange("packs")}
+        className="flex items-center justify-center transition-colors"
+        style={{
+          padding: buttonPadding,
+          background:
+            viewMode === "packs"
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+              : "transparent",
+          color:
+            viewMode === "packs"
+              ? "#fff"
+              : "var(--v7-text-ghost)",
+        }}
+        aria-label="Packs view"
+      >
+        <Package className="h-3.5 w-3.5" />
       </button>
     </div>
   );
