@@ -643,6 +643,58 @@ export function V72DetailPanel({
               {relativeDate}
             </span>
           )}
+          {(() => {
+            const idKind: "asset" | "design" = image.isDesignInspiration ? "design" : "asset";
+            const idValue = image.isDesignInspiration ? image.id : currentAssetId;
+            if (!idValue) return null;
+            const token = `${idKind}:${idValue}`;
+            return (
+              <button
+                type="button"
+                onClick={() => void handleCopyGalleryId(idKind, idValue)}
+                className="flex items-center gap-1 transition-all hover:scale-[1.02]"
+                aria-label={`Copy ${idKind} ID`}
+                title={`Copy ${idKind} ID: ${token}`}
+                style={{
+                  padding: "2px 7px",
+                  fontSize: "10px",
+                  fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                  fontWeight: 700,
+                  color: "var(--v7-coral)",
+                  backgroundColor: "color-mix(in srgb, var(--v7-coral) 14%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--v7-coral) 45%, transparent)",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                <Copy className="h-2.5 w-2.5" />
+                {`${idKind}:${idValue.slice(0, 6)}…`}
+              </button>
+            );
+          })()}
+          {image.packId && !image.isDesignInspiration && (
+            <button
+              type="button"
+              onClick={() => void handleCopyGalleryId("pack", image.packId!)}
+              className="flex items-center gap-1 transition-all hover:scale-[1.02]"
+              aria-label="Copy pack ID"
+              title={`Copy pack ID: pack:${image.packId}`}
+              style={{
+                padding: "2px 7px",
+                fontSize: "10px",
+                fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                fontWeight: 700,
+                color: "var(--v7-text-secondary)",
+                backgroundColor: "var(--v7-surface-2)",
+                border: "1px solid var(--v7-border)",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              <Package className="h-2.5 w-2.5" />
+              {`pack:${image.packId.slice(0, 6)}…`}
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-1">
             {onReplaceThumbnail && (
               <>

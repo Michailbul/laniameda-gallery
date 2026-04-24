@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "gallery-dev",
-      "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "dev:preview"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "export PATH=$HOME/.nvm/versions/node/v20.19.6/bin:$PATH && bun run dev:preview"],
       "autoPort": true
     },
     {

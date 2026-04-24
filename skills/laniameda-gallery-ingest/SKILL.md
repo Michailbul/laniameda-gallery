@@ -53,6 +53,22 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 - Idempotent deletes for prompts, assets, and design inspirations
 - Automatic pack sync for multi-asset prompt variations that share a prompt record
 
+## Reading ingested content back (for agent handoff)
+
+After you create or update an asset/prompt/pack/design, the user can copy its ID from the gallery UI:
+
+- **Card corner button** (hover on desktop) — copies `asset:<id>` / `pack:<id>` / `design:<id>`
+- **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/pillar/date badges and copies the same token
+- **Detail panel Copy dropdown** — "Copy asset/design ID" and "Copy pack ID" menu items
+
+When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Hand off to the `laniameda-gallery-query` skill:
+
+- `getById` accepts any of `asset:<id>`, `pack:<id>`, `design:<id>` and returns the hydrated record (prompt text, tag names, resolved media URL, thumbnail URL, model, pillar, folder, pack membership, etc.).
+- Use `get` / `getPack` / `getDesign` when the ID type is already known.
+- Use `download` to pull raw bytes for local use.
+
+Agents should treat this as the canonical read path after an ingest. The ingest script intentionally exposes only create/update/delete — all reads live in `laniameda-gallery-query`.
+
 ## Semantic search
 
 All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).

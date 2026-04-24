@@ -128,6 +128,14 @@ Supported copied ID formats:
 - `pack:<id>`
 - `design:<id>`
 
+These tokens are produced by the gallery UI when the user clicks:
+
+- The corner copy button on any asset card (hover on desktop)
+- The persistent `asset:<id>` chip in the detail panel metadata strip
+- "Copy asset / design / pack ID" items inside the detail panel Copy dropdown
+
+Accept the pasted token verbatim — do not strip the prefix. Raw Convex IDs are also accepted, but the typed form lets the skill resolve the correct table automatically.
+
 Example:
 
 ```json

@@ -518,6 +518,14 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
 
   const { pack, items } = packData;
   const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--v7-coral)";
+  const packIdToken = `pack:${pack._id}`;
+  const handleCopyPackDetailId = async () => {
+    try {
+      await navigator.clipboard.writeText(packIdToken);
+    } catch (err) {
+      console.warn("Clipboard write failed", err);
+    }
+  };
 
   // Build preview images array for all items in the pack
   const allPreviews = items.map((item) => ({
@@ -537,19 +545,19 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
         <PackDetailHeader title={pack.title} onBack={onBack} itemCount={items.length} accentColor={accentColor} />
 
         {/* Pack meta strip */}
-        {(pack.description || pack.modelName) && (
-          <div
-            className="mt-2 mb-3 px-1"
-            style={{
-              fontFamily: "var(--v7-font)",
-              fontSize: "11px",
-              color: "var(--v7-text-secondary)",
-              lineHeight: 1.5,
-            }}
-          >
-            {pack.description && (
-              <p style={{ marginBottom: pack.modelName ? "4px" : 0 }}>{pack.description}</p>
-            )}
+        <div
+          className="mt-2 mb-3 px-1"
+          style={{
+            fontFamily: "var(--v7-font)",
+            fontSize: "11px",
+            color: "var(--v7-text-secondary)",
+            lineHeight: 1.5,
+          }}
+        >
+          {pack.description && (
+            <p style={{ marginBottom: "6px" }}>{pack.description}</p>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
             {pack.modelName && (
               <span
                 style={{
@@ -563,8 +571,29 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
                 {pack.modelName}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => void handleCopyPackDetailId()}
+              className="flex items-center gap-1 transition-all hover:scale-[1.02]"
+              aria-label="Copy pack ID"
+              title={`Copy pack ID: ${packIdToken}`}
+              style={{
+                padding: "2px 7px",
+                fontSize: "10px",
+                fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                fontWeight: 700,
+                color: "var(--v7-coral)",
+                backgroundColor: "color-mix(in srgb, var(--v7-coral) 14%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--v7-coral) 45%, transparent)",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              <Copy className="h-2.5 w-2.5" />
+              {`pack:${pack._id.slice(0, 6)}…`}
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Asset grid — layout adapts to item count for better presence */}
