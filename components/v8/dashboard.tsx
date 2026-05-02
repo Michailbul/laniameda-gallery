@@ -156,6 +156,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] =
     useState<Pillar | null>(null);
+  const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -774,7 +775,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       ? { ownerUserId, requireAsset: true, limit: 120 }
       : "skip",
   );
-  const isDesignsPillar = selectedPillar === "designs";
+  const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
 
   const galleryAssets =
     galleryScope === "mine"
@@ -929,6 +930,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSelectedPillar(null);
     setSelectedFolderId(null);
     setSelectedModelName(null);
+    setWorkflowsOnly(false);
   };
   const clearSemanticMode = useCallback(() => {
     setAssetSearchQuery("");
@@ -942,14 +944,17 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const allTags = dedupedTags;
   const lexicalFilteredAssets = useMemo(() => {
     const search = assetSearchQuery.trim().toLowerCase();
-    if (!search) {
-      return baseGalleryAssets;
+    let result = baseGalleryAssets;
+    if (search) {
+      result = result.filter((asset) =>
+        buildAssetSearchHaystack(asset).includes(search),
+      );
     }
-
-    return baseGalleryAssets.filter((asset) =>
-      buildAssetSearchHaystack(asset).includes(search),
-    );
-  }, [assetSearchQuery, baseGalleryAssets]);
+    if (workflowsOnly) {
+      result = result.filter((asset) => asset.generationType === "workflow");
+    }
+    return result;
+  }, [assetSearchQuery, baseGalleryAssets, workflowsOnly]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -970,6 +975,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       if (selectedPillar && asset.pillar !== selectedPillar) {
         return false;
       }
+      if (workflowsOnly && asset.generationType !== "workflow") {
+        return false;
+      }
       if (
         selectedTagIds &&
         !asset.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
@@ -985,6 +993,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     selectedPillar,
     selectedTagIds,
     semanticResults,
+    workflowsOnly,
   ]);
 
   const displayGalleryAssets =
@@ -1428,6 +1437,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
+    workflowsOnly ||
     effectiveSelectedFolderId !== null ||
     selectedModelName !== null ||
     assetSearchQuery.trim().length > 0 ||
@@ -1614,6 +1624,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               onClearAllTags={handleClearAll}
               selectedPillar={selectedPillar}
               onPillarSelect={setSelectedPillar}
+              workflowsOnly={workflowsOnly}
+              onWorkflowsOnlyChange={setWorkflowsOnly}
               sortOrder={sortOrder}
               onSortOrderChange={setSortOrder}
               viewMode={viewMode}

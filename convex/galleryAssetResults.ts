@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { dedupeIds } from "./helpers";
 import {
   assetRoleValidator,
+  generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
 } from "./validators";
@@ -36,6 +37,7 @@ export const galleryAssetResultValidator = v.object({
   curatedByUserId: v.optional(v.string()),
   curatedAt: v.optional(v.number()),
   pillar: optionalPillarValidator,
+  generationType: generationTypeValidator,
   assetRole: assetRoleValidator,
   ingestSource: ingestSourceValidator,
   assetPackId: v.optional(v.id("assetPacks")),
@@ -161,6 +163,7 @@ export const hydrateGalleryAssetResults = async (
         curatedByUserId: asset.curatedByUserId,
         curatedAt: asset.curatedAt,
         pillar: asset.pillar,
+        generationType: asset.generationType,
         assetRole: asset.assetRole,
         ingestSource: asset.ingestSource,
         assetPackId: asset.assetPackId,

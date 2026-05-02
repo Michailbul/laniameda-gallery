@@ -4,7 +4,7 @@
     {
       "name": "gallery-dev",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "export PATH=$HOME/.nvm/versions/node/v20.19.6/bin:$PATH && bun run dev:preview"],
+      "runtimeArgs": ["-c", "cd /Users/michael/work/laniameda/laniameda.gallery && export PATH=$HOME/.bun/bin:$HOME/.nvm/versions/node/v22.21.1/bin:$PWD/node_modules/.bin:$PATH && bun run dev:preview"],
       "autoPort": true
     },
     {

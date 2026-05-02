@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Grid3X3, Layers, Package, Search, X } from "lucide-react";
+import { Grid3X3, Layers, Package, Search, Workflow, X } from "lucide-react";
 
 export type SortOrder = "featured" | "newest" | "popular";
 export type GalleryScope = "mine" | "public";
@@ -32,6 +32,8 @@ interface V72FilterBarProps {
   onClearAllTags: () => void;
   selectedPillar: Pillar | null;
   onPillarSelect: (pillar: Pillar | null) => void;
+  workflowsOnly: boolean;
+  onWorkflowsOnlyChange: (next: boolean) => void;
   sortOrder: SortOrder;
   onSortOrderChange: (order: SortOrder) => void;
   viewMode?: ViewMode;
@@ -61,6 +63,8 @@ export function V72FilterBar({
   onClearAllTags,
   selectedPillar,
   onPillarSelect,
+  workflowsOnly,
+  onWorkflowsOnlyChange,
   sortOrder,
   onSortOrderChange,
   viewMode,
@@ -199,6 +203,19 @@ export function V72FilterBar({
                     accentColor={PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
                   />
                 ))}
+                <div
+                  style={{
+                    width: "1px",
+                    height: "20px",
+                    backgroundColor: "var(--v7-border-strong)",
+                    flexShrink: 0,
+                    margin: "0 4px",
+                  }}
+                />
+                <WorkflowsPill
+                  active={workflowsOnly}
+                  onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
+                />
               </div>
             </div>
 
@@ -244,6 +261,19 @@ export function V72FilterBar({
               accentColor={PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
             />
           ))}
+          <div
+            style={{
+              width: "1px",
+              height: "20px",
+              backgroundColor: "var(--v7-border-strong)",
+              flexShrink: 0,
+              margin: "0 4px",
+            }}
+          />
+          <WorkflowsPill
+            active={workflowsOnly}
+            onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
+          />
           <div
             style={{
               width: "1px",
@@ -664,6 +694,46 @@ function ScopePill({
       }
     >
       {label}
+    </button>
+  );
+}
+
+function WorkflowsPill({
+  active,
+  onClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 transition-all"
+      style={{
+        padding: "4px 10px",
+        borderRadius: "12px",
+        background: active
+          ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
+          : "transparent",
+        color: active ? "#fff" : "var(--v7-text-ghost)",
+        fontSize: "9px",
+        fontWeight: active ? 900 : 600,
+        textTransform: "uppercase",
+        letterSpacing: "0.14em",
+        border: active
+          ? "2px solid transparent"
+          : "2px solid var(--v7-border-strong)",
+        boxShadow: active ? "0 0 12px rgba(255, 122, 100, 0.35)" : "none",
+        cursor: "pointer",
+        fontFamily: "var(--v7-font)",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+      }}
+      title={active ? "Showing workflow recipes only" : "Show workflow recipes only"}
+    >
+      <Workflow className="h-3 w-3" />
+      Workflows
     </button>
   );
 }
