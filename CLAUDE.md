@@ -41,9 +41,8 @@ For gallery save flows:
 
 - This repo's gallery backend is `dev:perfect-buffalo-375`.
 - The canonical gallery cloud URL is `https://perfect-buffalo-375.convex.cloud`.
-- `dev:loyal-corgi-868` is the wrong backend for this repo and belongs to RunMusic.
 - Do not trust inherited shell Convex env blindly. If CLI behavior does not match the repo, check exported `CONVEX_*` / `NEXT_PUBLIC_CONVEX_URL` vars and prefer the repo env files plus `scripts/lib/convex-dev-env.ts`.
-- For local app runtime, `.env.local` should stay aligned with the intended gallery backend. Do not leave mixed values where `CONVEX_URL` points to gallery but `NEXT_PUBLIC_CONVEX_URL` or `CONVEX_DEPLOYMENT` point somewhere else.
+- For local app runtime, `.env.local` must stay aligned with the gallery backend (`CONVEX_URL`, `NEXT_PUBLIC_CONVEX_URL`, and `CONVEX_DEPLOYMENT` all pointing at `perfect-buffalo-375`).
 
 ## Current handoff
 

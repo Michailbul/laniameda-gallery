@@ -54,7 +54,6 @@ Michael finds things he likes (screenshots, prompts, reference images, designs) 
 ## Convex source of truth
 - The gallery's canonical Convex **dev deployment** is `dev:perfect-buffalo-375`.
 - The gallery's canonical Convex **cloud URL** is `https://perfect-buffalo-375.convex.cloud`.
-- `dev:loyal-corgi-868` is the **RunMusic** backend and is wrong for this repo.
 - If `CONVEX_DEPLOYMENT`, `CONVEX_URL`, or `NEXT_PUBLIC_CONVEX_URL` point anywhere else, treat that as drift and fix the env before running migrations or backend checks.
 - `bun run convex:dev` should target `dev:perfect-buffalo-375`. The helper in `scripts/lib/convex-dev-env.ts` intentionally strips inherited Convex env vars to avoid stale shell/session overrides.
 - If Convex CLI output looks inconsistent with the repo env files, check for shell-level exported vars first; this desktop environment has previously carried stale Convex vars across sessions.
