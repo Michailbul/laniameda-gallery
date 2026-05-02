@@ -227,6 +227,52 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
   const [isSeedanceOpen, setSeedanceOpen] = useState(false);
+  const [detailPanelWidth, setDetailPanelWidth] = useState<number>(380);
+  const detailPanelResizing = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("v8.detailPanelWidth");
+    const parsed = stored ? Number(stored) : NaN;
+    if (Number.isFinite(parsed) && parsed >= 320 && parsed <= 720) {
+      setDetailPanelWidth(parsed);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("v8.detailPanelWidth", String(detailPanelWidth));
+  }, [detailPanelWidth]);
+
+  const startDetailPanelResize = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      detailPanelResizing.current = {
+        startX: event.clientX,
+        startWidth: detailPanelWidth,
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const ctx = detailPanelResizing.current;
+        if (!ctx) return;
+        const delta = ctx.startX - moveEvent.clientX;
+        const next = Math.min(720, Math.max(320, ctx.startWidth + delta));
+        setDetailPanelWidth(next);
+      };
+      const onUp = () => {
+        detailPanelResizing.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [detailPanelWidth],
+  );
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceRunId, setWorkspaceRunId] = useState<string>();
   const [workspaceActionLabel, setWorkspaceActionLabel] =
@@ -1958,13 +2004,25 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
           {selectedImage && (
             <aside
-              className="hidden w-[380px] shrink-0 overflow-y-auto overscroll-contain md:block"
+              className="relative hidden shrink-0 overflow-y-auto overscroll-contain md:block"
               style={{
+                width: `${detailPanelWidth}px`,
                 backgroundColor: "color-mix(in srgb, var(--v7-surface-1) 75%, transparent)",
                 backdropFilter: "blur(16px)",
                 WebkitBackdropFilter: "blur(16px)",
               }}
             >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize gallery"
+                onMouseDown={startDetailPanelResize}
+                className="group/resizer absolute left-0 top-0 z-30 hidden h-full w-2 -translate-x-1/2 cursor-col-resize md:flex md:items-center md:justify-center"
+              >
+                <span
+                  className="h-12 w-[3px] rounded-full bg-[var(--v7-border-strong)] transition-colors duration-150 group-hover/resizer:bg-[var(--v7-coral)]"
+                />
+              </div>
               <V72DetailPanel
                 image={selectedImage}
                 carouselImages={carouselImages}

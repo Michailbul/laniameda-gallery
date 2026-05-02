@@ -125,16 +125,14 @@ function useColumnCount(compact: boolean): number {
   );
 }
 
-/* ── Round-robin distribution ── */
-// Deals items left-to-right across columns like cards,
-// so visual reading order matches array order (relevance).
-function distributeRoundRobin<T>(items: T[], numColumns: number): T[][] {
-  const columns: T[][] = Array.from({ length: numColumns }, () => []);
-  for (let i = 0; i < items.length; i++) {
-    columns[i % numColumns].push(items[i]);
-  }
-  return columns;
-}
+/* ── Sub-column grid ── */
+// Each logical column is split into SUBGRID slots so items can take
+// fractional spans. Image cards span IMAGE_SPAN (= 1 logical column),
+// video cards span VIDEO_SPAN (= 1.4 logical columns) so they render
+// 40% wider than image cards.
+const SUBGRID = 5;
+const IMAGE_SPAN = 5;
+const VIDEO_SPAN = 7;
 
 export function MasonryGrid({
   images,
@@ -183,40 +181,43 @@ export function MasonryGrid({
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
   }
 
-  const columns = distributeRoundRobin(visibleImages, columnCount);
-
   return (
     <>
       <div
-        className="flex"
-        style={{ gap: "12px", padding: "12px" }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${columnCount * SUBGRID}, minmax(0, 1fr))`,
+          gridAutoFlow: "dense",
+          gridAutoRows: "min-content",
+          gap: "12px",
+          padding: "12px",
+        }}
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
-        {columns.map((col, colIdx) => (
-          <div key={colIdx} className="flex flex-1 flex-col" style={{ gap: "12px" }}>
-            {col.map((image, rowIdx) => {
-              // Round-robin: original index = rowIdx * columnCount + colIdx
-              const originalIndex = rowIdx * columnCount + colIdx;
-              return (
-                <ImageCard
-                  key={image.id}
-                  image={image}
-                  eager={originalIndex < 12}
-                  onSelect={onImageSelect}
-                  canDelete={canDelete}
-                  deleting={deletingImageId === image.id}
-                  exiting={Boolean(exitingImageIds?.has(image.id))}
-                  onDelete={onDeleteImage}
-                  selectedId={selectedImageId}
-                  initiallyLoaded={image.initiallyLoaded}
-                  onLoad={() => onImageLoad?.(image.id)}
-                  index={originalIndex}
-                />
-              );
-            })}
-          </div>
-        ))}
+        {visibleImages.map((image, originalIndex) => {
+          const span = image.kind === "video" ? VIDEO_SPAN : IMAGE_SPAN;
+          return (
+            <div
+              key={image.id}
+              style={{ gridColumn: `span ${span}`, minWidth: 0 }}
+            >
+              <ImageCard
+                image={image}
+                eager={originalIndex < 12}
+                onSelect={onImageSelect}
+                canDelete={canDelete}
+                deleting={deletingImageId === image.id}
+                exiting={Boolean(exitingImageIds?.has(image.id))}
+                onDelete={onDeleteImage}
+                selectedId={selectedImageId}
+                initiallyLoaded={image.initiallyLoaded}
+                onLoad={() => onImageLoad?.(image.id)}
+                index={originalIndex}
+              />
+            </div>
+          );
+        })}
       </div>
       {visibleCount < images.length && (
         <div ref={sentinelRef} className="h-1" />
