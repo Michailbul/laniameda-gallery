@@ -583,6 +583,19 @@ export const deletePrompt = internalMutation({
         updatedAt: Date.now(),
       });
     }
+    const lineageRows = [
+      ...(await ctx.db
+        .query("generationLineage")
+        .withIndex("by_targetPrompt", (q) => q.eq("targetPromptId", args.id))
+        .collect()),
+      ...(await ctx.db
+        .query("generationLineage")
+        .withIndex("by_sourcePrompt", (q) => q.eq("sourcePromptId", args.id))
+        .collect()),
+    ];
+    for (const row of lineageRows) {
+      await ctx.db.delete(row._id);
+    }
     await ctx.db.delete(args.id);
     await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: args.id });
     for (const asset of linkedAssets) {
@@ -627,6 +640,19 @@ export const bulkDeletePrompts = internalMutation({
           promptId: undefined,
           updatedAt: Date.now(),
         });
+      }
+      const lineageRows = [
+        ...(await ctx.db
+          .query("generationLineage")
+          .withIndex("by_targetPrompt", (q) => q.eq("targetPromptId", id))
+          .collect()),
+        ...(await ctx.db
+          .query("generationLineage")
+          .withIndex("by_sourcePrompt", (q) => q.eq("sourcePromptId", id))
+          .collect()),
+      ];
+      for (const row of lineageRows) {
+        await ctx.db.delete(row._id);
       }
       await ctx.db.delete(id);
       await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: id });

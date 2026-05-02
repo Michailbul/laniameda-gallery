@@ -117,6 +117,63 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
+## Multi-stage workflows (prompt lineage)
+
+When a generation was produced from an earlier prompt or asset — e.g. a Seedance 2 video made from a GPT-Image-2 starting frame — capture the chain with `upstreamInputs`. Without this, the relationship is lost and agents cannot reproduce or remix the workflow.
+
+Pattern:
+
+1. Ingest each upstream step first. Use stable `ingestKey`s so you can reference them.
+2. Ingest the final/derivative step with an `upstreamInputs` array linking back to each upstream by `ingestKey` (or `id`).
+
+```bash
+# Step 1: save the GPT-Image-2 starting-frame prompt
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "pillar": "creators",
+  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
+  "promptType": "image_gen",
+  "generationType": "image_gen",
+  "modelName": "GPT-Image-2",
+  "modelProvider": "openai",
+  "imagePath": "/path/to/start-frame.png",
+  "ingestKey": "creators:neon-alley:startframe:v1"
+}'
+
+# Step 2: save the Seedance 2 prompt + video with upstream link
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "pillar": "creators",
+  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
+  "promptType": "video_gen",
+  "generationType": "video_gen",
+  "modelName": "Seedance 2.0",
+  "modelProvider": "other",
+  "imagePath": "/path/to/output.mp4",
+  "ingestKey": "creators:neon-alley:seedance:v1",
+  "upstreamInputs": [
+    {
+      "type": "prompt",
+      "ingestKey": "creators:neon-alley:startframe:v1",
+      "role": "starting_image_prompt",
+      "stageOrder": 1
+    },
+    {
+      "type": "asset",
+      "ingestKey": "creators:neon-alley:startframe:v1",
+      "role": "starting_image_asset",
+      "stageOrder": 1
+    }
+  ]
+}'
+```
+
+Rules:
+
+- `upstreamInputs[].type` is `"prompt"` or `"asset"`. One of `id` or `ingestKey` is required — prefer `ingestKey` for idempotency.
+- `role` uses the `lineageRoleValidator` enum: `starting_image_prompt`, `starting_image_asset`, `style_reference`, `motion_reference`, `upscale_source`, `variation_source`, `edit_source`, `other`.
+- Target resolution: when the ingest creates both a prompt and an asset, lineage attaches to the asset (the output). Prompt-only ingests attach lineage to the prompt.
+- Lineage rows are idempotent on `(owner, target, source, role)`. Re-ingest with the same keys updates `stageOrder`/`notes` without duplicating rows.
+- Unresolvable upstream `id`/`ingestKey` fails the ingest rather than silently dropping the link — ingest the upstream step first.
+
 ## CRITICAL: Never save without an image unless user approves
 
 **Do NOT use `allowPromptOnly: true` without explicit user approval.** This is a hard rule — no exceptions, no silent fallbacks.

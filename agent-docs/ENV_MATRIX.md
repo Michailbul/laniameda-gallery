@@ -87,7 +87,7 @@ Notes:
 - `convex/notifications.ts` sends Telegram "Saved" notifications after ingest.
 - Curation authorization in `convex/assets.ts` depends on Convex-side `CURATION_ADMIN_*` vars.
 
-## 4) OpenClaw / laniameda-gallery-ingest skill env
+## 4) Gallery skill env
 
 Required in the runtime where `laniameda-gallery-ingest` script executes:
 
@@ -98,8 +98,10 @@ CONVEX_URL=https://<your-convex-deployment>.convex.cloud
 
 Important:
 - The canonical skill source lives in `skills/laniameda-gallery-ingest/` inside this repo.
+- The companion read skill lives in `skills/laniameda-gallery-query/`.
 - Install that skill with `bunx skills` so `skills check` / `skills update` can track GitHub-backed installs on VPS and other machines.
 - The skill script now reads `CONVEX_URL` from env instead of hardcoding a deployment URL.
+- `laniameda-gallery-query` uses the same env pair and requires `KB_OWNER_USER_ID` for owner-scoped reads.
 
 ## 5) Telegram integration boundaries
 

@@ -135,6 +135,59 @@
       line-height: 1.4;
     }
 
+    /* ── Site control ── */
+
+    .site-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: white;
+      padding: 12px;
+    }
+
+    .site-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      word-break: break-word;
+    }
+
+    .site-hint {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.4;
+    }
+
+    .site-toggle {
+      width: 100%;
+      margin-top: 10px;
+      padding: 9px 12px;
+      border: 1px solid var(--border-focus);
+      border-radius: 8px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms, color 120ms, opacity 120ms;
+    }
+
+    .site-toggle:hover {
+      background: var(--surface);
+    }
+
+    .site-toggle[data-state="paused"] {
+      background: color-mix(in srgb, var(--coral) 10%, white);
+      color: var(--coral);
+      border-color: color-mix(in srgb, var(--coral) 40%, white);
+    }
+
+    .site-toggle:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
     /* ── Pillars ── */
 
     .pillars {
@@ -301,6 +354,17 @@
         >
       </div>
       <p class="url-hint">Gallery origin for the save API.</p>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="section">
+      <p class="section-label">current site</p>
+      <div class="site-card">
+        <p id="siteName" class="site-name">Loading…</p>
+        <p id="siteHint" class="site-hint">Checking this tab.</p>
+        <button id="siteToggle" class="site-toggle" type="button">Loading…</button>
+      </div>
     </div>
 
     <div class="sep"></div>

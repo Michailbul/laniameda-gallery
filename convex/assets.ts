@@ -379,6 +379,8 @@ export const getAsset = query({
       generationType: generationTypeValidator,
       assetRole: assetRoleValidator,
       ingestSource: ingestSourceValidator,
+      assetPackId: v.optional(v.id("assetPacks")),
+      packSlotIndex: v.optional(v.number()),
       createdAt: v.number(),
     }),
   ),
@@ -477,6 +479,8 @@ export const listAssets = query({
       generationType: generationTypeValidator,
       assetRole: assetRoleValidator,
       ingestSource: ingestSourceValidator,
+      assetPackId: v.optional(v.id("assetPacks")),
+      packSlotIndex: v.optional(v.number()),
       createdAt: v.number(),
     }),
   ),
@@ -1028,6 +1032,66 @@ export const replaceAssetThumbnail = mutation({
   },
 });
 
+export const replaceAssetMedia = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    storageId: v.id("_storage"),
+    thumbStorageId: v.optional(v.id("_storage")),
+    kind: v.union(v.literal("image"), v.literal("video")),
+    contentType: v.optional(v.string()),
+    fileName: v.optional(v.string()),
+    size: v.optional(v.number()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    thumbSize: v.optional(v.number()),
+    thumbWidth: v.optional(v.number()),
+    thumbHeight: v.optional(v.number()),
+  },
+  returns: v.id("assets"),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    if (asset.storageId && asset.storageId !== args.storageId) {
+      await ctx.storage.delete(asset.storageId);
+    }
+    if (asset.thumbStorageId && asset.thumbStorageId !== args.thumbStorageId) {
+      await ctx.storage.delete(asset.thumbStorageId);
+    }
+
+    await ctx.db.patch(args.assetId, {
+      storageId: args.storageId,
+      thumbStorageId: args.thumbStorageId,
+      kind: args.kind,
+      contentType: args.contentType,
+      fileName: args.fileName,
+      size: args.size,
+      width: args.width,
+      height: args.height,
+      thumbSize: args.thumbSize,
+      thumbWidth: args.thumbWidth,
+      thumbHeight: args.thumbHeight,
+    });
+
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
+    });
+
+    return args.assetId;
+  },
+});
+
 export const deleteAsset = mutation({
   args: {
     id: v.id("assets"),
@@ -1066,6 +1130,20 @@ export const deleteAsset = mutation({
       await ctx.storage.delete(storageId);
     }
 
+    const lineageRows = [
+      ...(await ctx.db
+        .query("generationLineage")
+        .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", args.id))
+        .collect()),
+      ...(await ctx.db
+        .query("generationLineage")
+        .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", args.id))
+        .collect()),
+    ];
+    for (const row of lineageRows) {
+      await ctx.db.delete(row._id);
+    }
+
     const packId = asset.assetPackId;
     await ctx.db.delete(args.id);
     if (packId) {
@@ -1092,6 +1170,19 @@ export const bulkDeleteAssets = internalMutation({
         .collect();
       for (const link of links) {
         await ctx.db.delete(link._id);
+      }
+      const lineageRows = [
+        ...(await ctx.db
+          .query("generationLineage")
+          .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", id))
+          .collect()),
+        ...(await ctx.db
+          .query("generationLineage")
+          .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", id))
+          .collect()),
+      ];
+      for (const row of lineageRows) {
+        await ctx.db.delete(row._id);
       }
       await ctx.db.delete(id);
       count++;

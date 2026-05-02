@@ -11,6 +11,8 @@ export type UploadFormInput = {
   pillar?: string | null;
   generationType?: string | null;
   promptType?: string | null;
+  workflowType?: string | null;
+  assetRole?: string | null;
   domain?: string | null;
 };
 
@@ -25,6 +27,8 @@ export const buildUploadFormData = ({
   pillar,
   generationType,
   promptType,
+  workflowType,
+  assetRole,
   domain,
 }: UploadFormInput) => {
   const trimmedPrompt = promptText?.trim() ?? "";
@@ -80,6 +84,12 @@ export const buildUploadFormData = ({
   }
   if (promptType) {
     formData.append("promptType", promptType);
+  }
+  if (workflowType) {
+    formData.append("workflowType", workflowType);
+  }
+  if (assetRole) {
+    formData.append("assetRole", assetRole);
   }
   if (domain) {
     formData.append("domain", domain);

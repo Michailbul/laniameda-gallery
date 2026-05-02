@@ -10,6 +10,7 @@ import {
   designSaveTemplateDefaultsValidator,
   generationTypeValidator,
   ingestSourceValidator,
+  lineageRoleValidator,
   modelProviderValidator,
   optionalPillarValidator,
   promptProfileValidator,
@@ -232,6 +233,22 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_tag_createdAt", ["tagId", "createdAt"]),
+  generationLineage: defineTable({
+    ownerUserId: v.string(),
+    targetPromptId: v.optional(v.id("prompts")),
+    targetAssetId: v.optional(v.id("assets")),
+    sourcePromptId: v.optional(v.id("prompts")),
+    sourceAssetId: v.optional(v.id("assets")),
+    role: lineageRoleValidator,
+    stageOrder: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_targetPrompt", ["targetPromptId"])
+    .index("by_targetAsset", ["targetAssetId"])
+    .index("by_sourcePrompt", ["sourcePromptId"])
+    .index("by_sourceAsset", ["sourceAssetId"]),
   canvasPositions: defineTable({
     assetId: v.id("assets"),
     ownerUserId: v.string(),
@@ -319,13 +336,16 @@ export default defineSchema({
     .index("by_source", ["sourceType", "sourceId"])
     .index("by_status_lastErrorAt", ["status", "lastErrorAt"])
     .index("by_owner_status_lastErrorAt", ["ownerUserId", "status", "lastErrorAt"]),
+  // NOTE: `runs` table has a rogue RunMusic document (jh70zdeqn3hqgth121wkeg0j5n81vdv9)
+  // with a completely different shape. Several fields are v.optional to accommodate it
+  // until that document is deleted from the Convex dashboard.
   runs: defineTable({
     userId: v.string(),
     runtime: v.optional(v.union(v.literal("ai_sdk"), v.literal("agent_worker"))),
     provider: v.optional(v.union(v.literal("gateway"), v.literal("provider_direct"))),
     model: v.optional(v.string()),
     mode: v.optional(v.union(v.literal("prompt_package"), v.literal("image_generate"))),
-    status: v.union(
+    status: v.optional(v.union(
       v.literal("queued"),
       v.literal("claimed"),
       v.literal("running"),
@@ -333,8 +353,8 @@ export default defineSchema({
       v.literal("completed"),
       v.literal("failed"),
       v.literal("canceled"),
-    ),
-    intent: v.union(
+    )),
+    intent: v.optional(v.union(
       v.literal("creator_assist"),
       v.literal("transfer_style"),
       v.literal("transfer_pose"),
@@ -342,15 +362,15 @@ export default defineSchema({
       v.literal("ingest"),
       v.literal("execute"),
       v.literal("creator_assist"),
-    ),
-    source: v.union(
+    )),
+    source: v.optional(v.union(
       v.literal("dashboard"),
       v.literal("canvas"),
       v.literal("telegram"),
       v.literal("dev_telegram"),
       v.literal("api"),
       v.literal("canvas"),
-    ),
+    )),
     sourceChatId: v.optional(v.string()),
     sourceThreadId: v.optional(v.string()),
     sourceMessageId: v.optional(v.string()),
@@ -374,8 +394,8 @@ export default defineSchema({
         estimatedCostUsd: v.optional(v.number()),
       }),
     ),
-    createdAt: v.number(),
-    updatedAt: v.number(),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_user_createdAt", ["userId", "createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])

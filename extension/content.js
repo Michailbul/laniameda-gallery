@@ -1,13 +1,97 @@
 // Save to Gallery — Universal content script
 // Attaches a hover badge on images that are large enough both intrinsically and on screen.
+// Includes Midjourney-specific prompt extraction when on midjourney.com.
 
 (() => {
   "use strict";
 
   const BADGE_ATTR = "data-stg-badge";
+  const DISABLED_HOSTS_KEY = "disabledHosts";
+  // Hosts where the extension should NEVER run (our own app — packs/assets
+  // aren't saveable via the extension overlay).
+  const BUILTIN_DISABLED_HOSTS = [
+    "laniameda.gallery",
+    "laniameda-galery.vercel.app",
+    "localhost",
+    "127.0.0.1",
+  ];
   const SAVE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
   const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
   const imageQualification = globalThis.SaveToGalleryImageQualification;
+  const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
+
+  let extensionEnabled = false;
+  let configLoaded = false;
+
+  // ── Midjourney adapter ──
+
+  function isMidjourneyPage() {
+    return location.hostname.includes("midjourney.com");
+  }
+
+  function extractMidjourneyContext() {
+    // Only works when lightbox/detail view is open
+    const promptContainer = document.querySelector("#lightboxPrompt");
+    if (!promptContainer) return null;
+
+    // Extract prompt text from the .notranslate container
+    const notranslate = promptContainer.querySelector(".notranslate");
+    const promptText = notranslate ? notranslate.textContent.trim() : "";
+
+    // Extract parameters (--ar, --s, --v, etc.) from parameter buttons
+    const paramButtons = promptContainer.querySelectorAll("button[title]");
+    const params = [];
+    for (const btn of paramButtons) {
+      // Hidden spans contain the full param string like "--ar 2:3"
+      const hiddenSpan = btn.querySelector("span.text-transparent");
+      if (hiddenSpan) {
+        const paramText = hiddenSpan.textContent.trim();
+        if (paramText.startsWith("--")) params.push(paramText);
+      }
+    }
+
+    // Combine prompt + params into full prompt string
+    const fullPrompt = params.length > 0
+      ? `${promptText} ${params.join(" ")}`.trim()
+      : promptText;
+
+    // Extract image URL from lightbox video poster or img
+    const lightboxVideo = document.querySelector("video[id^='lightbox-video-']");
+    let imageUrl = "";
+    if (lightboxVideo) {
+      imageUrl = lightboxVideo.poster || lightboxVideo.src || "";
+    }
+
+    return {
+      promptText: fullPrompt || null,
+      imageUrl: imageUrl || null,
+      modelName: "Midjourney",
+    };
+  }
+
+  // ── Image-to-base64 (for CDNs behind Cloudflare like Midjourney) ──
+
+  async function imageToBase64(url) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          // Strip the data:...;base64, prefix
+          const dataUrl = reader.result;
+          const base64 = dataUrl.split(",")[1];
+          const contentType = blob.type || "image/webp";
+          resolve({ base64, contentType });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  }
 
   // ── Helpers ──
 
@@ -42,6 +126,19 @@
     } catch {
       return url;
     }
+  }
+
+  function normalizeDisabledHosts(rawHosts) {
+    if (!Array.isArray(rawHosts)) return [];
+    return rawHosts
+      .map((host) => String(host).trim().toLowerCase().replace(/^www\./, ""))
+      .filter(Boolean);
+  }
+
+  function isHostDisabled(disabledHosts, host) {
+    return disabledHosts.some((disabledHost) =>
+      host === disabledHost || host.endsWith(`.${disabledHost}`),
+    );
   }
 
   // ── Badge creation ──
@@ -130,20 +227,41 @@
   // ── Save logic ──
 
   async function handleSave(img, badge) {
-    const imageUrl = resolveAbsoluteUrl(getImageUrl(img));
+    let imageUrl = resolveAbsoluteUrl(getImageUrl(img));
     if (!imageUrl) return;
+
+    // On Midjourney, try to extract prompt + better image URL from lightbox
+    let mjContext = null;
+    if (isMidjourneyPage()) {
+      mjContext = extractMidjourneyContext();
+      if (mjContext && mjContext.imageUrl) {
+        imageUrl = resolveAbsoluteUrl(mjContext.imageUrl);
+      }
+      console.log("[Save to Gallery] Midjourney context:", mjContext);
+    }
 
     // Visual feedback: saving
     badge.innerHTML = `<span>Saving…</span>`;
     badge.classList.add("stg-badge--saving");
 
     try {
-      // Send to background worker
+      // On Midjourney, fetch image as base64 (CDN blocks server-side fetch)
+      let fileData = undefined;
+      if (isMidjourneyPage()) {
+        const b64 = await imageToBase64(imageUrl);
+        if (b64) fileData = b64;
+        else console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
+      }
+
+      // Send to background worker with Midjourney context if available
       const response = await chrome.runtime.sendMessage({
         action: "saveImage",
         imageUrl,
         sourceUrl: location.href,
         pageTitle: document.title,
+        promptText: mjContext?.promptText || undefined,
+        modelName: mjContext?.modelName || undefined,
+        file: fileData || undefined,
       });
 
       if (response && response.ok) {
@@ -152,8 +270,13 @@
         badge.classList.remove("stg-badge--saving");
         badge.classList.add("stg-badge--saved");
 
-        // Show popover for optional prompt
-        showPopover(img, badge, imageUrl, response.result);
+        // Skip popover if Midjourney prompt was auto-extracted
+        if (mjContext && mjContext.promptText) {
+          badge.innerHTML = `${CHECK_ICON}<span>Saved + prompt</span>`;
+        } else {
+          // Show popover for optional prompt
+          showPopover(img, badge, imageUrl, response.result);
+        }
       } else {
         throw new Error(response?.error || "Save failed");
       }
@@ -207,6 +330,42 @@
     badge.className = "stg-badge";
   }
 
+  function clearInjectedUi() {
+    hideBadge();
+
+    for (const node of document.querySelectorAll(".stg-badge, .stg-popover")) {
+      node.remove();
+    }
+
+    for (const img of document.querySelectorAll(`img[${BADGE_ATTR}]`)) {
+      img.removeAttribute(BADGE_ATTR);
+    }
+  }
+
+  function setExtensionEnabled(nextEnabled) {
+    extensionEnabled = Boolean(nextEnabled);
+    if (!extensionEnabled) {
+      clearInjectedUi();
+    }
+  }
+
+  function syncSiteStateFromStorage(onComplete) {
+    // Built-in exclusions win — the extension never runs on our own app.
+    if (isHostDisabled(BUILTIN_DISABLED_HOSTS, currentHost)) {
+      setExtensionEnabled(false);
+      configLoaded = true;
+      onComplete?.(false);
+      return;
+    }
+    chrome.storage.sync.get([DISABLED_HOSTS_KEY], (cfg) => {
+      const disabledHosts = normalizeDisabledHosts(cfg[DISABLED_HOSTS_KEY]);
+      const enabled = !isHostDisabled(disabledHosts, currentHost);
+      setExtensionEnabled(enabled);
+      configLoaded = true;
+      onComplete?.(enabled);
+    });
+  }
+
   // ── Hover-based lazy badge injection ──
 
   let currentBadge = null;
@@ -250,20 +409,26 @@
     const img = e.target.closest("img");
     if (!img) return;
 
-    // Check if already has a saved badge or popover open
-    if (img.hasAttribute(BADGE_ATTR)) return;
+    syncSiteStateFromStorage((isEnabled) => {
+      if (!configLoaded || !isEnabled) return;
 
-    // Wait for natural dimensions on lazy-loaded images
-    if (img.complete) {
-      if (isQualifiedImage(img)) showBadgeOn(img);
-    } else {
-      img.addEventListener("load", () => {
+      // Check if already has a saved badge or popover open
+      if (img.hasAttribute(BADGE_ATTR)) return;
+
+      // Wait for natural dimensions on lazy-loaded images
+      if (img.complete) {
         if (isQualifiedImage(img)) showBadgeOn(img);
-      }, { once: true });
-    }
+      } else {
+        img.addEventListener("load", () => {
+          if (extensionEnabled && isQualifiedImage(img)) showBadgeOn(img);
+        }, { once: true });
+      }
+    });
   }, { passive: true });
 
   document.addEventListener("mouseout", (e) => {
+    if (!configLoaded || !extensionEnabled) return;
+
     const img = e.target.closest("img");
     if (!img || img !== currentImg) return;
 
@@ -284,6 +449,8 @@
 
   // Also hide badge when mouse leaves the badge itself
   document.addEventListener("mouseout", (e) => {
+    if (!configLoaded || !extensionEnabled) return;
+
     if (!e.target.closest(".stg-badge")) return;
     const related = e.relatedTarget;
     if (related && (related === currentImg || related.closest(".stg-badge") || related.closest(".stg-popover"))) return;
@@ -295,5 +462,27 @@
       hideBadge();
     }, 200);
   }, { passive: true });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.action === "setSiteEnabled") {
+      setExtensionEnabled(Boolean(message.enabled));
+      configLoaded = true;
+      sendResponse({ ok: true });
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync" || !changes[DISABLED_HOSTS_KEY]) {
+      return;
+    }
+
+    const disabledHosts = normalizeDisabledHosts(
+      changes[DISABLED_HOSTS_KEY].newValue,
+    );
+    setExtensionEnabled(!isHostDisabled(disabledHosts, currentHost));
+    configLoaded = true;
+  });
+
+  syncSiteStateFromStorage();
 
 })();

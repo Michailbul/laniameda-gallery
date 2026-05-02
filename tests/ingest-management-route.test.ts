@@ -13,15 +13,13 @@ mock.module("@/lib/server-auth", () => ({
   requireAuth: async () => ({ id: state.authUserId }),
 }));
 
-mock.module("convex/browser", () => ({
-  ConvexHttpClient: class {
-    constructor(_url: string) {}
-
-    async action(_reference: unknown, payload: Record<string, unknown>) {
+mock.module("@/lib/server/convex", () => ({
+  getServerConvexClient: () => ({
+    action: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.actionCalls.push({ payload });
       return state.actionResult;
-    }
-  },
+    },
+  }),
 }));
 
 describe("ingest management routes", () => {
@@ -29,7 +27,6 @@ describe("ingest management routes", () => {
     state.authUserId = "telegram:278674008";
     state.actionCalls = [];
     state.actionResult = { ok: true };
-    process.env.CONVEX_URL = "https://example.convex.cloud";
   });
 
   test("POST /api/ingest/update injects the authenticated ownerUserId", async () => {

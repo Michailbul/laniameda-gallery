@@ -80,4 +80,56 @@ describe("POST /api/ingest", () => {
     expect(state.actionCalls[0]?.ownerUserId).toBe("telegram:278674008");
     expect(state.actionCalls[0]?.allowPromptOnly).toBe(true);
   });
+
+  test("forwards workflow upstream inputs to Convex ingest", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/ingest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          promptText: "Seedance motion pass",
+          url: "https://example.com/output.mp4",
+          ingestKey: "video:output:v1",
+          promptIngestKey: "prompt:video-workflow:v1",
+          pillar: "creators",
+          promptType: "video_gen",
+          generationType: "video_gen",
+          workflowType: "asset_recipe",
+          assetRole: "generated_output",
+          upstreamInputs: [
+            {
+              type: "asset",
+              ingestKey: "image:start-frame:v1",
+              role: "starting_image_asset",
+              stageOrder: 1,
+              notes: "Starting frame for the video generation.",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]).toMatchObject({
+      ownerUserId: "telegram:278674008",
+      ingestKey: "video:output:v1",
+      promptIngestKey: "prompt:video-workflow:v1",
+      promptType: "video_gen",
+      generationType: "video_gen",
+      workflowType: "asset_recipe",
+      assetRole: "generated_output",
+      upstreamInputs: [
+        {
+          type: "asset",
+          ingestKey: "image:start-frame:v1",
+          role: "starting_image_asset",
+          stageOrder: 1,
+          notes: "Starting frame for the video generation.",
+        },
+      ],
+    });
+  });
 });

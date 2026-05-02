@@ -79,6 +79,7 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
     assetRole: payload.assetRole,
     ingestSource: payload.ingestSource,
     designInspiration: payload.designInspiration,
+    upstreamInputs: payload.upstreamInputs,
     domain: payload.domain,
     file: file
       ? {
@@ -142,6 +143,7 @@ export async function POST(request: Request) {
     let assetRole: string | undefined;
     let ingestSource: string | undefined;
     let designInspiration: Record<string, unknown> | undefined;
+    let upstreamInputs: Record<string, unknown>[] | undefined;
 
     if (contentType.includes("application/json")) {
       const data = await readJson(request);
@@ -188,6 +190,9 @@ export async function POST(request: Request) {
         !Array.isArray(data.designInspiration)
           ? (data.designInspiration as Record<string, unknown>)
           : undefined;
+      upstreamInputs = Array.isArray(data.upstreamInputs)
+        ? (data.upstreamInputs as Record<string, unknown>[])
+        : undefined;
     } else {
       const form = await request.formData();
       const promptValue = form.get("prompt");
@@ -231,6 +236,7 @@ export async function POST(request: Request) {
       const assetRoleValue = form.get("assetRole");
       const ingestSourceValue = form.get("ingestSource");
       const designInspirationValue = form.get("designInspiration");
+      const upstreamInputsValue = form.get("upstreamInputs");
       modelName = typeof modelNameValue === "string" ? modelNameValue : undefined;
       pillar = typeof pillarValue === "string" ? pillarValue : undefined;
       generationType = typeof generationTypeValue === "string" ? generationTypeValue : undefined;
@@ -245,6 +251,9 @@ export async function POST(request: Request) {
       ingestSource = typeof ingestSourceValue === "string" ? ingestSourceValue : undefined;
       designInspiration =
         parseOptionalJsonField<Record<string, unknown>>(designInspirationValue);
+      upstreamInputs = parseOptionalJsonField<Record<string, unknown>[]>(
+        upstreamInputsValue,
+      );
     }
 
     const resolvedPromptText = resolvePromptText({
@@ -300,6 +309,7 @@ export async function POST(request: Request) {
       assetRole: assetRole || undefined,
       ingestSource: ingestSource || undefined,
       designInspiration,
+      upstreamInputs,
       domain: domain || undefined,
     };
 

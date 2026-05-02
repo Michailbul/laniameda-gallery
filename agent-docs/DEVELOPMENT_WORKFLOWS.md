@@ -30,11 +30,12 @@ bun run skills:update          # Check/update GitHub-backed installed skills
 
 Canonical source:
 - `skills/laniameda-gallery-ingest/`
+- `skills/laniameda-gallery-query/`
 
 Rules:
-- Edit only the repo copy of `skills/laniameda-gallery-ingest`.
+- Edit only the repo copies of `skills/laniameda-gallery-ingest` and `skills/laniameda-gallery-query`.
 - Never hand-edit installed copies under `~/.openclaw/skills`, `~/.codex/skills`, or `~/.agents/skills`.
-- When ingest contracts change, ship the repo skill update in the same commit.
+- When ingest/query contracts change, ship the repo skill update in the same commit.
 
 Recommended commands:
 

@@ -2,11 +2,16 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-03-17
+Last updated: 2026-05-02
 
 ---
 
 ## ✔ Shipped
+
+### 2026-05-02
+- Video/workflow saving finished end-to-end: video uploads/URLs store as `kind: "video"`, render in gallery cards/detail view, and can carry prompt/workflow metadata
+- Generation lineage shipped for multi-stage workflows via `generationLineage` and ingest `upstreamInputs`, including owner checks, idempotent upserts, and cleanup on prompt/asset delete
+- Upload and extension paths refreshed for workflow metadata, Midjourney prompt capture, and canonical gallery extension settings
 
 ### 2026-04-02
 - Gallery packs promoted to a first-class dashboard card concept: pack members now collapse into one card with hover preview cycling and detail-panel carousel support

@@ -14,13 +14,18 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
 
 - `designInspirations`
   - Use for non-prompt design references.
-  - Key ingest fields: `ownerUserId`, `pillar: "designs"`, `title`, `summary`, `sourceUrl`, `sourceDomain`, `inspirationType`, `platform`, `workflowType`, `tagIds`, `folderId`, `ingestKey`, optional links to `assetId` and `promptId`.
-  - Extension save metadata may also appear on these rows: `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`.
+  - Key ingest fields: `ownerUserId`, `pillar: "designs"`, `title`, `summary`, `sourceUrl`, `sourceDomain`, `sourceTitle`, `userNote`, `inspirationType`, `platform`, `workflowType`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`, `status`, `tagIds`, `folderId`, `ingestKey`, optional links to `assetId` and `promptId`.
   - Idempotency index: `by_owner_ingestKey`.
 
 - `designSaveTemplates`
   - Owner-scoped default metadata for browser-extension design saves.
   - Not used by the ingest script today, but part of the shared backend schema.
+
+- `generationLineage`
+  - Structured upstream dependencies between prompts/assets. Use when a generation was produced from an earlier prompt or asset (e.g. a Seedance 2 video generated from a GPT-Image-2 starting frame).
+  - Fields: `ownerUserId`, `targetPromptId`/`targetAssetId` (exactly one), `sourcePromptId`/`sourceAssetId` (exactly one), `role`, `stageOrder`, `notes`, `createdAt`.
+  - Idempotent on the tuple (owner, target*, source*, role). Re-ingest with the same upstream does not create duplicates.
+  - Populated by `ingest:ingestFromApi` via `upstreamInputs`. Cleaned up automatically when the target or source prompt/asset is deleted.
 
 - `semanticDocuments`
   - Async search index rows generated from assets, prompts, and design inspirations.
@@ -47,6 +52,7 @@ See `convex/validators.ts`:
 - `tagCategoryValidator`, `tagSourceValidator`, `typedTagInputValidator`
 - `designInspirationTypeValidator`, `designPlatformValidator`
 - `assetRoleValidator`, `ingestSourceValidator`
+- `lineageRoleValidator` — enum: `starting_image_prompt`, `starting_image_asset`, `style_reference`, `motion_reference`, `upscale_source`, `variation_source`, `edit_source`, `other`
 
 ## Join tables
 
@@ -60,7 +66,11 @@ These are maintained by backend mutations; callers usually pass tag names or typ
 
 - `ingest:ingestFromApi` is the canonical external ingest action.
 - Prompt-only ingests must set `allowPromptOnly: true`; mixed prompt+media ingests must not rely on implicit prompt creation alone. This applies across the maintained ingest surfaces, including the legacy agent-ingest path.
-- `ingest:updateFromApi` is the canonical external metadata update action.
+- `ingest:updateFromApi` is the canonical external update action. It supports both metadata updates and media operations.
+  - **Prompt media attachment:** `target: "prompt"` + `file`/`url` creates a new asset linked to the prompt (or replaces media if the derived `assetIngestKey` already exists).
+  - **Asset media replacement:** `target: "asset"` + `file`/`url` replaces the stored file, thumbnail, and file-related fields (kind, contentType, dimensions). Old storage blobs are cleaned up.
+  - Both media operations accept `file` (base64 + fileName + contentType) or `url` (remote fetch). The `assetIngestKey` field overrides the default `${ingestKey}:img` key used when creating assets from prompt updates.
+- The ingest contract now exposes the newer design-inspiration metadata fields for both create and update flows, so browser-extension-style saves can stay lossless.
 - `ingest:deleteFromApi` is the canonical external delete action.
 - Prompt-linked multi-asset variations are normalized into `assetPacks` automatically at the mutation layer.
 - Legacy prompt groups can be backfilled with `assetPacks:consolidateOwnerPromptPacks`.

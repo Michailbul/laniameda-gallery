@@ -13,7 +13,7 @@ Stores and organizes AI generation prompts, reference images, and design inspira
 | **Designs** | Website, UI, mobile, component designs |
 | **Dump** | Anything useful that doesn't fit the others |
 
-Ingestion is handled by the `laniameda-kb` OpenClaw skill — send an image or prompt to OpenClaw via Telegram, and it shows up in the gallery.
+Ingestion is handled by the repo-local `laniameda-gallery-ingest` skill. Query/retrieval for agents is handled by `laniameda-gallery-query`.
 
 ## Stack
 
@@ -55,7 +55,7 @@ bun run lint         # Lint
 bun test             # Tests
 bun run typecheck    # Type check
 bunx convex dev      # Convex local dev (run separately)
-bun run skills:install:github # Install canonical laniameda-kb skill globally
+bun run skills:install:github # Install both canonical gallery skills globally
 bun run skills:update         # Refresh GitHub-backed installed skills
 ```
 
@@ -91,4 +91,4 @@ See `agent-docs/` for detailed docs:
 - `DESIGN.md` — UI design system
 - `OPENCLAW-EXPLANATION.md` — how OpenClaw integration works
 
-The canonical `laniameda-kb` skill now lives in [`skills/laniameda-kb`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-kb). Install it from this repo with `bunx skills` so laptops and VPS machines can track updates from GitHub.
+The canonical gallery skills live in [`skills/laniameda-gallery-ingest`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-gallery-ingest) and [`skills/laniameda-gallery-query`](/Users/michael/work/laniameda/laniameda.gallery/skills/laniameda-gallery-query). Install them from this repo with `bunx skills` so laptops and VPS machines can track updates from GitHub.

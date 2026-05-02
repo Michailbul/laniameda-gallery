@@ -13,12 +13,16 @@ describe("buildUploadFormData", () => {
       tags: ["sunset", "sunset", "dream"],
       file,
       pillar: "designs",
+      workflowType: "asset_recipe",
+      assetRole: "workflow_asset",
     });
 
     expect(formData.get("prompt")).toBe("Test prompt");
     expect(formData.get("url")).toBe("https://example.com/image.png");
     expect(formData.get("folderId")).toBe("folder-1");
     expect(formData.get("pillar")).toBe("designs");
+    expect(formData.get("workflowType")).toBe("asset_recipe");
+    expect(formData.get("assetRole")).toBe("workflow_asset");
     expect(formData.getAll("tags")).toEqual(["sunset", "dream"]);
     expect(formData.get("ingestKey")).toBe(
       buildIngestKey({

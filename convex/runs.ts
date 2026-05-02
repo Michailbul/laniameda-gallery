@@ -74,9 +74,9 @@ const runValidator = v.object({
   provider: v.optional(runProviderValidator),
   model: v.optional(v.string()),
   mode: v.optional(runModeValidator),
-  status: runStatusValidator,
-  intent: runIntentValidator,
-  source: runSourceValidator,
+  status: v.optional(runStatusValidator),
+  intent: v.optional(runIntentValidator),
+  source: v.optional(runSourceValidator),
   sourceChatId: v.optional(v.string()),
   sourceThreadId: v.optional(v.string()),
   sourceMessageId: v.optional(v.string()),
@@ -93,8 +93,8 @@ const runValidator = v.object({
   failedAt: v.optional(v.number()),
   lastError: v.optional(v.string()),
   usage: v.optional(runUsageValidator),
-  createdAt: v.number(),
-  updatedAt: v.number(),
+  createdAt: v.optional(v.number()),
+  updatedAt: v.optional(v.number()),
 });
 
 const runEventValidator = v.object({

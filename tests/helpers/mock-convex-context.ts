@@ -1,6 +1,7 @@
 type Constraint =
   | { type: "eq"; field: string; value: unknown }
-  | { type: "gte"; field: string; value: unknown };
+  | { type: "gte"; field: string; value: unknown }
+  | { type: "lt"; field: string; value: unknown };
 
 type AnyDoc = {
   _id: string;
@@ -18,6 +19,11 @@ class QueryBuilder {
 
   gte(field: string, value: unknown) {
     this.constraints.push({ type: "gte", field, value });
+    return this;
+  }
+
+  lt(field: string, value: unknown) {
+    this.constraints.push({ type: "lt", field, value });
     return this;
   }
 }
@@ -69,6 +75,16 @@ class InMemoryQuery {
         const value = doc[constraint.field];
         if (constraint.type === "eq") {
           if (value !== constraint.value) {
+            return false;
+          }
+          continue;
+        }
+
+        if (constraint.type === "lt") {
+          if (value === undefined || value === null) {
+            return false;
+          }
+          if ((value as string | number) >= (constraint.value as string | number)) {
             return false;
           }
           continue;
@@ -179,6 +195,9 @@ export const createMockConvexMutationCtx = () => {
           size: blob.size,
           type: blob.type,
         }),
+      delete: async (storageId: string) => {
+        await db.delete(storageId);
+      },
       getUrl: async (storageId: string) => `https://convex.test/storage/${storageId}`,
     },
   };

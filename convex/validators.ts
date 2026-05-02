@@ -280,6 +280,17 @@ export const ingestSourceValidator = v.optional(v.union(
   v.literal("import"),
 ));
 
+export const lineageRoleValidator = v.union(
+  v.literal("starting_image_prompt"),
+  v.literal("starting_image_asset"),
+  v.literal("style_reference"),
+  v.literal("motion_reference"),
+  v.literal("upscale_source"),
+  v.literal("variation_source"),
+  v.literal("edit_source"),
+  v.literal("other"),
+);
+
 export const semanticSourceTypeValidator = v.union(
   v.literal("asset"),
   v.literal("prompt"),

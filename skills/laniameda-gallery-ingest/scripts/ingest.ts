@@ -53,6 +53,8 @@ type DesignInspirationType =
   | "other";
 type DesignPlatform = "web" | "ios" | "android" | "cross_platform" | "other";
 type DesignInspirationStatus = "active" | "archived";
+type DesignCaptureKind = "website" | "image" | "component" | "tutorial";
+type DesignSaveIntent = "utility" | "inspiration" | "component" | "tutorial";
 
 type TypedTagInput = {
   name: string;
@@ -71,13 +73,39 @@ type DesignInspirationInput = {
   title?: string;
   summary?: string;
   sourceUrl?: string;
+  sourceTitle?: string;
+  userNote?: string;
   inspirationType: DesignInspirationType;
   platform?: DesignPlatform;
   workflowType?: WorkflowType;
+  captureKind?: DesignCaptureKind;
+  saveIntent?: DesignSaveIntent;
+  templateKey?: string;
+  sourceFingerprint?: string;
+  status?: DesignInspirationStatus;
   ingestKey?: string;
 };
 
 type PromptProfileInput = Record<string, unknown>;
+
+type LineageRole =
+  | "starting_image_prompt"
+  | "starting_image_asset"
+  | "style_reference"
+  | "motion_reference"
+  | "upscale_source"
+  | "variation_source"
+  | "edit_source"
+  | "other";
+
+type UpstreamInput = {
+  type: "prompt" | "asset";
+  id?: string;
+  ingestKey?: string;
+  role: LineageRole;
+  stageOrder?: number;
+  notes?: string;
+};
 
 type CreateItem = {
   operation?: "create";
@@ -108,6 +136,7 @@ type CreateItem = {
   ingestSource?: IngestSource;
   designInspiration?: DesignInspirationInput;
   domain?: string;
+  upstreamInputs?: UpstreamInput[];
 };
 
 type UpdateItem = {
@@ -115,6 +144,13 @@ type UpdateItem = {
   target: Target;
   id?: string;
   ingestKey?: string;
+  filePath?: string;
+  imagePath?: string;
+  fileBase64?: string;
+  imageBase64?: string;
+  url?: string;
+  imageUrl?: string;
+  assetIngestKey?: string;
   promptText?: string;
   tagNames?: string[];
   typedTags?: TypedTagInput[];
@@ -129,6 +165,8 @@ type UpdateItem = {
   promptProfile?: PromptProfileInput | null;
   promptId?: string | null;
   sourceUrl?: string | null;
+  sourceTitle?: string | null;
+  userNote?: string | null;
   fileName?: string | null;
   contentType?: string | null;
   generationType?: GenerationType | null;
@@ -138,6 +176,10 @@ type UpdateItem = {
   summary?: string | null;
   inspirationType?: DesignInspirationType | null;
   platform?: DesignPlatform | null;
+  captureKind?: DesignCaptureKind | null;
+  saveIntent?: DesignSaveIntent | null;
+  templateKey?: string | null;
+  sourceFingerprint?: string | null;
   status?: DesignInspirationStatus | null;
   assetId?: string | null;
 };
@@ -179,23 +221,23 @@ function guessMime(fileName: string): string {
   return mimeByExt[ext ?? ""] ?? "application/octet-stream";
 }
 
-function resolveConvexUrl(): string {
-  const value = (process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "").trim();
+export function resolveConvexUrl(explicitValue?: string): string {
+  const value = (explicitValue ?? process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "").trim();
   if (!value) {
     throw new Error("CONVEX_URL is required.");
   }
   return value.replace(/\/+$/, "");
 }
 
-function resolveOwnerUserId(): string {
-  const value = (process.env.KB_OWNER_USER_ID ?? "").trim();
+export function resolveOwnerUserId(explicitValue?: string): string {
+  const value = (explicitValue ?? process.env.KB_OWNER_USER_ID ?? "").trim();
   if (!value) {
     throw new Error("KB_OWNER_USER_ID is required.");
   }
   return value;
 }
 
-function stableIngestKey(item: CreateItem): string {
+export function stableIngestKey(item: CreateItem): string {
   const source = [
     item.promptText ?? "",
     item.promptSections?.finalPrompt ?? "",
@@ -230,25 +272,6 @@ function assertSelector(item: UpdateItem | DeleteItem) {
   }
 }
 
-function assertNoMediaReplacement(item: UpdateItem) {
-  const unsupportedFields = [
-    "filePath",
-    "imagePath",
-    "fileBase64",
-    "imageBase64",
-    "url",
-    "imageUrl",
-    "designInspiration",
-  ];
-  for (const field of unsupportedFields) {
-    if (field in item) {
-      throw new Error(
-        `Update does not replace media payloads. Use delete + create instead of \`${field}\`.`,
-      );
-    }
-  }
-}
-
 function assignIfDefined(
   target: Record<string, unknown>,
   key: string,
@@ -259,7 +282,7 @@ function assignIfDefined(
   }
 }
 
-function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, unknown> {
+export function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, unknown> {
   const args: Record<string, unknown> = {
     ownerUserId,
     ingestSource: item.ingestSource ?? "agent",
@@ -290,6 +313,7 @@ function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, 
   if (item.assetRole) args.assetRole = item.assetRole;
   if (item.domain) args.domain = item.domain;
   if (item.designInspiration) args.designInspiration = item.designInspiration;
+  if (item.upstreamInputs?.length) args.upstreamInputs = item.upstreamInputs;
 
   args.ingestKey = item.ingestKey ?? stableIngestKey(item);
 
@@ -323,9 +347,8 @@ function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, 
   return args;
 }
 
-function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, unknown> {
+export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, unknown> {
   assertSelector(item);
-  assertNoMediaReplacement(item);
 
   const args: Record<string, unknown> = {
     ownerUserId,
@@ -334,6 +357,32 @@ function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, 
 
   assignIfDefined(args, "id", item.id);
   assignIfDefined(args, "ingestKey", item.ingestKey);
+  assignIfDefined(args, "assetIngestKey", item.assetIngestKey);
+
+  const filePath = item.filePath ?? item.imagePath;
+  const fileBase64 = item.fileBase64 ?? item.imageBase64;
+  const mediaUrl = item.url ?? item.imageUrl;
+
+  if (filePath) {
+    if (!existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+    const fileBuffer = readFileSync(filePath);
+    const resolvedFileName = basename(filePath);
+    args.file = {
+      base64: fileBuffer.toString("base64"),
+      fileName: resolvedFileName,
+      contentType: guessMime(resolvedFileName),
+    };
+  } else if (fileBase64) {
+    args.file = {
+      base64: fileBase64,
+      fileName: item.fileName ?? "upload.bin",
+      contentType: item.contentType ?? "application/octet-stream",
+    };
+  } else if (mediaUrl) {
+    args.url = mediaUrl;
+  }
 
   if (item.target === "prompt") {
     assignIfDefined(args, "promptText", item.promptText);
@@ -370,9 +419,15 @@ function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, 
   assignIfDefined(args, "title", item.title);
   assignIfDefined(args, "summary", item.summary);
   assignIfDefined(args, "sourceUrl", item.sourceUrl);
+  assignIfDefined(args, "sourceTitle", item.sourceTitle);
+  assignIfDefined(args, "userNote", item.userNote);
   assignIfDefined(args, "inspirationType", item.inspirationType);
   assignIfDefined(args, "platform", item.platform);
   assignIfDefined(args, "workflowType", item.workflowType);
+  assignIfDefined(args, "captureKind", item.captureKind);
+  assignIfDefined(args, "saveIntent", item.saveIntent);
+  assignIfDefined(args, "templateKey", item.templateKey);
+  assignIfDefined(args, "sourceFingerprint", item.sourceFingerprint);
   assignIfDefined(args, "status", item.status);
   assignIfDefined(args, "tagNames", item.tagNames);
   assignIfDefined(args, "typedTags", item.typedTags);
@@ -382,7 +437,7 @@ function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<string, 
   return args;
 }
 
-function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<string, unknown> {
+export function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<string, unknown> {
   assertSelector(item);
 
   const args: Record<string, unknown> = {
@@ -394,7 +449,7 @@ function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<string, 
   return args;
 }
 
-function buildActionRequest(
+export function buildActionRequest(
   item: SkillItem,
   ownerUserId: string,
 ): { path: string; args: Record<string, unknown> } {
@@ -439,7 +494,7 @@ function summarizeInput(item: SkillItem): string {
   );
 }
 
-async function mutateOne(
+export async function mutateOne(
   item: SkillItem,
   ownerUserId: string,
   convexUrl: string,
@@ -474,47 +529,58 @@ async function mutateOne(
   }
 }
 
-const rawArg = process.argv[2];
-if (!rawArg) {
-  console.error("Usage: bun run ingest.ts '<json>'");
-  process.exit(1);
+export async function runIngestSkill(
+  input: SkillItem | SkillItem[],
+  runtime?: { convexUrl?: string; ownerUserId?: string },
+): Promise<SkillResult[]> {
+  const convexUrl = resolveConvexUrl(runtime?.convexUrl);
+  const ownerUserId = resolveOwnerUserId(runtime?.ownerUserId);
+  const items = Array.isArray(input) ? input : [input];
+
+  if (items.length === 0) {
+    throw new Error("No items to process.");
+  }
+
+  const results: SkillResult[] = [];
+  for (const item of items) {
+    results.push(await mutateOne(item, ownerUserId, convexUrl));
+  }
+
+  return results;
 }
 
-let input: SkillItem | SkillItem[];
-try {
-  input = JSON.parse(rawArg);
-} catch (error) {
-  console.error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
+async function main() {
+  const rawArg = process.argv[2];
+  if (!rawArg) {
+    console.error("Usage: bun run ingest.ts '<json>'");
+    process.exit(1);
+  }
+
+  let input: SkillItem | SkillItem[];
+  try {
+    input = JSON.parse(rawArg);
+  } catch (error) {
+    console.error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
+  try {
+    const results = await runIngestSkill(input);
+    if (results.length === 1) {
+      console.log(JSON.stringify(results[0]));
+    } else {
+      console.log(JSON.stringify(results, null, 2));
+    }
+
+    if (results.some((result) => result.error)) {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
-let convexUrl: string;
-let ownerUserId: string;
-try {
-  convexUrl = resolveConvexUrl();
-  ownerUserId = resolveOwnerUserId();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-}
-
-const items = Array.isArray(input) ? input : [input];
-if (items.length === 0) {
-  console.error("No items to process.");
-  process.exit(1);
-}
-
-const results: SkillResult[] = [];
-for (const item of items) {
-  results.push(await mutateOne(item, ownerUserId, convexUrl));
-}
-
-if (items.length === 1) {
-  console.log(JSON.stringify(results[0]));
-} else {
-  console.log(JSON.stringify(results, null, 2));
-}
-
-if (results.some((result) => result.error)) {
-  process.exit(1);
+if (import.meta.main) {
+  await main();
 }

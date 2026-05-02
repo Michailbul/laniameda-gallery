@@ -1,0 +1,11 @@
+{
+  "setup-worktree": [
+    "bun install",
+    "if [ -f \"$ROOT_WORKTREE_PATH/.env\" ]; then cp \"$ROOT_WORKTREE_PATH/.env\" .env; fi",
+    "if [ -f \"$ROOT_WORKTREE_PATH/.env.local\" ]; then cp \"$ROOT_WORKTREE_PATH/.env.local\" .env.local; fi",
+    "if [ -f \"$ROOT_WORKTREE_PATH/.env.vercel-production\" ]; then cp \"$ROOT_WORKTREE_PATH/.env.vercel-production\" .env.vercel-production; fi",
+    "mkdir -p convex",
+    "if [ -f \"$ROOT_WORKTREE_PATH/convex/.env.local\" ]; then cp \"$ROOT_WORKTREE_PATH/convex/.env.local\" convex/.env.local; fi",
+    "cd web && bun install"
+  ]
+}

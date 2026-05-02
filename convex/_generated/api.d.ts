@@ -22,6 +22,7 @@ import type * as files from "../files.js";
 import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
 import type * as galleryAssetResults from "../galleryAssetResults.js";
+import type * as generationLineage from "../generationLineage.js";
 import type * as helpers from "../helpers.js";
 import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   folderHelpers: typeof folderHelpers;
   folders: typeof folders;
   galleryAssetResults: typeof galleryAssetResults;
+  generationLineage: typeof generationLineage;
   helpers: typeof helpers;
   ingest: typeof ingest;
   ingest_failures: typeof ingest_failures;

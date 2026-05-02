@@ -101,8 +101,8 @@ export const backendReview = {
     {
       title: "Skill contract lives in the repo instead of a drifting external copy",
       detail:
-        "The canonical laniameda-kb skill, its schema contract, and example payloads are checked into the repo and meant to ship in lockstep with ingest changes.",
-      source: "skills/laniameda-kb/SKILL.md, skills/laniameda-kb/references/*",
+        "The canonical gallery skills, their schema contract notes, and example payloads are checked into the repo and meant to ship in lockstep with ingest and query changes.",
+      source: "skills/laniameda-gallery-ingest/SKILL.md, skills/laniameda-gallery-ingest/references/*, skills/laniameda-gallery-query/SKILL.md",
     },
     {
       title: "Semantic indexing is decoupled from the write path",
@@ -390,9 +390,9 @@ export const backendReview = {
           source: "AGENTS.md, agent-docs/PROGRESS.md",
         },
         {
-          label: "laniameda-kb skill builds the payload",
+          label: "laniameda-gallery-ingest skill builds the payload",
           detail: "The skill script normalizes files, tags, ingest keys, and operation mode (create/update/delete).",
-          source: "skills/laniameda-kb/SKILL.md, skills/laniameda-kb/scripts/ingest.ts",
+          source: "skills/laniameda-gallery-ingest/SKILL.md, skills/laniameda-gallery-ingest/scripts/ingest.ts",
         },
         {
           label: "Convex ingest action writes canonical rows",
@@ -456,24 +456,29 @@ export const backendReview = {
   ] satisfies ReviewFlow[],
   skillSurface: [
     {
-      name: "skills/laniameda-kb/SKILL.md",
+      name: "skills/laniameda-gallery-ingest/SKILL.md",
       role: "Declares the canonical ingest contract, supported operations, and repo files that must be read first.",
-      source: "skills/laniameda-kb/SKILL.md",
+      source: "skills/laniameda-gallery-ingest/SKILL.md",
     },
     {
-      name: "skills/laniameda-kb/scripts/ingest.ts",
+      name: "skills/laniameda-gallery-ingest/scripts/ingest.ts",
       role: "Turns agent input into create/update/delete payloads and enforces env-driven owner scoping.",
-      source: "skills/laniameda-kb/scripts/ingest.ts",
+      source: "skills/laniameda-gallery-ingest/scripts/ingest.ts",
     },
     {
-      name: "skills/laniameda-kb/references/schema-contract.md",
+      name: "skills/laniameda-gallery-ingest/references/schema-contract.md",
       role: "Quick ingest-focused map of the core tables, validators, and routes.",
-      source: "skills/laniameda-kb/references/schema-contract.md",
+      source: "skills/laniameda-gallery-ingest/references/schema-contract.md",
     },
     {
-      name: "skills/laniameda-kb/references/ingest-examples.md",
+      name: "skills/laniameda-gallery-ingest/references/ingest-examples.md",
       role: "Copy-ready examples for the skill caller surface.",
-      source: "skills/laniameda-kb/references/ingest-examples.md",
+      source: "skills/laniameda-gallery-ingest/references/ingest-examples.md",
+    },
+    {
+      name: "skills/laniameda-gallery-query/SKILL.md",
+      role: "Declares the canonical read/query surface for asset retrieval, semantic search, and designs-pillar browsing.",
+      source: "skills/laniameda-gallery-query/SKILL.md",
     },
     {
       name: "agent-docs/AGENT_INGEST_SKILL_CONTEXT.md",
@@ -701,8 +706,8 @@ export const backendReview = {
       purpose: "Session-backed route wrapper for browser ingest.",
     },
     {
-      path: "skills/laniameda-kb/SKILL.md",
-      purpose: "Canonical agent skill contract that must stay aligned with the schema.",
+      path: "skills/laniameda-gallery-ingest/SKILL.md",
+      purpose: "Canonical agent ingest skill contract that must stay aligned with the schema.",
     },
   ] satisfies ReviewSourceDoc[],
 } as const;

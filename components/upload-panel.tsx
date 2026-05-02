@@ -66,6 +66,7 @@ const GENERATION_TYPE_OPTIONS = [
   { value: "image_gen", label: "Image" },
   { value: "video_gen", label: "Video" },
   { value: "ui_design", label: "UI Design" },
+  { value: "workflow", label: "Workflow" },
   { value: "other", label: "Other" },
 ] as const;
 
@@ -82,6 +83,25 @@ const PROMPT_TYPE_OPTIONS = [
   { value: "ui_design", label: "UI Design" },
   { value: "cinematic", label: "Cinematic" },
   { value: "ugc_ad", label: "UGC Ad" },
+  { value: "workflow", label: "Workflow" },
+  { value: "component_prompt", label: "Component Prompt" },
+  { value: "page_prompt", label: "Page Prompt" },
+  { value: "other", label: "Other" },
+] as const;
+
+const WORKFLOW_TYPE_OPTIONS = [
+  { value: "component_prompt", label: "Component Prompt" },
+  { value: "page_prompt", label: "Page Prompt" },
+  { value: "system_prompt", label: "System Prompt" },
+  { value: "asset_recipe", label: "Asset Recipe" },
+  { value: "other", label: "Other" },
+] as const;
+
+const ASSET_ROLE_OPTIONS = [
+  { value: "generated_output", label: "Generated Output" },
+  { value: "reference", label: "Reference" },
+  { value: "inspiration_capture", label: "Inspiration Capture" },
+  { value: "workflow_asset", label: "Workflow Asset" },
   { value: "other", label: "Other" },
 ] as const;
 
@@ -104,6 +124,8 @@ export function UploadPanel({
   const [pillarSelection, setPillarSelection] = useState(NO_VALUE);
   const [generationType, setGenerationType] = useState(NO_VALUE);
   const [promptType, setPromptType] = useState(NO_VALUE);
+  const [workflowType, setWorkflowType] = useState(NO_VALUE);
+  const [assetRole, setAssetRole] = useState(NO_VALUE);
   const [domainInput, setDomainInput] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [saveAsTextOnlyPrompt, setSaveAsTextOnlyPrompt] = useState(false);
@@ -232,6 +254,8 @@ export function UploadPanel({
     setPillarSelection(NO_VALUE);
     setGenerationType(NO_VALUE);
     setPromptType(NO_VALUE);
+    setWorkflowType(NO_VALUE);
+    setAssetRole(NO_VALUE);
     setDomainInput("");
     setIsDragActive(false);
     setStatus(null);
@@ -302,6 +326,10 @@ export function UploadPanel({
         pillarSelection === NO_VALUE ? undefined : pillarSelection;
       const resolvedPromptType =
         promptType === NO_VALUE ? undefined : promptType;
+      const resolvedWorkflowType =
+        workflowType === NO_VALUE ? undefined : workflowType;
+      const resolvedAssetRole =
+        assetRole === NO_VALUE ? undefined : assetRole;
       if (isPromptOnlyDraft && !saveAsTextOnlyPrompt) {
         throw new Error(
           "Enable “save as text-only prompt” to ingest prompt-only content.",
@@ -318,6 +346,8 @@ export function UploadPanel({
         pillar: resolvedPillar,
         generationType: resolvedGenerationType,
         promptType: resolvedPromptType,
+        workflowType: resolvedWorkflowType,
+        assetRole: resolvedAssetRole,
         domain: domainInput.trim() || undefined,
       });
 
@@ -622,6 +652,14 @@ export function UploadPanel({
                     unoptimized
                     className="w-full h-[280px] object-cover"
                   />
+                ) : previews[activePreviewIndex]?.file.type.startsWith("video/") ? (
+                  <video
+                    src={previews[activePreviewIndex].url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="h-[280px] w-full object-contain bg-black"
+                  />
                 ) : (
                   <div className="flex h-[280px] w-full flex-col items-center justify-center gap-2">
                     <span className="text-sm font-semibold text-muted-foreground">
@@ -788,6 +826,52 @@ export function UploadPanel({
                         <SelectGroup>
                           <SelectItem value={NO_VALUE} className="text-[14px]">None</SelectItem>
                           {PROMPT_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-[14px]">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Workflow Type */}
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="workflow-type-select" className="text-[13px] font-semibold text-muted-foreground">Workflow Type</Label>
+                    <Select
+                      value={workflowType}
+                      onValueChange={(value) => setWorkflowType(value)}
+                    >
+                      <SelectTrigger id="workflow-type-select" className="bg-surface-1 border-border/60 rounded-[14px] h-11 text-[14px] focus:ring-0 focus:border-primary focus:shadow-[0_0_0_3px_var(--accent-subtle)] transition-all">
+                        <SelectValue placeholder="Select workflow type" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-border/60 shadow-lg">
+                        <SelectGroup>
+                          <SelectItem value={NO_VALUE} className="text-[14px]">None</SelectItem>
+                          {WORKFLOW_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-[14px]">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Asset Role */}
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="asset-role-select" className="text-[13px] font-semibold text-muted-foreground">Asset Role</Label>
+                    <Select
+                      value={assetRole}
+                      onValueChange={(value) => setAssetRole(value)}
+                    >
+                      <SelectTrigger id="asset-role-select" className="bg-surface-1 border-border/60 rounded-[14px] h-11 text-[14px] focus:ring-0 focus:border-primary focus:shadow-[0_0_0_3px_var(--accent-subtle)] transition-all">
+                        <SelectValue placeholder="Select asset role" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-border/60 shadow-lg">
+                        <SelectGroup>
+                          <SelectItem value={NO_VALUE} className="text-[14px]">None</SelectItem>
+                          {ASSET_ROLE_OPTIONS.map((opt) => (
                             <SelectItem key={opt.value} value={opt.value} className="text-[14px]">
                               {opt.label}
                             </SelectItem>
