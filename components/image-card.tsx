@@ -29,6 +29,8 @@ interface ImageCardProps {
     isPublic?: boolean;
     isFeatured?: boolean;
     packMemberCount?: number;
+    size?: number;
+    totalSize?: number;
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
@@ -92,6 +94,13 @@ const PILLAR_META = {
   designs: { label: "Designs", color: "var(--pillar-designs)" },
   dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
 
 export const ImageCard = memo(function ImageCard({
   image,
@@ -475,6 +484,31 @@ export const ImageCard = memo(function ImageCard({
           )}
         </div>
       )}
+
+      {/* Size badge — bottom-right, fades on hover so prompt overlay stays clean */}
+      {(() => {
+        const displaySize = image.totalSize ?? image.size;
+        if (!displaySize || displaySize <= 0) return null;
+        return (
+          <div
+            className="absolute bottom-2 right-2 z-10 px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0"
+            style={{
+              backgroundColor: "var(--image-card-badge-bg)",
+              color: "var(--image-card-badge-text)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid var(--image-card-badge-border)",
+            }}
+            title={
+              image.totalSize && image.size && image.totalSize !== image.size
+                ? `Pack total ${formatBytes(image.totalSize)} (cover ${formatBytes(image.size)})`
+                : `File size ${formatBytes(displaySize)}`
+            }
+          >
+            {formatBytes(displaySize)}
+          </div>
+        );
+      })()}
 
       {/* Hover overlay — cinematic warm gradient with a feathered prompt sheet */}
       <div

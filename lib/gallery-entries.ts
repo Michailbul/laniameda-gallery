@@ -21,6 +21,7 @@ export type GalleryAssetRecord = {
   isFeatured?: boolean;
   assetPackId?: string;
   packSlotIndex?: number;
+  size?: number;
 };
 
 export type GalleryEntryPreview = {
@@ -60,6 +61,8 @@ export type GalleryEntry = {
   isPublic?: boolean;
   isFeatured?: boolean;
   packMemberCount?: number;
+  size?: number;
+  totalSize?: number;
   previewImages: GalleryEntryPreview[];
 };
 
@@ -67,7 +70,7 @@ type BuildGalleryEntriesArgs = {
   assets: GalleryAssetRecord[];
   hiddenAssetIds?: Set<string>;
   loadedAssetIds?: Set<string>;
-  sortOrder: "newest" | "featured" | "popular";
+  sortOrder: "newest" | "featured" | "popular" | "largest";
 };
 
 const FALLBACK_SRC = "/placeholder.svg";
@@ -105,6 +108,11 @@ const buildEntry = (
     new Set(members.flatMap((member) => member.tagNames ?? [])),
   );
 
+  const totalSize = members.reduce(
+    (acc, member) => acc + (member.size ?? 0),
+    0,
+  );
+
   return {
     id: cover._id,
     packId: cover.assetPackId ?? undefined,
@@ -129,6 +137,8 @@ const buildEntry = (
     isPublic: cover.isPublic ?? false,
     isFeatured: cover.isFeatured ?? false,
     packMemberCount: members.length > 1 ? members.length : undefined,
+    size: cover.size,
+    totalSize: totalSize > 0 ? totalSize : undefined,
     previewImages: members.map(toPreview),
   };
 };
@@ -187,6 +197,15 @@ export const buildGalleryEntries = ({
     entries.sort(
       (left, right) =>
         (right.tagNames?.length ?? 0) - (left.tagNames?.length ?? 0),
+    );
+    return entries;
+  }
+
+  if (sortOrder === "largest") {
+    entries.sort(
+      (left, right) =>
+        (right.totalSize ?? right.size ?? 0) -
+        (left.totalSize ?? left.size ?? 0),
     );
     return entries;
   }

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Grid3X3, Layers, Package, Search, Workflow, X } from "lucide-react";
 
-export type SortOrder = "featured" | "newest" | "popular";
+export type SortOrder = "featured" | "newest" | "popular" | "largest";
 export type GalleryScope = "mine" | "public";
 export type ViewMode = "grid" | "canvas" | "packs";
 
@@ -44,6 +44,7 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
   { label: "FEATURED", value: "featured" },
   { label: "NEWEST", value: "newest" },
   { label: "POPULAR", value: "popular" },
+  { label: "LARGEST", value: "largest" },
 ];
 
 const PILLAR_ACCENT: Record<string, string> = {
