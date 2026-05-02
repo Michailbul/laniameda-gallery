@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Film,
   FolderOpen,
   Home,
   LogOut,
@@ -46,6 +47,7 @@ interface V72SidebarProps {
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   onUploadClick: () => void;
+  onSeedanceClick?: () => void;
   user?: User | null;
   onSignOut?: () => void;
   imageCount?: number;
@@ -64,6 +66,7 @@ export function V72Sidebar({
   collapsed,
   onCollapsedChange,
   onUploadClick,
+  onSeedanceClick,
   user,
   onSignOut,
   imageCount,
@@ -262,6 +265,16 @@ export function V72Sidebar({
           collapsed={collapsed}
           onClick={onUploadClick}
         />
+        {onSeedanceClick && (
+          <NavItem
+            icon={Film}
+            label="Seedance"
+            href="#"
+            active={false}
+            collapsed={collapsed}
+            onClick={onSeedanceClick}
+          />
+        )}
       </div>
 
       {/* Scrollable content */}

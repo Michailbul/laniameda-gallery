@@ -113,6 +113,10 @@ export const ImageCard = memo(function ImageCard({
   const [currentSrc, setCurrentSrc] = useState(image.src);
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
   const [previewCycling, setPreviewCycling] = useState(false);
+  const [naturalVideoSize, setNaturalVideoSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
 
@@ -133,10 +137,17 @@ export const ImageCard = memo(function ImageCard({
   const activePreview =
     previewImages[activePreviewIndex] ?? previewImages[0]!;
 
+  const isVideo = image.kind === "video";
+
   const aspectRatio = useMemo(() => {
-    if (!image.width || !image.height) return "1 / 1";
-    return `${image.width} / ${image.height}`;
-  }, [image.height, image.width]);
+    if (image.width && image.height) {
+      return `${image.width} / ${image.height}`;
+    }
+    if (isVideo && naturalVideoSize) {
+      return `${naturalVideoSize.width} / ${naturalVideoSize.height}`;
+    }
+    return "1 / 1";
+  }, [image.height, image.width, isVideo, naturalVideoSize]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -198,7 +209,6 @@ export const ImageCard = memo(function ImageCard({
         ? "DESIGN ID COPIED"
         : "ASSET ID COPIED";
 
-  const isVideo = image.kind === "video";
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasThumb = Boolean(image.src) && image.src !== image.fullSrc;
 
@@ -335,6 +345,15 @@ export const ImageCard = memo(function ImageCard({
             preload="metadata"
             poster={hasThumb ? image.src : undefined}
             className="h-full w-full object-cover"
+            onLoadedMetadata={(e) => {
+              const video = e.currentTarget;
+              if (video.videoWidth > 0 && video.videoHeight > 0) {
+                setNaturalVideoSize({
+                  width: video.videoWidth,
+                  height: video.videoHeight,
+                });
+              }
+            }}
             onLoadedData={() => {
               setIsLoading(false);
               onLoad?.();
@@ -465,9 +484,11 @@ export const ImageCard = memo(function ImageCard({
         }}
       >
         <div
-          className="absolute bottom-0 left-0 right-0 flex min-h-[50%] flex-col gap-3 overflow-hidden p-3 pt-5"
+          className={`absolute bottom-0 left-0 right-0 flex flex-col gap-3 overflow-hidden p-3 pt-5 ${
+            isVideo ? "min-h-[25%]" : "min-h-[50%]"
+          }`}
           style={{
-            maxHeight: "62%",
+            maxHeight: isVideo ? "31%" : "62%",
           }}
         >
           <div

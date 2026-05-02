@@ -21,6 +21,7 @@ import { MasonryGrid } from "@/components/masonry-grid";
 import { PackGrid, PackDetailView } from "./pack-grid";
 import { V72DetailPanel } from "./detail-panel";
 import { UploadModal } from "@/components/upload-modal";
+import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
@@ -225,6 +226,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [sheetDragY, setSheetDragY] = useState(0);
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
+  const [isSeedanceOpen, setSeedanceOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceRunId, setWorkspaceRunId] = useState<string>();
   const [workspaceActionLabel, setWorkspaceActionLabel] =
@@ -1587,6 +1589,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
           onUploadClick={() => setUploadOpen(true)}
+          onSeedanceClick={() => setSeedanceOpen(true)}
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
@@ -2087,6 +2090,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }
+      />
+
+      <SeedanceIngestModal
+        open={isSeedanceOpen}
+        onClose={() => setSeedanceOpen(false)}
       />
 
       <AiWorkspacePanel
