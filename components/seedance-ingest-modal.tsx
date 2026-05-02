@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { buildIngestKey } from "@/lib/ingest";
 import { cn } from "@/lib/utils";
-import { Film, ImageIcon, X } from "lucide-react";
+import { Film, ImageIcon, Plus, X } from "lucide-react";
 
 type SeedanceIngestModalProps = {
   open: boolean;
@@ -22,7 +23,33 @@ type Status = {
 
 type DropTarget = "video" | "image";
 
+type MetadataField = { id: string; key: string; value: string };
+
 const MODEL_NAME = "Seedance";
+
+const VIDEO_CATEGORIES = [
+  "action",
+  "commercial",
+  "fashion",
+  "cinematic",
+  "ugc",
+  "music-video",
+  "narrative",
+  "documentary",
+] as const;
+
+const slugify = (input: string) =>
+  input
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-:_.]/g, "");
+
+const newMetadataField = (): MetadataField => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  key: "",
+  value: "",
+});
 
 export function SeedanceIngestModal({
   open,
@@ -35,6 +62,12 @@ export function SeedanceIngestModal({
   const [status, setStatus] = useState<Status>(null);
   const [submitting, setSubmitting] = useState(false);
   const [activeDrop, setActiveDrop] = useState<DropTarget | null>(null);
+  const [videoCategory, setVideoCategory] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [metadata, setMetadata] = useState<MetadataField[]>([
+    newMetadataField(),
+  ]);
 
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,6 +113,69 @@ export function SeedanceIngestModal({
     setPromptText("");
     setStatus(null);
     setActiveDrop(null);
+    setVideoCategory(null);
+    setTags([]);
+    setTagDraft("");
+    setMetadata([newMetadataField()]);
+  };
+
+  const commitTagDraft = () => {
+    const fragments = tagDraft
+      .split(/[,\n]/)
+      .map((value) => slugify(value))
+      .filter(Boolean);
+    if (fragments.length === 0) {
+      setTagDraft("");
+      return;
+    }
+    setTags((current) => Array.from(new Set([...current, ...fragments])));
+    setTagDraft("");
+  };
+
+  const removeTag = (tag: string) => {
+    setTags((current) => current.filter((value) => value !== tag));
+  };
+
+  const addMetadataField = () => {
+    setMetadata((current) => [...current, newMetadataField()]);
+  };
+
+  const updateMetadataField = (
+    id: string,
+    patch: Partial<Omit<MetadataField, "id">>,
+  ) => {
+    setMetadata((current) =>
+      current.map((field) =>
+        field.id === id ? { ...field, ...patch } : field,
+      ),
+    );
+  };
+
+  const removeMetadataField = (id: string) => {
+    setMetadata((current) => {
+      const next = current.filter((field) => field.id !== id);
+      return next.length > 0 ? next : [newMetadataField()];
+    });
+  };
+
+  const collectTagPayload = () => {
+    const collected = new Set<string>();
+    for (const tag of tags) {
+      const slug = slugify(tag);
+      if (slug) collected.add(slug);
+    }
+    if (videoCategory) {
+      collected.add(slugify(videoCategory));
+      collected.add(`category:${slugify(videoCategory)}`);
+    }
+    for (const field of metadata) {
+      const key = slugify(field.key);
+      const value = slugify(field.value);
+      if (key && value) {
+        collected.add(`${key}:${value}`);
+      }
+    }
+    return Array.from(collected);
   };
 
   const handleClose = () => {
@@ -139,10 +235,12 @@ export function SeedanceIngestModal({
     file,
     promptIngestKey,
     extra,
+    extraTags = [],
   }: {
     file: File;
     promptIngestKey: string;
     extra: Record<string, string>;
+    extraTags?: string[];
   }) => {
     const formData = new FormData();
     formData.append("prompt", promptText.trim());
@@ -157,6 +255,9 @@ export function SeedanceIngestModal({
     );
     formData.append("file", file);
     formData.append("modelName", MODEL_NAME);
+    for (const tag of extraTags) {
+      formData.append("tags", tag);
+    }
     for (const [key, value] of Object.entries(extra)) {
       formData.append(key, value);
     }
@@ -189,6 +290,7 @@ export function SeedanceIngestModal({
     const trimmed = promptText.trim();
     const promptIngestKey =
       buildIngestKey({ promptText: trimmed }) ?? `seedance|${Date.now()}`;
+    const sharedTags = collectTagPayload();
 
     try {
       let upstreamAssetId: string | undefined;
@@ -201,6 +303,7 @@ export function SeedanceIngestModal({
             generationType: "image_gen",
             assetRole: "reference",
           },
+          extraTags: sharedTags,
         });
         upstreamAssetId = imageResult.result?.assetId;
       }
@@ -223,6 +326,7 @@ export function SeedanceIngestModal({
         file: video,
         promptIngestKey,
         extra: videoExtra,
+        extraTags: sharedTags,
       });
 
       setStatus({
@@ -476,6 +580,149 @@ export function SeedanceIngestModal({
               </span>
               <span className="font-mono">{promptText.length} / 4000</span>
             </div>
+          </div>
+
+          {/* Video category */}
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
+            <div className="flex items-center justify-between">
+              <Label className="text-[13px] font-semibold text-muted-foreground">
+                Video category
+              </Label>
+              {videoCategory && (
+                <button
+                  type="button"
+                  onClick={() => setVideoCategory(null)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {VIDEO_CATEGORIES.map((category) => {
+                const active = videoCategory === category;
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() =>
+                      setVideoCategory(active ? null : category)
+                    }
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
+                      active
+                        ? "border-primary bg-primary text-white"
+                        : "border-border/60 bg-surface-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+                    )}
+                  >
+                    {category}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Saved as the <code>category:&lt;name&gt;</code> tag plus the
+              category itself, so the existing tag filter picks it up.
+            </p>
+          </div>
+
+          {/* Tags */}
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
+            <Label
+              htmlFor="seedance-tags"
+              className="text-[13px] font-semibold text-muted-foreground"
+            >
+              Tags
+            </Label>
+            <Input
+              id="seedance-tags"
+              value={tagDraft}
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === ",") {
+                  event.preventDefault();
+                  commitTagDraft();
+                }
+              }}
+              onBlur={() => {
+                if (tagDraft.trim()) commitTagDraft();
+              }}
+              placeholder="Press Enter or comma to add (e.g. dramatic, hero-shot)"
+              className="h-11 rounded-[14px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
+            />
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface-2 px-3 py-1.5 text-[12px] text-foreground"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      aria-label={`Remove tag ${tag}`}
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Free-form metadata */}
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
+            <div className="flex items-center justify-between">
+              <Label className="text-[13px] font-semibold text-muted-foreground">
+                Custom metadata
+              </Label>
+              <button
+                type="button"
+                onClick={addMetadataField}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                <Plus className="h-3 w-3" />
+                Add field
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {metadata.map((field) => (
+                <div key={field.id} className="flex items-center gap-2">
+                  <Input
+                    value={field.key}
+                    onChange={(event) =>
+                      updateMetadataField(field.id, { key: event.target.value })
+                    }
+                    placeholder="key (e.g. duration)"
+                    className="h-10 flex-1 rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
+                  />
+                  <Input
+                    value={field.value}
+                    onChange={(event) =>
+                      updateMetadataField(field.id, {
+                        value: event.target.value,
+                      })
+                    }
+                    placeholder="value (e.g. 5s)"
+                    className="h-10 flex-[2] rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeMetadataField(field.id)}
+                    aria-label="Remove metadata field"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Each filled pair is saved as a <code>key:value</code> tag, so
+              you can filter on it later (e.g. <code>duration:5s</code>).
+            </p>
           </div>
         </div>
 
