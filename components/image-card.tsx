@@ -149,11 +149,15 @@ export const ImageCard = memo(function ImageCard({
   const isVideo = image.kind === "video";
 
   const aspectRatio = useMemo(() => {
+    // Videos render in a 50%-taller frame so they read bigger in the
+    // masonry without breaking column widths. Inner <video> uses
+    // object-cover, so the extra height crops the horizontal edges.
+    const heightBoost = isVideo ? 1.5 : 1;
     if (image.width && image.height) {
-      return `${image.width} / ${image.height}`;
+      return `${image.width} / ${image.height * heightBoost}`;
     }
     if (isVideo && naturalVideoSize) {
-      return `${naturalVideoSize.width} / ${naturalVideoSize.height}`;
+      return `${naturalVideoSize.width} / ${naturalVideoSize.height * heightBoost}`;
     }
     return "1 / 1";
   }, [image.height, image.width, isVideo, naturalVideoSize]);
