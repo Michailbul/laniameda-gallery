@@ -8,6 +8,7 @@ import {
 } from "./assetPackHelpers";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
+import { r2 } from "./r2";
 import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
@@ -356,6 +357,8 @@ export const getAsset = query({
       kind: v.union(v.literal("image"), v.literal("video")),
       storageId: v.optional(v.id("_storage")),
       thumbStorageId: v.optional(v.id("_storage")),
+      r2Key: v.optional(v.string()),
+      r2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
       contentType: v.optional(v.string()),
@@ -456,6 +459,8 @@ export const listAssets = query({
       kind: v.union(v.literal("image"), v.literal("video")),
       storageId: v.optional(v.id("_storage")),
       thumbStorageId: v.optional(v.id("_storage")),
+      r2Key: v.optional(v.string()),
+      r2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
       contentType: v.optional(v.string()),
@@ -1069,10 +1074,15 @@ export const replaceAssetMedia = mutation({
     if (asset.thumbStorageId && asset.thumbStorageId !== args.thumbStorageId) {
       await ctx.storage.delete(asset.thumbStorageId);
     }
+    if (asset.r2Key) {
+      await r2.deleteObject(ctx, asset.r2Key);
+    }
 
     await ctx.db.patch(args.assetId, {
       storageId: args.storageId,
       thumbStorageId: args.thumbStorageId,
+      r2Key: undefined,
+      r2Bucket: undefined,
       kind: args.kind,
       contentType: args.contentType,
       fileName: args.fileName,
@@ -1130,6 +1140,10 @@ export const deleteAsset = mutation({
       await ctx.storage.delete(storageId);
     }
 
+    if (asset.r2Key) {
+      await r2.deleteObject(ctx, asset.r2Key);
+    }
+
     const lineageRows = [
       ...(await ctx.db
         .query("generationLineage")
@@ -1164,6 +1178,7 @@ export const bulkDeleteAssets = internalMutation({
   handler: async (ctx, args) => {
     let count = 0;
     for (const id of args.ids) {
+      const asset = await ctx.db.get(id);
       const links = await ctx.db
         .query("assetTags")
         .withIndex("by_asset", (q) => q.eq("assetId", id))
@@ -1183,6 +1198,22 @@ export const bulkDeleteAssets = internalMutation({
       ];
       for (const row of lineageRows) {
         await ctx.db.delete(row._id);
+      }
+      // Free the underlying bytes alongside the row. The single-asset
+      // deleteAsset mutation already does this; bulk was previously
+      // orphaning Convex blobs and would have orphaned R2 objects too.
+      if (asset) {
+        const storageIds = dedupeIds(
+          [asset.storageId, asset.thumbStorageId].filter(
+            (storageId): storageId is Id<"_storage"> => Boolean(storageId),
+          ),
+        );
+        for (const storageId of storageIds) {
+          await ctx.storage.delete(storageId);
+        }
+        if (asset.r2Key) {
+          await r2.deleteObject(ctx, asset.r2Key);
+        }
       }
       await ctx.db.delete(id);
       count++;
@@ -1215,9 +1246,11 @@ export const wipeAllAssets = internalMutation({
     }
 
     const uniqueStorageIds = new Set<Id<"_storage">>();
+    const uniqueR2Keys = new Set<string>();
     for (const asset of assets) {
       if (asset.storageId) uniqueStorageIds.add(asset.storageId);
       if (asset.thumbStorageId) uniqueStorageIds.add(asset.thumbStorageId);
+      if (asset.r2Key) uniqueR2Keys.add(asset.r2Key);
     }
 
     let storageObjectsDeleted = 0;
@@ -1229,6 +1262,11 @@ export const wipeAllAssets = internalMutation({
 
       for (const storageId of uniqueStorageIds) {
         await ctx.storage.delete(storageId);
+        storageObjectsDeleted += 1;
+      }
+
+      for (const r2Key of uniqueR2Keys) {
+        await r2.deleteObject(ctx, r2Key);
         storageObjectsDeleted += 1;
       }
 

@@ -8,6 +8,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveAssetUrl } from "./r2_url";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
@@ -128,9 +129,7 @@ const resolvePreviewMap = async (
       .filter((asset): asset is Doc<"assets"> => Boolean(asset))
       .map(async (asset) => {
         const [previewUrl, previewThumbUrl] = await Promise.all([
-          asset.storageId
-            ? ctx.storage.getUrl(asset.storageId).then((value) => value ?? undefined)
-            : Promise.resolve(asset.sourceUrl),
+          resolveAssetUrl(ctx, asset),
           asset.thumbStorageId
             ? ctx.storage.getUrl(asset.thumbStorageId).then((value) => value ?? undefined)
             : Promise.resolve(undefined),

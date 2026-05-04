@@ -28,6 +28,8 @@ import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
+import type * as r2 from "../r2.js";
+import type * as r2_url from "../r2_url.js";
 import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
@@ -63,6 +65,8 @@ declare const fullApi: ApiFromModules<{
   ingest_failures: typeof ingest_failures;
   notifications: typeof notifications;
   prompts: typeof prompts;
+  r2: typeof r2;
+  r2_url: typeof r2_url;
   runs: typeof runs;
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
@@ -98,4 +102,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  r2: import("@convex-dev/r2/_generated/component.js").ComponentApi<"r2">;
+};

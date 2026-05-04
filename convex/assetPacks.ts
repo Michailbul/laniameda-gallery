@@ -11,6 +11,7 @@ import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
+import { resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
   generationTypeValidator,
@@ -195,6 +196,8 @@ export const getAssetPackWithAssets = query({
             kind: v.union(v.literal("image"), v.literal("video")),
             storageId: v.optional(v.id("_storage")),
             thumbStorageId: v.optional(v.id("_storage")),
+            r2Key: v.optional(v.string()),
+            r2Bucket: v.optional(v.string()),
             sourceUrl: v.optional(v.string()),
             fileName: v.optional(v.string()),
             contentType: v.optional(v.string()),
@@ -251,9 +254,7 @@ export const getAssetPackWithAssets = query({
           promptText = prompt?.text ?? null;
         }
 
-        const assetUrl = asset.storageId
-          ? await ctx.storage.getUrl(asset.storageId)
-          : asset.sourceUrl ?? null;
+        const assetUrl = (await resolveAssetUrl(ctx, asset)) ?? null;
 
         const thumbUrl = asset.thumbStorageId
           ? await ctx.storage.getUrl(asset.thumbStorageId)
@@ -426,9 +427,7 @@ export const listAssetPacksWithCovers = query({
         if (pack.coverAssetId) {
           const coverAsset = await ctx.db.get(pack.coverAssetId);
           if (coverAsset) {
-            coverUrl = coverAsset.storageId
-              ? await ctx.storage.getUrl(coverAsset.storageId)
-              : coverAsset.sourceUrl ?? null;
+            coverUrl = (await resolveAssetUrl(ctx, coverAsset)) ?? null;
             coverThumbUrl = coverAsset.thumbStorageId
               ? await ctx.storage.getUrl(coverAsset.thumbStorageId)
               : coverUrl;

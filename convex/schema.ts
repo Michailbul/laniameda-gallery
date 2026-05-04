@@ -100,6 +100,8 @@ export default defineSchema({
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),
+    r2Key: v.optional(v.string()),
+    r2Bucket: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
     contentType: v.optional(v.string()),
