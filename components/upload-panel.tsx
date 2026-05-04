@@ -15,10 +15,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useUploadFile } from "@convex-dev/r2/react";
 import { requestJson } from "@/lib/app-api";
 import { parseTagNames } from "@/lib/ingest";
 import { buildUploadFormData } from "@/lib/upload-form";
+import { uploadVideoToR2 } from "@/lib/video-ingest";
 import { cn } from "@/lib/utils";
+import { api } from "@/convex/_generated/api";
 
 export type FolderOption = {
   _id: string;
@@ -301,6 +304,8 @@ export function UploadPanel({
     }
   };
 
+  const uploadVideo = useUploadFile(api.r2);
+
   const handleSubmit = async () => {
     if (isUploading) return;
     if (!canSubmit) {
@@ -335,13 +340,20 @@ export function UploadPanel({
           "Enable “save as text-only prompt” to ingest prompt-only content.",
         );
       }
+      const candidateFile = selectedFiles[0] ?? null;
+      const isVideoUpload = Boolean(
+        candidateFile && candidateFile.type.startsWith("video/"),
+      );
+
+      // Videos go to Cloudflare R2 directly from the browser; images
+      // keep using the existing Convex storage path.
       const formData = buildUploadFormData({
         promptText,
         allowPromptOnly: isPromptOnlyDraft && saveAsTextOnlyPrompt,
         url: urlInput,
         folderId: resolvedFolderId,
         tags,
-        file: selectedFiles[0] ?? null,
+        file: isVideoUpload ? null : candidateFile,
         modelName: resolvedModelName,
         pillar: resolvedPillar,
         generationType: resolvedGenerationType,
@@ -350,6 +362,36 @@ export function UploadPanel({
         assetRole: resolvedAssetRole,
         domain: domainInput.trim() || undefined,
       });
+
+      if (isVideoUpload && candidateFile) {
+        setStatus({ type: "info", message: "Uploading video to R2..." });
+        const upload = await uploadVideoToR2(candidateFile, {
+          uploadVideo,
+          onStage: (stage) => {
+            if (stage === "poster") {
+              setStatus({ type: "info", message: "Generating video poster..." });
+            } else if (stage === "uploading") {
+              setStatus({ type: "info", message: "Uploading video to R2..." });
+            }
+          },
+        });
+        formData.append("r2Key", upload.r2Key);
+        formData.append("mediaContentType", upload.contentType);
+        formData.append("mediaSize", String(upload.size));
+        formData.append("mediaWidth", String(upload.poster.width));
+        formData.append("mediaHeight", String(upload.poster.height));
+        formData.append("mediaFileName", upload.fileName);
+        formData.append(
+          "posterFile",
+          new File(
+            [upload.poster.blob],
+            `${upload.fileName}.poster.jpg`,
+            { type: upload.poster.blob.type || "image/jpeg" },
+          ),
+        );
+        formData.append("posterWidth", String(upload.poster.width));
+        formData.append("posterHeight", String(upload.poster.height));
+      }
 
       const response = await fetch("/api/ingest", {
         method: "POST",

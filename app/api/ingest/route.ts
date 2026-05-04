@@ -88,6 +88,28 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
           base64Size: typeof file.base64 === "string" ? file.base64.length : undefined,
         }
       : undefined,
+    r2Key: payload.r2Key,
+    r2Bucket: payload.r2Bucket,
+    mediaContentType: payload.mediaContentType,
+    mediaSize: payload.mediaSize,
+    mediaWidth: payload.mediaWidth,
+    mediaHeight: payload.mediaHeight,
+    mediaFileName: payload.mediaFileName,
+    posterFile: (() => {
+      const poster =
+        payload.posterFile && typeof payload.posterFile === "object"
+          ? (payload.posterFile as Record<string, unknown>)
+          : undefined;
+      if (!poster) return undefined;
+      return {
+        contentType: poster.contentType,
+        width: poster.width,
+        height: poster.height,
+        size: poster.size,
+        base64Size:
+          typeof poster.base64 === "string" ? poster.base64.length : undefined,
+      };
+    })(),
   };
 };
 
@@ -144,6 +166,16 @@ export async function POST(request: Request) {
     let ingestSource: string | undefined;
     let designInspiration: Record<string, unknown> | undefined;
     let upstreamInputs: Record<string, unknown>[] | undefined;
+    let r2Key: string | undefined;
+    let r2Bucket: string | undefined;
+    let mediaContentType: string | undefined;
+    let mediaSize: number | undefined;
+    let mediaWidth: number | undefined;
+    let mediaHeight: number | undefined;
+    let mediaFileName: string | undefined;
+    let posterFile: File | null = null;
+    let posterWidth: number | undefined;
+    let posterHeight: number | undefined;
 
     if (contentType.includes("application/json")) {
       const data = await readJson(request);
@@ -193,6 +225,17 @@ export async function POST(request: Request) {
       upstreamInputs = Array.isArray(data.upstreamInputs)
         ? (data.upstreamInputs as Record<string, unknown>[])
         : undefined;
+      r2Key = typeof data.r2Key === "string" ? data.r2Key : undefined;
+      r2Bucket = typeof data.r2Bucket === "string" ? data.r2Bucket : undefined;
+      mediaContentType =
+        typeof data.mediaContentType === "string" ? data.mediaContentType : undefined;
+      mediaSize = typeof data.mediaSize === "number" ? data.mediaSize : undefined;
+      mediaWidth =
+        typeof data.mediaWidth === "number" ? data.mediaWidth : undefined;
+      mediaHeight =
+        typeof data.mediaHeight === "number" ? data.mediaHeight : undefined;
+      mediaFileName =
+        typeof data.mediaFileName === "string" ? data.mediaFileName : undefined;
     } else {
       const form = await request.formData();
       const promptValue = form.get("prompt");
@@ -254,13 +297,43 @@ export async function POST(request: Request) {
       upstreamInputs = parseOptionalJsonField<Record<string, unknown>[]>(
         upstreamInputsValue,
       );
+
+      const r2KeyValue = form.get("r2Key");
+      const r2BucketValue = form.get("r2Bucket");
+      const mediaContentTypeValue = form.get("mediaContentType");
+      const mediaSizeValue = form.get("mediaSize");
+      const mediaWidthValue = form.get("mediaWidth");
+      const mediaHeightValue = form.get("mediaHeight");
+      const mediaFileNameValue = form.get("mediaFileName");
+      const posterFileValue = form.get("posterFile");
+      const posterWidthValue = form.get("posterWidth");
+      const posterHeightValue = form.get("posterHeight");
+      r2Key = typeof r2KeyValue === "string" ? r2KeyValue : undefined;
+      r2Bucket = typeof r2BucketValue === "string" ? r2BucketValue : undefined;
+      mediaContentType =
+        typeof mediaContentTypeValue === "string" ? mediaContentTypeValue : undefined;
+      mediaSize =
+        typeof mediaSizeValue === "string" ? Number(mediaSizeValue) : undefined;
+      mediaWidth =
+        typeof mediaWidthValue === "string" ? Number(mediaWidthValue) : undefined;
+      mediaHeight =
+        typeof mediaHeightValue === "string" ? Number(mediaHeightValue) : undefined;
+      mediaFileName =
+        typeof mediaFileNameValue === "string" ? mediaFileNameValue : undefined;
+      if (posterFileValue instanceof File) {
+        posterFile = posterFileValue;
+      }
+      posterWidth =
+        typeof posterWidthValue === "string" ? Number(posterWidthValue) : undefined;
+      posterHeight =
+        typeof posterHeightValue === "string" ? Number(posterHeightValue) : undefined;
     }
 
     const resolvedPromptText = resolvePromptText({
       promptText,
       promptSections,
     });
-    const hasMediaInput = Boolean(url || file);
+    const hasMediaInput = Boolean(url || file || r2Key);
     const hasDesignInspirationInput = Boolean(designInspiration);
     const isPromptOnlyIngest =
       Boolean(resolvedPromptText) &&
@@ -285,7 +358,7 @@ export async function POST(request: Request) {
       ingestKey,
       url,
       promptText,
-      fileName: file?.name,
+      fileName: file?.name ?? mediaFileName ?? r2Key,
     });
 
     const payload: Record<string, unknown> = {
@@ -319,6 +392,25 @@ export async function POST(request: Request) {
         fileName: file.name,
         contentType: file.type || undefined,
       };
+    }
+
+    if (r2Key) {
+      payload.r2Key = r2Key;
+      payload.r2Bucket = r2Bucket || undefined;
+      payload.mediaContentType = mediaContentType;
+      payload.mediaSize = mediaSize;
+      payload.mediaWidth = mediaWidth;
+      payload.mediaHeight = mediaHeight;
+      payload.mediaFileName = mediaFileName;
+      if (posterFile) {
+        payload.posterFile = {
+          base64: await fileToBase64(posterFile),
+          contentType: posterFile.type || "image/jpeg",
+          width: posterWidth,
+          height: posterHeight,
+          size: posterFile.size,
+        };
+      }
     }
 
     failurePayload = sanitizeFailurePayload(payload);

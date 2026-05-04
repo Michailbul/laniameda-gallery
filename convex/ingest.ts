@@ -534,6 +534,22 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     designInspiration: v.optional(designInspirationInputValidator),
     domain: v.optional(v.string()),
     upstreamInputs: v.optional(v.array(upstreamInputValidator)),
+    r2Key: v.optional(v.string()),
+    r2Bucket: v.optional(v.string()),
+    mediaContentType: v.optional(v.string()),
+    mediaSize: v.optional(v.number()),
+    mediaWidth: v.optional(v.number()),
+    mediaHeight: v.optional(v.number()),
+    mediaFileName: v.optional(v.string()),
+    posterFile: v.optional(
+      v.object({
+        base64: v.string(),
+        contentType: v.optional(v.string()),
+        width: v.optional(v.number()),
+        height: v.optional(v.number()),
+        size: v.optional(v.number()),
+      }),
+    ),
   },
   returns: v.object({
     assetId: v.optional(v.id("assets")),
@@ -555,7 +571,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
 
     const promptText = args.promptText?.trim() || undefined;
     const resolvedPromptText = promptText || args.promptSections?.finalPrompt.trim() || undefined;
-    const hasMediaInput = Boolean(args.url || args.file);
+    const hasMediaInput = Boolean(args.url || args.file || args.r2Key);
     const hasDesignInspirationInput = Boolean(args.designInspiration);
     const isPromptOnlyIngest =
       Boolean(resolvedPromptText) &&
@@ -621,25 +637,79 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       }
 
       if (hasMediaInput) {
-        const media = await processMediaInput(ctx, {
-          file: args.file,
-          url: args.url,
-        });
+        let kind: "image" | "video";
+        let storageId: Id<"_storage"> | undefined;
+        let thumbStorageId: Id<"_storage"> | undefined;
+        let contentType: string | undefined;
+        let size: number | undefined;
+        let width: number | undefined;
+        let height: number | undefined;
+        let thumbSize: number | undefined;
+        let thumbWidth: number | undefined;
+        let thumbHeight: number | undefined;
+        let fileName: string | undefined;
+        let r2KeyForRow: string | undefined;
+        let r2BucketForRow: string | undefined;
+
+        if (args.r2Key) {
+          // R2-hosted media: bytes already live in Cloudflare R2 and were
+          // uploaded directly from the browser. We only need to store the
+          // poster (if any) on Convex and stamp the asset row with r2Key.
+          kind = (args.mediaContentType ?? "video/").startsWith("image/")
+            ? "image"
+            : "video";
+          contentType = args.mediaContentType;
+          size = args.mediaSize;
+          width = args.mediaWidth;
+          height = args.mediaHeight;
+          fileName = args.mediaFileName ?? args.r2Key.split("/").pop();
+          r2KeyForRow = args.r2Key;
+          r2BucketForRow = args.r2Bucket;
+
+          if (args.posterFile) {
+            const posterBuffer = Buffer.from(args.posterFile.base64, "base64");
+            const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
+              type: args.posterFile.contentType ?? "image/jpeg",
+            });
+            thumbStorageId = await ctx.storage.store(posterBlob);
+            thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
+            thumbWidth = args.posterFile.width;
+            thumbHeight = args.posterFile.height;
+          }
+        } else {
+          const media = await processMediaInput(ctx, {
+            file: args.file,
+            url: args.url,
+          });
+          kind = media.kind;
+          storageId = media.storageId;
+          thumbStorageId = media.thumbStorageId;
+          contentType = media.contentType;
+          size = media.size;
+          width = media.width;
+          height = media.height;
+          thumbSize = media.thumbSize;
+          thumbWidth = media.thumbWidth;
+          thumbHeight = media.thumbHeight;
+          fileName = media.fileName;
+        }
 
         const result = (await ctx.runMutation(api.assets.createAsset, {
           ownerUserId,
-          kind: media.kind,
-          storageId: media.storageId,
-          thumbStorageId: media.thumbStorageId,
+          kind,
+          storageId,
+          thumbStorageId,
+          r2Key: r2KeyForRow,
+          r2Bucket: r2BucketForRow,
           sourceUrl: args.url,
-          fileName: media.fileName,
-          contentType: media.contentType,
-          size: media.size,
-          width: media.width,
-          height: media.height,
-          thumbSize: media.thumbSize,
-          thumbWidth: media.thumbWidth,
-          thumbHeight: media.thumbHeight,
+          fileName,
+          contentType,
+          size,
+          width,
+          height,
+          thumbSize,
+          thumbWidth,
+          thumbHeight,
           promptId,
           tagIds,
           folderId: args.folderId,

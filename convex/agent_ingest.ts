@@ -6,6 +6,7 @@ import { action, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
+import { r2 } from "./r2";
 import {
   designInspirationTypeValidator,
   designPlatformValidator,
@@ -445,7 +446,11 @@ export const ingestFromAgentPayload = action({
         const assetTagIds = dedupeIds([...promptTagIds, ...systemTagIds]);
         const buffer = decodeBase64Buffer(media.base64);
         const blob = toStorageBlob(buffer, media.mimeType);
-        const storageId = await ctx.storage.store(blob);
+        // Videos go to Cloudflare R2 (cheap egress); images stay on
+        // Convex _storage where multimodal embedding can fetch them.
+        const isVideo = media.kind === "video";
+        const storageId = isVideo ? undefined : await ctx.storage.store(blob);
+        const r2Key = isVideo ? await r2.store(ctx, blob) : undefined;
         const {
           thumbStorageId,
           thumbSize,
@@ -459,6 +464,7 @@ export const ingestFromAgentPayload = action({
           kind: media.kind,
           storageId,
           thumbStorageId,
+          r2Key,
           fileName: media.fileName,
           contentType: media.mimeType,
           size: blob.size,

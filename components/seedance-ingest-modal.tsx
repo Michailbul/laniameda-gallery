@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useUploadFile } from "@convex-dev/r2/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { buildIngestKey } from "@/lib/ingest";
+import { uploadVideoToR2 } from "@/lib/video-ingest";
 import { cn } from "@/lib/utils";
+import { api } from "@/convex/_generated/api";
 import { Film, ImageIcon, Plus, X } from "lucide-react";
 
 type SeedanceIngestModalProps = {
@@ -71,6 +74,7 @@ export function SeedanceIngestModal({
 
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadVideo = useUploadFile(api.r2);
 
   const videoPreviewUrl = useMemo(() => {
     if (!video) return null;
@@ -231,7 +235,9 @@ export function SeedanceIngestModal({
   const canSubmit =
     Boolean(video) && promptText.trim().length > 0 && !submitting;
 
-  const ingestOne = async ({
+  // Image branch: send the file straight to Convex via /api/ingest (the
+  // existing image path). Multimodal embedding still gets the bytes.
+  const ingestImage = async ({
     file,
     promptIngestKey,
     extra,
@@ -261,7 +267,60 @@ export function SeedanceIngestModal({
     for (const [key, value] of Object.entries(extra)) {
       formData.append(key, value);
     }
+    return postIngest(formData);
+  };
 
+  // Video branch: bytes already live in R2 (uploaded direct from
+  // browser by uploadVideoToR2). We send only the r2Key + small poster
+  // JPEG to /api/ingest so the asset row gets created and the gallery
+  // card has a still to render.
+  const ingestVideoFromR2 = async ({
+    upload,
+    promptIngestKey,
+    extra,
+    extraTags = [],
+  }: {
+    upload: Awaited<ReturnType<typeof uploadVideoToR2>>;
+    promptIngestKey: string;
+    extra: Record<string, string>;
+    extraTags?: string[];
+  }) => {
+    const formData = new FormData();
+    formData.append("prompt", promptText.trim());
+    formData.append("promptText", promptText.trim());
+    formData.append("promptIngestKey", promptIngestKey);
+    formData.append(
+      "ingestKey",
+      buildIngestKey({
+        promptText: promptText.trim(),
+        fileName: upload.fileName,
+      }) ?? `${promptIngestKey}|${upload.fileName}`,
+    );
+    formData.append("modelName", MODEL_NAME);
+    formData.append("r2Key", upload.r2Key);
+    formData.append("mediaContentType", upload.contentType);
+    formData.append("mediaSize", String(upload.size));
+    formData.append("mediaWidth", String(upload.poster.width));
+    formData.append("mediaHeight", String(upload.poster.height));
+    formData.append("mediaFileName", upload.fileName);
+    formData.append(
+      "posterFile",
+      new File([upload.poster.blob], `${upload.fileName}.poster.jpg`, {
+        type: upload.poster.blob.type || "image/jpeg",
+      }),
+    );
+    formData.append("posterWidth", String(upload.poster.width));
+    formData.append("posterHeight", String(upload.poster.height));
+    for (const tag of extraTags) {
+      formData.append("tags", tag);
+    }
+    for (const [key, value] of Object.entries(extra)) {
+      formData.append(key, value);
+    }
+    return postIngest(formData);
+  };
+
+  const postIngest = async (formData: FormData) => {
     const response = await fetch("/api/ingest", {
       method: "POST",
       body: formData,
@@ -296,7 +355,8 @@ export function SeedanceIngestModal({
       let upstreamAssetId: string | undefined;
 
       if (sourceImage) {
-        const imageResult = await ingestOne({
+        setStatus({ type: "info", message: "Saving source image..." });
+        const imageResult = await ingestImage({
           file: sourceImage,
           promptIngestKey,
           extra: {
@@ -307,6 +367,19 @@ export function SeedanceIngestModal({
         });
         upstreamAssetId = imageResult.result?.assetId;
       }
+
+      setStatus({ type: "info", message: "Generating video poster..." });
+      const upload = await uploadVideoToR2(video, {
+        uploadVideo,
+        onStage: (stage) => {
+          if (stage === "uploading") {
+            setStatus({
+              type: "info",
+              message: "Uploading video to R2...",
+            });
+          }
+        },
+      });
 
       const videoExtra: Record<string, string> = {
         generationType: "video_gen",
@@ -322,8 +395,9 @@ export function SeedanceIngestModal({
         ]);
       }
 
-      await ingestOne({
-        file: video,
+      setStatus({ type: "info", message: "Finishing ingest..." });
+      await ingestVideoFromR2({
+        upload,
         promptIngestKey,
         extra: videoExtra,
         extraTags: sharedTags,
