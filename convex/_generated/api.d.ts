@@ -29,6 +29,8 @@ import type * as ingest_failures from "../ingest_failures.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
 import type * as r2 from "../r2.js";
+import type * as r2_migrate from "../r2_migrate.js";
+import type * as r2_migrate_db from "../r2_migrate_db.js";
 import type * as r2_url from "../r2_url.js";
 import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
@@ -66,6 +68,8 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   prompts: typeof prompts;
   r2: typeof r2;
+  r2_migrate: typeof r2_migrate;
+  r2_migrate_db: typeof r2_migrate_db;
   r2_url: typeof r2_url;
   runs: typeof runs;
   semanticIndex: typeof semanticIndex;
