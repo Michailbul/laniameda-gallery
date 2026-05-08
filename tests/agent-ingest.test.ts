@@ -91,7 +91,7 @@ describe("agent ingest", () => {
       payload: {
         prompts: [
           { final_prompt: "Prompt A", tags: ["alpha"], pillar: "creators" },
-          { final_prompt: "Prompt B", tags: ["beta"], pillar: "cars" },
+          { final_prompt: "Prompt B", tags: ["beta"], pillar: "dump" },
         ],
         designInspirations: [],
         selectedTelegramMediaIds: ["media-1", "media-2"],

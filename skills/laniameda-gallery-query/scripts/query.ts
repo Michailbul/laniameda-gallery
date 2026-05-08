@@ -9,7 +9,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 type Scope = "mine" | "public";
 type AssetKind = "image" | "video";
 type AssetRole =

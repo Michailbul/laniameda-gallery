@@ -79,7 +79,7 @@ describe("prompt-only gallery queries", () => {
       tagIds: [tagId],
       folderId,
       modelName: "Other Model",
-      pillar: "cars",
+      pillar: "dump",
       createdAt: 100,
     });
     const matchingPromptId = await harness.db.insert("prompts", {

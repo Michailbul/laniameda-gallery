@@ -9,7 +9,6 @@ export type ViewMode = "grid" | "canvas" | "packs";
 
 const PILLAR_OPTIONS = [
   { label: "Creators", value: "creators" },
-  { label: "Cars", value: "cars" },
   { label: "Designs", value: "designs" },
   { label: "Dump", value: "dump" },
 ] as const;
@@ -49,7 +48,6 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
 
 const PILLAR_ACCENT: Record<string, string> = {
   creators: "var(--v7-pillar-creators)",
-  cars: "var(--v7-pillar-cars)",
   designs: "var(--v7-pillar-designs)",
   dump: "var(--v7-pillar-dump)",
 };

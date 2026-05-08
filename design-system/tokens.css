@@ -77,7 +77,6 @@
   --pillar-warm-g: 97;
   --pillar-warm-b: 79;
   --pillar-creators: #ff7a64;
-  --pillar-cars: #e5534b;
   --pillar-designs: #5d6bfa;
   --pillar-dump: #2eb8b4;
   --brand-telegram-rgb: 39, 149, 212;
@@ -218,31 +217,9 @@
 
 /* ═══════════════════════════════════════════
    PILLAR OVERRIDES
-   Set data-pillar="creators|cars|designs|dump"
+   Set data-pillar="creators|designs|dump"
    on a parent element to shift the accent.
    ═══════════════════════════════════════════ */
-
-[data-pillar="cars"] {
-  --amber-8: #d7665e;
-  --amber-9: #e5534b;
-  --amber-10: #f0726b;
-  --amber-11: #f5a39f;
-  --amber-12: #fbd2cf;
-  --amber-surface: rgba(229, 83, 75, 0.12);
-  --amber-subtle: rgba(229, 83, 75, 0.10);
-  --amber-glow: rgba(229, 83, 75, 0.20);
-  --accent-glow: rgba(229, 83, 75, 0.20);
-  --accent-subtle: rgba(229, 83, 75, 0.10);
-  --warm-accent: #c8423b;
-  --coral: var(--amber-9);
-  --coral-hover: var(--amber-10);
-  --pillar-r: 232;
-  --pillar-g: 84;
-  --pillar-b: 74;
-  --pillar-warm-r: 200;
-  --pillar-warm-g: 66;
-  --pillar-warm-b: 59;
-}
 
 [data-pillar="designs"] {
   --amber-8: #6b79ff;

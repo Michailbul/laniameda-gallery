@@ -2,7 +2,6 @@ import { v } from "convex/values";
 
 export const pillarValidator = v.union(
   v.literal("creators"),
-  v.literal("cars"),
   v.literal("designs"),
   v.literal("dump"),
 );
@@ -98,48 +97,6 @@ const creatorsPromptProfileValidator = v.object({
   )),
 });
 
-const carsPromptProfileValidator = v.object({
-  pillar: v.literal("cars"),
-  shotType: v.optional(v.union(
-    v.literal("exterior"),
-    v.literal("interior"),
-    v.literal("detail"),
-    v.literal("rolling"),
-    v.literal("drone"),
-    v.literal("studio"),
-    v.literal("other"),
-  )),
-  cameraAngle: v.optional(v.union(
-    v.literal("front_3_4"),
-    v.literal("rear_3_4"),
-    v.literal("front"),
-    v.literal("rear"),
-    v.literal("side"),
-    v.literal("top_down"),
-    v.literal("cockpit"),
-    v.literal("wheel_detail"),
-    v.literal("other"),
-  )),
-  motion: v.optional(v.union(
-    v.literal("static"),
-    v.literal("rolling"),
-    v.literal("drift"),
-    v.literal("burnout"),
-    v.literal("rain"),
-    v.literal("other"),
-  )),
-  environment: v.optional(v.union(
-    v.literal("city"),
-    v.literal("highway"),
-    v.literal("track"),
-    v.literal("studio"),
-    v.literal("desert"),
-    v.literal("mountain"),
-    v.literal("night"),
-    v.literal("other"),
-  )),
-});
-
 const designsPromptProfileValidator = v.object({
   pillar: v.literal("designs"),
   targetType: v.optional(v.union(
@@ -178,7 +135,6 @@ const dumpPromptProfileValidator = v.object({
 
 export const promptProfileValidator = v.optional(v.union(
   creatorsPromptProfileValidator,
-  carsPromptProfileValidator,
   designsPromptProfileValidator,
   dumpPromptProfileValidator,
 ));

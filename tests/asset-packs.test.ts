@@ -15,15 +15,15 @@ describe("asset pack consolidation", () => {
 
   test("consolidates legacy prompt-linked assets into an explicit pack", async () => {
     const tagId = await harness.db.insert("tags", {
-      name: "Cars",
-      normalized: "cars",
+      name: "Editorial",
+      normalized: "editorial",
       usageCount: 1,
     });
     const promptId = await harness.db.insert("prompts", {
       ownerUserId: "278674008",
-      text: "Low-angle porsche rolling shot at sunset",
+      text: "Editorial portrait under window light",
       tagIds: [tagId],
-      pillar: "cars",
+      pillar: "creators",
       modelName: "gpt-image-1",
       domain: "automotive",
       createdAt: 10,
@@ -35,7 +35,7 @@ describe("asset pack consolidation", () => {
       sourceUrl: "https://example.com/older.jpg",
       promptId,
       tagIds: [tagId],
-      pillar: "cars",
+      pillar: "creators",
       createdAt: 100,
     });
     const newerAssetId = await harness.db.insert("assets", {
@@ -44,7 +44,7 @@ describe("asset pack consolidation", () => {
       sourceUrl: "https://example.com/newer.jpg",
       promptId,
       tagIds: [tagId],
-      pillar: "cars",
+      pillar: "creators",
       createdAt: 200,
     });
 
@@ -76,11 +76,11 @@ describe("asset pack consolidation", () => {
       packSlotIndex?: number;
     }>(olderAssetId);
 
-    expect(pack?.title).toContain("porsche");
+    expect(pack?.title).toContain("Editorial");
     expect(pack?.coverAssetId).toBe(newerAssetId);
     expect(pack?.itemCount).toBe(2);
     expect(pack?.modelName).toBe("gpt-image-1");
-    expect(pack?.pillar).toBe("cars");
+    expect(pack?.pillar).toBe("creators");
     expect(newerAsset?.assetPackId).toBe(packId);
     expect(newerAsset?.packSlotIndex).toBe(0);
     expect(olderAsset?.assetPackId).toBe(packId);

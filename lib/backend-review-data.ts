@@ -22,7 +22,7 @@ export interface ReviewTable {
 }
 
 export interface ReviewPillar {
-  pillar: "creators" | "cars" | "designs" | "dump";
+  pillar: "creators" | "designs" | "dump";
   accent: string;
   summary: string;
   primaryRecords: string[];
@@ -352,15 +352,6 @@ export const backendReview = {
       note: "Today this pillar has rich prompt structure but no dedicated first-class reference entity beyond prompts/assets/tags.",
     },
     {
-      pillar: "cars",
-      accent: "var(--pillar-cars)",
-      summary: "Cinematic automotive references, motion shots, and environment-heavy prompts.",
-      primaryRecords: ["prompts", "assets", "tags", "folders", "semanticDocuments"],
-      promptProfileFields: ["shotType", "cameraAngle", "motion", "environment"],
-      metadataFocus: ["generationType", "assetRole", "car-oriented tags", "folder grouping"],
-      note: "Like creators, cars currently relies on promptProfile + tags instead of a richer concept/reference table.",
-    },
-    {
       pillar: "designs",
       accent: "var(--pillar-designs)",
       summary: "Website, dashboard, mobile, component, and design system references.",
@@ -658,7 +649,7 @@ export const backendReview = {
         "Right now the system mixes both, which is the main reason the access model is hard to trust.",
     },
     {
-      title: "Do creators and cars need a first-class reference entity like designs already has?",
+      title: "Do creators need a first-class reference entity like designs already has?",
       detail:
         "If the answer is yes, a generalized concepts table may be better than continuing to grow promptProfile and tags asymmetrically.",
     },

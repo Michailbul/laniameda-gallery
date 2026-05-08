@@ -12,7 +12,7 @@ type AssetRole =
   | "inspiration_capture"
   | "workflow_asset"
   | "other";
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 
 const VALID_SCOPES = new Set<Scope>(["mine", "public"]);
 const VALID_KINDS = new Set<AssetKind>(["image", "video"]);
@@ -23,7 +23,7 @@ const VALID_ASSET_ROLES = new Set<AssetRole>([
   "workflow_asset",
   "other",
 ]);
-const VALID_PILLARS = new Set<Pillar>(["creators", "cars", "designs", "dump"]);
+const VALID_PILLARS = new Set<Pillar>(["creators", "designs", "dump"]);
 
 const normalizeScope = (value: unknown): Scope => {
   if (typeof value === "string" && VALID_SCOPES.has(value as Scope)) {

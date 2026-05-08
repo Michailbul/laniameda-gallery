@@ -4,7 +4,7 @@ import { createHash } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
 
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 type Operation = "create" | "update" | "delete";
 type Target = "prompt" | "asset" | "designInspiration";
 type GenerationType = "image_gen" | "video_gen" | "ui_design" | "workflow" | "other";

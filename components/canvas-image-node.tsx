@@ -6,7 +6,6 @@ import { ImageIcon } from "lucide-react";
 
 const PILLAR_META = {
   creators: { label: "Creators", color: "var(--pillar-creators)" },
-  cars: { label: "Cars", color: "var(--pillar-cars)" },
   designs: { label: "Designs", color: "var(--pillar-designs)" },
   dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;

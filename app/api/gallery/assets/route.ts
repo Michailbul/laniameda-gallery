@@ -6,10 +6,10 @@ import { getServerConvexClient } from "@/lib/server/convex";
 
 type Scope = "mine" | "public";
 type AssetKind = "image" | "video";
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 
 const VALID_KINDS = new Set<AssetKind>(["image", "video"]);
-const VALID_PILLARS = new Set<Pillar>(["creators", "cars", "designs", "dump"]);
+const VALID_PILLARS = new Set<Pillar>(["creators", "designs", "dump"]);
 
 const parseScope = (value: string | null): Scope => {
   return value === "mine" ? "mine" : "public";

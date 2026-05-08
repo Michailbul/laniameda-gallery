@@ -49,7 +49,6 @@ export default function Page() {
           --v7-accent-dim: rgba(212,130,154,0.06);
           --v7-accent-hover: #e09ab2;
           --v7-pillar-creators: #d4829a;
-          --v7-pillar-cars: #c06070;
           --v7-pillar-designs: #82b0ce;
           --v7-pillar-dump: #7abfb0;
           --v7-shadow-sm: 0 1px 4px rgba(212,130,154,0.06);

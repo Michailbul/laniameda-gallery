@@ -15,7 +15,7 @@ type TagDocLike = {
   normalized: string;
   usageCount: number;
   category?: string;
-  pillar?: "creators" | "cars" | "designs" | "dump";
+  pillar?: "creators" | "designs" | "dump";
   source?: "user" | "agent" | "system";
   aliases?: string[];
 };

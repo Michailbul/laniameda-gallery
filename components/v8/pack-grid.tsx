@@ -43,7 +43,6 @@ type PackGridProps = {
 
 const PILLAR_COLORS: Record<string, string> = {
   creators: "var(--v7-pillar-creators)",
-  cars: "var(--v7-pillar-cars)",
   designs: "var(--v7-pillar-designs)",
   dump: "var(--v7-pillar-dump)",
 };

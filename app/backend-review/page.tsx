@@ -113,13 +113,12 @@ const preservationBoard = [
     label: "Expand",
     title: "Model depth by pillar",
     detail:
-      "Designs already proves the value of a richer concept table. The question is whether creators and cars should gain their own concept model or share a generalized reference layer.",
+      "Designs already proves the value of a richer concept table. The question is whether creators should gain its own concept model or share a generalized reference layer.",
   },
 ];
 
 const pillarLayout: Record<(typeof backendReview.pillars)[number]["pillar"], string> = {
-  creators: "xl:col-span-3",
-  cars: "xl:col-span-3",
+  creators: "xl:col-span-6",
   designs: "xl:col-span-6",
   dump: "xl:col-span-12",
 };
@@ -577,7 +576,7 @@ export default function BackendReviewPage() {
                 index="03"
                 eyebrow="Pillar Framing"
                 title="What the model can express per pillar today"
-                description="This is where the asymmetry becomes visible. Designs already has a richer concept layer. Creators and cars still mostly express themselves through prompt profiles, assets, and tags."
+                description="This is where the asymmetry becomes visible. Designs already has a richer concept layer. Creators still mostly expresses itself through prompt profiles, assets, and tags."
               />
               <div className="mt-6 grid gap-4 xl:grid-cols-12">
                 {backendReview.pillars.map((pillar) => (

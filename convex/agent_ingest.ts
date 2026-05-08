@@ -17,7 +17,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 type PromptType =
   | "image_gen"
   | "video_gen"

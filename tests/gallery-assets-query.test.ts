@@ -42,7 +42,7 @@ describe("gallery asset queries", () => {
       promptId: carPromptId,
       tagIds: [carTagId],
       modelName: "model-car",
-      pillar: "cars",
+      pillar: "creators",
       isPublic: false,
       createdAt: 200,
     });

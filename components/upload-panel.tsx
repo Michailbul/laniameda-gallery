@@ -75,7 +75,6 @@ const GENERATION_TYPE_OPTIONS = [
 
 const PILLAR_OPTIONS = [
   { value: "creators", label: "Creators" },
-  { value: "cars", label: "Cars" },
   { value: "designs", label: "Designs" },
   { value: "dump", label: "Dump" },
 ] as const;

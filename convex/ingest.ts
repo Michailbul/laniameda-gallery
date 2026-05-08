@@ -25,7 +25,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 
-type Pillar = "creators" | "cars" | "designs" | "dump";
+type Pillar = "creators" | "designs" | "dump";
 type PromptType = Infer<typeof promptTypeValidator>;
 type GenerationType = Infer<typeof generationTypeValidator>;
 type ModelProvider = Infer<typeof modelProviderValidator>;
