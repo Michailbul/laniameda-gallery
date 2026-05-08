@@ -3,6 +3,7 @@ export type GalleryAssetRecord = {
   kind?: "image" | "video";
   contentType?: string;
   promptId?: string;
+  designInspirationId?: string;
   thumbUrl?: string;
   url?: string;
   sourceUrl?: string;
@@ -56,6 +57,7 @@ export type GalleryEntry = {
   pillar?: string;
   tagNames?: string[];
   sourceUrl?: string;
+  designInspirationId?: string;
   createdAt?: number;
   folderId?: string;
   isPublic?: boolean;
@@ -132,6 +134,7 @@ const buildEntry = (
     pillar: cover.pillar ?? undefined,
     tagNames,
     sourceUrl: cover.sourceUrl ?? undefined,
+    designInspirationId: cover.designInspirationId ?? undefined,
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,
     isPublic: cover.isPublic ?? false,

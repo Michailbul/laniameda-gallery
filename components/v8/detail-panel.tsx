@@ -19,10 +19,14 @@ import {
   Search,
   ImagePlus,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
+import { useQuery } from "convex/react";
 import { resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
 
@@ -62,6 +66,8 @@ interface V72DetailPanelProps {
     isFeatured?: boolean;
     isDesignInspiration?: boolean;
     designTitle?: string;
+    designDescription?: string;
+    designInspirationId?: string;
     sourceDomain?: string;
     captureKind?: string;
     saveIntent?: string;
@@ -170,12 +176,71 @@ export function V72DetailPanel({
   const [toastVisible, setToastVisible] = useState(false);
   const [toastExiting, setToastExiting] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [showLivePreview, setShowLivePreview] = useState(true);
   const [fullLoadedMap, setFullLoadedMap] = useState<
     Record<number, boolean>
   >({});
   const panelRef = useRef<HTMLDivElement>(null);
   const copyMenuRef = useRef<HTMLDivElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
+
+  // Lazy-fetch the linked design inspiration when the asset has one but
+  // wasn't opened from the designs pillar (e.g. a bookmark in creators/dump).
+  const fetchedInspiration = useQuery(
+    api.designInspirations.getDesignInspiration,
+    image.designInspirationId && !image.isDesignInspiration
+      ? { id: image.designInspirationId as Id<"designInspirations"> }
+      : "skip",
+  );
+
+  const designView = useMemo(() => {
+    if (image.isDesignInspiration) {
+      return {
+        title: image.designTitle,
+        description: image.designDescription,
+        sourceUrl: image.sourceUrl,
+        sourceDomain: image.sourceDomain,
+        captureKind: image.captureKind,
+        saveIntent: image.saveIntent,
+        inspirationType: image.inspirationType,
+        userNote: image.userNote,
+      };
+    }
+    if (fetchedInspiration) {
+      return {
+        title: fetchedInspiration.title,
+        description: fetchedInspiration.description,
+        sourceUrl: fetchedInspiration.sourceUrl,
+        sourceDomain: fetchedInspiration.sourceDomain,
+        captureKind: fetchedInspiration.captureKind,
+        saveIntent: fetchedInspiration.saveIntent,
+        inspirationType: fetchedInspiration.inspirationType,
+        userNote: fetchedInspiration.userNote,
+      };
+    }
+    return null;
+  }, [
+    image.isDesignInspiration,
+    image.designTitle,
+    image.designDescription,
+    image.sourceUrl,
+    image.sourceDomain,
+    image.captureKind,
+    image.saveIntent,
+    image.inspirationType,
+    image.userNote,
+    fetchedInspiration,
+  ]);
+
+  // Render the live iframe view for any web bookmark — both new saves
+  // (captureKind === "website") and legacy saves where only inspirationType is set.
+  const isWebBookmark = Boolean(
+    designView &&
+      designView.sourceUrl &&
+      (designView.captureKind === "website" ||
+        (!designView.captureKind && designView.inspirationType === "website")),
+  );
+  const isDesignView = Boolean(image.isDesignInspiration || designView);
 
   const handleReplaceThumbnail = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -234,6 +299,7 @@ export function V72DetailPanel({
     setFolderDraftName("");
     setCreatingFolder(false);
     setActiveTab("INFO");
+    setShowLivePreview(true);
   }, [image.id]);
 
   useEffect(() => {
@@ -465,7 +531,74 @@ export function V72DetailPanel({
             borderBottom: "1px solid var(--v7-border)",
           }}
         >
-          {currentSlide.kind === "video" ? (
+          {isWebBookmark && designView?.sourceUrl ? (
+            <>
+              {/* Screenshot underneath — shows through if the iframe is blocked
+                  by X-Frame-Options or if the user toggles to screenshot view. */}
+              <Image
+                src={currentSlide.thumbSrc}
+                alt={designView.title ?? image.prompt}
+                fill
+                sizes="440px"
+                className="object-cover"
+                style={{ borderRadius: 0 }}
+                priority
+                unoptimized
+              />
+              {showLivePreview && (
+                <iframe
+                  key={designView.sourceUrl}
+                  src={designView.sourceUrl}
+                  title={designView.title ?? "Live preview"}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                  className="absolute inset-0 h-full w-full"
+                  style={{ border: 0, background: "var(--v7-paper)" }}
+                />
+              )}
+              <div className="absolute right-2 top-2 z-20 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowLivePreview((s) => !s)}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    backgroundColor: "rgba(0,0,0,0.75)",
+                    color: "var(--v7-paper)",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    borderRadius: "var(--v7-radius)",
+                    cursor: "pointer",
+                  }}
+                  aria-pressed={showLivePreview}
+                >
+                  {showLivePreview ? "Screenshot" : "Live"}
+                </button>
+                <a
+                  href={designView.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1"
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    backgroundColor: "var(--v7-coral)",
+                    color: "var(--v7-paper)",
+                    border: "1px solid var(--v7-coral)",
+                    borderRadius: "var(--v7-radius)",
+                  }}
+                  aria-label="Open source URL in a new tab"
+                >
+                  Open
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              </div>
+            </>
+          ) : currentSlide.kind === "video" ? (
             <video
               key={currentSlide.id}
               src={currentSlide.fullSrc}
@@ -604,7 +737,7 @@ export function V72DetailPanel({
             borderBottom: "1px solid var(--v7-border)",
           }}
         >
-          {(modelName || (image.isDesignInspiration && image.sourceDomain)) && (
+          {(modelName || (isDesignView && designView?.sourceDomain)) && (
             <span
               style={{
                 padding: "2px 8px",
@@ -615,7 +748,7 @@ export function V72DetailPanel({
                 borderRadius: "4px",
               }}
             >
-              {image.isDesignInspiration ? image.sourceDomain : modelName}
+              {isDesignView ? designView?.sourceDomain : modelName}
             </span>
           )}
           {pillarLabel && (
@@ -644,8 +777,8 @@ export function V72DetailPanel({
             </span>
           )}
           {(() => {
-            const idKind: "asset" | "design" = image.isDesignInspiration ? "design" : "asset";
-            const idValue = image.isDesignInspiration ? image.id : currentAssetId;
+            const idKind: "asset" | "design" = isDesignView ? "design" : "asset";
+            const idValue = isDesignView ? image.id : currentAssetId;
             if (!idValue) return null;
             const token = `${idKind}:${idValue}`;
             return (
@@ -672,7 +805,7 @@ export function V72DetailPanel({
               </button>
             );
           })()}
-          {image.packId && !image.isDesignInspiration && (
+          {image.packId && !isDesignView && (
             <button
               type="button"
               onClick={() => void handleCopyGalleryId("pack", image.packId!)}
@@ -761,13 +894,13 @@ export function V72DetailPanel({
                   }}
                 >
                   <CopyMenuItem
-                    icon={image.isDesignInspiration ? LinkIcon : Copy}
-                    label={image.isDesignInspiration ? "Copy source URL" : "Copy prompt"}
+                    icon={isDesignView ? LinkIcon : Copy}
+                    label={isDesignView ? "Copy source URL" : "Copy prompt"}
                     primary
                     onClick={() =>
                       void handleCopy(
-                        image.isDesignInspiration
-                          ? image.sourceUrl
+                        isDesignView
+                          ? designView?.sourceUrl
                           : undefined,
                       )
                     }
@@ -786,11 +919,11 @@ export function V72DetailPanel({
                   />
                   <CopyMenuItem
                     icon={Copy}
-                    label={`Copy ${image.isDesignInspiration ? "design" : "asset"} ID`}
+                    label={`Copy ${isDesignView ? "design" : "asset"} ID`}
                     onClick={() =>
                       void handleCopyGalleryId(
-                        image.isDesignInspiration ? "design" : "asset",
-                        image.isDesignInspiration ? image.id : currentAssetId,
+                        isDesignView ? "design" : "asset",
+                        isDesignView ? image.id : currentAssetId,
                       )
                     }
                   />
@@ -876,10 +1009,10 @@ export function V72DetailPanel({
         <div className="px-3 pb-4">
           {activeTab === "INFO" && (
             <div className="flex flex-col gap-0 pt-2.5">
-              {image.isDesignInspiration ? (
+              {isDesignView && designView ? (
                 <>
-                  {/* Design title */}
-                  {image.designTitle && (
+                  {/* Title */}
+                  {designView.title && (
                     <div className="pb-2">
                       <SectionLabel>Title</SectionLabel>
                       <p
@@ -893,13 +1026,38 @@ export function V72DetailPanel({
                           wordBreak: "break-word",
                         }}
                       >
-                        {image.designTitle}
+                        {designView.title}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Description */}
+                  {designView.description && (
+                    <div
+                      className="pb-2 pt-2.5"
+                      style={{
+                        borderTop: "1px solid var(--v7-border)",
+                      }}
+                    >
+                      <SectionLabel>Description</SectionLabel>
+                      <p
+                        className="mt-1.5"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 400,
+                          lineHeight: 1.55,
+                          color: "var(--v7-text-secondary)",
+                          fontFamily: "var(--v7-font)",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {designView.description}
                       </p>
                     </div>
                   )}
 
                   {/* Source URL */}
-                  {image.sourceUrl && (
+                  {designView.sourceUrl && (
                     <div
                       className="pb-2 pt-2.5"
                       style={{
@@ -908,7 +1066,7 @@ export function V72DetailPanel({
                     >
                       <SectionLabel>Source</SectionLabel>
                       <a
-                        href={image.sourceUrl}
+                        href={designView.sourceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-1.5 flex items-center gap-1.5"
@@ -920,13 +1078,13 @@ export function V72DetailPanel({
                         }}
                       >
                         <LinkIcon className="h-3 w-3 flex-shrink-0" />
-                        {image.sourceDomain ?? image.sourceUrl}
+                        {designView.sourceDomain ?? designView.sourceUrl}
                       </a>
                     </div>
                   )}
 
                   {/* User note */}
-                  {image.userNote && (
+                  {designView.userNote && (
                     <div
                       className="pb-2 pt-2.5"
                       style={{
@@ -945,7 +1103,7 @@ export function V72DetailPanel({
                           wordBreak: "break-word",
                         }}
                       >
-                        {image.userNote}
+                        {designView.userNote}
                       </p>
                     </div>
                   )}
@@ -959,14 +1117,14 @@ export function V72DetailPanel({
                   >
                     <SectionLabel>Details</SectionLabel>
                     <div className="mt-1.5 flex flex-wrap gap-1">
-                      {image.captureKind && (
-                        <span className="v7-chip">{image.captureKind}</span>
+                      {designView.captureKind && (
+                        <span className="v7-chip">{designView.captureKind}</span>
                       )}
-                      {image.saveIntent && (
-                        <span className="v7-chip">{image.saveIntent}</span>
+                      {designView.saveIntent && (
+                        <span className="v7-chip">{designView.saveIntent}</span>
                       )}
-                      {image.inspirationType && (
-                        <span className="v7-chip">{image.inspirationType}</span>
+                      {designView.inspirationType && (
+                        <span className="v7-chip">{designView.inspirationType}</span>
                       )}
                     </div>
                   </div>
@@ -1076,7 +1234,7 @@ export function V72DetailPanel({
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  {!image.isDesignInspiration &&
+                  {!isDesignView &&
                     ACTIONS.map(({ intent, label, icon: Icon }) => (
                     <button
                       key={intent}
@@ -1105,10 +1263,10 @@ export function V72DetailPanel({
               <div className="pt-2.5">
                 <SectionLabel>Export</SectionLabel>
                 <div className="mt-1.5 flex flex-col gap-1">
-                  {image.isDesignInspiration && image.sourceUrl ? (
+                  {isDesignView && designView?.sourceUrl ? (
                     <button
                       type="button"
-                      onClick={() => void handleCopy(image.sourceUrl)}
+                      onClick={() => void handleCopy(designView.sourceUrl)}
                       className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
                       style={{
                         border: "2px solid var(--v7-border-strong)",

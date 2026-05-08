@@ -64,6 +64,8 @@ type SelectedImage = {
   isFeatured?: boolean;
   isDesignInspiration?: boolean;
   designTitle?: string;
+  designDescription?: string;
+  designInspirationId?: string;
   sourceDomain?: string;
   captureKind?: string;
   saveIntent?: string;
@@ -820,7 +822,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     galleryScope === "mine" &&
       canAccessMyGallery &&
       selectedPillar === "designs"
-      ? { ownerUserId, requireAsset: true, limit: 120 }
+      ? { ownerUserId, pillar: "designs", requireAsset: true, limit: 120 }
       : "skip",
   );
   const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
@@ -1076,6 +1078,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           initiallyLoaded: loadedImageIds.has(entry._id),
           isDesignInspiration: true,
           designTitle: entry.title ?? undefined,
+          designDescription: entry.description ?? undefined,
+          designInspirationId: entry._id,
           sourceDomain: entry.sourceDomain ?? undefined,
           captureKind: entry.captureKind ?? undefined,
           saveIntent: entry.saveIntent ?? undefined,
@@ -1137,6 +1141,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             ...img,
             isDesignInspiration: true,
             designTitle: entry.title ?? undefined,
+            designDescription: entry.description ?? undefined,
+            designInspirationId: entry._id,
             sourceDomain: entry.sourceDomain ?? undefined,
             captureKind: entry.captureKind ?? undefined,
             saveIntent: entry.saveIntent ?? undefined,
@@ -1171,6 +1177,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         pillar: entry.pillar,
         tagNames: entry.tagNames,
         sourceUrl: entry.sourceUrl,
+        designInspirationId:
+          "designInspirationId" in entry ? entry.designInspirationId : undefined,
         createdAt: entry.createdAt,
         folderId: entry.folderId,
         isPublic: entry.isPublic,

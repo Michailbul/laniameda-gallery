@@ -31,6 +31,8 @@ export async function POST(request: Request) {
     const client = getServerConvexClient();
     const result = await client.action(saveDesignFromExtensionAction, {
       ownerUserId,
+      pillar: payload.pillar,
+      description: payload.description,
       capture: payload.capture,
       captureKind: payload.captureKind,
       saveIntent: payload.saveIntent,

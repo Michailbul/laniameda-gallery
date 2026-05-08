@@ -19,6 +19,7 @@ import {
   designInspirationTypeValidator,
   designPlatformValidator,
   designSaveIntentValidator,
+  optionalPillarValidator,
   workflowTypeValidator,
 } from "./validators";
 
@@ -185,6 +186,7 @@ const createThumbMetadata = async (
 
 const createPreviewAsset = async (ctx: ActionCtx, args: {
   ownerUserId: string;
+  pillar: Infer<typeof optionalPillarValidator>;
   assetSourceUrl?: string;
   previewBlob: Blob;
   previewContentType: string;
@@ -199,6 +201,7 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
     throw new ConvexError("Design save preview must be an image.");
   }
 
+  const pillar = args.pillar ?? "designs";
   const thumb = await createThumbMetadata(ctx, fileBuffer, contentType);
   const storageBlob = new Blob([fileBuffer], { type: contentType });
   const result = (await ctx.runMutation(createAssetMutation, {
@@ -220,9 +223,9 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
     thumbHeight: thumb.thumbHeight,
     tagIds: args.tagIds,
     ingestKey: `design-preview:${args.sourceFingerprint}`.slice(0, 500),
-    pillar: "designs",
-    generationType: "ui_design",
-    assetRole: "reference",
+    pillar,
+    generationType: pillar === "designs" ? "ui_design" : "other",
+    assetRole: pillar === "designs" ? "reference" : "inspiration_capture",
     ingestSource: "manual",
   })) as { assetId: Id<"assets">; created: boolean };
 
@@ -232,6 +235,8 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
 export const saveFromExtension = action({
   args: {
     ownerUserId: v.string(),
+    pillar: v.optional(optionalPillarValidator),
+    description: v.optional(v.string()),
     capture: v.union(pageCaptureValidator, imageCaptureValidator),
     captureKind: v.optional(designCaptureKindValidator),
     saveIntent: v.optional(designSaveIntentValidator),
@@ -324,8 +329,10 @@ export const saveFromExtension = action({
         ownerUserId,
       })) as {
         _id: Id<"designInspirations">;
+        pillar?: Infer<typeof optionalPillarValidator>;
         title?: string;
         summary?: string;
+        description?: string;
         sourceTitle?: string;
         userNote?: string;
         sourceUrl?: string;
@@ -361,6 +368,7 @@ export const saveFromExtension = action({
             : await resolvePreviewInput(args.capture);
         assetId = await createPreviewAsset(ctx, {
           ownerUserId,
+          pillar: args.pillar ?? existing.pillar ?? "designs",
           assetSourceUrl: previewSourceUrl,
           previewBlob: preview.blob,
           previewContentType: preview.contentType,
@@ -375,8 +383,10 @@ export const saveFromExtension = action({
         await ctx.runMutation(updateDesignInspirationMutation, {
           ownerUserId,
           id: existing._id,
+          pillar: args.pillar ?? existing.pillar,
           title: title ?? existing.title,
           summary: existing.summary,
+          description: trimOptionalText(args.description) ?? existing.description,
           sourceTitle: trimOptionalText(args.capture.sourceTitle) ?? existing.sourceTitle,
           userNote: trimOptionalText(args.userNote) ?? existing.userNote,
           sourceUrl: sourceUrl ?? existing.sourceUrl,
@@ -426,6 +436,7 @@ export const saveFromExtension = action({
         : await resolvePreviewInput(args.capture);
     const assetId = await createPreviewAsset(ctx, {
       ownerUserId,
+      pillar: args.pillar ?? "designs",
       assetSourceUrl: previewSourceUrl,
       previewBlob: preview.blob,
       previewContentType: preview.contentType,
@@ -438,7 +449,9 @@ export const saveFromExtension = action({
     try {
       result = (await ctx.runMutation(createDesignInspirationMutation, {
         ownerUserId,
+        pillar: args.pillar ?? "designs",
         title,
+        description: trimOptionalText(args.description),
         sourceTitle: trimOptionalText(args.capture.sourceTitle),
         userNote: trimOptionalText(args.userNote),
         sourceUrl,

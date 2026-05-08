@@ -18,6 +18,7 @@ import {
   designInspirationTypeValidator,
   designPlatformValidator,
   designSaveIntentValidator,
+  optionalPillarValidator,
   workflowTypeValidator,
 } from "./validators";
 
@@ -25,9 +26,10 @@ const designInspirationResultValidator = v.object({
   _id: v.id("designInspirations"),
   _creationTime: v.number(),
   ownerUserId: v.optional(v.string()),
-  pillar: v.literal("designs"),
+  pillar: optionalPillarValidator,
   title: v.optional(v.string()),
   summary: v.optional(v.string()),
+  description: v.optional(v.string()),
   sourceUrl: v.optional(v.string()),
   sourceDomain: v.optional(v.string()),
   sourceTitle: v.optional(v.string()),
@@ -179,8 +181,10 @@ const ensureLinkedOwnership = async (
 export const createDesignInspiration = mutation({
   args: {
     ownerUserId: v.string(),
+    pillar: v.optional(optionalPillarValidator),
     title: v.optional(v.string()),
     summary: v.optional(v.string()),
+    description: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     sourceTitle: v.optional(v.string()),
     userNote: v.optional(v.string()),
@@ -210,10 +214,20 @@ export const createDesignInspiration = mutation({
 
     const title = args.title?.trim() || undefined;
     const summary = args.summary?.trim() || undefined;
+    const description = args.description?.trim() || undefined;
     const sourceUrl = args.sourceUrl?.trim() || undefined;
     const sourceTitle = args.sourceTitle?.trim() || undefined;
     const userNote = args.userNote?.trim() || undefined;
-    if (!title && !summary && !sourceUrl && !sourceTitle && !userNote && !args.assetId && !args.promptId) {
+    if (
+      !title &&
+      !summary &&
+      !description &&
+      !sourceUrl &&
+      !sourceTitle &&
+      !userNote &&
+      !args.assetId &&
+      !args.promptId
+    ) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
 
@@ -239,9 +253,10 @@ export const createDesignInspiration = mutation({
     const now = Date.now();
     const designInspirationId = await ctx.db.insert("designInspirations", {
       ownerUserId,
-      pillar: "designs",
+      pillar: args.pillar ?? "designs",
       title,
       summary,
+      description,
       sourceUrl,
       sourceTitle,
       userNote,
@@ -250,7 +265,7 @@ export const createDesignInspiration = mutation({
       saveIntent: args.saveIntent,
       templateKey: args.templateKey?.trim() || undefined,
       sourceFingerprint: args.sourceFingerprint?.trim() || undefined,
-      searchText: buildSearchText([title, sourceTitle, summary, userNote, sourceUrl]),
+      searchText: buildSearchText([title, sourceTitle, summary, description, userNote, sourceUrl]),
       inspirationType: args.inspirationType,
       platform: args.platform,
       workflowType: args.workflowType,
@@ -293,8 +308,10 @@ export const updateDesignInspiration = mutation({
   args: {
     ownerUserId: v.string(),
     id: v.id("designInspirations"),
+    pillar: v.optional(optionalPillarValidator),
     title: v.optional(v.string()),
     summary: v.optional(v.string()),
+    description: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     sourceTitle: v.optional(v.string()),
     userNote: v.optional(v.string()),
@@ -334,18 +351,29 @@ export const updateDesignInspiration = mutation({
 
     const title = args.title?.trim() || undefined;
     const summary = args.summary?.trim() || undefined;
+    const description = args.description?.trim() || undefined;
     const sourceUrl = args.sourceUrl?.trim() || undefined;
     const sourceTitle = args.sourceTitle?.trim() || undefined;
     const userNote = args.userNote?.trim() || undefined;
-    if (!title && !summary && !sourceUrl && !sourceTitle && !userNote && !args.assetId && !args.promptId) {
+    if (
+      !title &&
+      !summary &&
+      !description &&
+      !sourceUrl &&
+      !sourceTitle &&
+      !userNote &&
+      !args.assetId &&
+      !args.promptId
+    ) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
 
     const tagIds = dedupeIds(args.tagIds);
     const updatedAt = Date.now();
-    await ctx.db.patch(args.id, {
+    const patchPayload: Record<string, unknown> = {
       title,
       summary,
+      description,
       sourceUrl,
       sourceTitle,
       userNote,
@@ -354,7 +382,7 @@ export const updateDesignInspiration = mutation({
       saveIntent: args.saveIntent,
       templateKey: args.templateKey?.trim() || undefined,
       sourceFingerprint: args.sourceFingerprint?.trim() || undefined,
-      searchText: buildSearchText([title, sourceTitle, summary, userNote, sourceUrl]),
+      searchText: buildSearchText([title, sourceTitle, summary, description, userNote, sourceUrl]),
       inspirationType: args.inspirationType,
       platform: args.platform,
       workflowType: args.workflowType,
@@ -364,7 +392,11 @@ export const updateDesignInspiration = mutation({
       assetId: args.assetId,
       promptId: args.promptId,
       updatedAt,
-    });
+    };
+    if (args.pillar !== undefined) {
+      patchPayload.pillar = args.pillar;
+    }
+    await ctx.db.patch(args.id, patchPayload);
 
     await bumpTagUsage(ctx, existing.tagIds, -1);
     await bumpTagUsage(ctx, tagIds, 1);
@@ -578,6 +610,7 @@ export const listDesignInspirations = query({
 export const listDesignGalleryEntries = query({
   args: {
     ownerUserId: v.string(),
+    pillar: v.optional(optionalPillarValidator),
     tagIds: v.optional(v.array(v.id("tags"))),
     matchAllTags: v.optional(v.boolean()),
     folderId: v.optional(v.id("folders")),
@@ -619,7 +652,11 @@ export const listDesignGalleryEntries = query({
       rows.push(...scoped);
     }
 
+    const pillarFilter = args.pillar;
     const prefiltered = dedupeInspirationIds(rows)
+      .filter((item) =>
+        pillarFilter ? (item.pillar ?? "designs") === pillarFilter : true,
+      )
       .filter((item) => (args.folderId ? item.folderId === args.folderId : true))
       .filter((item) =>
         args.inspirationType ? item.inspirationType === args.inspirationType : true,

@@ -115,6 +115,7 @@ export async function GET(request: Request) {
 
     const designs = await client.query(listDesignGalleryEntriesQuery, {
       ownerUserId: user.ownerUserId,
+      pillar: "designs",
       tagIds: parseTagIds(params),
       matchAllTags: params.get("matchAllTags") === "true",
       folderId: (params.get("folderId")?.trim() || undefined) as Id<"folders"> | undefined,

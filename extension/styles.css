@@ -47,6 +47,13 @@
   pointer-events: auto;
 }
 
+/* Midjourney grid: pin to top-right of the card. */
+.stg-badge--top-right {
+  top: 8px;
+  right: 8px;
+  bottom: auto;
+}
+
 .stg-badge--saving {
   pointer-events: none;
   opacity: 0.7;
@@ -198,6 +205,66 @@
 
 .stg-popover__close:hover {
   color: #201710;
+}
+
+/* ── Error popover ── */
+
+.stg-popover--error {
+  width: 320px;
+  border-color: #c62828;
+  box-shadow: 4px 4px 0 #c62828;
+}
+
+.stg-popover--top-right {
+  top: 8px;
+  right: 8px;
+  bottom: auto;
+}
+
+.stg-popover__title--error {
+  color: #c62828;
+}
+
+.stg-popover__error-msg {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  max-height: 220px;
+  padding: 6px 8px;
+  margin: 0 0 8px;
+  background: #fff;
+  color: #201710;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1.5px solid #d4c8b8;
+  border-radius: 4px;
+  resize: vertical;
+  box-sizing: border-box;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stg-popover__error-msg:focus {
+  outline: none;
+  border-color: #c62828;
+}
+
+.stg-popover__copy {
+  padding: 4px 12px;
+  background: #c62828;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid #201710;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.stg-popover__copy:hover {
+  background: #a31e1e;
 }
 
 /* ── Wrapper for positioning ── */

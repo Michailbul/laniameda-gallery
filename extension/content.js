@@ -25,6 +25,12 @@
 
   // ── Midjourney adapter ──
 
+  // The card root has `@container/jobCard group/jobCard` — match the @container token
+  // to avoid picking up descendant divs whose class names reference `jobCard` modifiers.
+  const MJ_GRID_CARD_SELECTOR = 'div[class*="@container/jobCard"]';
+  const MJ_GRID_THUMB_SELECTOR = 'a[href*="/jobs/"]';
+  const MJ_GRID_BADGE_ATTR = "data-stg-mj-badge";
+
   function isMidjourneyPage() {
     return location.hostname.includes("midjourney.com");
   }
@@ -67,6 +73,80 @@
       imageUrl: imageUrl || null,
       modelName: "Midjourney",
     };
+  }
+
+  // ── Midjourney /explore grid adapter ──
+  // The explore feed renders no <img> elements — each thumbnail is an
+  // <a href="/jobs/{id}?index={N}"> with `style="background-image: image-set(...)"`.
+  // The prompt lives on the React fiber of the card root as `memoizedProps.job`.
+
+  function isMidjourneyGridThumb(el) {
+    if (!el || !isMidjourneyPage()) return false;
+    if (!el.matches || !el.matches(MJ_GRID_THUMB_SELECTOR)) return false;
+    const bg = el.style && el.style.backgroundImage;
+    return Boolean(bg && bg.indexOf("cdn.midjourney.com") !== -1);
+  }
+
+  function getMidjourneyCardRoot(thumb) {
+    return thumb.closest(MJ_GRID_CARD_SELECTOR) || thumb.parentElement;
+  }
+
+  function readMidjourneyJobFromFiber(el) {
+    if (!el) return null;
+    const fiberKey = Object.keys(el).find((k) => k.startsWith("__reactFiber"));
+    if (!fiberKey) return null;
+    let fiber = el[fiberKey];
+    for (let depth = 0; depth < 30 && fiber; depth++, fiber = fiber.return) {
+      const props = fiber.memoizedProps;
+      if (props && props.job && props.job.prompt) return props.job;
+    }
+    return null;
+  }
+
+  function reconstructMidjourneyPrompt(job) {
+    if (!job || !job.prompt) return null;
+    const p = job.prompt;
+
+    let text = "";
+    if (Array.isArray(p.decodedPrompt)) {
+      text = p.decodedPrompt
+        .map((part) => {
+          if (!part || typeof part.content !== "string") return "";
+          const w = typeof part.weight === "number" && part.weight !== 1
+            ? `::${part.weight}`
+            : "";
+          return part.content + w;
+        })
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+    }
+
+    const flags = [];
+    if (p.ar && p.ar.w && p.ar.h) flags.push(`--ar ${p.ar.w}:${p.ar.h}`);
+    if (p.chaos != null) flags.push(`--chaos ${p.chaos}`);
+    if (p.weird != null) flags.push(`--weird ${p.weird}`);
+    if (p.stylize != null) flags.push(`--stylize ${p.stylize}`);
+    if (p.quality != null) flags.push(`--quality ${p.quality}`);
+    if (p.seed != null) flags.push(`--seed ${p.seed}`);
+    if (p.imageWeight != null) flags.push(`--iw ${p.imageWeight}`);
+    if (p.tile) flags.push(`--tile`);
+    if (p.draft) flags.push(`--draft`);
+    if (p.hd) flags.push(`--hd`);
+    if (p.styleRaw) flags.push(`--style raw`);
+    if (Array.isArray(p.no) && p.no.length) flags.push(`--no ${p.no.join(", ")}`);
+    if (p.version) flags.push(`--v ${p.version}`);
+
+    const out = [text, flags.join(" ")].filter(Boolean).join(" ").trim();
+    return out || null;
+  }
+
+  function getMidjourneyThumbImageUrl(thumb) {
+    const bg = (thumb.style && thumb.style.backgroundImage) || "";
+    const urls = Array.from(bg.matchAll(/url\("?([^")]+)"?\)/g)).map((m) => m[1]);
+    if (urls.length === 0) return "";
+    // image-set lists 1dppx then 2dppx — the last URL is the highest resolution.
+    return urls[urls.length - 1];
   }
 
   // ── Image-to-base64 (for CDNs behind Cloudflare like Midjourney) ──
@@ -224,6 +304,90 @@
     return pop;
   }
 
+  // ── Error popover ──
+
+  function formatSaveError(err, response, ctx) {
+    const lines = [];
+    const message = err && err.message ? err.message : String(err || "Unknown error");
+    lines.push(message);
+    if (response && response.apiUrl) lines.push(`API: ${response.apiUrl}`);
+    if (ctx?.imageUrl) lines.push(`Image: ${ctx.imageUrl}`);
+    if (ctx?.sourceUrl) lines.push(`Source: ${ctx.sourceUrl}`);
+    if (ctx?.modelName) lines.push(`Model: ${ctx.modelName}`);
+    if (typeof ctx?.promptLen === "number") lines.push(`Prompt length: ${ctx.promptLen}`);
+    if (err && err.stack) lines.push("", err.stack);
+    return lines.join("\n");
+  }
+
+  function createErrorPopover(message, onClose) {
+    const pop = document.createElement("div");
+    pop.className = "stg-popover stg-popover--error";
+    pop.innerHTML = `
+      <button class="stg-popover__close" title="Close">&times;</button>
+      <div class="stg-popover__title stg-popover__title--error">⚠ Save failed</div>
+      <textarea class="stg-popover__error-msg" readonly rows="6"></textarea>
+      <div class="stg-popover__row">
+        <button class="stg-popover__copy">Copy error</button>
+      </div>
+    `;
+
+    const textarea = pop.querySelector(".stg-popover__error-msg");
+    textarea.value = message;
+
+    const close = pop.querySelector(".stg-popover__close");
+    const copyBtn = pop.querySelector(".stg-popover__copy");
+
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onClose();
+    });
+
+    copyBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const flash = (label) => {
+        copyBtn.textContent = label;
+        setTimeout(() => { copyBtn.textContent = "Copy error"; }, 1500);
+      };
+      try {
+        await navigator.clipboard.writeText(message);
+        flash("Copied ✓");
+      } catch {
+        textarea.select();
+        try { document.execCommand("copy"); flash("Copied ✓"); }
+        catch { flash("Press ⌘C"); }
+      }
+    });
+
+    const onKey = (e) => {
+      if (e.key === "Escape") { onClose(); document.removeEventListener("keydown", onKey); }
+    };
+    document.addEventListener("keydown", onKey);
+
+    pop.addEventListener("click", (e) => e.stopPropagation());
+    return pop;
+  }
+
+  function showErrorPopover(badge, message, opts = {}) {
+    const { topRight = false } = opts;
+    const container = badge.parentElement;
+    if (!container) return;
+
+    badge.classList.remove("stg-badge--visible");
+
+    const popover = createErrorPopover(message, () => {
+      popover.classList.remove("stg-popover--visible");
+      setTimeout(() => {
+        popover.remove();
+        resetBadge(badge);
+        if (topRight) badge.classList.add("stg-badge--top-right");
+      }, 150);
+    });
+    if (topRight) popover.classList.add("stg-popover--top-right");
+
+    container.appendChild(popover);
+    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+  }
+
   // ── Save logic ──
 
   async function handleSave(img, badge) {
@@ -254,15 +418,21 @@
       }
 
       // Send to background worker with Midjourney context if available
-      const response = await chrome.runtime.sendMessage({
-        action: "saveImage",
-        imageUrl,
-        sourceUrl: location.href,
-        pageTitle: document.title,
-        promptText: mjContext?.promptText || undefined,
-        modelName: mjContext?.modelName || undefined,
-        file: fileData || undefined,
-      });
+      let response;
+      try {
+        response = await chrome.runtime.sendMessage({
+          action: "saveImage",
+          imageUrl,
+          sourceUrl: location.href,
+          pageTitle: document.title,
+          promptText: mjContext?.promptText || undefined,
+          modelName: mjContext?.modelName || undefined,
+          file: fileData || undefined,
+        });
+      } catch (msgErr) {
+        msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
+        throw msgErr;
+      }
 
       if (response && response.ok) {
         // Success — show checkmark
@@ -278,14 +448,22 @@
           showPopover(img, badge, imageUrl, response.result);
         }
       } else {
-        throw new Error(response?.error || "Save failed");
+        const err = new Error(response?.error || "Save failed (no response from background worker)");
+        err.responseFromBackground = response;
+        throw err;
       }
     } catch (err) {
       badge.innerHTML = `<span>Error</span>`;
       badge.classList.remove("stg-badge--saving");
       badge.classList.add("stg-badge--error");
-      console.error("[Save to Gallery]", err);
-      setTimeout(() => resetBadge(badge), 3000);
+      console.error("[Save to Gallery]", err, { imageUrl, mjContext });
+      const errorText = formatSaveError(err, err.responseFromBackground, {
+        imageUrl,
+        sourceUrl: location.href,
+        modelName: mjContext?.modelName,
+        promptLen: mjContext?.promptText?.length,
+      });
+      showErrorPopover(badge, errorText);
     }
   }
 
@@ -332,6 +510,7 @@
 
   function clearInjectedUi() {
     hideBadge();
+    hideMjGridBadge();
 
     for (const node of document.querySelectorAll(".stg-badge, .stg-popover")) {
       node.remove();
@@ -339,6 +518,10 @@
 
     for (const img of document.querySelectorAll(`img[${BADGE_ATTR}]`)) {
       img.removeAttribute(BADGE_ATTR);
+    }
+
+    for (const card of document.querySelectorAll(`[${MJ_GRID_BADGE_ATTR}]`)) {
+      card.removeAttribute(MJ_GRID_BADGE_ATTR);
     }
   }
 
@@ -403,6 +586,177 @@
     currentImg = null;
   }
 
+  // ── Midjourney grid badge (parallel state, top-right corner) ──
+
+  let currentMjBadge = null;
+  let currentMjThumb = null;
+
+  function createMjGridBadge(thumb) {
+    const badge = document.createElement("div");
+    badge.className = "stg-badge stg-badge--top-right";
+    badge.innerHTML = `${SAVE_ICON}<span>Save</span>`;
+
+    badge.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      handleSaveMidjourneyGrid(thumb, badge);
+    }, true);
+
+    return badge;
+  }
+
+  function showMjGridBadgeOn(thumb) {
+    if (currentMjThumb === thumb) return;
+    hideMjGridBadge();
+
+    const card = getMidjourneyCardRoot(thumb);
+    if (!card) return;
+    if (card.hasAttribute(MJ_GRID_BADGE_ATTR)) return;
+
+    const pos = getComputedStyle(card).position;
+    if (pos === "static") card.style.position = "relative";
+
+    const badge = createMjGridBadge(thumb);
+    card.appendChild(badge);
+    card.setAttribute(MJ_GRID_BADGE_ATTR, "1");
+
+    requestAnimationFrame(() => badge.classList.add("stg-badge--visible"));
+
+    currentMjBadge = badge;
+    currentMjThumb = thumb;
+  }
+
+  function hideMjGridBadge() {
+    if (currentMjBadge && !currentMjBadge.classList.contains("stg-badge--saved") &&
+        !currentMjBadge.closest(".stg-popover")) {
+      currentMjBadge.remove();
+      const card = currentMjThumb ? getMidjourneyCardRoot(currentMjThumb) : null;
+      if (card) card.removeAttribute(MJ_GRID_BADGE_ATTR);
+    }
+    currentMjBadge = null;
+    currentMjThumb = null;
+  }
+
+  async function handleSaveMidjourneyGrid(thumb, badge) {
+    // Inline the extraction so we can log the intermediate state at click time.
+    const card = getMidjourneyCardRoot(thumb);
+    const job = readMidjourneyJobFromFiber(card);
+    const promptText = reconstructMidjourneyPrompt(job);
+    const rawImageUrl = getMidjourneyThumbImageUrl(thumb);
+
+    console.log("[Save to Gallery] MJ grid click — extracted at click time:", {
+      imageUrl: rawImageUrl,
+      jobId: job?.id || null,
+      hasJob: !!job,
+      hasPromptObj: !!job?.prompt,
+      promptKeys: job?.prompt ? Object.keys(job.prompt) : null,
+      decodedPromptLength: Array.isArray(job?.prompt?.decodedPrompt) ? job.prompt.decodedPrompt.length : null,
+      decodedFirstSample: job?.prompt?.decodedPrompt?.[0] || null,
+      reconstructedPromptLen: promptText?.length || 0,
+      reconstructedPromptStart: promptText?.slice(0, 200) || null,
+      otherPromptFields: {
+        full_command: typeof job?.full_command === "string" ? job.full_command.slice(0, 200) : null,
+        text_prompt: typeof job?.text_prompt === "string" ? job.text_prompt.slice(0, 200) : null,
+        raw_prompt: typeof job?.raw_prompt === "string" ? job.raw_prompt.slice(0, 200) : null,
+      },
+    });
+
+    if (!rawImageUrl) return;
+    const imageUrl = resolveAbsoluteUrl(rawImageUrl);
+
+    badge.innerHTML = `<span>Saving…</span>`;
+    badge.classList.add("stg-badge--saving");
+
+    try {
+      // Midjourney CDN blocks server-side fetches — pull the image as base64 here.
+      const fileData = await imageToBase64(imageUrl);
+      if (!fileData) {
+        console.warn("[Save to Gallery] MJ grid: failed to fetch image as base64, falling back to URL");
+      }
+
+      let response;
+      try {
+        response = await chrome.runtime.sendMessage({
+          action: "saveImage",
+          imageUrl,
+          sourceUrl: location.href,
+          pageTitle: document.title,
+          promptText: promptText || undefined,
+          modelName: "Midjourney",
+          file: fileData || undefined,
+        });
+      } catch (msgErr) {
+        msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
+        throw msgErr;
+      }
+
+      if (response && response.ok) {
+        badge.classList.remove("stg-badge--saving");
+        badge.classList.add("stg-badge--saved");
+
+        if (promptText) {
+          badge.innerHTML = `${CHECK_ICON}<span>Saved + prompt</span>`;
+        } else {
+          // Make it loud — user needs to know prompt extraction failed.
+          badge.innerHTML = `${CHECK_ICON}<span>Saved (no prompt — paste it below)</span>`;
+          showMjGridPopover(thumb, badge, imageUrl);
+        }
+      } else {
+        const err = new Error(response?.error || "Save failed (no response from background worker)");
+        err.responseFromBackground = response;
+        throw err;
+      }
+    } catch (err) {
+      badge.innerHTML = `<span>Error</span>`;
+      badge.classList.remove("stg-badge--saving");
+      badge.classList.add("stg-badge--error");
+      console.error("[Save to Gallery] MJ grid:", err, { imageUrl, job });
+      const errorText = formatSaveError(err, err.responseFromBackground, {
+        imageUrl,
+        sourceUrl: location.href,
+        modelName: "Midjourney",
+        promptLen: promptText?.length,
+      });
+      showErrorPopover(badge, errorText, { topRight: true });
+    }
+  }
+
+  function showMjGridPopover(thumb, badge, imageUrl) {
+    badge.classList.remove("stg-badge--visible");
+    const container = badge.parentElement;
+    if (!container) return;
+
+    const popover = createPopover(
+      imageUrl,
+      async ({ promptText, pillar }) => {
+        try {
+          await chrome.runtime.sendMessage({
+            action: "updatePrompt",
+            imageUrl,
+            promptText,
+            pillar,
+            sourceUrl: location.href,
+          });
+        } catch (err) {
+          console.error("[Save to Gallery] MJ grid update failed:", err);
+        }
+      },
+      () => {
+        popover.classList.remove("stg-popover--visible");
+        setTimeout(() => {
+          popover.remove();
+          resetBadge(badge);
+          badge.classList.add("stg-badge--top-right");
+          badge.classList.add("stg-badge--saved");
+        }, 150);
+      }
+    );
+
+    container.appendChild(popover);
+    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+  }
+
   // ── Event listeners ──
 
   document.addEventListener("mouseover", (e) => {
@@ -424,6 +778,62 @@
         }, { once: true });
       }
     });
+  }, { passive: true });
+
+  // Midjourney /explore grid — anchors with bg-image (no <img>)
+  document.addEventListener("mouseover", (e) => {
+    if (!isMidjourneyPage()) return;
+    const thumb = e.target.closest(MJ_GRID_THUMB_SELECTOR);
+    if (!thumb || !isMidjourneyGridThumb(thumb)) return;
+
+    syncSiteStateFromStorage((isEnabled) => {
+      if (!configLoaded || !isEnabled) return;
+      const card = getMidjourneyCardRoot(thumb);
+      if (!card || card.hasAttribute(MJ_GRID_BADGE_ATTR)) return;
+      showMjGridBadgeOn(thumb);
+    });
+  }, { passive: true });
+
+  document.addEventListener("mouseout", (e) => {
+    if (!configLoaded || !extensionEnabled || !isMidjourneyPage()) return;
+
+    const thumb = e.target.closest(MJ_GRID_THUMB_SELECTOR);
+    if (!thumb || thumb !== currentMjThumb) return;
+
+    const related = e.relatedTarget;
+    if (related && (related.closest(".stg-badge") || related.closest(".stg-popover"))) return;
+
+    setTimeout(() => {
+      if (currentMjThumb !== thumb) return;
+      const hovered = document.querySelectorAll(":hover");
+      for (const el of hovered) {
+        if (el === thumb || el.closest(".stg-badge") || el.closest(".stg-popover")) return;
+        if (currentMjThumb && el === getMidjourneyCardRoot(currentMjThumb)) return;
+      }
+      hideMjGridBadge();
+    }, 200);
+  }, { passive: true });
+
+  document.addEventListener("mouseout", (e) => {
+    if (!configLoaded || !extensionEnabled || !isMidjourneyPage()) return;
+    if (!e.target.closest(".stg-badge")) return;
+
+    const related = e.relatedTarget;
+    if (related && (
+      related === currentMjThumb ||
+      related.closest(".stg-badge") ||
+      related.closest(".stg-popover") ||
+      (currentMjThumb && related === getMidjourneyCardRoot(currentMjThumb))
+    )) return;
+
+    setTimeout(() => {
+      const hovered = document.querySelectorAll(":hover");
+      for (const el of hovered) {
+        if (el === currentMjThumb || el.closest(".stg-badge") || el.closest(".stg-popover")) return;
+        if (currentMjThumb && el === getMidjourneyCardRoot(currentMjThumb)) return;
+      }
+      hideMjGridBadge();
+    }, 200);
   }, { passive: true });
 
   document.addEventListener("mouseout", (e) => {

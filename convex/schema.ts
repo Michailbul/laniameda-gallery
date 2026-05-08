@@ -170,9 +170,11 @@ export default defineSchema({
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"]),
   designInspirations: defineTable({
     ownerUserId: v.optional(v.string()),
-    pillar: v.literal("designs"),
+    // Originally limited to "designs"; now stores web bookmarks across any pillar.
+    pillar: optionalPillarValidator,
     title: v.optional(v.string()),
     summary: v.optional(v.string()),
+    description: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     sourceDomain: v.optional(v.string()),
     sourceTitle: v.optional(v.string()),

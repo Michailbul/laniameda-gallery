@@ -8,13 +8,25 @@ const pillarInputs = Array.from(
   document.querySelectorAll('input[name="defaultPillar"]'),
 );
 
+const bookmarkUrlEl = document.getElementById("bookmarkUrl");
+const bookmarkTitleEl = document.getElementById("bookmarkTitle");
+const bookmarkDescriptionEl = document.getElementById("bookmarkDescription");
+const bookmarkSaveBtn = document.getElementById("bookmarkSave");
+const bookmarkStatusEl = document.getElementById("bookmarkStatus");
+const bookmarkPillarInputs = Array.from(
+  document.querySelectorAll('input[name="bookmarkPillar"]'),
+);
+
 const SAVE_ROUTE_PATH = "/api/extension/save";
-const DEFAULT_API_URL = `https://laniameda.gallery${SAVE_ROUTE_PATH}`;
+const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
+const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const DISABLED_HOSTS_KEY = "disabledHosts";
-const LEGACY_API_HOSTS = new Set(["laniameda-galery.vercel.app"]);
+const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 
 let currentSiteHost = "";
 let currentTabId = null;
+let currentTabUrl = "";
+let currentTabTitle = "";
 
 const normalizeApiUrl = (rawValue) => {
   const value =
@@ -26,7 +38,7 @@ const normalizeApiUrl = (rawValue) => {
     const url = new URL(value);
     if (LEGACY_API_HOSTS.has(url.hostname)) {
       url.protocol = "https:";
-      url.hostname = "laniameda.gallery";
+      url.hostname = CANONICAL_API_HOST;
     }
     url.pathname = SAVE_ROUTE_PATH;
     url.search = "";
@@ -39,6 +51,15 @@ const normalizeApiUrl = (rawValue) => {
 
 const setStatus = (message) => {
   statusEl.textContent = message;
+};
+
+const setBookmarkStatus = (message, tone) => {
+  bookmarkStatusEl.textContent = message ?? "";
+  if (tone) {
+    bookmarkStatusEl.dataset.tone = tone;
+  } else {
+    delete bookmarkStatusEl.dataset.tone;
+  }
 };
 
 const normalizeHost = (rawUrl) => {
@@ -59,6 +80,16 @@ const getSelectedPillar = () =>
 const setSelectedPillar = (value) => {
   const nextValue = value || "dump";
   for (const input of pillarInputs) {
+    input.checked = input.value === nextValue;
+  }
+};
+
+const getSelectedBookmarkPillar = () =>
+  bookmarkPillarInputs.find((input) => input.checked)?.value || "dump";
+
+const setSelectedBookmarkPillar = (value) => {
+  const nextValue = value || "dump";
+  for (const input of bookmarkPillarInputs) {
     input.checked = input.value === nextValue;
   }
 };
@@ -95,15 +126,51 @@ const setSiteUiState = ({ host, isDisabled, isSupported }) => {
   siteToggleBtn.dataset.state = isDisabled ? "paused" : "active";
 };
 
+const isBookmarkableUrl = (rawUrl) => {
+  if (!rawUrl) return false;
+  try {
+    const proto = new URL(rawUrl).protocol;
+    return proto === "http:" || proto === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const setBookmarkFormState = ({ tab }) => {
+  const url = tab?.url ?? "";
+  const title = tab?.title ?? "";
+  currentTabUrl = url;
+  currentTabTitle = title;
+
+  if (!isBookmarkableUrl(url)) {
+    bookmarkUrlEl.textContent = "Open a normal http(s) page to bookmark it.";
+    bookmarkTitleEl.value = "";
+    bookmarkTitleEl.disabled = true;
+    bookmarkDescriptionEl.disabled = true;
+    bookmarkSaveBtn.disabled = true;
+    return;
+  }
+
+  bookmarkUrlEl.textContent = url;
+  if (!bookmarkTitleEl.value) {
+    bookmarkTitleEl.value = title;
+  }
+  bookmarkTitleEl.disabled = false;
+  bookmarkDescriptionEl.disabled = false;
+  bookmarkSaveBtn.disabled = false;
+};
+
 const loadPopupState = async () => {
   const cfg = await chrome.storage.sync.get([
     "apiUrl",
     "defaultPillar",
+    "bookmarkPillar",
     DISABLED_HOSTS_KEY,
   ]);
 
   apiUrlInput.value = normalizeApiUrl(cfg.apiUrl);
   setSelectedPillar(cfg.defaultPillar);
+  setSelectedBookmarkPillar(cfg.bookmarkPillar || cfg.defaultPillar);
 
   const disabledHosts = Array.isArray(cfg[DISABLED_HOSTS_KEY])
     ? cfg[DISABLED_HOSTS_KEY].map((host) => String(host).toLowerCase())
@@ -119,6 +186,8 @@ const loadPopupState = async () => {
     isDisabled: currentHost ? disabledHosts.includes(currentHost) : false,
     isSupported: Boolean(currentHost && currentTabId !== null),
   });
+
+  setBookmarkFormState({ tab: currentTab });
 };
 
 saveBtn.addEventListener("click", () => {
@@ -139,6 +208,58 @@ saveBtn.addEventListener("click", () => {
       }, 1400);
     },
   );
+});
+
+for (const input of bookmarkPillarInputs) {
+  input.addEventListener("change", () => {
+    chrome.storage.sync.set({ bookmarkPillar: input.value });
+  });
+}
+
+bookmarkSaveBtn.addEventListener("click", async () => {
+  if (currentTabId === null || !isBookmarkableUrl(currentTabUrl)) {
+    setBookmarkStatus("No bookmarkable page in this tab.", "error");
+    return;
+  }
+
+  const pillar = getSelectedBookmarkPillar();
+  const title = bookmarkTitleEl.value.trim() || currentTabTitle.trim();
+  const description = bookmarkDescriptionEl.value.trim();
+
+  bookmarkSaveBtn.disabled = true;
+  bookmarkSaveBtn.textContent = "Saving…";
+  setBookmarkStatus("Capturing page…");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: "bookmarkPage",
+      tabId: currentTabId,
+      sourceUrl: currentTabUrl,
+      sourceTitle: currentTabTitle,
+      title,
+      description,
+      pillar,
+    });
+
+    if (response && response.ok) {
+      setBookmarkStatus("Bookmarked to gallery.", "success");
+      bookmarkSaveBtn.textContent = "Saved";
+      bookmarkDescriptionEl.value = "";
+      window.setTimeout(() => {
+        bookmarkSaveBtn.textContent = "Bookmark page";
+        bookmarkSaveBtn.disabled = false;
+      }, 1400);
+    } else {
+      const detail = response?.error || "Save failed.";
+      setBookmarkStatus(detail.slice(0, 240), "error");
+      bookmarkSaveBtn.textContent = "Bookmark page";
+      bookmarkSaveBtn.disabled = false;
+    }
+  } catch (err) {
+    setBookmarkStatus(err?.message ? err.message.slice(0, 240) : "Save failed.", "error");
+    bookmarkSaveBtn.textContent = "Bookmark page";
+    bookmarkSaveBtn.disabled = false;
+  }
 });
 
 siteToggleBtn?.addEventListener("click", async () => {

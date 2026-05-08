@@ -12,9 +12,13 @@ describe("extension endpoint defaults", () => {
       "utf8",
     );
 
-    expect(popupScript).toContain("https://laniameda.gallery");
-    expect(backgroundScript).toContain("https://laniameda.gallery");
+    expect(popupScript).toContain("laniameda-galery.vercel.app");
+    expect(backgroundScript).toContain("laniameda-galery.vercel.app");
     expect(popupScript).toContain("LEGACY_API_HOSTS");
     expect(backgroundScript).toContain("LEGACY_API_HOSTS");
+    // The previous canonical host stays on the legacy list so old
+    // configurations still get rewritten.
+    expect(popupScript).toContain('"laniameda.gallery"');
+    expect(backgroundScript).toContain('"laniameda.gallery"');
   });
 });
