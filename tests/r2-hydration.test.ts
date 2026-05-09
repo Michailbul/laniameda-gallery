@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { resolveAssetUrl } from "../convex/r2_url";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "../convex/r2_url";
 
 const ORIGINAL_BASE = process.env.R2_PUBLIC_BASE_URL;
 
@@ -80,5 +80,22 @@ describe("resolveAssetUrl fallback chain", () => {
       sourceUrl: "https://example.com/fallback.mp4",
     });
     expect(url).toBe("https://example.com/fallback.mp4");
+  });
+
+  test("resolves thumbnail-specific R2 URL before the primary asset URL", async () => {
+    const ctx = buildStorageStub({});
+    const url = await resolveAssetThumbUrl(ctx, {
+      r2Key: "images/full.png",
+      thumbR2Key: "images/full.thumb.jpg",
+    });
+    expect(url).toBe("https://pub-test.r2.dev/images/full.thumb.jpg");
+  });
+
+  test("falls back to primary R2 URL when no thumbnail exists", async () => {
+    const ctx = buildStorageStub({});
+    const url = await resolveAssetThumbUrl(ctx, {
+      r2Key: "images/full.png",
+    });
+    expect(url).toBe("https://pub-test.r2.dev/images/full.png");
   });
 });

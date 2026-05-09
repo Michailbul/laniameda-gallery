@@ -134,7 +134,8 @@ describe("agent ingest", () => {
 
     expect(harness.state.createAssetCalls[0]?.promptId).toBe("prompts:1");
     expect(harness.state.createAssetCalls[1]?.promptId).toBe("prompts:2");
-    expect(harness.state.createAssetCalls[0]?.thumbStorageId).toBeDefined();
+    expect(harness.state.createAssetCalls[0]?.r2Key).toBeDefined();
+    expect(harness.state.createAssetCalls[0]?.thumbR2Key).toBeDefined();
     expect(harness.state.createAssetCalls[0]?.width).toBe(1);
     expect(harness.state.createAssetCalls[0]?.height).toBe(1);
   });

@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
+import { storeBlobToR2 } from "./r2_store";
 
 const THUMB_WIDTH = 520;
 
@@ -28,7 +29,7 @@ export const processAndReplaceThumbnail = action({
     const arrayBuffer = await blob.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
-    let thumbStorageId;
+    let thumbR2Key;
     let thumbWidth: number | undefined;
     let thumbHeight: number | undefined;
     let thumbSize: number | undefined;
@@ -63,7 +64,7 @@ export const processAndReplaceThumbnail = action({
         thumbBuffer.byteOffset + thumbBuffer.byteLength,
       ) as ArrayBuffer;
       const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-      thumbStorageId = await ctx.storage.store(thumbBlob);
+      thumbR2Key = await storeBlobToR2(ctx, thumbBlob, { type: thumbMime });
     } catch (error) {
       // Clean up the raw upload on failure
       await ctx.storage.delete(args.storageId);
@@ -76,7 +77,7 @@ export const processAndReplaceThumbnail = action({
     const assetId = (await ctx.runMutation(replaceAssetThumbnailRef, {
       ownerUserId: args.ownerUserId,
       assetId: args.assetId,
-      newThumbStorageId: thumbStorageId,
+      newThumbR2Key: thumbR2Key,
       thumbWidth,
       thumbHeight,
       thumbSize,

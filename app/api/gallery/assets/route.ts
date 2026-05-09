@@ -6,10 +6,9 @@ import { getServerConvexClient } from "@/lib/server/convex";
 
 type Scope = "mine" | "public";
 type AssetKind = "image" | "video";
-type Pillar = "creators" | "designs" | "dump";
+type Pillar = string;
 
 const VALID_KINDS = new Set<AssetKind>(["image", "video"]);
-const VALID_PILLARS = new Set<Pillar>(["creators", "designs", "dump"]);
 
 const parseScope = (value: string | null): Scope => {
   return value === "mine" ? "mine" : "public";
@@ -41,8 +40,8 @@ const parseKind = (value: string | null): AssetKind | undefined => {
 };
 
 const parsePillar = (value: string | null): Pillar | undefined => {
-  if (!value) return undefined;
-  return VALID_PILLARS.has(value as Pillar) ? (value as Pillar) : undefined;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 };
 
 export async function GET(request: Request) {

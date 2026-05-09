@@ -489,7 +489,7 @@
           placeholder="Description (optional) — what is this and why did you save it?"
           rows="2"
         ></textarea>
-        <div class="pillar-pills">
+        <div id="bookmarkPillars" class="pillar-pills">
           <label class="pillar-pill" style="--pcolor: var(--c-creators);">
             <input type="radio" name="bookmarkPillar" value="creators">
             <span class="pillar-pill-row">
@@ -556,7 +556,7 @@
     <div class="section">
       <p class="section-label">default pillar (image saves)</p>
 
-      <div class="pillars">
+      <div id="defaultPillars" class="pillars">
         <label class="pillar-option" style="--pcolor: var(--c-creators);">
           <input type="radio" name="defaultPillar" value="creators">
           <span class="pillar-row">
@@ -600,6 +600,16 @@
             </span>
           </span>
         </label>
+      </div>
+      <div class="url-row" style="margin-top: 10px;">
+        <input
+          id="newPillarName"
+          class="url-input"
+          type="text"
+          placeholder="New pillar, e.g. Inspirations"
+          spellcheck="false"
+        >
+        <button id="newPillarCreate" class="ghost-btn" type="button">Add</button>
       </div>
     </div>
 

@@ -6,6 +6,7 @@ import { ImageIcon } from "lucide-react";
 
 const PILLAR_META = {
   creators: { label: "Creators", color: "var(--pillar-creators)" },
+  cars: { label: "Cars", color: "var(--pillar-creators)" },
   designs: { label: "Designs", color: "var(--pillar-designs)" },
   dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;
@@ -45,7 +46,10 @@ export const CanvasImageNode = memo(function CanvasImageNode({
   const nodeHeight = Math.round(NODE_WIDTH / aspectRatio);
 
   const pillarMeta = data.pillar
-    ? PILLAR_META[data.pillar as keyof typeof PILLAR_META]
+    ? PILLAR_META[data.pillar as keyof typeof PILLAR_META] ?? {
+        label: data.pillar,
+        color: "var(--pillar-dump)",
+      }
     : undefined;
 
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {

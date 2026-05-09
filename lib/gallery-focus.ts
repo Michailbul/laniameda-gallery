@@ -1,5 +1,6 @@
 const PILLAR_LABELS: Record<string, string> = {
   creators: "Creators",
+  cars: "Cars",
   designs: "Designs",
   dump: "Dump",
 };

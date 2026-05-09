@@ -15,6 +15,7 @@ import {
   semanticModalityValidator,
   semanticSourceTypeValidator,
 } from "./validators";
+import { resolveAssetUrl } from "./r2_url";
 
 const RETRY_DELAYS_MS = [30_000, 300_000, 1_800_000] as const;
 const MAX_QUERY_BATCH = 50;
@@ -437,7 +438,7 @@ export const getAssetSourceForReindex = internalQuery({
         ? ctx.db.get(asset.designInspirationId)
         : Promise.resolve(null),
       resolveTagNames(ctx, asset.tagIds),
-      asset.storageId ? ctx.storage.getUrl(asset.storageId) : Promise.resolve(null),
+      resolveAssetUrl(ctx, asset),
     ]);
 
     return {
@@ -871,6 +872,7 @@ const reindexAssetSource = async (
         modality,
         searchText,
         storageId: source.storageId,
+        storageUrl: source.storageUrl,
         isPublic: source.isPublic,
         pillar: source.pillar,
       }),

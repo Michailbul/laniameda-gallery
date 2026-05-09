@@ -90,6 +90,7 @@ interface ImageCardProps {
 
 const PILLAR_META = {
   creators: { label: "Creators", color: "var(--pillar-creators)" },
+  cars: { label: "Cars", color: "var(--pillar-creators)" },
   designs: { label: "Designs", color: "var(--pillar-designs)" },
   dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;
@@ -206,7 +207,10 @@ export const ImageCard = memo(function ImageCard({
 
   const entranceDelay = index < 12 ? `${index * 30}ms` : "0ms";
   const pillarMeta = image.pillar
-    ? PILLAR_META[image.pillar as keyof typeof PILLAR_META]
+    ? PILLAR_META[image.pillar as keyof typeof PILLAR_META] ?? {
+        label: image.pillar,
+        color: "var(--pillar-dump)",
+      }
     : undefined;
   const galleryItemType =
     image.galleryItemType ?? (image.packId ? "pack" : "asset");

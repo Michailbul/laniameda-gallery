@@ -71,14 +71,22 @@ const createActionHarness = () => {
 describe("design extension save backend", () => {
   let harness: ReturnType<typeof createActionHarness>;
   let originalFetch: typeof globalThis.fetch;
+  let originalR2PublicBaseUrl: string | undefined;
 
   beforeEach(() => {
     harness = createActionHarness();
     originalFetch = globalThis.fetch;
+    originalR2PublicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+    process.env.R2_PUBLIC_BASE_URL = "https://r2.test";
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (originalR2PublicBaseUrl === undefined) {
+      delete process.env.R2_PUBLIC_BASE_URL;
+    } else {
+      process.env.R2_PUBLIC_BASE_URL = originalR2PublicBaseUrl;
+    }
   });
 
   test("page capture creates a design inspiration with preview asset", async () => {
@@ -127,8 +135,8 @@ describe("design extension save backend", () => {
     );
 
     const asset = await harness.db.get<Record<string, unknown>>(result.assetId);
-    expect(asset?.storageId).toBeDefined();
-    expect(asset?.thumbStorageId).toBeDefined();
+    expect(asset?.r2Key).toBeDefined();
+    expect(asset?.thumbR2Key).toBeDefined();
     expect(asset?.pillar).toBe("designs");
   });
 
@@ -213,8 +221,8 @@ describe("design extension save backend", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]?._id).toBe(result.designInspirationId);
-    expect(results[0]?.previewUrl).toContain("https://convex.test/storage/");
-    expect(results[0]?.previewThumbUrl).toContain("https://convex.test/storage/");
+    expect(results[0]?.previewUrl).toContain("https://r2.test/");
+    expect(results[0]?.previewThumbUrl).toContain("https://r2.test/");
     expect(results[0]?.tagNames).toEqual(["grid", "layout"]);
     expect(results[0]?.sourceDomain).toBe("example.com");
   });

@@ -62,6 +62,22 @@ export default defineSchema({
     .index("by_name", ["name"])
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  userPillars: defineTable({
+    ownerUserId: v.string(),
+    key: v.string(),
+    label: v.string(),
+    description: v.optional(v.string()),
+    color: v.optional(v.string()),
+    icon: v.optional(v.string()),
+    sortOrder: v.number(),
+    isDefault: v.optional(v.boolean()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_key", ["ownerUserId", "key"])
+    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"])
+    .index("by_owner_archivedAt_sortOrder", ["ownerUserId", "archivedAt", "sortOrder"]),
   prompts: defineTable({
     ownerUserId: v.optional(v.string()),
     text: v.string(),
@@ -102,6 +118,8 @@ export default defineSchema({
     thumbStorageId: v.optional(v.id("_storage")),
     r2Key: v.optional(v.string()),
     r2Bucket: v.optional(v.string()),
+    thumbR2Key: v.optional(v.string()),
+    thumbR2Bucket: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
     contentType: v.optional(v.string()),

@@ -6,6 +6,7 @@ import { v, ConvexError, type Infer } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
+import { storeBlobToR2 } from "./r2_store";
 import {
   assetRoleValidator,
   designCaptureKindValidator,
@@ -25,7 +26,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 
-type Pillar = "creators" | "designs" | "dump";
+type Pillar = string;
 type PromptType = Infer<typeof promptTypeValidator>;
 type GenerationType = Infer<typeof generationTypeValidator>;
 type ModelProvider = Infer<typeof modelProviderValidator>;
@@ -402,8 +403,10 @@ const applyUpstreamInputs = async (
 };
 
 type ProcessedMedia = {
-  storageId: Id<"_storage">;
+  storageId?: Id<"_storage">;
   thumbStorageId?: Id<"_storage">;
+  r2Key?: string;
+  thumbR2Key?: string;
   kind: "image" | "video";
   contentType: string;
   fileName?: string;
@@ -446,6 +449,7 @@ const processMediaInput = async (
   const normalizedContentType = contentType ?? "application/octet-stream";
 
   let thumbStorageId: Id<"_storage"> | undefined;
+  let thumbR2Key: string | undefined;
   let thumbSize: number | undefined;
   let thumbWidth: number | undefined;
   let thumbHeight: number | undefined;
@@ -479,18 +483,22 @@ const processMediaInput = async (
         thumbBuffer.byteOffset + thumbBuffer.byteLength,
       ) as ArrayBuffer);
       const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-      thumbStorageId = await ctx.storage.store(thumbBlob);
+      thumbR2Key = await storeBlobToR2(ctx, thumbBlob, { type: thumbMime });
     } catch (error) {
       console.warn("Thumbnail generation failed:", error);
     }
   }
 
   const storageBlob = new Blob([fileBuffer], { type: normalizedContentType });
-  const storageId = await ctx.storage.store(storageBlob);
+  const r2Key = await storeBlobToR2(ctx, storageBlob, {
+    type: normalizedContentType,
+  });
 
   return {
-    storageId,
+    storageId: undefined,
     thumbStorageId,
+    r2Key,
+    thumbR2Key,
     kind: normalizedContentType.startsWith("video/") ? "video" : "image",
     contentType: normalizedContentType,
     fileName,
@@ -640,6 +648,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         let kind: "image" | "video";
         let storageId: Id<"_storage"> | undefined;
         let thumbStorageId: Id<"_storage"> | undefined;
+        let thumbR2Key: string | undefined;
         let contentType: string | undefined;
         let size: number | undefined;
         let width: number | undefined;
@@ -653,8 +662,9 @@ export const ingestFromApi: ReturnType<typeof action> = action({
 
         if (args.r2Key) {
           // R2-hosted media: bytes already live in Cloudflare R2 and were
-          // uploaded directly from the browser. We only need to store the
-          // poster (if any) on Convex and stamp the asset row with r2Key.
+          // uploaded directly from the browser. A poster/thumbnail, when
+          // supplied, is also stored on R2 so gallery cards avoid Convex
+          // storage URLs on the hot path.
           kind = (args.mediaContentType ?? "video/").startsWith("image/")
             ? "image"
             : "video";
@@ -671,7 +681,9 @@ export const ingestFromApi: ReturnType<typeof action> = action({
             const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
               type: args.posterFile.contentType ?? "image/jpeg",
             });
-            thumbStorageId = await ctx.storage.store(posterBlob);
+            thumbR2Key = await storeBlobToR2(ctx, posterBlob, {
+              type: args.posterFile.contentType ?? "image/jpeg",
+            });
             thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
             thumbWidth = args.posterFile.width;
             thumbHeight = args.posterFile.height;
@@ -684,6 +696,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           kind = media.kind;
           storageId = media.storageId;
           thumbStorageId = media.thumbStorageId;
+          r2KeyForRow = media.r2Key;
+          thumbR2Key = media.thumbR2Key;
           contentType = media.contentType;
           size = media.size;
           width = media.width;
@@ -701,6 +715,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           thumbStorageId,
           r2Key: r2KeyForRow,
           r2Bucket: r2BucketForRow,
+          thumbR2Key,
+          thumbR2Bucket: r2BucketForRow,
           sourceUrl: args.url,
           fileName,
           contentType,
@@ -902,6 +918,8 @@ export const updateFromApi: ReturnType<typeof action> = action({
             assetId: resolvedAssetId,
             storageId: media.storageId,
             thumbStorageId: media.thumbStorageId,
+            r2Key: media.r2Key,
+            thumbR2Key: media.thumbR2Key,
             kind: media.kind,
             contentType: media.contentType,
             fileName: media.fileName,
@@ -919,6 +937,8 @@ export const updateFromApi: ReturnType<typeof action> = action({
             kind: media.kind,
             storageId: media.storageId,
             thumbStorageId: media.thumbStorageId,
+            r2Key: media.r2Key,
+            thumbR2Key: media.thumbR2Key,
             sourceUrl: args.url,
             fileName: media.fileName,
             contentType: media.contentType,
@@ -1043,6 +1063,8 @@ export const updateFromApi: ReturnType<typeof action> = action({
           assetId,
           storageId: media.storageId,
           thumbStorageId: media.thumbStorageId,
+          r2Key: media.r2Key,
+          thumbR2Key: media.thumbR2Key,
           kind: media.kind,
           contentType: media.contentType,
           fileName: media.fileName,

@@ -5,6 +5,7 @@ import { action, type ActionCtx } from "./_generated/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
+import { storeBlobToR2 } from "./r2_store";
 
 import {
   buildDesignSourceFingerprint,
@@ -177,7 +178,7 @@ const createThumbMetadata = async (
   return {
     width: originalWidth ?? undefined,
     height: originalHeight ?? undefined,
-    thumbStorageId: await ctx.storage.store(thumbBlob),
+    thumbR2Key: await storeBlobToR2(ctx, thumbBlob, { type: thumbMime }),
     thumbWidth: thumb.bitmap.width ?? undefined,
     thumbHeight: thumb.bitmap.height ?? undefined,
     thumbSize: thumbBuffer.byteLength,
@@ -207,8 +208,8 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
   const result = (await ctx.runMutation(createAssetMutation, {
     ownerUserId: args.ownerUserId,
     kind: "image",
-    storageId: await ctx.storage.store(storageBlob),
-    thumbStorageId: thumb.thumbStorageId,
+    r2Key: await storeBlobToR2(ctx, storageBlob, { type: contentType }),
+    thumbR2Key: thumb.thumbR2Key,
     sourceUrl: args.assetSourceUrl,
     fileName: buildPreviewFileName({
       title: args.previewTitle,

@@ -1,10 +1,6 @@
 import { v } from "convex/values";
 
-export const pillarValidator = v.union(
-  v.literal("creators"),
-  v.literal("designs"),
-  v.literal("dump"),
-);
+export const pillarValidator = v.string();
 
 export const optionalPillarValidator = v.optional(pillarValidator);
 

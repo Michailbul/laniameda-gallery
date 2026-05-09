@@ -11,7 +11,7 @@ import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
-import { resolveAssetUrl } from "./r2_url";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
   generationTypeValidator,
@@ -198,6 +198,8 @@ export const getAssetPackWithAssets = query({
             thumbStorageId: v.optional(v.id("_storage")),
             r2Key: v.optional(v.string()),
             r2Bucket: v.optional(v.string()),
+            thumbR2Key: v.optional(v.string()),
+            thumbR2Bucket: v.optional(v.string()),
             sourceUrl: v.optional(v.string()),
             fileName: v.optional(v.string()),
             contentType: v.optional(v.string()),
@@ -256,9 +258,7 @@ export const getAssetPackWithAssets = query({
 
         const assetUrl = (await resolveAssetUrl(ctx, asset)) ?? null;
 
-        const thumbUrl = asset.thumbStorageId
-          ? await ctx.storage.getUrl(asset.thumbStorageId)
-          : assetUrl;
+        const thumbUrl = (await resolveAssetThumbUrl(ctx, asset)) ?? assetUrl;
 
         return { asset, promptText, assetUrl, thumbUrl };
       }),
@@ -428,9 +428,7 @@ export const listAssetPacksWithCovers = query({
           const coverAsset = await ctx.db.get(pack.coverAssetId);
           if (coverAsset) {
             coverUrl = (await resolveAssetUrl(ctx, coverAsset)) ?? null;
-            coverThumbUrl = coverAsset.thumbStorageId
-              ? await ctx.storage.getUrl(coverAsset.thumbStorageId)
-              : coverUrl;
+            coverThumbUrl = (await resolveAssetThumbUrl(ctx, coverAsset)) ?? coverUrl;
             coverWidth = coverAsset.thumbWidth ?? coverAsset.width;
             coverHeight = coverAsset.thumbHeight ?? coverAsset.height;
           }
@@ -446,11 +444,7 @@ export const listAssetPacksWithCovers = query({
 
         const previewUrls: string[] = [];
         for (const member of members.slice(0, 12)) {
-          const url = member.thumbStorageId
-            ? await ctx.storage.getUrl(member.thumbStorageId)
-            : member.storageId
-              ? await ctx.storage.getUrl(member.storageId)
-              : member.sourceUrl ?? null;
+          const url = (await resolveAssetThumbUrl(ctx, member)) ?? null;
           if (url) previewUrls.push(url);
         }
 

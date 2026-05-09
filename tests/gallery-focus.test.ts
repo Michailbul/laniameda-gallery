@@ -4,6 +4,7 @@ import { formatAssetCreatedAt, resolvePillarLabel } from "@/lib/gallery-focus";
 describe("gallery focus helpers", () => {
   test("resolvePillarLabel maps known pillar values", () => {
     expect(resolvePillarLabel("creators")).toBe("Creators");
+    expect(resolvePillarLabel("cars")).toBe("Cars");
     expect(resolvePillarLabel("designs")).toBe("Designs");
     expect(resolvePillarLabel("dump")).toBe("Dump");
   });

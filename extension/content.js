@@ -240,22 +240,49 @@
 
   // ── Popover creation ──
 
-  function createPopover(imageUrl, onSubmit, onClose) {
+  const DEFAULT_PILLARS = [
+    { key: "creators", label: "Creators" },
+    { key: "cars", label: "Cars" },
+    { key: "designs", label: "Designs" },
+    { key: "dump", label: "Dump" },
+  ];
+
+  async function loadPillars() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: "getPillars" });
+      if (response?.ok && Array.isArray(response.pillars) && response.pillars.length > 0) {
+        return response.pillars
+          .map((pillar) => ({
+            key: String(pillar.key || "").trim(),
+            label: String(pillar.label || pillar.key || "").trim(),
+          }))
+          .filter((pillar) => pillar.key && pillar.label);
+      }
+    } catch (err) {
+      console.warn("[Save to Gallery] Could not load custom pillars:", err);
+    }
+    return DEFAULT_PILLARS;
+  }
+
+  function createPopover(onSubmit, onClose, options = {}) {
+    const {
+      title = `${CHECK_ICON} Saved to gallery`,
+      buttonLabel = "Add prompt",
+      initialPrompt = "",
+      allowEmptyPrompt = false,
+    } = options;
     const pop = document.createElement("div");
     pop.className = "stg-popover";
     pop.innerHTML = `
       <button class="stg-popover__close" title="Close">&times;</button>
-      <div class="stg-popover__title">${CHECK_ICON} Saved to gallery</div>
+      <div class="stg-popover__title">${title}</div>
       <label class="stg-popover__label">Prompt (optional)</label>
       <textarea class="stg-popover__textarea" placeholder="Paste the prompt here…" rows="2"></textarea>
       <div class="stg-popover__row">
         <select class="stg-popover__select">
           <option value="dump">dump</option>
-          <option value="creators">creators</option>
-          <option value="cars">cars</option>
-          <option value="designs">designs</option>
         </select>
-        <button class="stg-popover__btn">Add prompt</button>
+        <button class="stg-popover__btn">${buttonLabel}</button>
       </div>
     `;
 
@@ -264,18 +291,37 @@
     const select = pop.querySelector(".stg-popover__select");
     const btn = pop.querySelector(".stg-popover__btn");
 
-    // Load default pillar from storage
-    chrome.storage.sync.get(["defaultPillar"], (cfg) => {
-      if (cfg.defaultPillar) select.value = cfg.defaultPillar;
+    textarea.value = initialPrompt;
+    if (initialPrompt) {
+      textarea.select();
+    }
+
+    Promise.all([
+      loadPillars(),
+      chrome.storage.sync.get(["defaultPillar"]),
+    ]).then(([pillars, cfg]) => {
+      select.innerHTML = "";
+      for (const pillar of pillars) {
+        const option = document.createElement("option");
+        option.value = pillar.key;
+        option.textContent = pillar.label;
+        select.appendChild(option);
+      }
+      const defaultPillar = cfg.defaultPillar || "dump";
+      if (pillars.some((pillar) => pillar.key === defaultPillar)) {
+        select.value = defaultPillar;
+      }
     });
 
-    // Try to pre-fill from clipboard
-    navigator.clipboard.readText().then((text) => {
-      if (text && text.length > 10 && text.length < 5000) {
-        textarea.value = text;
-        textarea.select();
-      }
-    }).catch(() => {});
+    if (!initialPrompt) {
+      // Try to pre-fill from clipboard
+      navigator.clipboard.readText().then((text) => {
+        if (text && text.length > 10 && text.length < 5000) {
+          textarea.value = text;
+          textarea.select();
+        }
+      }).catch(() => {});
+    }
 
     close.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -286,7 +332,7 @@
       e.stopPropagation();
       const prompt = textarea.value.trim();
       const pillar = select.value;
-      if (prompt) {
+      if (allowEmptyPrompt || prompt) {
         onSubmit({ promptText: prompt, pillar });
       }
       onClose();
@@ -390,6 +436,111 @@
 
   // ── Save logic ──
 
+  async function submitImageSave({
+    badge,
+    imageUrl,
+    promptText,
+    pillar,
+    modelName,
+    fileData,
+    topRight = false,
+  }) {
+    badge.innerHTML = `<span>Saving…</span>`;
+    badge.classList.add("stg-badge--saving");
+    if (topRight) badge.classList.add("stg-badge--top-right");
+
+    try {
+      let response;
+      try {
+        response = await chrome.runtime.sendMessage({
+          action: "saveImage",
+          imageUrl,
+          sourceUrl: location.href,
+          pageTitle: document.title,
+          promptText: promptText || undefined,
+          modelName: modelName || undefined,
+          pillar,
+          file: fileData || undefined,
+        });
+      } catch (msgErr) {
+        msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
+        throw msgErr;
+      }
+
+      if (!response || !response.ok) {
+        const err = new Error(response?.error || "Save failed (no response from background worker)");
+        err.responseFromBackground = response;
+        throw err;
+      }
+
+      badge.innerHTML = promptText
+        ? `${CHECK_ICON}<span>Saved + prompt</span>`
+        : `${CHECK_ICON}<span>Saved</span>`;
+      badge.classList.remove("stg-badge--saving");
+      badge.classList.add("stg-badge--saved");
+    } catch (err) {
+      badge.innerHTML = `<span>Error</span>`;
+      badge.classList.remove("stg-badge--saving");
+      badge.classList.add("stg-badge--error");
+      console.error("[Save to Gallery]", err, { imageUrl, modelName });
+      const errorText = formatSaveError(err, err.responseFromBackground, {
+        imageUrl,
+        sourceUrl: location.href,
+        modelName,
+        promptLen: promptText?.length,
+      });
+      showErrorPopover(badge, errorText, { topRight });
+    }
+  }
+
+  function showSavePopover(badge, saveContext, opts = {}) {
+    const { topRight = false } = opts;
+    const container = badge.parentElement;
+    if (!container) return;
+
+    badge.classList.remove("stg-badge--visible");
+
+    const popover = createPopover(
+      async ({ promptText, pillar }) => {
+        let fileData = saveContext.fileData;
+        if (!fileData && typeof saveContext.resolveFileData === "function") {
+          fileData = await saveContext.resolveFileData();
+        }
+        await submitImageSave({
+          badge,
+          imageUrl: saveContext.imageUrl,
+          promptText,
+          pillar,
+          modelName: saveContext.modelName,
+          fileData,
+          topRight,
+        });
+      },
+      () => {
+        popover.classList.remove("stg-popover--visible");
+        setTimeout(() => {
+          popover.remove();
+          if (!badge.classList.contains("stg-badge--saved") &&
+              !badge.classList.contains("stg-badge--saving") &&
+              !badge.classList.contains("stg-badge--error")) {
+            resetBadge(badge);
+            if (topRight) badge.classList.add("stg-badge--top-right");
+          }
+        }, 150);
+      },
+      {
+        title: `${SAVE_ICON} Save to gallery`,
+        buttonLabel: "Save",
+        initialPrompt: saveContext.promptText || "",
+        allowEmptyPrompt: true,
+      },
+    );
+
+    if (topRight) popover.classList.add("stg-popover--top-right");
+    container.appendChild(popover);
+    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+  }
+
   async function handleSave(img, badge) {
     let imageUrl = resolveAbsoluteUrl(getImageUrl(img));
     if (!imageUrl) return;
@@ -404,103 +555,19 @@
       console.log("[Save to Gallery] Midjourney context:", mjContext);
     }
 
-    // Visual feedback: saving
-    badge.innerHTML = `<span>Saving…</span>`;
-    badge.classList.add("stg-badge--saving");
-
-    try {
-      // On Midjourney, fetch image as base64 (CDN blocks server-side fetch)
-      let fileData = undefined;
-      if (isMidjourneyPage()) {
-        const b64 = await imageToBase64(imageUrl);
-        if (b64) fileData = b64;
-        else console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
-      }
-
-      // Send to background worker with Midjourney context if available
-      let response;
-      try {
-        response = await chrome.runtime.sendMessage({
-          action: "saveImage",
-          imageUrl,
-          sourceUrl: location.href,
-          pageTitle: document.title,
-          promptText: mjContext?.promptText || undefined,
-          modelName: mjContext?.modelName || undefined,
-          file: fileData || undefined,
-        });
-      } catch (msgErr) {
-        msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
-        throw msgErr;
-      }
-
-      if (response && response.ok) {
-        // Success — show checkmark
-        badge.innerHTML = `${CHECK_ICON}<span>Saved</span>`;
-        badge.classList.remove("stg-badge--saving");
-        badge.classList.add("stg-badge--saved");
-
-        // Skip popover if Midjourney prompt was auto-extracted
-        if (mjContext && mjContext.promptText) {
-          badge.innerHTML = `${CHECK_ICON}<span>Saved + prompt</span>`;
-        } else {
-          // Show popover for optional prompt
-          showPopover(img, badge, imageUrl, response.result);
-        }
-      } else {
-        const err = new Error(response?.error || "Save failed (no response from background worker)");
-        err.responseFromBackground = response;
-        throw err;
-      }
-    } catch (err) {
-      badge.innerHTML = `<span>Error</span>`;
-      badge.classList.remove("stg-badge--saving");
-      badge.classList.add("stg-badge--error");
-      console.error("[Save to Gallery]", err, { imageUrl, mjContext });
-      const errorText = formatSaveError(err, err.responseFromBackground, {
-        imageUrl,
-        sourceUrl: location.href,
-        modelName: mjContext?.modelName,
-        promptLen: mjContext?.promptText?.length,
-      });
-      showErrorPopover(badge, errorText);
-    }
-  }
-
-  function showPopover(img, badge, imageUrl, _saveResult) {
-    // Hide the badge
-    badge.classList.remove("stg-badge--visible");
-
-    const container = badge.parentElement;
-    const popover = createPopover(
+    showSavePopover(badge, {
       imageUrl,
-      // On prompt submit — update the saved asset
-      async ({ promptText, pillar }) => {
-        try {
-          await chrome.runtime.sendMessage({
-            action: "updatePrompt",
-            imageUrl,
-            promptText,
-            pillar,
-            sourceUrl: location.href,
-          });
-        } catch (err) {
-          console.error("[Save to Gallery] Update failed:", err);
+      promptText: mjContext?.promptText || "",
+      modelName: mjContext?.modelName,
+      resolveFileData: async () => {
+        if (!isMidjourneyPage()) return undefined;
+        const b64 = await imageToBase64(imageUrl);
+        if (!b64) {
+          console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
         }
+        return b64 || undefined;
       },
-      // On close
-      () => {
-        popover.classList.remove("stg-popover--visible");
-        setTimeout(() => {
-          popover.remove();
-          resetBadge(badge);
-          badge.classList.add("stg-badge--saved");
-        }, 150);
-      }
-    );
-
-    container.appendChild(popover);
-    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+    });
   }
 
   function resetBadge(badge) {
@@ -665,96 +732,18 @@
     if (!rawImageUrl) return;
     const imageUrl = resolveAbsoluteUrl(rawImageUrl);
 
-    badge.innerHTML = `<span>Saving…</span>`;
-    badge.classList.add("stg-badge--saving");
-
-    try {
-      // Midjourney CDN blocks server-side fetches — pull the image as base64 here.
-      const fileData = await imageToBase64(imageUrl);
-      if (!fileData) {
-        console.warn("[Save to Gallery] MJ grid: failed to fetch image as base64, falling back to URL");
-      }
-
-      let response;
-      try {
-        response = await chrome.runtime.sendMessage({
-          action: "saveImage",
-          imageUrl,
-          sourceUrl: location.href,
-          pageTitle: document.title,
-          promptText: promptText || undefined,
-          modelName: "Midjourney",
-          file: fileData || undefined,
-        });
-      } catch (msgErr) {
-        msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
-        throw msgErr;
-      }
-
-      if (response && response.ok) {
-        badge.classList.remove("stg-badge--saving");
-        badge.classList.add("stg-badge--saved");
-
-        if (promptText) {
-          badge.innerHTML = `${CHECK_ICON}<span>Saved + prompt</span>`;
-        } else {
-          // Make it loud — user needs to know prompt extraction failed.
-          badge.innerHTML = `${CHECK_ICON}<span>Saved (no prompt — paste it below)</span>`;
-          showMjGridPopover(thumb, badge, imageUrl);
-        }
-      } else {
-        const err = new Error(response?.error || "Save failed (no response from background worker)");
-        err.responseFromBackground = response;
-        throw err;
-      }
-    } catch (err) {
-      badge.innerHTML = `<span>Error</span>`;
-      badge.classList.remove("stg-badge--saving");
-      badge.classList.add("stg-badge--error");
-      console.error("[Save to Gallery] MJ grid:", err, { imageUrl, job });
-      const errorText = formatSaveError(err, err.responseFromBackground, {
-        imageUrl,
-        sourceUrl: location.href,
-        modelName: "Midjourney",
-        promptLen: promptText?.length,
-      });
-      showErrorPopover(badge, errorText, { topRight: true });
-    }
-  }
-
-  function showMjGridPopover(thumb, badge, imageUrl) {
-    badge.classList.remove("stg-badge--visible");
-    const container = badge.parentElement;
-    if (!container) return;
-
-    const popover = createPopover(
+    showSavePopover(badge, {
       imageUrl,
-      async ({ promptText, pillar }) => {
-        try {
-          await chrome.runtime.sendMessage({
-            action: "updatePrompt",
-            imageUrl,
-            promptText,
-            pillar,
-            sourceUrl: location.href,
-          });
-        } catch (err) {
-          console.error("[Save to Gallery] MJ grid update failed:", err);
+      promptText: promptText || "",
+      modelName: "Midjourney",
+      resolveFileData: async () => {
+        const fileData = await imageToBase64(imageUrl);
+        if (!fileData) {
+          console.warn("[Save to Gallery] MJ grid: failed to fetch image as base64, falling back to URL");
         }
+        return fileData || undefined;
       },
-      () => {
-        popover.classList.remove("stg-popover--visible");
-        setTimeout(() => {
-          popover.remove();
-          resetBadge(badge);
-          badge.classList.add("stg-badge--top-right");
-          badge.classList.add("stg-badge--saved");
-        }, 150);
-      }
-    );
-
-    container.appendChild(popover);
-    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+    }, { topRight: true });
   }
 
   // ── Event listeners ──

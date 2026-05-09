@@ -1,12 +1,12 @@
 "use node";
 
 import { Jimp, JimpMime } from "jimp";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
-import { r2 } from "./r2";
+import { storeBlobToR2 } from "./r2_store";
 import {
   designInspirationTypeValidator,
   designPlatformValidator,
@@ -17,7 +17,8 @@ import {
   workflowTypeValidator,
 } from "./validators";
 
-type Pillar = "creators" | "designs" | "dump";
+type Pillar = string;
+type PromptProfile = Infer<typeof promptProfileValidator>;
 type PromptType =
   | "image_gen"
   | "video_gen"
@@ -129,9 +130,7 @@ const normalizePrompt = (prompt: {
   domain?: string;
   modelName?: string;
   modelProvider?: ModelProvider;
-  promptProfile?: {
-    pillar: Pillar;
-  };
+  promptProfile?: PromptProfile;
 }) => {
   const pillar = prompt.pillar ?? "dump";
   if (prompt.promptProfile && prompt.promptProfile.pillar !== pillar) {
@@ -240,6 +239,7 @@ const createThumbnail = async (
   if (!normalizedContentType.startsWith("image/")) {
     return {
       thumbStorageId: undefined,
+      thumbR2Key: undefined,
       thumbSize: undefined,
       thumbWidth: undefined,
       thumbHeight: undefined,
@@ -269,7 +269,8 @@ const createThumbnail = async (
     const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
 
     return {
-      thumbStorageId: await ctx.storage.store(thumbBlob),
+      thumbStorageId: undefined,
+      thumbR2Key: await storeBlobToR2(ctx, thumbBlob, { type: thumbMime }),
       thumbSize: thumbBuffer.byteLength,
       thumbWidth: thumb.bitmap.width ?? undefined,
       thumbHeight: thumb.bitmap.height ?? undefined,
@@ -280,6 +281,7 @@ const createThumbnail = async (
     console.warn("Thumbnail generation failed during agent ingest:", error);
     return {
       thumbStorageId: undefined,
+      thumbR2Key: undefined,
       thumbSize: undefined,
       thumbWidth: undefined,
       thumbHeight: undefined,
@@ -446,13 +448,13 @@ export const ingestFromAgentPayload = action({
         const assetTagIds = dedupeIds([...promptTagIds, ...systemTagIds]);
         const buffer = decodeBase64Buffer(media.base64);
         const blob = toStorageBlob(buffer, media.mimeType);
-        // Videos go to Cloudflare R2 (cheap egress); images stay on
-        // Convex _storage where multimodal embedding can fetch them.
-        const isVideo = media.kind === "video";
-        const storageId = isVideo ? undefined : await ctx.storage.store(blob);
-        const r2Key = isVideo ? await r2.store(ctx, blob) : undefined;
+        const storageId = undefined;
+        const r2Key = await storeBlobToR2(ctx, blob, {
+          type: media.mimeType || blob.type || undefined,
+        });
         const {
           thumbStorageId,
+          thumbR2Key,
           thumbSize,
           thumbWidth,
           thumbHeight,
@@ -465,6 +467,7 @@ export const ingestFromAgentPayload = action({
           storageId,
           thumbStorageId,
           r2Key,
+          thumbR2Key,
           fileName: media.fileName,
           contentType: media.mimeType,
           size: blob.size,

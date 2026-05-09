@@ -6,14 +6,20 @@ import { Grid3X3, Layers, Package, Search, Workflow, X } from "lucide-react";
 export type SortOrder = "featured" | "newest" | "popular" | "largest";
 export type GalleryScope = "mine" | "public";
 export type ViewMode = "grid" | "canvas" | "packs";
+export type Pillar = string;
+export type PillarOption = {
+  label: string;
+  value: string;
+  color?: string;
+  description?: string;
+};
 
-const PILLAR_OPTIONS = [
+const DEFAULT_PILLAR_OPTIONS: PillarOption[] = [
   { label: "Creators", value: "creators" },
+  { label: "Cars", value: "cars" },
   { label: "Designs", value: "designs" },
   { label: "Dump", value: "dump" },
-] as const;
-
-export type Pillar = (typeof PILLAR_OPTIONS)[number]["value"];
+];
 
 interface TagItem {
   _id: string;
@@ -29,6 +35,7 @@ interface V72FilterBarProps {
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
   onClearAllTags: () => void;
+  pillars?: PillarOption[];
   selectedPillar: Pillar | null;
   onPillarSelect: (pillar: Pillar | null) => void;
   workflowsOnly: boolean;
@@ -48,6 +55,7 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
 
 const PILLAR_ACCENT: Record<string, string> = {
   creators: "var(--v7-pillar-creators)",
+  cars: "var(--v7-coral)",
   designs: "var(--v7-pillar-designs)",
   dump: "var(--v7-pillar-dump)",
 };
@@ -60,6 +68,7 @@ export function V72FilterBar({
   selectedTags,
   onTagToggle,
   onClearAllTags,
+  pillars = DEFAULT_PILLAR_OPTIONS,
   selectedPillar,
   onPillarSelect,
   workflowsOnly,
@@ -74,6 +83,7 @@ export function V72FilterBar({
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const tagScrollRef = useRef<HTMLDivElement>(null);
+  const pillarOptions = pillars.length > 0 ? pillars : DEFAULT_PILLAR_OPTIONS;
 
   const orderedTags = useMemo(() => {
     const selected: TagItem[] = [];
@@ -193,13 +203,13 @@ export function V72FilterBar({
                   onClick={() => onPillarSelect(null)}
                   accentColor="var(--v7-coral)"
                 />
-                {PILLAR_OPTIONS.map((pillar) => (
+                {pillarOptions.map((pillar) => (
                   <PillarPill
                     key={pillar.value}
                     label={pillar.label.toUpperCase()}
                     active={selectedPillar === pillar.value}
                     onClick={() => onPillarSelect(pillar.value)}
-                    accentColor={PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
+                    accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
                   />
                 ))}
                 <div
@@ -251,13 +261,13 @@ export function V72FilterBar({
             onClick={() => onPillarSelect(null)}
             accentColor="var(--v7-coral)"
           />
-          {PILLAR_OPTIONS.map((pillar) => (
+          {pillarOptions.map((pillar) => (
             <PillarPill
               key={pillar.value}
               label={pillar.label.toUpperCase()}
               active={selectedPillar === pillar.value}
               onClick={() => onPillarSelect(pillar.value)}
-              accentColor={PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
+              accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
             />
           ))}
           <div

@@ -54,6 +54,8 @@ export const createAsset = mutation({
     thumbStorageId: v.optional(v.id("_storage")),
     r2Key: v.optional(v.string()),
     r2Bucket: v.optional(v.string()),
+    thumbR2Key: v.optional(v.string()),
+    thumbR2Bucket: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
     contentType: v.optional(v.string()),
@@ -106,6 +108,8 @@ export const createAsset = mutation({
       thumbStorageId: args.thumbStorageId,
       r2Key: args.r2Key,
       r2Bucket: args.r2Bucket,
+      thumbR2Key: args.thumbR2Key,
+      thumbR2Bucket: args.thumbR2Bucket,
       sourceUrl: args.sourceUrl,
       fileName: args.fileName,
       contentType: args.contentType,
@@ -363,6 +367,8 @@ export const getAsset = query({
       thumbStorageId: v.optional(v.id("_storage")),
       r2Key: v.optional(v.string()),
       r2Bucket: v.optional(v.string()),
+      thumbR2Key: v.optional(v.string()),
+      thumbR2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
       contentType: v.optional(v.string()),
@@ -465,6 +471,8 @@ export const listAssets = query({
       thumbStorageId: v.optional(v.id("_storage")),
       r2Key: v.optional(v.string()),
       r2Bucket: v.optional(v.string()),
+      thumbR2Key: v.optional(v.string()),
+      thumbR2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
       contentType: v.optional(v.string()),
@@ -1005,7 +1013,9 @@ export const replaceAssetThumbnail = mutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
-    newThumbStorageId: v.id("_storage"),
+    newThumbStorageId: v.optional(v.id("_storage")),
+    newThumbR2Key: v.optional(v.string()),
+    newThumbR2Bucket: v.optional(v.string()),
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
     thumbSize: v.optional(v.number()),
@@ -1029,9 +1039,14 @@ export const replaceAssetThumbnail = mutation({
     if (asset.thumbStorageId && asset.thumbStorageId !== args.newThumbStorageId) {
       await ctx.storage.delete(asset.thumbStorageId);
     }
+    if (asset.thumbR2Key && asset.thumbR2Key !== args.newThumbR2Key) {
+      await r2.deleteObject(ctx, asset.thumbR2Key);
+    }
 
     await ctx.db.patch(args.assetId, {
       thumbStorageId: args.newThumbStorageId,
+      thumbR2Key: args.newThumbR2Key,
+      thumbR2Bucket: args.newThumbR2Bucket,
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
       thumbSize: args.thumbSize,
@@ -1045,8 +1060,12 @@ export const replaceAssetMedia = mutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),
+    r2Key: v.optional(v.string()),
+    r2Bucket: v.optional(v.string()),
+    thumbR2Key: v.optional(v.string()),
+    thumbR2Bucket: v.optional(v.string()),
     kind: v.union(v.literal("image"), v.literal("video")),
     contentType: v.optional(v.string()),
     fileName: v.optional(v.string()),
@@ -1078,15 +1097,20 @@ export const replaceAssetMedia = mutation({
     if (asset.thumbStorageId && asset.thumbStorageId !== args.thumbStorageId) {
       await ctx.storage.delete(asset.thumbStorageId);
     }
-    if (asset.r2Key) {
+    if (asset.r2Key && asset.r2Key !== args.r2Key) {
       await r2.deleteObject(ctx, asset.r2Key);
+    }
+    if (asset.thumbR2Key && asset.thumbR2Key !== args.thumbR2Key) {
+      await r2.deleteObject(ctx, asset.thumbR2Key);
     }
 
     await ctx.db.patch(args.assetId, {
       storageId: args.storageId,
       thumbStorageId: args.thumbStorageId,
-      r2Key: undefined,
-      r2Bucket: undefined,
+      r2Key: args.r2Key,
+      r2Bucket: args.r2Bucket,
+      thumbR2Key: args.thumbR2Key,
+      thumbR2Bucket: args.thumbR2Bucket,
       kind: args.kind,
       contentType: args.contentType,
       fileName: args.fileName,
@@ -1146,6 +1170,9 @@ export const deleteAsset = mutation({
 
     if (asset.r2Key) {
       await r2.deleteObject(ctx, asset.r2Key);
+    }
+    if (asset.thumbR2Key) {
+      await r2.deleteObject(ctx, asset.thumbR2Key);
     }
 
     const lineageRows = [
@@ -1218,6 +1245,9 @@ export const bulkDeleteAssets = internalMutation({
         if (asset.r2Key) {
           await r2.deleteObject(ctx, asset.r2Key);
         }
+        if (asset.thumbR2Key) {
+          await r2.deleteObject(ctx, asset.thumbR2Key);
+        }
       }
       await ctx.db.delete(id);
       count++;
@@ -1255,6 +1285,7 @@ export const wipeAllAssets = internalMutation({
       if (asset.storageId) uniqueStorageIds.add(asset.storageId);
       if (asset.thumbStorageId) uniqueStorageIds.add(asset.thumbStorageId);
       if (asset.r2Key) uniqueR2Keys.add(asset.r2Key);
+      if (asset.thumbR2Key) uniqueR2Keys.add(asset.thumbR2Key);
     }
 
     let storageObjectsDeleted = 0;

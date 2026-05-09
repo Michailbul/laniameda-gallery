@@ -46,6 +46,7 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 - Prompt-only saves with explicit `allowPromptOnly: true`
 - File uploads from local disk or inline base64 (images AND videos)
 - Remote URL ingestion (images AND videos)
+- Media bytes are delivered from R2 for both images and videos. Image thumbnails are also R2-backed; legacy Convex storage rows remain readable as fallbacks.
 - Design inspiration records for non-prompt design references, including extension-style metadata like `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, and `sourceFingerprint`
 - **Video prompts**: prompts for AI video generation tools (e.g. Seedance 2.0) with attached `.mp4` / `.mov` / `.webm` output
 - Batched ingestion via JSON array
@@ -187,7 +188,7 @@ If you cannot attach an image (no file path, inline-only attachment, broken URL,
 When ingesting from PDFs, documents, websites, or any source that contains both prompts and images:
 1. **Always extract images** alongside prompts — never skip them
 2. **Match each prompt to its image** by order/position in the source
-3. If images are too large (>5MB), compress to JPEG before uploading
+3. If images are too large (>5MB), compress to JPEG before uploading; the backend stores the final image and generated thumbnail in R2.
 4. **If images cannot be fetched or extracted, stop and ask the user** — never silently drop images
 
 Common trap: user shares an image inline in a chat conversation. You cannot extract inline attachments to a file path. **Ask the user for the local file path before ingesting.** Do not save prompt-only and "attach later" — get the path first.
@@ -196,7 +197,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
 - **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
-- Always set `pillar` when possible.
+- Always set `pillar` when possible. The default keys are `creators`, `cars`, `designs`, and `dump`, but custom user pillar keys such as `inspirations` are valid.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.

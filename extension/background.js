@@ -3,6 +3,7 @@
 const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
+const PILLARS_ROUTE_PATH = "/api/extension/pillars";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 
@@ -192,6 +193,96 @@ async function bookmarkPage(payload) {
   return { ok: true, result: data?.result };
 }
 
+async function getPillars() {
+  const config = await getConfig();
+  const pillarsUrl = normalizeRouteUrl(config.apiUrl, PILLARS_ROUTE_PATH);
+
+  let response;
+  try {
+    response = await fetch(pillarsUrl, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Network error: ${err.message}`,
+      apiUrl: pillarsUrl,
+    };
+  }
+
+  let rawText = "";
+  let data = null;
+  try {
+    rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    // body wasn't JSON
+  }
+
+  if (!response.ok) {
+    const detail = data?.error || rawText.slice(0, 500) || "(empty body)";
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
+      apiUrl: pillarsUrl,
+      status: response.status,
+    };
+  }
+
+  return { ok: true, pillars: Array.isArray(data?.pillars) ? data.pillars : [] };
+}
+
+async function createPillar(payload) {
+  const config = await getConfig();
+  const pillarsUrl = normalizeRouteUrl(config.apiUrl, PILLARS_ROUTE_PATH);
+
+  let response;
+  try {
+    response = await fetch(pillarsUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: payload.label,
+        key: payload.key || undefined,
+        description: payload.description || undefined,
+        color: payload.color || undefined,
+      }),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Network error: ${err.message}`,
+      apiUrl: pillarsUrl,
+    };
+  }
+
+  let rawText = "";
+  let data = null;
+  try {
+    rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    // body wasn't JSON
+  }
+
+  if (!response.ok) {
+    const detail = data?.error || rawText.slice(0, 500) || "(empty body)";
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
+      apiUrl: pillarsUrl,
+      status: response.status,
+    };
+  }
+
+  return {
+    ok: true,
+    result: data?.result,
+    pillars: Array.isArray(data?.pillars) ? data.pillars : [],
+  };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "saveImage") {
     saveToGallery({
@@ -199,6 +290,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
+      pillar: message.pillar,
       file: message.file,
     })
       .then(sendResponse)
@@ -227,6 +319,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       title: message.title,
       description: message.description,
       pillar: message.pillar,
+    })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "getPillars") {
+    getPillars()
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "createPillar") {
+    createPillar({
+      label: message.label,
+      key: message.key,
+      description: message.description,
+      color: message.color,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));

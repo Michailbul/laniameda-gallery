@@ -2,7 +2,7 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { dedupeIds } from "./helpers";
-import { resolveAssetUrl } from "./r2_url";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
   generationTypeValidator,
@@ -19,6 +19,8 @@ export const galleryAssetResultValidator = v.object({
   thumbStorageId: v.optional(v.id("_storage")),
   r2Key: v.optional(v.string()),
   r2Bucket: v.optional(v.string()),
+  thumbR2Key: v.optional(v.string()),
+  thumbR2Bucket: v.optional(v.string()),
   sourceUrl: v.optional(v.string()),
   fileName: v.optional(v.string()),
   contentType: v.optional(v.string()),
@@ -131,9 +133,7 @@ export const hydrateGalleryAssetResults = async (
 
       const [url, thumbUrl] = await Promise.all([
         resolveAssetUrl(ctx, asset),
-        asset.thumbStorageId
-          ? ctx.storage.getUrl(asset.thumbStorageId).then((value) => value ?? undefined)
-          : Promise.resolve(undefined),
+        resolveAssetThumbUrl(ctx, asset),
       ]);
 
       return {
@@ -145,6 +145,8 @@ export const hydrateGalleryAssetResults = async (
         thumbStorageId: asset.thumbStorageId,
         r2Key: asset.r2Key,
         r2Bucket: asset.r2Bucket,
+        thumbR2Key: asset.thumbR2Key,
+        thumbR2Bucket: asset.thumbR2Bucket,
         sourceUrl: asset.sourceUrl,
         fileName: asset.fileName,
         contentType: asset.contentType,

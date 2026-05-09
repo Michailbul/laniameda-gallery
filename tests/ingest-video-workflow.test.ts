@@ -111,7 +111,7 @@ describe("video workflow ingest", () => {
       promptId: "prompts:1",
       designInspirationId: undefined,
     });
-    expect(harness.state.storedBlobTypes).toEqual(["video/mp4"]);
+    expect(harness.state.storedBlobTypes).toEqual([]);
     expect(harness.state.createPromptCalls[0]).toMatchObject({
       text: "Slow dolly-in from the starting frame.",
       promptType: "video_gen",
@@ -127,6 +127,7 @@ describe("video workflow ingest", () => {
       generationType: "video_gen",
       assetRole: "generated_output",
     });
+    expect(harness.state.createAssetCalls[0]?.r2Key).toBeDefined();
     expect(harness.state.createAssetCalls[0]?.thumbStorageId).toBeUndefined();
     expect(harness.state.lineageCalls).toEqual([
       {

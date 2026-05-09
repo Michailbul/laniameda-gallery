@@ -48,6 +48,7 @@ const eslintConfig = defineConfig([
     "design-drop/**",
     "recovery/**",
     ".worktrees/**",
+    ".claude/worktrees/**",
     "convex/_generated/**",
   ]),
 ]);

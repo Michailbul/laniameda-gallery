@@ -12,7 +12,6 @@ type AssetRole =
   | "inspiration_capture"
   | "workflow_asset"
   | "other";
-type Pillar = "creators" | "designs" | "dump";
 
 const VALID_SCOPES = new Set<Scope>(["mine", "public"]);
 const VALID_KINDS = new Set<AssetKind>(["image", "video"]);
@@ -23,8 +22,6 @@ const VALID_ASSET_ROLES = new Set<AssetRole>([
   "workflow_asset",
   "other",
 ]);
-const VALID_PILLARS = new Set<Pillar>(["creators", "designs", "dump"]);
-
 const normalizeScope = (value: unknown): Scope => {
   if (typeof value === "string" && VALID_SCOPES.has(value as Scope)) {
     return value as Scope;
@@ -62,8 +59,8 @@ export async function POST(request: Request) {
       scope,
       query: body.query.trim(),
       pillar:
-        typeof body.pillar === "string" && VALID_PILLARS.has(body.pillar as Pillar)
-          ? (body.pillar as Pillar)
+        typeof body.pillar === "string" && body.pillar.trim().length > 0
+          ? body.pillar.trim()
           : undefined,
       folderId:
         typeof body.folderId === "string" && body.folderId.trim().length > 0

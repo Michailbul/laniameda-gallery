@@ -8,6 +8,15 @@ Last updated: 2026-05-02
 
 ## ✔ Shipped
 
+### 2026-05-08
+- Custom user pillars/boards added via `userPillars`: default pillars still resolve virtually, and users can add boards such as `inspirations` without changing the existing asset APIs
+- Dashboard filters and manual upload now read the user's dynamic pillar list instead of hard-coded tabs
+- Browser extension image saves now open a pillar picker before saving, and the popup can fetch/create custom pillars while preserving the existing page bookmark flow
+
+### 2026-05-08
+- Image delivery moved to the existing R2 media path: new ingested images and generated thumbnails store `r2Key`/`thumbR2Key`, gallery hydration resolves R2 URLs first, and Convex storage remains a fallback for legacy rows
+- Added image-aware R2 migration/cleanup support so older Convex image blobs can be copied to R2 before removing the Convex originals
+
 ### 2026-05-02
 - Video/workflow saving finished end-to-end: video uploads/URLs store as `kind: "video"`, render in gallery cards/detail view, and can carry prompt/workflow metadata
 - Generation lineage shipped for multi-stage workflows via `generationLineage` and ingest `upstreamInputs`, including owner checks, idempotent upserts, and cleanup on prompt/asset delete

@@ -29,6 +29,13 @@ export type FolderOption = {
   description?: string | null;
 };
 
+export type PillarOption = {
+  value: string;
+  label: string;
+  color?: string;
+  description?: string;
+};
+
 type StatusMessage = {
   type: "success" | "error" | "info";
   message: string;
@@ -37,6 +44,7 @@ type StatusMessage = {
 export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
+  pillars?: PillarOption[];
   ownerUserId?: string;
   onDataChanged?: () => void;
   className?: string;
@@ -73,11 +81,12 @@ const GENERATION_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
-const PILLAR_OPTIONS = [
+const DEFAULT_PILLAR_OPTIONS = [
   { value: "creators", label: "Creators" },
+  { value: "cars", label: "Cars" },
   { value: "designs", label: "Designs" },
   { value: "dump", label: "Dump" },
-] as const;
+];
 
 const PROMPT_TYPE_OPTIONS = [
   { value: "image_gen", label: "Image Gen" },
@@ -110,6 +119,7 @@ const ASSET_ROLE_OPTIONS = [
 export function UploadPanel({
   availableTags = [],
   folders = [],
+  pillars = DEFAULT_PILLAR_OPTIONS,
   ownerUserId,
   onDataChanged,
   className,
@@ -141,6 +151,7 @@ export function UploadPanel({
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const canCreateFolders = Boolean(ownerUserId?.trim());
+  const pillarOptions = pillars.length > 0 ? pillars : DEFAULT_PILLAR_OPTIONS;
 
   const canSubmit = Boolean(
     promptText.trim().length > 0 || urlInput.trim().length > 0 || selectedFiles.length > 0,
@@ -751,7 +762,7 @@ export function UploadPanel({
               <SelectContent className="rounded-xl border-border/60 shadow-lg">
                 <SelectGroup>
                   <SelectItem value={NO_VALUE} className="text-[14px]">None</SelectItem>
-                  {PILLAR_OPTIONS.map((opt) => (
+                  {pillarOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value} className="text-[14px]">
                       {opt.label}
                     </SelectItem>
