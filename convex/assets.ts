@@ -2,6 +2,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import {
   reconcileAssetPackMembership,
   syncPromptAssetPack,
@@ -1114,6 +1115,117 @@ export const bulkSetAssetCuration = mutation({
   },
 });
 
+export const bulkSetGalleryItemCuration = mutation({
+  args: {
+    assetIds: v.optional(v.array(v.id("assets"))),
+    assetPackIds: v.optional(v.array(v.id("assetPacks"))),
+    actorUserId: v.string(),
+    isPublic: v.boolean(),
+    isFeatured: v.optional(v.boolean()),
+    adminSecret: v.string(),
+  },
+  returns: v.object({
+    updatedCount: v.number(),
+    skippedCount: v.number(),
+    updatedPackCount: v.number(),
+    skippedPackCount: v.number(),
+    isPublic: v.boolean(),
+    curatedAt: v.number(),
+    updatedAssetIds: v.array(v.id("assets")),
+    missingAssetIds: v.array(v.id("assets")),
+    updatedPackIds: v.array(v.id("assetPacks")),
+    missingPackIds: v.array(v.id("assetPacks")),
+  }),
+  handler: async (ctx, args) => {
+    assertCurationAdmin(args.actorUserId, args.adminSecret);
+
+    const directAssetIds = args.assetIds ?? [];
+    const directPackIds = args.assetPackIds ?? [];
+    if (directAssetIds.length === 0 && directPackIds.length === 0) {
+      throw new ConvexError("At least one assetId or assetPackId is required.");
+    }
+    if (directAssetIds.length + directPackIds.length > BULK_CURATION_MAX) {
+      throw new ConvexError(
+        `Bulk curation is limited to ${BULK_CURATION_MAX} gallery items per request.`,
+      );
+    }
+
+    const actorUserId = args.actorUserId.trim();
+    const curatedAt = Date.now();
+    const nextIsPublic = args.isPublic;
+    const assetIds = new Set<Id<"assets">>(directAssetIds);
+    const missingAssetIds: Id<"assets">[] = [];
+    const updatedAssetIds: Id<"assets">[] = [];
+    const missingPackIds: Id<"assetPacks">[] = [];
+    const updatedPackIds: Id<"assetPacks">[] = [];
+
+    for (const packId of Array.from(new Set(directPackIds))) {
+      const pack = await ctx.db.get(packId);
+      if (!pack) {
+        missingPackIds.push(packId);
+        continue;
+      }
+
+      const nextIsFeatured =
+        args.isFeatured !== undefined
+          ? args.isFeatured && nextIsPublic
+          : Boolean(pack.isFeatured && nextIsPublic);
+
+      await ctx.db.patch(packId, {
+        isPublic: nextIsPublic,
+        isFeatured: nextIsFeatured,
+        updatedAt: curatedAt,
+      });
+      updatedPackIds.push(packId);
+
+      const members = await ctx.db
+        .query("assets")
+        .withIndex("by_assetPack_packSlotIndex", (q) =>
+          q.eq("assetPackId", packId),
+        )
+        .collect();
+      for (const asset of members) {
+        assetIds.add(asset._id);
+      }
+    }
+
+    for (const assetId of Array.from(assetIds)) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        missingAssetIds.push(assetId);
+        continue;
+      }
+
+      const nextIsFeatured =
+        args.isFeatured !== undefined
+          ? args.isFeatured && nextIsPublic
+          : Boolean(asset.isFeatured && nextIsPublic);
+
+      await ctx.db.patch(assetId, {
+        isPublic: nextIsPublic,
+        isFeatured: nextIsFeatured,
+        curatedByUserId: actorUserId,
+        curatedAt,
+      });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+      updatedAssetIds.push(assetId);
+    }
+
+    return {
+      updatedCount: updatedAssetIds.length,
+      skippedCount: missingAssetIds.length,
+      updatedPackCount: updatedPackIds.length,
+      skippedPackCount: missingPackIds.length,
+      isPublic: nextIsPublic,
+      curatedAt,
+      updatedAssetIds,
+      missingAssetIds,
+      updatedPackIds,
+      missingPackIds,
+    };
+  },
+});
+
 export const hasAssetForIngestKey = query({
   args: {
     ownerUserId: v.string(),
@@ -1350,6 +1462,59 @@ export const replaceAssetMedia = mutation({
   },
 });
 
+const deleteAssetById = async (ctx: MutationCtx, id: Id<"assets">) => {
+  const asset = await ctx.db.get(id);
+  if (!asset) {
+    throw new ConvexError("Asset not found.");
+  }
+
+  const links = await ctx.db
+    .query("assetTags")
+    .withIndex("by_asset", (q) => q.eq("assetId", id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+  }
+
+  const storageIds = dedupeIds(
+    [asset.storageId, asset.thumbStorageId].filter(
+      (storageId): storageId is Id<"_storage"> => Boolean(storageId),
+    ),
+  );
+  for (const storageId of storageIds) {
+    await ctx.storage.delete(storageId);
+  }
+
+  if (asset.r2Key) {
+    await r2.deleteObject(ctx, asset.r2Key);
+  }
+  if (asset.thumbR2Key) {
+    await r2.deleteObject(ctx, asset.thumbR2Key);
+  }
+
+  const lineageRows = [
+    ...(await ctx.db
+      .query("generationLineage")
+      .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", id))
+      .collect()),
+    ...(await ctx.db
+      .query("generationLineage")
+      .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", id))
+      .collect()),
+  ];
+  for (const row of lineageRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const packId = asset.assetPackId;
+  await ctx.db.delete(id);
+  if (packId) {
+    await reconcileAssetPackMembership(ctx, packId);
+  }
+  await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
+  await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: id });
+};
+
 // Internal-only delete. Performs the actual storage + DB cleanup. Callers
 // (public `deleteAsset`, ingest rollback paths, etc.) are responsible for
 // authorization before invoking this.
@@ -1359,59 +1524,7 @@ export const internalDeleteAsset = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const asset = await ctx.db.get(args.id);
-    if (!asset) {
-      throw new ConvexError("Asset not found.");
-    }
-
-    const links = await ctx.db
-      .query("assetTags")
-      .withIndex("by_asset", (q) => q.eq("assetId", args.id))
-      .collect();
-    for (const link of links) {
-      await ctx.db.delete(link._id);
-    }
-
-    const storageIds = dedupeIds(
-      [asset.storageId, asset.thumbStorageId].filter(
-        (id): id is Id<"_storage"> => Boolean(id),
-      ),
-    );
-    for (const storageId of storageIds) {
-      await ctx.storage.delete(storageId);
-    }
-
-    if (asset.r2Key) {
-      await r2.deleteObject(ctx, asset.r2Key);
-    }
-    if (asset.thumbR2Key) {
-      await r2.deleteObject(ctx, asset.thumbR2Key);
-    }
-
-    const lineageRows = [
-      ...(await ctx.db
-        .query("generationLineage")
-        .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", args.id))
-        .collect()),
-      ...(await ctx.db
-        .query("generationLineage")
-        .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", args.id))
-        .collect()),
-    ];
-    for (const row of lineageRows) {
-      await ctx.db.delete(row._id);
-    }
-
-    const packId = asset.assetPackId;
-    await ctx.db.delete(args.id);
-    if (packId) {
-      await reconcileAssetPackMembership(ctx, packId);
-    }
-    await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
-    await ctx.scheduler.runAfter(0, reindexAssetAction, {
-      assetId: args.id,
-    });
-
+    await deleteAssetById(ctx, args.id);
     return null;
   },
 });
@@ -1434,6 +1547,92 @@ export const deleteAsset = mutation({
     assertCurationAdmin(args.actorUserId, args.adminSecret);
     await ctx.runMutation(internalDeleteAssetMutation, { id: args.id });
     return null;
+  },
+});
+
+export const bulkDeleteGalleryItems = mutation({
+  args: {
+    assetIds: v.optional(v.array(v.id("assets"))),
+    assetPackIds: v.optional(v.array(v.id("assetPacks"))),
+    actorUserId: v.string(),
+    adminSecret: v.string(),
+  },
+  returns: v.object({
+    deletedAssetCount: v.number(),
+    deletedPackCount: v.number(),
+    skippedAssetCount: v.number(),
+    skippedPackCount: v.number(),
+    deletedAssetIds: v.array(v.id("assets")),
+    missingAssetIds: v.array(v.id("assets")),
+    deletedPackIds: v.array(v.id("assetPacks")),
+    missingPackIds: v.array(v.id("assetPacks")),
+  }),
+  handler: async (ctx, args) => {
+    assertCurationAdmin(args.actorUserId, args.adminSecret);
+
+    const directAssetIds = args.assetIds ?? [];
+    const directPackIds = args.assetPackIds ?? [];
+    if (directAssetIds.length === 0 && directPackIds.length === 0) {
+      throw new ConvexError("At least one assetId or assetPackId is required.");
+    }
+    if (directAssetIds.length + directPackIds.length > BULK_CURATION_MAX) {
+      throw new ConvexError(
+        `Bulk delete is limited to ${BULK_CURATION_MAX} gallery items per request.`,
+      );
+    }
+
+    const assetIds = new Set<Id<"assets">>(directAssetIds);
+    const missingAssetIds: Id<"assets">[] = [];
+    const deletedAssetIds: Id<"assets">[] = [];
+    const missingPackIds: Id<"assetPacks">[] = [];
+    const deletedPackIds: Id<"assetPacks">[] = [];
+
+    for (const packId of Array.from(new Set(directPackIds))) {
+      const pack = await ctx.db.get(packId);
+      if (!pack) {
+        missingPackIds.push(packId);
+        continue;
+      }
+      deletedPackIds.push(packId);
+
+      const members = await ctx.db
+        .query("assets")
+        .withIndex("by_assetPack_packSlotIndex", (q) =>
+          q.eq("assetPackId", packId),
+        )
+        .collect();
+      for (const asset of members) {
+        assetIds.add(asset._id);
+      }
+    }
+
+    for (const assetId of Array.from(assetIds)) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        missingAssetIds.push(assetId);
+        continue;
+      }
+      await deleteAssetById(ctx, asset._id);
+      deletedAssetIds.push(asset._id);
+    }
+
+    for (const packId of deletedPackIds) {
+      const pack = await ctx.db.get(packId);
+      if (pack) {
+        await ctx.db.delete(packId);
+      }
+    }
+
+    return {
+      deletedAssetCount: deletedAssetIds.length,
+      deletedPackCount: deletedPackIds.length,
+      skippedAssetCount: missingAssetIds.length,
+      skippedPackCount: missingPackIds.length,
+      deletedAssetIds,
+      missingAssetIds,
+      deletedPackIds,
+      missingPackIds,
+    };
   },
 });
 

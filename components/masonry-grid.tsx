@@ -8,6 +8,13 @@ import {
   packMasonry,
   type LayoutInput,
 } from "@/lib/masonry-layout";
+import {
+  type DeletableGalleryItem,
+  getGallerySelectionKey,
+  type SelectableGalleryItem,
+} from "@/lib/gallery-selection";
+
+type GalleryItemType = "asset" | "pack" | "design" | "workflow";
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -30,7 +37,7 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: GalleryItemType;
   src: string;
   fullSrc: string;
   prompt: string;
@@ -55,7 +62,7 @@ interface GalleryImage {
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: GalleryItemType;
     src: string;
     fullSrc: string;
     prompt: string;
@@ -74,15 +81,15 @@ interface MasonryGridProps {
   deletingImageId?: string | null;
   exitingImageIds?: Set<string>;
   gapPx?: number;
-  onDeleteImage?: (imageId: string) => void;
+  onDeleteItem?: (item: DeletableGalleryItem) => void;
   selectable?: boolean;
-  selectedAssetIds?: Set<string>;
-  onToggleAssetSelect?: (imageId: string) => void;
+  selectedGalleryItemKeys?: Set<string>;
+  onToggleGalleryItemSelect?: (item: SelectableGalleryItem) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: GalleryItemType;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -101,7 +108,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow";
+        galleryItemType?: GalleryItemType;
         src: string;
         fullSrc: string;
         prompt: string;
@@ -199,13 +206,13 @@ export function MasonryGrid({
   deletingImageId,
   exitingImageIds,
   gapPx,
-  onDeleteImage,
+  onDeleteItem,
   onImageSelect,
   onImageLoad,
   loading,
   selectable = false,
-  selectedAssetIds,
-  onToggleAssetSelect,
+  selectedGalleryItemKeys,
+  onToggleGalleryItemSelect,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -282,6 +289,21 @@ export function MasonryGrid({
       >
         {visibleImages.map((image, originalIndex) => {
           const placement = packedLayout?.placements[originalIndex];
+          const galleryItemType =
+            image.galleryItemType ?? (image.packId ? "pack" : "asset");
+          const galleryItemId =
+            image.galleryItemId ??
+            (galleryItemType === "pack" ? image.packId ?? image.id : image.id);
+          const selectableGalleryItem =
+            galleryItemType === "asset" || galleryItemType === "pack"
+              ? ({
+                  type: galleryItemType,
+                  id: galleryItemId,
+                } satisfies SelectableGalleryItem)
+              : null;
+          const selectionKey = selectableGalleryItem
+            ? getGallerySelectionKey(selectableGalleryItem)
+            : null;
           return (
             <div
               key={image.id}
@@ -303,18 +325,16 @@ export function MasonryGrid({
                 canDelete={canDelete}
                 deleting={deletingImageId === image.id}
                 exiting={Boolean(exitingImageIds?.has(image.id))}
-                onDelete={onDeleteImage}
+                onDelete={onDeleteItem}
                 selectedId={selectedImageId}
                 initiallyLoaded={image.initiallyLoaded}
                 onLoad={onImageLoad}
                 index={originalIndex}
-                selectable={
-                  selectable &&
-                  (image.galleryItemType === "asset" ||
-                    image.galleryItemType === undefined)
-                }
-                selected={Boolean(selectedAssetIds?.has(image.id))}
-                onToggleSelect={onToggleAssetSelect}
+                selectable={selectable && Boolean(selectableGalleryItem)}
+                selected={Boolean(
+                  selectionKey && selectedGalleryItemKeys?.has(selectionKey),
+                )}
+                onToggleSelect={onToggleGalleryItemSelect}
               />
             </div>
           );

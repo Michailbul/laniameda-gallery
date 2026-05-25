@@ -4,6 +4,10 @@ import {
   consolidateOwnerPromptPacks,
   getGalleryAssetPack,
 } from "../convex/assetPacks";
+import {
+  bulkDeleteGalleryItems,
+  bulkSetGalleryItemCuration,
+} from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
 describe("asset pack consolidation", () => {
@@ -11,6 +15,8 @@ describe("asset pack consolidation", () => {
 
   beforeEach(() => {
     harness = createMockConvexMutationCtx();
+    process.env.CURATION_ADMIN_SECRET = "test-secret";
+    process.env.CURATION_ADMIN_USER_IDS = "278674008";
   });
 
   test("consolidates legacy prompt-linked assets into an explicit pack", async () => {
@@ -228,5 +234,123 @@ describe("asset pack consolidation", () => {
       ownerUserId: "telegram:999",
     });
     expect(denied).toBeNull();
+  });
+
+  test("bulk curation promotes an explicit pack and all members", async () => {
+    const packId = await harness.db.insert("assetPacks", {
+      ownerUserId: "278674008",
+      title: "Pack",
+      tagIds: [],
+      pillar: "creators",
+      isPublic: false,
+      itemCount: 2,
+      createdAt: 10,
+      updatedAt: 10,
+    });
+    const firstAssetId = await harness.db.insert("assets", {
+      ownerUserId: "278674008",
+      kind: "image",
+      sourceUrl: "https://example.com/one.jpg",
+      tagIds: [],
+      pillar: "creators",
+      assetPackId: packId,
+      packSlotIndex: 0,
+      isPublic: false,
+      createdAt: 20,
+    });
+    const secondAssetId = await harness.db.insert("assets", {
+      ownerUserId: "278674008",
+      kind: "image",
+      sourceUrl: "https://example.com/two.jpg",
+      tagIds: [],
+      pillar: "creators",
+      assetPackId: packId,
+      packSlotIndex: 1,
+      isPublic: false,
+      createdAt: 30,
+    });
+
+    const result = await bulkSetGalleryItemCuration._handler(
+      harness.ctx as never,
+      {
+        assetPackIds: [packId as never],
+        actorUserId: "278674008",
+        isPublic: true,
+        adminSecret: "test-secret",
+      },
+    );
+
+    const pack = await harness.db.get<{ isPublic?: boolean }>(packId);
+    const firstAsset = await harness.db.get<{ isPublic?: boolean }>(
+      firstAssetId,
+    );
+    const secondAsset = await harness.db.get<{ isPublic?: boolean }>(
+      secondAssetId,
+    );
+
+    expect(result.updatedPackIds).toEqual([packId]);
+    expect([...result.updatedAssetIds].sort()).toEqual(
+      [firstAssetId, secondAssetId].sort(),
+    );
+    expect(pack?.isPublic).toBeTrue();
+    expect(firstAsset?.isPublic).toBeTrue();
+    expect(secondAsset?.isPublic).toBeTrue();
+  });
+
+  test("bulk delete removes a selected pack and all member assets", async () => {
+    const tagId = await harness.db.insert("tags", {
+      name: "Creators",
+      normalized: "creators",
+      usageCount: 2,
+    });
+    const packId = await harness.db.insert("assetPacks", {
+      ownerUserId: "278674008",
+      title: "Pack",
+      tagIds: [tagId],
+      pillar: "creators",
+      itemCount: 2,
+      createdAt: 10,
+      updatedAt: 10,
+    });
+    const firstAssetId = await harness.db.insert("assets", {
+      ownerUserId: "278674008",
+      kind: "image",
+      sourceUrl: "https://example.com/one.jpg",
+      tagIds: [tagId],
+      pillar: "creators",
+      assetPackId: packId,
+      packSlotIndex: 0,
+      createdAt: 20,
+    });
+    const secondAssetId = await harness.db.insert("assets", {
+      ownerUserId: "278674008",
+      kind: "image",
+      sourceUrl: "https://example.com/two.jpg",
+      tagIds: [tagId],
+      pillar: "creators",
+      assetPackId: packId,
+      packSlotIndex: 1,
+      createdAt: 30,
+    });
+
+    const result = await bulkDeleteGalleryItems._handler(
+      harness.ctx as never,
+      {
+        assetPackIds: [packId as never],
+        actorUserId: "278674008",
+        adminSecret: "test-secret",
+      },
+    );
+
+    const tag = await harness.db.get<{ usageCount: number }>(tagId);
+
+    expect(result.deletedPackIds).toEqual([packId]);
+    expect([...result.deletedAssetIds].sort()).toEqual(
+      [firstAssetId, secondAssetId].sort(),
+    );
+    expect(await harness.db.get(packId)).toBeNull();
+    expect(await harness.db.get(firstAssetId)).toBeNull();
+    expect(await harness.db.get(secondAssetId)).toBeNull();
+    expect(tag?.usageCount).toBe(0);
   });
 });

@@ -5,9 +5,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Copy, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import type {
+  DeletableGalleryItem,
+  SelectableGalleryItem,
+} from "@/lib/gallery-selection";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 
 const CINEMA_PILLAR = "cinema-inspiration";
+type GalleryItemType = "asset" | "pack" | "design" | "workflow";
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -31,7 +36,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: GalleryItemType;
     src: string;
     fullSrc: string;
     prompt: string;
@@ -57,7 +62,7 @@ interface ImageCardProps {
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "workflow";
+      galleryItemType?: GalleryItemType;
       src: string;
       fullSrc: string;
       prompt: string;
@@ -72,7 +77,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: GalleryItemType;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -91,7 +96,7 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow";
+        galleryItemType?: GalleryItemType;
         src: string;
         fullSrc: string;
         prompt: string;
@@ -108,10 +113,10 @@ interface ImageCardProps {
   canDelete?: boolean;
   deleting?: boolean;
   exiting?: boolean;
-  onDelete?: (imageId: string) => void;
+  onDelete?: (item: DeletableGalleryItem) => void;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (imageId: string) => void;
+  onToggleSelect?: (item: SelectableGalleryItem) => void;
 }
 
 const PILLAR_META = {
@@ -288,6 +293,23 @@ export const ImageCard = memo(function ImageCard({
           ? "WORKFLOW ID COPIED"
           : "ASSET ID COPIED";
   const isWorkflow = galleryItemType === "workflow";
+  const selectableGalleryItem =
+    galleryItemType === "asset" || galleryItemType === "pack"
+      ? ({
+          type: galleryItemType,
+          id: galleryItemId,
+        } satisfies SelectableGalleryItem)
+      : null;
+  const deletableGalleryItem =
+    selectableGalleryItem ??
+    (galleryItemType === "workflow"
+      ? ({
+          type: "workflow",
+          id: image.id,
+        } satisfies DeletableGalleryItem)
+      : null);
+  const selectableItemLabel =
+    selectableGalleryItem?.type === "pack" ? "pack" : "asset";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoHoverTimerRef = useRef<number | null>(null);
@@ -380,14 +402,16 @@ export const ImageCard = memo(function ImageCard({
   const handleToggleSelect = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onToggleSelect?.(image.id);
+    if (!selectableGalleryItem) return;
+    onToggleSelect?.(selectableGalleryItem);
   };
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     if (deleting) return;
-    onDelete?.(image.id);
+    if (!deletableGalleryItem) return;
+    onDelete?.(deletableGalleryItem);
   };
 
   const handlePromptCopy = useCallback(
@@ -525,13 +549,13 @@ export const ImageCard = memo(function ImageCard({
           <Copy className="workflow-card-caption-copy h-2.5 w-2.5" />
         </button>
 
-        {canDelete && (
+        {canDelete && deletableGalleryItem && (
           <button
             type="button"
             onClick={handleDelete}
             disabled={deleting}
             className="workflow-card-delete"
-            aria-label={deleting ? "Deleting workflow" : "Delete workflow"}
+            aria-label={deleting ? "Deleting item" : "Delete item"}
           >
             {deleting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -701,7 +725,7 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {selectable && (
+      {selectable && selectableGalleryItem && (
         <button
           type="button"
           onClick={handleToggleSelect}
@@ -720,7 +744,11 @@ export const ImageCard = memo(function ImageCard({
               ? "var(--lm-coral)"
               : "var(--image-card-badge-border)",
           }}
-          aria-label={selected ? "Deselect asset" : "Select asset"}
+          aria-label={
+            selected
+              ? `Deselect ${selectableItemLabel}`
+              : `Select ${selectableItemLabel}`
+          }
           aria-pressed={selected}
           title={selected ? "Deselect" : "Select"}
         >
@@ -884,7 +912,7 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {canDelete && (
+      {canDelete && deletableGalleryItem && (
         <button
           type="button"
           onClick={handleDelete}
@@ -902,7 +930,7 @@ export const ImageCard = memo(function ImageCard({
               : "var(--image-card-delete-text)",
             boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
           }}
-          aria-label={deleting ? "Deleting image" : "Delete image"}
+          aria-label={deleting ? "Deleting item" : "Delete item"}
         >
           {deleting ? (
             <Loader2 className="h-4 w-4 animate-spin" />

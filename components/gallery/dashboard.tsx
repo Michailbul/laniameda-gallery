@@ -5,7 +5,7 @@ import "@/app/tokens.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Eye, EyeOff, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus, Search as SearchIcon, Trash2, X } from "lucide-react";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
@@ -40,6 +40,12 @@ import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
+import {
+  type DeletableGalleryItem,
+  getGallerySelectionKey,
+  parseGallerySelectionKey,
+  type SelectableGalleryItem,
+} from "@/lib/gallery-selection";
 
 const INTENT_LABELS = {
   transfer_style: "Transfer Style",
@@ -52,7 +58,7 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: GalleryItemType;
   stepCount?: number;
   thumbSrc: string;
   fullSrc: string;
@@ -80,6 +86,8 @@ type SelectedImage = {
   userNote?: string;
   previewImages?: GalleryEntryPreview[];
 };
+
+type GalleryItemType = "asset" | "pack" | "design" | "workflow";
 
 type SemanticGalleryAsset = FunctionReturnType<
   typeof api.semanticSearch.searchAssets
@@ -140,6 +148,57 @@ const buildAssetSearchHaystack = (asset: {
     .filter((value): value is string => Boolean(value))
     .join(" ")
     .toLowerCase();
+
+const getSelectableItemForGalleryEntry = (entry: {
+  id: string;
+  packId?: string;
+  galleryItemId?: string;
+  galleryItemType?: GalleryItemType;
+}): SelectableGalleryItem | null => {
+  const itemType = entry.galleryItemType ?? (entry.packId ? "pack" : "asset");
+  if (itemType !== "asset" && itemType !== "pack") {
+    return null;
+  }
+
+  return {
+    type: itemType,
+    id:
+      entry.galleryItemId ??
+      (itemType === "pack" ? entry.packId ?? entry.id : entry.id),
+  };
+};
+
+const getAssetIdsForGalleryEntry = (entry: {
+  id: string;
+  previewImages?: GalleryEntryPreview[];
+}) => {
+  const previewAssetIds =
+    entry.previewImages
+      ?.filter(
+        (preview) =>
+          preview.galleryItemType === undefined ||
+          preview.galleryItemType === "asset",
+      )
+      .map((preview) => preview.id) ?? [];
+
+  return previewAssetIds.length > 0 ? previewAssetIds : [entry.id];
+};
+
+const formatBulkTargetLabel = (counts: {
+  assetCount: number;
+  packCount: number;
+}) => {
+  const parts = [];
+  if (counts.packCount > 0) {
+    parts.push(`${counts.packCount} pack${counts.packCount === 1 ? "" : "s"}`);
+  }
+  if (counts.assetCount > 0 || parts.length === 0) {
+    parts.push(
+      `${counts.assetCount} asset${counts.assetCount === 1 ? "" : "s"}`,
+    );
+  }
+  return parts.join(" and ");
+};
 
 export function GalleryDashboard({
   user,
@@ -262,10 +321,10 @@ export function GalleryDashboard({
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceContent, setWorkspaceContent] = useState("");
   const [workspaceError, setWorkspaceError] = useState<string>();
-  const [deletingAssetId, setDeletingAssetId] = useState<
+  const [deletingGalleryItemId, setDeletingGalleryItemId] = useState<
     string | null
   >(null);
-  const [deleteAssetError, setDeleteAssetError] =
+  const [deleteGalleryItemError, setDeleteGalleryItemError] =
     useState<string>();
   const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<
     string | null
@@ -274,7 +333,7 @@ export function GalleryDashboard({
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+  const [selectedGalleryItemKeys, setSelectedGalleryItemKeys] = useState<Set<string>>(
     () => new Set(),
   );
   const [bulkCurationLoading, setBulkCurationLoading] = useState(false);
@@ -282,10 +341,10 @@ export function GalleryDashboard({
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [replacingThumbAssetId, setReplacingThumbAssetId] =
     useState<string | null>(null);
-  const [exitingAssetIds, setExitingAssetIds] = useState<
+  const [exitingGalleryItemIds, setExitingGalleryItemIds] = useState<
     Set<string>
   >(() => new Set());
-  const [hiddenAssetIds, setHiddenAssetIds] = useState<Set<string>>(
+  const [hiddenGalleryItemIds, setHiddenGalleryItemIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
@@ -344,13 +403,13 @@ export function GalleryDashboard({
   }, [canAccessMyGallery, galleryScope]);
 
   useEffect(() => {
-    setExitingAssetIds(new Set());
-    setHiddenAssetIds(new Set());
-    setDeleteAssetError(undefined);
+    setExitingGalleryItemIds(new Set());
+    setHiddenGalleryItemIds(new Set());
+    setDeleteGalleryItemError(undefined);
     setFolderError(undefined);
     setFolderLoadingAssetId(null);
     setCurationError(undefined);
-    setDeletingAssetId(null);
+    setDeletingGalleryItemId(null);
     setSelectedImage(null);
     setSheetDismissing(false);
     setSheetDragY(0);
@@ -359,7 +418,7 @@ export function GalleryDashboard({
     setSemanticError(undefined);
     setSemanticLoading(false);
     setSelectedPackId(null);
-    setSelectedAssetIds(new Set());
+    setSelectedGalleryItemKeys(new Set());
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
   }, [galleryScope]);
@@ -438,78 +497,28 @@ export function GalleryDashboard({
     [canCuratePublic, curationLoadingAssetId],
   );
 
-  const toggleAssetSelection = useCallback((assetId: string) => {
+  const toggleGalleryItemSelection = useCallback((item: SelectableGalleryItem) => {
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
-    setSelectedAssetIds((current) => {
+    const selectionKey = getGallerySelectionKey(item);
+    setSelectedGalleryItemKeys((current) => {
       const next = new Set(current);
-      if (next.has(assetId)) {
-        next.delete(assetId);
+      if (next.has(selectionKey)) {
+        next.delete(selectionKey);
       } else {
-        next.add(assetId);
+        next.add(selectionKey);
       }
       return next;
     });
   }, []);
 
-  const clearAssetSelection = useCallback(() => {
-    setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
+  const clearGalleryItemSelection = useCallback(() => {
+    setSelectedGalleryItemKeys((current) =>
+      current.size === 0 ? current : new Set(),
+    );
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
   }, []);
-
-  const runBulkCuration = useCallback(
-    async (isPublic: boolean) => {
-      if (bulkCurationLoading || !canCuratePublic) return;
-      const ids = Array.from(selectedAssetIds);
-      if (ids.length === 0) return;
-
-      setBulkCurationLoading(true);
-      setBulkCurationError(undefined);
-      setBulkCurationStatus(undefined);
-      try {
-        const response = await fetch("/api/admin/assets/bulk-curation", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ assetIds: ids, isPublic }),
-        });
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-          result?: {
-            updatedCount: number;
-            skippedCount: number;
-            isPublic: boolean;
-          };
-        } | null;
-        if (!response.ok || !payload?.result) {
-          throw new Error(payload?.error || "Bulk curation failed.");
-        }
-
-        const { updatedCount, skippedCount } = payload.result;
-        const verb = isPublic ? "made public" : "made private";
-        const skippedSuffix =
-          skippedCount > 0 ? ` (${skippedCount} skipped)` : "";
-        setBulkCurationStatus(
-          `${updatedCount} asset${updatedCount === 1 ? "" : "s"} ${verb}${skippedSuffix}.`,
-        );
-
-        const updatedIds = new Set(ids);
-        setSelectedImage((current) =>
-          current && updatedIds.has(current.id)
-            ? { ...current, isPublic }
-            : current,
-        );
-        setSelectedAssetIds(new Set());
-      } catch (error) {
-        setBulkCurationError(
-          error instanceof Error ? error.message : "Bulk curation failed.",
-        );
-      } finally {
-        setBulkCurationLoading(false);
-      }
-    },
-    [bulkCurationLoading, canCuratePublic, selectedAssetIds],
-  );
 
   const createFolder = useCallback(
     async (name: string): Promise<string | null> => {
@@ -616,85 +625,6 @@ export function GalleryDashboard({
       setSelectedImage(null);
     }
   }, []);
-
-  const deleteAsset = useCallback(
-    async (assetId: string) => {
-      if (deletingAssetId) return;
-      if (!canDeleteInCurrentView) {
-        setDeleteAssetError(
-          "Switch to My Gallery to delete assets.",
-        );
-        return;
-      }
-
-      setDeleteAssetError(undefined);
-      setExitingAssetIds((previous) => {
-        const next = new Set(previous);
-        next.add(assetId);
-        return next;
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 260));
-
-      setHiddenAssetIds((previous) => {
-        const next = new Set(previous);
-        next.add(assetId);
-        return next;
-      });
-      setDeletingAssetId(assetId);
-
-      try {
-        const response = await fetch(
-          `/api/assets/${encodeURIComponent(assetId)}`,
-          { method: "DELETE" },
-        );
-        if (!response.ok) {
-          const payload = (await response
-            .json()
-            .catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error || "Failed to delete asset.");
-        }
-
-        loadedImageIdsRef.current.delete(assetId);
-
-        setSelectedImage((current) =>
-          current?.id === assetId ? null : current,
-        );
-        setSelectedAssetIds((current) => {
-          if (!current.has(assetId)) return current;
-          const next = new Set(current);
-          next.delete(assetId);
-          return next;
-        });
-      } catch (error) {
-        setHiddenAssetIds((previous) => {
-          if (!previous.has(assetId)) return previous;
-          const next = new Set(previous);
-          next.delete(assetId);
-          return next;
-        });
-        setDeleteAssetError(
-          error instanceof Error
-            ? error.message
-            : "Failed to delete asset.",
-        );
-      } finally {
-        setExitingAssetIds((previous) => {
-          if (!previous.has(assetId)) return previous;
-          const next = new Set(previous);
-          next.delete(assetId);
-          return next;
-        });
-        setDeletingAssetId((current) =>
-          current === assetId ? null : current,
-        );
-      }
-    },
-    [
-      canDeleteInCurrentView,
-      deletingAssetId,
-    ],
-  );
 
   // Image navigation
   const tags = useQuery(api.tags.listTags, {});
@@ -1092,7 +1022,7 @@ export function GalleryDashboard({
     // Design inspirations have their own data source
     if (isDesignsPillar && mineDesignEntries) {
       return mineDesignEntries
-        .filter((entry) => !hiddenAssetIds.has(entry._id) && entry.previewUrl)
+        .filter((entry) => !hiddenGalleryItemIds.has(entry._id) && entry.previewUrl)
         .map((entry) => ({
           id: entry._id,
           galleryItemId: entry._id,
@@ -1147,13 +1077,13 @@ export function GalleryDashboard({
     if (!displayGalleryAssets) return [];
     return buildGalleryEntries({
       assets: displayGalleryAssets,
-      hiddenAssetIds,
+      hiddenAssetIds: hiddenGalleryItemIds,
       loadedAssetIds: loadedImageIdsRef.current,
       sortOrder,
     });
   }, [
     displayGalleryAssets,
-    hiddenAssetIds,
+    hiddenGalleryItemIds,
     sortOrder,
     isDesignsPillar,
     mineDesignEntries,
@@ -1176,7 +1106,9 @@ export function GalleryDashboard({
 
   const workflowEntries = useMemo(() => {
     if (!workflowCards) return [];
-    return workflowCards.map((workflow) => {
+    return workflowCards
+      .filter((workflow) => !hiddenGalleryItemIds.has(workflow._id))
+      .map((workflow) => {
       const playable = workflow.previewImages.filter((media) =>
         Boolean(media.url),
       );
@@ -1220,7 +1152,7 @@ export function GalleryDashboard({
         previewImages,
       };
     });
-  }, [workflowCards]);
+  }, [hiddenGalleryItemIds, workflowCards]);
 
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
@@ -1229,6 +1161,353 @@ export function GalleryDashboard({
       (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
     );
   }, [workflowsOnly, workflowEntries, baseImages]);
+
+  const galleryEntriesBySelectionKey = useMemo(() => {
+    const entriesByKey = new Map<string, (typeof images)[number]>();
+    for (const entry of images) {
+      const item = getSelectableItemForGalleryEntry(entry);
+      if (!item) continue;
+      entriesByKey.set(getGallerySelectionKey(item), entry);
+    }
+    return entriesByKey;
+  }, [images]);
+
+  const selectedGalleryItems = useMemo(
+    () =>
+      Array.from(selectedGalleryItemKeys)
+        .map(parseGallerySelectionKey)
+        .filter((item): item is SelectableGalleryItem => item !== null),
+    [selectedGalleryItemKeys],
+  );
+
+  const resolveGalleryItemRequest = useCallback(
+    (items: SelectableGalleryItem[]) => {
+      const assetIds = new Set<string>();
+      const assetPackIds = new Set<string>();
+      const optimisticHiddenIds = new Set<string>();
+      const selectedKeys = new Set<string>();
+
+      for (const item of items) {
+        const selectionKey = getGallerySelectionKey(item);
+        selectedKeys.add(selectionKey);
+        const entry = galleryEntriesBySelectionKey.get(selectionKey);
+
+        if (item.type === "pack") {
+          assetPackIds.add(item.id);
+          for (const assetId of entry ? getAssetIdsForGalleryEntry(entry) : []) {
+            optimisticHiddenIds.add(assetId);
+          }
+          continue;
+        }
+
+        const entryAssetIds = entry ? getAssetIdsForGalleryEntry(entry) : [item.id];
+        for (const assetId of entryAssetIds) {
+          assetIds.add(assetId);
+          optimisticHiddenIds.add(assetId);
+        }
+      }
+
+      return {
+        assetIds: Array.from(assetIds),
+        assetPackIds: Array.from(assetPackIds),
+        optimisticHiddenIds,
+        selectedKeys,
+      };
+    },
+    [galleryEntriesBySelectionKey],
+  );
+
+  const runBulkCuration = useCallback(
+    async (isPublic: boolean) => {
+      if (bulkCurationLoading || !canCuratePublic) return;
+      if (selectedGalleryItems.length === 0) return;
+
+      const { assetIds, assetPackIds, selectedKeys } =
+        resolveGalleryItemRequest(selectedGalleryItems);
+      if (assetIds.length === 0 && assetPackIds.length === 0) return;
+
+      setBulkCurationLoading(true);
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+      try {
+        const response = await fetch("/api/admin/assets/bulk-curation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assetIds, assetPackIds, isPublic }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          result?: {
+            updatedCount: number;
+            skippedCount: number;
+            updatedPackCount?: number;
+            skippedPackCount?: number;
+            isPublic: boolean;
+            updatedAssetIds?: string[];
+          };
+        } | null;
+        if (!response.ok || !payload?.result) {
+          throw new Error(payload?.error || "Bulk curation failed.");
+        }
+
+        const {
+          updatedCount,
+          skippedCount,
+          updatedPackCount = 0,
+          skippedPackCount = 0,
+          updatedAssetIds = assetIds,
+        } = payload.result;
+        const verb = isPublic ? "made public" : "made private";
+        const skippedTotal = skippedCount + skippedPackCount;
+        const skippedSuffix =
+          skippedTotal > 0 ? ` (${skippedTotal} skipped)` : "";
+        setBulkCurationStatus(
+          `${formatBulkTargetLabel({
+            assetCount: updatedCount,
+            packCount: updatedPackCount,
+          })} ${verb}${skippedSuffix}.`,
+        );
+
+        const updatedAssetIdSet = new Set(updatedAssetIds);
+        setSelectedImage((current) => {
+          if (!current) return current;
+          const item = getSelectableItemForGalleryEntry(current);
+          const itemKey = item ? getGallerySelectionKey(item) : null;
+          if (
+            updatedAssetIdSet.has(current.id) ||
+            (itemKey !== null && selectedKeys.has(itemKey))
+          ) {
+            return { ...current, isPublic };
+          }
+          return current;
+        });
+        setSelectedGalleryItemKeys(new Set());
+      } catch (error) {
+        setBulkCurationError(
+          error instanceof Error ? error.message : "Bulk curation failed.",
+        );
+      } finally {
+        setBulkCurationLoading(false);
+      }
+    },
+    [
+      bulkCurationLoading,
+      canCuratePublic,
+      resolveGalleryItemRequest,
+      selectedGalleryItems,
+    ],
+  );
+
+  const deleteGalleryItems = useCallback(
+    async (items: SelectableGalleryItem[], requireConfirmation: boolean) => {
+      if (bulkCurationLoading || deletingGalleryItemId) return;
+      if (!canDeleteInCurrentView) {
+        setBulkCurationError("Switch to My Gallery to delete gallery items.");
+        setDeleteGalleryItemError("Switch to My Gallery to delete gallery items.");
+        return;
+      }
+      if (items.length === 0) return;
+
+      if (
+        requireConfirmation &&
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `Delete ${items.length} selected item${items.length === 1 ? "" : "s"} completely?`,
+        )
+      ) {
+        return;
+      }
+
+      const { assetIds, assetPackIds, optimisticHiddenIds } =
+        resolveGalleryItemRequest(items);
+      if (assetIds.length === 0 && assetPackIds.length === 0) return;
+
+      const deletingId =
+        optimisticHiddenIds.values().next().value ?? items[0]?.id ?? null;
+
+      setBulkCurationLoading(true);
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+      setDeleteGalleryItemError(undefined);
+      if (deletingId) {
+        setDeletingGalleryItemId(deletingId);
+      }
+      setExitingGalleryItemIds((previous) => {
+        const next = new Set(previous);
+        for (const id of optimisticHiddenIds) next.add(id);
+        return next;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      setHiddenGalleryItemIds((previous) => {
+        const next = new Set(previous);
+        for (const id of optimisticHiddenIds) next.add(id);
+        return next;
+      });
+
+      try {
+        const response = await fetch("/api/admin/assets/bulk-delete", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assetIds, assetPackIds }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          result?: {
+            deletedAssetCount: number;
+            deletedPackCount: number;
+            skippedAssetCount: number;
+            skippedPackCount: number;
+            deletedAssetIds: string[];
+          };
+        } | null;
+        if (!response.ok || !payload?.result) {
+          throw new Error(payload?.error || "Bulk delete failed.");
+        }
+
+        for (const assetId of payload.result.deletedAssetIds) {
+          loadedImageIdsRef.current.delete(assetId);
+        }
+        setHiddenGalleryItemIds((previous) => {
+          const next = new Set(previous);
+          for (const assetId of payload.result!.deletedAssetIds) {
+            next.add(assetId);
+          }
+          return next;
+        });
+        setSelectedImage((current) =>
+          current && payload.result!.deletedAssetIds.includes(current.id)
+            ? null
+            : current,
+        );
+        setSelectedGalleryItemKeys(new Set());
+
+        const skippedTotal =
+          payload.result.skippedAssetCount + payload.result.skippedPackCount;
+        const skippedSuffix =
+          skippedTotal > 0 ? ` (${skippedTotal} skipped)` : "";
+        setBulkCurationStatus(
+          `${formatBulkTargetLabel({
+            assetCount: payload.result.deletedAssetCount,
+            packCount: payload.result.deletedPackCount,
+          })} deleted${skippedSuffix}.`,
+        );
+      } catch (error) {
+        setHiddenGalleryItemIds((previous) => {
+          const next = new Set(previous);
+          for (const id of optimisticHiddenIds) next.delete(id);
+          return next;
+        });
+        const message =
+          error instanceof Error ? error.message : "Bulk delete failed.";
+        setBulkCurationError(message);
+        setDeleteGalleryItemError(message);
+      } finally {
+        setExitingGalleryItemIds((previous) => {
+          const next = new Set(previous);
+          for (const id of optimisticHiddenIds) next.delete(id);
+          return next;
+        });
+        if (deletingId) {
+          setDeletingGalleryItemId((current) =>
+            current === deletingId ? null : current,
+          );
+        }
+        setBulkCurationLoading(false);
+      }
+    },
+    [
+      bulkCurationLoading,
+      canDeleteInCurrentView,
+      deletingGalleryItemId,
+      resolveGalleryItemRequest,
+    ],
+  );
+
+  const runBulkDelete = useCallback(() => {
+    void deleteGalleryItems(selectedGalleryItems, true);
+  }, [deleteGalleryItems, selectedGalleryItems]);
+
+  const deleteGalleryItem = useCallback(
+    async (item: DeletableGalleryItem) => {
+      if (item.type !== "workflow") {
+        void deleteGalleryItems([item], true);
+        return;
+      }
+      if (bulkCurationLoading || deletingGalleryItemId) return;
+      if (!canDeleteInCurrentView) {
+        setDeleteGalleryItemError("Switch to My Gallery to delete workflows.");
+        return;
+      }
+      if (
+        typeof window !== "undefined" &&
+        !window.confirm("Delete this workflow? Its prompts and assets will stay in the gallery.")
+      ) {
+        return;
+      }
+
+      setDeleteGalleryItemError(undefined);
+      setDeletingGalleryItemId(item.id);
+      setExitingGalleryItemIds((previous) => {
+        const next = new Set(previous);
+        next.add(item.id);
+        return next;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      setHiddenGalleryItemIds((previous) => {
+        const next = new Set(previous);
+        next.add(item.id);
+        return next;
+      });
+
+      try {
+        const response = await fetch(
+          `/api/workflows/${encodeURIComponent(item.id)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(payload.error || "Failed to delete workflow.");
+        }
+
+        loadedImageIdsRef.current.delete(item.id);
+        setSelectedWorkflowId((current) =>
+          current === item.id ? null : current,
+        );
+      } catch (error) {
+        setHiddenGalleryItemIds((previous) => {
+          if (!previous.has(item.id)) return previous;
+          const next = new Set(previous);
+          next.delete(item.id);
+          return next;
+        });
+        setDeleteGalleryItemError(
+          error instanceof Error ? error.message : "Failed to delete workflow.",
+        );
+      } finally {
+        setExitingGalleryItemIds((previous) => {
+          if (!previous.has(item.id)) return previous;
+          const next = new Set(previous);
+          next.delete(item.id);
+          return next;
+        });
+        setDeletingGalleryItemId((current) =>
+          current === item.id ? null : current,
+        );
+      }
+    },
+    [
+      bulkCurationLoading,
+      canDeleteInCurrentView,
+      deleteGalleryItems,
+      deletingGalleryItemId,
+    ],
+  );
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -1610,14 +1889,18 @@ export function GalleryDashboard({
     [],
   );
 
-  // Distinguish loading / empty / no-matches / has-images
-  const isLoading =
+  // Distinguish loading / empty / no-matches / has-images.
+  // Workflows are a separate Convex query, so include them here; otherwise the
+  // grid can briefly render an empty state while workflow cards are still hydrating.
+  const assetSourceLoading =
     isDesignsPillar && galleryScope === "mine"
       ? canAccessMyGallery && mineDesignEntries === undefined
       : galleryScope === "mine"
         ? canAccessMyGallery &&
           mineGalleryAssets === undefined
         : publicGalleryAssets === undefined;
+  const workflowSourceLoading = Boolean(ownerUserId) && workflowCards === undefined;
+  const sourcesLoading = assetSourceLoading || workflowSourceLoading;
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
@@ -1627,7 +1910,8 @@ export function GalleryDashboard({
     assetSearchQuery.trim().length > 0 ||
     semanticMode?.kind === "similar";
   const hasImages = images.length > 0;
-  const isNoMatches = !isLoading && !hasImages && hasFilters;
+  const isLoading = sourcesLoading && !hasImages;
+  const isNoMatches = !sourcesLoading && !hasImages && hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
     ? "var(--lm-sidebar-collapsed)"
@@ -1670,15 +1954,20 @@ export function GalleryDashboard({
     canGoNext,
     imagePosition,
     onDelete: canDeleteInCurrentView
-      ? (imageId: string) => {
-          void deleteAsset(imageId);
+      ? () => {
+          const item = selectedImage
+            ? getSelectableItemForGalleryEntry(selectedImage)
+            : null;
+          if (item) {
+            void deleteGalleryItem(item);
+          }
         }
       : undefined,
-    deleting: deletingAssetId === selectedImage?.id,
+    deleting: deletingGalleryItemId === selectedImage?.id,
     deleteError: canDeleteInCurrentView
-      ? deletingAssetId === selectedImage?.id ||
-        deleteAssetError
-        ? deleteAssetError
+      ? deletingGalleryItemId === selectedImage?.id ||
+        deleteGalleryItemError
+        ? deleteGalleryItemError
         : undefined
       : undefined,
     folders: folders ?? [],
@@ -1801,8 +2090,6 @@ export function GalleryDashboard({
           onModelSelect={setSelectedModelName}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
-          onUploadClick={openAddModal}
-          onSeedanceClick={() => setSeedanceOpen(true)}
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
@@ -1982,14 +2269,12 @@ export function GalleryDashboard({
                     onImageSelect={handleImageSelect}
                     onImageLoad={markImageLoaded}
                     canDelete={canDeleteInCurrentView}
-                    deletingImageId={deletingAssetId}
-                    exitingImageIds={exitingAssetIds}
-                    onDeleteImage={(imageId) => {
-                      void deleteAsset(imageId);
-                    }}
+                    deletingImageId={deletingGalleryItemId}
+                    exitingImageIds={exitingGalleryItemIds}
+                    onDeleteItem={deleteGalleryItem}
                     selectable={canCuratePublic}
-                    selectedAssetIds={selectedAssetIds}
-                    onToggleAssetSelect={toggleAssetSelection}
+                    selectedGalleryItemKeys={selectedGalleryItemKeys}
+                    onToggleGalleryItemSelect={toggleGalleryItemSelection}
                   />
                 )
               ) : isNoMatches ? (
@@ -2266,7 +2551,7 @@ export function GalleryDashboard({
       )}
 
       {/* Admin bulk-curation toolbar — visible only when selection is non-empty */}
-      {canCuratePublic && selectedAssetIds.size > 0 && (
+      {canCuratePublic && selectedGalleryItemKeys.size > 0 && (
         <div
           className="fixed z-[55] flex justify-center pointer-events-none"
           style={{
@@ -2305,7 +2590,7 @@ export function GalleryDashboard({
                   textTransform: "uppercase",
                 }}
               >
-                {selectedAssetIds.size} selected
+                {selectedGalleryItemKeys.size} selected
               </span>
               <button
                 type="button"
@@ -2354,9 +2639,38 @@ export function GalleryDashboard({
                 )}
                 MAKE PRIVATE
               </button>
+              {canDeleteInCurrentView && (
+                <button
+                  type="button"
+                  onClick={runBulkDelete}
+                  disabled={bulkCurationLoading}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5"
+                  style={{
+                    border: "2px solid var(--lm-coral)",
+                    borderRadius: "10px",
+                    fontSize: "11px",
+                    fontFamily: "var(--lm-font)",
+                    fontWeight: 800,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--lm-coral)",
+                    backgroundColor: "rgba(255, 122, 100, 0.08)",
+                    cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                    opacity: bulkCurationLoading ? 0.55 : 1,
+                  }}
+                  aria-label="Delete selected gallery items"
+                >
+                  {bulkCurationLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  DELETE
+                </button>
+              )}
               <button
                 type="button"
-                onClick={clearAssetSelection}
+                onClick={clearGalleryItemSelection}
                 disabled={bulkCurationLoading}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5"
                 style={{

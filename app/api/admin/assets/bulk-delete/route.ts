@@ -5,8 +5,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { getServerConvexClient } from "@/lib/server/convex";
 
-const bulkSetAssetCurationMutation = makeFunctionReference<"mutation">(
-  "assets:bulkSetGalleryItemCuration",
+const bulkDeleteGalleryItemsMutation = makeFunctionReference<"mutation">(
+  "assets:bulkDeleteGalleryItems",
 );
 
 const resolveCuratorUserIds = () =>
@@ -23,34 +23,12 @@ export async function POST(request: Request) {
       | {
           assetIds?: unknown;
           assetPackIds?: unknown;
-          isPublic?: unknown;
-          isFeatured?: unknown;
         }
       | null;
 
-    if (typeof body?.isPublic !== "boolean") {
-      return NextResponse.json(
-        { error: "isPublic must be a boolean." },
-        { status: 400 },
-      );
-    }
-    if (body?.isFeatured !== undefined && typeof body.isFeatured !== "boolean") {
-      return NextResponse.json(
-        { error: "isFeatured must be a boolean when provided." },
-        { status: 400 },
-      );
-    }
-    const validBody = body as {
-      assetIds?: unknown;
-      assetPackIds?: unknown;
-      isPublic: boolean;
-      isFeatured?: boolean;
-    };
-    const rawAssetIds = Array.isArray(validBody.assetIds)
-      ? validBody.assetIds
-      : [];
-    const rawAssetPackIds = Array.isArray(validBody.assetPackIds)
-      ? validBody.assetPackIds
+    const rawAssetIds = Array.isArray(body?.assetIds) ? body.assetIds : [];
+    const rawAssetPackIds = Array.isArray(body?.assetPackIds)
+      ? body.assetPackIds
       : [];
     if (rawAssetIds.length === 0 && rawAssetPackIds.length === 0) {
       return NextResponse.json(
@@ -64,6 +42,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
     const assetIds: string[] = [];
     for (const id of rawAssetIds) {
       if (typeof id !== "string" || id.trim().length === 0) {
@@ -74,6 +53,7 @@ export async function POST(request: Request) {
       }
       assetIds.push(id);
     }
+
     const assetPackIds: string[] = [];
     for (const id of rawAssetPackIds) {
       if (typeof id !== "string" || id.trim().length === 0) {
@@ -107,12 +87,10 @@ export async function POST(request: Request) {
     }
 
     const client = getServerConvexClient();
-    const result = await client.mutation(bulkSetAssetCurationMutation, {
+    const result = await client.mutation(bulkDeleteGalleryItemsMutation, {
       assetIds: assetIds as Id<"assets">[],
       assetPackIds: assetPackIds as Id<"assetPacks">[],
       actorUserId: authUser.id,
-      isPublic: validBody.isPublic,
-      isFeatured: validBody.isFeatured,
       adminSecret,
     });
 

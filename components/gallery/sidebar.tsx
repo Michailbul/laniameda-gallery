@@ -6,10 +6,8 @@ import { useMemo } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Film,
   FolderOpen,
   Home,
-  Plus,
   Search,
   LayoutGrid,
 } from "lucide-react";
@@ -44,8 +42,6 @@ interface GallerySidebarProps {
   onModelSelect: (name: string | null) => void;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
-  onUploadClick: () => void;
-  onSeedanceClick?: () => void;
   user?: User | null;
   onSignOut?: () => void;
   imageCount?: number;
@@ -62,8 +58,6 @@ export function GallerySidebar({
   onModelSelect,
   collapsed,
   onCollapsedChange,
-  onUploadClick,
-  onSeedanceClick,
   user,
   onSignOut,
   imageCount,
@@ -212,24 +206,6 @@ export function GallerySidebar({
           collapsed={collapsed}
           onClick={focusFilterBar}
         />
-        <NavItem
-          icon={Plus}
-          label="Upload"
-          href="#"
-          active={false}
-          collapsed={collapsed}
-          onClick={onUploadClick}
-        />
-        {onSeedanceClick && (
-          <NavItem
-            icon={Film}
-            label="Seedance"
-            href="#"
-            active={false}
-            collapsed={collapsed}
-            onClick={onSeedanceClick}
-          />
-        )}
       </div>
 
       {/* Scrollable content */}
