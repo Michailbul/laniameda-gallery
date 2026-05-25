@@ -1,9 +1,28 @@
 import { expect, test } from "bun:test";
 
 import {
+  resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
   shouldShowFolderFilters,
 } from "../lib/gallery-filters";
+
+test("resolveAccessibleGalleryScope keeps public selected for users with gallery access", () => {
+  expect(
+    resolveAccessibleGalleryScope({
+      galleryScope: "public",
+      canAccessMyGallery: true,
+    }),
+  ).toBe("public");
+});
+
+test("resolveAccessibleGalleryScope falls back to public when mine is inaccessible", () => {
+  expect(
+    resolveAccessibleGalleryScope({
+      galleryScope: "mine",
+      canAccessMyGallery: false,
+    }),
+  ).toBe("public");
+});
 
 test("resolveScopeFolderFilter clears folder filter outside my gallery", () => {
   expect(

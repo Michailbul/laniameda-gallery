@@ -1,9 +1,25 @@
 export type GalleryScopeValue = "mine" | "public";
 
+interface ResolveGalleryScopeArgs {
+  galleryScope: GalleryScopeValue;
+  canAccessMyGallery: boolean;
+}
+
 interface ResolveFolderFilterArgs {
   galleryScope: GalleryScopeValue;
   selectedFolderId: string | null;
   knownFolderIds?: Iterable<string> | null;
+}
+
+export function resolveAccessibleGalleryScope({
+  galleryScope,
+  canAccessMyGallery,
+}: ResolveGalleryScopeArgs): GalleryScopeValue {
+  if (!canAccessMyGallery && galleryScope === "mine") {
+    return "public";
+  }
+
+  return galleryScope;
 }
 
 export function resolveScopeFolderFilter({

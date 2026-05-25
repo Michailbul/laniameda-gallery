@@ -36,7 +36,10 @@ import {
   type GalleryEntryPreview,
 } from "@/lib/gallery-entries";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
-import { resolveScopeFolderFilter } from "@/lib/gallery-filters";
+import {
+  resolveAccessibleGalleryScope,
+  resolveScopeFolderFilter,
+} from "@/lib/gallery-filters";
 
 const INTENT_LABELS = {
   transfer_style: "Transfer Style",
@@ -331,11 +334,12 @@ export function GalleryDashboard({
   );
 
   useEffect(() => {
-    if (!canAccessMyGallery && galleryScope === "mine") {
-      setGalleryScope("public");
-    }
-    if (canAccessMyGallery && galleryScope === "public") {
-      setGalleryScope("mine");
+    const nextScope = resolveAccessibleGalleryScope({
+      canAccessMyGallery,
+      galleryScope,
+    });
+    if (nextScope !== galleryScope) {
+      setGalleryScope(nextScope);
     }
   }, [canAccessMyGallery, galleryScope]);
 
