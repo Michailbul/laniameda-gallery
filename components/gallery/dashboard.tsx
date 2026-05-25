@@ -105,6 +105,7 @@ interface GalleryDashboardProps {
     photoUrl?: string | null;
   } | null;
   onSignOut?: () => void;
+  adminMode?: boolean;
 }
 
 const canonicalTagKey = (value: string) =>
@@ -137,7 +138,11 @@ const buildAssetSearchHaystack = (asset: {
     .join(" ")
     .toLowerCase();
 
-export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
+export function GalleryDashboard({
+  user,
+  onSignOut,
+  adminMode = false,
+}: GalleryDashboardProps) {
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
       ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || null
@@ -1740,6 +1745,36 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
       data-pillar={selectedPillar ?? "creators"}
       style={{ backgroundColor: "var(--lm-surface-0)" }}
     >
+      {/* Admin mode badge — fixed top-center, unmistakable indicator */}
+      {adminMode && (
+        <div
+          className="pointer-events-none fixed top-3 left-1/2 z-[80] -translate-x-1/2"
+          aria-label="Admin mode"
+        >
+          <div
+            className="pointer-events-auto inline-flex items-center gap-2 px-3 py-1"
+            style={{
+              backgroundColor: "var(--lm-coral)",
+              color: "#000",
+              border: "2px solid var(--lm-ink)",
+              borderRadius: "999px",
+              boxShadow: "var(--shadow-lg)",
+              fontFamily: "var(--lm-font)",
+              fontSize: "10px",
+              fontWeight: 800,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+            }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: "#000" }}
+            />
+            Admin Mode
+          </div>
+        </div>
+      )}
+
       {/* Skip link */}
       <a
         href="#gallery-main-content"
@@ -1948,7 +1983,7 @@ export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
                     onDeleteImage={(imageId) => {
                       void deleteAsset(imageId);
                     }}
-                    selectable={canCuratePublic && galleryScope === "mine"}
+                    selectable={canCuratePublic}
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
                   />
