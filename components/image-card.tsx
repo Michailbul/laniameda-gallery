@@ -2,15 +2,36 @@
 
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, ImageIcon, Loader2, Play, Trash2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { Copy, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import { resolveLayoutAspect } from "@/lib/masonry-layout";
+
+const CINEMA_PILLAR = "cinema-inspiration";
+
+type CinemaMetadataLite = {
+  movieTitle: string;
+  director?: string;
+  year?: number;
+  scene?: string;
+  cinematographer?: string;
+  lens?: string;
+  aperture?: string;
+  composition?: string;
+  lighting?: string;
+  cameraMovement?: string;
+  colorPalette?: string;
+  mood?: string;
+  agentDescription?: string;
+  timecode?: string;
+};
 
 interface ImageCardProps {
   image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -31,10 +52,12 @@ interface ImageCardProps {
     packMemberCount?: number;
     size?: number;
     totalSize?: number;
+    stepCount?: number;
+    cinemaMetadata?: CinemaMetadataLite | null;
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design";
+      galleryItemType?: "asset" | "pack" | "design" | "workflow";
       src: string;
       fullSrc: string;
       prompt: string;
@@ -49,7 +72,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -68,7 +91,7 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -80,7 +103,7 @@ interface ImageCardProps {
     }) => void;
   selectedId?: string;
   initiallyLoaded?: boolean;
-  onLoad?: () => void;
+  onLoad?: (imageId: string) => void;
   index?: number;
   canDelete?: boolean;
   deleting?: boolean;
@@ -90,17 +113,25 @@ interface ImageCardProps {
 
 const PILLAR_META = {
   creators: { label: "Creators", color: "var(--pillar-creators)" },
-  cars: { label: "Cars", color: "var(--pillar-creators)" },
   designs: { label: "Designs", color: "var(--pillar-designs)" },
   dump: { label: "Dump", color: "var(--pillar-dump)" },
 } as const;
 
-const formatBytes = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-};
+const VIDEO_HOVER_DELAY_MS = 250;
+const ENABLE_VIDEO_HOVER_PLAYBACK = true;
+const ENTRANCE_ANIMATION_LIMIT = 12;
+
+// Module-level singleton: only one card video plays at a time. When a new card
+// starts hover-playback it pauses any previous one — prevents a "swept cursor"
+// from stacking concurrent decodes.
+let activeHoverVideo: HTMLVideoElement | null = null;
+function claimActiveHoverVideo(next: HTMLVideoElement | null) {
+  if (activeHoverVideo && activeHoverVideo !== next) {
+    activeHoverVideo.pause();
+    activeHoverVideo.currentTime = 0;
+  }
+  activeHoverVideo = next;
+}
 
 export const ImageCard = memo(function ImageCard({
   image,
@@ -117,15 +148,14 @@ export const ImageCard = memo(function ImageCard({
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
+  const isCinema = image.pillar === CINEMA_PILLAR;
+  const cinemaMeta = isCinema ? image.cinemaMetadata ?? undefined : undefined;
   const [isLoading, setIsLoading] = useState(!initiallyLoaded);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
   const [previewCycling, setPreviewCycling] = useState(false);
-  const [naturalVideoSize, setNaturalVideoSize] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
+  const [videoActive, setVideoActive] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
 
@@ -146,21 +176,23 @@ export const ImageCard = memo(function ImageCard({
   const activePreview =
     previewImages[activePreviewIndex] ?? previewImages[0]!;
 
-  const isVideo = image.kind === "video";
+  const activeKind = activePreview.kind ?? image.kind;
+  const activeThumbSrc = activePreview.src || image.src;
+  const activeFullSrc = activePreview.fullSrc || image.fullSrc;
+  const isVideo = activeKind === "video";
+  const slotKind = image.kind ?? activeKind;
 
+  // Stable card slot: the grid and card share the same native media aspect so
+  // hover playback never changes masonry geometry or crops video format.
   const aspectRatio = useMemo(() => {
-    // Videos render in a 50%-taller frame so they read bigger in the
-    // masonry without breaking column widths. Inner <video> uses
-    // object-cover, so the extra height crops the horizontal edges.
-    const heightBoost = isVideo ? 1.5 : 1;
-    if (image.width && image.height) {
-      return `${image.width} / ${image.height * heightBoost}`;
-    }
-    if (isVideo && naturalVideoSize) {
-      return `${naturalVideoSize.width} / ${naturalVideoSize.height * heightBoost}`;
-    }
-    return "1 / 1";
-  }, [image.height, image.width, isVideo, naturalVideoSize]);
+    return String(
+      resolveLayoutAspect({
+        width: image.width,
+        height: image.height,
+        kind: slotKind,
+      }),
+    );
+  }, [image.height, image.width, slotKind]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -187,7 +219,7 @@ export const ImageCard = memo(function ImageCard({
     if (e.currentTarget.naturalWidth > 0) {
       setIsLoading(false);
       setHasError(false);
-      onLoad?.();
+      onLoad?.(image.id);
     }
   };
 
@@ -202,10 +234,16 @@ export const ImageCard = memo(function ImageCard({
     setIsLoading(false);
   };
 
-  const responsiveSizes =
-    "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
+  const handleVideoPosterError = () => {
+    setIsLoading(false);
+  };
 
-  const entranceDelay = index < 12 ? `${index * 30}ms` : "0ms";
+  const responsiveSizes = isVideo
+    ? "(max-width: 640px) 100vw, (max-width: 1024px) 66vw, (max-width: 1280px) 50vw, 40vw"
+    : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
+
+  const entranceDelay =
+    index < ENTRANCE_ANIMATION_LIMIT ? `${index * 30}ms` : "0ms";
   const pillarMeta = image.pillar
     ? PILLAR_META[image.pillar as keyof typeof PILLAR_META] ?? {
         label: image.pillar,
@@ -223,10 +261,61 @@ export const ImageCard = memo(function ImageCard({
       ? "PACK ID COPIED"
       : galleryItemType === "design"
         ? "DESIGN ID COPIED"
-        : "ASSET ID COPIED";
+        : galleryItemType === "workflow"
+          ? "WORKFLOW ID COPIED"
+          : "ASSET ID COPIED";
+  const isWorkflow = galleryItemType === "workflow";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const hasThumb = Boolean(image.src) && image.src !== image.fullSrc;
+  const videoHoverTimerRef = useRef<number | null>(null);
+  const hasThumb = Boolean(activeThumbSrc) && activeThumbSrc !== activeFullSrc;
+
+  const clearVideoHoverTimer = useCallback(() => {
+    if (videoHoverTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(videoHoverTimerRef.current);
+    videoHoverTimerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!isVideo || !videoActive || !videoRef.current) {
+      return;
+    }
+
+    const video = videoRef.current;
+    const play = () => {
+      claimActiveHoverVideo(video);
+      void video.play().catch(() => {});
+    };
+
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      play();
+      return;
+    }
+
+    video.addEventListener("loadeddata", play, { once: true });
+    return () => video.removeEventListener("loadeddata", play);
+  }, [activeFullSrc, isVideo, videoActive]);
+
+  useEffect(() => clearVideoHoverTimer, [clearVideoHoverTimer]);
+
+  // Release the module-level singleton on unmount so the global ref doesn't
+  // outlive a detached <video>. Reading videoRef.current at unmount time is
+  // intentional — we need the latest ref, which is exactly what the linter
+  // warning is about.
+  useEffect(() => {
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const video = videoRef.current;
+      if (!video) return;
+      if (activeHoverVideo === video) {
+        claimActiveHoverVideo(null);
+      } else {
+        video.pause();
+      }
+    };
+  }, []);
 
   const selectImage = () =>
     onSelect?.({
@@ -255,8 +344,10 @@ export const ImageCard = memo(function ImageCard({
   // Focus dimming: selected stays full, others dim when there is a selection
   const dimmed = hasSelection && !isSelected;
 
+  const shouldAnimateEntrance = index < ENTRANCE_ANIMATION_LIMIT;
   const cardClasses = [
-    "group relative cursor-pointer overflow-hidden rounded-xl animate-card-entrance card-base",
+    "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-xl",
+    shouldAnimateEntrance && "animate-card-entrance",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
@@ -291,30 +382,174 @@ export const ImageCard = memo(function ImageCard({
     [galleryCopyLabel, galleryCopyToken, toastFn],
   );
 
+  if (isWorkflow) {
+    const workflowCardClasses = [
+      "group relative cursor-pointer overflow-hidden workflow-card",
+      isSelected && "workflow-card-selected",
+      dimmed && "card-dimmed",
+      exiting && "animate-card-exit",
+      shouldAnimateEntrance && "animate-card-entrance",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const stepLabel =
+      typeof image.stepCount === "number" && image.stepCount > 0
+        ? `${image.stepCount} ${image.stepCount === 1 ? "step" : "steps"}`
+        : "Workflow";
+
+    return (
+      <div
+        className={workflowCardClasses}
+        style={{
+          animationDelay: shouldAnimateEntrance ? entranceDelay : undefined,
+          animationFillMode: shouldAnimateEntrance ? "backwards" : undefined,
+        }}
+        onClick={selectImage}
+        onMouseEnter={() => {
+          if (previewImages.length > 1) {
+            setPreviewCycling(true);
+          }
+        }}
+        onMouseLeave={() => {
+          setPreviewCycling(false);
+          setActivePreviewIndex(0);
+        }}
+      >
+        <div className="workflow-card-header">
+          <div className="workflow-card-header-left">
+            <WorkflowIcon className="h-3 w-3" strokeWidth={2.5} />
+            <span className="workflow-card-header-label">{stepLabel}</span>
+          </div>
+          <div className="workflow-card-header-stamp">RECIPE</div>
+        </div>
+
+        <div
+          className="workflow-card-media"
+          style={{ aspectRatio }}
+        >
+          {(isLoading || hasError) && (
+            <div
+              className="absolute inset-0"
+              style={{ backgroundColor: "var(--surface-1)" }}
+            >
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                <ImageIcon
+                  className="h-6 w-6"
+                  style={{ color: "var(--text-ghost)" }}
+                />
+                {hasError && (
+                  <span
+                    className="text-[11px] font-mono uppercase tracking-wider"
+                    style={{ color: "var(--text-ghost)" }}
+                  >
+                    Failed to load
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="relative h-full w-full">
+            <Image
+              src={currentSrc || "/placeholder.svg"}
+              alt={activePreview.prompt}
+              fill
+              sizes={responsiveSizes}
+              priority={eager}
+              className={`object-cover transition-transform duration-200 group-hover:scale-[1.02] ${
+                isLoading ? "opacity-0" : "opacity-100"
+              }`}
+              style={{
+                transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
+              unoptimized
+            />
+            <div className="workflow-card-grid-overlay" aria-hidden />
+          </div>
+
+          <button
+            type="button"
+            onClick={(event) => {
+              void handleIdCopy(event);
+            }}
+            className="workflow-card-copy-btn"
+            aria-label="Copy workflow ID"
+            title="Copy workflow ID"
+          >
+            <Copy className="h-3 w-3" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={(event) => {
+            void handlePromptCopy(event);
+          }}
+          className="workflow-card-caption"
+          aria-label="Copy workflow description"
+        >
+          <span className="workflow-card-caption-marker">▸</span>
+          <span className="workflow-card-caption-text">{image.prompt}</span>
+          <Copy className="workflow-card-caption-copy h-2.5 w-2.5" />
+        </button>
+
+        {canDelete && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="workflow-card-delete"
+            aria-label={deleting ? "Deleting workflow" : "Delete workflow"}
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div
+    <motion.div
+      layoutId={isCinema ? `cinema-${image.id}` : undefined}
       className={cardClasses}
       style={{
         aspectRatio,
-        animationDelay: entranceDelay,
-        animationFillMode: "backwards",
+        animationDelay: shouldAnimateEntrance ? entranceDelay : undefined,
+        animationFillMode: shouldAnimateEntrance ? "backwards" : undefined,
       }}
       onClick={selectImage}
       onMouseEnter={() => {
         if (previewImages.length > 1) {
           setPreviewCycling(true);
         }
-        if (isVideo && videoRef.current) {
-          videoRef.current.play().catch(() => {});
+        if (isVideo && ENABLE_VIDEO_HOVER_PLAYBACK) {
+          clearVideoHoverTimer();
+          videoHoverTimerRef.current = window.setTimeout(() => {
+            setVideoActive(true);
+            videoHoverTimerRef.current = null;
+          }, VIDEO_HOVER_DELAY_MS);
         }
       }}
       onMouseLeave={() => {
         setPreviewCycling(false);
         setActivePreviewIndex(0);
+        clearVideoHoverTimer();
         if (isVideo && videoRef.current) {
-          videoRef.current.pause();
-          videoRef.current.currentTime = 0;
+          if (activeHoverVideo === videoRef.current) {
+            claimActiveHoverVideo(null);
+          } else {
+            videoRef.current.pause();
+            videoRef.current.currentTime = 0;
+          }
         }
+        setVideoActive(false);
       }}
     >
       {/* Skeleton / Loading */}
@@ -352,33 +587,53 @@ export const ImageCard = memo(function ImageCard({
       {/* Media */}
       <div className="relative h-full w-full">
         {isVideo ? (
-          <video
-            ref={videoRef}
-            src={image.fullSrc}
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            poster={hasThumb ? image.src : undefined}
-            className="h-full w-full object-cover"
-            onLoadedMetadata={(e) => {
-              const video = e.currentTarget;
-              if (video.videoWidth > 0 && video.videoHeight > 0) {
-                setNaturalVideoSize({
-                  width: video.videoWidth,
-                  height: video.videoHeight,
-                });
-              }
-            }}
-            onLoadedData={() => {
-              setIsLoading(false);
-              onLoad?.();
-            }}
-            onError={() => {
-              setHasError(true);
-              setIsLoading(false);
-            }}
-          />
+          <>
+            {hasThumb && (
+              <Image
+                src={activeThumbSrc || "/placeholder.svg"}
+                alt={activePreview.prompt}
+                fill
+                sizes={responsiveSizes}
+                priority={eager}
+                className={`object-contain transition-opacity duration-150 ${
+                  isLoading ? "opacity-0" : "opacity-100"
+                }`}
+                onLoad={handleImageLoad}
+                onError={handleVideoPosterError}
+                unoptimized
+              />
+            )}
+            {(videoActive || !hasThumb) && (
+              <video
+                ref={videoRef}
+                src={activeFullSrc}
+                muted
+                loop
+                playsInline
+                preload={videoActive ? "auto" : "metadata"}
+                poster={hasThumb ? activeThumbSrc : undefined}
+                className="absolute inset-0 h-full w-full object-contain"
+                onLoadedMetadata={(e) => {
+                  // Nudge currentTime so the browser actually paints the
+                  // first frame as a poster. Without this, Chrome/Safari
+                  // leave the slot blank until the video plays.
+                  if (!hasThumb && e.currentTarget.currentTime === 0) {
+                    e.currentTarget.currentTime = 0.001;
+                  }
+                }}
+                onLoadedData={() => {
+                  setIsLoading(false);
+                  onLoad?.(image.id);
+                }}
+                onError={() => {
+                  if (!hasThumb) {
+                    setHasError(true);
+                  }
+                  setIsLoading(false);
+                }}
+              />
+            )}
+          </>
         ) : (
           <Image
             src={currentSrc || "/placeholder.svg"}
@@ -399,21 +654,21 @@ export const ImageCard = memo(function ImageCard({
         )}
       </div>
 
-      {/* Video play badge — top-left, always visible */}
+      {/* Video play mark — icon-only so video cards are identifiable without a text tag. */}
       {isVideo && (
         <div
-          className="pointer-events-none absolute left-11 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+          className="pointer-events-none absolute bottom-2 right-2 z-20 grid h-9 w-9 place-items-center rounded-full backdrop-blur-md transition-transform duration-200 group-hover:scale-105"
           style={{
-            backgroundColor: "var(--image-card-badge-bg)",
-            color: "var(--coral)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
+            background:
+              "linear-gradient(135deg, var(--image-card-badge-bg), var(--image-card-badge-bg-soft))",
+            color: "var(--primary-foreground)",
             border:
-              "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+              "1px solid color-mix(in srgb, var(--primary-foreground) 62%, transparent)",
+            boxShadow:
+              "0 10px 24px color-mix(in srgb, var(--text-primary) 32%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--primary-foreground) 14%, transparent)",
           }}
         >
-          <Play className="h-2.5 w-2.5" fill="currentColor" />
-          VIDEO
+          <Play className="ml-0.5 h-4 w-4" fill="currentColor" />
         </div>
       )}
 
@@ -427,8 +682,6 @@ export const ImageCard = memo(function ImageCard({
           borderRadius: "8px",
           backgroundColor: "var(--image-card-badge-bg)",
           color: "var(--image-card-badge-text)",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
           borderColor: "var(--image-card-badge-border)",
         }}
         aria-label={`Copy ${galleryItemType} ID`}
@@ -444,8 +697,6 @@ export const ImageCard = memo(function ImageCard({
           style={{
             backgroundColor: "var(--image-card-badge-bg)",
             color: "var(--coral)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
             border:
               "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
           }}
@@ -454,8 +705,8 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model + pillar badges — bottom-left, always visible */}
-      {(image.modelName || pillarMeta) && (
+      {/* Model + pillar badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
+      {!isCinema && (image.modelName || pillarMeta) && (
         <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0">
           {image.modelName && (
             <div
@@ -463,8 +714,6 @@ export const ImageCard = memo(function ImageCard({
               style={{
                 backgroundColor: "var(--image-card-badge-bg)",
                 color: "var(--image-card-badge-text)",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
                 border: "1px solid var(--image-card-badge-border)",
               }}
             >
@@ -477,8 +726,6 @@ export const ImageCard = memo(function ImageCard({
               style={{
                 backgroundColor: "var(--image-card-badge-bg-soft)",
                 color: pillarMeta.color,
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
                 border: "1px solid var(--image-card-badge-border)",
               }}
             >
@@ -492,32 +739,8 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Size badge — bottom-right, fades on hover so prompt overlay stays clean */}
-      {(() => {
-        const displaySize = image.totalSize ?? image.size;
-        if (!displaySize || displaySize <= 0) return null;
-        return (
-          <div
-            className="absolute bottom-2 right-2 z-10 px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0"
-            style={{
-              backgroundColor: "var(--image-card-badge-bg)",
-              color: "var(--image-card-badge-text)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              border: "1px solid var(--image-card-badge-border)",
-            }}
-            title={
-              image.totalSize && image.size && image.totalSize !== image.size
-                ? `Pack total ${formatBytes(image.totalSize)} (cover ${formatBytes(image.size)})`
-                : `File size ${formatBytes(displaySize)}`
-            }
-          >
-            {formatBytes(displaySize)}
-          </div>
-        );
-      })()}
-
-      {/* Hover overlay — cinematic warm gradient with a feathered prompt sheet */}
+      {/* Hover overlay — cinematic warm gradient with a feathered prompt sheet. Suppressed on cinema. */}
+      {!isCinema && (
       <div
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100"
         style={{
@@ -562,6 +785,36 @@ export const ImageCard = memo(function ImageCard({
           </button>
         </div>
       </div>
+      )}
+
+      {/* Cinema hover chip — MOVIE · YEAR — only on cinema-inspiration cards */}
+      {isCinema && cinemaMeta && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-start p-3 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100"
+          style={{
+            background: "var(--image-card-overlay-gradient)",
+          }}
+        >
+          <div
+            className="inline-flex items-center gap-2 px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-[0.16em]"
+            style={{
+              color: "var(--image-card-overlay-text)",
+              textShadow: "var(--image-card-text-shadow)",
+            }}
+          >
+            <span
+              className="inline-block h-1 w-1 rounded-full"
+              style={{ backgroundColor: "var(--pillar-cinema-inspiration)" }}
+            />
+            <span className="truncate" style={{ maxWidth: "220px" }}>
+              {cinemaMeta.movieTitle}
+            </span>
+            {cinemaMeta.year && (
+              <span style={{ opacity: 0.72 }}>· {cinemaMeta.year}</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {canDelete && (
         <button
@@ -579,8 +832,6 @@ export const ImageCard = memo(function ImageCard({
             color: deleting
               ? "var(--image-card-delete-text-disabled)"
               : "var(--image-card-delete-text)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
             boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
           }}
           aria-label={deleting ? "Deleting image" : "Delete image"}
@@ -592,6 +843,6 @@ export const ImageCard = memo(function ImageCard({
           )}
         </button>
       )}
-    </div>
+    </motion.div>
   );
 });

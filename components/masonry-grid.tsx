@@ -1,14 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
+import {
+  ROW_UNIT_PX,
+  packMasonry,
+  type LayoutInput,
+} from "@/lib/masonry-layout";
+
+type CinemaMetadataLite = {
+  movieTitle: string;
+  director?: string;
+  year?: number;
+  scene?: string;
+  cinematographer?: string;
+  lens?: string;
+  aperture?: string;
+  composition?: string;
+  lighting?: string;
+  cameraMovement?: string;
+  colorPalette?: string;
+  mood?: string;
+  agentDescription?: string;
+  timecode?: string;
+};
 
 interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -28,10 +50,12 @@ interface GalleryImage {
   isPublic?: boolean;
   isFeatured?: boolean;
   packMemberCount?: number;
+  stepCount?: number;
+  cinemaMetadata?: CinemaMetadataLite | null;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -49,12 +73,13 @@ interface MasonryGridProps {
   canDelete?: boolean;
   deletingImageId?: string | null;
   exitingImageIds?: Set<string>;
+  gapPx?: number;
   onDeleteImage?: (imageId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -73,7 +98,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -87,7 +112,8 @@ interface MasonryGridProps {
   loading?: boolean;
 }
 
-const BATCH_SIZE = 24;
+const BATCH_SIZE = 18;
+const EAGER_IMAGE_COUNT = 6;
 
 /* ── Responsive column count hook ── */
 
@@ -125,15 +151,31 @@ function useColumnCount(compact: boolean): number {
   );
 }
 
-/* ── Round-robin distribution ── */
-// Deals items left-to-right across columns like cards,
-// so visual reading order matches array order (relevance).
-function distributeRoundRobin<T>(items: T[], numColumns: number): T[][] {
-  const columns: T[][] = Array.from({ length: numColumns }, () => []);
-  for (let i = 0; i < items.length; i++) {
-    columns[i % numColumns].push(items[i]);
-  }
-  return columns;
+/* ── Grid sizing ── */
+const DEFAULT_GAP_PX = 12;
+const PADDING_PX = 12;
+
+function useContentWidth(): [
+  (el: HTMLDivElement | null) => void,
+  number | null,
+] {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!el) return;
+    const update = () => {
+      const cs = window.getComputedStyle(el);
+      const padL = parseFloat(cs.paddingLeft) || 0;
+      const padR = parseFloat(cs.paddingRight) || 0;
+      const w = el.clientWidth - padL - padR;
+      setWidth(w > 0 ? w : null);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return [setEl, width];
 }
 
 export function MasonryGrid({
@@ -143,16 +185,22 @@ export function MasonryGrid({
   canDelete,
   deletingImageId,
   exitingImageIds,
+  gapPx,
   onDeleteImage,
   onImageSelect,
   onImageLoad,
   loading,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
+  const gap = gapPx ?? DEFAULT_GAP_PX;
 
   // Incremental rendering — show images in batches
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setVisibleCount(Math.min(BATCH_SIZE, images.length));
+  }, [images]);
 
   const loadMore = useCallback(() => {
     setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, images.length));
@@ -172,54 +220,88 @@ export function MasonryGrid({
     return () => observer.disconnect();
   }, [visibleCount, images.length, loadMore]);
 
-  const visibleImages = images.slice(0, visibleCount);
+  const visibleImages = useMemo(
+    () => images.slice(0, visibleCount),
+    [images, visibleCount],
+  );
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns
     ? "columns-1 sm:columns-2 md:columns-2 lg:columns-3 2xl:columns-3"
     : "columns-2 sm:columns-2 md:columns-3 lg:columns-4 2xl:columns-5";
 
+  const [gridRef, contentWidth] = useContentWidth();
+
+  const packedLayout = useMemo(() => {
+    if (contentWidth === null) {
+      return null;
+    }
+    return packMasonry(
+      visibleImages.map(
+        (image): LayoutInput => ({
+          width: image.width,
+          height: image.height,
+          kind: image.kind,
+        }),
+      ),
+      {
+        contentWidth,
+        columnCount,
+        gap,
+      },
+    );
+  }, [columnCount, contentWidth, gap, visibleImages]);
+
   if (loading) {
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
   }
 
-  const columns = distributeRoundRobin(visibleImages, columnCount);
-
   return (
     <>
       <div
-        className="flex"
-        style={{ gap: "12px", padding: "12px" }}
+        ref={gridRef}
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+          gridAutoRows: `${ROW_UNIT_PX}px`,
+          gap: `${gap}px`,
+          padding: `${PADDING_PX}px`,
+        }}
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
-        {columns.map((col, colIdx) => (
-          <div
-            key={colIdx}
-            className="flex min-w-0 flex-1 flex-col"
-            style={{ gap: "12px" }}
-          >
-            {col.map((image, rowIdx) => {
-              const originalIndex = rowIdx * columnCount + colIdx;
-              return (
-                <ImageCard
-                  key={image.id}
-                  image={image}
-                  eager={originalIndex < 12}
-                  onSelect={onImageSelect}
-                  canDelete={canDelete}
-                  deleting={deletingImageId === image.id}
-                  exiting={Boolean(exitingImageIds?.has(image.id))}
-                  onDelete={onDeleteImage}
-                  selectedId={selectedImageId}
-                  initiallyLoaded={image.initiallyLoaded}
-                  onLoad={() => onImageLoad?.(image.id)}
-                  index={originalIndex}
-                />
-              );
-            })}
-          </div>
-        ))}
+        {visibleImages.map((image, originalIndex) => {
+          const placement = packedLayout?.placements[originalIndex];
+          return (
+            <div
+              key={image.id}
+              style={{
+                gridColumn: placement
+                  ? `${placement.column + 1} / span ${placement.colSpan}`
+                  : "span 1",
+                gridRow: placement
+                  ? `${placement.startRow} / span ${placement.rowSpan}`
+                  : "span 1",
+                display: "grid",
+                minWidth: 0,
+              }}
+            >
+              <ImageCard
+                image={image}
+                eager={originalIndex < EAGER_IMAGE_COUNT}
+                onSelect={onImageSelect}
+                canDelete={canDelete}
+                deleting={deletingImageId === image.id}
+                exiting={Boolean(exitingImageIds?.has(image.id))}
+                onDelete={onDeleteImage}
+                selectedId={selectedImageId}
+                initiallyLoaded={image.initiallyLoaded}
+                onLoad={onImageLoad}
+                index={originalIndex}
+              />
+            </div>
+          );
+        })}
       </div>
       {visibleCount < images.length && (
         <div ref={sentinelRef} className="h-1" />
