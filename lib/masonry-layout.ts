@@ -3,10 +3,10 @@
  *
  * The masonry uses CSS `grid` with a tiny `grid-auto-rows` unit (ROW_UNIT_PX)
  * so each card can occupy a precise number of "row units" matching its
- * rendered pixel height. Images span a single column; videos span two columns
- * when the viewport has room, with height still computed from the video's
- * native visual aspect ratio. Placement is computed explicitly so the browser
- * does not strand empty shelves.
+ * rendered pixel height. Images span a single column; videos prefer two
+ * columns when the viewport has room, with height still computed from the
+ * video's native visual aspect ratio. Placement is computed explicitly so the
+ * browser does not strand empty shelves.
  */
 
 export const ROW_UNIT_PX = 1;
@@ -142,11 +142,26 @@ export function computeCellLayout(
   input: LayoutInput,
   geometry: ColumnGeometry,
 ): CellLayout {
+  return computeCellLayoutForSpan(
+    input,
+    geometry,
+    resolveColumnSpan(input, geometry),
+  );
+}
+
+function computeCellLayoutForSpan(
+  input: LayoutInput,
+  geometry: ColumnGeometry,
+  requestedColSpan: number,
+): CellLayout {
   const colW = columnWidth(geometry);
   if (colW <= 0) {
     return { colSpan: 1, rowSpan: 1 };
   }
-  const colSpan = resolveColumnSpan(input, geometry);
+  const colSpan = Math.max(
+    1,
+    Math.min(Math.floor(requestedColSpan), geometry.columnCount),
+  );
   const aspect = resolveLayoutAspect(input);
   if (!Number.isFinite(aspect) || aspect <= 0) {
     return { colSpan: 1, rowSpan: 1 };
@@ -174,10 +189,9 @@ export function reservedHeightForCell(
 }
 
 /**
- * Deterministic dense placement for the masonry grid. Items keep their intended
- * width, and the packer scans from the top-left for the first available slot.
- * This preserves consistent two-column videos while still letting later
- * one-column cards backfill around them.
+ * Deterministic dense placement for the masonry grid. Items keep their
+ * preferred width when it does not open a vertical hole; wide media can fall
+ * back to a single column to fill shorter lanes first.
  */
 export type PackedItem = {
   index: number;
@@ -195,59 +209,88 @@ export function packMasonry(
   if (columnCount <= 0 || items.length === 0) {
     return { totalRows: 0, placements: [], gapRows: 0 };
   }
-  const occupied = new Set<string>();
+  const columnHeights = new Array<number>(columnCount).fill(0);
   const placements: PackedItem[] = [];
   let totalRows = 0;
+  let usedRows = 0;
 
-  const cellKey = (row: number, column: number) => `${row}:${column}`;
-  const canPlace = (
-    startRow: number,
-    column: number,
-    colSpan: number,
-    rowSpan: number,
-  ) => {
-    if (column + colSpan > columnCount) return false;
-    for (let row = startRow; row < startRow + rowSpan; row += 1) {
-      for (let col = column; col < column + colSpan; col += 1) {
-        if (occupied.has(cellKey(row, col))) return false;
-      }
+  const candidatesForLayout = (layout: CellLayout, candidateIndex: number) => {
+    const candidates: Array<{
+      layout: CellLayout;
+      candidateIndex: number;
+      column: number;
+      startRow: number;
+      wasteRows: number;
+    }> = [];
+
+    for (let column = 0; column <= columnCount - layout.colSpan; column += 1) {
+      const coveredHeights = columnHeights.slice(
+        column,
+        column + layout.colSpan,
+      );
+      const startAfterRow = Math.max(...coveredHeights);
+      candidates.push({
+        layout,
+        candidateIndex,
+        column,
+        startRow: startAfterRow + 1,
+        wasteRows: coveredHeights.reduce(
+          (sum, height) => sum + startAfterRow - height,
+          0,
+        ),
+      });
     }
-    return true;
+
+    return candidates;
+  };
+
+  const choosePlacement = (item: LayoutInput) => {
+    const preferred = computeCellLayout(item, geometry);
+    const candidates =
+      preferred.colSpan > 1
+        ? [preferred, computeCellLayoutForSpan(item, geometry, 1)]
+        : [preferred];
+
+    return candidates
+      .flatMap((layout, candidateIndex) =>
+        candidatesForLayout(layout, candidateIndex),
+      )
+      .sort((left, right) => {
+        if (left.wasteRows !== right.wasteRows) {
+          return left.wasteRows - right.wasteRows;
+        }
+        if (left.startRow !== right.startRow) {
+          return left.startRow - right.startRow;
+        }
+        if (left.candidateIndex !== right.candidateIndex) {
+          return left.candidateIndex - right.candidateIndex;
+        }
+        return left.column - right.column;
+      })[0]!;
   };
 
   items.forEach((item, index) => {
-    const { colSpan, rowSpan } = computeCellLayout(item, geometry);
-    let pickColumn = 0;
-    let pickRow = 1;
-    let placed = false;
+    const {
+      layout: { colSpan, rowSpan },
+      column,
+      startRow,
+    } = choosePlacement(item);
+    const endRow = startRow + rowSpan - 1;
 
-    while (!placed) {
-      for (let col = 0; col <= columnCount - colSpan; col += 1) {
-        if (canPlace(pickRow, col, colSpan, rowSpan)) {
-          pickColumn = col;
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) pickRow += 1;
-    }
-
-    for (let row = pickRow; row < pickRow + rowSpan; row += 1) {
-      for (let col = pickColumn; col < pickColumn + colSpan; col += 1) {
-        occupied.add(cellKey(row, col));
-      }
+    for (let col = column; col < column + colSpan; col += 1) {
+      columnHeights[col] = endRow;
     }
     placements.push({
       index,
-      column: pickColumn,
+      column,
       colSpan,
-      startRow: pickRow,
+      startRow,
       rowSpan,
     });
-    totalRows = Math.max(totalRows, pickRow + rowSpan - 1);
+    usedRows += colSpan * rowSpan;
+    totalRows = Math.max(totalRows, endRow);
   });
 
-  const usedRows = occupied.size;
   const reservedRows = totalRows * columnCount;
   const gapRows = Math.max(0, reservedRows - usedRows);
 

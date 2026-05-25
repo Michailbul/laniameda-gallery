@@ -25,6 +25,60 @@ const geometry4col1200 = (): ColumnGeometry => ({
   gap: 14,
 });
 
+const geometry5col1500 = (): ColumnGeometry => ({
+  contentWidth: 1500,
+  columnCount: 5,
+  gap: 12,
+});
+
+function collectRowsByColumn(
+  placements: ReturnType<typeof packMasonry>["placements"],
+  columnCount: number,
+) {
+  const rowsByColumn = new Map<number, Set<number>>();
+  for (let col = 0; col < columnCount; col += 1) {
+    rowsByColumn.set(col, new Set<number>());
+  }
+  for (const placement of placements) {
+    for (
+      let col = placement.column;
+      col < placement.column + placement.colSpan;
+      col += 1
+    ) {
+      const rows = rowsByColumn.get(col)!;
+      for (
+        let row = placement.startRow;
+        row < placement.startRow + placement.rowSpan;
+        row += 1
+      ) {
+        rows.add(row);
+      }
+    }
+  }
+  return rowsByColumn;
+}
+
+function maxInternalEmptyRunByColumn(
+  placements: ReturnType<typeof packMasonry>["placements"],
+  columnCount: number,
+) {
+  let maxMissingRun = 0;
+  for (const rows of collectRowsByColumn(placements, columnCount).values()) {
+    expect(rows.size).toBeGreaterThan(0);
+    const bottomRow = Math.max(...rows);
+    let missingRun = 0;
+    for (let row = 1; row <= bottomRow; row += 1) {
+      if (rows.has(row)) {
+        missingRun = 0;
+      } else {
+        missingRun += 1;
+        maxMissingRun = Math.max(maxMissingRun, missingRun);
+      }
+    }
+  }
+  return maxMissingRun;
+}
+
 describe("resolveAspect", () => {
   test("uses real dimensions when present, clamped to a sensible band", () => {
     expect(resolveAspect({ width: 1920, height: 1080 })).toBeCloseTo(16 / 9, 4);
@@ -270,14 +324,12 @@ describe("packMasonry — dense flow supports wider video cards", () => {
       expect(placement.rowSpan).toBeGreaterThanOrEqual(1);
     }
     const occupiedCells = new Set<string>();
-    const rowsByColumn = new Map<number, Set<number>>();
     for (const placement of result.placements) {
       for (
         let col = placement.column;
         col < placement.column + placement.colSpan;
         col += 1
       ) {
-        const rows = rowsByColumn.get(col) ?? new Set<number>();
         for (
           let row = placement.startRow;
           row < placement.startRow + placement.rowSpan;
@@ -286,26 +338,13 @@ describe("packMasonry — dense flow supports wider video cards", () => {
           const key = `${row}:${col}`;
           expect(occupiedCells.has(key)).toBe(false);
           occupiedCells.add(key);
-          rows.add(row);
         }
-        rowsByColumn.set(col, rows);
       }
     }
 
-    for (const rows of rowsByColumn.values()) {
-      const bottomRow = Math.max(...rows);
-      let missingRun = 0;
-      let maxMissingRun = 0;
-      for (let row = 1; row <= bottomRow; row += 1) {
-        if (rows.has(row)) {
-          missingRun = 0;
-        } else {
-          missingRun += 1;
-          maxMissingRun = Math.max(maxMissingRun, missingRun);
-        }
-      }
-      expect(maxMissingRun).toBeLessThanOrEqual(1);
-    }
+    expect(
+      maxInternalEmptyRunByColumn(result.placements, geom.columnCount),
+    ).toBeLessThanOrEqual(1);
   });
 
   test("only-videos sequence packs across all columns (the prior buggy case)", () => {
@@ -330,6 +369,59 @@ describe("packMasonry — dense flow supports wider video cards", () => {
       }
     }
     expect(columnsCovered.size).toBe(geom.columnCount);
+  });
+
+  test("odd desktop column counts do not strand a full-height empty lane", () => {
+    const geom = geometry5col1500();
+    const onlyVideos: LayoutInput[] = Array.from({ length: 14 }, () => ({
+      width: 1920,
+      height: 1080,
+      kind: "video" as const,
+    }));
+    const result = packMasonry(onlyVideos, geom);
+
+    const columnsCovered = new Set<number>();
+    for (const placement of result.placements) {
+      for (
+        let col = placement.column;
+        col < placement.column + placement.colSpan;
+        col += 1
+      ) {
+        columnsCovered.add(col);
+      }
+    }
+
+    expect(columnsCovered.size).toBe(geom.columnCount);
+    expect(result.placements.some((placement) => placement.colSpan === 1)).toBe(
+      true,
+    );
+    expect(
+      maxInternalEmptyRunByColumn(result.placements, geom.columnCount),
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test("screenshot-like mixed feed backfills around wide videos on five columns", () => {
+    const geom = geometry5col1500();
+    const gallery: LayoutInput[] = [
+      { width: 1024, height: 1536, kind: "image" },
+      { width: 1080, height: 1620, kind: "image" },
+      { width: 1200, height: 1200, kind: "image" },
+      { width: 900, height: 1200, kind: "image" },
+      { width: 1920, height: 1080, kind: "video" },
+      { width: 1920, height: 1080, kind: "video" },
+      { width: 1280, height: 720, kind: "video" },
+      { width: 900, height: 1600, kind: "image" },
+      { width: 1600, height: 1000, kind: "image" },
+      { width: 1920, height: 1080, kind: "video" },
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 1080, height: 1920, kind: "image" },
+    ];
+    const result = packMasonry(gallery, geom);
+
+    expect(result.placements).toHaveLength(gallery.length);
+    expect(
+      maxInternalEmptyRunByColumn(result.placements, geom.columnCount),
+    ).toBeLessThanOrEqual(1);
   });
 
   test("packs tightly across a single-pillar filter (e.g. all designs)", () => {

@@ -21,7 +21,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
-- Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- Masonry layout uses explicit CSS grid packing + aspect-ratio reservation to stabilize layout during image/video load; wide video cards should fall back to single-column placement when that backfills stranded lanes.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
 - Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
 - `bun run build` may fail due to Turbopack font download issues (Nunito Sans) on restricted networks — run from a network-accessible machine.
