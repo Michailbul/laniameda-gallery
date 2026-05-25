@@ -19,17 +19,17 @@ Recommended for local daily workflow (no Telegram widget domain dependency):
 ```bash
 NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true
 DEV_AUTH_BYPASS_ENABLED=true
-DEV_AUTH_TELEGRAM_ID=278674008
-DEV_AUTH_FIRST_NAME=Michael
-NEXT_PUBLIC_DEV_OWNER_USER_ID=278674008
+DEV_AUTH_TELEGRAM_ID=<your_telegram_id>
+DEV_AUTH_FIRST_NAME=<your_first_name>
+NEXT_PUBLIC_DEV_OWNER_USER_ID=<your_telegram_id>
 ```
 
 Required for curation controls in dev:
 
 ```bash
-CURATION_ADMIN_SECRET=dev-curation-secret
-CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
-NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
+CURATION_ADMIN_SECRET=<any_secret_string>
+CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
+NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
 ```
 
 Optional local simulator:
@@ -50,10 +50,10 @@ CONVEX_URL=...
 SESSION_SECRET=... # min 32 chars
 TELEGRAM_LOGIN_BOT_TOKEN=...
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
-KB_OWNER_USER_ID=278674008
+KB_OWNER_USER_ID=<your_telegram_id>
 CURATION_ADMIN_SECRET=...
-CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
-NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
+CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
+NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
 AI_GATEWAY_API_KEY=... # required for /api/ai/* features
 AI_RUNTIME_DEFAULT=ai_sdk
 AI_TEXT_MODEL=anthropic/claude-sonnet-4.5
@@ -79,8 +79,8 @@ Set these in Convex dashboard env vars:
 ```bash
 TELEGRAM_NOTIFY_BOT_TOKEN=... # needed by convex/notifications.ts
 CURATION_ADMIN_SECRET=...
-CURATION_ADMIN_USER_IDS=278674008,telegram:278674008
-KB_OWNER_USER_ID=278674008
+CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
+KB_OWNER_USER_ID=<your_telegram_id>
 ```
 
 Notes:
@@ -92,7 +92,7 @@ Notes:
 Required in the runtime where `laniameda-gallery-ingest` script executes:
 
 ```bash
-KB_OWNER_USER_ID=278674008
+KB_OWNER_USER_ID=<your_telegram_id>
 CONVEX_URL=https://<your-convex-deployment>.convex.cloud
 ```
 

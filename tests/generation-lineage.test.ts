@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createAsset, deleteAsset } from "../convex/assets";
+import { createAsset, internalDeleteAsset } from "../convex/assets";
 import {
   getDownstreamForPrompt,
   getUpstreamForAsset,
@@ -114,8 +114,7 @@ describe("generation lineage backend", () => {
     });
 
     expect(db.getTableDocs("generationLineage")).toHaveLength(1);
-    await deleteAsset._handler(ctx as never, {
-      ownerUserId: "user-1",
+    await internalDeleteAsset._handler(ctx as never, {
       id: asset.assetId,
     });
     expect(db.getTableDocs("generationLineage")).toHaveLength(0);

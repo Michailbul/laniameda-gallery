@@ -42,7 +42,7 @@ const createAssetMutation = makeFunctionReference<"mutation">(
   "assets:createAsset",
 );
 const deleteAssetMutation = makeFunctionReference<"mutation">(
-  "assets:deleteAsset",
+  "assets:internalDeleteAsset",
 );
 const createDesignInspirationMutation = makeFunctionReference<"mutation">(
   "designInspirations:createDesignInspiration",
@@ -411,7 +411,6 @@ export const saveFromExtension = action({
       } catch (error) {
         if (createdAssetId) {
           await ctx.runMutation(deleteAssetMutation, {
-            ownerUserId,
             id: createdAssetId,
           });
         }
@@ -472,7 +471,6 @@ export const saveFromExtension = action({
       })) as { designInspirationId: Id<"designInspirations">; created: boolean };
     } catch (error) {
       await ctx.runMutation(deleteAssetMutation, {
-        ownerUserId,
         id: assetId,
       });
       throw error;

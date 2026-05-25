@@ -2,7 +2,8 @@
 /**
  * One-time migration: consolidate pose-pack assets into an assetPack.
  * Run AFTER deploying the assetPacks schema to production Convex.
- * Usage: CONVEX_URL=https://perfect-buffalo-375.convex.cloud bun run scripts/migrate-pose-pack.ts
+ * Usage: CONVEX_URL=https://<your-deployment>.convex.cloud OWNER_USER_ID=<your_telegram_id> \
+ *   bun run scripts/migrate-pose-pack.ts
  */
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
@@ -11,7 +12,10 @@ import type { Id } from "../convex/_generated/dataModel";
 const CONVEX_URL = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
 if (!CONVEX_URL) throw new Error("CONVEX_URL is required");
 
-const OWNER_USER_ID = process.env.OWNER_USER_ID ?? "278674008";
+const OWNER_USER_ID = (process.env.OWNER_USER_ID ?? "").trim();
+if (!OWNER_USER_ID) {
+  throw new Error("OWNER_USER_ID env var is required (Telegram numeric ID).");
+}
 const INGEST_KEY = "character-consistency-pose-pack-v1";
 
 const client = new ConvexHttpClient(CONVEX_URL);

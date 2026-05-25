@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { makeFunctionReference } from "convex/server";
 import { requireAuth } from "@/lib/server-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { isCurationAdmin } from "@/lib/server/admin";
 
 const deleteAction = makeFunctionReference<"action">("ingest:deleteFromApi");
 
@@ -16,6 +17,12 @@ const readJson = async (request: Request) => {
 export async function DELETE(request: Request) {
   try {
     const authUser = await requireAuth();
+    if (!isCurationAdmin(authUser.ownerUserId)) {
+      return NextResponse.json(
+        { error: "Only gallery admins can delete via ingest." },
+        { status: 403 },
+      );
+    }
     const data = await readJson(request);
     if (!data) {
       return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });

@@ -1213,9 +1213,8 @@ export const deleteFromApi: ReturnType<typeof action> = action({
         return { target: "asset" as const, deleted: false };
       }
 
-      await ctx.runMutation(api.assets.deleteAsset, {
+      await ctx.runMutation(internal.assets.internalDeleteAsset, {
         id: assetId,
-        ownerUserId,
       });
       return {
         target: "asset" as const,

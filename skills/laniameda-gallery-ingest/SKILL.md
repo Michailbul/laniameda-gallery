@@ -291,7 +291,7 @@ Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills
 Example invocation:
 
 ```bash
-CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=278674008 \
+CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=<your_telegram_id> \
   bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
 ```
 

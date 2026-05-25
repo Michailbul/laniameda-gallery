@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createAsset, deleteAsset } from "../convex/assets";
+import { createAsset, internalDeleteAsset } from "../convex/assets";
 import { saveFromExtension } from "../convex/designExtensionSaves";
 import { getDesignSaveTemplateByKey, upsertDesignSaveTemplate } from "../convex/designSaveTemplates";
 import {
@@ -34,8 +34,8 @@ const createActionHarness = () => {
       switch (getFunctionName(reference)) {
         case "assets:createAsset":
           return await createAsset._handler(mutationCtx as never, args as never);
-        case "assets:deleteAsset":
-          return await deleteAsset._handler(mutationCtx as never, args as never);
+        case "assets:internalDeleteAsset":
+          return await internalDeleteAsset._handler(mutationCtx as never, args as never);
         case "designInspirations:createDesignInspiration":
           return await createDesignInspiration._handler(mutationCtx as never, args as never);
         case "designInspirations:updateDesignInspiration":

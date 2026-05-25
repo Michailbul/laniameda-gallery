@@ -37,6 +37,24 @@ const getCuratorUserIdsFromEnv = () => {
   );
 };
 
+const assertCurationAdmin = (actorUserId: string, adminSecret: string) => {
+  const expectedSecret = process.env.CURATION_ADMIN_SECRET;
+  if (!expectedSecret || adminSecret !== expectedSecret) {
+    throw new ConvexError("Unauthorized admin request.");
+  }
+  const trimmedActor = actorUserId.trim();
+  if (!trimmedActor) {
+    throw new ConvexError("actorUserId is required.");
+  }
+  const allowedUserIds = getCuratorUserIdsFromEnv();
+  if (allowedUserIds.length === 0) {
+    throw new ConvexError("Admin user list is not configured.");
+  }
+  if (!canActorAccessByUserId(trimmedActor, allowedUserIds)) {
+    throw new ConvexError("Forbidden admin actor.");
+  }
+};
+
 const dedupeAssetIds = <T extends { _id: string }>(rows: T[]) => {
   const seen = new Set<string>();
   return rows.filter((row) => {
@@ -1130,25 +1148,18 @@ export const replaceAssetMedia = mutation({
   },
 });
 
-export const deleteAsset = mutation({
+// Internal-only delete. Performs the actual storage + DB cleanup. Callers
+// (public `deleteAsset`, ingest rollback paths, etc.) are responsible for
+// authorization before invoking this.
+export const internalDeleteAsset = internalMutation({
   args: {
     id: v.id("assets"),
-    ownerUserId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-
     const asset = await ctx.db.get(args.id);
     if (!asset) {
       throw new ConvexError("Asset not found.");
-    }
-
-    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
-      throw new ConvexError("Asset does not belong to ownerUserId.");
     }
 
     const links = await ctx.db
@@ -1199,6 +1210,27 @@ export const deleteAsset = mutation({
       assetId: args.id,
     });
 
+    return null;
+  },
+});
+
+const internalDeleteAssetMutation = makeFunctionReference<"mutation">(
+  "assets:internalDeleteAsset",
+);
+
+// Public admin-only delete. Requires CURATION_ADMIN_SECRET + actor in
+// CURATION_ADMIN_USER_IDS / KB_OWNER_USER_ID. Regular logged-in users cannot
+// delete assets — only the configured admins/owner of the deployment can.
+export const deleteAsset = mutation({
+  args: {
+    id: v.id("assets"),
+    actorUserId: v.string(),
+    adminSecret: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertCurationAdmin(args.actorUserId, args.adminSecret);
+    await ctx.runMutation(internalDeleteAssetMutation, { id: args.id });
     return null;
   },
 });

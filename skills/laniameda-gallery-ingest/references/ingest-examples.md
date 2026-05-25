@@ -263,5 +263,5 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ## 11) Backfill legacy prompt groups into packs
 
 ```bash
-bunx convex run assetPacks:consolidateOwnerPromptPacks '{"ownerUserId":"278674008","limit":200}'
+bunx convex run assetPacks:consolidateOwnerPromptPacks '{"ownerUserId":"<your_telegram_id>","limit":200}'
 ```

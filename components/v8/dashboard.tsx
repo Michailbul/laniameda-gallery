@@ -41,7 +41,6 @@ const INTENT_LABELS = {
   replace_character: "Replace Character",
 } as const;
 
-const DEFAULT_DEV_OWNER_USER_ID = "278674008";
 
 type SelectedImage = {
   id: string;
@@ -137,8 +136,7 @@ const buildAssetSearchHaystack = (asset: {
 export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
-      ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() ||
-        DEFAULT_DEV_OWNER_USER_ID
+      ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || null
       : null;
   const ownerUserId = (
     devOwnerUserIdOverride ||
@@ -146,16 +144,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     ""
   ).trim();
   const canAccessMyGallery = Boolean(ownerUserId);
-  const canDeleteAssets =
-    Boolean(ownerUserId) && canAccessMyGallery;
 
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
   );
-  const canDeleteInCurrentView =
-    canDeleteAssets && galleryScope === "mine";
-  const canManageFoldersInCurrentView =
-    canAccessMyGallery && galleryScope === "mine";
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPillar, setSelectedPillar] =
@@ -316,22 +308,23 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const semanticRequestIdRef = useRef(0);
 
   const curatorUserIds = useMemo(() => {
-    const configured = parseUserIdList(
+    return parseUserIdList(
       process.env.NEXT_PUBLIC_CURATION_ADMIN_USER_IDS,
     );
-    if (configured && configured.length > 0) {
-      return configured;
-    }
-    if (process.env.NODE_ENV !== "production") {
-      return [DEFAULT_DEV_OWNER_USER_ID];
-    }
-    return [];
   }, []);
   const canCuratePublic = useMemo(() => {
     return canActorAccessByUserId(ownerUserId, curatorUserIds);
   }, [ownerUserId, curatorUserIds]);
 
-  const deleteAssetMutation = useMutation(api.assets.deleteAsset);
+  // Delete is admin-only. Same allowlist as public curation
+  // (NEXT_PUBLIC_CURATION_ADMIN_USER_IDS). Regular logged-in users see no
+  // delete affordance and the server-side mutation rejects them.
+  const canDeleteAssets = canCuratePublic;
+  const canDeleteInCurrentView =
+    canDeleteAssets && galleryScope === "mine";
+  const canManageFoldersInCurrentView =
+    canAccessMyGallery && galleryScope === "mine";
+
   const setAssetFolderMutation = useMutation(
     api.assets.setAssetFolder,
   );
@@ -581,10 +574,16 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       setDeletingAssetId(assetId);
 
       try {
-        await deleteAssetMutation({
-          id: assetId as Id<"assets">,
-          ownerUserId,
-        });
+        const response = await fetch(
+          `/api/assets/${encodeURIComponent(assetId)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          const payload = (await response
+            .json()
+            .catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error || "Failed to delete asset.");
+        }
 
         setLoadedImageIds((previous) => {
           if (!previous.has(assetId)) return previous;
@@ -622,9 +621,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     },
     [
       canDeleteInCurrentView,
-      deleteAssetMutation,
       deletingAssetId,
-      ownerUserId,
     ],
   );
 

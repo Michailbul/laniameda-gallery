@@ -10,7 +10,10 @@ const updateRoutePath = new URL("../app/api/ingest/update/route.ts", import.meta
 const deleteRoutePath = new URL("../app/api/ingest/delete/route.ts", import.meta.url).pathname;
 
 mock.module("@/lib/server-auth", () => ({
-  requireAuth: async () => ({ id: state.authUserId }),
+  requireAuth: async () => ({
+    id: state.authUserId,
+    ownerUserId: state.authUserId,
+  }),
 }));
 
 mock.module("@/lib/server/convex", () => ({
@@ -27,6 +30,7 @@ describe("ingest management routes", () => {
     state.authUserId = "telegram:278674008";
     state.actionCalls = [];
     state.actionResult = { ok: true };
+    process.env.CURATION_ADMIN_USER_IDS = "telegram:278674008";
   });
 
   test("POST /api/ingest/update injects the authenticated ownerUserId", async () => {

@@ -3,7 +3,6 @@ import { createSessionCookie } from "@/lib/telegram-auth";
 import { isLocalHostname } from "@/lib/dev-telegram-sim";
 
 export const runtime = "nodejs";
-const DEFAULT_DEV_TELEGRAM_ID = "278674008";
 
 const parseBoolean = (value: string | undefined, fallback: boolean) => {
   if (!value) return fallback;
@@ -30,14 +29,13 @@ const isRequestAllowed = (request: Request) => {
   return isLocalHostname(new URL(request.url).hostname);
 };
 
-const resolveDevTelegramId = () => {
-  const candidate = (
+const resolveDevTelegramId = () =>
+  (
     process.env.DEV_AUTH_TELEGRAM_ID ||
     process.env.KB_OWNER_USER_ID ||
-    process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID
-  )?.trim();
-  return candidate || DEFAULT_DEV_TELEGRAM_ID;
-};
+    process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID ||
+    ""
+  ).trim();
 
 export async function POST(request: Request) {
   if (!isRequestAllowed(request)) {
@@ -48,6 +46,15 @@ export async function POST(request: Request) {
   }
 
   const telegramId = resolveDevTelegramId();
+  if (!telegramId) {
+    return NextResponse.json(
+      {
+        error:
+          "Set DEV_AUTH_TELEGRAM_ID (or KB_OWNER_USER_ID) to a Telegram numeric ID to use the dev bypass.",
+      },
+      { status: 400 },
+    );
+  }
 
   const firstName = (process.env.DEV_AUTH_FIRST_NAME || "Dev").trim() || "Dev";
   const username = (process.env.DEV_AUTH_USERNAME || "").trim() || undefined;
