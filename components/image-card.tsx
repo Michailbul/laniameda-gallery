@@ -421,7 +421,6 @@ export const ImageCard = memo(function ImageCard({
             <WorkflowIcon className="h-3 w-3" strokeWidth={2.5} />
             <span className="workflow-card-header-label">{stepLabel}</span>
           </div>
-          <div className="workflow-card-header-stamp">RECIPE</div>
         </div>
 
         <div
