@@ -23,8 +23,8 @@ export const VIDEO_CARD_COLUMN_SPAN = 2;
  * single outlier asset can't blow up the masonry rhythm. Below MIN_ASPECT the
  * card would be very tall portrait (taller than ~2.2x its width); above
  * MAX_ASPECT it would be a thin landscape strip (wider than ~2.4x its height).
- * The image itself keeps its true aspect on disk; only the masonry slot is
- * clamped, and `object-cover` handles the visual crop.
+ * The source media keeps its true aspect on disk; only the masonry slot is
+ * clamped into a manageable display footprint.
  */
 export const MIN_ASPECT = 0.45;
 export const MAX_ASPECT = 2.4;
@@ -38,6 +38,7 @@ export type LayoutInput = {
   width?: number;
   height?: number;
   kind?: "image" | "video";
+  contentType?: string;
 };
 
 export type CellLayout = {
@@ -53,15 +54,33 @@ const hasFiniteDims = (w?: number, h?: number): w is number =>
   w > 0 &&
   h > 0;
 
+export function resolveLayoutKind(
+  input: Pick<LayoutInput, "kind" | "contentType">,
+): LayoutInput["kind"] {
+  const contentType = input.contentType?.toLowerCase();
+  if (input.kind === "video" || contentType?.startsWith("video/")) {
+    return "video";
+  }
+  if (input.kind === "image" || contentType?.startsWith("image/")) {
+    return "image";
+  }
+  return undefined;
+}
+
 export function resolveAspect(input: LayoutInput): number {
   if (hasFiniteDims(input.width, input.height)) {
     return clampAspect(input.width! / input.height!);
   }
-  return input.kind === "video" ? VIDEO_FALLBACK_ASPECT : IMAGE_FALLBACK_ASPECT;
+  return resolveLayoutKind(input) === "video"
+    ? VIDEO_FALLBACK_ASPECT
+    : IMAGE_FALLBACK_ASPECT;
 }
 
 function shouldUseLandscapeVideoFallback(input: LayoutInput): boolean {
-  if (input.kind !== "video" || !hasFiniteDims(input.width, input.height)) {
+  if (
+    resolveLayoutKind(input) !== "video" ||
+    !hasFiniteDims(input.width, input.height)
+  ) {
     return false;
   }
   return Math.abs(input.width! / input.height! - 1) < SQUAREISH_VIDEO_TOLERANCE;
@@ -77,7 +96,10 @@ export function resolveColumnSpan(
   input: LayoutInput,
   geometry: ColumnGeometry,
 ): number {
-  if (input.kind === "video" && geometry.columnCount >= VIDEO_CARD_COLUMN_SPAN) {
+  if (
+    resolveLayoutKind(input) === "video" &&
+    geometry.columnCount >= VIDEO_CARD_COLUMN_SPAN
+  ) {
     return VIDEO_CARD_COLUMN_SPAN;
   }
   return 1;

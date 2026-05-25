@@ -42,9 +42,9 @@ type PackGridProps = {
 /* ── Pack Card ── */
 
 const PILLAR_COLORS: Record<string, string> = {
-  creators: "var(--v7-pillar-creators)",
-  designs: "var(--v7-pillar-designs)",
-  dump: "var(--v7-pillar-dump)",
+  creators: "var(--lm-pillar-creators)",
+  designs: "var(--lm-pillar-designs)",
+  dump: "var(--lm-pillar-dump)",
 };
 
 const PackCard = memo(function PackCard({
@@ -63,7 +63,7 @@ const PackCard = memo(function PackCard({
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
   const coverSrc = pack.coverThumbUrl ?? pack.coverUrl;
-  const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--v7-coral)";
+  const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--lm-coral)";
   const itemCount = pack.itemCount ?? 0;
   const isWorkflow = pack.hasWorkflowAssets;
   // Slides: dedup cover + previews, cap at 10.
@@ -112,18 +112,18 @@ const PackCard = memo(function PackCard({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="group relative w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--v7-coral)]"
+      className="group relative w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--lm-coral)]"
       style={{
         borderRadius: "16px",
         overflow: "hidden",
-        border: "2px solid var(--v7-border)",
-        background: "var(--v7-surface-1)",
+        border: "2px solid var(--lm-border)",
+        background: "var(--lm-surface-1)",
         boxShadow: hovered
           ? `0 12px 40px rgba(0,0,0,0.12), 0 0 0 1px ${accentColor}44`
           : "0 2px 8px rgba(0,0,0,0.04)",
         transition: "box-shadow 250ms ease, transform 250ms ease, border-color 250ms ease",
         transform: hovered ? "translateY(-2px)" : "translateY(0)",
-        borderColor: hovered ? accentColor : "var(--v7-border)",
+        borderColor: hovered ? accentColor : "var(--lm-border)",
         animationDelay: `${index * 60}ms`,
         animation: "pack-card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) backwards",
       }}
@@ -134,7 +134,7 @@ const PackCard = memo(function PackCard({
         className="relative overflow-hidden"
         style={{
           aspectRatio: coverSrc ? `${heroRatio}` : "4 / 3",
-          backgroundColor: "var(--v7-surface-3)",
+          backgroundColor: "var(--lm-surface-3)",
         }}
       >
         {coverSrc ? (
@@ -167,7 +167,7 @@ const PackCard = memo(function PackCard({
           <div className="flex h-full items-center justify-center">
             <Package
               className="h-8 w-8"
-              style={{ color: "var(--v7-text-ghost)", opacity: 0.4 }}
+              style={{ color: "var(--lm-text-ghost)", opacity: 0.4 }}
             />
           </div>
         )}
@@ -192,12 +192,12 @@ const PackCard = memo(function PackCard({
                 background: "rgba(255,255,255,0.92)",
                 borderRadius: "7px",
                 border: "1px solid rgba(0,0,0,0.08)",
-                fontFamily: "var(--v7-font)",
+                fontFamily: "var(--lm-font)",
                 fontSize: "8.5px",
                 fontWeight: 900,
                 letterSpacing: "0.14em",
                 textTransform: "uppercase",
-                color: "var(--v7-ink)",
+                color: "var(--lm-ink)",
                 boxShadow: "0 2px 6px rgba(0,0,0,0.16)",
               }}
             >
@@ -224,7 +224,7 @@ const PackCard = memo(function PackCard({
               border: "1px solid rgba(255,255,255,0.12)",
               fontSize: "10px",
               fontWeight: 800,
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               letterSpacing: "0.08em",
               color: "rgba(255,255,255,0.9)",
             }}
@@ -246,7 +246,7 @@ const PackCard = memo(function PackCard({
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             border: "1px solid rgba(255,255,255,0.15)",
-            color: copiedId ? "var(--v7-success)" : "#fff",
+            color: copiedId ? "var(--lm-success)" : "#fff",
             opacity: hovered || copiedId ? 1 : 0,
             transform: `scale(${hovered || copiedId ? 1 : 0.9})`,
             pointerEvents: hovered || copiedId ? "auto" : "none",
@@ -315,7 +315,7 @@ const PackCard = memo(function PackCard({
         >
           <h3
             style={{
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               fontSize: "12px",
               fontWeight: 800,
               textTransform: "uppercase",
@@ -338,7 +338,7 @@ const PackCard = memo(function PackCard({
       {/* Meta bar */}
       <div
         className="flex items-center justify-between px-3.5 py-2.5"
-        style={{ borderTop: `1px solid var(--v7-border)` }}
+        style={{ borderTop: `1px solid var(--lm-border)` }}
       >
         <div className="flex items-center gap-2 min-w-0">
           {pack.pillar && (
@@ -355,12 +355,12 @@ const PackCard = memo(function PackCard({
           {pack.modelName && (
             <span
               style={{
-                fontFamily: "var(--v7-font)",
+                fontFamily: "var(--lm-font)",
                 fontSize: "9px",
                 fontWeight: 600,
                 textTransform: "uppercase",
                 letterSpacing: "0.10em",
-                color: "var(--v7-text-tertiary)",
+                color: "var(--lm-text-tertiary)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -372,11 +372,11 @@ const PackCard = memo(function PackCard({
         </div>
         <span
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "9px",
             fontWeight: 600,
             letterSpacing: "0.08em",
-            color: "var(--v7-text-ghost)",
+            color: "var(--lm-text-ghost)",
           }}
         >
           {new Date(pack.createdAt).toLocaleDateString("en-US", {
@@ -462,6 +462,8 @@ type PackDetailViewProps = {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
     modelName?: string;
     pillar?: string;
     tagNames?: string[];
@@ -474,8 +476,57 @@ type PackDetailViewProps = {
       prompt: string;
       width?: number;
       height?: number;
+      kind?: "image" | "video";
+      contentType?: string;
     }>;
   }) => void;
+};
+
+const VIDEO_FALLBACK_DIMENSIONS = { width: 16, height: 9 } as const;
+
+const hasUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+) =>
+  typeof width === "number" &&
+  Number.isFinite(width) &&
+  width > 0 &&
+  typeof height === "number" &&
+  Number.isFinite(height) &&
+  height > 0;
+
+const toUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+): { width: number; height: number } | undefined =>
+  hasUsableDimensions(width, height)
+    ? { width: width!, height: height! }
+    : undefined;
+
+const isSquareishDimensions = (width: number, height: number) =>
+  Math.abs(width / height - 1) < 0.04;
+
+const resolveAssetDisplayDimensions = (asset: {
+  kind?: "image" | "video";
+  width?: number;
+  height?: number;
+  thumbWidth?: number;
+  thumbHeight?: number;
+}): { width?: number; height?: number } => {
+  const original = toUsableDimensions(asset.width, asset.height);
+  const thumbnail = toUsableDimensions(asset.thumbWidth, asset.thumbHeight);
+
+  if (asset.kind === "video") {
+    if (original && !isSquareishDimensions(original.width, original.height)) {
+      return original;
+    }
+    if (thumbnail && !isSquareishDimensions(thumbnail.width, thumbnail.height)) {
+      return thumbnail;
+    }
+    return VIDEO_FALLBACK_DIMENSIONS;
+  }
+
+  return thumbnail ?? original ?? {};
 };
 
 function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelect }: PackDetailViewProps) {
@@ -499,14 +550,14 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
       <div style={{ padding: "12px" }}>
         <PackDetailHeader title="Pack not found" onBack={onBack} />
         <div className="flex flex-col items-center justify-center py-20">
-          <Package className="h-10 w-10 mb-3" style={{ color: "var(--v7-text-ghost)" }} />
+          <Package className="h-10 w-10 mb-3" style={{ color: "var(--lm-text-ghost)" }} />
           <p style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "11px",
             fontWeight: 600,
             textTransform: "uppercase",
             letterSpacing: "0.12em",
-            color: "var(--v7-text-tertiary)",
+            color: "var(--lm-text-tertiary)",
           }}>
             This pack may have been deleted.
           </p>
@@ -516,7 +567,7 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
   }
 
   const { pack, items } = packData;
-  const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--v7-coral)";
+  const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--lm-coral)";
   const packIdToken = `pack:${pack._id}`;
   const handleCopyPackDetailId = async () => {
     try {
@@ -532,8 +583,9 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
     src: item.thumbUrl ?? item.assetUrl ?? "/placeholder.svg",
     fullSrc: item.assetUrl ?? "/placeholder.svg",
     prompt: item.promptText ?? item.asset.fileName ?? "Untitled",
-    width: item.asset.thumbWidth ?? item.asset.width,
-    height: item.asset.thumbHeight ?? item.asset.height,
+    ...resolveAssetDisplayDimensions(item.asset),
+    kind: item.asset.kind,
+    contentType: item.asset.contentType,
   }));
 
   return (
@@ -547,9 +599,9 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
         <div
           className="mt-2 mb-3 px-1"
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "11px",
-            color: "var(--v7-text-secondary)",
+            color: "var(--lm-text-secondary)",
             lineHeight: 1.5,
           }}
         >
@@ -564,7 +616,7 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
                   fontWeight: 700,
                   textTransform: "uppercase",
                   letterSpacing: "0.12em",
-                  color: "var(--v7-text-ghost)",
+                  color: "var(--lm-text-ghost)",
                 }}
               >
                 {pack.modelName}
@@ -579,11 +631,11 @@ function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelec
               style={{
                 padding: "2px 7px",
                 fontSize: "10px",
-                fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                fontFamily: "var(--lm-font-mono, ui-monospace, monospace)",
                 fontWeight: 700,
-                color: "var(--v7-coral)",
-                backgroundColor: "color-mix(in srgb, var(--v7-coral) 14%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--v7-coral) 45%, transparent)",
+                color: "var(--lm-coral)",
+                backgroundColor: "color-mix(in srgb, var(--lm-coral) 14%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--lm-coral) 45%, transparent)",
                 borderRadius: "4px",
                 cursor: "pointer",
               }}
@@ -614,6 +666,8 @@ type PackItem = {
   asset: {
     _id: string;
     fileName?: string;
+    kind?: "image" | "video";
+    contentType?: string;
     width?: number;
     height?: number;
     thumbWidth?: number;
@@ -643,6 +697,8 @@ type PackAssetLayoutProps = {
     prompt: string;
     width?: number;
     height?: number;
+    kind?: "image" | "video";
+    contentType?: string;
   }>;
   onAssetSelect: PackDetailViewProps["onAssetSelect"];
 };
@@ -664,6 +720,7 @@ function PackAssetLayout({
     const fullSrc = item.assetUrl ?? "/placeholder.svg";
     const prompt = item.promptText ?? item.asset.fileName ?? "Untitled";
     const isSelected = selectedAssetId === item.asset._id;
+    const displayDimensions = resolveAssetDisplayDimensions(item.asset);
     return {
       cardKey: item.asset._id,
       cardProps: {
@@ -671,8 +728,8 @@ function PackAssetLayout({
         thumbSrc,
         fullSrc,
         prompt,
-        width: item.asset.thumbWidth ?? item.asset.width,
-        height: item.asset.thumbHeight ?? item.asset.height,
+        width: displayDimensions.width,
+        height: displayDimensions.height,
         slotIndex: item.asset.packSlotIndex ?? originalIndex,
         modelName: item.asset.modelName,
         pillar: item.asset.pillar,
@@ -687,8 +744,10 @@ function PackAssetLayout({
             thumbSrc,
             fullSrc,
             prompt,
-            width: item.asset.width,
-            height: item.asset.height,
+            width: displayDimensions.width,
+            height: displayDimensions.height,
+            kind: item.asset.kind,
+            contentType: item.asset.contentType,
             modelName: item.asset.modelName,
             pillar: item.asset.pillar,
             sourceUrl: item.asset.sourceUrl,
@@ -759,9 +818,9 @@ function PackDetailHeader({
           width: "34px",
           height: "34px",
           borderRadius: "10px",
-          border: "2px solid var(--v7-border-strong)",
-          color: "var(--v7-text-secondary)",
-          backgroundColor: "var(--v7-surface-1)",
+          border: "2px solid var(--lm-border-strong)",
+          color: "var(--lm-text-secondary)",
+          backgroundColor: "var(--lm-surface-1)",
         }}
         aria-label="Back to packs"
       >
@@ -770,12 +829,12 @@ function PackDetailHeader({
       <div className="min-w-0 flex-1">
         <h2
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "14px",
             fontWeight: 900,
             textTransform: "uppercase",
             letterSpacing: "0.12em",
-            color: "var(--v7-text-primary)",
+            color: "var(--lm-text-primary)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -786,12 +845,12 @@ function PackDetailHeader({
         {itemCount !== undefined && (
           <span
             style={{
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               fontSize: "9px",
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.14em",
-              color: accentColor ?? "var(--v7-text-ghost)",
+              color: accentColor ?? "var(--lm-text-ghost)",
             }}
           >
             {itemCount} {itemCount === 1 ? "ASSET" : "ASSETS"}
@@ -845,7 +904,7 @@ const PackAssetCard = memo(function PackAssetCard({
     ? `3px solid ${accentColor}`
     : hovered
       ? `2px solid ${accentColor}99`
-      : "2px solid var(--v7-border)";
+      : "2px solid var(--lm-border)";
 
   const shadowStyle = isSelected
     ? `0 12px 36px ${accentColor}40, 0 0 0 2px ${accentColor}55, 0 2px 8px rgba(0,0,0,0.08)`
@@ -881,13 +940,13 @@ const PackAssetCard = memo(function PackAssetCard({
       onKeyDown={handleKeyDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="group relative w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--v7-coral)]"
+      className="group relative w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--lm-coral)]"
       aria-pressed={isSelected}
       style={{
         borderRadius: "12px",
         overflow: "hidden",
         border: borderStyle,
-        background: "var(--v7-surface-1)",
+        background: "var(--lm-surface-1)",
         boxShadow: shadowStyle,
         opacity: cardOpacity,
         transform: `scale(${cardScale})`,
@@ -899,7 +958,7 @@ const PackAssetCard = memo(function PackAssetCard({
         className="relative overflow-hidden"
         style={{
           aspectRatio: aspectRatio ? `${aspectRatio}` : "1",
-          backgroundColor: "var(--v7-surface-3)",
+          backgroundColor: "var(--lm-surface-3)",
         }}
       >
         <Image
@@ -924,7 +983,7 @@ const PackAssetCard = memo(function PackAssetCard({
               borderRadius: "7px",
               backgroundColor: accentColor,
               color: "#fff",
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               fontSize: "8.5px",
               fontWeight: 900,
               textTransform: "uppercase",
@@ -956,7 +1015,7 @@ const PackAssetCard = memo(function PackAssetCard({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               fontSize: "9px",
               fontWeight: 800,
               color: "rgba(255,255,255,0.85)",
@@ -978,7 +1037,7 @@ const PackAssetCard = memo(function PackAssetCard({
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             border: "1px solid rgba(255,255,255,0.15)",
-            color: copiedId ? "var(--v7-success)" : "#fff",
+            color: copiedId ? "var(--lm-success)" : "#fff",
             opacity: hovered || copiedId ? 1 : 0,
             transform: `scale(${hovered || copiedId ? 1 : 0.9})`,
             pointerEvents: hovered || copiedId ? "auto" : "none",
@@ -1001,7 +1060,7 @@ const PackAssetCard = memo(function PackAssetCard({
         >
           <p
             style={{
-              fontFamily: "var(--v7-font)",
+              fontFamily: "var(--lm-font)",
               fontSize: "9px",
               fontWeight: 500,
               color: "rgba(255,255,255,0.90)",
@@ -1095,26 +1154,26 @@ export function PackGrid({
 
   if (packs.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in">
+      <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
         <div
           className="relative mb-6 h-16 w-16 flex items-center justify-center"
           style={{
-            border: "3px solid var(--v7-ink)",
-            backgroundColor: "var(--v7-accent-dim)",
+            border: "3px solid var(--lm-ink)",
+            backgroundColor: "var(--lm-accent-dim)",
             borderRadius: "16px",
             boxShadow: "0 0 20px rgba(255, 122, 100, 0.15)",
           }}
         >
-          <Package className="h-6 w-6" style={{ color: "var(--v7-coral)" }} />
+          <Package className="h-6 w-6" style={{ color: "var(--lm-coral)" }} />
         </div>
         <h2
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "16px",
             fontWeight: 900,
             textTransform: "uppercase",
             letterSpacing: "0.18em",
-            color: "var(--v7-text-primary)",
+            color: "var(--lm-text-primary)",
           }}
         >
           NO PACKS YET
@@ -1122,11 +1181,11 @@ export function PackGrid({
         <p
           className="mt-2"
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "11px",
             textTransform: "uppercase",
             letterSpacing: "0.10em",
-            color: "var(--v7-text-tertiary)",
+            color: "var(--lm-text-tertiary)",
             maxWidth: "340px",
             fontWeight: 500,
           }}

@@ -64,7 +64,7 @@ export const AnimatedDock = ({
       }}
       onMouseLeave={() => mouseX.set(Infinity)}
       className={cn(
-        "mx-auto flex h-16 items-center gap-4 rounded-2xl px-4 v7-island",
+        "mx-auto flex h-16 items-center gap-4 rounded-2xl px-4 lm-island",
         className,
       )}
       style={{

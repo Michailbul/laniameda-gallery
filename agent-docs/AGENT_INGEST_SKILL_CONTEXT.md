@@ -49,7 +49,7 @@ Call Convex action directly:
   ingestKey?: string;
   promptIngestKey?: string;
   modelName?: string;
-  pillar?: "creators" | "cars" | "designs" | "dump";
+  pillar?: "creators" | "designs" | "dump";
   generationType?: "image_gen" | "video_gen" | "ui_design" | "other";
   promptType?: "image_gen" | "video_gen" | "ui_design" | "cinematic" | "ugc_ad" | "other";
   domain?: string;

@@ -1,6 +1,6 @@
 "use client";
 import { useCurrentUser } from "@/lib/use-current-user";
-import { V72Dashboard } from "@/components/v8/dashboard";
+import { GalleryDashboard } from "@/components/gallery/dashboard";
 
 export default function Page() {
   const { user, signOut } = useCurrentUser();
@@ -13,5 +13,5 @@ export default function Page() {
         photoUrl: user.avatarUrl ?? null,
       }
     : null;
-  return <V72Dashboard user={dashboardUser} onSignOut={signOut} />;
+  return <GalleryDashboard user={dashboardUser} onSignOut={signOut} />;
 }

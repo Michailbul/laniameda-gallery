@@ -47,6 +47,49 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 
 Supported video formats: `.mp4`, `.mov`, `.webm`. The asset is stored with `kind: "video"` and renders inline in the gallery with a video player. To attach a custom thumbnail still, follow up with an `update` op on the asset pointing at an image frame.
 
+## 1d) Cinema Inspiration frame (no prompt — different mutation)
+
+Cinema frames bypass the standard ingest script. They call the dedicated `cinemaInspiration:ingestCinemaFrame` Convex action instead — no prompt is created.
+
+```ts
+// From an agent, action, or codex script:
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
+import { readFileSync } from "node:fs";
+
+const client = new ConvexHttpClient(process.env.CONVEX_URL!);
+const bytes = readFileSync("/path/to/frame.png");
+
+await client.action(api.cinemaInspiration.ingestCinemaFrame, {
+  ownerUserId: process.env.KB_OWNER_USER_ID!,
+  base64: bytes.toString("base64"),
+  mimeType: "image/png",
+  fileName: "blade-runner-2049-sea-wall.png",
+  ingestSource: "agent",
+  ingestKey: "cinema:blade-runner-2049:sea-wall:001",
+  cinemaMetadata: {
+    movieTitle: "Blade Runner 2049",
+    director: "Denis Villeneuve",
+    year: 2017,
+    scene: "Sea wall confrontation",
+    cinematographer: "Roger Deakins",
+    lens: "Panavision Primo 35mm",
+    composition: "Centered vanishing point with a horizontal monolith band; subject in lower-third silhouette.",
+    lighting: "Amber key from upper-right; cool ambient fill; practical hologram glow.",
+    cameraMovement: "Locked-off static.",
+    colorPalette: "Amber #d97742 vs teal #2e4a55 — two-tone split.",
+    mood: "Apocalyptic stillness, industrial sublime.",
+    agentDescription: "Full cinematographic read used by downstream agents.",
+  },
+});
+```
+
+Rules:
+- `movieTitle` is the only required metadata field; everything else is optional.
+- No prompt is created. The asset is stored with `pillar: "cinema-inspiration"`, `assetRole: "cinema_frame"`.
+- Image embedding still runs automatically — semantic search picks up the frame after ingest.
+- Codex agents must populate `agentDescription` with a full cinematographic read (lens, composition principle, lighting setup, color theory, implied movement) so the frame can be recreated. See `agent-docs/features/cinema-inspiration/CODEX_INGEST_PRD.md`.
+
 ## 2) Design inspiration only
 
 ```bash
@@ -79,20 +122,20 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ```bash
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '[
   {
-    "pillar": "cars",
-    "promptText": "low-angle porsche rolling shot at sunset",
-    "promptIngestKey": "cars:porsche:rolling:v1",
-    "ingestKey": "cars:porsche:rolling:v1:a",
+    "pillar": "creators",
+    "promptText": "editorial portrait at golden hour, 35mm",
+    "promptIngestKey": "creators:editorial-portrait:v1",
+    "ingestKey": "creators:editorial-portrait:v1:a",
     "imagePath": "/path/shot-a.jpg",
-    "tagNames": ["prompts", "cars", "porsche"]
+    "tagNames": ["prompts", "portrait", "editorial"]
   },
   {
-    "pillar": "cars",
-    "promptText": "low-angle porsche rolling shot at sunset",
-    "promptIngestKey": "cars:porsche:rolling:v1",
-    "ingestKey": "cars:porsche:rolling:v1:b",
+    "pillar": "creators",
+    "promptText": "editorial portrait at golden hour, 35mm",
+    "promptIngestKey": "creators:editorial-portrait:v1",
+    "ingestKey": "creators:editorial-portrait:v1:b",
     "imagePath": "/path/shot-b.jpg",
-    "tagNames": ["prompts", "cars", "porsche"]
+    "tagNames": ["prompts", "portrait", "editorial"]
   }
 ]'
 ```
@@ -158,9 +201,9 @@ It returns:
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
-  "ingestKey": "cars:porsche:rolling:v1",
-  "promptText": "low-angle porsche rolling shot at blue hour",
-  "tagNames": ["prompts", "cars", "porsche", "blue-hour"],
+  "ingestKey": "creators:editorial-portrait:v1",
+  "promptText": "editorial portrait at blue hour, 35mm",
+  "tagNames": ["prompts", "portrait", "editorial", "blue-hour"],
   "modelName": "gpt-image-1"
 }'
 ```
@@ -171,9 +214,9 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "asset",
-  "ingestKey": "cars:porsche:rolling:v1:a",
+  "ingestKey": "creators:editorial-portrait:v1:a",
   "folderId": null,
-  "tagNames": ["cars", "porsche", "hero-shot"],
+  "tagNames": ["portrait", "editorial", "hero-shot"],
   "assetRole": "reference"
 }'
 ```
@@ -211,12 +254,12 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
-  "ingestKey": "cars:tachometer-macro:v1",
+  "ingestKey": "creators:macro-lens-test:v1",
   "imagePath": "/path/to/tachometer.png"
 }'
 ```
 
-Creates an asset linked to the prompt. The asset's `ingestKey` defaults to `cars:tachometer-macro:v1:img`. Re-running with a different image replaces the asset's file.
+Creates an asset linked to the prompt. The asset's `ingestKey` defaults to `creators:macro-lens-test:v1:img`. Re-running with a different image replaces the asset's file.
 
 ## 11) Replace media on an existing asset
 
@@ -224,7 +267,7 @@ Creates an asset linked to the prompt. The asset's `ingestKey` defaults to `cars
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "update",
   "target": "asset",
-  "ingestKey": "cars:tachometer-macro:v1:img",
+  "ingestKey": "creators:macro-lens-test:v1:img",
   "imagePath": "/path/to/better-version.png"
 }'
 ```
@@ -265,3 +308,42 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ```bash
 bunx convex run assetPacks:consolidateOwnerPromptPacks '{"ownerUserId":"<your_telegram_id>","limit":200}'
 ```
+
+## 14) Workflow (multi-step preset / tutorial)
+
+```bash
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "operation": "workflow",
+  "title": "Neon alley cinematic loop",
+  "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",
+  "agentInstructions": "Generate the still first, then feed it as the Seedance start frame.",
+  "pillar": "creators",
+  "tagNames": ["cinematic", "neon"],
+  "ingestKey": "creators:neon-alley:workflow:v1",
+  "steps": [
+    {
+      "stepLabel": "Base still",
+      "promptText": "cinematic neon start frame, rain-slick street, 35mm",
+      "promptType": "image_gen",
+      "generationType": "image_gen",
+      "modelName": "GPT-Image-2",
+      "modelProvider": "openai",
+      "media": [{ "filePath": "/path/to/start-frame.png" }]
+    },
+    {
+      "stepLabel": "Animate",
+      "promptText": "dolly-in 5s, rain intensifies, neon flicker",
+      "promptType": "video_gen",
+      "generationType": "video_gen",
+      "modelName": "Seedance 2.0",
+      "modelProvider": "other",
+      "media": [{ "filePath": "/path/to/output.mp4" }]
+    }
+  ]
+}'
+```
+
+- Routes to `workflows:ingestWorkflowFromApi`. Creates the workflow record, then ingests each step through `ingestFromApi` — step prompts/assets remain normal gallery entries.
+- `title` and `pillar` are required; at least one step.
+- A step's `media` is an array — multiple images attach to that step's single prompt.
+- Idempotent on the workflow `ingestKey`; per-step and per-media keys are derived from it.

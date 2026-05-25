@@ -1,3 +1,20 @@
+export type CinemaMetadata = {
+  movieTitle: string;
+  director?: string;
+  year?: number;
+  scene?: string;
+  timecode?: string;
+  cinematographer?: string;
+  lens?: string;
+  aperture?: string;
+  composition?: string;
+  lighting?: string;
+  cameraMovement?: string;
+  colorPalette?: string;
+  mood?: string;
+  agentDescription?: string;
+};
+
 export type GalleryAssetRecord = {
   _id: string;
   kind?: "image" | "video";
@@ -23,12 +40,13 @@ export type GalleryAssetRecord = {
   assetPackId?: string;
   packSlotIndex?: number;
   size?: number;
+  cinemaMetadata?: CinemaMetadata | null;
 };
 
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -42,7 +60,7 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -65,6 +83,7 @@ export type GalleryEntry = {
   packMemberCount?: number;
   size?: number;
   totalSize?: number;
+  cinemaMetadata?: CinemaMetadata | null;
   previewImages: GalleryEntryPreview[];
 };
 
@@ -76,6 +95,52 @@ type BuildGalleryEntriesArgs = {
 };
 
 const FALLBACK_SRC = "/placeholder.svg";
+const VIDEO_FALLBACK_DIMENSIONS = { width: 16, height: 9 } as const;
+
+const hasUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+) =>
+  typeof width === "number" &&
+  Number.isFinite(width) &&
+  width > 0 &&
+  typeof height === "number" &&
+  Number.isFinite(height) &&
+  height > 0;
+
+const toUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+): { width: number; height: number } | undefined =>
+  hasUsableDimensions(width, height)
+    ? { width: width!, height: height! }
+    : undefined;
+
+const resolvePreviewDimensions = (asset: GalleryAssetRecord) => {
+  const originalDimensions = toUsableDimensions(asset.width, asset.height);
+  const thumbnailDimensions = toUsableDimensions(
+    asset.thumbWidth,
+    asset.thumbHeight,
+  );
+
+  if (asset.kind === "video") {
+    if (
+      originalDimensions &&
+      Math.abs(originalDimensions.width / originalDimensions.height - 1) >= 0.04
+    ) {
+      return originalDimensions;
+    }
+    if (
+      thumbnailDimensions &&
+      Math.abs(thumbnailDimensions.width / thumbnailDimensions.height - 1) >= 0.04
+    ) {
+      return thumbnailDimensions;
+    }
+    return VIDEO_FALLBACK_DIMENSIONS;
+  }
+
+  return thumbnailDimensions ?? originalDimensions ?? {};
+};
 
 const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
@@ -84,8 +149,7 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
-  width: asset.thumbWidth ?? asset.width ?? undefined,
-  height: asset.thumbHeight ?? asset.height ?? undefined,
+  ...resolvePreviewDimensions(asset),
   kind: asset.kind,
   contentType: asset.contentType,
 });
@@ -125,8 +189,7 @@ const buildEntry = (
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",
     author: "Agent",
     likes: 0,
-    width: cover.thumbWidth ?? cover.width ?? undefined,
-    height: cover.thumbHeight ?? cover.height ?? undefined,
+    ...resolvePreviewDimensions(cover),
     initiallyLoaded: loadedAssetIds?.has(cover._id) ?? false,
     kind: cover.kind,
     contentType: cover.contentType,
@@ -142,6 +205,7 @@ const buildEntry = (
     packMemberCount: members.length > 1 ? members.length : undefined,
     size: cover.size,
     totalSize: totalSize > 0 ? totalSize : undefined,
+    cinemaMetadata: cover.cinemaMetadata ?? undefined,
     previewImages: members.map(toPreview),
   };
 };

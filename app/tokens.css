@@ -1,0 +1,699 @@
+/* ── V7 Neobrutalist Design Tokens ── */
+
+:root {
+  --lm-font: var(--font-mono), ui-monospace, "SF Mono", monospace;
+  --lm-font-display: var(--font-sans), system-ui, sans-serif;
+
+  /* Core palette */
+  --lm-ink: #f0e8e0;
+  --lm-bg-inverse: #fffaf5;
+  --lm-coral: #ff7a64;
+  --lm-paper: #111110;
+  --lm-paper-muted: #1a1918;
+
+  /* Sidebar — liquid glass system */
+  --lm-sidebar-bg: #141413;
+  --lm-sidebar-width: 260px;
+  --lm-sidebar-collapsed: 56px;
+  --lm-sidebar-text: #f0e8e0;
+  --lm-sidebar-text-muted: #a89888;
+  --lm-sidebar-text-ghost: #6b5e52;
+  --lm-sidebar-border: rgba(240, 232, 224, 0.08);
+  --lm-sidebar-surface: rgba(255, 122, 100, 0.14);
+  --lm-sidebar-surface-hover: rgba(240, 232, 224, 0.05);
+
+  /* Liquid-glass surface — translucent island over the dark canvas. */
+  --lm-sidebar-glass-fill-top: hsl(30 6% 13% / 0.82);
+  --lm-sidebar-glass-fill-bottom: hsl(30 8% 8% / 0.62);
+  --lm-sidebar-glass-border: rgba(255, 255, 255, 0.08);
+  --lm-sidebar-glass-sheen: rgba(255, 255, 255, 0.06);
+  --lm-sidebar-glass-blur: blur(22px) saturate(150%);
+  --lm-sidebar-glass-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.03),
+    1px 0 0 rgba(0, 0, 0, 0.35),
+    6px 0 24px -8px rgba(0, 0, 0, 0.45),
+    18px 0 60px -24px rgba(0, 0, 0, 0.60);
+  --lm-sidebar-divider: rgba(255, 255, 255, 0.06);
+
+  /* Active / hover states on glass */
+  --lm-sidebar-active-fill: rgba(255, 122, 100, 0.16);
+  --lm-sidebar-active-border: rgba(255, 122, 100, 0.45);
+  --lm-sidebar-active-text: #ffb1a3;
+  --lm-sidebar-active-glow: 0 0 0 1px rgba(255, 122, 100, 0.22), 0 4px 14px -4px rgba(255, 122, 100, 0.30);
+  --lm-sidebar-hover-fill: rgba(255, 255, 255, 0.045);
+
+  /* Surfaces */
+  --lm-surface-0: var(--lm-paper);
+  --lm-surface-1: #1a1918;
+  --lm-surface-2: #1f1e1c;
+  --lm-surface-3: #2a2826;
+  --lm-surface-4: #363330;
+
+  /* Text */
+  --lm-text-primary: #f0e8e0;
+  --lm-text-secondary: #bfb0a0;
+  --lm-text-tertiary: #8a7b6c;
+  --lm-text-ghost: #5c5048;
+
+  /* Borders */
+  --lm-border: rgba(240, 232, 224, 0.10);
+  --lm-border-strong: rgba(240, 232, 224, 0.18);
+  --lm-border-thick: 2px;
+  --lm-border-brutal: 3px;
+
+  /* Accents */
+  --lm-accent: var(--lm-coral);
+  --lm-accent-dim: rgba(255, 122, 100, 0.12);
+  --lm-accent-hover: #ff9484;
+  --lm-success: #16a34a;
+  --lm-success-dim: rgba(22, 163, 74, 0.10);
+  --lm-status-error: #dc2626;
+
+  /* Pillar colors */
+  --lm-pillar-creators: #ff7a64;
+  --lm-pillar-designs: #5d6bfa;
+  --lm-pillar-dump: #2eb8b4;
+
+  /* Scope pill shadow */
+  --lm-scope-pill-shadow: rgba(0, 0, 0, 0.25);
+
+  /* Shadows (hard, offset) */
+  --lm-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.30);
+  --lm-shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.40);
+  --lm-shadow-lg: 4px 4px 0 rgba(0, 0, 0, 0.50);
+  --lm-shadow-accent: 3px 3px 0 rgba(255, 138, 118, 0.25);
+  --lm-shadow-dark: 3px 3px 0 rgba(0, 0, 0, 0.60);
+
+  /* Timing */
+  --lm-duration-fast: 120ms;
+  --lm-duration-normal: 200ms;
+
+  /* Layout */
+  --lm-filter-height: 48px;
+  --lm-radius: 2px;
+}
+
+/* ── Brutalist utility classes ── */
+
+.lm-brutal {
+  font-family: var(--lm-font);
+}
+
+.lm-label {
+  font-family: var(--lm-font);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--lm-text-ghost);
+}
+
+.lm-value {
+  font-family: var(--lm-font);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--lm-text-secondary);
+}
+
+.lm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-family: var(--lm-font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  border: 2px solid var(--lm-border);
+  color: var(--lm-text-secondary);
+  background-color: transparent;
+  cursor: pointer;
+  transition: all var(--lm-duration-fast);
+  border-radius: var(--lm-radius);
+}
+
+.lm-chip:hover {
+  border-color: var(--lm-text-tertiary);
+  color: var(--lm-text-primary);
+}
+
+.lm-chip[data-active="true"] {
+  border-color: var(--lm-accent);
+  background-color: var(--lm-accent-dim);
+  color: var(--lm-accent);
+  box-shadow: var(--lm-shadow-accent);
+}
+
+.lm-btn-brutal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-family: var(--lm-font);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  background-color: var(--lm-ink);
+  color: var(--lm-paper);
+  border: 2px solid var(--lm-ink);
+  border-radius: var(--lm-radius);
+  box-shadow: var(--lm-shadow-md);
+  cursor: pointer;
+  transition: all var(--lm-duration-fast);
+}
+
+.lm-btn-brutal:hover {
+  background-color: var(--lm-accent);
+  border-color: var(--lm-accent);
+  color: #000;
+  box-shadow: var(--lm-shadow-accent);
+}
+
+.lm-btn-brutal:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.lm-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-family: var(--lm-font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  background-color: transparent;
+  color: var(--lm-text-tertiary);
+  border: 1px solid transparent;
+  border-radius: var(--lm-radius);
+  cursor: pointer;
+  transition: all var(--lm-duration-fast);
+}
+
+.lm-btn-ghost:hover {
+  border-color: var(--lm-border);
+  color: var(--lm-text-primary);
+  background-color: var(--lm-surface-2);
+}
+
+.lm-divider {
+  height: 1px;
+  background-color: var(--lm-border);
+}
+
+.lm-divider-thick {
+  height: 2px;
+  background-color: var(--lm-border-strong);
+}
+
+/* Animations */
+@keyframes lm-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes lm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lm-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes lm-slide-down {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes lm-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lm-toast-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.lm-animate-slide-right {
+  animation: lm-slide-right var(--lm-duration-normal) ease-out;
+}
+
+.lm-animate-fade-in {
+  animation: lm-fade-in var(--lm-duration-normal) ease-out;
+}
+
+.animate-sheet-slide-up-v7 {
+  animation: lm-slide-up var(--lm-duration-normal) ease-out;
+}
+
+.animate-sheet-slide-down-v7 {
+  animation: lm-slide-down var(--lm-duration-normal) ease-out;
+}
+
+.animate-toast-enter-v7 {
+  animation: lm-toast-enter var(--lm-duration-normal) ease-out;
+}
+
+.animate-toast-exit-v7 {
+  animation: lm-toast-exit var(--lm-duration-normal) ease-out;
+}
+
+/* ── Floating island ── */
+.lm-island {
+  position: relative;
+  background: var(--lm-surface-1);
+  border: none;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.30),
+    0 2px 8px rgba(0, 0, 0, 0.20);
+  overflow: hidden;
+}
+
+.lm-island-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+/* ── Search dock ── */
+.lm-search-dock-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  min-height: 42px;
+  border-radius: 999px;
+  border: 2px solid var(--lm-border-strong);
+  background-color: var(--lm-surface-2);
+  color: var(--lm-text-tertiary);
+  font-family: var(--lm-font);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: all var(--lm-duration-fast);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.30);
+}
+
+.lm-search-dock-btn:hover {
+  border-color: var(--lm-accent);
+  color: var(--lm-text-primary);
+  box-shadow: 0 0 20px rgba(255, 138, 118, 0.18);
+}
+
+.lm-search-dock-expanded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border-radius: 999px;
+  border: 2px solid var(--lm-ink);
+  background-color: var(--lm-surface-1);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.40);
+}
+
+.lm-search-dock-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  background: transparent;
+  outline: none;
+  font-family: var(--lm-font);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--lm-text-primary);
+}
+
+.lm-search-dock-input::placeholder {
+  color: var(--lm-text-ghost);
+  opacity: 1;
+}
+
+.lm-search-dock-loading {
+  margin-right: 12px;
+  flex-shrink: 0;
+  font-family: var(--lm-font);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--lm-coral);
+  white-space: nowrap;
+}
+
+.lm-search-dock-close {
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  color: var(--lm-text-ghost);
+  transition: color var(--lm-duration-fast);
+}
+
+.lm-search-dock-close:hover {
+  color: var(--lm-text-primary);
+}
+
+/* Search input placeholder in filter bar */
+.lm-search-input input::placeholder {
+  color: var(--lm-text-ghost);
+  opacity: 1;
+}
+
+/* ── Pack view animations ── */
+
+@keyframes pack-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pack-detail-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pack-asset-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Hide scrollbar on pack-card carousel while keeping scroll behavior */
+.pack-card-scroller::-webkit-scrollbar {
+  display: none;
+}
+.pack-card-scroller {
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+}
+
+/* Grid background subtle pattern */
+.lm-grid-bg {
+  background-image:
+    linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Shadow + Stroke (V17 — default panel style) ── */
+
+/* Sidebar: liquid glass override — hairline edge + soft ambient shadow.
+   The `.lm-liquid-glass-sidebar` utility paints the surface; this rule
+   only sets the rounded outer corners so the panel reads as a floating
+   island. Border-right and box-shadow are intentionally absent so the
+   utility class wins. */
+.lm-brutal > .hidden.md\:block > aside {
+  border-right: 1px solid var(--lm-sidebar-glass-border) !important;
+  border-top-right-radius: 14px !important;
+  border-bottom-right-radius: 14px !important;
+}
+
+/* Sidebar header divider — hairline */
+.lm-brutal > .hidden.md\:block > aside > div:first-child {
+  border-bottom: 1px solid var(--lm-sidebar-divider) !important;
+}
+
+/* Content area border when detail open — thin ink */
+.lm-brutal .md-sidebar-offset .lm-grid-bg {
+  border-right-width: 1px !important;
+  border-right-color: var(--lm-border) !important;
+}
+
+/* Detail panel: coral left stroke + shadow, round corners */
+.lm-brutal .md-sidebar-offset > div > aside {
+  border-left: 3px solid var(--lm-coral) !important;
+  box-shadow: -4px 0 24px rgba(32,23,16,0.06), -1px 0 6px rgba(32,23,16,0.03) !important;
+  border-top-left-radius: 8px !important;
+  border-bottom-left-radius: 8px !important;
+}
+
+/* Detail panel internal borders — softer */
+.lm-brutal .md-sidebar-offset > div > aside * {
+  border-color: rgba(32,23,16,0.08) !important;
+}
+
+/* Inner buttons — slightly rounder */
+.lm-brutal button {
+  border-radius: 6px;
+}
+
+/* Mobile sheet — stroke + shadow */
+.lm-brutal > div[role="dialog"] > div:last-child {
+  border-top: 3px solid var(--lm-coral) !important;
+  box-shadow: 0 -4px 24px rgba(32,23,16,0.08) !important;
+  border-top-left-radius: 16px !important;
+  border-top-right-radius: 16px !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Liquid-glass sidebar — translucent island over the warm
+   paper canvas. The body has a radial pillar halo at the
+   left edge that the backdrop-blur picks up and refracts
+   as warm tint. A top inset sheen catches the light; a
+   right inset highlight reads as the glass edge.
+   Inspired by Backlot's `.bl-liquid-glass`.
+   ═══════════════════════════════════════════════════════ */
+.lm-liquid-glass-sidebar {
+  background: linear-gradient(
+    180deg,
+    var(--lm-sidebar-glass-fill-top) 0%,
+    var(--lm-sidebar-glass-fill-bottom) 100%
+  );
+  backdrop-filter: var(--lm-sidebar-glass-blur);
+  -webkit-backdrop-filter: var(--lm-sidebar-glass-blur);
+  box-shadow: var(--lm-sidebar-glass-shadow);
+  isolation: isolate;
+  /* Note: positioning is set by the consumer (the aside uses Tailwind's
+     `fixed` class). The ::before sheen pseudo-element below uses `inset: 0`,
+     which works against any positioned ancestor — `fixed` already qualifies. */
+}
+
+/* Top sheen — the highlight that sells the glass surface */
+.lm-liquid-glass-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 75% 30% at 50% -8%,
+    var(--lm-sidebar-glass-sheen) 0%,
+    transparent 70%
+  );
+  z-index: 0;
+}
+
+/* Children must sit above the sheen */
+.lm-liquid-glass-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Graceful degradation for browsers without backdrop-filter */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lm-liquid-glass-sidebar {
+    background: var(--lm-surface-1);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Nav item — editorial. No fill, no chrome. Selected state
+   is pure typography: text color shift + bold + a sharp
+   3px accent bar on the left edge. The bar tints to the
+   active pillar (kiwi on cinema, indigo on designs, etc.)
+   because it reads from --lm-coral / --coral which the
+   [data-pillar] block re-binds per pillar.
+   ═══════════════════════════════════════════════════════ */
+.lm-glass-nav-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  background-color: transparent;
+  color: var(--lm-sidebar-text-muted);
+  transition:
+    color var(--lm-duration-fast) ease-out;
+}
+
+.lm-glass-nav-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  background-color: transparent;
+  transition: background-color var(--lm-duration-fast) ease-out;
+}
+
+.lm-glass-nav-item:hover {
+  color: var(--lm-sidebar-text);
+}
+
+.lm-glass-nav-item[data-active="true"] {
+  background: none;
+  color: var(--coral);
+}
+
+.lm-glass-nav-item[data-active="true"]::before {
+  background-color: var(--coral);
+}
+
+/* Filter row — same editorial language, narrower. The dot
+   bullet (when no icon) shrinks to a 3px accent square on
+   active so it reads as a typographic mark, not a glow. */
+.lm-glass-filter-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background-color: transparent;
+  color: var(--lm-sidebar-text-muted);
+  border-radius: 0;
+  transition:
+    color var(--lm-duration-fast) ease-out;
+}
+
+.lm-glass-filter-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background-color: transparent;
+  transition: background-color var(--lm-duration-fast) ease-out;
+}
+
+.lm-glass-filter-row:hover {
+  color: var(--lm-sidebar-text);
+}
+
+.lm-glass-filter-row[data-active="true"] {
+  background: none;
+  color: var(--coral);
+}
+
+.lm-glass-filter-row[data-active="true"]::before {
+  background-color: var(--coral);
+}
+
+/* Editorial sidebar text link — bare text, no chrome. Used for sign out
+   and similar secondary actions. Pillar-aware color on hover. */
+.lm-sidebar-text-link {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font-family: var(--lm-font, var(--font-mono));
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--lm-sidebar-text-ghost);
+  cursor: pointer;
+  transition: color var(--lm-duration-fast) ease-out;
+}
+.lm-sidebar-text-link:hover {
+  color: var(--coral);
+}
+
+/* Glass icon button (header chrome — collapse) */
+.lm-glass-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--lm-sidebar-glass-border);
+  color: var(--lm-sidebar-text-muted);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.30);
+  transition:
+    background-color var(--lm-duration-fast),
+    color var(--lm-duration-fast),
+    box-shadow var(--lm-duration-fast);
+}
+
+.lm-glass-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--lm-sidebar-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.40);
+}
+
+/* Logo wordmark on glass — hairline glyph shadow for depth. */
+.lm-glass-logo-letter {
+  font-size: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--lm-sidebar-text);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}

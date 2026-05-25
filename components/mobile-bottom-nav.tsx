@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, Search, Plus, User, LogOut, X } from "lucide-react";
+import { Home, Search, Plus, User, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
 
 interface MobileBottomNavUser {
@@ -217,16 +217,14 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
                         onSignOut();
                         setProfileOpen(false);
                       }}
-                      className="flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2.5 text-[11px] font-semibold uppercase tracking-widest transition-colors"
+                      className="self-start py-1 text-[10px] font-semibold uppercase tracking-[0.18em] transition-colors hover:text-[var(--coral)]"
                       style={{
                         fontFamily: "var(--font-mono)",
-                        borderColor: "var(--border-strong)",
                         backgroundColor: "transparent",
-                        color: "var(--text-secondary)",
+                        color: "var(--text-tertiary)",
                       }}
                     >
-                      <LogOut className="h-3.5 w-3.5" />
-                      Sign out
+                      sign out
                     </button>
                   )}
                 </div>

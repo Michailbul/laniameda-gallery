@@ -75,6 +75,9 @@ interface MasonryGridProps {
   exitingImageIds?: Set<string>;
   gapPx?: number;
   onDeleteImage?: (imageId: string) => void;
+  selectable?: boolean;
+  selectedAssetIds?: Set<string>;
+  onToggleAssetSelect?: (imageId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
@@ -155,6 +158,16 @@ function useColumnCount(compact: boolean): number {
 const DEFAULT_GAP_PX = 12;
 const PADDING_PX = 12;
 
+function resolveGridLayoutInput(image: GalleryImage): LayoutInput {
+  const preview = image.previewImages[0];
+  return {
+    width: preview?.width ?? image.width,
+    height: preview?.height ?? image.height,
+    kind: preview?.kind ?? image.kind,
+    contentType: preview?.contentType ?? image.contentType,
+  };
+}
+
 function useContentWidth(): [
   (el: HTMLDivElement | null) => void,
   number | null,
@@ -190,6 +203,9 @@ export function MasonryGrid({
   onImageSelect,
   onImageLoad,
   loading,
+  selectable = false,
+  selectedAssetIds,
+  onToggleAssetSelect,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -237,13 +253,7 @@ export function MasonryGrid({
       return null;
     }
     return packMasonry(
-      visibleImages.map(
-        (image): LayoutInput => ({
-          width: image.width,
-          height: image.height,
-          kind: image.kind,
-        }),
-      ),
+      visibleImages.map(resolveGridLayoutInput),
       {
         contentWidth,
         columnCount,
@@ -298,6 +308,13 @@ export function MasonryGrid({
                 initiallyLoaded={image.initiallyLoaded}
                 onLoad={onImageLoad}
                 index={originalIndex}
+                selectable={
+                  selectable &&
+                  (image.galleryItemType === "asset" ||
+                    image.galleryItemType === undefined)
+                }
+                selected={Boolean(selectedAssetIds?.has(image.id))}
+                onToggleSelect={onToggleAssetSelect}
               />
             </div>
           );

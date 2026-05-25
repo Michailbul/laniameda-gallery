@@ -21,6 +21,7 @@ Before constructing payloads or changing the ingest script, read these repo file
 - `convex/validators.ts`
 - `convex/ingest.ts`
 - `convex/agent_ingest.ts`
+- `convex/workflows.ts`
 - `app/api/ingest/route.ts`
 
 Use `references/schema-contract.md` for a quick map and `references/ingest-examples.md` for copy-ready examples.
@@ -53,6 +54,7 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 - Metadata updates for prompts, assets, and design inspirations
 - Idempotent deletes for prompts, assets, and design inspirations
 - Automatic pack sync for multi-asset prompt variations that share a prompt record
+- **Workflows**: multi-step presets/tutorials that bundle prompt + media steps under one record via `operation: "workflow"`
 
 ## Reading ingested content back (for agent handoff)
 
@@ -118,6 +120,56 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
+## Cinema Inspiration pillar (frames, no prompt)
+
+The `cinema-inspiration` pillar is for **cinematic frames, stills, and screenshots** — a reference vault of moments worth recreating. Unlike every other pillar, cinema frames **do not carry a prompt**. The cinematographic context lives in a dedicated `cinemaMetadata` struct on the asset.
+
+**Use a different mutation.** Cinema frames bypass the standard prompt-ingest contract entirely. Call the dedicated `cinemaInspiration:ingestCinemaFrame` Convex action instead of the generic ingest endpoint:
+
+```ts
+ctx.runAction(api.cinemaInspiration.ingestCinemaFrame, {
+  ownerUserId,
+  base64: imageBase64,
+  mimeType: "image/png",
+  fileName: "blade-runner-2049-001.png",
+  ingestSource: "agent",
+  cinemaMetadata: {
+    movieTitle: "Blade Runner 2049",
+    director: "Denis Villeneuve",
+    year: 2017,
+    scene: "Sea wall confrontation at Wallace HQ",
+    cinematographer: "Roger Deakins",
+    lens: "Panavision Primo 35mm",
+    aperture: "T1.4",
+    composition: "Centered vanishing point. Strong horizontal banding from monolithic wall. Subject in lower-third silhouette.",
+    lighting: "Single warm amber key from upper-right; deep cool ambient fill in shadows. Practical glow from holographic surfaces.",
+    cameraMovement: "Locked-off static shot.",
+    colorPalette: "Amber #d97742 against teal #2e4a55. ~92% of pixels in two-tone split.",
+    mood: "Apocalyptic stillness. Industrial sublime.",
+    agentDescription: "Optional: full cinematographic read used by downstream agents.",
+  },
+  ingestKey: "cinema:blade-runner-2049:wallace-confrontation:001",  // optional, makes ingest idempotent
+});
+```
+
+Required fields:
+- `ownerUserId`, `base64`, `cinemaMetadata.movieTitle`
+
+Everything else in `cinemaMetadata` is optional. Use `ingestKey` for idempotency when the same source is ingested twice.
+
+**No prompt is created.** No `prompts` row, no `promptType`, no `final_prompt`. The asset is stored with `pillar: "cinema-inspiration"`, `assetRole: "cinema_frame"`, `kind: "image"`, and `cinemaMetadata` populated. The image embedding is still computed automatically via `reindexAsset` — semantic search works the same way.
+
+**Storage:** image bytes go to R2 via the same `storeBlobToR2` path used for agent ingest. A 420px-wide thumbnail is generated and also stored to R2.
+
+**Manual UI ingest:** Michael uses `components/cinema-upload-panel.tsx` (drag-and-drop batch upload) for fast manual ingestion. Same backend contract.
+
+**Codex-driven enrichment:** when the codex agent ingests cinema frames, it should populate `cinemaMetadata.agentDescription` with a full cinematographic read (lens, focal length, composition principle, lighting setup, color theory, implied camera movement). See `agent-docs/features/cinema-inspiration/CODEX_INGEST_PRD.md` for the full contract, including the planned GPT Image 2 annotated-overlay feature.
+
+**Do NOT:**
+- ingest cinema frames through `agent_ingest:ingestFromAgentPayload` (will require a prompt, which doesn't make sense)
+- attach a prompt to a cinema asset — they are intentionally promptless
+- use cinema pillar for AI-generated images — those go to `creators` or `dump`
+
 ## Multi-stage workflows (prompt lineage)
 
 When a generation was produced from an earlier prompt or asset — e.g. a Seedance 2 video made from a GPT-Image-2 starting frame — capture the chain with `upstreamInputs`. Without this, the relationship is lost and agents cannot reproduce or remix the workflow.
@@ -175,6 +227,53 @@ Rules:
 - Lineage rows are idempotent on `(owner, target, source, role)`. Re-ingest with the same keys updates `stageOrder`/`notes` without duplicating rows.
 - Unresolvable upstream `id`/`ingestKey` fails the ingest rather than silently dropping the link — ingest the upstream step first.
 
+## Workflows (presets / tutorials)
+
+A **workflow** bundles several prompt + media steps under one organizing record — a reusable preset or tutorial. Use it when the knowledge is multi-step (e.g. an image-gen prompt + result images, then a video-gen prompt + result video) and worth keeping together rather than as scattered one-shot prompts.
+
+Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the workflow row and ingests each step through the canonical ingest path — so every step's prompt and media also stay normal, independently-searchable gallery entries.
+
+```bash
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "operation": "workflow",
+  "title": "Neon alley cinematic loop",
+  "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",
+  "agentInstructions": "Generate the still first, then feed it as the Seedance start frame.",
+  "pillar": "creators",
+  "tagNames": ["cinematic", "neon"],
+  "ingestKey": "creators:neon-alley:workflow:v1",
+  "steps": [
+    {
+      "stepLabel": "Base still",
+      "promptText": "cinematic neon start frame, rain-slick street, 35mm",
+      "promptType": "image_gen",
+      "generationType": "image_gen",
+      "modelName": "GPT-Image-2",
+      "modelProvider": "openai",
+      "media": [{ "filePath": "/path/to/start-frame.png" }]
+    },
+    {
+      "stepLabel": "Animate",
+      "promptText": "dolly-in 5s, rain intensifies, neon flicker",
+      "promptType": "video_gen",
+      "generationType": "video_gen",
+      "modelName": "Seedance 2.0",
+      "modelProvider": "other",
+      "media": [{ "filePath": "/path/to/output.mp4" }]
+    }
+  ]
+}'
+```
+
+Rules:
+
+- `title` and `pillar` are required; provide at least one step.
+- Each step is one prompt. `media` is an array — multiple images in a step all attach to that step's prompt. A step with several images is `media: [{...}, {...}]`.
+- Step media accepts `filePath`/`imagePath` (read to base64) or `url`. Videos work the same way (`.mp4`/`.mov`/`.webm`).
+- A prompt-only step needs `allowPromptOnly: true` on that step — same hard rule as elsewhere.
+- `ingestKey` makes the whole workflow idempotent; per-step `promptIngestKey` and per-media `ingestKey` are derived from it when omitted, so re-running is safe.
+- The workflow's cover thumbnail is auto-pinned from the first step's media.
+
 ## CRITICAL: Never save without an image unless user approves
 
 **Do NOT use `allowPromptOnly: true` without explicit user approval.** This is a hard rule — no exceptions, no silent fallbacks.
@@ -197,7 +296,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
 - **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
-- Always set `pillar` when possible. The default keys are `creators`, `cars`, `designs`, and `dump`, but custom user pillar keys such as `inspirations` are valid.
+- Always set `pillar` when possible. The default keys are `creators`, `designs`, `dump`, and `cinema-inspiration`, but custom user pillar keys such as `inspirations` are valid. **Cinema frames use a dedicated mutation** — see the Cinema Inspiration pillar section.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.

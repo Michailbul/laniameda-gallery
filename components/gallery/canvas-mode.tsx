@@ -16,11 +16,11 @@ const CanvasView = dynamic(
     loading: () => (
       <div
         className="flex h-full w-full items-center justify-center"
-        style={{ color: "var(--v7-text-ghost)" }}
+        style={{ color: "var(--lm-text-ghost)" }}
       >
         <span
           style={{
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             fontSize: "11px",
             textTransform: "uppercase",
             letterSpacing: "0.16em",
@@ -295,12 +295,12 @@ function CanvasNotice({ message }: { message: string }) {
     >
       <div
         style={{
-          fontFamily: "var(--v7-font)",
+          fontFamily: "var(--lm-font)",
           fontSize: "10px",
           fontWeight: 800,
           letterSpacing: "0.16em",
           textTransform: "uppercase",
-          color: "var(--v7-coral)",
+          color: "var(--lm-coral)",
           marginBottom: "6px",
         }}
       >
@@ -308,10 +308,10 @@ function CanvasNotice({ message }: { message: string }) {
       </div>
       <p
         style={{
-          fontFamily: "var(--v7-font)",
+          fontFamily: "var(--lm-font)",
           fontSize: "12px",
           lineHeight: 1.5,
-          color: "var(--v7-text-primary)",
+          color: "var(--lm-text-primary)",
         }}
       >
         {message}

@@ -11,6 +11,7 @@ import {
   resolveAspect,
   resolveColumnSpan,
   resolveLayoutAspect,
+  resolveLayoutKind,
   rowSpanForHeight,
   ROW_UNIT_PX,
   VIDEO_CARD_COLUMN_SPAN,
@@ -53,6 +54,20 @@ describe("resolveAspect", () => {
   });
 });
 
+describe("resolveLayoutKind", () => {
+  test("recognizes videos from content type when kind metadata is missing", () => {
+    expect(resolveLayoutKind({ contentType: "video/mp4" })).toBe("video");
+    expect(resolveLayoutKind({ contentType: "VIDEO/QUICKTIME" })).toBe("video");
+    expect(resolveLayoutKind({ contentType: "image/png" })).toBe("image");
+  });
+
+  test("treats video content type as authoritative over stale image kind", () => {
+    expect(
+      resolveLayoutKind({ kind: "image", contentType: "video/mp4" }),
+    ).toBe("video");
+  });
+});
+
 describe("resolveLayoutAspect", () => {
   test("preserves native video aspect instead of stretching the slot", () => {
     expect(
@@ -66,6 +81,13 @@ describe("resolveLayoutAspect", () => {
   test("uses landscape video layout for square poster dimensions", () => {
     expect(
       resolveLayoutAspect({ width: 1024, height: 1024, kind: "video" }),
+    ).toBeCloseTo(16 / 9, 4);
+    expect(
+      resolveLayoutAspect({
+        width: 1024,
+        height: 1024,
+        contentType: "video/mp4",
+      }),
     ).toBeCloseTo(16 / 9, 4);
   });
 });
@@ -84,6 +106,12 @@ describe("resolveColumnSpan", () => {
         geometry4col1200(),
       ),
     ).toBe(1);
+    expect(
+      resolveColumnSpan(
+        { width: 1024, height: 1024, contentType: "video/mp4" },
+        geometry4col1200(),
+      ),
+    ).toBe(VIDEO_CARD_COLUMN_SPAN);
   });
 
   test("keeps videos single-column on one-column layouts", () => {

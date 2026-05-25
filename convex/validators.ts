@@ -221,8 +221,33 @@ export const assetRoleValidator = v.optional(v.union(
   v.literal("reference"),
   v.literal("inspiration_capture"),
   v.literal("workflow_asset"),
+  v.literal("cinema_frame"),
   v.literal("other"),
 ));
+
+// Cinema metadata — used by the cinema-inspiration pillar. Frames have no prompt;
+// the metadata describes the source film and any cinematographic notes (manual or
+// agent-generated). All fields optional except movieTitle, which is the only hard
+// requirement at ingest time.
+export const cinemaMetadataValidator = v.optional(
+  v.object({
+    movieTitle: v.string(),
+    director: v.optional(v.string()),
+    year: v.optional(v.number()),
+    scene: v.optional(v.string()),
+    timecode: v.optional(v.string()),
+    cinematographer: v.optional(v.string()),
+    lens: v.optional(v.string()),
+    aperture: v.optional(v.string()),
+    composition: v.optional(v.string()),
+    lighting: v.optional(v.string()),
+    cameraMovement: v.optional(v.string()),
+    colorPalette: v.optional(v.string()),
+    mood: v.optional(v.string()),
+    agentDescription: v.optional(v.string()),
+    annotatedAssetId: v.optional(v.id("assets")),
+  }),
+);
 
 export const ingestSourceValidator = v.optional(v.union(
   v.literal("api"),

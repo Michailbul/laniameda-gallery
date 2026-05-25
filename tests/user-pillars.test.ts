@@ -22,7 +22,7 @@ describe("user pillars", () => {
     });
 
     expect(pillars.map((pillar) => pillar.key)).toContain("creators");
-    expect(pillars.map((pillar) => pillar.key)).toContain("cars");
+    expect(pillars.map((pillar) => pillar.key)).toContain("designs");
     expect(pillars.map((pillar) => pillar.key)).toContain("inspirations");
     expect(
       pillars.find((pillar) => pillar.key === "inspirations")?.color,

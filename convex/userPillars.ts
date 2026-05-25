@@ -11,14 +11,6 @@ const DEFAULT_PILLARS = [
     sortOrder: 10,
   },
   {
-    key: "cars",
-    label: "Cars",
-    description: "Cinematic automotive references and prompts.",
-    color: "#e5534b",
-    icon: "car",
-    sortOrder: 20,
-  },
-  {
     key: "designs",
     label: "Designs",
     description: "Websites, apps, components, and UI references.",
@@ -33,6 +25,14 @@ const DEFAULT_PILLARS = [
     color: "#2eb8b4",
     icon: "archive",
     sortOrder: 40,
+  },
+  {
+    key: "cinema-inspiration",
+    label: "Cinema Inspiration",
+    description: "Cinematic frames, stills, and screenshots — a reference vault for composition, lensing, and mood.",
+    color: "#a4d65e",
+    icon: "film",
+    sortOrder: 50,
   },
 ] as const;
 

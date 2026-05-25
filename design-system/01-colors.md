@@ -152,21 +152,20 @@ For occasional dark UI elements (brutalist buttons, mobile bottom nav overlays):
 
 ## Pillar Theming
 
-The gallery organizes content into 4 **pillars**, each with its own accent color that dynamically overrides the amber ramp via CSS `[data-pillar]` attribute selectors.
+The gallery organizes content into 3 **pillars**, each with its own accent color that dynamically overrides the amber ramp via CSS `[data-pillar]` attribute selectors.
 
 ### Pillar Accent Map
 
 | Pillar | Accent Name | `--amber-9` | `--pillar-r,g,b` | Emotional Quality |
 |--------|-------------|-------------|-------------------|-------------------|
 | **creators** | Ember Coral | `#ff7a64` | `255, 122, 100` | Warm, editorial, fashion-forward |
-| **cars** | Crimson Heat | `#e5534b` | `232, 84, 74` | Speed, fire, mechanical energy |
 | **designs** | Electric Indigo | `#5d6bfa` | `93, 107, 250` | Clean, digital, UI precision |
 | **dump** | Teal Catch-all | `#2eb8b4` | `46, 184, 180` | Neutral, cool, relaxed utility |
 
 ### How Pillar Theming Works
 
 1. A `data-pillar` attribute is set on a parent element (typically `<html>` or a layout wrapper)
-2. CSS `[data-pillar="cars"]` selectors override `--amber-*`, `--coral`, `--pillar-r/g/b`, `--accent-*`, and `--warm-accent`
+2. CSS `[data-pillar="creators"]` selectors override `--amber-*`, `--coral`, `--pillar-r/g/b`, `--accent-*`, and `--warm-accent`
 3. All interactive elements automatically pick up the new accent via existing token references
 4. Transitions between pillars use `transition: color 300ms ease, background-color 300ms ease, border-color 300ms ease, box-shadow 300ms ease`
 
@@ -198,7 +197,6 @@ Each pillar also has a "warm" RGB variant for secondary gradients:
 | Pillar | `--pillar-warm-r,g,b` |
 |--------|-----------------------|
 | creators | `232, 97, 79` |
-| cars | `200, 66, 59` |
 | designs | `75, 88, 232` |
 | dump | `37, 163, 159` |
 

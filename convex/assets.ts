@@ -1,7 +1,7 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
-import { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   reconcileAssetPackMembership,
   syncPromptAssetPack,
@@ -21,6 +21,7 @@ import {
 } from "./authz";
 import {
   assetRoleValidator,
+  cinemaMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
@@ -93,6 +94,7 @@ export const createAsset = mutation({
     generationType: generationTypeValidator,
     assetRole: assetRoleValidator,
     ingestSource: ingestSourceValidator,
+    cinemaMetadata: cinemaMetadataValidator,
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -149,6 +151,7 @@ export const createAsset = mutation({
       generationType: args.generationType,
       assetRole: args.assetRole,
       ingestSource: args.ingestSource,
+      cinemaMetadata: args.cinemaMetadata,
       createdAt,
     });
 
@@ -621,6 +624,11 @@ const buildSearchHaystack = (
     .join(" ")
     .toLowerCase();
 
+const galleryAssetFacetsValidator = v.object({
+  totalCount: v.number(),
+  modelCounts: v.array(v.object({ name: v.string(), count: v.number() })),
+});
+
 export const listGalleryAssets = query({
   args: {
     ownerUserId: v.string(),
@@ -641,6 +649,15 @@ export const listGalleryAssets = query({
     }
 
     const limit = Math.min(args.limit ?? 100, 200);
+    const hasPostQueryFilters = Boolean(
+      (args.tagIds && args.tagIds.length > 0) ||
+        (args.folderId && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
+        (args.modelName && (args.pillar || args.folderId || args.assetRole || args.kind)) ||
+        (args.pillar && (args.folderId || args.modelName || args.kind)) ||
+        (args.assetRole && (args.folderId || args.modelName || args.kind)) ||
+        args.search,
+    );
+    const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 600) : limit;
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
@@ -651,28 +668,69 @@ export const listGalleryAssets = query({
     const kind = args.kind;
     const ownerScopedAssets = (
       await Promise.all(
-        ownerUserIds.map(async (ownerCandidate) =>
-          await (pillar
-            ? ctx.db
-                .query("assets")
-                .withIndex("by_owner_pillar_createdAt", (q) =>
-                  q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
-                )
-            : kind
-              ? ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_kind_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
-                  )
-              : ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-                  )
-          )
+        ownerUserIds.map(async (ownerCandidate) => {
+          if (args.folderId) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_folder_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (modelNameFilter) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_modelName_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (pillar && assetRole) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (pillar) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_pillar_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (assetRole) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_assetRole_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (kind) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_kind_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          return await ctx.db
+            .query("assets")
+            .withIndex("by_owner_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+            )
             .order("desc")
-            .take(limit),
-        ),
+            .take(queryTake);
+        }),
       )
     ).flat();
 
@@ -743,6 +801,63 @@ export const listGalleryAssets = query({
     }
 
     return await hydrateGalleryAssetResults(ctx, selectedAssets);
+  },
+});
+
+export const galleryAssetFacets = query({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
+  },
+  returns: galleryAssetFacetsValidator,
+  handler: async (ctx, args) => {
+    let assets: Doc<"assets">[];
+    if (args.ownerUserId) {
+      const ownerUserId = args.ownerUserId.trim();
+      if (!ownerUserId) {
+        throw new ConvexError("ownerUserId is required when provided.");
+      }
+      const rows: Doc<"assets">[] = [];
+      for (const ownerCandidate of resolveUserIdCandidates(ownerUserId)) {
+        const rowsForOwner = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+          )
+          .collect();
+        rows.push(...rowsForOwner);
+      }
+      assets = dedupeAssetIds(rows);
+    } else if (args.isPublic) {
+      assets = await ctx.db
+        .query("assets")
+        .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
+        .collect();
+    } else {
+      assets = await ctx.db.query("assets").collect();
+    }
+
+    const modelCountsByKey = new Map<string, { name: string; count: number }>();
+    for (const asset of assets) {
+      const trimmed = asset.modelName?.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      const existing = modelCountsByKey.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        modelCountsByKey.set(key, { name: trimmed, count: 1 });
+      }
+    }
+
+    return {
+      totalCount: assets.length,
+      modelCounts: Array.from(modelCountsByKey.values()).sort((left, right) => {
+        const countDiff = right.count - left.count;
+        if (countDiff !== 0) return countDiff;
+        return left.name.localeCompare(right.name);
+      }),
+    };
   },
 });
 
@@ -908,6 +1023,93 @@ export const setAssetCuration = mutation({
       isPublic: nextIsPublic,
       isFeatured: nextIsFeatured,
       curatedAt,
+    };
+  },
+});
+
+const BULK_CURATION_MAX = 200;
+
+export const bulkSetAssetCuration = mutation({
+  args: {
+    assetIds: v.array(v.id("assets")),
+    actorUserId: v.string(),
+    isPublic: v.boolean(),
+    isFeatured: v.optional(v.boolean()),
+    adminSecret: v.string(),
+  },
+  returns: v.object({
+    updatedCount: v.number(),
+    skippedCount: v.number(),
+    isPublic: v.boolean(),
+    curatedAt: v.number(),
+    updatedAssetIds: v.array(v.id("assets")),
+    missingAssetIds: v.array(v.id("assets")),
+  }),
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.CURATION_ADMIN_SECRET;
+    if (!expectedSecret || args.adminSecret !== expectedSecret) {
+      throw new ConvexError("Unauthorized curator request.");
+    }
+
+    const actorUserId = args.actorUserId.trim();
+    if (!actorUserId) {
+      throw new ConvexError("actorUserId is required.");
+    }
+
+    const allowedUserIds = getCuratorUserIdsFromEnv();
+    if (allowedUserIds.length === 0) {
+      throw new ConvexError("Curator user list is not configured.");
+    }
+
+    const canCurate = canActorAccessByUserId(actorUserId, allowedUserIds);
+    if (!canCurate) {
+      throw new ConvexError("Forbidden curator.");
+    }
+
+    if (args.assetIds.length === 0) {
+      throw new ConvexError("At least one assetId is required.");
+    }
+    if (args.assetIds.length > BULK_CURATION_MAX) {
+      throw new ConvexError(
+        `Bulk curation is limited to ${BULK_CURATION_MAX} assets per request.`,
+      );
+    }
+
+    const uniqueAssetIds = Array.from(new Set(args.assetIds));
+    const curatedAt = Date.now();
+    const nextIsPublic = args.isPublic;
+    const updatedAssetIds: Id<"assets">[] = [];
+    const missingAssetIds: Id<"assets">[] = [];
+
+    for (const assetId of uniqueAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        missingAssetIds.push(assetId);
+        continue;
+      }
+
+      const nextIsFeatured =
+        args.isFeatured !== undefined
+          ? args.isFeatured && nextIsPublic
+          : Boolean(asset.isFeatured && nextIsPublic);
+
+      await ctx.db.patch(assetId, {
+        isPublic: nextIsPublic,
+        isFeatured: nextIsFeatured,
+        curatedByUserId: actorUserId,
+        curatedAt,
+      });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+      updatedAssetIds.push(assetId);
+    }
+
+    return {
+      updatedCount: updatedAssetIds.length,
+      skippedCount: missingAssetIds.length,
+      isPublic: nextIsPublic,
+      curatedAt,
+      updatedAssetIds,
+      missingAssetIds,
     };
   },
 });

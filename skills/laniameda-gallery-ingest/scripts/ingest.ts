@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
 
 type Pillar = string;
-type Operation = "create" | "update" | "delete";
+type Operation = "create" | "update" | "delete" | "workflow";
 type Target = "prompt" | "asset" | "designInspiration";
 type GenerationType = "image_gen" | "video_gen" | "ui_design" | "workflow" | "other";
 type PromptType =
@@ -191,7 +191,45 @@ type DeleteItem = {
   ingestKey?: string;
 };
 
-type SkillItem = CreateItem | UpdateItem | DeleteItem;
+type WorkflowStepMedia = {
+  filePath?: string;
+  imagePath?: string;
+  url?: string;
+  imageUrl?: string;
+  ingestKey?: string;
+  fileName?: string;
+  contentType?: string;
+};
+
+type WorkflowStepInput = {
+  stepLabel?: string;
+  promptText?: string;
+  promptSections?: PromptSectionsInput;
+  promptType?: PromptType;
+  generationType?: GenerationType;
+  workflowType?: WorkflowType;
+  modelName?: string;
+  modelProvider?: ModelProvider;
+  tagNames?: string[];
+  promptIngestKey?: string;
+  allowPromptOnly?: boolean;
+  media?: WorkflowStepMedia[];
+};
+
+type WorkflowItem = {
+  operation: "workflow";
+  ingestKey?: string;
+  title: string;
+  description?: string;
+  agentInstructions?: string;
+  pillar?: Pillar;
+  tagNames?: string[];
+  isPublic?: boolean;
+  isFeatured?: boolean;
+  steps: WorkflowStepInput[];
+};
+
+type SkillItem = CreateItem | UpdateItem | DeleteItem | WorkflowItem;
 
 type SkillActionResult = {
   target?: Target;
@@ -199,6 +237,8 @@ type SkillActionResult = {
   promptId?: string;
   assetId?: string;
   designInspirationId?: string;
+  workflowId?: string;
+  stepCount?: number;
 };
 
 type SkillResult = SkillActionResult & {
@@ -264,6 +304,10 @@ function isUpdateItem(item: SkillItem): item is UpdateItem {
 
 function isDeleteItem(item: SkillItem): item is DeleteItem {
   return getOperation(item) === "delete";
+}
+
+function isWorkflowItem(item: SkillItem): item is WorkflowItem {
+  return getOperation(item) === "workflow";
 }
 
 function assertSelector(item: UpdateItem | DeleteItem) {
@@ -449,10 +493,105 @@ export function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<s
   return args;
 }
 
+// Workflows bundle multiple prompt + media steps under one organizing record.
+// Each step is ingested through the canonical ingest path on the backend, so
+// step prompts/assets stay normal, independently-searchable gallery entries.
+export function buildWorkflowArgs(
+  item: WorkflowItem,
+  ownerUserId: string,
+): Record<string, unknown> {
+  const title = item.title?.trim();
+  if (!title) {
+    throw new Error("Workflow requires a `title`.");
+  }
+  const pillar = item.pillar?.trim();
+  if (!pillar) {
+    throw new Error("Workflow requires a `pillar`.");
+  }
+  if (!item.steps?.length) {
+    throw new Error("Workflow requires at least one step.");
+  }
+
+  const steps = item.steps.map((step, index) => {
+    const media = (step.media ?? []).map((entry) => {
+      const filePath = entry.filePath ?? entry.imagePath;
+      const url = entry.url ?? entry.imageUrl;
+      const out: Record<string, unknown> = {};
+      assignIfDefined(out, "ingestKey", entry.ingestKey);
+      if (filePath) {
+        if (!existsSync(filePath)) {
+          throw new Error(`File not found: ${filePath}`);
+        }
+        const fileBuffer = readFileSync(filePath);
+        const resolvedFileName = entry.fileName ?? basename(filePath);
+        out.file = {
+          base64: fileBuffer.toString("base64"),
+          fileName: resolvedFileName,
+          contentType: entry.contentType ?? guessMime(resolvedFileName),
+        };
+      } else if (url) {
+        out.url = url;
+      } else {
+        throw new Error(
+          `Workflow step ${index + 1} media entry needs a filePath or url.`,
+        );
+      }
+      return out;
+    });
+
+    const stepArgs: Record<string, unknown> = {};
+    assignIfDefined(stepArgs, "stepLabel", step.stepLabel);
+    assignIfDefined(stepArgs, "promptText", step.promptText?.trim());
+    assignIfDefined(stepArgs, "promptSections", step.promptSections);
+    assignIfDefined(stepArgs, "promptType", step.promptType);
+    assignIfDefined(stepArgs, "generationType", step.generationType);
+    assignIfDefined(stepArgs, "workflowType", step.workflowType);
+    assignIfDefined(stepArgs, "modelName", step.modelName);
+    assignIfDefined(stepArgs, "modelProvider", step.modelProvider);
+    if (step.tagNames?.length) stepArgs.tagNames = step.tagNames;
+    assignIfDefined(stepArgs, "promptIngestKey", step.promptIngestKey);
+    if (step.allowPromptOnly) stepArgs.allowPromptOnly = true;
+    if (media.length) stepArgs.media = media;
+    return stepArgs;
+  });
+
+  const args: Record<string, unknown> = {
+    ownerUserId,
+    title,
+    pillar,
+    steps,
+    ingestKey:
+      item.ingestKey ??
+      createHash("sha256")
+        .update(
+          [
+            "workflow",
+            title,
+            ...item.steps.map((step) => step.promptText ?? ""),
+          ].join("|"),
+        )
+        .digest("hex")
+        .slice(0, 24),
+  };
+  assignIfDefined(args, "description", item.description);
+  assignIfDefined(args, "agentInstructions", item.agentInstructions);
+  if (item.tagNames?.length) args.tagNames = item.tagNames;
+  if (item.isPublic) args.isPublic = true;
+  if (item.isFeatured) args.isFeatured = true;
+  return args;
+}
+
 export function buildActionRequest(
   item: SkillItem,
   ownerUserId: string,
 ): { path: string; args: Record<string, unknown> } {
+  if (isWorkflowItem(item)) {
+    return {
+      path: "workflows:ingestWorkflowFromApi",
+      args: buildWorkflowArgs(item, ownerUserId),
+    };
+  }
+
   if (isCreateItem(item)) {
     return {
       path: "ingest:ingestFromApi",
@@ -474,6 +613,9 @@ export function buildActionRequest(
 }
 
 function summarizeInput(item: SkillItem): string {
+  if (isWorkflowItem(item)) {
+    return `workflow:${item.title ?? item.ingestKey ?? "unknown"}`;
+  }
   if (isDeleteItem(item)) {
     return `${item.target}:${item.ingestKey ?? item.id ?? "unknown"}`;
   }

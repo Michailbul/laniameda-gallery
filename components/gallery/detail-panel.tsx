@@ -43,12 +43,12 @@ interface CarouselImage {
   contentType?: string;
 }
 
-interface V72DetailPanelProps {
+interface GalleryDetailPanelProps {
   image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -130,7 +130,7 @@ const ACTIONS = [
 const DETAIL_TABS = ["INFO", "ACTIONS", "MANAGE"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
-export function V72DetailPanel({
+export function GalleryDetailPanel({
   image,
   carouselImages,
   onClose,
@@ -162,7 +162,7 @@ export function V72DetailPanel({
   onReplaceThumbnail,
   replacingThumbnail = false,
   toast: externalToast,
-}: V72DetailPanelProps) {
+}: GalleryDetailPanelProps) {
   const coralCtx = useCoralToastSafe();
   const toastFn = externalToast ?? coralCtx?.toast ?? null;
   const { modelName, tagNames } = image;
@@ -442,9 +442,9 @@ export function V72DetailPanel({
     <div
       ref={panelRef}
       tabIndex={-1}
-      className="flex h-full flex-col v7-animate-slide-right"
+      className="flex h-full flex-col lm-animate-slide-right"
       key={image.id}
-      style={{ fontFamily: "var(--v7-font)" }}
+      style={{ fontFamily: "var(--lm-font)" }}
     >
       {/* ── Header Bar ── */}
       <div
@@ -452,7 +452,7 @@ export function V72DetailPanel({
         style={{
           height: "40px",
           backgroundColor: "transparent",
-          borderBottom: "1px solid var(--v7-border)",
+          borderBottom: "1px solid var(--lm-border)",
           flexShrink: 0,
         }}
       >
@@ -466,7 +466,7 @@ export function V72DetailPanel({
               style={{
                 width: "26px",
                 height: "26px",
-                color: "var(--v7-text-secondary)",
+                color: "var(--lm-text-secondary)",
                 borderRadius: "6px",
               }}
               aria-label="Previous image"
@@ -481,7 +481,7 @@ export function V72DetailPanel({
                 fontSize: "11px",
                 fontVariantNumeric: "tabular-nums",
                 fontWeight: 600,
-                color: "var(--v7-text-tertiary)",
+                color: "var(--lm-text-tertiary)",
               }}
             >
               {imagePosition}
@@ -496,7 +496,7 @@ export function V72DetailPanel({
               style={{
                 width: "26px",
                 height: "26px",
-                color: "var(--v7-text-secondary)",
+                color: "var(--lm-text-secondary)",
                 borderRadius: "6px",
               }}
               aria-label="Next image"
@@ -512,7 +512,7 @@ export function V72DetailPanel({
           style={{
             width: "26px",
             height: "26px",
-            color: "var(--v7-text-tertiary)",
+            color: "var(--lm-text-tertiary)",
             borderRadius: "6px",
           }}
         >
@@ -528,7 +528,7 @@ export function V72DetailPanel({
           style={{
             aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
             border: "none",
-            borderBottom: "1px solid var(--v7-border)",
+            borderBottom: "1px solid var(--lm-border)",
           }}
         >
           {isWebBookmark && designView?.sourceUrl ? (
@@ -554,7 +554,7 @@ export function V72DetailPanel({
                   referrerPolicy="no-referrer"
                   sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
                   className="absolute inset-0 h-full w-full"
-                  style={{ border: 0, background: "var(--v7-paper)" }}
+                  style={{ border: 0, background: "var(--lm-paper)" }}
                 />
               )}
               <div className="absolute right-2 top-2 z-20 flex items-center gap-1">
@@ -567,9 +567,9 @@ export function V72DetailPanel({
                     fontWeight: 700,
                     letterSpacing: "0.04em",
                     backgroundColor: "rgba(0,0,0,0.75)",
-                    color: "var(--v7-paper)",
+                    color: "var(--lm-paper)",
                     border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: "var(--v7-radius)",
+                    borderRadius: "var(--lm-radius)",
                     cursor: "pointer",
                   }}
                   aria-pressed={showLivePreview}
@@ -586,10 +586,10 @@ export function V72DetailPanel({
                     fontSize: "10px",
                     fontWeight: 700,
                     letterSpacing: "0.04em",
-                    backgroundColor: "var(--v7-coral)",
-                    color: "var(--v7-paper)",
-                    border: "1px solid var(--v7-coral)",
-                    borderRadius: "var(--v7-radius)",
+                    backgroundColor: "var(--lm-coral)",
+                    color: "var(--lm-paper)",
+                    border: "1px solid var(--lm-coral)",
+                    borderRadius: "var(--lm-radius)",
                   }}
                   aria-label="Open source URL in a new tab"
                 >
@@ -673,9 +673,9 @@ export function V72DetailPanel({
                     height: "6px",
                     backgroundColor:
                       i === carouselIndex
-                        ? "var(--v7-coral)"
+                        ? "var(--lm-coral)"
                         : "rgba(255,255,255,0.4)",
-                    borderRadius: "var(--v7-radius)",
+                    borderRadius: "var(--lm-radius)",
                     transition: "all 200ms",
                   }}
                   aria-label={`Image ${i + 1} of ${allSlides.length}`}
@@ -697,9 +697,9 @@ export function V72DetailPanel({
                 width: "28px",
                 height: "28px",
                 backgroundColor: "rgba(0, 0, 0, 0.8)",
-                color: "var(--v7-paper)",
+                color: "var(--lm-paper)",
                 border: "2px solid rgba(255,255,255,0.2)",
-                borderRadius: "var(--v7-radius)",
+                borderRadius: "var(--lm-radius)",
               }}
               aria-label="Previous carousel image"
             >
@@ -719,9 +719,9 @@ export function V72DetailPanel({
                   width: "28px",
                   height: "28px",
                   backgroundColor: "rgba(0, 0, 0, 0.8)",
-                  color: "var(--v7-paper)",
+                  color: "var(--lm-paper)",
                   border: "2px solid rgba(255,255,255,0.2)",
-                  borderRadius: "var(--v7-radius)",
+                  borderRadius: "var(--lm-radius)",
                 }}
                 aria-label="Next carousel image"
               >
@@ -734,7 +734,7 @@ export function V72DetailPanel({
         <div
           className="flex flex-wrap items-center gap-1.5 px-3 py-2"
           style={{
-            borderBottom: "1px solid var(--v7-border)",
+            borderBottom: "1px solid var(--lm-border)",
           }}
         >
           {(modelName || (isDesignView && designView?.sourceDomain)) && (
@@ -743,8 +743,8 @@ export function V72DetailPanel({
                 padding: "2px 8px",
                 fontSize: "10px",
                 fontWeight: 700,
-                backgroundColor: "var(--v7-ink)",
-                color: "var(--v7-coral)",
+                backgroundColor: "var(--lm-ink)",
+                color: "var(--lm-coral)",
                 borderRadius: "4px",
               }}
             >
@@ -757,8 +757,8 @@ export function V72DetailPanel({
                 padding: "2px 7px",
                 fontSize: "10px",
                 fontWeight: 600,
-                color: "var(--v7-text-tertiary)",
-                backgroundColor: "var(--v7-surface-2)",
+                color: "var(--lm-text-tertiary)",
+                backgroundColor: "var(--lm-surface-2)",
                 borderRadius: "4px",
               }}
             >
@@ -770,7 +770,7 @@ export function V72DetailPanel({
               style={{
                 fontSize: "10px",
                 fontWeight: 500,
-                color: "var(--v7-text-ghost)",
+                color: "var(--lm-text-ghost)",
               }}
             >
               {relativeDate}
@@ -791,11 +791,11 @@ export function V72DetailPanel({
                 style={{
                   padding: "2px 7px",
                   fontSize: "10px",
-                  fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                  fontFamily: "var(--lm-font-mono, ui-monospace, monospace)",
                   fontWeight: 700,
-                  color: "var(--v7-coral)",
-                  backgroundColor: "color-mix(in srgb, var(--v7-coral) 14%, transparent)",
-                  border: "1px solid color-mix(in srgb, var(--v7-coral) 45%, transparent)",
+                  color: "var(--lm-coral)",
+                  backgroundColor: "color-mix(in srgb, var(--lm-coral) 14%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--lm-coral) 45%, transparent)",
                   borderRadius: "4px",
                   cursor: "pointer",
                 }}
@@ -815,11 +815,11 @@ export function V72DetailPanel({
               style={{
                 padding: "2px 7px",
                 fontSize: "10px",
-                fontFamily: "var(--v7-font-mono, ui-monospace, monospace)",
+                fontFamily: "var(--lm-font-mono, ui-monospace, monospace)",
                 fontWeight: 700,
-                color: "var(--v7-text-secondary)",
-                backgroundColor: "var(--v7-surface-2)",
-                border: "1px solid var(--v7-border)",
+                color: "var(--lm-text-secondary)",
+                backgroundColor: "var(--lm-surface-2)",
+                border: "1px solid var(--lm-border)",
                 borderRadius: "4px",
                 cursor: "pointer",
               }}
@@ -848,7 +848,7 @@ export function V72DetailPanel({
                   style={{
                     width: "28px",
                     height: "28px",
-                    color: "var(--v7-text-tertiary)",
+                    color: "var(--lm-text-tertiary)",
                     borderRadius: "6px",
                     opacity: replacingThumbnail ? 0.5 : 1,
                   }}
@@ -870,14 +870,14 @@ export function V72DetailPanel({
                 style={{
                   width: "28px",
                   height: "28px",
-                  color: "var(--v7-text-tertiary)",
+                  color: "var(--lm-text-tertiary)",
                   borderRadius: "6px",
                 }}
               >
                 {copied ? (
                   <Check
                     className="h-3.5 w-3.5"
-                    style={{ color: "var(--v7-success)" }}
+                    style={{ color: "var(--lm-success)" }}
                   />
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
@@ -887,7 +887,7 @@ export function V72DetailPanel({
                 <div
                   className="absolute right-0 top-full z-10 mt-1 flex flex-col py-1"
                   style={{
-                    backgroundColor: "var(--v7-ink)",
+                    backgroundColor: "var(--lm-ink)",
                     boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
                     minWidth: "180px",
                     borderRadius: "8px",
@@ -952,14 +952,14 @@ export function V72DetailPanel({
               style={{
                 width: "28px",
                 height: "28px",
-                color: "var(--v7-text-tertiary)",
+                color: "var(--lm-text-tertiary)",
                 borderRadius: "6px",
               }}
             >
               {downloadStarted ? (
                 <Check
                   className="h-3.5 w-3.5"
-                  style={{ color: "var(--v7-success)" }}
+                  style={{ color: "var(--lm-success)" }}
                 />
               ) : (
                 <Download className="h-3.5 w-3.5" />
@@ -972,7 +972,7 @@ export function V72DetailPanel({
         <div
           className="flex items-center gap-0.5 px-3"
           style={{
-            borderBottom: "1px solid var(--v7-border)",
+            borderBottom: "1px solid var(--lm-border)",
           }}
         >
           {DETAIL_TABS.map((tab) => (
@@ -986,8 +986,8 @@ export function V72DetailPanel({
                 fontWeight: activeTab === tab ? 700 : 500,
                 color:
                   activeTab === tab
-                    ? "var(--v7-text-primary)"
-                    : "var(--v7-text-ghost)",
+                    ? "var(--lm-text-primary)"
+                    : "var(--lm-text-ghost)",
               }}
             >
               {tab.charAt(0) + tab.slice(1).toLowerCase()}
@@ -996,7 +996,7 @@ export function V72DetailPanel({
                   className="absolute bottom-0 left-1 right-1"
                   style={{
                     height: "2px",
-                    backgroundColor: "var(--v7-coral)",
+                    backgroundColor: "var(--lm-coral)",
                     borderRadius: "1px",
                   }}
                 />
@@ -1021,8 +1021,8 @@ export function V72DetailPanel({
                           fontSize: "13px",
                           fontWeight: 600,
                           lineHeight: 1.4,
-                          color: "var(--v7-text-primary)",
-                          fontFamily: "var(--v7-font)",
+                          color: "var(--lm-text-primary)",
+                          fontFamily: "var(--lm-font)",
                           wordBreak: "break-word",
                         }}
                       >
@@ -1036,7 +1036,7 @@ export function V72DetailPanel({
                     <div
                       className="pb-2 pt-2.5"
                       style={{
-                        borderTop: "1px solid var(--v7-border)",
+                        borderTop: "1px solid var(--lm-border)",
                       }}
                     >
                       <SectionLabel>Description</SectionLabel>
@@ -1046,8 +1046,8 @@ export function V72DetailPanel({
                           fontSize: "12px",
                           fontWeight: 400,
                           lineHeight: 1.55,
-                          color: "var(--v7-text-secondary)",
-                          fontFamily: "var(--v7-font)",
+                          color: "var(--lm-text-secondary)",
+                          fontFamily: "var(--lm-font)",
                           wordBreak: "break-word",
                         }}
                       >
@@ -1061,7 +1061,7 @@ export function V72DetailPanel({
                     <div
                       className="pb-2 pt-2.5"
                       style={{
-                        borderTop: "1px solid var(--v7-border)",
+                        borderTop: "1px solid var(--lm-border)",
                       }}
                     >
                       <SectionLabel>Source</SectionLabel>
@@ -1072,8 +1072,8 @@ export function V72DetailPanel({
                         className="mt-1.5 flex items-center gap-1.5"
                         style={{
                           fontSize: "11px",
-                          color: "var(--v7-coral)",
-                          fontFamily: "var(--v7-font)",
+                          color: "var(--lm-coral)",
+                          fontFamily: "var(--lm-font)",
                           wordBreak: "break-all",
                         }}
                       >
@@ -1088,7 +1088,7 @@ export function V72DetailPanel({
                     <div
                       className="pb-2 pt-2.5"
                       style={{
-                        borderTop: "1px solid var(--v7-border)",
+                        borderTop: "1px solid var(--lm-border)",
                       }}
                     >
                       <SectionLabel>Note</SectionLabel>
@@ -1098,8 +1098,8 @@ export function V72DetailPanel({
                           fontSize: "12px",
                           fontWeight: 400,
                           lineHeight: 1.55,
-                          color: "var(--v7-text-secondary)",
-                          fontFamily: "var(--v7-font)",
+                          color: "var(--lm-text-secondary)",
+                          fontFamily: "var(--lm-font)",
                           wordBreak: "break-word",
                         }}
                       >
@@ -1112,19 +1112,19 @@ export function V72DetailPanel({
                   <div
                     className="pt-2.5"
                     style={{
-                      borderTop: "1px solid var(--v7-border)",
+                      borderTop: "1px solid var(--lm-border)",
                     }}
                   >
                     <SectionLabel>Details</SectionLabel>
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {designView.captureKind && (
-                        <span className="v7-chip">{designView.captureKind}</span>
+                        <span className="lm-chip">{designView.captureKind}</span>
                       )}
                       {designView.saveIntent && (
-                        <span className="v7-chip">{designView.saveIntent}</span>
+                        <span className="lm-chip">{designView.saveIntent}</span>
                       )}
                       {designView.inspirationType && (
-                        <span className="v7-chip">{designView.inspirationType}</span>
+                        <span className="lm-chip">{designView.inspirationType}</span>
                       )}
                     </div>
                   </div>
@@ -1140,8 +1140,8 @@ export function V72DetailPanel({
                         fontSize: "12px",
                         fontWeight: 400,
                         lineHeight: 1.55,
-                        color: "var(--v7-text-secondary)",
-                        fontFamily: "var(--v7-font)",
+                        color: "var(--lm-text-secondary)",
+                        fontFamily: "var(--lm-font)",
                         wordBreak: "break-word",
                       }}
                     >
@@ -1157,7 +1157,7 @@ export function V72DetailPanel({
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {tagNames && tagNames.length > 0 ? (
                     tagNames.map((tag) => (
-                      <span key={tag} className="v7-chip">
+                      <span key={tag} className="lm-chip">
                         {tag}
                       </span>
                     ))
@@ -1165,7 +1165,7 @@ export function V72DetailPanel({
                     <span
                       style={{
                         fontSize: "11px",
-                        color: "var(--v7-text-ghost)",
+                        color: "var(--lm-text-ghost)",
                         fontWeight: 500,
                       }}
                     >
@@ -1183,7 +1183,7 @@ export function V72DetailPanel({
               <div
                 className="pb-2.5"
                 style={{
-                  borderBottom: "1px solid var(--v7-border)",
+                  borderBottom: "1px solid var(--lm-border)",
                 }}
               >
                 <SectionLabel>AI Actions</SectionLabel>
@@ -1193,7 +1193,7 @@ export function V72DetailPanel({
                       type="button"
                       onClick={() => onFindSimilar(image.id)}
                       disabled={similarBusy}
-                      className="v7-btn-brutal group flex w-full items-center gap-3 justify-start disabled:cursor-wait disabled:opacity-70"
+                      className="lm-btn-brutal group flex w-full items-center gap-3 justify-start disabled:cursor-wait disabled:opacity-70"
                       aria-label="Find similar"
                     >
                       <Search
@@ -1220,14 +1220,14 @@ export function V72DetailPanel({
                       className="flex items-center justify-between px-3 py-2.5 transition-colors"
                       aria-label="View active run"
                       style={{
-                        border: "2px solid var(--v7-success)",
-                        backgroundColor: "var(--v7-success-dim)",
-                        color: "var(--v7-success)",
+                        border: "2px solid var(--lm-success)",
+                        backgroundColor: "var(--lm-success-dim)",
+                        color: "var(--lm-success)",
                         fontSize: "10px",
                         fontWeight: 700,
                         textTransform: "uppercase",
                         letterSpacing: "0.10em",
-                        borderRadius: "var(--v7-radius)",
+                        borderRadius: "var(--lm-radius)",
                       }}
                     >
                       <span>RUN ACTIVE: {activeRunId}</span>
@@ -1240,7 +1240,7 @@ export function V72DetailPanel({
                       key={intent}
                       type="button"
                       onClick={() => onAction(intent, image.id)}
-                      className="v7-btn-brutal group flex w-full items-center gap-3 justify-start"
+                      className="lm-btn-brutal group flex w-full items-center gap-3 justify-start"
                       aria-label={label}
                     >
                       <Icon
@@ -1267,9 +1267,9 @@ export function V72DetailPanel({
                     <button
                       type="button"
                       onClick={() => void handleCopy(designView.sourceUrl)}
-                      className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                      className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
                       style={{
-                        border: "2px solid var(--v7-border-strong)",
+                        border: "2px solid var(--lm-border-strong)",
                       }}
                     >
                       <LinkIcon className="h-3 w-3" />
@@ -1279,9 +1279,9 @@ export function V72DetailPanel({
                     <button
                       type="button"
                       onClick={() => void handleCopy()}
-                      className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                      className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
                       style={{
-                        border: "2px solid var(--v7-border-strong)",
+                        border: "2px solid var(--lm-border-strong)",
                       }}
                     >
                       <Copy className="h-3 w-3" />
@@ -1291,9 +1291,9 @@ export function V72DetailPanel({
                   <button
                     type="button"
                     onClick={() => void handleCopyPackage()}
-                    className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                    className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
                     style={{
-                      border: "2px solid var(--v7-border-strong)",
+                      border: "2px solid var(--lm-border-strong)",
                     }}
                   >
                     <Package className="h-3 w-3" />
@@ -1302,9 +1302,9 @@ export function V72DetailPanel({
                   <button
                     type="button"
                     onClick={() => void handleDownload()}
-                    className="v7-btn-ghost flex w-full items-center gap-2 justify-start"
+                    className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
                     style={{
-                      border: "2px solid var(--v7-border-strong)",
+                      border: "2px solid var(--lm-border-strong)",
                     }}
                   >
                     <Download className="h-3 w-3" />
@@ -1322,7 +1322,7 @@ export function V72DetailPanel({
                 <div
                   className="pb-2.5"
                   style={{
-                    borderBottom: "1px solid var(--v7-border)",
+                    borderBottom: "1px solid var(--lm-border)",
                   }}
                 >
                   <SectionLabel>Folder</SectionLabel>
@@ -1336,14 +1336,14 @@ export function V72DetailPanel({
                       disabled={folderBusy}
                       className="h-8 w-full px-2 outline-none disabled:opacity-60"
                       style={{
-                        fontFamily: "var(--v7-font)",
+                        fontFamily: "var(--lm-font)",
                         fontSize: "10px",
                         textTransform: "uppercase",
                         letterSpacing: "0.12em",
-                        border: "2px solid var(--v7-border-strong)",
-                        backgroundColor: "var(--v7-surface-2)",
-                        color: "var(--v7-text-secondary)",
-                        borderRadius: "var(--v7-radius)",
+                        border: "2px solid var(--lm-border-strong)",
+                        backgroundColor: "var(--lm-surface-2)",
+                        color: "var(--lm-text-secondary)",
+                        borderRadius: "var(--lm-radius)",
                       }}
                     >
                       <option value={NO_FOLDER_VALUE}>
@@ -1370,15 +1370,15 @@ export function V72DetailPanel({
                           placeholder="CREATE FOLDER"
                           className="h-8 flex-1 px-2 outline-none"
                           style={{
-                            fontFamily: "var(--v7-font)",
+                            fontFamily: "var(--lm-font)",
                             fontSize: "10px",
                             textTransform: "uppercase",
                             letterSpacing: "0.10em",
                             border:
-                              "2px solid var(--v7-border-strong)",
-                            backgroundColor: "var(--v7-surface-2)",
-                            color: "var(--v7-text-secondary)",
-                            borderRadius: "var(--v7-radius)",
+                              "2px solid var(--lm-border-strong)",
+                            backgroundColor: "var(--lm-surface-2)",
+                            color: "var(--lm-text-secondary)",
+                            borderRadius: "var(--lm-radius)",
                           }}
                         />
                         <button
@@ -1390,16 +1390,16 @@ export function V72DetailPanel({
                           }
                           className="h-8 px-3 disabled:opacity-40"
                           style={{
-                            fontFamily: "var(--v7-font)",
+                            fontFamily: "var(--lm-font)",
                             fontSize: "9px",
                             fontWeight: 800,
                             textTransform: "uppercase",
                             letterSpacing: "0.14em",
                             border:
-                              "2px solid var(--v7-ink)",
-                            backgroundColor: "var(--v7-ink)",
-                            color: "var(--v7-paper)",
-                            borderRadius: "var(--v7-radius)",
+                              "2px solid var(--lm-ink)",
+                            backgroundColor: "var(--lm-ink)",
+                            color: "var(--lm-paper)",
+                            borderRadius: "var(--lm-radius)",
                           }}
                         >
                           {creatingFolder ? "..." : "CREATE"}
@@ -1411,7 +1411,7 @@ export function V72DetailPanel({
                         className="mt-1"
                         style={{
                           fontSize: "10px",
-                          color: "var(--v7-status-error)",
+                          color: "var(--lm-status-error)",
                           fontWeight: 600,
                         }}
                         role="alert"
@@ -1428,7 +1428,7 @@ export function V72DetailPanel({
                 <div
                   className="py-2.5"
                   style={{
-                    borderBottom: "1px solid var(--v7-border)",
+                    borderBottom: "1px solid var(--lm-border)",
                   }}
                 >
                   <SectionLabel>Curation</SectionLabel>
@@ -1444,18 +1444,18 @@ export function V72DetailPanel({
                       disabled={curationBusy}
                       className="flex items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
                       style={{
-                        border: `2px solid ${image.isPublic ? "var(--v7-success)" : "var(--v7-border-strong)"}`,
+                        border: `2px solid ${image.isPublic ? "var(--lm-success)" : "var(--lm-border-strong)"}`,
                         backgroundColor: image.isPublic
-                          ? "var(--v7-success-dim)"
+                          ? "var(--lm-success-dim)"
                           : "transparent",
                         color: image.isPublic
-                          ? "var(--v7-success)"
-                          : "var(--v7-text-secondary)",
+                          ? "var(--lm-success)"
+                          : "var(--lm-text-secondary)",
                         fontSize: "10px",
                         fontWeight: 700,
                         textTransform: "uppercase",
                         letterSpacing: "0.14em",
-                        borderRadius: "var(--v7-radius)",
+                        borderRadius: "var(--lm-radius)",
                       }}
                     >
                       <span
@@ -1463,9 +1463,9 @@ export function V72DetailPanel({
                           width: "8px",
                           height: "8px",
                           backgroundColor: image.isPublic
-                            ? "var(--v7-success)"
-                            : "var(--v7-text-ghost)",
-                          borderRadius: "var(--v7-radius)",
+                            ? "var(--lm-success)"
+                            : "var(--lm-text-ghost)",
+                          borderRadius: "var(--lm-radius)",
                         }}
                       />
                       {curationBusy
@@ -1488,20 +1488,20 @@ export function V72DetailPanel({
                         }
                         className="flex items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
                         style={{
-                          border: `2px solid ${image.isFeatured && image.isPublic ? "var(--v7-coral)" : "var(--v7-border-strong)"}`,
+                          border: `2px solid ${image.isFeatured && image.isPublic ? "var(--lm-coral)" : "var(--lm-border-strong)"}`,
                           backgroundColor:
                             image.isFeatured && image.isPublic
-                              ? "var(--v7-accent-dim)"
+                              ? "var(--lm-accent-dim)"
                               : "transparent",
                           color:
                             image.isFeatured && image.isPublic
-                              ? "var(--v7-coral)"
-                              : "var(--v7-text-secondary)",
+                              ? "var(--lm-coral)"
+                              : "var(--lm-text-secondary)",
                           fontSize: "10px",
                           fontWeight: 700,
                           textTransform: "uppercase",
                           letterSpacing: "0.14em",
-                          borderRadius: "var(--v7-radius)",
+                          borderRadius: "var(--lm-radius)",
                         }}
                       >
                         <span
@@ -1510,9 +1510,9 @@ export function V72DetailPanel({
                             height: "8px",
                             backgroundColor:
                               image.isFeatured && image.isPublic
-                                ? "var(--v7-coral)"
-                                : "var(--v7-text-ghost)",
-                            borderRadius: "var(--v7-radius)",
+                                ? "var(--lm-coral)"
+                                : "var(--lm-text-ghost)",
+                            borderRadius: "var(--lm-radius)",
                           }}
                         />
                         {curationBusy
@@ -1526,7 +1526,7 @@ export function V72DetailPanel({
                       <p
                         style={{
                           fontSize: "10px",
-                          color: "var(--v7-status-error)",
+                          color: "var(--lm-status-error)",
                           fontWeight: 600,
                         }}
                         role="alert"
@@ -1548,15 +1548,15 @@ export function V72DetailPanel({
                     className="flex w-full items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
                     aria-label="Delete asset"
                     style={{
-                      border: "3px solid var(--v7-status-error)",
+                      border: "3px solid var(--lm-status-error)",
                       backgroundColor: "rgba(220, 38, 38, 0.08)",
-                      color: "var(--v7-status-error)",
+                      color: "var(--lm-status-error)",
                       fontSize: "10px",
                       fontWeight: 800,
                       textTransform: "uppercase",
                       letterSpacing: "0.14em",
-                      borderRadius: "var(--v7-radius)",
-                      boxShadow: "var(--v7-shadow-sm)",
+                      borderRadius: "var(--lm-radius)",
+                      boxShadow: "var(--lm-shadow-sm)",
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -1567,7 +1567,7 @@ export function V72DetailPanel({
                       className="mt-1"
                       style={{
                         fontSize: "10px",
-                        color: "var(--v7-status-error)",
+                        color: "var(--lm-status-error)",
                         fontWeight: 600,
                       }}
                       role="alert"
@@ -1588,7 +1588,7 @@ export function V72DetailPanel({
                         fontSize: "10px",
                         textTransform: "uppercase",
                         letterSpacing: "0.14em",
-                        color: "var(--v7-text-ghost)",
+                        color: "var(--lm-text-ghost)",
                         fontWeight: 600,
                       }}
                     >
@@ -1609,20 +1609,20 @@ export function V72DetailPanel({
           <div
             className="flex items-center gap-2.5 px-4 py-2.5"
             style={{
-              backgroundColor: "var(--v7-ink)",
-              border: "3px solid var(--v7-coral)",
-              color: "var(--v7-paper)",
+              backgroundColor: "var(--lm-ink)",
+              border: "3px solid var(--lm-coral)",
+              color: "var(--lm-paper)",
               fontSize: "11px",
               fontWeight: 800,
               textTransform: "uppercase",
               letterSpacing: "0.14em",
-              boxShadow: "var(--v7-shadow-accent)",
-              borderRadius: "var(--v7-radius)",
+              boxShadow: "var(--lm-shadow-accent)",
+              borderRadius: "var(--lm-radius)",
             }}
           >
             <Check
               className="h-3.5 w-3.5"
-              style={{ color: "var(--v7-coral)" }}
+              style={{ color: "var(--lm-coral)" }}
             />
             {copiedLabel}
           </div>
@@ -1641,7 +1641,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
         fontSize: "10px",
         fontWeight: 700,
         letterSpacing: "0.04em",
-        color: "var(--v7-text-ghost)",
+        color: "var(--lm-text-ghost)",
         textTransform: "uppercase",
       }}
     >
@@ -1669,7 +1669,7 @@ function CopyMenuItem({
       onClick={onClick}
       className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-white/10"
       style={{
-        color: primary ? "var(--v7-coral)" : "rgba(255,255,255,0.7)",
+        color: primary ? "var(--lm-coral)" : "rgba(255,255,255,0.7)",
         fontWeight: primary ? 600 : 400,
         fontSize: "12px",
       }}

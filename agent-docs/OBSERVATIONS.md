@@ -13,7 +13,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Jimp (not sharp) is used for thumbnail generation — keeps os-specific binaries out of the Convex action bundle (`linux-arm64` compatible).
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
 - `R2_PUBLIC_BASE_URL` is required for R2-backed assets to hydrate to public CDN URLs; without it, URL resolution intentionally falls back to legacy Convex storage or `sourceUrl`.
-- Pillars are no longer a closed enum for assets/prompts/tags. Keep default UI affordances for `creators`, `cars`, `designs`, and `dump`, but backend filters and ingest paths must accept any non-empty custom pillar key.
+- Pillars are no longer a closed enum for assets/prompts/tags. Keep default UI affordances for `creators`, `designs`, and `dump`, but backend filters and ingest paths must accept any non-empty custom pillar key.
 - `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
 - Tightening Convex enum validators against live tables can block deploys if older rows still carry legacy literal values; migrate the data first or keep the validator backward-compatible until cleanup lands.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.

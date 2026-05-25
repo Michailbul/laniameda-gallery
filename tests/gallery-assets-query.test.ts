@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { listGalleryAssets, listPublicGalleryAssets } from "../convex/assets";
+import {
+  galleryAssetFacets,
+  listGalleryAssets,
+  listPublicGalleryAssets,
+} from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
 describe("gallery asset queries", () => {
@@ -133,5 +137,50 @@ describe("gallery asset queries", () => {
     expect(results[0]?.promptText).toBe("Public prompt copy");
     expect(results[0]?.tagNames).toEqual(["PublicTag"]);
     expect(results[0]?.sourceUrl).toBe("https://example.com/public.jpg");
+  });
+
+  test("galleryAssetFacets returns counts without hydrated gallery payloads", async () => {
+    await harness.db.insert("assets", {
+      ownerUserId: "278674008",
+      kind: "image",
+      tagIds: [],
+      modelName: "Midjourney",
+      isPublic: true,
+      createdAt: 300,
+    });
+    await harness.db.insert("assets", {
+      ownerUserId: "telegram:278674008",
+      kind: "image",
+      tagIds: [],
+      modelName: "midjourney",
+      isPublic: false,
+      createdAt: 200,
+    });
+    await harness.db.insert("assets", {
+      ownerUserId: "other-user",
+      kind: "image",
+      tagIds: [],
+      modelName: "Other Model",
+      isPublic: true,
+      createdAt: 100,
+    });
+
+    const mine = await galleryAssetFacets._handler(harness.ctx as never, {
+      ownerUserId: "278674008",
+    });
+    expect(mine.totalCount).toBe(2);
+    expect(mine.modelCounts).toEqual([{ name: "Midjourney", count: 2 }]);
+
+    const publicFacets = await galleryAssetFacets._handler(
+      harness.ctx as never,
+      {
+        isPublic: true,
+      },
+    );
+    expect(publicFacets.totalCount).toBe(2);
+    expect(publicFacets.modelCounts).toEqual([
+      { name: "Midjourney", count: 1 },
+      { name: "Other Model", count: 1 },
+    ]);
   });
 });

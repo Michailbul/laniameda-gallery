@@ -11,9 +11,9 @@ export type PosterResult = {
 };
 
 export type ExtractVideoPosterOptions = {
-  maxEdge?: number; // longest edge in pixels (default 720)
+  maxEdge?: number; // longest edge in pixels (default 320)
   seekSeconds?: number; // where in the video to grab (default 0.1)
-  quality?: number; // 0..1 JPEG quality (default 0.82)
+  quality?: number; // 0..1 JPEG quality (default 0.66)
   timeoutMs?: number; // give up after this long (default 10000)
 };
 
@@ -40,9 +40,9 @@ export async function extractVideoPoster(
     throw new Error("extractVideoPoster must run in the browser.");
   }
   const {
-    maxEdge = 720,
+    maxEdge = 320,
     seekSeconds = 0.1,
-    quality = 0.82,
+    quality = 0.66,
     timeoutMs = 10000,
   } = opts;
 

@@ -242,7 +242,6 @@
 
   const DEFAULT_PILLARS = [
     { key: "creators", label: "Creators" },
-    { key: "cars", label: "Cars" },
     { key: "designs", label: "Designs" },
     { key: "dump", label: "Dump" },
   ];

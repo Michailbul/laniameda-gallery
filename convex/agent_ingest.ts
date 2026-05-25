@@ -252,11 +252,12 @@ const createThumbnail = async (
     const originalImage = await Jimp.read(buffer);
     const originalWidth = originalImage.bitmap.width;
     const originalHeight = originalImage.bitmap.height;
+    const thumbWidthTarget = 420;
     const generatedThumbHeight =
       originalWidth && originalHeight
-        ? Math.max(1, Math.round((520 * originalHeight) / originalWidth))
-        : 520;
-    const thumb = originalImage.clone().resize({ w: 520, h: generatedThumbHeight });
+        ? Math.max(1, Math.round((thumbWidthTarget * originalHeight) / originalWidth))
+        : thumbWidthTarget;
+    const thumb = originalImage.clone().resize({ w: thumbWidthTarget, h: generatedThumbHeight });
     const thumbMime =
       normalizedContentType.includes("png") && normalizedContentType !== "image/jpeg"
         ? JimpMime.png

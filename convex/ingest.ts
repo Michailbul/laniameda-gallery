@@ -462,13 +462,14 @@ const processMediaInput = async (
       width = originalImage.bitmap.width ?? undefined;
       height = originalImage.bitmap.height ?? undefined;
 
+      const thumbWidthTarget = 420;
       const generatedThumbHeight =
         width && height
-          ? Math.max(1, Math.round((520 * height) / width))
-          : 520;
+          ? Math.max(1, Math.round((thumbWidthTarget * height) / width))
+          : thumbWidthTarget;
       const thumb = originalImage
         .clone()
-        .resize({ w: 520, h: generatedThumbHeight });
+        .resize({ w: thumbWidthTarget, h: generatedThumbHeight });
       const thumbMime =
         normalizedContentType.includes("png") &&
         normalizedContentType !== "image/jpeg"

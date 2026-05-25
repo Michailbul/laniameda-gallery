@@ -50,13 +50,13 @@ export function useCoralToastSafe(): CoralToastContextValue | null {
 function accentColor(type: ToastType) {
   switch (type) {
     case "success":
-      return "var(--v7-coral, #e8715a)";
+      return "var(--lm-coral, #e8715a)";
     case "warning":
       return "#d97706";
     case "info":
       return "#6366f1";
     default:
-      return "var(--v7-text-secondary, #8a7e72)";
+      return "var(--lm-text-secondary, #8a7e72)";
   }
 }
 
@@ -145,8 +145,8 @@ export function CoralToastProvider({
                 className="flex items-center gap-2.5 rounded-full"
                 style={{
                   padding: "8px 16px 8px 10px",
-                  backgroundColor: "var(--v7-surface-1, #f5efe8)",
-                  border: "1px solid var(--v7-border-default, rgba(32,23,16,0.08))",
+                  backgroundColor: "var(--lm-surface-1, #f5efe8)",
+                  border: "1px solid var(--lm-border-default, rgba(32,23,16,0.08))",
                   boxShadow:
                     "0 4px 24px rgba(32, 23, 16, 0.10), 0 1px 4px rgba(32, 23, 16, 0.06)",
                 }}
@@ -167,7 +167,7 @@ export function CoralToastProvider({
                         cy="12"
                         r="10.5"
                         fill="none"
-                        stroke="var(--v7-border-default, rgba(32,23,16,0.08))"
+                        stroke="var(--lm-border-default, rgba(32,23,16,0.08))"
                         strokeWidth="1.5"
                       />
                       <motion.circle
@@ -195,14 +195,14 @@ export function CoralToastProvider({
                 <div className="flex items-baseline gap-1.5">
                   <span
                     className="text-[13px] font-semibold leading-none"
-                    style={{ color: "var(--v7-text-primary, #201710)" }}
+                    style={{ color: "var(--lm-text-primary, #201710)" }}
                   >
                     {t.title}
                   </span>
                   {t.message && (
                     <span
                       className="text-[10px] font-bold uppercase leading-none tracking-[0.06em]"
-                      style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                      style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}
                     >
                       {t.message}
                     </span>

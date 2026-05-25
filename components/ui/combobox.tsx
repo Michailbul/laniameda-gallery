@@ -12,7 +12,9 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowDown01Icon, Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
+import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
+import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 
 const Combobox = ComboboxPrimitive.Root
 

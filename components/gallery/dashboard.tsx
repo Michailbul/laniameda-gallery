@@ -1,16 +1,16 @@
 "use client";
 
-import "@/app/v8/tokens.css";
+import "@/app/tokens.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Plus, Search as SearchIcon } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
-import { V72Sidebar } from "./sidebar";
+import { GallerySidebar } from "./sidebar";
 import {
-  V72FilterBar,
+  GalleryFilterBar,
   type GalleryScope,
   type Pillar,
   type PillarOption,
@@ -20,8 +20,11 @@ import {
 import { CanvasMode } from "./canvas-mode";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { PackGrid, PackDetailView } from "./pack-grid";
-import { V72DetailPanel } from "./detail-panel";
+import { GalleryDetailPanel } from "./detail-panel";
+import { WorkflowModal } from "./workflow-modal";
 import { UploadModal } from "@/components/upload-modal";
+import { CinemaUploadModal } from "@/components/cinema-upload-modal";
+import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -46,7 +49,8 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  stepCount?: number;
   thumbSrc: string;
   fullSrc: string;
   prompt: string;
@@ -92,7 +96,7 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-interface V72DashboardProps {
+interface GalleryDashboardProps {
   user?: {
     id?: string | null;
     email?: string | null;
@@ -133,7 +137,7 @@ const buildAssetSearchHaystack = (asset: {
     .join(" ")
     .toLowerCase();
 
-export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
+export function GalleryDashboard({ user, onSignOut }: GalleryDashboardProps) {
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
       ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || null
@@ -153,6 +157,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [selectedPillar, setSelectedPillar] =
     useState<Pillar | null>(null);
   const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+    null,
+  );
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -168,52 +175,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
 
-  const [theme, setTheme] = useState<"light" | "dark" | "system">(
-    "system",
-  );
-  const [themePreferenceHydrated, setThemePreferenceHydrated] =
-    useState(false);
-
   useEffect(() => {
     setSidebarCollapsed(
       localStorage.getItem("laniameda-sidebar-collapsed") === "true",
     );
-
-    const persistedTheme = localStorage.getItem("laniameda-theme");
-    if (
-      persistedTheme === "light" ||
-      persistedTheme === "dark" ||
-      persistedTheme === "system"
-    ) {
-      setTheme(persistedTheme);
-    }
-
-    setThemePreferenceHydrated(true);
   }, []);
-
-  useEffect(() => {
-    if (!themePreferenceHydrated) {
-      return;
-    }
-
-    const root = document.documentElement;
-
-    // Enable smooth transition
-    root.classList.add("theme-transitioning");
-
-    if (theme === "system") {
-      root.removeAttribute("data-theme");
-    } else {
-      root.setAttribute("data-theme", theme);
-    }
-    localStorage.setItem("laniameda-theme", theme);
-
-    // Remove transition class after animation completes
-    const timer = setTimeout(() => {
-      root.classList.remove("theme-transitioning");
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [theme, themePreferenceHydrated]);
 
   const [selectedImage, setSelectedImage] =
     useState<SelectedImage | null>(null);
@@ -221,7 +187,20 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [sheetDragY, setSheetDragY] = useState(0);
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
+  const [isCinemaUploadOpen, setCinemaUploadOpen] = useState(false);
+  const [selectedCinemaAsset, setSelectedCinemaAsset] =
+    useState<CinemaModalAsset | null>(null);
   const [isSeedanceOpen, setSeedanceOpen] = useState(false);
+
+  // Add button routes to the cinema upload flow when cinema-inspiration is selected;
+  // otherwise falls back to the generic upload modal.
+  const openAddModal = useCallback(() => {
+    if (selectedPillar === "cinema-inspiration") {
+      setCinemaUploadOpen(true);
+    } else {
+      setUploadOpen(true);
+    }
+  }, [selectedPillar]);
   const [detailPanelWidth, setDetailPanelWidth] = useState<number>(380);
   const detailPanelResizing = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -287,6 +266,12 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkCurationLoading, setBulkCurationLoading] = useState(false);
+  const [bulkCurationError, setBulkCurationError] = useState<string>();
+  const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [replacingThumbAssetId, setReplacingThumbAssetId] =
     useState<string | null>(null);
   const [exitingAssetIds, setExitingAssetIds] = useState<
@@ -365,6 +350,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     setSemanticError(undefined);
     setSemanticLoading(false);
     setSelectedPackId(null);
+    setSelectedAssetIds(new Set());
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
   }, [galleryScope]);
 
   useEffect(() => {
@@ -439,6 +427,79 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       }
     },
     [canCuratePublic, curationLoadingAssetId],
+  );
+
+  const toggleAssetSelection = useCallback((assetId: string) => {
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      if (next.has(assetId)) {
+        next.delete(assetId);
+      } else {
+        next.add(assetId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearAssetSelection = useCallback(() => {
+    setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+  }, []);
+
+  const runBulkCuration = useCallback(
+    async (isPublic: boolean) => {
+      if (bulkCurationLoading || !canCuratePublic) return;
+      const ids = Array.from(selectedAssetIds);
+      if (ids.length === 0) return;
+
+      setBulkCurationLoading(true);
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+      try {
+        const response = await fetch("/api/admin/assets/bulk-curation", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assetIds: ids, isPublic }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          result?: {
+            updatedCount: number;
+            skippedCount: number;
+            isPublic: boolean;
+          };
+        } | null;
+        if (!response.ok || !payload?.result) {
+          throw new Error(payload?.error || "Bulk curation failed.");
+        }
+
+        const { updatedCount, skippedCount } = payload.result;
+        const verb = isPublic ? "made public" : "made private";
+        const skippedSuffix =
+          skippedCount > 0 ? ` (${skippedCount} skipped)` : "";
+        setBulkCurationStatus(
+          `${updatedCount} asset${updatedCount === 1 ? "" : "s"} ${verb}${skippedSuffix}.`,
+        );
+
+        const updatedIds = new Set(ids);
+        setSelectedImage((current) =>
+          current && updatedIds.has(current.id)
+            ? { ...current, isPublic }
+            : current,
+        );
+        setSelectedAssetIds(new Set());
+      } catch (error) {
+        setBulkCurationError(
+          error instanceof Error ? error.message : "Bulk curation failed.",
+        );
+      } finally {
+        setBulkCurationLoading(false);
+      }
+    },
+    [bulkCurationLoading, canCuratePublic, selectedAssetIds],
   );
 
   const createFolder = useCallback(
@@ -585,16 +646,17 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           throw new Error(payload.error || "Failed to delete asset.");
         }
 
-        setLoadedImageIds((previous) => {
-          if (!previous.has(assetId)) return previous;
-          const next = new Set(previous);
-          next.delete(assetId);
-          return next;
-        });
+        loadedImageIdsRef.current.delete(assetId);
 
         setSelectedImage((current) =>
           current?.id === assetId ? null : current,
         );
+        setSelectedAssetIds((current) => {
+          if (!current.has(assetId)) return current;
+          const next = new Set(current);
+          next.delete(assetId);
+          return next;
+        });
       } catch (error) {
         setHiddenAssetIds((previous) => {
           if (!previous.has(assetId)) return previous;
@@ -680,27 +742,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     }
   }, [effectiveSelectedFolderId, selectedFolderId]);
 
-  const mineAllAssets = useQuery(
-    api.assets.listGalleryAssets,
+  const assetFacets = useQuery(
+    api.assets.galleryAssetFacets,
     galleryScope === "mine" && canAccessMyGallery
-      ? {
-          ownerUserId,
-          limit: 200,
-        }
+      ? { ownerUserId }
+      : galleryScope === "public"
+        ? { isPublic: true }
       : "skip",
   );
-
-  const publicAllAssets = useQuery(
-    api.assets.listPublicGalleryAssets,
-    galleryScope === "public"
-      ? {
-          limit: 200,
-        }
-      : "skip",
-  );
-
-  const allAssets =
-    galleryScope === "mine" ? mineAllAssets : publicAllAssets;
 
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
@@ -938,44 +987,18 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     semanticSearchAction,
   ]);
 
-  const imageCount = allAssets?.length;
+  const imageCount = assetFacets?.totalCount;
 
   const modelTags = useMemo(() => {
-    const grouped = new Map<
-      string,
-      { name: string; usageCount: number }
-    >();
-    for (const asset of allAssets ?? []) {
-      if (!asset.modelName) continue;
-      const key = asset.modelName.trim().toLowerCase();
-      if (!key) continue;
-      const existing = grouped.get(key);
-      if (!existing) {
-        grouped.set(key, {
-          name: asset.modelName,
-          usageCount: 1,
-        });
-        continue;
-      }
-      existing.usageCount += 1;
-    }
-    return Array.from(grouped.values()).sort((a, b) => {
-      const usageDiff = b.usageCount - a.usageCount;
-      if (usageDiff !== 0) return usageDiff;
-      return a.name.localeCompare(b.name);
-    });
-  }, [allAssets]);
+    return (assetFacets?.modelCounts ?? []).map((model) => ({
+      name: model.name,
+      usageCount: model.count,
+    }));
+  }, [assetFacets]);
 
-  const [loadedImageIds, setLoadedImageIds] = useState(
-    () => new Set<string>(),
-  );
+  const loadedImageIdsRef = useRef(new Set<string>());
   const markImageLoaded = useCallback((assetId: string) => {
-    setLoadedImageIds((previous) => {
-      if (previous.has(assetId)) return previous;
-      const next = new Set(previous);
-      next.add(assetId);
-      return next;
-    });
+    loadedImageIdsRef.current.add(assetId);
   }, []);
 
   const handleTagToggle = (tag: string) => {
@@ -1012,11 +1035,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         buildAssetSearchHaystack(asset).includes(search),
       );
     }
-    if (workflowsOnly) {
-      result = result.filter((asset) => asset.generationType === "workflow");
-    }
     return result;
-  }, [assetSearchQuery, baseGalleryAssets, workflowsOnly]);
+  }, [assetSearchQuery, baseGalleryAssets]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -1037,9 +1057,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       if (selectedPillar && asset.pillar !== selectedPillar) {
         return false;
       }
-      if (workflowsOnly && asset.generationType !== "workflow") {
-        return false;
-      }
       if (
         selectedTagIds &&
         !asset.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
@@ -1055,7 +1072,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     selectedPillar,
     selectedTagIds,
     semanticResults,
-    workflowsOnly,
   ]);
 
   const displayGalleryAssets =
@@ -1063,7 +1079,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       ? filteredSemanticResults
       : lexicalFilteredAssets;
 
-  const images = useMemo(() => {
+  const baseImages = useMemo(() => {
     // Design inspirations have their own data source
     if (isDesignsPillar && mineDesignEntries) {
       return mineDesignEntries
@@ -1087,7 +1103,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           folderId: entry.folderId ?? undefined,
           isPublic: false,
           isFeatured: false,
-          initiallyLoaded: loadedImageIds.has(entry._id),
+          initiallyLoaded: loadedImageIdsRef.current.has(entry._id),
           isDesignInspiration: true,
           designTitle: entry.title ?? undefined,
           designDescription: entry.description ?? undefined,
@@ -1123,17 +1139,87 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
     return buildGalleryEntries({
       assets: displayGalleryAssets,
       hiddenAssetIds,
-      loadedAssetIds: loadedImageIds,
+      loadedAssetIds: loadedImageIdsRef.current,
       sortOrder,
     });
   }, [
     displayGalleryAssets,
     hiddenAssetIds,
-    loadedImageIds,
     sortOrder,
     isDesignsPillar,
     mineDesignEntries,
   ]);
+
+  // Workflows are an organizing layer — they mix into the grid as their own
+  // card type and open a dedicated modal instead of the side detail panel.
+  const workflowCards = useQuery(
+    api.workflows.listWorkflows,
+    ownerUserId
+      ? {
+          ownerUserId,
+          scope: galleryScope,
+          pillar: selectedPillar ?? undefined,
+          limit: 40,
+          previewLimit: 8,
+        }
+      : "skip",
+  );
+
+  const workflowEntries = useMemo(() => {
+    if (!workflowCards) return [];
+    return workflowCards.map((workflow) => {
+      const playable = workflow.previewImages.filter((media) =>
+        Boolean(media.url),
+      );
+      const imageMedia = playable.filter((media) => media.kind === "image");
+      const carousel = imageMedia.length > 0 ? imageMedia : playable;
+      const previewImages = carousel.map((media) => ({
+        id: media.id,
+        galleryItemId: media.id,
+        galleryItemType: "workflow" as const,
+        src: media.thumbUrl ?? media.url ?? "/placeholder.svg",
+        fullSrc: media.url ?? "/placeholder.svg",
+        prompt: workflow.title,
+        width: media.width,
+        height: media.height,
+        kind: media.kind,
+        contentType: media.contentType,
+      }));
+      const cover = previewImages[0];
+      return {
+        id: workflow._id,
+        galleryItemId: workflow._id,
+        galleryItemType: "workflow" as const,
+        src: cover?.src ?? "/placeholder.svg",
+        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
+        prompt: workflow.description?.trim() || workflow.title,
+        author: "Workflow",
+        likes: 0,
+        width: cover?.width,
+        height: cover?.height,
+        kind: cover?.kind,
+        contentType: cover?.contentType,
+        modelName: undefined as string | undefined,
+        pillar: workflow.pillar ?? undefined,
+        tagNames: workflow.tagNames,
+        sourceUrl: undefined as string | undefined,
+        createdAt: workflow.createdAt,
+        folderId: undefined as string | undefined,
+        isPublic: workflow.isPublic ?? false,
+        isFeatured: workflow.isFeatured ?? false,
+        stepCount: workflow.stepCount,
+        previewImages,
+      };
+    });
+  }, [workflowCards]);
+
+  const images = useMemo(() => {
+    if (workflowsOnly) return workflowEntries;
+    if (workflowEntries.length === 0) return baseImages;
+    return [...workflowEntries, ...baseImages].sort(
+      (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
+    );
+  }, [workflowsOnly, workflowEntries, baseImages]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -1145,6 +1231,27 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   const handleImageSelect = useCallback(
     (img: SelectedImage) => {
+      // Workflows open a dedicated scrollable modal, not the side panel.
+      if (img.galleryItemType === "workflow") {
+        setSelectedWorkflowId(img.id);
+        return;
+      }
+      // Cinema frames open the cinema popout (shared-layout animation), not the side panel.
+      if (img.pillar === "cinema-inspiration") {
+        const entry = images.find((candidate) => candidate.id === img.id);
+        const meta =
+          entry && "cinemaMetadata" in entry
+            ? (entry as { cinemaMetadata?: CinemaModalAsset["metadata"] | null }).cinemaMetadata
+            : undefined;
+        setSelectedCinemaAsset({
+          id: img.id,
+          src: img.fullSrc,
+          width: img.width,
+          height: img.height,
+          metadata: meta ?? null,
+        });
+        return;
+      }
       // Enrich with design-specific fields from mineDesignEntries
       if (isDesignsPillar && mineDesignEntries) {
         const entry = mineDesignEntries.find((e) => e._id === img.id);
@@ -1166,7 +1273,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       }
       setSelectedImage(img);
     },
-    [isDesignsPillar, mineDesignEntries],
+    [isDesignsPillar, mineDesignEntries, images],
   );
 
   const selectImageByEntry = useCallback(
@@ -1514,8 +1621,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
   const isNoMatches = !isLoading && !hasImages && hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
-    ? "var(--v7-sidebar-collapsed)"
-    : "var(--v7-sidebar-width)";
+    ? "var(--lm-sidebar-collapsed)"
+    : "var(--lm-sidebar-width)";
 
   const carouselImages = useMemo(() => {
     const previews = selectedImage?.previewImages ?? [];
@@ -1625,20 +1732,20 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
   return (
     <CoralToastProvider
-      contentLeft={sidebarCollapsed ? "var(--v7-sidebar-collapsed)" : "var(--v7-sidebar-width)"}
+      contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
       contentRight={selectedImage ? "380px" : "0"}
     >
     <div
-      className="v7-brutal v7-grid-bg h-[100dvh] overflow-hidden"
+      className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
-      style={{ backgroundColor: "var(--v7-surface-0)" }}
+      style={{ backgroundColor: "var(--lm-surface-0)" }}
     >
       {/* Skip link */}
       <a
-        href="#v72-main-content"
+        href="#gallery-main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:px-4 focus:py-2 focus:text-[13px] focus:font-medium"
         style={{
-          backgroundColor: "var(--v7-coral)",
+          backgroundColor: "var(--lm-coral)",
           color: "#000",
           borderRadius: "12px",
         }}
@@ -1648,13 +1755,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
 
       {/* Sidebar (desktop only) */}
       <div className="hidden md:block">
-        <V72Sidebar
+        <GallerySidebar
           modelTags={modelTags}
+          hideModelsSection={selectedPillar === "cinema-inspiration"}
           selectedModelName={selectedModelName}
           onModelSelect={setSelectedModelName}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
-          onUploadClick={() => setUploadOpen(true)}
+          onUploadClick={openAddModal}
           onSeedanceClick={() => setSeedanceOpen(true)}
           user={user}
           onSignOut={onSignOut}
@@ -1663,8 +1771,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={setSelectedFolderId}
           galleryScope={galleryScope}
-          theme={theme}
-          onThemeChange={setTheme}
         />
       </div>
 
@@ -1673,7 +1779,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         className="flex h-full min-h-0 flex-col md-sidebar-offset"
         style={{
           marginLeft: contentMarginLeft,
-          transition: `margin-left var(--v7-duration-normal) ease-out`,
+          transition: `margin-left var(--lm-duration-normal) ease-out`,
         }}
       >
         <div className="flex min-h-0 flex-1">
@@ -1683,7 +1789,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             style={{}}
           >
             {/* Filter Bar */}
-            <V72FilterBar
+            <GalleryFilterBar
               galleryScope={galleryScope}
               canAccessMyGallery={canAccessMyGallery}
               onGalleryScopeChange={setGalleryScope}
@@ -1710,7 +1816,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
                   style={{
                     backgroundColor: "rgba(255, 122, 100, 0.08)",
-                    border: "2px solid var(--v7-border-strong)",
+                    border: "2px solid var(--lm-border-strong)",
                   }}
                 >
                   <div className="min-w-0">
@@ -1720,7 +1826,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                         fontWeight: 800,
                         letterSpacing: "0.16em",
                         textTransform: "uppercase",
-                        color: "var(--v7-text-primary)",
+                        color: "var(--lm-text-primary)",
                       }}
                     >
                       {semanticMode?.kind === "similar"
@@ -1732,7 +1838,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                       style={{
                         fontSize: "11px",
                         lineHeight: 1.5,
-                        color: "var(--v7-text-secondary)",
+                        color: "var(--lm-text-secondary)",
                         wordBreak: "break-word",
                       }}
                     >
@@ -1746,9 +1852,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <button
                     type="button"
                     onClick={clearSemanticMode}
-                    className="v7-btn-ghost self-start md:self-auto"
+                    className="lm-btn-ghost self-start md:self-auto"
                     style={{
-                      border: "2px solid var(--v7-border-strong)",
+                      border: "2px solid var(--lm-border-strong)",
                     }}
                   >
                     Clear
@@ -1758,7 +1864,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             )}
 
             <main
-              id="v72-main-content"
+              id="gallery-main-content"
               className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
               {viewMode === "packs" ? (
@@ -1795,15 +1901,15 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     />
                   )
                 ) : (
-                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in">
+                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
                     <p
                       style={{
-                        fontFamily: "var(--v7-font)",
+                        fontFamily: "var(--lm-font)",
                         fontSize: "11px",
                         fontWeight: 600,
                         textTransform: "uppercase",
                         letterSpacing: "0.12em",
-                        color: "var(--v7-text-tertiary)",
+                        color: "var(--lm-text-tertiary)",
                       }}
                     >
                       SWITCH TO MY GALLERY TO BROWSE PACKS.
@@ -1833,6 +1939,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     images={images}
                     compactColumns={Boolean(selectedImage)}
                     selectedImageId={selectedImage?.id}
+                    gapPx={selectedPillar === "cinema-inspiration" ? 14 : undefined}
                     onImageSelect={handleImageSelect}
                     onImageLoad={markImageLoaded}
                     canDelete={canDeleteInCurrentView}
@@ -1841,11 +1948,14 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     onDeleteImage={(imageId) => {
                       void deleteAsset(imageId);
                     }}
+                    selectable={canCuratePublic && galleryScope === "mine"}
+                    selectedAssetIds={selectedAssetIds}
+                    onToggleAssetSelect={toggleAssetSelection}
                   />
                 )
               ) : isNoMatches ? (
                 <div
-                  className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in"
+                  className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in"
                   aria-live="polite"
                 >
                   <div
@@ -1853,9 +1963,9 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     style={{
                       width: "52px",
                       height: "52px",
-                      border: "3px solid var(--v7-ink)",
+                      border: "3px solid var(--lm-ink)",
                       backgroundColor:
-                        "var(--v7-accent-dim)",
+                        "var(--lm-accent-dim)",
                       boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
                       borderRadius: "12px",
                     }}
@@ -1863,18 +1973,18 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     <SearchIcon
                       className="h-5 w-5"
                       style={{
-                        color: "var(--v7-coral)",
+                        color: "var(--lm-coral)",
                       }}
                     />
                   </div>
                   <h2
                     style={{
-                      fontFamily: "var(--v7-font)",
+                      fontFamily: "var(--lm-font)",
                       fontSize: "16px",
                       fontWeight: 900,
                       textTransform: "uppercase",
                       letterSpacing: "0.18em",
-                      color: "var(--v7-text-primary)",
+                      color: "var(--lm-text-primary)",
                     }}
                   >
                     NO MATCHES FOUND
@@ -1882,11 +1992,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <p
                     className="mt-2"
                     style={{
-                      fontFamily: "var(--v7-font)",
+                      fontFamily: "var(--lm-font)",
                       fontSize: "11px",
                       textTransform: "uppercase",
                       letterSpacing: "0.10em",
-                      color: "var(--v7-text-tertiary)",
+                      color: "var(--lm-text-tertiary)",
                       maxWidth: "320px",
                       fontWeight: 500,
                     }}
@@ -1897,7 +2007,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
                     {selectedPillar && (
                       <span
-                        className="v7-chip"
+                        className="lm-chip"
                         style={{ borderRadius: "12px" }}
                       >
                         {selectedPillar}
@@ -1905,7 +2015,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     )}
                     {effectiveSelectedFolderId && (
                       <span
-                        className="v7-chip"
+                        className="lm-chip"
                         style={{ borderRadius: "12px" }}
                       >
                         {folderNameById.get(
@@ -1915,7 +2025,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     )}
                     {selectedModelName && (
                       <span
-                        className="v7-chip"
+                        className="lm-chip"
                         style={{ borderRadius: "12px" }}
                       >
                         {selectedModelName}
@@ -1923,7 +2033,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                     )}
                     {selectedTags.length > 0 && (
                       <span
-                        className="v7-chip"
+                        className="lm-chip"
                         style={{ borderRadius: "12px" }}
                       >
                         {selectedTags.length} TAG
@@ -1936,40 +2046,40 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <button
                     type="button"
                     onClick={handleClearFilters}
-                    className="v7-btn-brutal mt-6"
+                    className="lm-btn-brutal mt-6"
                     style={{ borderRadius: "12px" }}
                   >
                     CLEAR ALL FILTERS
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center v7-animate-fade-in">
+                <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
                   {/* Stacked frames with softer radius */}
                   <div className="relative mb-6 h-20 w-20">
                     <div
                       className="absolute inset-2 rotate-[-6deg]"
                       style={{
-                        border: "2px solid var(--v7-border-strong)",
+                        border: "2px solid var(--lm-border-strong)",
                         backgroundColor:
-                          "var(--v7-surface-1)",
+                          "var(--lm-surface-1)",
                         borderRadius: "12px",
                       }}
                     />
                     <div
                       className="absolute inset-1 rotate-[3deg]"
                       style={{
-                        border: "2px solid var(--v7-border-strong)",
+                        border: "2px solid var(--lm-border-strong)",
                         backgroundColor:
-                          "var(--v7-surface-2)",
+                          "var(--lm-surface-2)",
                         borderRadius: "12px",
                       }}
                     />
                     <div
                       className="absolute inset-0 flex items-center justify-center"
                       style={{
-                        border: "3px solid var(--v7-ink)",
+                        border: "3px solid var(--lm-ink)",
                         backgroundColor:
-                          "var(--v7-surface-3)",
+                          "var(--lm-surface-3)",
                         boxShadow: "0 0 16px rgba(255, 122, 100, 0.15)",
                         borderRadius: "12px",
                       }}
@@ -1977,19 +2087,19 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                       <Plus
                         className="h-5 w-5"
                         style={{
-                          color: "var(--v7-coral)",
+                          color: "var(--lm-coral)",
                         }}
                       />
                     </div>
                   </div>
                   <h2
                     style={{
-                      fontFamily: "var(--v7-font)",
+                      fontFamily: "var(--lm-font)",
                       fontSize: "18px",
                       fontWeight: 900,
                       textTransform: "uppercase",
                       letterSpacing: "0.18em",
-                      color: "var(--v7-text-primary)",
+                      color: "var(--lm-text-primary)",
                     }}
                   >
                     START YOUR COLLECTION
@@ -1997,11 +2107,11 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   <p
                     className="mt-2"
                     style={{
-                      fontFamily: "var(--v7-font)",
+                      fontFamily: "var(--lm-font)",
                       fontSize: "11px",
                       textTransform: "uppercase",
                       letterSpacing: "0.10em",
-                      color: "var(--v7-text-tertiary)",
+                      color: "var(--lm-text-tertiary)",
                       maxWidth: "360px",
                       fontWeight: 500,
                     }}
@@ -2011,8 +2121,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                   </p>
                   <button
                     type="button"
-                    onClick={() => setUploadOpen(true)}
-                    className="v7-btn-brutal mt-6"
+                    onClick={openAddModal}
+                    className="lm-btn-brutal mt-6"
                     style={{ borderRadius: "12px" }}
                   >
                     <Plus className="h-4 w-4" />
@@ -2028,7 +2138,7 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
               className="relative hidden shrink-0 overflow-y-auto overscroll-contain md:block"
               style={{
                 width: `${detailPanelWidth}px`,
-                backgroundColor: "color-mix(in srgb, var(--v7-surface-1) 75%, transparent)",
+                backgroundColor: "color-mix(in srgb, var(--lm-surface-1) 75%, transparent)",
                 backdropFilter: "blur(16px)",
                 WebkitBackdropFilter: "blur(16px)",
               }}
@@ -2041,10 +2151,10 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                 className="group/resizer absolute left-0 top-0 z-30 hidden h-full w-2 -translate-x-1/2 cursor-col-resize md:flex md:items-center md:justify-center"
               >
                 <span
-                  className="h-12 w-[3px] rounded-full bg-[var(--v7-border-strong)] transition-colors duration-150 group-hover/resizer:bg-[var(--v7-coral)]"
+                  className="h-12 w-[3px] rounded-full bg-[var(--lm-border-strong)] transition-colors duration-150 group-hover/resizer:bg-[var(--lm-coral)]"
                 />
               </div>
-              <V72DetailPanel
+              <GalleryDetailPanel
                 image={selectedImage}
                 carouselImages={carouselImages}
                 {...expandedDetailProps}
@@ -2072,8 +2182,8 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             tabIndex={-1}
             className={`absolute inset-x-0 bottom-0 h-[88dvh] ${sheetDismissing ? "animate-sheet-slide-down-v7" : "animate-sheet-slide-up-v7"}`}
             style={{
-              backgroundColor: "var(--v7-surface-1)",
-              borderTop: "3px solid var(--v7-ink)",
+              backgroundColor: "var(--lm-surface-1)",
+              borderTop: "3px solid var(--lm-ink)",
               borderTopLeftRadius: "20px",
               borderTopRightRadius: "20px",
               transform:
@@ -2091,13 +2201,13 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
                 style={{
                   height: "4px",
                   width: "40px",
-                  backgroundColor: "var(--v7-ink)",
+                  backgroundColor: "var(--lm-ink)",
                   borderRadius: "12px",
                 }}
               />
             </div>
             <div className="h-[calc(100%-20px)] overflow-y-auto">
-              <V72DetailPanel
+              <GalleryDetailPanel
                 image={selectedImage}
                 carouselImages={carouselImages}
                 {...expandedDetailProps}
@@ -2110,10 +2220,144 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
       {/* Mobile bottom nav */}
       {!selectedImage && (
         <MobileBottomNav
-          onAddClick={() => setUploadOpen(true)}
+          onAddClick={openAddModal}
           user={user}
           onSignOut={onSignOut}
         />
+      )}
+
+      {/* Admin bulk-curation toolbar — visible only when selection is non-empty */}
+      {canCuratePublic && selectedAssetIds.size > 0 && (
+        <div
+          className="fixed z-[55] flex justify-center pointer-events-none"
+          style={{
+            left: sidebarCollapsed
+              ? "var(--lm-sidebar-collapsed)"
+              : "var(--lm-sidebar-width)",
+            right: selectedImage ? `${detailPanelWidth}px` : "0",
+            bottom: "104px",
+            transition:
+              "left var(--lm-duration-normal) ease-out, right var(--lm-duration-normal) ease-out",
+          }}
+          role="region"
+          aria-label="Bulk curation toolbar"
+        >
+          <div
+            className="pointer-events-auto flex flex-col gap-2 px-4 py-3"
+            style={{
+              backgroundColor: "var(--lm-surface-1)",
+              border: "2px solid var(--lm-ink)",
+              borderRadius: "16px",
+              boxShadow: "var(--shadow-lg)",
+              maxWidth: "min(640px, calc(100vw - 32px))",
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className="inline-flex items-center px-2.5 py-1"
+                style={{
+                  backgroundColor: "var(--lm-coral)",
+                  color: "#000",
+                  borderRadius: "10px",
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  letterSpacing: "0.10em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {selectedAssetIds.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkCuration(true);
+                }}
+                disabled={bulkCurationLoading}
+                className="lm-btn-brutal inline-flex items-center gap-1.5"
+                style={{
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  fontSize: "11px",
+                  opacity: bulkCurationLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                }}
+                aria-label="Make selected assets public"
+              >
+                {bulkCurationLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" />
+                )}
+                MAKE PUBLIC
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkCuration(false);
+                }}
+                disabled={bulkCurationLoading}
+                className="lm-btn-ghost inline-flex items-center gap-1.5"
+                style={{
+                  border: "2px solid var(--lm-border-strong)",
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  fontSize: "11px",
+                  opacity: bulkCurationLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                }}
+                aria-label="Make selected assets private"
+              >
+                {bulkCurationLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <EyeOff className="h-3.5 w-3.5" />
+                )}
+                MAKE PRIVATE
+              </button>
+              <button
+                type="button"
+                onClick={clearAssetSelection}
+                disabled={bulkCurationLoading}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5"
+                style={{
+                  border: "2px solid var(--lm-border-strong)",
+                  borderRadius: "10px",
+                  fontSize: "11px",
+                  fontFamily: "var(--lm-font)",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--lm-text-secondary)",
+                  backgroundColor: "transparent",
+                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                }}
+                aria-label="Clear selection"
+              >
+                <X className="h-3.5 w-3.5" />
+                CLEAR
+              </button>
+            </div>
+            {(bulkCurationError || bulkCurationStatus) && (
+              <p
+                style={{
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: bulkCurationError
+                    ? "var(--lm-coral)"
+                    : "var(--lm-text-secondary)",
+                  margin: 0,
+                }}
+                role={bulkCurationError ? "alert" : "status"}
+              >
+                {bulkCurationError ?? bulkCurationStatus}
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Desktop bottom dock — centered to content area */}
@@ -2121,20 +2365,20 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none"
         style={{
           left: sidebarCollapsed
-            ? "var(--v7-sidebar-collapsed)"
-            : "var(--v7-sidebar-width)",
+            ? "var(--lm-sidebar-collapsed)"
+            : "var(--lm-sidebar-width)",
           right: selectedImage ? "380px" : "0",
           transition:
-            "left var(--v7-duration-normal) ease-out, right var(--v7-duration-normal) ease-out",
+            "left var(--lm-duration-normal) ease-out, right var(--lm-duration-normal) ease-out",
         }}
       >
         <div className="pointer-events-auto">
           <BottomMenu
             user={user}
-            onAddClick={() => setUploadOpen(true)}
+            onAddClick={openAddModal}
             onHomeClick={() => {
               document
-                .getElementById("v72-main-content")
+                .getElementById("gallery-main-content")
                 ?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
             onResetClick={() => {
@@ -2154,8 +2398,6 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
             onSearchClear={clearSemanticMode}
             searchPlaceholder="SEARCH VAULT..."
             searchLoading={semanticLoading}
-            theme={theme}
-            onThemeChange={setTheme}
           />
         </div>
       </div>
@@ -2177,6 +2419,17 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         onClose={() => setSeedanceOpen(false)}
       />
 
+      <CinemaUploadModal
+        open={isCinemaUploadOpen}
+        onClose={() => setCinemaUploadOpen(false)}
+        ownerUserId={ownerUserId}
+      />
+
+      <CinemaModal
+        asset={selectedCinemaAsset}
+        onClose={() => setSelectedCinemaAsset(null)}
+      />
+
       <AiWorkspacePanel
         open={workspaceOpen}
         actionLabel={workspaceActionLabel}
@@ -2185,6 +2438,12 @@ export function V72Dashboard({ user, onSignOut }: V72DashboardProps) {
         content={workspaceContent}
         error={workspaceError}
         onClose={() => setWorkspaceOpen(false)}
+      />
+
+      <WorkflowModal
+        workflowId={selectedWorkflowId}
+        ownerUserId={ownerUserId}
+        onClose={() => setSelectedWorkflowId(null)}
       />
     </div>
     </CoralToastProvider>

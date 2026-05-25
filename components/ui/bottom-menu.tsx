@@ -1,19 +1,14 @@
 "use client";
 
-import {
-  AutoConversationsIcon,
-  Camera01Icon,
-  ComputerIcon,
-  FilterHorizontalIcon,
-  Mic01Icon,
-  Moon02Icon,
-  Notification03Icon,
-  PencilEdit02Icon,
-  PlusSignIcon,
-  Search01Icon,
-  Sun03Icon,
-  UserEdit01Icon,
-} from "@hugeicons/core-free-icons";
+import AutoConversationsIcon from "@hugeicons/core-free-icons/AutoConversationsIcon";
+import Camera01Icon from "@hugeicons/core-free-icons/Camera01Icon";
+import FilterHorizontalIcon from "@hugeicons/core-free-icons/FilterHorizontalIcon";
+import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon";
+import Notification03Icon from "@hugeicons/core-free-icons/Notification03Icon";
+import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon";
+import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon";
+import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
+import UserEdit01Icon from "@hugeicons/core-free-icons/UserEdit01Icon";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,10 +21,7 @@ type MenuView =
   | "home"
   | "search"
   | "notifications"
-  | "profile"
-  | "theme";
-
-type ThemeOption = "light" | "dark" | "system";
+  | "profile";
 
 interface BottomMenuUser {
   firstName?: string | null;
@@ -50,8 +42,6 @@ interface BottomMenuProps {
   onSearchClear?: () => void;
   searchPlaceholder?: string;
   searchLoading?: boolean;
-  theme?: ThemeOption;
-  onThemeChange?: (theme: ThemeOption) => void;
   notificationTypes?: string[];
 }
 
@@ -60,20 +50,9 @@ const MAIN_NAV = [
   { icon: Search01Icon, name: "search" },
   { icon: Notification03Icon, name: "notifications" },
   { icon: UserEdit01Icon, name: "profile" },
-  { icon: Sun03Icon, name: "theme" },
 ] as const satisfies ReadonlyArray<{
   icon: typeof PlusSignIcon;
   name: Exclude<MenuView, "default">;
-}>;
-
-const THEME_OPTIONS = [
-  { key: "light", icon: Sun03Icon, text: "Light" },
-  { key: "dark", icon: Moon02Icon, text: "Dark" },
-  { key: "system", icon: ComputerIcon, text: "System" },
-] as const satisfies ReadonlyArray<{
-  key: ThemeOption;
-  icon: typeof Sun03Icon;
-  text: string;
 }>;
 
 const DEFAULT_NOTIFICATIONS = ["Messages", "System Alerts"];
@@ -90,8 +69,6 @@ export default function BottomMenu({
   onSearchClear,
   searchPlaceholder = "Search...",
   searchLoading = false,
-  theme = "system",
-  onThemeChange,
   notificationTypes = DEFAULT_NOTIFICATIONS,
 }: BottomMenuProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,7 +142,7 @@ export default function BottomMenu({
                 <HugeiconsIcon
                   icon={icon}
                   size={20}
-                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))", transition: "color 75ms" }}
+                  style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))", transition: "color 75ms" }}
                 />
                 <span className="transition-all duration-75">{text}</span>
               </button>
@@ -201,10 +178,10 @@ export default function BottomMenu({
                 placeholder={searchPlaceholder}
                 className="w-full rounded-[12px] py-[6px] pl-9 pr-3 text-[14px] focus:outline-none"
                 style={{
-                  backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))",
-                  border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
-                  color: "var(--v7-text-primary, #201710)",
-                  fontFamily: "var(--v7-font, inherit)",
+                  backgroundColor: "var(--lm-surface-2, rgba(32,23,16,0.04))",
+                  border: "1px solid var(--lm-border, rgba(32,23,16,0.08))",
+                  color: "var(--lm-text-primary, #201710)",
+                  fontFamily: "var(--lm-font, inherit)",
                 }}
               />
             </div>
@@ -219,14 +196,14 @@ export default function BottomMenu({
                   sharedHover,
                   "flex flex-1 items-center justify-center gap-1.5",
                 )}
-                style={{ backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))" }}
+                style={{ backgroundColor: "var(--lm-surface-2, rgba(32,23,16,0.04))" }}
                 disabled={!onResetClick}
               >
                 <HugeiconsIcon
                   icon={FilterHorizontalIcon}
                   size={14}
                   strokeWidth={2}
-                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                  style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}
                 />
                 <span className="transition-all duration-75">Reset</span>
               </button>
@@ -240,13 +217,13 @@ export default function BottomMenu({
                   sharedHover,
                   "flex flex-1 items-center justify-center gap-1.5",
                 )}
-                style={{ backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))" }}
+                style={{ backgroundColor: "var(--lm-surface-2, rgba(32,23,16,0.04))" }}
               >
                 <HugeiconsIcon
                   icon={AutoConversationsIcon}
                   size={14}
                   strokeWidth={2}
-                  style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                  style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}
                 />
                 <span className="transition-all duration-75">
                   {searchLoading ? "Searching" : "Clear"}
@@ -281,8 +258,8 @@ export default function BottomMenu({
             <div
               className="rounded-[14px] px-3 py-3"
               style={{
-                backgroundColor: "var(--v7-surface-2, rgba(32,23,16,0.04))",
-                border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+                backgroundColor: "var(--lm-surface-2, rgba(32,23,16,0.04))",
+                border: "1px solid var(--lm-border, rgba(32,23,16,0.08))",
               }}
             >
               <div className="flex items-center gap-3">
@@ -297,8 +274,8 @@ export default function BottomMenu({
                   <div
                     className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
                     style={{
-                      backgroundColor: "var(--v7-surface-3, rgba(32,23,16,0.06))",
-                      color: "var(--v7-text-primary, #201710)",
+                      backgroundColor: "var(--lm-surface-3, rgba(32,23,16,0.06))",
+                      color: "var(--lm-text-primary, #201710)",
                     }}
                   >
                     {profileName.charAt(0).toUpperCase()}
@@ -307,14 +284,14 @@ export default function BottomMenu({
                 <div className="min-w-0">
                   <p
                     className="truncate text-[14px] font-medium"
-                    style={{ color: "var(--v7-text-primary, #201710)" }}
+                    style={{ color: "var(--lm-text-primary, #201710)" }}
                   >
                     {profileName}
                   </p>
                   {user.email ? (
                     <p
                       className="truncate text-[12px]"
-                      style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}
+                      style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}
                     >
                       {user.email}
                     </p>
@@ -329,20 +306,24 @@ export default function BottomMenu({
                   onSignOut();
                   setView("default");
                 }}
-                className="w-full rounded-[12px] px-3 py-2 text-left text-[14px] transition-all duration-75"
-                style={{ color: "var(--v7-status-error, #dc2626)" }}
+                className="self-start px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-[0.18em] transition-opacity hover:opacity-80"
+                style={{
+                  fontFamily: "var(--font-mono, var(--lm-font))",
+                  backgroundColor: "transparent",
+                  color: "var(--lm-status-error, #dc2626)",
+                }}
               >
-                Logout
+                sign out
               </button>
             ) : null}
           </div>
         ) : (
           <div className="min-w-[280px] space-y-3 p-[10px]">
             <div className="px-1">
-              <p className="text-[14px] font-medium" style={{ color: "var(--v7-text-primary, #201710)" }}>
+              <p className="text-[14px] font-medium" style={{ color: "var(--lm-text-primary, #201710)" }}>
                 Sign in to manage your vault
               </p>
-              <p className="mt-1 text-[12px]" style={{ color: "var(--v7-text-ghost, rgba(32,23,16,0.3))" }}>
+              <p className="mt-1 text-[12px]" style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}>
                 Telegram auth unlocks uploads, folders, and edits.
               </p>
             </div>
@@ -367,36 +348,6 @@ export default function BottomMenu({
         return { content, measurementContent };
       }
 
-      case "theme": {
-        const content = (
-          <div className="flex min-w-[270px] items-center justify-between gap-1.5 p-[6px] py-0.5">
-            {THEME_OPTIONS.map(({ key, icon, text }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => onThemeChange?.(key)}
-                className="flex items-center justify-center gap-2 rounded-[12px] px-3 py-2 transition-all duration-100"
-                style={{
-                  backgroundColor: theme === key ? "var(--v7-surface-2, rgba(32,23,16,0.06))" : "transparent",
-                  color: theme === key ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
-                }}
-              >
-                <HugeiconsIcon
-                  icon={icon}
-                  size={18}
-                  style={{
-                    color: theme === key ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
-                    transition: "color 75ms",
-                  }}
-                />
-                <span>{text}</span>
-              </button>
-            ))}
-          </div>
-        );
-
-        return { content, measurementContent: content };
-      }
     }
   }, [
     actionItems,
@@ -405,13 +356,11 @@ export default function BottomMenu({
     onSearchChange,
     onSearchClear,
     onSignOut,
-    onThemeChange,
     profileName,
     searchLoading,
     searchPlaceholder,
     searchValue,
     sharedHover,
-    theme,
     user,
     view,
   ]);
@@ -427,7 +376,7 @@ export default function BottomMenu({
         ref={hiddenRef}
         className="pointer-events-none invisible absolute left-[-9999px] top-[-9999px]"
       >
-        <div className="rounded-[18px] py-1" style={{ backgroundColor: "var(--v7-paper, #fffaf5)", border: "1px solid var(--v7-border, rgba(32,23,16,0.08))" }}>
+        <div className="rounded-[18px] py-1" style={{ backgroundColor: "var(--lm-paper, #fffaf5)", border: "1px solid var(--lm-border, rgba(32,23,16,0.08))" }}>
           {measurementContent}
         </div>
       </div>
@@ -473,8 +422,8 @@ export default function BottomMenu({
             <div
               className="rounded-[18px] backdrop-blur-xl"
               style={{
-                backgroundColor: "color-mix(in srgb, var(--v7-paper, #fffaf5) 95%, transparent)",
-                border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+                backgroundColor: "color-mix(in srgb, var(--lm-paper, #fffaf5) 95%, transparent)",
+                border: "1px solid var(--lm-border, rgba(32,23,16,0.08))",
                 boxShadow: "0 4px 20px rgba(32,23,16,0.1)",
               }}
             >
@@ -513,8 +462,8 @@ export default function BottomMenu({
       <div
         className="z-10 mt-3 flex items-center gap-1 rounded-[18px] p-1 backdrop-blur-xl"
         style={{
-          backgroundColor: "color-mix(in srgb, var(--v7-paper, #fffaf5) 92%, transparent)",
-          border: "1px solid var(--v7-border, rgba(32,23,16,0.08))",
+          backgroundColor: "color-mix(in srgb, var(--lm-paper, #fffaf5) 92%, transparent)",
+          border: "1px solid var(--lm-border, rgba(32,23,16,0.08))",
           boxShadow: "0 2px 12px rgba(32,23,16,0.08)",
         }}
       >
@@ -524,9 +473,9 @@ export default function BottomMenu({
             type="button"
             className="rounded-[16px] p-3 transition-all"
             style={{
-              backgroundColor: view === name ? "var(--v7-surface-2, rgba(32,23,16,0.04))" : "transparent",
+              backgroundColor: view === name ? "var(--lm-surface-2, rgba(32,23,16,0.04))" : "transparent",
             }}
-            onMouseEnter={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "var(--v7-surface-2, rgba(32,23,16,0.04))"; }}
+            onMouseEnter={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "var(--lm-surface-2, rgba(32,23,16,0.04))"; }}
             onMouseLeave={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "transparent"; }}
             onClick={() =>
               setView((currentView) =>
@@ -539,7 +488,7 @@ export default function BottomMenu({
               icon={icon}
               size={22}
               style={{
-                color: view === name ? "var(--v7-text-primary, #201710)" : "var(--v7-text-ghost, rgba(32,23,16,0.3))",
+                color: view === name ? "var(--lm-text-primary, #201710)" : "var(--lm-text-ghost, rgba(32,23,16,0.3))",
                 transition: "color 150ms",
               }}
             />

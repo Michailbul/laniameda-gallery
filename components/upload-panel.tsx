@@ -83,7 +83,6 @@ const GENERATION_TYPE_OPTIONS = [
 
 const DEFAULT_PILLAR_OPTIONS = [
   { value: "creators", label: "Creators" },
-  { value: "cars", label: "Cars" },
   { value: "designs", label: "Designs" },
   { value: "dump", label: "Dump" },
 ];

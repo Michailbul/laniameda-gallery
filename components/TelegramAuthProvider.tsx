@@ -29,28 +29,54 @@ export function useTelegramAuth() {
   return useContext(TelegramAuthContext);
 }
 
+const DEV_AUTH_BYPASS_ENABLED =
+  process.env.NODE_ENV !== "production" &&
+  (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED ?? "").toLowerCase() === "true";
+
 export function TelegramAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchMe = useCallback(async () => {
+  const fetchMe = useCallback(async (): Promise<AppUser | null> => {
     try {
       const data = await requestJson<AuthMeResponse>("/api/auth/me");
       setUser(data.user);
+      return data.user;
     } catch {
       setUser(null);
-    } finally {
-      setIsLoading(false);
+      return null;
     }
   }, []);
 
   useEffect(() => {
-    fetchMe();
+    let cancelled = false;
+    (async () => {
+      const me = await fetchMe();
+      // Dev-mode auto-login: if no session and bypass is enabled, silently
+      // create one server-side and re-fetch. Persists for 30 days; subsequent
+      // dev restarts skip this entirely because the cookie is still valid.
+      if (!cancelled && me === null && DEV_AUTH_BYPASS_ENABLED) {
+        try {
+          const res = await fetch("/api/auth/dev-login", { method: "POST" });
+          if (res.ok && !cancelled) await fetchMe();
+        } catch {
+          // dev-login route disabled / hostname not allowed; fall through to UI
+        }
+      }
+      if (!cancelled) setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [fetchMe]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
-    await fetchMe();
+    try {
+      await fetchMe();
+    } finally {
+      setIsLoading(false);
+    }
   }, [fetchMe]);
 
   const logout = useCallback(async () => {

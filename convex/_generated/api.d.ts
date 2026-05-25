@@ -14,6 +14,7 @@ import type * as assetPacks from "../assetPacks.js";
 import type * as assets from "../assets.js";
 import type * as authz from "../authz.js";
 import type * as canvasPositions from "../canvasPositions.js";
+import type * as cinemaInspiration from "../cinemaInspiration.js";
 import type * as designExtensionSaves from "../designExtensionSaves.js";
 import type * as designInspirations from "../designInspirations.js";
 import type * as designSaveHelpers from "../designSaveHelpers.js";
@@ -41,6 +42,7 @@ import type * as thumbnails from "../thumbnails.js";
 import type * as userPillars from "../userPillars.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
+import type * as workflows from "../workflows.js";
 
 import type {
   ApiFromModules,
@@ -55,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   authz: typeof authz;
   canvasPositions: typeof canvasPositions;
+  cinemaInspiration: typeof cinemaInspiration;
   designExtensionSaves: typeof designExtensionSaves;
   designInspirations: typeof designInspirations;
   designSaveHelpers: typeof designSaveHelpers;
@@ -82,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   userPillars: typeof userPillars;
   users: typeof users;
   validators: typeof validators;
+  workflows: typeof workflows;
 }>;
 
 /**

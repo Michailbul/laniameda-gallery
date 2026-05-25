@@ -59,7 +59,7 @@ Example:
 {
   "action": "list",
   "scope": "mine",
-  "pillar": "cars",
+  "pillar": "creators",
   "assetRole": "reference",
   "folderId": "folders:abc123",
   "limit": 10

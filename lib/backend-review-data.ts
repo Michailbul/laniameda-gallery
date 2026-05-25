@@ -430,12 +430,12 @@ export const backendReview = {
         {
           label: "Direct Convex queries feed the dashboard",
           detail: "The browser calls assets, folders, tags, canvas positions, and user functions through convex/react hooks.",
-          source: "components/v8/dashboard.tsx, lib/use-current-user.ts, components/v8/canvas-mode.tsx",
+          source: "components/gallery/dashboard.tsx, lib/use-current-user.ts, components/gallery/canvas-mode.tsx",
         },
         {
           label: "Public gallery reads filtered isPublic rows",
           detail: "Public-facing asset reads use listPublicGalleryAssets and curation flags.",
-          source: "convex/assets.ts, components/v8/dashboard.tsx",
+          source: "convex/assets.ts, components/gallery/dashboard.tsx",
         },
         {
           label: "Semantic search hits vector rows, then hydrates assets",
@@ -497,7 +497,7 @@ export const backendReview = {
       status: "gap",
       detail:
         "Most public Convex queries and mutations trust caller-supplied ownerUserId values instead of a Convex identity. Because the dashboard uses convex/react directly from the browser, this is the main hardening gap.",
-      source: "components/v8/dashboard.tsx, lib/use-current-user.ts, convex/assets.ts, convex/prompts.ts, convex/designInspirations.ts, convex/folders.ts, convex/canvasPositions.ts, convex/users.ts",
+      source: "components/gallery/dashboard.tsx, lib/use-current-user.ts, convex/assets.ts, convex/prompts.ts, convex/designInspirations.ts, convex/folders.ts, convex/canvasPositions.ts, convex/users.ts",
     },
   ] satisfies ReviewAuthLayer[],
   findings: [
@@ -509,7 +509,7 @@ export const backendReview = {
       impact:
         "Because the browser calls these functions directly through convex/react, a malicious client can likely read or mutate another user's data by supplying a different ownerUserId and known ids.",
       evidence: [
-        "components/v8/dashboard.tsx calls api.assets.*, api.folders.*, api.canvasPositions.* directly from the browser",
+        "components/gallery/dashboard.tsx calls api.assets.*, api.folders.*, api.canvasPositions.* directly from the browser",
         "lib/use-current-user.ts calls api.users.resolveByTelegramId and api.users.resolveOrCreateByTelegram directly from the browser",
         "convex/assets.ts, convex/prompts.ts, convex/designInspirations.ts, convex/folders.ts, and convex/canvasPositions.ts all trust ownerUserId args",
       ],

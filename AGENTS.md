@@ -15,13 +15,12 @@ Read these files first:
 
 **laniameda.gallery** — a personal AI creatorship vault.
 
-Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-gallery-ingest` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 4 content pillars.
+Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-gallery-ingest` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 3 content pillars.
 
-### 4 content pillars
+### 3 content pillars
 | Pillar | Description |
 |---|---|
 | **creators** | AI influencer / fashion / portrait style prompts |
-| **cars** | Cinematic automotive references and prompts |
 | **designs** | Website, UI, component, mobile design references |
 | **dump** | Catch-all — anything useful that doesn't fit above |
 

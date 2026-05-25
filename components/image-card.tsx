@@ -3,9 +3,9 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Copy, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { Check, Copy, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
-import { resolveLayoutAspect } from "@/lib/masonry-layout";
+import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -109,6 +109,9 @@ interface ImageCardProps {
   deleting?: boolean;
   exiting?: boolean;
   onDelete?: (imageId: string) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (imageId: string) => void;
 }
 
 const PILLAR_META = {
@@ -145,6 +148,9 @@ export const ImageCard = memo(function ImageCard({
   deleting = false,
   exiting = false,
   onDelete,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -171,28 +177,45 @@ export const ImageCard = memo(function ImageCard({
           prompt: image.prompt,
           width: image.width,
           height: image.height,
+          kind: image.kind,
+          contentType: image.contentType,
         },
       ];
   const activePreview =
     previewImages[activePreviewIndex] ?? previewImages[0]!;
+  const layoutPreview = previewImages[0]!;
 
   const activeKind = activePreview.kind ?? image.kind;
+  const activeContentType = activePreview.contentType ?? image.contentType;
   const activeThumbSrc = activePreview.src || image.src;
   const activeFullSrc = activePreview.fullSrc || image.fullSrc;
-  const isVideo = activeKind === "video";
-  const slotKind = image.kind ?? activeKind;
+  const isVideo =
+    resolveLayoutKind({
+      kind: activeKind,
+      contentType: activeContentType,
+    }) === "video";
+  const slotKind = layoutPreview.kind ?? image.kind;
+  const slotContentType = layoutPreview.contentType ?? image.contentType;
 
   // Stable card slot: the grid and card share the same native media aspect so
   // hover playback never changes masonry geometry or crops video format.
   const aspectRatio = useMemo(() => {
     return String(
       resolveLayoutAspect({
-        width: image.width,
-        height: image.height,
+        width: layoutPreview.width ?? image.width,
+        height: layoutPreview.height ?? image.height,
         kind: slotKind,
+        contentType: slotContentType,
       }),
     );
-  }, [image.height, image.width, slotKind]);
+  }, [
+    image.height,
+    image.width,
+    layoutPreview.height,
+    layoutPreview.width,
+    slotContentType,
+    slotKind,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -351,7 +374,14 @@ export const ImageCard = memo(function ImageCard({
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
+    selectable && selected && "ring-2 ring-[var(--lm-coral)] ring-offset-2 ring-offset-[var(--lm-surface-0)]",
   ].filter(Boolean).join(" ");
+
+  const handleToggleSelect = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleSelect?.(image.id);
+  };
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -671,12 +701,51 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
+      {selectable && (
+        <button
+          type="button"
+          onClick={handleToggleSelect}
+          className={`absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center border transition-all duration-[var(--duration-fast)] ${
+            selected
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          }`}
+          style={{
+            borderRadius: "8px",
+            backgroundColor: selected
+              ? "var(--lm-coral)"
+              : "var(--image-card-badge-bg)",
+            color: selected ? "#000" : "var(--image-card-badge-text)",
+            borderColor: selected
+              ? "var(--lm-coral)"
+              : "var(--image-card-badge-border)",
+          }}
+          aria-label={selected ? "Deselect asset" : "Select asset"}
+          aria-pressed={selected}
+          title={selected ? "Deselect" : "Select"}
+        >
+          {selected ? (
+            <Check className="h-4 w-4" strokeWidth={3} />
+          ) : (
+            <span
+              className="block h-3.5 w-3.5"
+              style={{
+                border: "1.5px solid currentColor",
+                borderRadius: "4px",
+              }}
+            />
+          )}
+        </button>
+      )}
+
       <button
         type="button"
         onClick={(event) => {
           void handleIdCopy(event);
         }}
-        className="absolute left-2 top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100"
+        className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100 ${
+          selectable ? "left-12" : "left-2"
+        }`}
         style={{
           borderRadius: "8px",
           backgroundColor: "var(--image-card-badge-bg)",

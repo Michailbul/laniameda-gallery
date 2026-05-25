@@ -132,16 +132,15 @@ Defined in `app/globals.css`:
 
 ## Pillar Theming
 
-Each of the 4 pillars sets CSS vars on the root:
+Each of the 3 pillars sets CSS vars on the root:
 
 | Pillar | Accent |
 |--------|--------|
 | `creators` | Coral / warm red |
-| `cars` | Amber / orange |
 | `designs` | Blue / cool |
 | `dump` | Neutral gray |
 
-Interactive elements use `rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)` for tinted backgrounds and borders. Verify pillar theming works after every UI change by switching all 4 pillars.
+Interactive elements use `rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12)` for tinted backgrounds and borders. Verify pillar theming works after every UI change by switching all 3 pillars.
 
 ---
 
@@ -378,33 +377,6 @@ Interactive elements use `rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b)
 /* Creators — warm amber/gold (default, no overrides needed) */
 [data-pillar="creators"] {
   /* Inherits :root amber — editorial warmth */
-}
-
-/* Cars — deep crimson-red: speed, fire, mechanical heat */
-[data-pillar="cars"] {
-  --amber-8: #d7665e;
-  --amber-9: #e5534b;
-  --amber-10: #f0726b;
-  --amber-11: #f5a39f;
-  --amber-12: #fbd2cf;
-  --amber-contrast: #ffffff;
-  --amber-surface: rgba(229, 83, 75, 0.12);
-  --amber-indicator: var(--amber-9);
-  --amber-track: var(--amber-9);
-  --amber-subtle: rgba(229, 83, 75, 0.10);
-  --amber-glow: rgba(229, 83, 75, 0.20);
-  --accent-glow: rgba(229, 83, 75, 0.20);
-  --accent-subtle: rgba(229, 83, 75, 0.10);
-  --warm-accent: #c8423b;
-  --coral: var(--amber-9);
-  --coral-hover: var(--amber-10);
-
-  --pillar-r: 232;
-  --pillar-g: 84;
-  --pillar-b: 74;
-  --pillar-warm-r: 200;
-  --pillar-warm-g: 66;
-  --pillar-warm-b: 59;
 }
 
 /* Designs — electric indigo/blue: clean, digital, UI precision */

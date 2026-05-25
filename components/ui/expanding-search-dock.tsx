@@ -132,7 +132,7 @@ export function ExpandingSearchDock({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12 }}
           onClick={handleExpand}
-          className="v7-search-dock-btn"
+          className="lm-search-dock-btn"
         >
           <Search className="h-3.5 w-3.5 shrink-0" />
           <span>{placeholder}</span>
@@ -149,10 +149,10 @@ export function ExpandingSearchDock({
             damping: 30,
           }}
         >
-          <div className="v7-search-dock-expanded">
+          <div className="lm-search-dock-expanded">
             <Search
               className="ml-4 h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--v7-text-tertiary)" }}
+              style={{ color: "var(--lm-text-tertiary)" }}
             />
             <input
               ref={inputRef}
@@ -160,14 +160,14 @@ export function ExpandingSearchDock({
               value={value}
               onChange={(e) => onChange?.(e.target.value)}
               placeholder={placeholder}
-              className="v7-search-dock-input"
+              className="lm-search-dock-input"
               aria-label="Search gallery"
               onKeyDown={(e) => {
                 if (e.key === "Escape") handleCollapse();
               }}
             />
             {loading ? (
-              <span className="v7-search-dock-loading">Searching</span>
+              <span className="lm-search-dock-loading">Searching</span>
             ) : (
               <motion.button
                 type="button"
@@ -176,7 +176,7 @@ export function ExpandingSearchDock({
                 animate={{ scale: 1 }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="v7-search-dock-close"
+                className="lm-search-dock-close"
                 aria-label="Clear search"
               >
                 <X className="h-3.5 w-3.5" />

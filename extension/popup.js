@@ -39,12 +39,6 @@ let knownPillars = [
     color: "#ff7a64",
   },
   {
-    key: "cars",
-    label: "Cars",
-    description: "Automotive, cinematic, motion",
-    color: "#e5534b",
-  },
-  {
     key: "designs",
     label: "Designs",
     description: "UI, sites, components, interfaces",

@@ -5,6 +5,7 @@ import { dedupeIds } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
+  cinemaMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
@@ -47,6 +48,7 @@ export const galleryAssetResultValidator = v.object({
   ingestSource: ingestSourceValidator,
   assetPackId: v.optional(v.id("assetPacks")),
   packSlotIndex: v.optional(v.number()),
+  cinemaMetadata: cinemaMetadataValidator,
   createdAt: v.number(),
   url: v.optional(v.string()),
   thumbUrl: v.optional(v.string()),
@@ -173,6 +175,7 @@ export const hydrateGalleryAssetResults = async (
         ingestSource: asset.ingestSource,
         assetPackId: asset.assetPackId,
         packSlotIndex: asset.packSlotIndex,
+        cinemaMetadata: asset.cinemaMetadata,
         createdAt: asset.createdAt,
         url,
         thumbUrl,

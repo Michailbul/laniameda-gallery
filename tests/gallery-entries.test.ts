@@ -70,4 +70,75 @@ describe("gallery entry builder", () => {
     expect(entries[0]?.packMemberCount).toBe(2);
     expect(entries[1]?.id).toBe("asset:c");
   });
+
+  test("uses original video dimensions before thumbnail dimensions", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:video",
+          kind: "video",
+          thumbUrl: "https://example.com/video-poster.jpg",
+          url: "https://example.com/video.mp4",
+          width: 1080,
+          height: 1920,
+          thumbWidth: 720,
+          thumbHeight: 720,
+          promptText: "Vertical video",
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries[0]?.width).toBe(1080);
+    expect(entries[0]?.height).toBe(1920);
+    expect(entries[0]?.previewImages[0]?.width).toBe(1080);
+    expect(entries[0]?.previewImages[0]?.height).toBe(1920);
+  });
+
+  test("keeps thumbnail dimensions first for images", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:image",
+          kind: "image",
+          thumbUrl: "https://example.com/image-thumb.jpg",
+          url: "https://example.com/image.jpg",
+          width: 2048,
+          height: 1536,
+          thumbWidth: 512,
+          thumbHeight: 384,
+          promptText: "Image",
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries[0]?.width).toBe(512);
+    expect(entries[0]?.height).toBe(384);
+  });
+
+  test("uses landscape fallback for videos with only square dimensions", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:legacy-video",
+          kind: "video",
+          thumbUrl: "https://example.com/legacy-video-poster.jpg",
+          url: "https://example.com/legacy-video.mp4",
+          width: 720,
+          height: 720,
+          thumbWidth: 720,
+          thumbHeight: 720,
+          promptText: "Legacy square metadata video",
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries[0]?.width).toBe(16);
+    expect(entries[0]?.height).toBe(9);
+  });
 });

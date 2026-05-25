@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   assetRoleValidator,
+  cinemaMetadataValidator,
   designCaptureKindValidator,
   designInspirationStatusValidator,
   designInspirationTypeValidator,
@@ -92,6 +93,9 @@ export default defineSchema({
     workflowType: workflowTypeValidator,
     promptSections: promptSectionsValidator,
     promptProfile: promptProfileValidator,
+    workflowId: v.optional(v.id("workflows")),
+    workflowStepOrder: v.optional(v.number()),
+    workflowStepLabel: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -101,6 +105,7 @@ export default defineSchema({
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_owner_pillar_promptType_createdAt", ["ownerUserId", "pillar", "promptType", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
+    .index("by_workflow_stepOrder", ["workflowId", "workflowStepOrder"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .searchIndex("search_text", { searchField: "text" }),
@@ -145,6 +150,7 @@ export default defineSchema({
     ingestSource: ingestSourceValidator,
     assetPackId: v.optional(v.id("assetPacks")),
     packSlotIndex: v.optional(v.number()),
+    cinemaMetadata: cinemaMetadataValidator,
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -178,6 +184,28 @@ export default defineSchema({
     isPublic: v.optional(v.boolean()),
     isFeatured: v.optional(v.boolean()),
     itemCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_ingestKey", ["ingestKey"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
+    .index("by_isPublic_createdAt", ["isPublic", "createdAt"]),
+  workflows: defineTable({
+    ownerUserId: v.optional(v.string()),
+    title: v.string(),
+    description: v.optional(v.string()),
+    // Knowledge body used to generate the downloadable agent skill.
+    agentInstructions: v.optional(v.string()),
+    pillar: optionalPillarValidator,
+    tagIds: v.array(v.id("tags")),
+    ingestKey: v.optional(v.string()),
+    // Optional pinned cover; carousel falls back to all step media.
+    coverAssetId: v.optional(v.id("assets")),
+    stepCount: v.number(),
+    isPublic: v.optional(v.boolean()),
+    isFeatured: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

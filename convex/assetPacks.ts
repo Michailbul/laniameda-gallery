@@ -19,6 +19,53 @@ import {
   optionalPillarValidator,
 } from "./validators";
 
+const VIDEO_FALLBACK_DIMENSIONS = { width: 16, height: 9 } as const;
+
+const hasUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+) =>
+  typeof width === "number" &&
+  Number.isFinite(width) &&
+  width > 0 &&
+  typeof height === "number" &&
+  Number.isFinite(height) &&
+  height > 0;
+
+const toUsableDimensions = (
+  width: number | undefined,
+  height: number | undefined,
+): { width: number; height: number } | undefined =>
+  hasUsableDimensions(width, height)
+    ? { width: width!, height: height! }
+    : undefined;
+
+const isSquareishDimensions = (width: number, height: number) =>
+  Math.abs(width / height - 1) < 0.04;
+
+const resolveAssetPreviewDimensions = (asset: {
+  kind: "image" | "video";
+  width?: number;
+  height?: number;
+  thumbWidth?: number;
+  thumbHeight?: number;
+}): { width?: number; height?: number } => {
+  const original = toUsableDimensions(asset.width, asset.height);
+  const thumbnail = toUsableDimensions(asset.thumbWidth, asset.thumbHeight);
+
+  if (asset.kind === "video") {
+    if (original && !isSquareishDimensions(original.width, original.height)) {
+      return original;
+    }
+    if (thumbnail && !isSquareishDimensions(thumbnail.width, thumbnail.height)) {
+      return thumbnail;
+    }
+    return VIDEO_FALLBACK_DIMENSIONS;
+  }
+
+  return thumbnail ?? original ?? {};
+};
+
 export const createAssetPack = mutation({
   args: {
     ownerUserId: v.optional(v.string()),
@@ -429,8 +476,9 @@ export const listAssetPacksWithCovers = query({
           if (coverAsset) {
             coverUrl = (await resolveAssetUrl(ctx, coverAsset)) ?? null;
             coverThumbUrl = (await resolveAssetThumbUrl(ctx, coverAsset)) ?? coverUrl;
-            coverWidth = coverAsset.thumbWidth ?? coverAsset.width;
-            coverHeight = coverAsset.thumbHeight ?? coverAsset.height;
+            const dimensions = resolveAssetPreviewDimensions(coverAsset);
+            coverWidth = dimensions.width;
+            coverHeight = dimensions.height;
           }
         }
 
@@ -452,8 +500,9 @@ export const listAssetPacksWithCovers = query({
           coverUrl = previewUrls[0];
           coverThumbUrl = previewUrls[0];
           if (members[0]) {
-            coverWidth = members[0].thumbWidth ?? members[0].width;
-            coverHeight = members[0].thumbHeight ?? members[0].height;
+            const dimensions = resolveAssetPreviewDimensions(members[0]);
+            coverWidth = dimensions.width;
+            coverHeight = dimensions.height;
           }
         }
 

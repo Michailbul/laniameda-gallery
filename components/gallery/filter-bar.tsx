@@ -16,9 +16,9 @@ export type PillarOption = {
 
 const DEFAULT_PILLAR_OPTIONS: PillarOption[] = [
   { label: "Creators", value: "creators" },
-  { label: "Cars", value: "cars" },
   { label: "Designs", value: "designs" },
   { label: "Dump", value: "dump" },
+  { label: "Cinema", value: "cinema-inspiration" },
 ];
 
 interface TagItem {
@@ -27,7 +27,7 @@ interface TagItem {
   usageCount?: number;
 }
 
-interface V72FilterBarProps {
+interface GalleryFilterBarProps {
   galleryScope: GalleryScope;
   canAccessMyGallery: boolean;
   onGalleryScopeChange: (scope: GalleryScope) => void;
@@ -54,13 +54,13 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
 ];
 
 const PILLAR_ACCENT: Record<string, string> = {
-  creators: "var(--v7-pillar-creators)",
-  cars: "var(--v7-coral)",
-  designs: "var(--v7-pillar-designs)",
-  dump: "var(--v7-pillar-dump)",
+  creators: "var(--lm-pillar-creators)",
+  designs: "var(--lm-pillar-designs)",
+  dump: "var(--lm-pillar-dump)",
+  "cinema-inspiration": "var(--pillar-cinema-inspiration)",
 };
 
-export function V72FilterBar({
+export function GalleryFilterBar({
   galleryScope,
   canAccessMyGallery,
   onGalleryScopeChange,
@@ -77,7 +77,7 @@ export function V72FilterBar({
   onSortOrderChange,
   viewMode,
   onViewModeChange,
-}: V72FilterBarProps) {
+}: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -122,7 +122,10 @@ export function V72FilterBar({
     setSearchQuery("");
   };
 
-  const hasTags = orderedTags.length > 0;
+  // Cinema-inspiration is intentionally tagless — frames carry their own
+  // cinematographic metadata, not the gallery's free-form tag system.
+  const isCinema = selectedPillar === "cinema-inspiration";
+  const hasTags = orderedTags.length > 0 && !isCinema;
   const hasFilteredTags = filteredTags.length > 0;
   const tagSummaryLabel = searchQuery.trim()
     ? `${filteredTags.length} of ${orderedTags.length} tags`
@@ -130,18 +133,18 @@ export function V72FilterBar({
 
   return (
     <div
-      id="v8-filter-bar"
+      id="gallery-filter-bar"
       className="flex justify-center"
       style={{
         position: "sticky",
         top: 0,
         zIndex: 30,
         padding: "12px 16px 0",
-        fontFamily: "var(--v7-font)",
+        fontFamily: "var(--lm-font)",
       }}
     >
       <div
-        className="v7-island"
+        className="lm-island"
         style={{
           width: "100%",
           maxWidth: "1180px",
@@ -159,9 +162,9 @@ export function V72FilterBar({
                 className="flex items-center self-start"
                 style={{
                   borderRadius: "14px",
-                  border: "2px solid var(--v7-ink)",
+                  border: "2px solid var(--lm-ink)",
                   overflow: "hidden",
-                  boxShadow: "0 10px 30px var(--v7-scope-pill-shadow, rgba(44, 24, 12, 0.08))",
+                  boxShadow: "0 10px 30px var(--lm-scope-pill-shadow, rgba(44, 24, 12, 0.08))",
                 }}
               >
                 <ScopePill
@@ -174,7 +177,7 @@ export function V72FilterBar({
                     width: "2px",
                     height: "100%",
                     alignSelf: "stretch",
-                    backgroundColor: "var(--v7-ink)",
+                    backgroundColor: "var(--lm-ink)",
                   }}
                 />
                 <ScopePill
@@ -191,17 +194,23 @@ export function V72FilterBar({
                 style={{
                   width: "1px",
                   height: "24px",
-                  backgroundColor: "var(--v7-border-strong)",
+                  backgroundColor: "var(--lm-border-strong)",
                   flexShrink: 0,
                 }}
               />
 
-              <div className="hidden min-w-0 md:flex md:flex-1 md:flex-wrap md:items-center md:gap-1">
+              <div
+                className="hidden min-w-0 md:flex md:flex-1 md:items-center md:gap-1 md:overflow-x-auto"
+                style={{
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+              >
                 <PillarPill
                   label="ALL"
                   active={selectedPillar === null}
                   onClick={() => onPillarSelect(null)}
-                  accentColor="var(--v7-coral)"
+                  accentColor="var(--lm-coral)"
                 />
                 {pillarOptions.map((pillar) => (
                   <PillarPill
@@ -209,14 +218,14 @@ export function V72FilterBar({
                     label={pillar.label.toUpperCase()}
                     active={selectedPillar === pillar.value}
                     onClick={() => onPillarSelect(pillar.value)}
-                    accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
+                    accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--lm-coral)"}
                   />
                 ))}
                 <div
                   style={{
                     width: "1px",
                     height: "20px",
-                    backgroundColor: "var(--v7-border-strong)",
+                    backgroundColor: "var(--lm-border-strong)",
                     flexShrink: 0,
                     margin: "0 4px",
                   }}
@@ -233,7 +242,7 @@ export function V72FilterBar({
                 style={{
                   width: "1px",
                   height: "24px",
-                  backgroundColor: "var(--v7-border-strong)",
+                  backgroundColor: "var(--lm-border-strong)",
                   flexShrink: 0,
                 }}
               />
@@ -259,7 +268,7 @@ export function V72FilterBar({
             label="ALL"
             active={selectedPillar === null}
             onClick={() => onPillarSelect(null)}
-            accentColor="var(--v7-coral)"
+            accentColor="var(--lm-coral)"
           />
           {pillarOptions.map((pillar) => (
             <PillarPill
@@ -267,14 +276,14 @@ export function V72FilterBar({
               label={pillar.label.toUpperCase()}
               active={selectedPillar === pillar.value}
               onClick={() => onPillarSelect(pillar.value)}
-              accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--v7-coral)"}
+              accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--lm-coral)"}
             />
           ))}
           <div
             style={{
               width: "1px",
               height: "20px",
-              backgroundColor: "var(--v7-border-strong)",
+              backgroundColor: "var(--lm-border-strong)",
               flexShrink: 0,
               margin: "0 4px",
             }}
@@ -287,7 +296,7 @@ export function V72FilterBar({
             style={{
               width: "1px",
               height: "20px",
-              backgroundColor: "var(--v7-border-strong)",
+              backgroundColor: "var(--lm-border-strong)",
               flexShrink: 0,
               margin: "0 4px",
             }}
@@ -299,7 +308,7 @@ export function V72FilterBar({
                 style={{
                   width: "1px",
                   height: "20px",
-                  backgroundColor: "var(--v7-border-strong)",
+                  backgroundColor: "var(--lm-border-strong)",
                   flexShrink: 0,
                   margin: "0 4px",
                 }}
@@ -318,7 +327,7 @@ export function V72FilterBar({
             <div
               style={{
                 height: "1px",
-                backgroundColor: "var(--v7-border)",
+                backgroundColor: "var(--lm-border)",
                 margin: "0 16px",
               }}
             />
@@ -327,15 +336,15 @@ export function V72FilterBar({
               <div className="flex items-center gap-1.5 shrink-0">
                 {searchOpen ? (
                   <div
-                    className="v7-search-input flex items-center gap-1.5 px-2.5"
+                    className="lm-search-input flex items-center gap-1.5 px-2.5"
                     style={{
                       minHeight: "30px",
-                      border: "2px solid var(--v7-ink)",
+                      border: "2px solid var(--lm-ink)",
                       borderRadius: "999px",
-                      backgroundColor: "var(--v7-surface-1)",
+                      backgroundColor: "var(--lm-surface-1)",
                     }}
                   >
-                    <Search className="h-3 w-3 shrink-0" style={{ color: "var(--v7-text-ghost)" }} />
+                    <Search className="h-3 w-3 shrink-0" style={{ color: "var(--lm-text-ghost)" }} />
                     <input
                       ref={searchInputRef}
                       value={searchQuery}
@@ -343,11 +352,11 @@ export function V72FilterBar({
                       placeholder="FILTER..."
                       className="min-w-0 bg-transparent py-0.5 outline-none"
                       style={{
-                        fontFamily: "var(--v7-font)",
+                        fontFamily: "var(--lm-font)",
                         fontSize: "10px",
                         textTransform: "uppercase",
                         letterSpacing: "0.12em",
-                        color: "var(--v7-text-primary)",
+                        color: "var(--lm-text-primary)",
                         width: "80px",
                       }}
                       aria-label="Search tags"
@@ -359,7 +368,7 @@ export function V72FilterBar({
                       type="button"
                       onClick={closeSearch}
                       className="flex items-center justify-center"
-                      style={{ color: "var(--v7-text-ghost)" }}
+                      style={{ color: "var(--lm-text-ghost)" }}
                       aria-label="Close tag search"
                     >
                       <X className="h-3 w-3" />
@@ -373,9 +382,9 @@ export function V72FilterBar({
                     style={{
                       width: "30px",
                       height: "30px",
-                      border: "2px solid var(--v7-border-strong)",
+                      border: "2px solid var(--lm-border-strong)",
                       borderRadius: "999px",
-                      color: "var(--v7-text-ghost)",
+                      color: "var(--lm-text-ghost)",
                     }}
                     aria-label="Search tags"
                   >
@@ -395,7 +404,7 @@ export function V72FilterBar({
                       textTransform: "uppercase",
                       letterSpacing: "0.12em",
                       borderRadius: "999px",
-                      fontFamily: "var(--v7-font)",
+                      fontFamily: "var(--lm-font)",
                     }}
                   >
                     <X className="h-2.5 w-2.5" />
@@ -440,22 +449,22 @@ export function V72FilterBar({
                           alignItems: "center",
                           gap: "4px",
                           padding: "4px 11px",
-                          fontFamily: "var(--v7-font)",
+                          fontFamily: "var(--lm-font)",
                           fontSize: "10px",
                           fontWeight: isActive ? 700 : 600,
                           textTransform: "uppercase",
                           letterSpacing: "0.10em",
                           border: isActive
                             ? "2px solid var(--gradient-3)"
-                            : "2px solid var(--v7-border)",
+                            : "2px solid var(--lm-border)",
                           color: isActive
                             ? "#fff"
-                            : "var(--v7-text-secondary)",
+                            : "var(--lm-text-secondary)",
                           background: isActive
                             ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
-                            : "var(--v7-surface-1)",
+                            : "var(--lm-surface-1)",
                           cursor: "pointer",
-                          transition: "all var(--v7-duration-fast)",
+                          transition: "all var(--lm-duration-fast)",
                           borderRadius: "999px",
                           boxShadow: isActive
                             ? "0 0 10px rgba(255, 122, 100, 0.2)"
@@ -483,8 +492,8 @@ export function V72FilterBar({
                   <div
                     className="px-3 py-2"
                     style={{
-                      color: "var(--v7-text-ghost)",
-                      fontFamily: "var(--v7-font)",
+                      color: "var(--lm-text-ghost)",
+                      fontFamily: "var(--lm-font)",
                       fontSize: "10px",
                       fontWeight: 700,
                       textTransform: "uppercase",
@@ -500,8 +509,8 @@ export function V72FilterBar({
               <div
                 className="shrink-0"
                 style={{
-                  color: "var(--v7-text-ghost)",
-                  fontFamily: "var(--v7-font)",
+                  color: "var(--lm-text-ghost)",
+                  fontFamily: "var(--lm-font)",
                   fontSize: "9px",
                   fontWeight: 700,
                   letterSpacing: "0.14em",
@@ -542,7 +551,7 @@ function SortPills({
             color:
               sortOrder === option.value
                 ? "#fff"
-                : "var(--v7-text-ghost)",
+                : "var(--lm-text-ghost)",
             fontSize: "9px",
             fontWeight: 700,
             textTransform: "uppercase",
@@ -551,9 +560,9 @@ function SortPills({
               sortOrder === option.value
                 ? "2px solid var(--gradient-1)"
                 : "2px solid transparent",
-            transition: "all var(--v7-duration-fast)",
+            transition: "all var(--lm-duration-fast)",
             cursor: "pointer",
-            fontFamily: "var(--v7-font)",
+            fontFamily: "var(--lm-font)",
             whiteSpace: "nowrap",
           }}
         >
@@ -580,7 +589,7 @@ function ViewModeToggle({
       className="flex items-center"
       style={{
         borderRadius: "12px",
-        border: "2px solid var(--v7-border-strong)",
+        border: "2px solid var(--lm-border-strong)",
         overflow: "hidden",
       }}
     >
@@ -597,7 +606,7 @@ function ViewModeToggle({
           color:
             viewMode === "grid"
               ? "#fff"
-              : "var(--v7-text-ghost)",
+              : "var(--lm-text-ghost)",
         }}
         aria-label="Grid view"
       >
@@ -607,7 +616,7 @@ function ViewModeToggle({
         style={{
           width: "1px",
           alignSelf: "stretch",
-          backgroundColor: "var(--v7-border-strong)",
+          backgroundColor: "var(--lm-border-strong)",
         }}
       />
       <button
@@ -623,7 +632,7 @@ function ViewModeToggle({
           color:
             viewMode === "canvas"
               ? "#fff"
-              : "var(--v7-text-ghost)",
+              : "var(--lm-text-ghost)",
         }}
         aria-label="Canvas view"
       >
@@ -633,7 +642,7 @@ function ViewModeToggle({
         style={{
           width: "1px",
           alignSelf: "stretch",
-          backgroundColor: "var(--v7-border-strong)",
+          backgroundColor: "var(--lm-border-strong)",
         }}
       />
       <button
@@ -649,7 +658,7 @@ function ViewModeToggle({
           color:
             viewMode === "packs"
               ? "#fff"
-              : "var(--v7-text-ghost)",
+              : "var(--lm-text-ghost)",
         }}
         aria-label="Packs view"
       >
@@ -684,18 +693,18 @@ function ScopePill({
         background: isAccentActive
           ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
           : active
-            ? "var(--v7-ink)"
+            ? "var(--lm-ink)"
             : "transparent",
         color: isAccentActive
           ? "#fff"
           : active
-            ? "var(--v7-paper)"
-            : "var(--v7-text-ghost)",
+            ? "var(--lm-paper)"
+            : "var(--lm-text-ghost)",
         fontSize: "10px",
         fontWeight: 800,
         textTransform: "uppercase",
         letterSpacing: "0.16em",
-        fontFamily: "var(--v7-font)",
+        fontFamily: "var(--lm-font)",
         cursor: disabled ? "not-allowed" : "pointer",
       }}
       title={
@@ -725,21 +734,21 @@ function WorkflowsPill({
         background: active
           ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
           : "transparent",
-        color: active ? "#fff" : "var(--v7-text-ghost)",
+        color: active ? "#fff" : "var(--lm-text-ghost)",
         fontSize: "9px",
         fontWeight: active ? 900 : 600,
         textTransform: "uppercase",
         letterSpacing: "0.14em",
         border: active
           ? "2px solid transparent"
-          : "2px solid var(--v7-border-strong)",
+          : "2px solid var(--lm-border-strong)",
         boxShadow: active ? "0 0 12px rgba(255, 122, 100, 0.35)" : "none",
         cursor: "pointer",
-        fontFamily: "var(--v7-font)",
+        fontFamily: "var(--lm-font)",
         whiteSpace: "nowrap",
         flexShrink: 0,
       }}
-      title={active ? "Showing workflow recipes only" : "Show workflow recipes only"}
+      title={active ? "Showing workflows only" : "Show workflows only"}
     >
       <Workflow className="h-3 w-3" />
       Workflows
@@ -767,7 +776,7 @@ function PillarPill({
         padding: "4px 10px",
         borderRadius: "12px",
         background: active ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))" : "transparent",
-        color: active ? "#fff" : "var(--v7-text-ghost)",
+        color: active ? "#fff" : "var(--lm-text-ghost)",
         fontSize: "9px",
         fontWeight: active ? 900 : 600,
         textTransform: "uppercase",
@@ -775,7 +784,7 @@ function PillarPill({
         border: "2px solid transparent",
         boxShadow: active ? `0 0 12px ${accentColor}33` : "none",
         cursor: "pointer",
-        fontFamily: "var(--v7-font)",
+        fontFamily: "var(--lm-font)",
         whiteSpace: "nowrap",
         flexShrink: 0,
       }}
