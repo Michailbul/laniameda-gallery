@@ -129,6 +129,7 @@ const updateArgsValidator = v.object({
   promptType: v.optional(v.union(v.null(), v.string())),
   domain: v.optional(v.union(v.null(), v.string())),
   modelName: v.optional(v.union(v.null(), v.string())),
+  description: v.optional(v.union(v.null(), v.string())),
   modelProvider: v.optional(v.union(v.null(), v.string())),
   workflowType: v.optional(v.union(v.null(), v.string())),
   promptSections: v.optional(v.union(v.null(), v.any())),
@@ -531,6 +532,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     ingestKey: v.optional(v.string()),
     promptIngestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
+    description: v.optional(v.string()),
     modelProvider: modelProviderValidator,
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -720,6 +722,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           thumbR2Bucket: r2BucketForRow,
           sourceUrl: args.url,
           fileName,
+          description: args.description,
           contentType,
           size,
           width,
@@ -942,6 +945,9 @@ export const updateFromApi: ReturnType<typeof action> = action({
             thumbR2Key: media.thumbR2Key,
             sourceUrl: args.url,
             fileName: media.fileName,
+            description: hasOwn(args, "description")
+              ? normalizeOptionalString(args.description)
+              : undefined,
             contentType: media.contentType,
             size: media.size,
             width: media.width,
@@ -1037,6 +1043,10 @@ export const updateFromApi: ReturnType<typeof action> = action({
           hasOwn(args, "contentType")
             ? normalizeOptionalString(args.contentType)
             : existing.contentType,
+        description:
+          hasOwn(args, "description")
+            ? normalizeOptionalString(args.description)
+            : existing.description,
         modelName:
           hasOwn(args, "modelName")
             ? normalizeOptionalString(args.modelName)

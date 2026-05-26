@@ -1,4 +1,10 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -6,7 +12,7 @@ import {
   reconcileAssetPackMembership,
   syncPromptAssetPack,
 } from "./assetPackHelpers";
-import { bumpTagUsage, dedupeIds } from "./helpers";
+import { bumpTagUsage, canonicalTagKey, dedupeIds, normalizeTagName } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { r2 } from "./r2";
 import {
@@ -31,6 +37,47 @@ const pillarValidator = optionalPillarValidator;
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
+const reindexPromptAction = makeFunctionReference<"action">(
+  "semanticIndex:reindexPrompt",
+);
+
+const nullableStringValidator = v.optional(v.union(v.null(), v.string()));
+const nullableGenerationTypeValidator = v.optional(v.union(
+  v.null(),
+  v.literal("image_gen"),
+  v.literal("video_gen"),
+  v.literal("ui_design"),
+  v.literal("workflow"),
+  v.literal("other"),
+));
+const nullableAssetRoleValidator = v.optional(v.union(
+  v.null(),
+  v.literal("generated_output"),
+  v.literal("reference"),
+  v.literal("inspiration_capture"),
+  v.literal("workflow_asset"),
+  v.literal("cinema_frame"),
+  v.literal("other"),
+));
+const nullableIngestSourceValidator = v.optional(v.union(
+  v.null(),
+  v.literal("api"),
+  v.literal("agent"),
+  v.literal("telegram"),
+  v.literal("manual"),
+  v.literal("import"),
+));
+
+const normalizeOptionalString = (value: string | null | undefined) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
 
 const getCuratorUserIdsFromEnv = () => {
   return parseUserIdList(
@@ -56,6 +103,118 @@ const assertCurationAdmin = (actorUserId: string, adminSecret: string) => {
   }
 };
 
+const hasOwn = <T extends object>(value: T, key: PropertyKey) =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const resolveTagIdsForNames = async (
+  ctx: MutationCtx,
+  names: string[],
+  pillar: string | undefined,
+) => {
+  const cleanedNames = Array.from(
+    new Set(names.map((name) => name.trim()).filter(Boolean)),
+  );
+  if (cleanedNames.length === 0) {
+    return [] as Id<"tags">[];
+  }
+
+  const allTags = await ctx.db
+    .query("tags")
+    .withIndex("by_normalized", (q) => q.gte("normalized", ""))
+    .collect();
+  const byNormalized = new Map(allTags.map((tag) => [tag.normalized, tag]));
+  const byCanonical = new Map<string, Doc<"tags">>();
+  for (const tag of allTags) {
+    const canonical = canonicalTagKey(tag.name);
+    if (canonical) byCanonical.set(canonical, tag);
+  }
+
+  const tagIds: Id<"tags">[] = [];
+  for (const name of cleanedNames) {
+    const normalized = normalizeTagName(name);
+    const canonical = canonicalTagKey(name);
+    const existing =
+      byNormalized.get(normalized) ||
+      (canonical ? byCanonical.get(canonical) : undefined);
+    if (existing) {
+      tagIds.push(existing._id);
+      continue;
+    }
+
+    const tagId = await ctx.db.insert("tags", {
+      name,
+      normalized,
+      usageCount: 0,
+      pillar,
+      source: "user",
+    });
+    const inserted = {
+      _id: tagId,
+      _creationTime: Date.now(),
+      name,
+      normalized,
+      usageCount: 0,
+      pillar,
+      source: "user" as const,
+    } as Doc<"tags">;
+    byNormalized.set(normalized, inserted);
+    if (canonical) byCanonical.set(canonical, inserted);
+    tagIds.push(tagId);
+  }
+
+  return dedupeIds(tagIds);
+};
+
+const replaceAssetTagLinks = async (
+  ctx: MutationCtx,
+  asset: Doc<"assets">,
+  tagIds: Id<"tags">[],
+) => {
+  const nextTagIds = dedupeIds(tagIds);
+  await bumpTagUsage(ctx, asset.tagIds, -1);
+  await bumpTagUsage(ctx, nextTagIds, 1);
+
+  const links = await ctx.db
+    .query("assetTags")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+  }
+  for (const tagId of nextTagIds) {
+    await ctx.db.insert("assetTags", {
+      assetId: asset._id,
+      tagId,
+      createdAt: asset.createdAt,
+    });
+  }
+};
+
+const replacePromptTagLinks = async (
+  ctx: MutationCtx,
+  prompt: Doc<"prompts">,
+  tagIds: Id<"tags">[],
+) => {
+  const nextTagIds = dedupeIds(tagIds);
+  await bumpTagUsage(ctx, prompt.tagIds, -1);
+  await bumpTagUsage(ctx, nextTagIds, 1);
+
+  const links = await ctx.db
+    .query("promptTags")
+    .withIndex("by_prompt", (q) => q.eq("promptId", prompt._id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+  }
+  for (const tagId of nextTagIds) {
+    await ctx.db.insert("promptTags", {
+      promptId: prompt._id,
+      tagId,
+      createdAt: prompt.createdAt,
+    });
+  }
+};
+
 const dedupeAssetIds = <T extends { _id: string }>(rows: T[]) => {
   const seen = new Set<string>();
   return rows.filter((row) => {
@@ -77,6 +236,7 @@ export const createAsset = mutation({
     thumbR2Bucket: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
+    description: v.optional(v.string()),
     contentType: v.optional(v.string()),
     size: v.optional(v.number()),
     width: v.optional(v.number()),
@@ -132,6 +292,7 @@ export const createAsset = mutation({
       thumbR2Bucket: args.thumbR2Bucket,
       sourceUrl: args.sourceUrl,
       fileName: args.fileName,
+      description: args.description,
       contentType: args.contentType,
       size: args.size,
       width: args.width,
@@ -283,6 +444,7 @@ export const updateAssetMetadata = mutation({
     promptId: v.optional(v.id("prompts")),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
+    description: v.optional(v.string()),
     contentType: v.optional(v.string()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -324,6 +486,7 @@ export const updateAssetMetadata = mutation({
       promptId: args.promptId,
       sourceUrl: args.sourceUrl,
       fileName: args.fileName,
+      description: args.description,
       contentType: args.contentType,
       modelName: args.modelName,
       pillar: args.pillar,
@@ -372,6 +535,204 @@ export const updateAssetMetadata = mutation({
   },
 });
 
+export const adminUpdateAsset = mutation({
+  args: {
+    assetId: v.id("assets"),
+    actorUserId: v.string(),
+    adminSecret: v.string(),
+    description: nullableStringValidator,
+    promptText: nullableStringValidator,
+    tagNames: v.optional(v.array(v.string())),
+    folderId: v.optional(v.union(v.null(), v.id("folders"))),
+    sourceUrl: nullableStringValidator,
+    fileName: nullableStringValidator,
+    modelName: nullableStringValidator,
+    pillar: nullableStringValidator,
+    generationType: nullableGenerationTypeValidator,
+    assetRole: nullableAssetRoleValidator,
+    ingestSource: nullableIngestSourceValidator,
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    promptId: v.optional(v.id("prompts")),
+    promptText: v.optional(v.string()),
+    description: v.optional(v.string()),
+    tagIds: v.array(v.id("tags")),
+    tagNames: v.array(v.string()),
+    folderId: v.optional(v.id("folders")),
+    sourceUrl: v.optional(v.string()),
+    fileName: v.optional(v.string()),
+    modelName: v.optional(v.string()),
+    pillar: pillarValidator,
+    generationType: generationTypeValidator,
+    assetRole: assetRoleValidator,
+    ingestSource: ingestSourceValidator,
+  }),
+  handler: async (ctx, args) => {
+    assertCurationAdmin(args.actorUserId, args.adminSecret);
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+
+    const ownerUserId = asset.ownerUserId?.trim() || args.actorUserId.trim();
+    const nextPillar = hasOwn(args, "pillar")
+      ? normalizeOptionalString(args.pillar)
+      : asset.pillar;
+    const nextFolderId = hasOwn(args, "folderId")
+      ? (args.folderId ?? undefined)
+      : asset.folderId;
+    await ensureFolderOwnership(ctx, ownerUserId, nextFolderId);
+
+    const nextTagIds = hasOwn(args, "tagNames")
+      ? await resolveTagIdsForNames(ctx, args.tagNames ?? [], nextPillar)
+      : asset.tagIds;
+    if (hasOwn(args, "tagNames")) {
+      await replaceAssetTagLinks(ctx, asset, nextTagIds);
+    }
+
+    const previousPromptId = asset.promptId;
+    let nextPromptId = asset.promptId;
+    let nextPromptText: string | undefined;
+    const shouldEditPrompt = hasOwn(args, "promptText");
+    if (shouldEditPrompt) {
+      nextPromptText = normalizeOptionalString(args.promptText);
+      if (!nextPromptText) {
+        nextPromptId = undefined;
+      } else if (asset.promptId) {
+        const prompt = await ctx.db.get(asset.promptId);
+        if (prompt) {
+          const promptPatch = {
+            text: nextPromptText,
+            tagIds: hasOwn(args, "tagNames") ? nextTagIds : prompt.tagIds,
+            folderId: nextFolderId,
+            pillar: nextPillar,
+            modelName: hasOwn(args, "modelName")
+              ? normalizeOptionalString(args.modelName)
+              : prompt.modelName,
+          };
+          await ctx.db.patch(prompt._id, promptPatch);
+          if (hasOwn(args, "tagNames")) {
+            await replacePromptTagLinks(ctx, prompt, nextTagIds);
+          }
+          await ctx.scheduler.runAfter(0, reindexPromptAction, {
+            promptId: prompt._id,
+          });
+          nextPromptId = prompt._id;
+        } else {
+          nextPromptId = undefined;
+        }
+      }
+
+      if (nextPromptText && !nextPromptId) {
+        const createdAt = Date.now();
+        nextPromptId = await ctx.db.insert("prompts", {
+          ownerUserId,
+          text: nextPromptText,
+          tagIds: nextTagIds,
+          folderId: nextFolderId,
+          pillar: nextPillar,
+          modelName: hasOwn(args, "modelName")
+            ? normalizeOptionalString(args.modelName)
+            : asset.modelName,
+          createdAt,
+        });
+        for (const tagId of nextTagIds) {
+          await ctx.db.insert("promptTags", {
+            promptId: nextPromptId,
+            tagId,
+            createdAt,
+          });
+        }
+        await bumpTagUsage(ctx, nextTagIds, 1);
+        await ctx.scheduler.runAfter(0, reindexPromptAction, {
+          promptId: nextPromptId,
+        });
+      }
+    } else if (asset.promptId) {
+      const prompt = await ctx.db.get(asset.promptId);
+      nextPromptText = prompt?.text;
+    }
+
+    await ctx.db.patch(args.assetId, {
+      tagIds: nextTagIds,
+      folderId: nextFolderId,
+      promptId: nextPromptId,
+      description: hasOwn(args, "description")
+        ? normalizeOptionalString(args.description)
+        : asset.description,
+      sourceUrl: hasOwn(args, "sourceUrl")
+        ? normalizeOptionalString(args.sourceUrl)
+        : asset.sourceUrl,
+      fileName: hasOwn(args, "fileName")
+        ? normalizeOptionalString(args.fileName)
+        : asset.fileName,
+      modelName: hasOwn(args, "modelName")
+        ? normalizeOptionalString(args.modelName)
+        : asset.modelName,
+      pillar: nextPillar,
+      generationType: hasOwn(args, "generationType")
+        ? (args.generationType ?? undefined)
+        : asset.generationType,
+      assetRole: hasOwn(args, "assetRole")
+        ? (args.assetRole ?? undefined)
+        : asset.assetRole,
+      ingestSource: hasOwn(args, "ingestSource")
+        ? (args.ingestSource ?? undefined)
+        : asset.ingestSource,
+    });
+
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
+    });
+
+    const promptIdsToSync = Array.from(
+      new Set(
+        [previousPromptId, nextPromptId].filter(
+          (promptId): promptId is Id<"prompts"> => Boolean(promptId),
+        ),
+      ),
+    );
+    for (const promptId of promptIdsToSync) {
+      await syncPromptAssetPack(ctx, {
+        ownerUserId,
+        promptId,
+      });
+    }
+
+    const finalAsset = await ctx.db.get(args.assetId);
+    if (!finalAsset) {
+      throw new ConvexError("Asset not found after update.");
+    }
+    const tags = await Promise.all(
+      finalAsset.tagIds.map(async (tagId) => await ctx.db.get(tagId)),
+    );
+    const prompt = finalAsset.promptId
+      ? await ctx.db.get(finalAsset.promptId)
+      : null;
+
+    return {
+      assetId: finalAsset._id,
+      promptId: finalAsset.promptId,
+      promptText: prompt?.text,
+      description: finalAsset.description,
+      tagIds: finalAsset.tagIds,
+      tagNames: tags
+        .map((tag) => tag?.name)
+        .filter((name): name is string => Boolean(name)),
+      folderId: finalAsset.folderId,
+      sourceUrl: finalAsset.sourceUrl,
+      fileName: finalAsset.fileName,
+      modelName: finalAsset.modelName,
+      pillar: finalAsset.pillar,
+      generationType: finalAsset.generationType,
+      assetRole: finalAsset.assetRole,
+      ingestSource: finalAsset.ingestSource,
+    };
+  },
+});
+
 export const getAsset = query({
   args: {
     id: v.id("assets"),
@@ -392,6 +753,7 @@ export const getAsset = query({
       thumbR2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
+      description: v.optional(v.string()),
       contentType: v.optional(v.string()),
       size: v.optional(v.number()),
       width: v.optional(v.number()),
@@ -496,6 +858,7 @@ export const listAssets = query({
       thumbR2Bucket: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
       fileName: v.optional(v.string()),
+      description: v.optional(v.string()),
       contentType: v.optional(v.string()),
       size: v.optional(v.number()),
       width: v.optional(v.number()),
