@@ -10,6 +10,7 @@ const userReturnValidator = v.object({
   name: v.optional(v.string()),
   avatarUrl: v.optional(v.string()),
   ownerUserId: v.string(),
+  onboardingCompletedAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
@@ -117,6 +118,26 @@ export const getUser = query({
   returns: v.union(v.null(), userReturnValidator),
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
+  },
+});
+
+export const markOnboardingCompleted = mutation({
+  args: { userId: v.id("users") },
+  returns: userReturnValidator,
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new ConvexError("User not found.");
+    }
+    const now = Date.now();
+    if (user.onboardingCompletedAt) {
+      return user;
+    }
+    await ctx.db.patch(user._id, {
+      onboardingCompletedAt: now,
+      updatedAt: now,
+    });
+    return (await ctx.db.get(user._id))!;
   },
 });
 

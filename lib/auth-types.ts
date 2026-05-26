@@ -7,6 +7,7 @@ export interface AppUser {
   email?: string;
   telegramId?: string;
   telegramUsername?: string;
+  hasCompletedOnboarding: boolean;
 }
 
 export interface AuthMeResponse {

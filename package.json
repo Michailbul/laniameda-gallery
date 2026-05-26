@@ -32,6 +32,7 @@
     "@daytonaio/sdk": "^0.141.0",
     "@hugeicons/core-free-icons": "^3.1.1",
     "@hugeicons/react": "^1.1.4",
+    "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@xyflow/react": "^12.10.1",
     "ai": "^6.0.85",
     "class-variance-authority": "^0.7.1",

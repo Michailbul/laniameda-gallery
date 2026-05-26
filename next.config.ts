@@ -4,6 +4,9 @@ import path from "node:path";
 const nextConfig: NextConfig = {
   // __dirname is undefined in ESM contexts on Vercel; use cwd for tracing root.
   outputFileTracingRoot: path.join(process.cwd()),
+  outputFileTracingIncludes: {
+    "/api/skills/laniameda-gallery": ["./content/skills/**/*"],
+  },
   webpack: (config, { dev }) => {
     if (dev) {
       const existingIgnored = config.watchOptions?.ignored;

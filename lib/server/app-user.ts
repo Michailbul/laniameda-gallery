@@ -12,6 +12,7 @@ type ConvexUser = {
   avatarUrl?: string;
   email?: string;
   telegramId?: string;
+  onboardingCompletedAt?: number;
 };
 
 const toAppUser = (sessionUser: TelegramUser, convexUser: ConvexUser): AppUser => {
@@ -24,6 +25,7 @@ const toAppUser = (sessionUser: TelegramUser, convexUser: ConvexUser): AppUser =
     email: convexUser.email,
     telegramId: convexUser.telegramId ?? sessionUser.telegramId,
     telegramUsername: sessionUser.username,
+    hasCompletedOnboarding: typeof convexUser.onboardingCompletedAt === "number",
   };
 };
 

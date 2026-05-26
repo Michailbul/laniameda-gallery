@@ -28,6 +28,7 @@ import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { OnboardingModal } from "@/components/onboarding/onboarding-modal";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -114,6 +115,7 @@ interface GalleryDashboardProps {
     firstName?: string | null;
     username?: string | null;
     photoUrl?: string | null;
+    hasCompletedOnboarding?: boolean;
   } | null;
   onSignOut?: () => void;
   adminMode?: boolean;
@@ -215,6 +217,14 @@ export function GalleryDashboard({
     ""
   ).trim();
   const canAccessMyGallery = Boolean(ownerUserId);
+
+  const shouldShowOnboarding = Boolean(
+    user && user.id && user.hasCompletedOnboarding === false,
+  );
+  const [onboardingOpen, setOnboardingOpen] = useState(shouldShowOnboarding);
+  useEffect(() => {
+    if (shouldShowOnboarding) setOnboardingOpen(true);
+  }, [shouldShowOnboarding]);
 
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
@@ -2033,6 +2043,13 @@ export function GalleryDashboard({
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
       contentRight={selectedImage ? "380px" : "0"}
     >
+    {user && user.id && (
+      <OnboardingModal
+        open={onboardingOpen}
+        userName={user.firstName ?? user.username ?? ""}
+        onCompleted={() => setOnboardingOpen(false)}
+      />
+    )}
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
