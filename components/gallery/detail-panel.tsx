@@ -887,8 +887,9 @@ export function GalleryDetailPanel({
                 <div
                   className="absolute right-0 top-full z-10 mt-1 flex flex-col py-1"
                   style={{
-                    backgroundColor: "var(--lm-ink)",
-                    boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+                    backgroundColor: "var(--lm-surface-1)",
+                    border: "1px solid var(--lm-border-strong)",
+                    boxShadow: "0 14px 36px rgba(0,0,0,0.42)",
                     minWidth: "180px",
                     borderRadius: "8px",
                   }}
@@ -1667,16 +1668,18 @@ function CopyMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-white/10"
+      className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-white/5"
       style={{
-        color: primary ? "var(--lm-coral)" : "rgba(255,255,255,0.7)",
+        color: primary ? "var(--lm-coral)" : "var(--lm-text-secondary)",
         fontWeight: primary ? 600 : 400,
         fontSize: "12px",
       }}
     >
       <Icon
         className="h-3.5 w-3.5"
-        style={{ color: "rgba(255,255,255,0.4)" }}
+        style={{
+          color: primary ? "var(--lm-coral)" : "var(--lm-text-tertiary)",
+        }}
       />
       <span className="flex-1">{label}</span>
     </button>
