@@ -116,24 +116,36 @@ describe("ingest management backend", () => {
         promptText: "Updated admin prompt",
         description: "Updated admin description",
         tagNames: ["portrait", " editorial ", "portrait"],
+        kind: "video",
+        contentType: "video/mp4",
         modelName: "GPT-Image-2",
         pillar: "designs",
+        generationType: "video_gen",
+        assetRole: "generated_output",
+        ingestSource: "manual",
         sourceUrl: "https://example.com/admin.png",
         fileName: "admin.png",
       });
 
       expect(result.promptText).toBe("Updated admin prompt");
+      expect(result.kind).toBe("video");
       expect(result.description).toBe("Updated admin description");
       expect(result.tagNames).toEqual(["portrait", "editorial"]);
+      expect(result.contentType).toBe("video/mp4");
       expect(result.modelName).toBe("GPT-Image-2");
       expect(result.pillar).toBe("designs");
+      expect(result.generationType).toBe("video_gen");
+      expect(result.assetRole).toBe("generated_output");
+      expect(result.ingestSource).toBe("manual");
 
       const updatedAsset = await getAsset._handler(harness.ctx as never, {
         id: asset.assetId,
         ownerUserId: "owner-1",
       });
       expect(updatedAsset?.promptId).toBe(result.promptId);
+      expect(updatedAsset?.kind).toBe("video");
       expect(updatedAsset?.description).toBe("Updated admin description");
+      expect(updatedAsset?.contentType).toBe("video/mp4");
       expect(updatedAsset?.tagIds).toEqual(result.tagIds);
 
       const prompt = await getPrompt._handler(harness.ctx as never, {

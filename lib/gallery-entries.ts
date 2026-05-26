@@ -33,6 +33,9 @@ export type GalleryAssetRecord = {
   height?: number;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   createdAt: number;
   folderId?: string;
@@ -74,6 +77,9 @@ export type GalleryEntry = {
   contentType?: string;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   sourceUrl?: string;
   description?: string;
@@ -198,6 +204,9 @@ const buildEntry = (
     contentType: cover.contentType,
     modelName: cover.modelName ?? undefined,
     pillar: cover.pillar ?? undefined,
+    generationType: cover.generationType ?? undefined,
+    assetRole: cover.assetRole ?? undefined,
+    ingestSource: cover.ingestSource ?? undefined,
     tagNames,
     sourceUrl: cover.sourceUrl ?? undefined,
     description: cover.description ?? undefined,

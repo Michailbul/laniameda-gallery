@@ -42,6 +42,8 @@ const reindexPromptAction = makeFunctionReference<"action">(
 );
 
 const nullableStringValidator = v.optional(v.union(v.null(), v.string()));
+const assetKindValidator = v.union(v.literal("image"), v.literal("video"));
+const optionalAssetKindValidator = v.optional(assetKindValidator);
 const nullableGenerationTypeValidator = v.optional(v.union(
   v.null(),
   v.literal("image_gen"),
@@ -544,8 +546,10 @@ export const adminUpdateAsset = mutation({
     promptText: nullableStringValidator,
     tagNames: v.optional(v.array(v.string())),
     folderId: v.optional(v.union(v.null(), v.id("folders"))),
+    kind: optionalAssetKindValidator,
     sourceUrl: nullableStringValidator,
     fileName: nullableStringValidator,
+    contentType: nullableStringValidator,
     modelName: nullableStringValidator,
     pillar: nullableStringValidator,
     generationType: nullableGenerationTypeValidator,
@@ -556,12 +560,14 @@ export const adminUpdateAsset = mutation({
     assetId: v.id("assets"),
     promptId: v.optional(v.id("prompts")),
     promptText: v.optional(v.string()),
+    kind: assetKindValidator,
     description: v.optional(v.string()),
     tagIds: v.array(v.id("tags")),
     tagNames: v.array(v.string()),
     folderId: v.optional(v.id("folders")),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
+    contentType: v.optional(v.string()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -659,6 +665,7 @@ export const adminUpdateAsset = mutation({
       tagIds: nextTagIds,
       folderId: nextFolderId,
       promptId: nextPromptId,
+      kind: hasOwn(args, "kind") ? args.kind : asset.kind,
       description: hasOwn(args, "description")
         ? normalizeOptionalString(args.description)
         : asset.description,
@@ -668,6 +675,9 @@ export const adminUpdateAsset = mutation({
       fileName: hasOwn(args, "fileName")
         ? normalizeOptionalString(args.fileName)
         : asset.fileName,
+      contentType: hasOwn(args, "contentType")
+        ? normalizeOptionalString(args.contentType)
+        : asset.contentType,
       modelName: hasOwn(args, "modelName")
         ? normalizeOptionalString(args.modelName)
         : asset.modelName,
@@ -716,6 +726,7 @@ export const adminUpdateAsset = mutation({
       assetId: finalAsset._id,
       promptId: finalAsset.promptId,
       promptText: prompt?.text,
+      kind: finalAsset.kind,
       description: finalAsset.description,
       tagIds: finalAsset.tagIds,
       tagNames: tags
@@ -724,6 +735,7 @@ export const adminUpdateAsset = mutation({
       folderId: finalAsset.folderId,
       sourceUrl: finalAsset.sourceUrl,
       fileName: finalAsset.fileName,
+      contentType: finalAsset.contentType,
       modelName: finalAsset.modelName,
       pillar: finalAsset.pillar,
       generationType: finalAsset.generationType,

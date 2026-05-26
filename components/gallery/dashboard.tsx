@@ -63,6 +63,9 @@ type SelectedImage = {
   contentType?: string;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   sourceUrl?: string;
   description?: string;
@@ -454,10 +457,15 @@ export function GalleryDashboard({
         description: string | null;
         promptText: string | null;
         tagNames: string[];
+        kind: "image" | "video";
         modelName: string | null;
         pillar: string | null;
+        generationType: string | null;
+        assetRole: string | null;
+        ingestSource: string | null;
         sourceUrl: string | null;
         fileName: string | null;
+        contentType: string | null;
       },
     ) => {
       if (!canEditAssets || editingAssetId) return;
@@ -484,8 +492,13 @@ export function GalleryDashboard({
                 folderId?: string;
                 sourceUrl?: string;
                 fileName?: string;
+                contentType?: string;
+                kind?: "image" | "video";
                 modelName?: string;
                 pillar?: string;
+                generationType?: string;
+                assetRole?: string;
+                ingestSource?: string;
               };
             }
           | null;
@@ -518,8 +531,13 @@ export function GalleryDashboard({
             folderId: result.folderId ?? undefined,
             sourceUrl: result.sourceUrl ?? undefined,
             fileName: result.fileName ?? undefined,
+            contentType: result.contentType ?? undefined,
+            kind: result.kind ?? current.kind,
             modelName: result.modelName ?? undefined,
             pillar: result.pillar ?? undefined,
+            generationType: result.generationType ?? undefined,
+            assetRole: result.assetRole ?? undefined,
+            ingestSource: result.ingestSource ?? undefined,
             previewImages,
           };
         });
@@ -1400,6 +1418,9 @@ export function GalleryDashboard({
         contentType: "contentType" in entry ? entry.contentType : undefined,
         modelName: entry.modelName,
         pillar: entry.pillar,
+        generationType: "generationType" in entry ? entry.generationType : undefined,
+        assetRole: "assetRole" in entry ? entry.assetRole : undefined,
+        ingestSource: "ingestSource" in entry ? entry.ingestSource : undefined,
         tagNames: entry.tagNames,
         sourceUrl: entry.sourceUrl,
         description: "description" in entry ? entry.description : undefined,

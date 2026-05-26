@@ -59,6 +59,9 @@ interface GalleryDetailPanelProps {
     contentType?: string;
     modelName?: string;
     pillar?: string;
+    generationType?: string;
+    assetRole?: string;
+    ingestSource?: string;
     tagNames?: string[];
     sourceUrl?: string;
     description?: string;
@@ -117,10 +120,15 @@ interface GalleryDetailPanelProps {
       description: string | null;
       promptText: string | null;
       tagNames: string[];
+      kind: "image" | "video";
       modelName: string | null;
       pillar: string | null;
+      generationType: string | null;
+      assetRole: string | null;
+      ingestSource: string | null;
       sourceUrl: string | null;
       fileName: string | null;
+      contentType: string | null;
     },
   ) => Promise<void>;
   editingAsset?: boolean;
@@ -206,8 +214,13 @@ export function GalleryDetailPanel({
   const [editTagsInput, setEditTagsInput] = useState("");
   const [editModelName, setEditModelName] = useState("");
   const [editPillar, setEditPillar] = useState("");
+  const [editKind, setEditKind] = useState<"image" | "video">("image");
+  const [editGenerationType, setEditGenerationType] = useState("");
+  const [editAssetRole, setEditAssetRole] = useState("");
+  const [editIngestSource, setEditIngestSource] = useState("");
   const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editFileName, setEditFileName] = useState("");
+  const [editContentType, setEditContentType] = useState("");
   const [fullLoadedMap, setFullLoadedMap] = useState<
     Record<number, boolean>
   >({});
@@ -386,16 +399,26 @@ export function GalleryDetailPanel({
     setEditTagsInput((image.tagNames ?? []).join(", "));
     setEditModelName(image.modelName ?? "");
     setEditPillar(image.pillar ?? "");
+    setEditKind(image.kind ?? "image");
+    setEditGenerationType(image.generationType ?? "");
+    setEditAssetRole(image.assetRole ?? "");
+    setEditIngestSource(image.ingestSource ?? "");
     setEditSourceUrl(image.sourceUrl ?? "");
     setEditFileName(image.fileName ?? "");
+    setEditContentType(image.contentType ?? "");
   }, [
     activePrompt,
     currentAssetId,
     image.description,
     image.modelName,
     image.pillar,
+    image.kind,
+    image.generationType,
+    image.assetRole,
+    image.ingestSource,
     image.sourceUrl,
     image.fileName,
+    image.contentType,
     image.tagNames,
   ]);
 
@@ -409,10 +432,15 @@ export function GalleryDetailPanel({
       description: editDescription.trim() || null,
       promptText: editPrompt.trim() || null,
       tagNames,
+      kind: editKind,
       modelName: editModelName.trim() || null,
       pillar: editPillar.trim() || null,
+      generationType: editGenerationType.trim() || null,
+      assetRole: editAssetRole.trim() || null,
+      ingestSource: editIngestSource.trim() || null,
       sourceUrl: editSourceUrl.trim() || null,
       fileName: editFileName.trim() || null,
+      contentType: editContentType.trim() || null,
     });
     if (toastFn) {
       toastFn("Asset updated", undefined, "success");
@@ -1462,6 +1490,64 @@ export function GalleryDetailPanel({
                         onChange={setEditPillar}
                       />
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <AdminEditSelect
+                        label="Media kind"
+                        value={editKind}
+                        onChange={(value) =>
+                          setEditKind(value === "video" ? "video" : "image")
+                        }
+                        options={[
+                          { value: "image", label: "Image" },
+                          { value: "video", label: "Video" },
+                        ]}
+                      />
+                      <AdminEditInput
+                        label="Content type"
+                        value={editContentType}
+                        onChange={setEditContentType}
+                      />
+                    </div>
+                    <AdminEditSelect
+                      label="Generation type"
+                      value={editGenerationType}
+                      onChange={setEditGenerationType}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "image_gen", label: "Image gen" },
+                        { value: "video_gen", label: "Video gen" },
+                        { value: "ui_design", label: "UI design" },
+                        { value: "workflow", label: "Workflow" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AdminEditSelect
+                      label="Asset role"
+                      value={editAssetRole}
+                      onChange={setEditAssetRole}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "generated_output", label: "Generated output" },
+                        { value: "reference", label: "Reference" },
+                        { value: "inspiration_capture", label: "Inspiration capture" },
+                        { value: "workflow_asset", label: "Workflow asset" },
+                        { value: "cinema_frame", label: "Cinema frame" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AdminEditSelect
+                      label="Ingest source"
+                      value={editIngestSource}
+                      onChange={setEditIngestSource}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "api", label: "API" },
+                        { value: "agent", label: "Agent" },
+                        { value: "telegram", label: "Telegram" },
+                        { value: "manual", label: "Manual" },
+                        { value: "import", label: "Import" },
+                      ]}
+                    />
                     <AdminEditInput
                       label="Source URL"
                       value={editSourceUrl}
@@ -1883,6 +1969,53 @@ function AdminEditInput({
           borderRadius: "var(--lm-radius)",
         }}
       />
+    </label>
+  );
+}
+
+function AdminEditSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span
+        style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full px-2 outline-none"
+        style={{
+          fontFamily: "var(--lm-font)",
+          fontSize: "11px",
+          border: "2px solid var(--lm-border-strong)",
+          backgroundColor: "var(--lm-surface-2)",
+          color: "var(--lm-text-secondary)",
+          borderRadius: "var(--lm-radius)",
+        }}
+      >
+        {options.map((option) => (
+          <option key={option.value || "__unset"} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

@@ -12,6 +12,7 @@ const adminUpdateAssetMutation = makeFunctionReference<"mutation">(
   "assets:adminUpdateAsset",
 );
 
+const assetKinds = new Set(["image", "video"]);
 const generationTypes = new Set([
   "image_gen",
   "video_gen",
@@ -123,6 +124,8 @@ export async function PATCH(
       folderId,
       sourceUrl: readOptionalText(body, "sourceUrl"),
       fileName: readOptionalText(body, "fileName"),
+      contentType: readOptionalText(body, "contentType"),
+      kind: readOptionalEnum(body, "kind", assetKinds) ?? undefined,
       modelName: readOptionalText(body, "modelName"),
       pillar: readOptionalText(body, "pillar"),
       generationType: readOptionalEnum(body, "generationType", generationTypes),
