@@ -20,6 +20,7 @@ import {
   ImagePlus,
   Loader2,
   ExternalLink,
+  Save,
 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { resolvePillarLabel } from "@/lib/gallery-focus";
@@ -58,8 +59,13 @@ interface GalleryDetailPanelProps {
     contentType?: string;
     modelName?: string;
     pillar?: string;
+    generationType?: string;
+    assetRole?: string;
+    ingestSource?: string;
     tagNames?: string[];
     sourceUrl?: string;
+    description?: string;
+    fileName?: string;
     createdAt?: number;
     folderId?: string;
     isPublic?: boolean;
@@ -106,6 +112,27 @@ interface GalleryDetailPanelProps {
   similarActive?: boolean;
   onReplaceThumbnail?: (imageId: string, file: File) => Promise<void>;
   replacingThumbnail?: boolean;
+  canEditAsset?: boolean;
+  availableTags?: string[];
+  onSaveAssetEdit?: (
+    imageId: string,
+    patch: {
+      description: string | null;
+      promptText: string | null;
+      tagNames: string[];
+      kind: "image" | "video";
+      modelName: string | null;
+      pillar: string | null;
+      generationType: string | null;
+      assetRole: string | null;
+      ingestSource: string | null;
+      sourceUrl: string | null;
+      fileName: string | null;
+      contentType: string | null;
+    },
+  ) => Promise<void>;
+  editingAsset?: boolean;
+  editError?: string;
   toast?: (title: string, message?: string, type?: "success" | "warning" | "info" | "default") => void;
 }
 
@@ -161,6 +188,11 @@ export function GalleryDetailPanel({
   similarActive = false,
   onReplaceThumbnail,
   replacingThumbnail = false,
+  canEditAsset = false,
+  availableTags = [],
+  onSaveAssetEdit,
+  editingAsset = false,
+  editError,
   toast: externalToast,
 }: GalleryDetailPanelProps) {
   const coralCtx = useCoralToastSafe();
@@ -177,6 +209,18 @@ export function GalleryDetailPanel({
   const [toastExiting, setToastExiting] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [showLivePreview, setShowLivePreview] = useState(true);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editTagsInput, setEditTagsInput] = useState("");
+  const [editModelName, setEditModelName] = useState("");
+  const [editPillar, setEditPillar] = useState("");
+  const [editKind, setEditKind] = useState<"image" | "video">("image");
+  const [editGenerationType, setEditGenerationType] = useState("");
+  const [editAssetRole, setEditAssetRole] = useState("");
+  const [editIngestSource, setEditIngestSource] = useState("");
+  const [editSourceUrl, setEditSourceUrl] = useState("");
+  const [editFileName, setEditFileName] = useState("");
+  const [editContentType, setEditContentType] = useState("");
   const [fullLoadedMap, setFullLoadedMap] = useState<
     Record<number, boolean>
   >({});
@@ -341,6 +385,67 @@ export function GalleryDetailPanel({
 
   const activePrompt = currentSlide.prompt ?? image.prompt;
   const currentAssetId = currentSlide.id ?? image.id;
+  const canEditCurrentAsset = Boolean(
+    canEditAsset &&
+      onSaveAssetEdit &&
+      !isDesignView &&
+      currentAssetId,
+  );
+  const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
+
+  useEffect(() => {
+    setEditPrompt(activePrompt ?? "");
+    setEditDescription(image.description ?? "");
+    setEditTagsInput((image.tagNames ?? []).join(", "));
+    setEditModelName(image.modelName ?? "");
+    setEditPillar(image.pillar ?? "");
+    setEditKind(image.kind ?? "image");
+    setEditGenerationType(image.generationType ?? "");
+    setEditAssetRole(image.assetRole ?? "");
+    setEditIngestSource(image.ingestSource ?? "");
+    setEditSourceUrl(image.sourceUrl ?? "");
+    setEditFileName(image.fileName ?? "");
+    setEditContentType(image.contentType ?? "");
+  }, [
+    activePrompt,
+    currentAssetId,
+    image.description,
+    image.modelName,
+    image.pillar,
+    image.kind,
+    image.generationType,
+    image.assetRole,
+    image.ingestSource,
+    image.sourceUrl,
+    image.fileName,
+    image.contentType,
+    image.tagNames,
+  ]);
+
+  const handleSaveAssetEdit = async () => {
+    if (!canEditCurrentAsset || !onSaveAssetEdit) return;
+    const tagNames = editTagsInput
+      .split(/[,\n]/)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    await onSaveAssetEdit(currentAssetId, {
+      description: editDescription.trim() || null,
+      promptText: editPrompt.trim() || null,
+      tagNames,
+      kind: editKind,
+      modelName: editModelName.trim() || null,
+      pillar: editPillar.trim() || null,
+      generationType: editGenerationType.trim() || null,
+      assetRole: editAssetRole.trim() || null,
+      ingestSource: editIngestSource.trim() || null,
+      sourceUrl: editSourceUrl.trim() || null,
+      fileName: editFileName.trim() || null,
+      contentType: editContentType.trim() || null,
+    });
+    if (toastFn) {
+      toastFn("Asset updated", undefined, "success");
+    }
+  };
 
   const handleCopy = async (text?: string) => {
     const content = text ?? activePrompt;
@@ -1149,6 +1254,29 @@ export function GalleryDetailPanel({
                       {activePrompt}
                     </p>
                   </div>
+                  {image.description && (
+                    <div
+                      className="pb-2 pt-2.5"
+                      style={{
+                        borderTop: "1px solid var(--lm-border)",
+                      }}
+                    >
+                      <SectionLabel>Description</SectionLabel>
+                      <p
+                        className="mt-1.5"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 400,
+                          lineHeight: 1.55,
+                          color: "var(--lm-text-secondary)",
+                          fontFamily: "var(--lm-font)",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {image.description}
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1318,6 +1446,157 @@ export function GalleryDetailPanel({
 
           {activeTab === "MANAGE" && (
             <div className="flex flex-col gap-0 pt-2.5">
+              {canEditCurrentAsset && (
+                <div
+                  className="pb-2.5"
+                  style={{
+                    borderBottom: "1px solid var(--lm-border)",
+                  }}
+                >
+                  <SectionLabel>Admin edit</SectionLabel>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <AdminEditTextarea
+                      label="Prompt"
+                      value={editPrompt}
+                      onChange={setEditPrompt}
+                      minRows={5}
+                    />
+                    <AdminEditTextarea
+                      label="Description"
+                      value={editDescription}
+                      onChange={setEditDescription}
+                      minRows={3}
+                    />
+                    <AdminEditInput
+                      label="Tags"
+                      value={editTagsInput}
+                      onChange={setEditTagsInput}
+                      listId={tagDatalistId}
+                    />
+                    <datalist id={tagDatalistId}>
+                      {availableTags.map((tag) => (
+                        <option key={tag} value={tag} />
+                      ))}
+                    </datalist>
+                    <div className="grid grid-cols-2 gap-2">
+                      <AdminEditInput
+                        label="Model"
+                        value={editModelName}
+                        onChange={setEditModelName}
+                      />
+                      <AdminEditInput
+                        label="Pillar"
+                        value={editPillar}
+                        onChange={setEditPillar}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <AdminEditSelect
+                        label="Media kind"
+                        value={editKind}
+                        onChange={(value) =>
+                          setEditKind(value === "video" ? "video" : "image")
+                        }
+                        options={[
+                          { value: "image", label: "Image" },
+                          { value: "video", label: "Video" },
+                        ]}
+                      />
+                      <AdminEditInput
+                        label="Content type"
+                        value={editContentType}
+                        onChange={setEditContentType}
+                      />
+                    </div>
+                    <AdminEditSelect
+                      label="Generation type"
+                      value={editGenerationType}
+                      onChange={setEditGenerationType}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "image_gen", label: "Image gen" },
+                        { value: "video_gen", label: "Video gen" },
+                        { value: "ui_design", label: "UI design" },
+                        { value: "workflow", label: "Workflow" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AdminEditSelect
+                      label="Asset role"
+                      value={editAssetRole}
+                      onChange={setEditAssetRole}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "generated_output", label: "Generated output" },
+                        { value: "reference", label: "Reference" },
+                        { value: "inspiration_capture", label: "Inspiration capture" },
+                        { value: "workflow_asset", label: "Workflow asset" },
+                        { value: "cinema_frame", label: "Cinema frame" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AdminEditSelect
+                      label="Ingest source"
+                      value={editIngestSource}
+                      onChange={setEditIngestSource}
+                      options={[
+                        { value: "", label: "Unset" },
+                        { value: "api", label: "API" },
+                        { value: "agent", label: "Agent" },
+                        { value: "telegram", label: "Telegram" },
+                        { value: "manual", label: "Manual" },
+                        { value: "import", label: "Import" },
+                      ]}
+                    />
+                    <AdminEditInput
+                      label="Source URL"
+                      value={editSourceUrl}
+                      onChange={setEditSourceUrl}
+                    />
+                    <AdminEditInput
+                      label="File name"
+                      value={editFileName}
+                      onChange={setEditFileName}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveAssetEdit()}
+                      disabled={editingAsset}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 transition-colors disabled:opacity-40"
+                      style={{
+                        border: "2px solid var(--lm-ink)",
+                        backgroundColor: "var(--lm-coral)",
+                        color: "#000",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.14em",
+                        borderRadius: "var(--lm-radius)",
+                      }}
+                    >
+                      {editingAsset ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      {editingAsset ? "Saving" : "Save edits"}
+                    </button>
+                    {editError && (
+                      <p
+                        style={{
+                          fontSize: "10px",
+                          color: "var(--lm-status-error)",
+                          fontWeight: 600,
+                        }}
+                        role="alert"
+                      >
+                        {editError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Folder */}
               {canManageFolder && (
                 <div
@@ -1581,6 +1860,7 @@ export function GalleryDetailPanel({
 
               {/* If no manage options */}
               {!canManageFolder &&
+                !canEditCurrentAsset &&
                 !(canCuratePublic && onSetPublicState) &&
                 !onDelete && (
                   <div className="py-6 text-center">
@@ -1648,6 +1928,139 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </span>
+  );
+}
+
+function AdminEditInput({
+  label,
+  value,
+  onChange,
+  listId,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  listId?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span
+        style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        value={value}
+        list={listId}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full px-2 outline-none"
+        style={{
+          fontFamily: "var(--lm-font)",
+          fontSize: "11px",
+          border: "2px solid var(--lm-border-strong)",
+          backgroundColor: "var(--lm-surface-2)",
+          color: "var(--lm-text-secondary)",
+          borderRadius: "var(--lm-radius)",
+        }}
+      />
+    </label>
+  );
+}
+
+function AdminEditSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span
+        style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full px-2 outline-none"
+        style={{
+          fontFamily: "var(--lm-font)",
+          fontSize: "11px",
+          border: "2px solid var(--lm-border-strong)",
+          backgroundColor: "var(--lm-surface-2)",
+          color: "var(--lm-text-secondary)",
+          borderRadius: "var(--lm-radius)",
+        }}
+      >
+        {options.map((option) => (
+          <option key={option.value || "__unset"} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function AdminEditTextarea({
+  label,
+  value,
+  onChange,
+  minRows,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  minRows: number;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span
+        style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        {label}
+      </span>
+      <textarea
+        value={value}
+        rows={minRows}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full resize-y px-2 py-2 outline-none"
+        style={{
+          minHeight: `${minRows * 24}px`,
+          fontFamily: "var(--lm-font)",
+          fontSize: "11px",
+          lineHeight: 1.45,
+          border: "2px solid var(--lm-border-strong)",
+          backgroundColor: "var(--lm-surface-2)",
+          color: "var(--lm-text-secondary)",
+          borderRadius: "var(--lm-radius)",
+        }}
+      />
+    </label>
   );
 }
 

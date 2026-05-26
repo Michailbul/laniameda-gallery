@@ -126,6 +126,7 @@ type CreateItem = {
   contentType?: string;
   pillar?: Pillar;
   modelName?: string;
+  description?: string;
   modelProvider?: ModelProvider;
   generationType?: GenerationType;
   promptType?: PromptType;
@@ -159,6 +160,7 @@ type UpdateItem = {
   promptType?: PromptType | null;
   domain?: string | null;
   modelName?: string | null;
+  description?: string | null;
   modelProvider?: ModelProvider | null;
   workflowType?: WorkflowType | null;
   promptSections?: PromptSectionsInput | null;
@@ -347,6 +349,7 @@ export function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<s
   if (item.folderId) args.folderId = item.folderId;
   if (item.promptIngestKey) args.promptIngestKey = item.promptIngestKey;
   if (item.modelName) args.modelName = item.modelName;
+  if (item.description) args.description = item.description;
   if (item.modelProvider) args.modelProvider = item.modelProvider;
   if (pillar) args.pillar = pillar;
   if (item.generationType) args.generationType = item.generationType;
@@ -437,6 +440,7 @@ export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<s
     assignIfDefined(args, "promptType", item.promptType);
     assignIfDefined(args, "domain", item.domain);
     assignIfDefined(args, "modelName", item.modelName);
+    assignIfDefined(args, "description", item.description);
     assignIfDefined(args, "modelProvider", item.modelProvider);
     assignIfDefined(args, "workflowType", item.workflowType);
     assignIfDefined(args, "promptSections", item.promptSections);
@@ -453,6 +457,7 @@ export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<s
     assignIfDefined(args, "fileName", item.fileName);
     assignIfDefined(args, "contentType", item.contentType);
     assignIfDefined(args, "modelName", item.modelName);
+    assignIfDefined(args, "description", item.description);
     assignIfDefined(args, "pillar", item.pillar);
     assignIfDefined(args, "generationType", item.generationType);
     assignIfDefined(args, "assetRole", item.assetRole);

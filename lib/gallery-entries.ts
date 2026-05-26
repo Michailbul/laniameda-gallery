@@ -24,6 +24,7 @@ export type GalleryAssetRecord = {
   thumbUrl?: string;
   url?: string;
   sourceUrl?: string;
+  description?: string;
   promptText?: string;
   fileName?: string;
   thumbWidth?: number;
@@ -32,6 +33,9 @@ export type GalleryAssetRecord = {
   height?: number;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   createdAt: number;
   folderId?: string;
@@ -73,8 +77,13 @@ export type GalleryEntry = {
   contentType?: string;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   sourceUrl?: string;
+  description?: string;
+  fileName?: string;
   designInspirationId?: string;
   createdAt?: number;
   folderId?: string;
@@ -195,8 +204,13 @@ const buildEntry = (
     contentType: cover.contentType,
     modelName: cover.modelName ?? undefined,
     pillar: cover.pillar ?? undefined,
+    generationType: cover.generationType ?? undefined,
+    assetRole: cover.assetRole ?? undefined,
+    ingestSource: cover.ingestSource ?? undefined,
     tagNames,
     sourceUrl: cover.sourceUrl ?? undefined,
+    description: cover.description ?? undefined,
+    fileName: cover.fileName ?? undefined,
     designInspirationId: cover.designInspirationId ?? undefined,
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,

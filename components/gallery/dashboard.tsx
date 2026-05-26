@@ -63,8 +63,13 @@ type SelectedImage = {
   contentType?: string;
   modelName?: string;
   pillar?: string;
+  generationType?: string;
+  assetRole?: string;
+  ingestSource?: string;
   tagNames?: string[];
   sourceUrl?: string;
+  description?: string;
+  fileName?: string;
   createdAt?: number;
   folderId?: string;
   isPublic?: boolean;
@@ -274,6 +279,8 @@ export function GalleryDashboard({
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [editAssetError, setEditAssetError] = useState<string>();
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -315,6 +322,7 @@ export function GalleryDashboard({
   const canDeleteAssets = canCuratePublic;
   const canDeleteInCurrentView =
     canDeleteAssets && galleryScope === "mine";
+  const canEditAssets = adminMode && canCuratePublic;
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
 
@@ -351,6 +359,8 @@ export function GalleryDashboard({
     setFolderLoadingAssetId(null);
     setCurationError(undefined);
     setDeletingAssetId(null);
+    setEditAssetError(undefined);
+    setEditingAssetId(null);
     setSelectedImage(null);
     setSheetDismissing(false);
     setSheetDragY(0);
@@ -367,6 +377,8 @@ export function GalleryDashboard({
   useEffect(() => {
     setFolderError(undefined);
     setFolderLoadingAssetId(null);
+    setEditAssetError(undefined);
+    setEditingAssetId(null);
   }, [selectedImage?.id]);
 
   useEffect(() => {
@@ -436,6 +448,109 @@ export function GalleryDashboard({
       }
     },
     [canCuratePublic, curationLoadingAssetId],
+  );
+
+  const saveAssetEdit = useCallback(
+    async (
+      assetId: string,
+      patch: {
+        description: string | null;
+        promptText: string | null;
+        tagNames: string[];
+        kind: "image" | "video";
+        modelName: string | null;
+        pillar: string | null;
+        generationType: string | null;
+        assetRole: string | null;
+        ingestSource: string | null;
+        sourceUrl: string | null;
+        fileName: string | null;
+        contentType: string | null;
+      },
+    ) => {
+      if (!canEditAssets || editingAssetId) return;
+
+      setEditAssetError(undefined);
+      setEditingAssetId(assetId);
+      try {
+        const response = await fetch(
+          `/api/admin/assets/${encodeURIComponent(assetId)}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(patch),
+          },
+        );
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              error?: string;
+              result?: {
+                assetId: string;
+                promptText?: string;
+                description?: string;
+                tagNames: string[];
+                folderId?: string;
+                sourceUrl?: string;
+                fileName?: string;
+                contentType?: string;
+                kind?: "image" | "video";
+                modelName?: string;
+                pillar?: string;
+                generationType?: string;
+                assetRole?: string;
+                ingestSource?: string;
+              };
+            }
+          | null;
+        if (!response.ok || !payload?.result) {
+          throw new Error(payload?.error || "Failed to update asset.");
+        }
+
+        const result = payload.result;
+        setSelectedImage((current) => {
+          if (!current) return current;
+          const previewImages = current.previewImages?.map((preview) =>
+            preview.id === result.assetId
+              ? {
+                  ...preview,
+                  prompt: result.promptText ?? preview.prompt,
+                }
+              : preview,
+          );
+          if (current.id !== result.assetId) {
+            return {
+              ...current,
+              previewImages,
+            };
+          }
+          return {
+            ...current,
+            prompt: result.promptText ?? current.prompt,
+            description: result.description ?? undefined,
+            tagNames: result.tagNames,
+            folderId: result.folderId ?? undefined,
+            sourceUrl: result.sourceUrl ?? undefined,
+            fileName: result.fileName ?? undefined,
+            contentType: result.contentType ?? undefined,
+            kind: result.kind ?? current.kind,
+            modelName: result.modelName ?? undefined,
+            pillar: result.pillar ?? undefined,
+            generationType: result.generationType ?? undefined,
+            assetRole: result.assetRole ?? undefined,
+            ingestSource: result.ingestSource ?? undefined,
+            previewImages,
+          };
+        });
+      } catch (error) {
+        setEditAssetError(
+          error instanceof Error ? error.message : "Failed to update asset.",
+        );
+        throw error;
+      } finally {
+        setEditingAssetId((current) => (current === assetId ? null : current));
+      }
+    },
+    [canEditAssets, editingAssetId],
   );
 
   const toggleAssetSelection = useCallback((assetId: string) => {
@@ -1303,8 +1418,13 @@ export function GalleryDashboard({
         contentType: "contentType" in entry ? entry.contentType : undefined,
         modelName: entry.modelName,
         pillar: entry.pillar,
+        generationType: "generationType" in entry ? entry.generationType : undefined,
+        assetRole: "assetRole" in entry ? entry.assetRole : undefined,
+        ingestSource: "ingestSource" in entry ? entry.ingestSource : undefined,
         tagNames: entry.tagNames,
         sourceUrl: entry.sourceUrl,
+        description: "description" in entry ? entry.description : undefined,
+        fileName: "fileName" in entry ? entry.fileName : undefined,
         designInspirationId:
           "designInspirationId" in entry ? entry.designInspirationId : undefined,
         createdAt: entry.createdAt,
@@ -1737,6 +1857,14 @@ export function GalleryDashboard({
       : undefined,
     replacingThumbnail:
       replacingThumbAssetId === selectedImage?.id,
+    canEditAsset: canEditAssets,
+    availableTags: availableUploadTags,
+    onSaveAssetEdit: canEditAssets ? saveAssetEdit : undefined,
+    editingAsset: editingAssetId === selectedImage?.id,
+    editError:
+      editingAssetId === selectedImage?.id || editAssetError
+        ? editAssetError
+        : undefined,
   };
 
   return (

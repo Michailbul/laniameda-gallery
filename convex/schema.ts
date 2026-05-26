@@ -127,6 +127,7 @@ export default defineSchema({
     thumbR2Bucket: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
     fileName: v.optional(v.string()),
+    description: v.optional(v.string()),
     contentType: v.optional(v.string()),
     size: v.optional(v.number()),
     width: v.optional(v.number()),

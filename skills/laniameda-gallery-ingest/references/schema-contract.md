@@ -9,7 +9,7 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
   - Idempotency index: `by_owner_ingestKey`.
 
 - `assets`
-  - Key ingest fields: `ownerUserId`, `kind`, storage refs, `promptId`, `designInspirationId`, `tagIds`, `folderId`, `ingestKey`, `pillar`, `generationType`, `assetRole`, `ingestSource`, `createdAt`.
+  - Key ingest fields: `ownerUserId`, `kind`, storage refs, `promptId`, `designInspirationId`, `tagIds`, `folderId`, `ingestKey`, `description`, `pillar`, `generationType`, `assetRole`, `ingestSource`, `createdAt`.
   - Idempotency index: `by_owner_ingestKey`.
 
 - `designInspirations`

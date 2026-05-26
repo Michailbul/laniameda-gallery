@@ -216,7 +216,9 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "target": "asset",
   "ingestKey": "creators:editorial-portrait:v1:a",
   "folderId": null,
+  "description": "Hero portrait reference with blue-hour editorial styling.",
   "tagNames": ["portrait", "editorial", "hero-shot"],
+  "modelName": "GPT-Image-2",
   "assetRole": "reference"
 }'
 ```
