@@ -283,3 +283,9 @@ export const semanticFailureStatusValidator = v.union(
   v.literal("pending"),
   v.literal("resolved"),
 );
+
+export const agentTokenScopeValidator = v.union(
+  v.literal("gallery:read"),
+  v.literal("gallery:write"),
+  v.literal("gallery:delete"),
+);

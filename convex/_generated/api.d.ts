@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentTokens from "../agentTokens.js";
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
 import type * as assetPacks from "../assetPacks.js";
@@ -40,6 +41,7 @@ import type * as semanticSearch from "../semanticSearch.js";
 import type * as tags from "../tags.js";
 import type * as thumbnails from "../thumbnails.js";
 import type * as userPillars from "../userPillars.js";
+import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as workflows from "../workflows.js";
@@ -51,6 +53,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentTokens: typeof agentTokens;
   agent_ingest: typeof agent_ingest;
   assetPackHelpers: typeof assetPackHelpers;
   assetPacks: typeof assetPacks;
@@ -83,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   tags: typeof tags;
   thumbnails: typeof thumbnails;
   userPillars: typeof userPillars;
+  userTags: typeof userTags;
   users: typeof users;
   validators: typeof validators;
   workflows: typeof workflows;

@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  agentTokenScopeValidator,
   assetRoleValidator,
   cinemaMetadataValidator,
   designCaptureKindValidator,
@@ -33,6 +34,7 @@ export default defineSchema({
     name: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
     ownerUserId: v.string(),
+    onboardingCompletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -40,6 +42,21 @@ export default defineSchema({
     .index("by_workosUserId", ["workosUserId"])
     .index("by_email", ["email"])
     .index("by_ownerUserId", ["ownerUserId"]),
+  agentTokens: defineTable({
+    ownerUserId: v.string(),
+    tokenHash: v.string(),
+    tokenPrefix: v.string(),
+    label: v.string(),
+    scopes: v.array(agentTokenScopeValidator),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_revokedAt_createdAt", ["ownerUserId", "revokedAt", "createdAt"]),
   tags: defineTable({
     name: v.string(),
     normalized: v.string(),
@@ -52,6 +69,25 @@ export default defineSchema({
     .index("by_normalized", ["normalized"])
     .index("by_category_normalized", ["category", "normalized"])
     .index("by_pillar_category_normalized", ["pillar", "category", "normalized"]),
+  userTags: defineTable({
+    ownerUserId: v.string(),
+    tagId: v.id("tags"),
+    label: v.string(),
+    normalizedLabel: v.string(),
+    description: v.optional(v.string()),
+    category: tagCategoryValidator,
+    pillar: optionalPillarValidator,
+    source: tagSourceValidator,
+    color: v.optional(v.string()),
+    sortOrder: v.number(),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_normalizedLabel", ["ownerUserId", "normalizedLabel"])
+    .index("by_owner_tagId", ["ownerUserId", "tagId"])
+    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"])
+    .index("by_owner_archivedAt_sortOrder", ["ownerUserId", "archivedAt", "sortOrder"]),
   folders: defineTable({
     ownerUserId: v.optional(v.string()),
     name: v.string(),

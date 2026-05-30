@@ -10,6 +10,7 @@ const userReturnValidator = v.object({
   name: v.optional(v.string()),
   avatarUrl: v.optional(v.string()),
   ownerUserId: v.string(),
+  onboardingCompletedAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });

@@ -11,9 +11,23 @@ This file is the implementation-facing contract for any agent skill that decides
 
 ---
 
-## Canonical ingestion path
+## Canonical local agent ingestion path
 
-### Preferred for skills (server-to-Convex)
+Claude/Codex agents use the local stdio MCP server. The MCP process runs on the
+user's machine and calls the app API with that user's token:
+
+- MCP server: `bun run mcp:gallery`
+- Runtime env: `LANIAMEDA_GALLERY_API_URL` + `LANIAMEDA_GALLERY_AGENT_TOKEN`
+- Write route: `POST /api/agent/ingest`
+- Read/search route: `POST /api/agent/gallery`
+- Customization route: `POST /api/agent/customize` for user pillars, user tag catalogs, and folders
+- Token management: logged-in users create/revoke tokens through `/api/agent/tokens`
+
+The app validates the bearer token, derives `ownerUserId`, and only then calls Convex. Agents must not receive `CONVEX_URL` or `KB_OWNER_USER_ID` for multi-user access.
+
+## Legacy direct ingestion path
+
+### Legacy for local/admin migration only
 Call Convex action directly:
 
 - Function: `ingest:ingestFromApi`
@@ -49,7 +63,7 @@ Call Convex action directly:
   ingestKey?: string;
   promptIngestKey?: string;
   modelName?: string;
-  pillar?: "creators" | "designs" | "dump";
+  pillar?: string; // default or custom user pillar key
   generationType?: "image_gen" | "video_gen" | "ui_design" | "other";
   promptType?: "image_gen" | "video_gen" | "ui_design" | "cinematic" | "ugc_ad" | "other";
   domain?: string;

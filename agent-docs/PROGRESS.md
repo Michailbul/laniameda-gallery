@@ -8,6 +8,14 @@ Last updated: 2026-05-02
 
 ## ✔ Shipped
 
+### 2026-05-26
+- Added multi-user agent token foundation: logged-in users can issue/revoke scoped gallery agent tokens, and agent calls derive `ownerUserId` server-side
+- Added `/api/agent/*` routes for token-authenticated ingest, update/delete, and gallery reads without exposing Convex URL or owner env vars to agents
+- Added `laniameda-gallery` stdio MCP server that talks to the app API with `LANIAMEDA_GALLERY_AGENT_TOKEN`
+- Added token-authenticated `/api/agent/customize` and MCP tools for user pillars, user tag catalogs, and folders
+- Documented local-only Claude/Codex MCP setup and added `check_connection` for local agent smoke tests
+- Consolidated local MCP visual reference writes/reads around assets; UI/design references are now classified by tags instead of separate design-specific MCP tools
+
 ### 2026-05-08
 - Custom user pillars/boards added via `userPillars`: default pillars still resolve virtually, and users can add boards such as `inspirations` without changing the existing asset APIs
 - Dashboard filters and manual upload now read the user's dynamic pillar list instead of hard-coded tabs

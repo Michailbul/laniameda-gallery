@@ -2,8 +2,8 @@
 name: laniameda-gallery-query
 description: >-
   Query the laniameda-gallery to browse, search, retrieve, and download vault
-  content. Use when an agent needs to find assets, prompts, or structured
-  designs-pillar references in the gallery and pull them into the current task.
+  content. Use when an agent needs to find assets, prompts, or references in
+  the gallery and pull them into the current task.
 ---
 
 # laniameda-gallery-query
@@ -14,20 +14,31 @@ It covers two read surfaces:
 
 - asset-centric reads: browse assets, semantic search, fetch one asset, download media
 - pack reads: fetch a saved asset pack and its member assets from a copied gallery ID
-- designs-pillar reads: browse structured design inspirations and inspect one design entry with its linked preview asset
 
 Counterpart to `laniameda-gallery-ingest` (which writes).
 
 ## Runtime env
 
+Local Claude/Codex agents should prefer `bun run mcp:gallery` with:
+
+- `LANIAMEDA_GALLERY_API_URL`
+- `LANIAMEDA_GALLERY_AGENT_TOKEN`
+
+When MCP tools are available, use:
+
+- `list_assets`, `search_gallery`, `get_gallery_item`
+- `list_pillars`, `list_tags`, `list_folders` for the authenticated user's taxonomy
+
+The script below is legacy direct-Convex access for admin migration workflows:
+
 - `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` — required
-- `KB_OWNER_USER_ID` — required for owner-scoped reads (`scope: "mine"`) and all designs-pillar actions
+- `KB_OWNER_USER_ID` — required for owner-scoped reads (`scope: "mine"`)
 
 Best practice:
 
-- keep `KB_OWNER_USER_ID` env-driven
+- do not use `KB_OWNER_USER_ID` for multi-user agents
 - do not hardcode Michael's Telegram ID into wrappers or prompts
-- use `scope: "public"` only for public asset discovery; design inspiration reads are owner-scoped
+- use `scope: "public"` only for public asset discovery
 
 ## Script
 
@@ -126,13 +137,12 @@ Supported copied ID formats:
 
 - `asset:<id>`
 - `pack:<id>`
-- `design:<id>`
 
 These tokens are produced by the gallery UI when the user clicks:
 
 - The corner copy button on any asset card (hover on desktop)
 - The persistent `asset:<id>` chip in the detail panel metadata strip
-- "Copy asset / design / pack ID" items inside the detail panel Copy dropdown
+- "Copy asset / pack ID" items inside the detail panel Copy dropdown
 
 Accept the pasted token verbatim — do not strip the prefix. Raw Convex IDs are also accepted, but the typed form lets the skill resolve the correct table automatically.
 
@@ -157,50 +167,6 @@ Download one owner-scoped asset to local disk.
 }
 ```
 
-### `listDesigns`
-
-Browse structured entries from the `designInspirations` pillar.
-
-Supported filters:
-
-- `inspirationType`
-- `platform`
-- `workflowType`
-- `captureKind`
-- `saveIntent`
-- `folderId`
-- `sourceDomain`
-- `search`
-- `dateFrom`
-- `dateTo`
-- `requireAsset`
-- `limit`
-
-Example:
-
-```json
-{
-  "action": "listDesigns",
-  "platform": "web",
-  "captureKind": "website",
-  "saveIntent": "inspiration",
-  "search": "pricing",
-  "requireAsset": true,
-  "limit": 10
-}
-```
-
-### `getDesign`
-
-Fetch one owner-scoped design inspiration and, when present, hydrate its linked preview asset.
-
-```json
-{
-  "action": "getDesign",
-  "designInspirationId": "design:abc123"
-}
-```
-
 ## Typical workflows
 
 ### Find and reuse an image prompt
@@ -215,10 +181,10 @@ Fetch one owner-scoped design inspiration and, when present, hydrate its linked 
 2. If the ID starts with `pack:`, inspect the returned `assets` array and choose the needed member asset
 3. If media bytes are needed, run `download` with the chosen `asset:<id>`
 
-### Find a saved design reference
+### Find a saved UI/design reference
 
-1. `listDesigns` with `search`, `platform`, or `captureKind`
-2. `getDesign` to inspect the full record and linked preview asset
+1. `search` for the visual/content cue and filter with tags such as `design`, `ui`, `website`, `component`, or `reference`
+2. `getById` to inspect the chosen asset or pack
 
 ## Response highlights
 

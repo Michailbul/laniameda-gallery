@@ -1,9 +1,9 @@
 ---
 name: laniameda-gallery-ingest
 description: >-
-  Save prompts, images, tutorials, links, and design inspiration to the
+  Save prompts, images, tutorials, links, and references to the
   laniameda-gallery Convex knowledge base. Use when an agent needs to ingest
-  prompts, files, URLs, or design references into the gallery and must stay
+  prompts, files, URLs, or visual references into the gallery and must stay
   aligned with the current repo ingest contract.
 ---
 
@@ -34,13 +34,20 @@ Use `references/schema-contract.md` for a quick map and `references/ingest-examp
 
 ## Runtime env
 
-The script reads these env vars at runtime:
+Local Claude/Codex agents should prefer the gallery MCP server and app API:
 
-- `KB_OWNER_USER_ID` — required. Keep this env-driven; do not hardcode the owner in payloads or wrappers.
-- `CONVEX_URL` — required; falls back to `NEXT_PUBLIC_CONVEX_URL` if present.
-- `NEXT_PUBLIC_CONVEX_URL` — optional browser/runtime mirror for app environments; keep it aligned with `CONVEX_URL`.
+- `LANIAMEDA_GALLERY_API_URL` — app host, e.g. `https://gallery.example.com`
+- `LANIAMEDA_GALLERY_AGENT_TOKEN` — user-issued token from `/api/agent/tokens`
 
-Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do not hardcode deployment names in workflow docs; rotate the env values instead.
+When MCP tools are available, use them directly:
+
+- Ingest: `save_asset`, `save_prompt`
+- Maintain records: `update_gallery_item`, `delete_gallery_item`
+- Customize the user's page: `list_pillars`, `upsert_pillar`, `archive_pillar`, `list_tags`, `upsert_tag`, `upsert_tags`, `archive_tag`, `list_folders`, `create_folder`, `update_folder`, `delete_folder`
+
+Never send `ownerUserId` through MCP calls. The user-issued token selects the owner.
+
+The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
 
 ## Supported content
 
@@ -48,11 +55,11 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 - File uploads from local disk or inline base64 (images AND videos)
 - Remote URL ingestion (images AND videos)
 - Media bytes are delivered from R2 for both images and videos. Image thumbnails are also R2-backed; legacy Convex storage rows remain readable as fallbacks.
-- Design inspiration records for non-prompt design references, including extension-style metadata like `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, and `sourceFingerprint`
+- Visual references, including UI/design references, are saved as assets. Use tags such as `design`, `ui`, `website`, `component`, or `reference` instead of a separate design-specific MCP path.
 - **Video prompts**: prompts for AI video generation tools (e.g. Seedance 2.0) with attached `.mp4` / `.mov` / `.webm` output
 - Batched ingestion via JSON array
-- Metadata updates for prompts, assets, and design inspirations
-- Idempotent deletes for prompts, assets, and design inspirations
+- Metadata updates for prompts and assets
+- Idempotent deletes for prompts and assets
 - Automatic pack sync for multi-asset prompt variations that share a prompt record
 - **Workflows**: multi-step presets/tutorials that bundle prompt + media steps under one record via `operation: "workflow"`
 
@@ -60,14 +67,14 @@ Use a single active Convex deployment across OpenClaw, local dev, and Vercel. Do
 
 After you create or update an asset/prompt/pack/design, the user can copy its ID from the gallery UI:
 
-- **Card corner button** (hover on desktop) — copies `asset:<id>` / `pack:<id>` / `design:<id>`
+- **Card corner button** (hover on desktop) — copies `asset:<id>` / `pack:<id>`
 - **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/pillar/date badges and copies the same token
 - **Detail panel Copy dropdown** — "Copy asset/design ID" and "Copy pack ID" menu items
 
 When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Hand off to the `laniameda-gallery-query` skill:
 
-- `getById` accepts any of `asset:<id>`, `pack:<id>`, `design:<id>` and returns the hydrated record (prompt text, tag names, resolved media URL, thumbnail URL, model, pillar, folder, pack membership, etc.).
-- Use `get` / `getPack` / `getDesign` when the ID type is already known.
+- `getById` accepts `asset:<id>` and `pack:<id>` and returns the hydrated record (prompt text, tag names, resolved media URL, thumbnail URL, model, pillar, folder, pack membership, etc.).
+- Use `get` / `getPack` when the ID type is already known.
 - Use `download` to pull raw bytes for local use.
 
 Agents should treat this as the canonical read path after an ingest. The ingest script intentionally exposes only create/update/delete — all reads live in `laniameda-gallery-query`.
@@ -387,13 +394,18 @@ Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills
 
 ## Script
 
-Example invocation:
+Legacy direct-Convex invocation:
 
 ```bash
 CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=<your_telegram_id> \
   bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
 ```
 
-If env vars are already set in `.env`, you can omit the inline prefix.
+Preferred MCP invocation:
+
+```bash
+LANIAMEDA_GALLERY_API_URL=https://<app-host> LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_... \
+  bun run mcp:gallery
+```
 
 If the installed path is different for your agent runtime, use that runtime's installed `laniameda-gallery-ingest/scripts/ingest.ts` path instead.

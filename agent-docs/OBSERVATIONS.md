@@ -14,6 +14,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
 - `R2_PUBLIC_BASE_URL` is required for R2-backed assets to hydrate to public CDN URLs; without it, URL resolution intentionally falls back to legacy Convex storage or `sourceUrl`.
 - Pillars are no longer a closed enum for assets/prompts/tags. Keep default UI affordances for `creators`, `designs`, and `dump`, but backend filters and ingest paths must accept any non-empty custom pillar key.
+- User tag customization lives in `userTags`, which points to canonical `tags` rows. Do not make the existing `tags` table owner-scoped without first removing global `by_normalized` uniqueness assumptions.
 - `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
 - Tightening Convex enum validators against live tables can block deploys if older rows still carry legacy literal values; migrate the data first or keep the validator backward-compatible until cleanup lands.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
@@ -33,14 +34,16 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Telegram auth now prefers `TELEGRAM_LOGIN_BOT_TOKEN` (with legacy fallback to `TELEGRAM_BOT_TOKEN` during migration).
 - Telegram auth is origin-bound. `https://oauth.telegram.org/embed/<bot>?origin=...` should return the widget HTML for the canonical production host and `"Bot domain invalid"` for unregistered Vercel aliases; keep aliases redirected to a single approved host.
 - Gallery is guest-visible; auth required only for protected actions (upload, save, edit).
-- `KB_OWNER_USER_ID` env var scopes agent-ingested content to the correct owner — never hardcode this, always read from env.
+- Local Claude/Codex agent access is token-scoped: logged-in users create agent tokens, MCP calls `/api/agent/*`, and the app derives `ownerUserId`. Do not deploy the current stdio MCP as a shared hosted process because it reads one local token from env. `KB_OWNER_USER_ID` is legacy/admin-only and must not be used for multi-user agents.
 - For localhost work without tunnel domain churn, enable dev bypass (`NEXT_PUBLIC_DEV_AUTH_BYPASS_ENABLED=true` + `DEV_AUTH_BYPASS_ENABLED=true`) and use `/api/auth/dev-login` from the login card.
 
 ## Ingest
 
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
 - `ingestKey` is not a patch key. Use `ingest:updateFromApi` or `ingest:deleteFromApi` for record changes after creation.
-- `laniameda-gallery-ingest` skill reads `KB_OWNER_USER_ID` from env automatically; callers never pass `ownerUserId` directly.
+- Agent ingest should use the local `laniameda-gallery` stdio MCP with `LANIAMEDA_GALLERY_AGENT_TOKEN`; direct `CONVEX_URL` + `KB_OWNER_USER_ID` skill calls are legacy and single-owner.
+- Local MCP intentionally exposes one visual save/read path: `save_asset` + `list_assets`/`search_gallery`. UI/design references are assets classified by tags, not separate MCP tools.
+- Agent customization should use MCP tools backed by `/api/agent/customize`; token auth derives the user for pillars, tags, and folders.
 - Canonical agent skill source is `skills/laniameda-gallery-ingest/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
 - Telegram ingest confirmations are sent by Convex using `TELEGRAM_NOTIFY_BOT_TOKEN` (legacy fallback `TELEGRAM_BOT_TOKEN`).
 - The Next.js Telegram webhook route has been removed; ingest is OpenClaw -> Convex action.

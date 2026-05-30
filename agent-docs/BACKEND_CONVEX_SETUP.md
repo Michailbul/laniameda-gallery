@@ -21,10 +21,12 @@ Last updated: 2026-03-17
 | Table | Purpose |
 |---|---|
 | `users` | Telegram-linked app users and canonical `ownerUserId` |
+| `agentTokens` | Scoped per-user bearer tokens for MCP/agent access |
 | `assets` | Images and videos stored in Convex storage or linked by URL |
 | `prompts` | Prompt text plus model, workflow, folder, and tag metadata |
 | `folders` | Owner-scoped organization for prompts and assets |
 | `tags` | Global tag taxonomy used across assets and prompts |
+| `userTags` | Owner-scoped tag catalog/preferences for user pages and agent workflows |
 | `designInspirations` | Design-specific references under the `designs` pillar |
 | `canvasPositions` | Owner-scoped saved positions for canvas mode |
 | `semanticDocuments` | Embeddings and search corpus for semantic search |
@@ -44,6 +46,10 @@ Last updated: 2026-03-17
 | `/api/semantic/search` | Semantic search wrapper |
 | `/api/semantic/similar` | Similar-assets wrapper |
 | `/api/ingest` | Server-side ingest entrypoint |
+| `/api/agent/tokens` | Session-backed agent token issue/list |
+| `/api/agent/ingest` | Token-backed agent ingest; derives owner server-side |
+| `/api/agent/gallery` | Token-backed agent read/search API |
+| `/api/agent/customize` | Token-backed user pillar/tag/folder customization API |
 
 ## Environment variables
 
@@ -60,8 +66,9 @@ TELEGRAM_NOTIFY_BOT_TOKEN=...
 CURATION_ADMIN_SECRET=...
 CURATION_ADMIN_USER_IDS=...
 NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=...
+AGENT_TOKEN_ISSUER_SECRET=...
 
-# Ingest ownership
+# Legacy local/admin ingest ownership
 KB_OWNER_USER_ID=...
 LOCAL_INGEST_OWNER_USER_ID=...
 

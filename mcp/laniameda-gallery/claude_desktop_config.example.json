@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "laniameda-gallery": {
+      "command": "bun",
+      "args": [
+        "/absolute/path/to/laniameda.gallery/mcp/laniameda-gallery/server.ts"
+      ],
+      "env": {
+        "LANIAMEDA_GALLERY_API_URL": "https://<app-host>",
+        "LANIAMEDA_GALLERY_AGENT_TOKEN": "lgat_..."
+      }
+    }
+  }
+}

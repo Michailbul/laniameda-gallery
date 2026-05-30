@@ -30,6 +30,7 @@ Required for curation controls in dev:
 CURATION_ADMIN_SECRET=<any_secret_string>
 CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
 NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
+AGENT_TOKEN_ISSUER_SECRET=<same_secret_in_next_and_convex>
 ```
 
 Optional local simulator:
@@ -50,7 +51,7 @@ CONVEX_URL=...
 SESSION_SECRET=... # min 32 chars
 TELEGRAM_LOGIN_BOT_TOKEN=...
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
-KB_OWNER_USER_ID=<your_telegram_id>
+AGENT_TOKEN_ISSUER_SECRET=<same_secret_in_next_and_convex>
 CURATION_ADMIN_SECRET=...
 CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
 NEXT_PUBLIC_CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
@@ -78,6 +79,7 @@ Set these in Convex dashboard env vars:
 
 ```bash
 TELEGRAM_NOTIFY_BOT_TOKEN=... # needed by convex/notifications.ts
+AGENT_TOKEN_ISSUER_SECRET=... # must match the Next.js app env
 CURATION_ADMIN_SECRET=...
 CURATION_ADMIN_USER_IDS=<your_telegram_id>,telegram:<your_telegram_id>
 KB_OWNER_USER_ID=<your_telegram_id>
@@ -87,21 +89,20 @@ Notes:
 - `convex/notifications.ts` sends Telegram "Saved" notifications after ingest.
 - Curation authorization in `convex/assets.ts` depends on Convex-side `CURATION_ADMIN_*` vars.
 
-## 4) Gallery skill env
+## 4) Agent MCP env
 
-Required in the runtime where `laniameda-gallery-ingest` script executes:
+Preferred production agent path:
 
 ```bash
-KB_OWNER_USER_ID=<your_telegram_id>
-CONVEX_URL=https://<your-convex-deployment>.convex.cloud
+LANIAMEDA_GALLERY_API_URL=https://<your-app-host>
+LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...
 ```
 
 Important:
-- The canonical skill source lives in `skills/laniameda-gallery-ingest/` inside this repo.
-- The companion read skill lives in `skills/laniameda-gallery-query/`.
-- Install that skill with `bunx skills` so `skills check` / `skills update` can track GitHub-backed installs on VPS and other machines.
-- The skill script now reads `CONVEX_URL` from env instead of hardcoding a deployment URL.
-- `laniameda-gallery-query` uses the same env pair and requires `KB_OWNER_USER_ID` for owner-scoped reads.
+- Users create agent tokens while logged in through `/api/agent/tokens`.
+- The MCP server runs with `bun run mcp:gallery` and calls `/api/agent/*`.
+- Agents must not receive `CONVEX_URL` or `KB_OWNER_USER_ID` for production multi-user access.
+- The legacy `laniameda-gallery-ingest` and `laniameda-gallery-query` scripts still exist for local/admin migration workflows, but they are not the production agent boundary.
 
 ## 5) Telegram integration boundaries
 
