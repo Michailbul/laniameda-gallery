@@ -1,6 +1,9 @@
 (function registerImageQualification(globalScope) {
-  const MIN_SOURCE_EDGE = 150;
-  const MIN_RENDERED_EDGE = 72;
+  // Tuned to skip icons, favicons, sprites, avatars, and small thumbnails so the
+  // Save badge only appears on real content images. Both the intrinsic (source)
+  // and on-screen (rendered) edges must clear these floors.
+  const MIN_SOURCE_EDGE = 200;
+  const MIN_RENDERED_EDGE = 110;
 
   function toFiniteNumber(value) {
     return Number.isFinite(value) ? value : 0;

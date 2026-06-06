@@ -489,36 +489,6 @@
           placeholder="Description (optional) — what is this and why did you save it?"
           rows="2"
         ></textarea>
-        <div id="bookmarkPillars" class="pillar-pills">
-          <label class="pillar-pill" style="--pcolor: var(--c-creators);">
-            <input type="radio" name="bookmarkPillar" value="creators">
-            <span class="pillar-pill-row">
-              <span class="pillar-pill-dot"></span>
-              <span class="pillar-pill-name">Creators</span>
-            </span>
-          </label>
-          <label class="pillar-pill" style="--pcolor: var(--c-cars);">
-            <input type="radio" name="bookmarkPillar" value="cars">
-            <span class="pillar-pill-row">
-              <span class="pillar-pill-dot"></span>
-              <span class="pillar-pill-name">Cars</span>
-            </span>
-          </label>
-          <label class="pillar-pill" style="--pcolor: var(--c-designs);">
-            <input type="radio" name="bookmarkPillar" value="designs">
-            <span class="pillar-pill-row">
-              <span class="pillar-pill-dot"></span>
-              <span class="pillar-pill-name">Designs</span>
-            </span>
-          </label>
-          <label class="pillar-pill" style="--pcolor: var(--c-dump);">
-            <input type="radio" name="bookmarkPillar" value="dump">
-            <span class="pillar-pill-row">
-              <span class="pillar-pill-dot"></span>
-              <span class="pillar-pill-name">Dump</span>
-            </span>
-          </label>
-        </div>
         <button id="bookmarkSave" class="primary-btn" type="button">Bookmark page</button>
         <p id="bookmarkStatus" class="status-msg" aria-live="polite"></p>
       </div>
@@ -548,68 +518,6 @@
         <p id="siteName" class="site-name">Loading…</p>
         <p id="siteHint" class="site-hint">Checking this tab.</p>
         <button id="siteToggle" class="site-toggle" type="button">Loading…</button>
-      </div>
-    </div>
-
-    <div class="sep"></div>
-
-    <div class="section">
-      <p class="section-label">default pillar (image saves)</p>
-
-      <div id="defaultPillars" class="pillars">
-        <label class="pillar-option" style="--pcolor: var(--c-creators);">
-          <input type="radio" name="defaultPillar" value="creators">
-          <span class="pillar-row">
-            <span class="pillar-indicator"></span>
-            <span class="pillar-info">
-              <span class="pillar-name">Creators</span>
-              <span class="pillar-desc">Portraits, editorial, characters</span>
-            </span>
-          </span>
-        </label>
-
-        <label class="pillar-option" style="--pcolor: var(--c-cars);">
-          <input type="radio" name="defaultPillar" value="cars">
-          <span class="pillar-row">
-            <span class="pillar-indicator"></span>
-            <span class="pillar-info">
-              <span class="pillar-name">Cars</span>
-              <span class="pillar-desc">Automotive, cinematic, motion</span>
-            </span>
-          </span>
-        </label>
-
-        <label class="pillar-option" style="--pcolor: var(--c-designs);">
-          <input type="radio" name="defaultPillar" value="designs">
-          <span class="pillar-row">
-            <span class="pillar-indicator"></span>
-            <span class="pillar-info">
-              <span class="pillar-name">Designs</span>
-              <span class="pillar-desc">UI, sites, components, interfaces</span>
-            </span>
-          </span>
-        </label>
-
-        <label class="pillar-option" style="--pcolor: var(--c-dump);">
-          <input type="radio" name="defaultPillar" value="dump">
-          <span class="pillar-row">
-            <span class="pillar-indicator"></span>
-            <span class="pillar-info">
-              <span class="pillar-name">Dump</span>
-              <span class="pillar-desc">Anything worth keeping</span>
-            </span>
-          </span>
-        </label>
-      </div>
-      <div class="url-row" style="margin-top: 10px;">
-        <input
-          id="newPillarName"
-          class="url-input"
-          type="text"
-          placeholder="New pillar, e.g. Inspirations"
-          spellcheck="false"
-        >
-        <button id="newPillarCreate" class="ghost-btn" type="button">Add</button>
       </div>
     </div>
 

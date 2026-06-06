@@ -3,7 +3,7 @@
 const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
-const PILLARS_ROUTE_PATH = "/api/extension/pillars";
+const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 
@@ -37,10 +37,9 @@ function normalizeApiUrl(rawValue) {
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["apiUrl", "defaultPillar"],
+      ["apiUrl"],
       (cfg) => resolve({
         apiUrl: normalizeApiUrl(cfg.apiUrl),
-        defaultPillar: cfg.defaultPillar || "dump",
       })
     );
   });
@@ -58,7 +57,7 @@ async function saveToGallery(payload) {
         mode: payload.mode || "save",
         imageUrl: payload.imageUrl,
         sourceUrl: payload.sourceUrl,
-        pillar: payload.pillar || config.defaultPillar,
+        folderId: payload.folderId || undefined,
         promptText: payload.promptText || undefined,
         modelName: payload.modelName || undefined,
         tagNames: payload.tagNames || [],
@@ -93,6 +92,50 @@ async function saveToGallery(payload) {
   }
 
   return { ok: true, result: data?.result };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// Fetch image bytes from the service worker. With `<all_urls>` host permissions
+// the worker bypasses page CORS, so signed/CORS-locked CDN images (Krea,
+// Recraft, etc.) can be captured client-side instead of relying on a
+// server-side refetch that those CDNs would reject.
+async function fetchImageBytes(payload) {
+  const imageUrl = typeof payload.imageUrl === "string" ? payload.imageUrl : "";
+  if (!imageUrl) {
+    return { ok: false, error: "imageUrl is required." };
+  }
+
+  let response;
+  try {
+    response = await fetch(imageUrl);
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+
+  if (!response.ok) {
+    return { ok: false, error: `HTTP ${response.status} ${response.statusText}` };
+  }
+
+  try {
+    const blob = await response.blob();
+    const contentType = blob.type || response.headers.get("content-type") || "image/jpeg";
+    const base64 = arrayBufferToBase64(await blob.arrayBuffer());
+    if (!base64) {
+      return { ok: false, error: "Empty image payload." };
+    }
+    return { ok: true, base64, contentType };
+  } catch (err) {
+    return { ok: false, error: `Decode error: ${err.message}` };
+  }
 }
 
 async function captureTabScreenshot(tabId) {
@@ -141,7 +184,6 @@ async function bookmarkPage(payload) {
   const bookmarkUrl = normalizeRouteUrl(config.apiUrl, BOOKMARK_ROUTE_PATH);
 
   const body = {
-    pillar: payload.pillar || config.defaultPillar,
     description: payload.description || undefined,
     captureKind: "website",
     saveIntent: "utility",
@@ -193,22 +235,21 @@ async function bookmarkPage(payload) {
   return { ok: true, result: data?.result };
 }
 
-async function getPillars() {
+
+// ── Collections (stored as `folders` rows) ──
+
+async function getFolders() {
   const config = await getConfig();
-  const pillarsUrl = normalizeRouteUrl(config.apiUrl, PILLARS_ROUTE_PATH);
+  const foldersUrl = normalizeRouteUrl(config.apiUrl, FOLDERS_ROUTE_PATH);
 
   let response;
   try {
-    response = await fetch(pillarsUrl, {
+    response = await fetch(foldersUrl, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    return {
-      ok: false,
-      error: `Network error: ${err.message}`,
-      apiUrl: pillarsUrl,
-    };
+    return { ok: false, error: `Network error: ${err.message}`, apiUrl: foldersUrl };
   }
 
   let rawText = "";
@@ -225,36 +266,30 @@ async function getPillars() {
     return {
       ok: false,
       error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
-      apiUrl: pillarsUrl,
+      apiUrl: foldersUrl,
       status: response.status,
     };
   }
 
-  return { ok: true, pillars: Array.isArray(data?.pillars) ? data.pillars : [] };
+  return { ok: true, folders: Array.isArray(data?.folders) ? data.folders : [] };
 }
 
-async function createPillar(payload) {
+async function createFolder(payload) {
   const config = await getConfig();
-  const pillarsUrl = normalizeRouteUrl(config.apiUrl, PILLARS_ROUTE_PATH);
+  const foldersUrl = normalizeRouteUrl(config.apiUrl, FOLDERS_ROUTE_PATH);
 
   let response;
   try {
-    response = await fetch(pillarsUrl, {
+    response = await fetch(foldersUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        label: payload.label,
-        key: payload.key || undefined,
+        name: payload.name,
         description: payload.description || undefined,
-        color: payload.color || undefined,
       }),
     });
   } catch (err) {
-    return {
-      ok: false,
-      error: `Network error: ${err.message}`,
-      apiUrl: pillarsUrl,
-    };
+    return { ok: false, error: `Network error: ${err.message}`, apiUrl: foldersUrl };
   }
 
   let rawText = "";
@@ -271,7 +306,7 @@ async function createPillar(payload) {
     return {
       ok: false,
       error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
-      apiUrl: pillarsUrl,
+      apiUrl: foldersUrl,
       status: response.status,
     };
   }
@@ -279,7 +314,7 @@ async function createPillar(payload) {
   return {
     ok: true,
     result: data?.result,
-    pillars: Array.isArray(data?.pillars) ? data.pillars : [],
+    folders: Array.isArray(data?.folders) ? data.folders : [],
   };
 }
 
@@ -290,7 +325,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
-      pillar: message.pillar,
+      folderId: message.folderId,
       file: message.file,
     })
       .then(sendResponse)
@@ -304,7 +339,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       imageUrl: message.imageUrl,
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
-      pillar: message.pillar,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
@@ -318,26 +352,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceTitle: message.sourceTitle,
       title: message.title,
       description: message.description,
-      pillar: message.pillar,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
-  if (message.action === "getPillars") {
-    getPillars()
+  if (message.action === "fetchImageBytes") {
+    fetchImageBytes({ imageUrl: message.imageUrl })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
-  if (message.action === "createPillar") {
-    createPillar({
-      label: message.label,
-      key: message.key,
+  if (message.action === "getFolders") {
+    getFolders()
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "createFolder") {
+    createFolder({
+      name: message.name,
       description: message.description,
-      color: message.color,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));

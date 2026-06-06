@@ -27,7 +27,9 @@ Local Claude/Codex agents should prefer `bun run mcp:gallery` with:
 When MCP tools are available, use:
 
 - `list_assets`, `search_gallery`, `get_gallery_item`
-- `list_pillars`, `list_tags`, `list_folders` for the authenticated user's taxonomy
+- `list_tags`, `list_collections` for the authenticated user's taxonomy
+
+Collections are owner-scoped groupings (the `folders` table; "collection" is the product-facing name). Filter `list_assets` / `search_gallery` to one by passing its `folderId` (`scope: "mine"` only).
 
 The script below is legacy direct-Convex access for admin migration workflows:
 
@@ -56,7 +58,6 @@ Browse assets with structured filters.
 Supported filters:
 
 - `scope`: `mine` or `public` (`mine` default)
-- `pillar`
 - `kind`
 - `modelName`
 - `folderId` (`mine` only)
@@ -69,9 +70,7 @@ Example:
 ```json
 {
   "action": "list",
-  "scope": "mine",
-  "pillar": "creators",
-  "assetRole": "reference",
+  "scope": "mine",  "assetRole": "reference",
   "folderId": "folders:abc123",
   "limit": 10
 }
@@ -85,7 +84,6 @@ Supported filters:
 
 - `scope`
 - `query`
-- `pillar`
 - `kind`
 - `modelName`
 - `folderId` (`mine` only)
@@ -98,9 +96,7 @@ Example:
 {
   "action": "search",
   "query": "dark moody editorial portrait with film grain",
-  "scope": "mine",
-  "pillar": "creators",
-  "assetRole": "generated_output",
+  "scope": "mine",  "assetRole": "generated_output",
   "limit": 5
 }
 ```

@@ -102,7 +102,7 @@ describe("agent API routes", () => {
         body: JSON.stringify({
           action: "listAssets",
           ownerUserId: "attacker",
-          pillar: "creators",
+          kind: "image",
           limit: 5,
         }),
       }),
@@ -112,7 +112,7 @@ describe("agent API routes", () => {
     expect(state.requiredScopes).toEqual(["gallery:read"]);
     expect(state.queryCalls[0]?.payload).toMatchObject({
       ownerUserId: "telegram:278674008",
-      pillar: "creators",
+      kind: "image",
       limit: 5,
     });
   });
@@ -128,10 +128,9 @@ describe("agent API routes", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          action: "upsertPillar",
+          action: "createFolder",
           ownerUserId: "attacker",
-          label: "Moodboards",
-          color: "#abcdef",
+          name: "Moodboards",
         }),
       }),
     );
@@ -140,8 +139,7 @@ describe("agent API routes", () => {
     expect(state.requiredScopes).toEqual(["gallery:write"]);
     expect(state.mutationCalls[0]?.payload).toMatchObject({
       ownerUserId: "telegram:278674008",
-      label: "Moodboards",
-      color: "#abcdef",
+      name: "Moodboards",
     });
   });
 

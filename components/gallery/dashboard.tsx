@@ -13,7 +13,6 @@ import {
   GalleryFilterBar,
   type GalleryScope,
   type Pillar,
-  type PillarOption,
   type SortOrder,
   type ViewMode,
 } from "./filter-bar";
@@ -824,20 +823,6 @@ export function GalleryDashboard({
   const folders = useQuery(
     api.folders.listFolders,
     canAccessMyGallery ? { ownerUserId } : "skip",
-  );
-  const userPillars = useQuery(
-    api.userPillars.listPillars,
-    canAccessMyGallery ? { ownerUserId } : "skip",
-  );
-  const pillarOptions = useMemo<PillarOption[]>(
-    () =>
-      (userPillars ?? []).map((pillar) => ({
-        value: pillar.key,
-        label: pillar.label,
-        color: pillar.color,
-        description: pillar.description,
-      })),
-    [userPillars],
   );
   const folderNameById = useMemo(
     () =>
@@ -1964,9 +1949,6 @@ export function GalleryDashboard({
               selectedTags={selectedTags}
               onTagToggle={handleTagToggle}
               onClearAllTags={handleClearAll}
-              pillars={pillarOptions}
-              selectedPillar={selectedPillar}
-              onPillarSelect={setSelectedPillar}
               workflowsOnly={workflowsOnly}
               onWorkflowsOnlyChange={setWorkflowsOnly}
               sortOrder={sortOrder}
@@ -2575,7 +2557,6 @@ export function GalleryDashboard({
         onClose={() => setUploadOpen(false)}
         availableTags={availableUploadTags}
         folders={folders ?? []}
-        pillars={pillarOptions}
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }

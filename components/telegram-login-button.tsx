@@ -329,7 +329,7 @@ export function TelegramLoginButton({
         >
           {DEV_AUTH_BYPASS_ENABLED
             ? "Local route only. Use real auth in production."
-            : "Sign in to save assets, prompts, and folders."}
+            : "Sign in to save assets, prompts, and collections."}
         </p>
 
         {DEV_AUTH_BYPASS_ENABLED ? (

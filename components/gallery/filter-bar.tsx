@@ -14,13 +14,6 @@ export type PillarOption = {
   description?: string;
 };
 
-const DEFAULT_PILLAR_OPTIONS: PillarOption[] = [
-  { label: "Creators", value: "creators" },
-  { label: "Designs", value: "designs" },
-  { label: "Dump", value: "dump" },
-  { label: "Cinema", value: "cinema-inspiration" },
-];
-
 interface TagItem {
   _id: string;
   name: string;
@@ -35,9 +28,6 @@ interface GalleryFilterBarProps {
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
   onClearAllTags: () => void;
-  pillars?: PillarOption[];
-  selectedPillar: Pillar | null;
-  onPillarSelect: (pillar: Pillar | null) => void;
   workflowsOnly: boolean;
   onWorkflowsOnlyChange: (next: boolean) => void;
   sortOrder: SortOrder;
@@ -53,13 +43,6 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
   { label: "LARGEST", value: "largest" },
 ];
 
-const PILLAR_ACCENT: Record<string, string> = {
-  creators: "var(--lm-pillar-creators)",
-  designs: "var(--lm-pillar-designs)",
-  dump: "var(--lm-pillar-dump)",
-  "cinema-inspiration": "var(--pillar-cinema-inspiration)",
-};
-
 export function GalleryFilterBar({
   galleryScope,
   canAccessMyGallery,
@@ -68,9 +51,6 @@ export function GalleryFilterBar({
   selectedTags,
   onTagToggle,
   onClearAllTags,
-  pillars = DEFAULT_PILLAR_OPTIONS,
-  selectedPillar,
-  onPillarSelect,
   workflowsOnly,
   onWorkflowsOnlyChange,
   sortOrder,
@@ -83,7 +63,6 @@ export function GalleryFilterBar({
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const tagScrollRef = useRef<HTMLDivElement>(null);
-  const pillarOptions = pillars.length > 0 ? pillars : DEFAULT_PILLAR_OPTIONS;
 
   const orderedTags = useMemo(() => {
     const selected: TagItem[] = [];
@@ -122,10 +101,7 @@ export function GalleryFilterBar({
     setSearchQuery("");
   };
 
-  // Cinema-inspiration is intentionally tagless — frames carry their own
-  // cinematographic metadata, not the gallery's free-form tag system.
-  const isCinema = selectedPillar === "cinema-inspiration";
-  const hasTags = orderedTags.length > 0 && !isCinema;
+  const hasTags = orderedTags.length > 0;
   const hasFilteredTags = filteredTags.length > 0;
   const tagSummaryLabel = searchQuery.trim()
     ? `${filteredTags.length} of ${orderedTags.length} tags`
@@ -199,37 +175,7 @@ export function GalleryFilterBar({
                 }}
               />
 
-              <div
-                className="hidden min-w-0 md:flex md:flex-1 md:items-center md:gap-1 md:overflow-x-auto"
-                style={{
-                  scrollbarWidth: "none",
-                  msOverflowStyle: "none",
-                }}
-              >
-                <PillarPill
-                  label="ALL"
-                  active={selectedPillar === null}
-                  onClick={() => onPillarSelect(null)}
-                  accentColor="var(--lm-coral)"
-                />
-                {pillarOptions.map((pillar) => (
-                  <PillarPill
-                    key={pillar.value}
-                    label={pillar.label.toUpperCase()}
-                    active={selectedPillar === pillar.value}
-                    onClick={() => onPillarSelect(pillar.value)}
-                    accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--lm-coral)"}
-                  />
-                ))}
-                <div
-                  style={{
-                    width: "1px",
-                    height: "20px",
-                    backgroundColor: "var(--lm-border-strong)",
-                    flexShrink: 0,
-                    margin: "0 4px",
-                  }}
-                />
+              <div className="hidden min-w-0 md:flex md:items-center md:gap-1">
                 <WorkflowsPill
                   active={workflowsOnly}
                   onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
@@ -264,30 +210,6 @@ export function GalleryFilterBar({
           className="flex items-center gap-1 overflow-x-auto px-4 pb-2 md:hidden"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <PillarPill
-            label="ALL"
-            active={selectedPillar === null}
-            onClick={() => onPillarSelect(null)}
-            accentColor="var(--lm-coral)"
-          />
-          {pillarOptions.map((pillar) => (
-            <PillarPill
-              key={pillar.value}
-              label={pillar.label.toUpperCase()}
-              active={selectedPillar === pillar.value}
-              onClick={() => onPillarSelect(pillar.value)}
-              accentColor={pillar.color ?? PILLAR_ACCENT[pillar.value] ?? "var(--lm-coral)"}
-            />
-          ))}
-          <div
-            style={{
-              width: "1px",
-              height: "20px",
-              backgroundColor: "var(--lm-border-strong)",
-              flexShrink: 0,
-              margin: "0 4px",
-            }}
-          />
           <WorkflowsPill
             active={workflowsOnly}
             onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
@@ -756,40 +678,3 @@ function WorkflowsPill({
   );
 }
 
-function PillarPill({
-  label,
-  active,
-  onClick,
-  accentColor,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  accentColor: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center transition-all"
-      style={{
-        padding: "4px 10px",
-        borderRadius: "12px",
-        background: active ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))" : "transparent",
-        color: active ? "#fff" : "var(--lm-text-ghost)",
-        fontSize: "9px",
-        fontWeight: active ? 900 : 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.14em",
-        border: "2px solid transparent",
-        boxShadow: active ? `0 0 12px ${accentColor}33` : "none",
-        cursor: "pointer",
-        fontFamily: "var(--lm-font)",
-        whiteSpace: "nowrap",
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
-  );
-}

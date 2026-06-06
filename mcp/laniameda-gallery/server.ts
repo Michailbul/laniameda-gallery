@@ -119,11 +119,15 @@ const jsonText = (value: unknown) => ({
 });
 
 const commonIngestShape = {
-  pillar: z.string().optional(),
   promptText: z.string().optional(),
   allowPromptOnly: z.boolean().optional(),
   tagNames: z.array(z.string()).optional(),
-  folderId: z.string().optional(),
+  folderId: z
+    .string()
+    .describe(
+      "Collection id to file this under — the raw folderId returned by list_collections or create_collection (NOT a folders:<id> prefixed form).",
+    )
+    .optional(),
   ingestKey: z.string().optional(),
   promptIngestKey: z.string().optional(),
   url: z.string().optional(),
@@ -174,14 +178,14 @@ server.registerTool(
   },
   async () => {
     const result = await apiFetch("/api/agent/customize", {
-      action: "listPillars",
+      action: "listFolders",
     });
-    const pillars = Array.isArray(result.pillars) ? result.pillars : [];
+    const collections = Array.isArray(result.folders) ? result.folders : [];
     return jsonText({
       ok: true,
       apiUrl: API_URL,
       authenticated: true,
-      pillarCount: pillars.length,
+      collectionCount: collections.length,
     });
   },
 );
@@ -202,7 +206,6 @@ server.registerTool(
     title: "Save Prompt",
     description: "Save a prompt-only record for the authenticated user.",
     inputSchema: {
-      pillar: z.string().optional(),
       promptText: z.string(),
       tagNames: z.array(z.string()).optional(),
       folderId: z.string().optional(),
@@ -237,7 +240,6 @@ server.registerTool(
       promptText: z.string().optional(),
       tagNames: z.array(z.string()).optional(),
       folderId: z.union([z.string(), z.null()]).optional(),
-      pillar: z.union([z.string(), z.null()]).optional(),
       modelName: z.union([z.string(), z.null()]).optional(),
       filePath: z.string().optional(),
       fileBase64: z.string().optional(),
@@ -275,7 +277,6 @@ server.registerTool(
     title: "List Assets",
     description: "List the authenticated user's gallery assets.",
     inputSchema: {
-      pillar: z.string().optional(),
       kind: z.enum(["image", "video"]).optional(),
       folderId: z.string().optional(),
       modelName: z.string().optional(),
@@ -300,7 +301,6 @@ server.registerTool(
     description: "Semantic search over the authenticated user's gallery assets.",
     inputSchema: {
       query: z.string(),
-      pillar: z.string().optional(),
       kind: z.enum(["image", "video"]).optional(),
       folderId: z.string().optional(),
       modelName: z.string().optional(),
@@ -336,65 +336,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  "list_pillars",
-  {
-    title: "List Pillars",
-    description: "List available pillars/boards for the authenticated user.",
-    inputSchema: {
-      includeArchived: z.boolean().optional(),
-    },
-  },
-  async (input) =>
-    jsonText(
-      await apiFetch("/api/agent/customize", {
-        action: "listPillars",
-        ...input,
-      }),
-    ),
-);
-
-server.registerTool(
-  "upsert_pillar",
-  {
-    title: "Create Or Update Pillar",
-    description: "Create or update a custom pillar/board for the authenticated user's page.",
-    inputSchema: {
-      label: z.string(),
-      key: z.string().optional(),
-      description: z.string().optional(),
-      color: z.string().optional(),
-      icon: z.string().optional(),
-      sortOrder: z.number().optional(),
-    },
-  },
-  async (input) =>
-    jsonText(
-      await apiFetch("/api/agent/customize", {
-        action: "upsertPillar",
-        ...input,
-      }),
-    ),
-);
-
-server.registerTool(
-  "archive_pillar",
-  {
-    title: "Archive Pillar",
-    description: "Archive a custom pillar/board for the authenticated user. Default pillars cannot be archived.",
-    inputSchema: {
-      key: z.string(),
-    },
-  },
-  async (input) =>
-    jsonText(
-      await apiFetch("/api/agent/customize", {
-        action: "archivePillar",
-        ...input,
-      }),
-    ),
-);
-
-server.registerTool(
   "list_tags",
   {
     title: "List Tags",
@@ -422,7 +363,6 @@ server.registerTool(
       label: z.string().optional(),
       description: z.string().optional(),
       category: z.string().optional(),
-      pillar: z.string().optional(),
       source: z.enum(["user", "agent", "system"]).optional(),
       color: z.string().optional(),
       sortOrder: z.number().optional(),
@@ -451,7 +391,6 @@ server.registerTool(
             label: z.string().optional(),
             description: z.string().optional(),
             category: z.string().optional(),
-            pillar: z.string().optional(),
             source: z.enum(["user", "agent", "system"]).optional(),
             color: z.string().optional(),
             sortOrder: z.number().optional(),
@@ -459,7 +398,6 @@ server.registerTool(
         )
         .optional(),
       category: z.string().optional(),
-      pillar: z.string().optional(),
       source: z.enum(["user", "agent", "system"]).optional(),
       color: z.string().optional(),
     },
@@ -493,10 +431,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "list_folders",
+  "list_collections",
   {
-    title: "List Folders",
-    description: "List folders for the authenticated user.",
+    title: "List Collections",
+    description:
+      "List the authenticated user's collections. Collections are owner-scoped folders used to organize saved assets and prompts.",
     inputSchema: {},
   },
   async () =>
@@ -508,10 +447,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "create_folder",
+  "create_collection",
   {
-    title: "Create Folder",
-    description: "Create or reuse an owner-scoped folder for the authenticated user.",
+    title: "Create Collection",
+    description:
+      "Create or reuse a collection (folder) for the authenticated user. Returns its folderId for use when saving assets.",
     inputSchema: {
       name: z.string(),
       description: z.string().optional(),
@@ -527,12 +467,12 @@ server.registerTool(
 );
 
 server.registerTool(
-  "update_folder",
+  "update_collection",
   {
-    title: "Update Folder",
-    description: "Rename or update an owner-scoped folder for the authenticated user.",
+    title: "Update Collection",
+    description: "Rename or update a collection (folder) for the authenticated user.",
     inputSchema: {
-      folderId: z.string(),
+      folderId: z.string().describe("The collection id to update — the raw folderId from list_collections/create_collection."),
       name: z.string(),
       description: z.string().optional(),
     },
@@ -547,12 +487,13 @@ server.registerTool(
 );
 
 server.registerTool(
-  "delete_folder",
+  "delete_collection",
   {
-    title: "Delete Folder",
-    description: "Delete an owner-scoped folder and clear it from linked gallery records.",
+    title: "Delete Collection",
+    description:
+      "Delete a collection (folder) and clear it from linked gallery records. The assets themselves are kept.",
     inputSchema: {
-      folderId: z.string(),
+      folderId: z.string().describe("The collection id to delete — the raw folderId from list_collections/create_collection."),
     },
   },
   async (input) =>

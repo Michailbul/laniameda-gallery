@@ -44,7 +44,6 @@ type StatusMessage = {
 export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
-  pillars?: PillarOption[];
   ownerUserId?: string;
   onDataChanged?: () => void;
   className?: string;
@@ -81,12 +80,6 @@ const GENERATION_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
-const DEFAULT_PILLAR_OPTIONS = [
-  { value: "creators", label: "Creators" },
-  { value: "designs", label: "Designs" },
-  { value: "dump", label: "Dump" },
-];
-
 const PROMPT_TYPE_OPTIONS = [
   { value: "image_gen", label: "Image Gen" },
   { value: "video_gen", label: "Video Gen" },
@@ -118,7 +111,6 @@ const ASSET_ROLE_OPTIONS = [
 export function UploadPanel({
   availableTags = [],
   folders = [],
-  pillars = DEFAULT_PILLAR_OPTIONS,
   ownerUserId,
   onDataChanged,
   className,
@@ -150,7 +142,6 @@ export function UploadPanel({
 
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const canCreateFolders = Boolean(ownerUserId?.trim());
-  const pillarOptions = pillars.length > 0 ? pillars : DEFAULT_PILLAR_OPTIONS;
 
   const canSubmit = Boolean(
     promptText.trim().length > 0 || urlInput.trim().length > 0 || selectedFiles.length > 0,
@@ -277,11 +268,11 @@ export function UploadPanel({
     const name = folderDraftName.trim();
     const normalizedOwnerUserId = ownerUserId?.trim();
     if (!normalizedOwnerUserId) {
-      setStatus({ type: "error", message: "Sign in to create folders." });
+      setStatus({ type: "error", message: "Sign in to create collections." });
       return;
     }
     if (!name) {
-      setStatus({ type: "error", message: "Folder name is required." });
+      setStatus({ type: "error", message: "Collection name is required." });
       return;
     }
     if (creatingFolder) return;
@@ -301,12 +292,12 @@ export function UploadPanel({
       setFolderDraftName("");
       setStatus({
         type: "success",
-        message: result.created ? "Folder created." : "Using existing folder.",
+        message: result.created ? "Collection created." : "Using existing collection.",
       });
       onDataChanged?.();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to create folder.";
+        error instanceof Error ? error.message : "Failed to create collection.";
       setStatus({ type: "error", message });
     } finally {
       setCreatingFolder(false);
@@ -748,30 +739,6 @@ export function UploadPanel({
             </div>
           )}
 
-          {/* Pillar Selection (Essential) */}
-          <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-            <Label htmlFor="pillar-select" className="text-[13px] font-semibold text-muted-foreground">Pillar</Label>
-            <Select
-              value={pillarSelection}
-              onValueChange={(value) => setPillarSelection(value)}
-            >
-              <SelectTrigger id="pillar-select" className="bg-surface-1 border-border/60 rounded-[14px] h-12 text-[15px] focus:ring-0 focus:border-primary focus:shadow-[0_0_0_3px_var(--accent-subtle)] transition-all">
-                <SelectValue placeholder="Select pillar" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-border/60 shadow-lg">
-                <SelectGroup>
-                  <SelectItem value={NO_VALUE} className="text-[14px]">None</SelectItem>
-                  {pillarOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value} className="text-[14px]">
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground mt-1">Primary content category</p>
-          </div>
-
           {/* Advanced Settings (Collapsible) */}
           <div className="flex flex-col rounded-2xl border border-border/60 bg-white/40 shadow-sm backdrop-blur-sm overflow-hidden">
             <button
@@ -781,7 +748,7 @@ export function UploadPanel({
             >
               <div>
                 <Label className="text-[13px] font-semibold text-muted-foreground cursor-pointer">Advanced settings</Label>
-                <div className="text-[11px] text-muted-foreground mt-1">Model, type, domain, folder</div>
+                <div className="text-[11px] text-muted-foreground mt-1">Model, type, domain, collection</div>
               </div>
               <svg 
                 xmlns="http://www.w3.org/2000/svg" 
@@ -948,7 +915,7 @@ export function UploadPanel({
                   {/* Folder */}
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="folder-select" className="text-[13px] font-semibold text-muted-foreground">Folder</Label>
+                      <Label htmlFor="folder-select" className="text-[13px] font-semibold text-muted-foreground">Collection</Label>
                       <span className="text-[10px] uppercase tracking-[0.2em] font-medium text-muted-foreground/60">Optional</span>
                     </div>
                     <Select
@@ -956,11 +923,11 @@ export function UploadPanel({
                       onValueChange={(value) => setFolderSelection(value)}
                     >
                       <SelectTrigger id="folder-select" className="bg-surface-1 border-border/60 rounded-[14px] h-11 text-[14px] focus:ring-0 focus:border-primary focus:shadow-[0_0_0_3px_var(--accent-subtle)] transition-all">
-                        <SelectValue placeholder="No folder (default)" />
+                        <SelectValue placeholder="No collection (default)" />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl border-border/60 shadow-lg">
                         <SelectGroup>
-                          <SelectItem value={NO_FOLDER_VALUE} className="text-[14px]">No folder (default)</SelectItem>
+                          <SelectItem value={NO_FOLDER_VALUE} className="text-[14px]">No collection (default)</SelectItem>
                           {folders.map((folder) => (
                             <SelectItem key={folder._id} value={folder._id} className="text-[14px]">
                               {folder.name}
@@ -980,7 +947,7 @@ export function UploadPanel({
                             event.preventDefault();
                             void handleCreateFolder();
                           }}
-                          placeholder="Create new folder"
+                          placeholder="Create new collection"
                           className="h-10 flex-1 rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:ring-0 focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)]"
                         />
                         <Button

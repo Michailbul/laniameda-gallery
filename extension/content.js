@@ -173,6 +173,24 @@
     }
   }
 
+  // Capture bytes via the background service worker, which bypasses page CORS
+  // through `<all_urls>` host permissions. Used for non-Midjourney sites (Krea,
+  // Recraft, etc.) whose CDN images a server-side refetch can't read.
+  async function requestImageBytes(url) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: "fetchImageBytes",
+        imageUrl: url,
+      });
+      if (response?.ok && response.base64) {
+        return { base64: response.base64, contentType: response.contentType };
+      }
+    } catch (err) {
+      console.warn("[Save to Gallery] background image fetch failed:", err);
+    }
+    return null;
+  }
+
   // ── Helpers ──
 
   function isQualifiedImage(img) {
@@ -240,27 +258,44 @@
 
   // ── Popover creation ──
 
-  const DEFAULT_PILLARS = [
-    { key: "creators", label: "Creators" },
-    { key: "designs", label: "Designs" },
-    { key: "dump", label: "Dump" },
-  ];
+  // Collections are owner-scoped `folders` records. Return [{ id, name }].
+  function normalizeFolders(rawFolders) {
+    if (!Array.isArray(rawFolders)) return [];
+    return rawFolders
+      .map((folder) => ({
+        id: String(folder?._id || folder?.id || "").trim(),
+        name: String(folder?.name || "").trim(),
+      }))
+      .filter((folder) => folder.id && folder.name);
+  }
 
-  async function loadPillars() {
+  async function loadFolders() {
     try {
-      const response = await chrome.runtime.sendMessage({ action: "getPillars" });
-      if (response?.ok && Array.isArray(response.pillars) && response.pillars.length > 0) {
-        return response.pillars
-          .map((pillar) => ({
-            key: String(pillar.key || "").trim(),
-            label: String(pillar.label || pillar.key || "").trim(),
-          }))
-          .filter((pillar) => pillar.key && pillar.label);
+      const response = await chrome.runtime.sendMessage({ action: "getFolders" });
+      if (response?.ok) {
+        return normalizeFolders(response.folders);
       }
     } catch (err) {
-      console.warn("[Save to Gallery] Could not load custom pillars:", err);
+      console.warn("[Save to Gallery] Could not load collections:", err);
     }
-    return DEFAULT_PILLARS;
+    return [];
+  }
+
+  async function createFolderRemote(name) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: "createFolder",
+        name,
+      });
+      if (response?.ok) {
+        const folders = normalizeFolders(response.folders);
+        const id = String(response.result?.folderId || "").trim();
+        return { ok: true, folders, id };
+      }
+      return { ok: false, error: response?.error || "Failed to create collection." };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Failed to create collection." };
+    }
   }
 
   function createPopover(onSubmit, onClose, options = {}) {
@@ -277,38 +312,117 @@
       <div class="stg-popover__title">${title}</div>
       <label class="stg-popover__label">Prompt (optional)</label>
       <textarea class="stg-popover__textarea" placeholder="Paste the prompt here…" rows="2"></textarea>
+      <label class="stg-popover__label">Collection</label>
       <div class="stg-popover__row">
-        <select class="stg-popover__select">
-          <option value="dump">dump</option>
+        <select class="stg-popover__select stg-popover__select--collection" aria-label="Collection">
+          <option value="">No collection</option>
         </select>
-        <button class="stg-popover__btn">${buttonLabel}</button>
+        <button class="stg-popover__icon-btn stg-popover__new-collection-toggle" type="button" title="New collection">+</button>
+      </div>
+      <div class="stg-popover__row stg-popover__new-collection-row" hidden>
+        <input class="stg-popover__input stg-popover__new-collection-input" type="text" placeholder="New collection name" />
+        <button class="stg-popover__btn stg-popover__new-collection-create" type="button">Add</button>
+      </div>
+      <div class="stg-popover__row stg-popover__actions">
+        <button class="stg-popover__btn stg-popover__submit">${buttonLabel}</button>
       </div>
     `;
 
     const close = pop.querySelector(".stg-popover__close");
     const textarea = pop.querySelector(".stg-popover__textarea");
-    const select = pop.querySelector(".stg-popover__select");
-    const btn = pop.querySelector(".stg-popover__btn");
+    const collectionSelect = pop.querySelector(".stg-popover__select--collection");
+    const newCollToggle = pop.querySelector(".stg-popover__new-collection-toggle");
+    const newCollRow = pop.querySelector(".stg-popover__new-collection-row");
+    const newCollInput = pop.querySelector(".stg-popover__new-collection-input");
+    const newCollCreate = pop.querySelector(".stg-popover__new-collection-create");
+    const btn = pop.querySelector(".stg-popover__submit");
 
     textarea.value = initialPrompt;
     if (initialPrompt) {
       textarea.select();
     }
 
-    Promise.all([
-      loadPillars(),
-      chrome.storage.sync.get(["defaultPillar"]),
-    ]).then(([pillars, cfg]) => {
-      select.innerHTML = "";
-      for (const pillar of pillars) {
+    // ── Collection (folder) selector ──
+    let loadedFolders = [];
+    let foldersReady = false;
+    let rememberedFolderId = "";
+
+    const renderCollectionOptions = (folders, selectedId) => {
+      collectionSelect.innerHTML = "";
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "No collection";
+      collectionSelect.appendChild(none);
+      for (const folder of folders) {
         const option = document.createElement("option");
-        option.value = pillar.key;
-        option.textContent = pillar.label;
-        select.appendChild(option);
+        option.value = folder.id;
+        option.textContent = folder.name;
+        collectionSelect.appendChild(option);
       }
-      const defaultPillar = cfg.defaultPillar || "dump";
-      if (pillars.some((pillar) => pillar.key === defaultPillar)) {
-        select.value = defaultPillar;
+      collectionSelect.value =
+        selectedId && folders.some((folder) => folder.id === selectedId)
+          ? selectedId
+          : "";
+    };
+
+    // Fast local read first: this gives us the remembered collection even if the
+    // network folder list is still loading, so a quick save still files into it.
+    chrome.storage.sync.get(["lastFolderId"]).then((cfg) => {
+      rememberedFolderId = cfg.lastFolderId || "";
+      if (foldersReady) renderCollectionOptions(loadedFolders, rememberedFolderId);
+    });
+
+    loadFolders().then((folders) => {
+      loadedFolders = folders;
+      foldersReady = true;
+      renderCollectionOptions(folders, rememberedFolderId);
+    });
+
+    const handleCreateCollection = async () => {
+      const name = newCollInput.value.trim();
+      if (!name) return;
+      newCollCreate.disabled = true;
+      newCollCreate.textContent = "…";
+      const res = await createFolderRemote(name);
+      newCollCreate.disabled = false;
+      newCollCreate.textContent = "Add";
+      if (!res.ok) {
+        newCollInput.value = "";
+        newCollInput.placeholder = (res.error || "Failed").slice(0, 40);
+        return;
+      }
+      loadedFolders = res.folders;
+      let newId = res.id;
+      if (!newId) {
+        const match = res.folders.find(
+          (folder) => folder.name.toLowerCase() === name.toLowerCase(),
+        );
+        newId = match ? match.id : "";
+      }
+      renderCollectionOptions(loadedFolders, newId);
+      newCollInput.value = "";
+      newCollRow.setAttribute("hidden", "");
+    };
+
+    newCollToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (newCollRow.hasAttribute("hidden")) {
+        newCollRow.removeAttribute("hidden");
+        newCollInput.focus();
+      } else {
+        newCollRow.setAttribute("hidden", "");
+      }
+    });
+
+    newCollCreate.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void handleCreateCollection();
+    });
+
+    newCollInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void handleCreateCollection();
       }
     });
 
@@ -330,9 +444,19 @@
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const prompt = textarea.value.trim();
-      const pillar = select.value;
+      // If the picker has loaded, use its value; if the user saved before the
+      // list finished loading, fall back to the remembered collection so a fast
+      // repeat save still files into it.
+      const folderId = foldersReady
+        ? collectionSelect.value || undefined
+        : rememberedFolderId || undefined;
       if (allowEmptyPrompt || prompt) {
-        onSubmit({ promptText: prompt, pillar });
+        // Only overwrite the remembered collection once the picker reflects a
+        // real choice — never clobber it with "" just because load was pending.
+        if (foldersReady) {
+          chrome.storage.sync.set({ lastFolderId: collectionSelect.value || "" });
+        }
+        onSubmit({ promptText: prompt, folderId });
       }
       onClose();
     });
@@ -439,7 +563,7 @@
     badge,
     imageUrl,
     promptText,
-    pillar,
+    folderId,
     modelName,
     fileData,
     topRight = false,
@@ -458,7 +582,7 @@
           pageTitle: document.title,
           promptText: promptText || undefined,
           modelName: modelName || undefined,
-          pillar,
+          folderId: folderId || undefined,
           file: fileData || undefined,
         });
       } catch (msgErr) {
@@ -500,7 +624,7 @@
     badge.classList.remove("stg-badge--visible");
 
     const popover = createPopover(
-      async ({ promptText, pillar }) => {
+      async ({ promptText, folderId }) => {
         let fileData = saveContext.fileData;
         if (!fileData && typeof saveContext.resolveFileData === "function") {
           fileData = await saveContext.resolveFileData();
@@ -509,7 +633,7 @@
           badge,
           imageUrl: saveContext.imageUrl,
           promptText,
-          pillar,
+          folderId,
           modelName: saveContext.modelName,
           fileData,
           topRight,
@@ -559,12 +683,21 @@
       promptText: mjContext?.promptText || "",
       modelName: mjContext?.modelName,
       resolveFileData: async () => {
-        if (!isMidjourneyPage()) return undefined;
-        const b64 = await imageToBase64(imageUrl);
-        if (!b64) {
-          console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
+        if (isMidjourneyPage()) {
+          const b64 = await imageToBase64(imageUrl);
+          if (!b64) {
+            console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
+          }
+          return b64 || undefined;
         }
-        return b64 || undefined;
+        // Universal path: capture bytes through the background worker so
+        // CORS-locked / signed CDN images still save. Falls back to a
+        // server-side URL refetch when capture fails.
+        const captured = await requestImageBytes(imageUrl);
+        if (!captured) {
+          console.warn("[Save to Gallery] Background capture failed, falling back to URL");
+        }
+        return captured || undefined;
       },
     });
   }

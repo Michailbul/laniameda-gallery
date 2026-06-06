@@ -249,7 +249,7 @@ export function GallerySidebar({
                       color: "var(--lm-sidebar-text-ghost)",
                     }}
                   >
-                    FOLDERS
+                    COLLECTIONS
                   </span>
                   {selectedFolderId && (
                     <button
@@ -269,7 +269,7 @@ export function GallerySidebar({
                 </div>
                 <FilterRow
                   icon={FolderOpen}
-                  label="All folders"
+                  label="All collections"
                   active={
                     selectedFolderId === null ||
                     selectedFolderId === undefined

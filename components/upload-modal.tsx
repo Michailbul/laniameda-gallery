@@ -10,7 +10,7 @@ type UploadModalProps = {
   onClose: () => void;
 } & Pick<
   UploadPanelProps,
-  "availableTags" | "folders" | "pillars" | "ownerUserId" | "onDataChanged"
+  "availableTags" | "folders" | "ownerUserId" | "onDataChanged"
 >;
 
 export function UploadModal({
@@ -18,7 +18,6 @@ export function UploadModal({
   onClose,
   availableTags,
   folders,
-  pillars,
   ownerUserId,
   onDataChanged,
 }: UploadModalProps) {
@@ -67,7 +66,6 @@ export function UploadModal({
             <UploadPanel
               availableTags={availableTags}
               folders={folders}
-              pillars={pillars}
               ownerUserId={ownerUserId}
               onDataChanged={onDataChanged}
               className="flex-1 min-h-0"

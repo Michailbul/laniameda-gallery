@@ -114,12 +114,6 @@ interface ImageCardProps {
   onToggleSelect?: (imageId: string) => void;
 }
 
-const PILLAR_META = {
-  creators: { label: "Creators", color: "var(--pillar-creators)" },
-  designs: { label: "Designs", color: "var(--pillar-designs)" },
-  dump: { label: "Dump", color: "var(--pillar-dump)" },
-} as const;
-
 const VIDEO_HOVER_DELAY_MS = 250;
 const ENABLE_VIDEO_HOVER_PLAYBACK = true;
 const ENTRANCE_ANIMATION_LIMIT = 12;
@@ -267,12 +261,6 @@ export const ImageCard = memo(function ImageCard({
 
   const entranceDelay =
     index < ENTRANCE_ANIMATION_LIMIT ? `${index * 30}ms` : "0ms";
-  const pillarMeta = image.pillar
-    ? PILLAR_META[image.pillar as keyof typeof PILLAR_META] ?? {
-        label: image.pillar,
-        color: "var(--pillar-dump)",
-      }
-    : undefined;
   const galleryItemType =
     image.galleryItemType ?? (image.packId ? "pack" : "asset");
   const galleryItemId =
@@ -773,37 +761,19 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model + pillar badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
-      {!isCinema && (image.modelName || pillarMeta) && (
+      {/* Model badge — bottom-left, always visible. Suppressed on cinema-inspiration. */}
+      {!isCinema && image.modelName && (
         <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0">
-          {image.modelName && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
-              {image.modelName}
-            </div>
-          )}
-          {pillarMeta && (
-            <div
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg-soft)",
-                color: pillarMeta.color,
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: pillarMeta.color }}
-              />
-              {pillarMeta.label}
-            </div>
-          )}
+          <div
+            className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
+            style={{
+              backgroundColor: "var(--image-card-badge-bg)",
+              color: "var(--image-card-badge-text)",
+              border: "1px solid var(--image-card-badge-border)",
+            }}
+          >
+            {image.modelName}
+          </div>
         </div>
       )}
 

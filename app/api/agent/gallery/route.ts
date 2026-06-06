@@ -174,14 +174,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ folders });
     }
 
-    if (action === "listPillars") {
-      const pillars = await client.query(api.userPillars.listPillars, {
-        ownerUserId: agent.ownerUserId,
-        includeArchived: data.includeArchived === true,
-      });
-      return NextResponse.json({ pillars });
-    }
-
     if (action === "listDesigns") {
       const designs = await client.query(api.designInspirations.listDesignGalleryEntries, {
         ownerUserId: agent.ownerUserId,

@@ -23,7 +23,6 @@ import {
   Save,
 } from "lucide-react";
 import { useQuery } from "convex/react";
-import { resolvePillarLabel } from "@/lib/gallery-focus";
 import { downloadImage } from "@/lib/download-image";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { api } from "@/convex/_generated/api";
@@ -470,7 +469,6 @@ export function GalleryDetailPanel({
     const parts = [
       activePrompt,
       image.modelName ? `Model: ${image.modelName}` : "",
-      image.pillar ? `Pillar: ${image.pillar}` : "",
       image.tagNames?.length
         ? `Tags: ${image.tagNames.join(", ")}`
         : "",
@@ -526,10 +524,6 @@ export function GalleryDetailPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image.prompt]);
 
-  const pillarLabel = useMemo(
-    () => resolvePillarLabel(image.pillar),
-    [image.pillar],
-  );
   const relativeDate = useMemo(() => {
     if (!image.createdAt) return undefined;
     const diff = Date.now() - image.createdAt;
@@ -854,20 +848,6 @@ export function GalleryDetailPanel({
               }}
             >
               {isDesignView ? designView?.sourceDomain : modelName}
-            </span>
-          )}
-          {pillarLabel && (
-            <span
-              style={{
-                padding: "2px 7px",
-                fontSize: "10px",
-                fontWeight: 600,
-                color: "var(--lm-text-tertiary)",
-                backgroundColor: "var(--lm-surface-2)",
-                borderRadius: "4px",
-              }}
-            >
-              {pillarLabel}
             </span>
           )}
           {relativeDate && (
@@ -1478,18 +1458,11 @@ export function GalleryDetailPanel({
                         <option key={tag} value={tag} />
                       ))}
                     </datalist>
-                    <div className="grid grid-cols-2 gap-2">
-                      <AdminEditInput
-                        label="Model"
-                        value={editModelName}
-                        onChange={setEditModelName}
-                      />
-                      <AdminEditInput
-                        label="Pillar"
-                        value={editPillar}
-                        onChange={setEditPillar}
-                      />
-                    </div>
+                    <AdminEditInput
+                      label="Model"
+                      value={editModelName}
+                      onChange={setEditModelName}
+                    />
                     <div className="grid grid-cols-2 gap-2">
                       <AdminEditSelect
                         label="Media kind"
@@ -1605,10 +1578,10 @@ export function GalleryDetailPanel({
                     borderBottom: "1px solid var(--lm-border)",
                   }}
                 >
-                  <SectionLabel>Folder</SectionLabel>
+                  <SectionLabel>Collection</SectionLabel>
                   <div className="mt-2">
                     <select
-                      aria-label="Select folder"
+                      aria-label="Select collection"
                       value={image.folderId ?? NO_FOLDER_VALUE}
                       onChange={(event) =>
                         handleFolderChange(event.target.value)
@@ -1627,7 +1600,7 @@ export function GalleryDetailPanel({
                       }}
                     >
                       <option value={NO_FOLDER_VALUE}>
-                        NO FOLDER
+                        NO COLLECTION
                       </option>
                       {folders.map((folder) => (
                         <option key={folder._id} value={folder._id}>
@@ -1647,7 +1620,7 @@ export function GalleryDetailPanel({
                             event.preventDefault();
                             void handleCreateFolder();
                           }}
-                          placeholder="CREATE FOLDER"
+                          placeholder="CREATE COLLECTION"
                           className="h-8 flex-1 px-2 outline-none"
                           style={{
                             fontFamily: "var(--lm-font)",

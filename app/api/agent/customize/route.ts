@@ -51,7 +51,6 @@ const userTagPayload = (
   label: stringValue(data.label),
   description: stringValue(data.description),
   category: stringValue(data.category) as never,
-  pillar: stringValue(data.pillar),
   source: stringValue(data.source) as never,
   color: stringValue(data.color),
   sortOrder: numberValue(data.sortOrder),
@@ -71,35 +70,6 @@ export async function POST(request: Request) {
 
     const agent = await requireAgentAuth(request, requiredScopeForAction(action));
     const client = getServerConvexClient();
-
-    if (action === "listPillars") {
-      const pillars = await client.query(api.userPillars.listPillars, {
-        ownerUserId: agent.ownerUserId,
-        includeArchived: data.includeArchived === true,
-      });
-      return NextResponse.json({ pillars });
-    }
-
-    if (action === "upsertPillar") {
-      const result = await client.mutation(api.userPillars.upsertPillar, {
-        ownerUserId: agent.ownerUserId,
-        key: stringValue(data.key),
-        label: stringValue(data.label) ?? "",
-        description: stringValue(data.description),
-        color: stringValue(data.color),
-        icon: stringValue(data.icon),
-        sortOrder: numberValue(data.sortOrder),
-      });
-      return NextResponse.json(result);
-    }
-
-    if (action === "archivePillar") {
-      await client.mutation(api.userPillars.archivePillar, {
-        ownerUserId: agent.ownerUserId,
-        key: stringValue(data.key) ?? "",
-      });
-      return NextResponse.json({ ok: true });
-    }
 
     if (action === "listTags") {
       const tags = await client.query(api.userTags.listUserTags, {

@@ -43,9 +43,18 @@ When MCP tools are available, use them directly:
 
 - Ingest: `save_asset`, `save_prompt`
 - Maintain records: `update_gallery_item`, `delete_gallery_item`
-- Customize the user's page: `list_pillars`, `upsert_pillar`, `archive_pillar`, `list_tags`, `upsert_tag`, `upsert_tags`, `archive_tag`, `list_folders`, `create_folder`, `update_folder`, `delete_folder`
+- Customize the user's page: `list_tags`, `upsert_tag`, `upsert_tags`, `archive_tag`, `list_collections`, `create_collection`, `update_collection`, `delete_collection`
 
 Never send `ownerUserId` through MCP calls. The user-issued token selects the owner.
+
+### Collections
+
+Collections are owner-scoped groupings used to organize saved assets and prompts. In the backend and on every payload they are the `folders` table and the `folderId` field — "collection" is the product-facing name (used in the app UI and the browser extension's save picker).
+
+- To file a save under a collection, pass `folderId` on `save_asset` / `save_prompt` (or in the ingest payload). Use the **raw** `folderId` returned by `list_collections` / `create_collection` — not a typed `folders:<id>` form (that prefixed style is only for `asset:<id>` / `pack:<id>` read tokens).
+- To create or reuse one, call `create_collection` (idempotent by normalized name) and use the returned `folderId`.
+- To clear an asset's collection on update, pass `folderId: null` to `update_gallery_item`.
+- A collection is optional; assets without one stay uncategorized.
 
 The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
 
@@ -68,7 +77,7 @@ The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and 
 After you create or update an asset/prompt/pack/design, the user can copy its ID from the gallery UI:
 
 - **Card corner button** (hover on desktop) — copies `asset:<id>` / `pack:<id>`
-- **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/pillar/date badges and copies the same token
+- **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/date badges and copies the same token
 - **Detail panel Copy dropdown** — "Copy asset/design ID" and "Copy pack ID" menu items
 
 When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Hand off to the `laniameda-gallery-query` skill:
@@ -112,9 +121,7 @@ Video generations ingest through the **same script and payload shape** as images
 Example:
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
-  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
   "promptType": "video_gen",
   "generationType": "video_gen",
   "modelName": "Seedance 2.0",
@@ -188,9 +195,7 @@ Pattern:
 
 ```bash
 # Step 1: save the GPT-Image-2 starting-frame prompt
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
-  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
   "promptType": "image_gen",
   "generationType": "image_gen",
   "modelName": "GPT-Image-2",
@@ -200,9 +205,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 }'
 
 # Step 2: save the Seedance 2 prompt + video with upstream link
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
-  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
   "promptType": "video_gen",
   "generationType": "video_gen",
   "modelName": "Seedance 2.0",
@@ -245,9 +248,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "operation": "workflow",
   "title": "Neon alley cinematic loop",
   "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",
-  "agentInstructions": "Generate the still first, then feed it as the Seedance start frame.",
-  "pillar": "creators",
-  "tagNames": ["cinematic", "neon"],
+  "agentInstructions": "Generate the still first, then feed it as the Seedance start frame.",  "tagNames": ["cinematic", "neon"],
   "ingestKey": "creators:neon-alley:workflow:v1",
   "steps": [
     {
@@ -274,7 +275,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 
 Rules:
 
-- `title` and `pillar` are required; provide at least one step.
+- `title` is required; provide at least one step.
 - Each step is one prompt. `media` is an array — multiple images in a step all attach to that step's prompt. A step with several images is `media: [{...}, {...}]`.
 - Step media accepts `filePath`/`imagePath` (read to base64) or `url`. Videos work the same way (`.mp4`/`.mov`/`.webm`).
 - A prompt-only step needs `allowPromptOnly: true` on that step — same hard rule as elsewhere.
@@ -303,7 +304,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
 - **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
-- Always set `pillar` when possible. The default keys are `creators`, `designs`, `dump`, and `cinema-inspiration`, but custom user pillar keys such as `inspirations` are valid. **Cinema frames use a dedicated mutation** — see the Cinema Inspiration pillar section.
+- Organize saves with `folderId` (collections), not pillars. **Pillars are retired from the product** — do not set `pillar` on new saves. The schema column still exists but is dormant. (Cinema frames remain a dedicated backend mutation — see the Cinema Inspiration section — and `designs` bookmarks are handled by the design-save route; those are internal, not user-facing pillars.)
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
@@ -398,7 +399,7 @@ Legacy direct-Convex invocation:
 
 ```bash
 CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=<your_telegram_id> \
-  bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","pillar":"creators","allowPromptOnly":true}'
+  bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","allowPromptOnly":true}'
 ```
 
 Preferred MCP invocation:

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { makeFunctionReference } from "convex/server";
 import { buildIngestKey } from "@/lib/ingest";
 import { getServerConvexClient } from "@/lib/server/convex";
+import {
+  resolveExtensionOwnerUserId,
+  validateExtensionToken,
+} from "@/lib/server/extension-auth";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
@@ -9,28 +13,35 @@ const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Extension-Token",
 };
 
 function corsJson(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: CORS_HEADERS });
 }
 
-// TODO: add proper auth (API key or session-based) before sharing with others
+// Auth note: validateExtensionToken enforces EXTENSION_API_TOKEN when set, and
+// fails OPEN (returns true) when it is unset. To actually protect this route,
+// set EXTENSION_API_TOKEN and have the extension send it (X-Extension-Token).
 export async function POST(request: Request) {
   try {
-    const ownerUserId = process.env.EXTENSION_OWNER_USER_ID;
-    if (!ownerUserId) {
-      return corsJson({ error: "Extension owner not configured." }, 500);
+    if (!validateExtensionToken(request)) {
+      return corsJson({ error: "Unauthorized extension request." }, 401);
     }
+
+    const ownerUserId = resolveExtensionOwnerUserId();
 
     const data = await request.json();
     const mode = typeof data.mode === "string" ? data.mode : "save";
     const imageUrl = typeof data.imageUrl === "string" ? data.imageUrl : undefined;
     const promptText = typeof data.promptText === "string" ? data.promptText.trim() : undefined;
     const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : undefined;
-    const pillar = typeof data.pillar === "string" ? data.pillar : "dump";
     const modelName = typeof data.modelName === "string" ? data.modelName : undefined;
+    // Collection (stored as a `folders` row) the asset should be filed under.
+    const folderId =
+      typeof data.folderId === "string" && data.folderId.trim()
+        ? data.folderId.trim()
+        : undefined;
 
     // Accept base64 file data (for CDNs that block server-side fetch, e.g. Midjourney)
     let file: { base64: string; contentType?: string; fileName?: string } | undefined;
@@ -65,6 +76,8 @@ export async function POST(request: Request) {
       try {
         const host = new URL(sourceUrl).hostname.replace("www.", "");
         if (host.includes("midjourney")) tagNames.push("midjourney");
+        else if (host.includes("krea")) tagNames.push("krea");
+        else if (host.includes("recraft")) tagNames.push("recraft");
         else if (host.includes("pinterest")) tagNames.push("pinterest");
         else if (host.includes("instagram")) tagNames.push("instagram");
         else if (host.includes("civitai")) tagNames.push("civitai");
@@ -87,7 +100,6 @@ export async function POST(request: Request) {
         allowPromptOnly: true,
         promptIngestKey: ingestKey,
         tagNames,
-        pillar,
         modelName: modelName || undefined,
         generationType: "image_gen",
         assetRole: "inspiration_capture",
@@ -101,7 +113,6 @@ export async function POST(request: Request) {
         ingestKey,
         promptText,
         tagNames,
-        pillar,
         modelName: modelName || undefined,
         domain: sourceUrl || undefined,
       });
@@ -112,8 +123,8 @@ export async function POST(request: Request) {
         ingestKey,
         promptId: promptSeed.promptId ?? promptResult.promptId,
         tagNames,
-        pillar,
         modelName: modelName || undefined,
+        ...(folderId ? { folderId } : {}),
       });
 
       return corsJson({
@@ -133,8 +144,8 @@ export async function POST(request: Request) {
       allowPromptOnly: false,
       ingestKey,
       tagNames,
-      pillar,
       modelName: modelName || undefined,
+      folderId: folderId || undefined,
       generationType: "image_gen",
       assetRole: "inspiration_capture",
       ingestSource: "import",

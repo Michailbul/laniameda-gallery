@@ -102,4 +102,5 @@ The app API ignores caller-supplied ownership fields and injects the token owner
 
 Use `save_asset` for images, videos, URLs, UI references, design references, and
 other visual material. The MCP does not expose a separate design-reference save
-tool; use tags and optional `assetRole`/`pillar` metadata to classify assets.
+tool; use tags, an optional `assetRole`, and collections (`folderId`) to classify
+and organize assets.

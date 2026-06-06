@@ -324,7 +324,7 @@ export default function BottomMenu({
                 Sign in to manage your vault
               </p>
               <p className="mt-1 text-[12px]" style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}>
-                Telegram auth unlocks uploads, folders, and edits.
+                Telegram auth unlocks uploads, collections, and edits.
               </p>
             </div>
             <TelegramLoginButton size="medium" />

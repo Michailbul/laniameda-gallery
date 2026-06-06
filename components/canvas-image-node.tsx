@@ -4,12 +4,6 @@ import Image from "next/image";
 import { memo, useState } from "react";
 import { ImageIcon } from "lucide-react";
 
-const PILLAR_META = {
-  creators: { label: "Creators", color: "var(--pillar-creators)" },
-  designs: { label: "Designs", color: "var(--pillar-designs)" },
-  dump: { label: "Dump", color: "var(--pillar-dump)" },
-} as const;
-
 export type CanvasImageNodeData = {
   imageId: string;
   src: string;
@@ -44,13 +38,6 @@ export const CanvasImageNode = memo(function CanvasImageNode({
     data.width && data.height ? data.width / data.height : 1;
   const nodeHeight = Math.round(NODE_WIDTH / aspectRatio);
 
-  const pillarMeta = data.pillar
-    ? PILLAR_META[data.pillar as keyof typeof PILLAR_META] ?? {
-        label: data.pillar,
-        color: "var(--pillar-dump)",
-      }
-    : undefined;
-
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     if (e.currentTarget.naturalWidth > 0) {
       setIsLoading(false);
@@ -76,7 +63,7 @@ export const CanvasImageNode = memo(function CanvasImageNode({
         width: NODE_WIDTH,
         height: nodeHeight,
         boxShadow: selected
-          ? `0 0 0 2px ${pillarMeta?.color ?? "var(--coral)"}, var(--shadow-md)`
+          ? `0 0 0 2px var(--coral), var(--shadow-md)`
           : "var(--shadow-sm)",
         transition: "box-shadow 150ms ease",
         cursor: "pointer",
@@ -112,41 +99,21 @@ export const CanvasImageNode = memo(function CanvasImageNode({
         />
       </div>
 
-      {/* Model + pillar badges */}
-      {(data.modelName || pillarMeta) && (
+      {/* Model badge */}
+      {data.modelName && (
         <div className="absolute bottom-1.5 left-1.5 z-10 flex items-center gap-1">
-          {data.modelName && (
-            <div
-              className="px-1.5 py-px text-[8px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
-              {data.modelName}
-            </div>
-          )}
-          {pillarMeta && (
-            <div
-              className="inline-flex items-center gap-0.5 px-1.5 py-px text-[8px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg-soft)",
-                color: pillarMeta.color,
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
-              <span
-                className="h-1 w-1 rounded-full"
-                style={{ backgroundColor: pillarMeta.color }}
-              />
-              {pillarMeta.label}
-            </div>
-          )}
+          <div
+            className="px-1.5 py-px text-[8px] font-mono font-medium uppercase tracking-wider"
+            style={{
+              backgroundColor: "var(--image-card-badge-bg)",
+              color: "var(--image-card-badge-text)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              border: "1px solid var(--image-card-badge-border)",
+            }}
+          >
+            {data.modelName}
+          </div>
         </div>
       )}
 

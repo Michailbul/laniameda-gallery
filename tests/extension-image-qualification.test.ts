@@ -117,4 +117,50 @@ describe("Save to Gallery image qualification", () => {
       }),
     ).toBe(false);
   });
+
+  test("rejects medium avatars (large source, ~96px rendered)", () => {
+    const api = getApi();
+    const img = createImage({
+      naturalWidth: 400,
+      naturalHeight: 400,
+      width: 96,
+      height: 96,
+      clientWidth: 96,
+      clientHeight: 96,
+      offsetWidth: 96,
+      offsetHeight: 96,
+      rectWidth: 96,
+      rectHeight: 96,
+    });
+
+    expect(
+      api.isQualifiedImageElement(img, {
+        badgeAttr: "data-stg-badge",
+        getImageUrl: (node: { src: string }) => node.src,
+      }),
+    ).toBe(false);
+  });
+
+  test("accepts a content image rendered at the threshold (110px+, source 200px+)", () => {
+    const api = getApi();
+    const img = createImage({
+      naturalWidth: 800,
+      naturalHeight: 800,
+      width: 140,
+      height: 140,
+      clientWidth: 140,
+      clientHeight: 140,
+      offsetWidth: 140,
+      offsetHeight: 140,
+      rectWidth: 140,
+      rectHeight: 140,
+    });
+
+    expect(
+      api.isQualifiedImageElement(img, {
+        badgeAttr: "data-stg-badge",
+        getImageUrl: (node: { src: string }) => node.src,
+      }),
+    ).toBe(true);
+  });
 });

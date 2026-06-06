@@ -154,6 +154,68 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* The .stg-popover__row class sets display:flex, which would override the UA
+   [hidden] rule — force-hide the inline "new collection" row when collapsed. */
+.stg-popover__row[hidden] {
+  display: none;
+}
+
+.stg-popover__row:last-child {
+  margin-bottom: 0;
+}
+
+/* Save button sits alone now (no pillar selector) — let it fill the row. */
+.stg-popover__actions .stg-popover__btn {
+  flex: 1;
+}
+
+.stg-popover__icon-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: #fff;
+  color: #201710;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1.5px solid #d4c8b8;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.stg-popover__icon-btn:hover {
+  border-color: #ff7a64;
+  color: #ff7a64;
+}
+
+.stg-popover__input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: #fff;
+  color: #201710;
+  font-family: inherit;
+  font-size: 12px;
+  border: 1.5px solid #d4c8b8;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.stg-popover__input:focus {
+  outline: none;
+  border-color: #ff7a64;
+}
+
+.stg-popover__input::placeholder {
+  color: #a89888;
 }
 
 .stg-popover__select {
