@@ -18,6 +18,7 @@
   const SAVE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
   const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
   const imageQualification = globalThis.SaveToGalleryImageQualification;
+  const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
   let extensionEnabled = false;
@@ -30,6 +31,18 @@
   const MJ_GRID_CARD_SELECTOR = 'div[class*="@container/jobCard"]';
   const MJ_GRID_THUMB_SELECTOR = 'a[href*="/jobs/"]';
   const MJ_GRID_BADGE_ATTR = "data-stg-mj-badge";
+  const MJ_MEDIA_BADGE_ATTR = "data-stg-mj-media-badge";
+  const MJ_MEDIA_SELECTOR = [
+    'img[src*="cdn.midjourney.com"]',
+    'img[srcset*="cdn.midjourney.com"]',
+    'img[src*="mj.run"]',
+    'img[srcset*="mj.run"]',
+    'video[poster*="cdn.midjourney.com"]',
+    'video[src*="cdn.midjourney.com"]',
+    'a[href*="/jobs/"]',
+    '[style*="cdn.midjourney.com"]',
+    '[style*="mj.run"]',
+  ].join(",");
 
   function isMidjourneyPage() {
     return location.hostname.includes("midjourney.com");
@@ -92,6 +105,11 @@
   }
 
   function readMidjourneyJobFromFiber(el) {
+    if (midjourneyAdapter?.findJobObject) {
+      const job = midjourneyAdapter.findJobObject(el);
+      if (job) return job;
+    }
+
     if (!el) return null;
     const fiberKey = Object.keys(el).find((k) => k.startsWith("__reactFiber"));
     if (!fiberKey) return null;
@@ -104,6 +122,11 @@
   }
 
   function reconstructMidjourneyPrompt(job) {
+    if (midjourneyAdapter?.reconstructPrompt) {
+      const prompt = midjourneyAdapter.reconstructPrompt(job);
+      if (prompt) return prompt;
+    }
+
     if (!job || !job.prompt) return null;
     const p = job.prompt;
 
@@ -142,6 +165,11 @@
   }
 
   function getMidjourneyThumbImageUrl(thumb) {
+    if (midjourneyAdapter?.getMediaUrl) {
+      const mediaUrl = midjourneyAdapter.getMediaUrl(thumb);
+      if (mediaUrl) return mediaUrl;
+    }
+
     const bg = (thumb.style && thumb.style.backgroundImage) || "";
     const urls = Array.from(bg.matchAll(/url\("?([^")]+)"?\)/g)).map((m) => m[1]);
     if (urls.length === 0) return "";
@@ -189,6 +217,16 @@
       console.warn("[Save to Gallery] background image fetch failed:", err);
     }
     return null;
+  }
+
+  async function captureImageBytesForSave(url) {
+    const captured = await requestImageBytes(url);
+    if (captured) return captured;
+
+    const pageFetched = await imageToBase64(url);
+    if (pageFetched) return pageFetched;
+
+    return undefined;
   }
 
   // ── Helpers ──
@@ -565,6 +603,7 @@
     promptText,
     folderId,
     modelName,
+    tagNames,
     fileData,
     topRight = false,
   }) {
@@ -583,6 +622,7 @@
           promptText: promptText || undefined,
           modelName: modelName || undefined,
           folderId: folderId || undefined,
+          tagNames: Array.isArray(tagNames) ? tagNames : undefined,
           file: fileData || undefined,
         });
       } catch (msgErr) {
@@ -635,6 +675,7 @@
           promptText,
           folderId,
           modelName: saveContext.modelName,
+          tagNames: saveContext.tagNames,
           fileData,
           topRight,
         });
@@ -684,9 +725,9 @@
       modelName: mjContext?.modelName,
       resolveFileData: async () => {
         if (isMidjourneyPage()) {
-          const b64 = await imageToBase64(imageUrl);
+          const b64 = await captureImageBytesForSave(imageUrl);
           if (!b64) {
-            console.warn("[Save to Gallery] Failed to fetch image as base64, falling back to URL");
+            console.warn("[Save to Gallery] Failed to capture image bytes, falling back to URL");
           }
           return b64 || undefined;
         }
@@ -722,12 +763,18 @@
     for (const card of document.querySelectorAll(`[${MJ_GRID_BADGE_ATTR}]`)) {
       card.removeAttribute(MJ_GRID_BADGE_ATTR);
     }
+
+    for (const target of document.querySelectorAll(`[${MJ_MEDIA_BADGE_ATTR}]`)) {
+      target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
+    }
   }
 
   function setExtensionEnabled(nextEnabled) {
     extensionEnabled = Boolean(nextEnabled);
     if (!extensionEnabled) {
       clearInjectedUi();
+    } else if (isMidjourneyPage()) {
+      scheduleMidjourneyMediaScan();
     }
   }
 
@@ -869,18 +916,209 @@
       promptText: promptText || "",
       modelName: "Midjourney",
       resolveFileData: async () => {
-        const fileData = await imageToBase64(imageUrl);
+        const fileData = await captureImageBytesForSave(imageUrl);
         if (!fileData) {
-          console.warn("[Save to Gallery] MJ grid: failed to fetch image as base64, falling back to URL");
+          console.warn("[Save to Gallery] MJ grid: failed to capture image bytes, falling back to URL");
         }
         return fileData || undefined;
       },
     }, { topRight: true });
   }
 
+  // ── Midjourney persistent media buttons ──
+
+  let midjourneyObserver = null;
+  let midjourneyScanTimer = null;
+
+  function isMidjourneyTeachPage() {
+    return location.pathname.includes("/personalize/") &&
+      location.pathname.includes("/teach");
+  }
+
+  function getMidjourneyTagNames() {
+    const tags = ["midjourney"];
+    if (location.pathname.includes("/explore")) tags.push("midjourney-explore");
+    if (isMidjourneyTeachPage()) {
+      tags.push("midjourney-teach", "personalize");
+    }
+    return tags;
+  }
+
+  function getMidjourneyMediaUrl(target) {
+    if (midjourneyAdapter?.getMediaUrl) {
+      return midjourneyAdapter.getMediaUrl(target);
+    }
+
+    if (target?.tagName?.toLowerCase() === "img") {
+      return getImageUrl(target);
+    }
+
+    if (target?.tagName?.toLowerCase() === "video") {
+      return target.poster || target.src || "";
+    }
+
+    return getMidjourneyThumbImageUrl(target);
+  }
+
+  function isQualifiedMidjourneyMediaTarget(target) {
+    if (!target || target.closest?.(".stg-badge, .stg-popover")) return false;
+    if (target.hasAttribute?.(MJ_MEDIA_BADGE_ATTR)) return false;
+
+    if (midjourneyAdapter?.isQualifiedMediaElement) {
+      return midjourneyAdapter.isQualifiedMediaElement(target, {
+        badgeAttr: MJ_MEDIA_BADGE_ATTR,
+      });
+    }
+
+    const imageUrl = getMidjourneyMediaUrl(target);
+    return Boolean(imageUrl && imageUrl.includes("midjourney"));
+  }
+
+  function getMidjourneyMediaMount(target) {
+    if (!target) return null;
+
+    if (target.matches?.("a, button, [role='button']")) {
+      return target;
+    }
+
+    const imageWrapper = target.closest?.(
+      [
+        "a",
+        "button",
+        "[role='button']",
+        "div[class*='overflow-hidden']",
+        "div[class*='relative']",
+      ].join(","),
+    );
+    return imageWrapper || target.parentElement;
+  }
+
+  function findMidjourneyPromptNear(target) {
+    const lightboxContext = extractMidjourneyContext();
+    if (lightboxContext?.promptText) return lightboxContext.promptText;
+
+    const card = getMidjourneyCardRoot(target);
+    const job =
+      readMidjourneyJobFromFiber(target) ||
+      readMidjourneyJobFromFiber(card) ||
+      readMidjourneyJobFromFiber(target?.parentElement);
+    const promptText = reconstructMidjourneyPrompt(job);
+    if (promptText) return promptText;
+
+    if (!isMidjourneyTeachPage()) {
+      console.debug("[Save to Gallery] Midjourney prompt unavailable for media target.");
+    }
+    return "";
+  }
+
+  function createMidjourneyMediaBadge(target) {
+    const badge = document.createElement("div");
+    badge.className = "stg-badge stg-badge--midjourney stg-badge--visible";
+    badge.innerHTML = `${SAVE_ICON}<span>Save</span>`;
+    badge.setAttribute("role", "button");
+    badge.setAttribute("aria-label", "Save to laniameda.gallery");
+    badge.setAttribute("title", "Save to gallery");
+
+    badge.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      handleSaveMidjourneyMedia(target, badge);
+    }, true);
+
+    return badge;
+  }
+
+  function injectMidjourneyMediaBadge(target) {
+    if (!isQualifiedMidjourneyMediaTarget(target)) return;
+
+    const mount = getMidjourneyMediaMount(target);
+    if (!mount || mount.querySelector?.(":scope > .stg-badge--midjourney")) {
+      return;
+    }
+
+    const pos = getComputedStyle(mount).position;
+    if (pos === "static") mount.style.position = "relative";
+
+    const badge = createMidjourneyMediaBadge(target);
+    mount.appendChild(badge);
+    target.setAttribute(MJ_MEDIA_BADGE_ATTR, "1");
+  }
+
+  async function handleSaveMidjourneyMedia(target, badge) {
+    const rawImageUrl = getMidjourneyMediaUrl(target);
+    if (!rawImageUrl) {
+      console.debug("[Save to Gallery] Midjourney image URL unavailable for media target.");
+      return;
+    }
+
+    const imageUrl = resolveAbsoluteUrl(rawImageUrl);
+    const promptText = findMidjourneyPromptNear(target);
+
+    showSavePopover(badge, {
+      imageUrl,
+      promptText,
+      modelName: "Midjourney",
+      tagNames: getMidjourneyTagNames(),
+      resolveFileData: async () => {
+        const fileData = await captureImageBytesForSave(imageUrl);
+        if (!fileData) {
+          console.warn("[Save to Gallery] Midjourney media: failed to capture image bytes, falling back to URL");
+        }
+        return fileData || undefined;
+      },
+    }, { topRight: true });
+  }
+
+  function scanMidjourneyMediaTargets() {
+    if (!configLoaded || !extensionEnabled || !isMidjourneyPage()) return;
+
+    const candidates = document.querySelectorAll(MJ_MEDIA_SELECTOR);
+    for (const candidate of candidates) {
+      if (candidate.tagName?.toLowerCase() === "img" && !candidate.complete) {
+        candidate.addEventListener("load", () => {
+          if (extensionEnabled) injectMidjourneyMediaBadge(candidate);
+        }, { once: true });
+        continue;
+      }
+      injectMidjourneyMediaBadge(candidate);
+    }
+  }
+
+  function scheduleMidjourneyMediaScan(delay = 80) {
+    if (!isMidjourneyPage()) return;
+    clearTimeout(midjourneyScanTimer);
+    midjourneyScanTimer = setTimeout(() => {
+      if (!configLoaded) {
+        syncSiteStateFromStorage((isEnabled) => {
+          if (isEnabled) scanMidjourneyMediaTargets();
+        });
+        return;
+      }
+      scanMidjourneyMediaTargets();
+    }, delay);
+  }
+
+  function startMidjourneyMediaObserver() {
+    if (!isMidjourneyPage() || midjourneyObserver) return;
+
+    midjourneyObserver = new MutationObserver(() => {
+      scheduleMidjourneyMediaScan();
+    });
+    midjourneyObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "src", "srcset", "style", "poster"],
+    });
+    scheduleMidjourneyMediaScan(0);
+  }
+
   // ── Event listeners ──
 
   document.addEventListener("mouseover", (e) => {
+    if (isMidjourneyPage()) return;
+
     const img = e.target.closest("img");
     if (!img) return;
 
@@ -906,6 +1144,7 @@
     if (!isMidjourneyPage()) return;
     const thumb = e.target.closest(MJ_GRID_THUMB_SELECTOR);
     if (!thumb || !isMidjourneyGridThumb(thumb)) return;
+    if (thumb.hasAttribute(MJ_MEDIA_BADGE_ATTR)) return;
 
     syncSiteStateFromStorage((isEnabled) => {
       if (!configLoaded || !isEnabled) return;
@@ -1015,5 +1254,6 @@
   });
 
   syncSiteStateFromStorage();
+  startMidjourneyMediaObserver();
 
 })();

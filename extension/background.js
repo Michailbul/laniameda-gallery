@@ -326,6 +326,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       promptText: message.promptText,
       modelName: message.modelName,
       folderId: message.folderId,
+      tagNames: message.tagNames,
       file: message.file,
     })
       .then(sendResponse)

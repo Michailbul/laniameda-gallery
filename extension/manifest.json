@@ -16,7 +16,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["image-qualification.js", "content.js"],
+      "js": ["image-qualification.js", "midjourney-adapter.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }
