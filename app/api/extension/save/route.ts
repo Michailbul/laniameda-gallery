@@ -20,6 +20,53 @@ function corsJson(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: CORS_HEADERS });
 }
 
+function getUrlParts(value: string | undefined) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return {
+      host: url.hostname.replace(/^www\./, "").toLowerCase(),
+      pathname: url.pathname.toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isMidjourneyUrl(value: string | undefined) {
+  const url = getUrlParts(value);
+  if (!url) return false;
+  return (
+    url.host.includes("midjourney.com") ||
+    url.host === "mj.run" ||
+    url.host.endsWith(".mj.run")
+  );
+}
+
+function inferPlatformTag(value: string | undefined) {
+  const url = getUrlParts(value);
+  if (!url) return undefined;
+
+  if (
+    url.host.includes("midjourney.com") ||
+    url.host === "mj.run" ||
+    url.host.endsWith(".mj.run")
+  ) {
+    return "midjourney";
+  }
+  if (url.host.includes("krea")) return "krea";
+  if (url.host.includes("recraft")) return "recraft";
+  if (url.host.includes("pinterest")) return "pinterest";
+  if (url.host.includes("instagram")) return "instagram";
+  if (url.host.includes("civitai")) return "civitai";
+  if (url.host.includes("behance")) return "behance";
+  return undefined;
+}
+
+function isMidjourneyModel(value: string | undefined) {
+  return value?.toLowerCase().includes("midjourney") ?? false;
+}
+
 // Auth note: validateExtensionToken enforces EXTENSION_API_TOKEN when set, and
 // fails OPEN (returns true) when it is unset. To actually protect this route,
 // set EXTENSION_API_TOKEN and have the extension send it (X-Extension-Token).
@@ -65,27 +112,52 @@ export async function POST(request: Request) {
     }
 
     const tagNames: string[] = [];
+    const tagKeys = new Set<string>();
+    const addTagName = (value: string | undefined) => {
+      const tagName = value?.trim();
+      if (!tagName) return;
+
+      const key = tagName.toLowerCase();
+      if (tagKeys.has(key)) return;
+      tagKeys.add(key);
+      tagNames.push(tagName);
+    };
+
     if (Array.isArray(data.tagNames)) {
       for (const t of data.tagNames) {
-        if (typeof t === "string" && t.trim()) tagNames.push(t.trim());
+        if (typeof t === "string") addTagName(t);
       }
     }
 
-    // Auto-tag with source platform
-    if (sourceUrl) {
-      try {
-        const host = new URL(sourceUrl).hostname.replace("www.", "");
-        if (host.includes("midjourney")) tagNames.push("midjourney");
-        else if (host.includes("krea")) tagNames.push("krea");
-        else if (host.includes("recraft")) tagNames.push("recraft");
-        else if (host.includes("pinterest")) tagNames.push("pinterest");
-        else if (host.includes("instagram")) tagNames.push("instagram");
-        else if (host.includes("civitai")) tagNames.push("civitai");
-        else if (host.includes("behance")) tagNames.push("behance");
-      } catch {
-        // invalid URL, skip auto-tag
+    const sourcePlatformTag = inferPlatformTag(sourceUrl) ?? inferPlatformTag(imageUrl);
+    if (sourcePlatformTag) addTagName(sourcePlatformTag);
+
+    const sourceParts = getUrlParts(sourceUrl);
+    const isMidjourneySave =
+      isMidjourneyUrl(sourceUrl) ||
+      isMidjourneyUrl(imageUrl) ||
+      isMidjourneyModel(modelName) ||
+      tagNames.some((tagName) => tagName.toLowerCase().startsWith("midjourney"));
+
+    if (isMidjourneySave) {
+      addTagName("midjourney");
+      addTagName("midjourney-web");
+
+      if (sourceParts?.pathname.includes("/explore")) {
+        addTagName("midjourney-explore");
+      }
+      if (
+        sourceParts?.pathname.includes("/personalize/") &&
+        sourceParts.pathname.includes("/teach")
+      ) {
+        addTagName("midjourney-teach");
+        addTagName("midjourney-personalize");
+        addTagName("personalize");
       }
     }
+
+    const effectiveModelName = isMidjourneySave ? "Midjourney" : modelName || undefined;
+    const effectiveModelProvider = isMidjourneySave ? "midjourney" : undefined;
 
     const client = getServerConvexClient();
 
@@ -100,7 +172,8 @@ export async function POST(request: Request) {
         allowPromptOnly: true,
         promptIngestKey: ingestKey,
         tagNames,
-        modelName: modelName || undefined,
+        modelName: effectiveModelName,
+        modelProvider: effectiveModelProvider,
         generationType: "image_gen",
         assetRole: "inspiration_capture",
         ingestSource: "import",
@@ -113,7 +186,8 @@ export async function POST(request: Request) {
         ingestKey,
         promptText,
         tagNames,
-        modelName: modelName || undefined,
+        modelName: effectiveModelName,
+        modelProvider: effectiveModelProvider,
         domain: sourceUrl || undefined,
       });
 
@@ -123,7 +197,7 @@ export async function POST(request: Request) {
         ingestKey,
         promptId: promptSeed.promptId ?? promptResult.promptId,
         tagNames,
-        modelName: modelName || undefined,
+        modelName: effectiveModelName,
         ...(folderId ? { folderId } : {}),
       });
 
@@ -144,7 +218,8 @@ export async function POST(request: Request) {
       allowPromptOnly: false,
       ingestKey,
       tagNames,
-      modelName: modelName || undefined,
+      modelName: effectiveModelName,
+      modelProvider: effectiveModelProvider,
       folderId: folderId || undefined,
       generationType: "image_gen",
       assetRole: "inspiration_capture",

@@ -4,6 +4,7 @@ const statusEl = document.getElementById("status");
 const siteToggleBtn = document.getElementById("siteToggle");
 const siteNameEl = document.getElementById("siteName");
 const siteHintEl = document.getElementById("siteHint");
+const defaultCollectionEl = document.getElementById("defaultCollection");
 
 const bookmarkUrlEl = document.getElementById("bookmarkUrl");
 const bookmarkTitleEl = document.getElementById("bookmarkTitle");
@@ -15,6 +16,7 @@ const SAVE_ROUTE_PATH = "/api/extension/save";
 const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const DISABLED_HOSTS_KEY = "disabledHosts";
+const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 
 let currentSiteHost = "";
@@ -66,6 +68,51 @@ const normalizeHost = (rawUrl) => {
   } catch {
     return "";
   }
+};
+
+const normalizeFolders = (rawFolders) => {
+  if (!Array.isArray(rawFolders)) return [];
+  return rawFolders
+    .map((folder) => ({
+      id: String(folder?._id || folder?.id || "").trim(),
+      name: String(folder?.name || "").trim(),
+    }))
+    .filter((folder) => folder.id && folder.name);
+};
+
+const loadFolders = async () => {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: "getFolders" });
+    if (response?.ok) {
+      return normalizeFolders(response.folders);
+    }
+  } catch {
+    // The picker can still save settings without a default collection.
+  }
+  return [];
+};
+
+const renderDefaultCollectionOptions = (folders, selectedId) => {
+  if (!defaultCollectionEl) return;
+
+  defaultCollectionEl.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "No default collection";
+  defaultCollectionEl.appendChild(none);
+
+  for (const folder of folders) {
+    const option = document.createElement("option");
+    option.value = folder.id;
+    option.textContent = folder.name;
+    defaultCollectionEl.appendChild(option);
+  }
+
+  defaultCollectionEl.value =
+    selectedId && folders.some((folder) => folder.id === selectedId)
+      ? selectedId
+      : "";
+  defaultCollectionEl.disabled = false;
 };
 
 const getCurrentTab = async () => {
@@ -138,6 +185,7 @@ const loadPopupState = async () => {
   const cfg = await chrome.storage.sync.get([
     "apiUrl",
     DISABLED_HOSTS_KEY,
+    DEFAULT_FOLDER_ID_KEY,
   ]);
 
   apiUrlInput.value = normalizeApiUrl(cfg.apiUrl);
@@ -158,12 +206,19 @@ const loadPopupState = async () => {
   });
 
   setBookmarkFormState({ tab: currentTab });
+
+  if (defaultCollectionEl) {
+    defaultCollectionEl.disabled = true;
+    const folders = await loadFolders();
+    renderDefaultCollectionOptions(folders, cfg[DEFAULT_FOLDER_ID_KEY] || "");
+  }
 };
 
 saveBtn.addEventListener("click", () => {
   const apiUrl = normalizeApiUrl(apiUrlInput.value);
+  const defaultFolderId = defaultCollectionEl?.value || "";
 
-  chrome.storage.sync.set({ apiUrl }, () => {
+  chrome.storage.sync.set({ apiUrl, [DEFAULT_FOLDER_ID_KEY]: defaultFolderId }, () => {
     apiUrlInput.value = apiUrl;
     setStatus("Settings saved.");
     saveBtn.textContent = "Saved";

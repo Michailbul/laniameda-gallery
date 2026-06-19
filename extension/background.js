@@ -6,6 +6,16 @@ const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
+const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
+const LAST_FOLDER_ID_KEY = "lastFolderId";
+const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
+const DISABLED_HOSTS_KEY = "disabledHosts";
+const BUILTIN_DISABLED_HOSTS = [
+  "laniameda.gallery",
+  "laniameda-galery.vercel.app",
+  "localhost",
+  "127.0.0.1",
+];
 
 function normalizeRouteUrl(rawValue, routePath) {
   const value =
@@ -37,12 +47,66 @@ function normalizeApiUrl(rawValue) {
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["apiUrl"],
+      ["apiUrl", DEFAULT_FOLDER_ID_KEY, LAST_FOLDER_ID_KEY],
       (cfg) => resolve({
         apiUrl: normalizeApiUrl(cfg.apiUrl),
+        defaultFolderId: String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim(),
+        lastFolderId: String(cfg[LAST_FOLDER_ID_KEY] || "").trim(),
       })
     );
   });
+}
+
+function isMidjourneyDocumentUrl(rawUrl) {
+  return getUrlHost(rawUrl)?.includes("midjourney.com") ?? false;
+}
+
+function isTabMessageUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return false;
+  try {
+    const protocol = new URL(rawUrl).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function getUrlHost(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return "";
+  try {
+    return new URL(rawUrl).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizeDisabledHosts(rawHosts) {
+  if (!Array.isArray(rawHosts)) return [];
+  return rawHosts
+    .map((host) => String(host).trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean);
+}
+
+function isHostDisabled(disabledHosts, host) {
+  if (!host) return false;
+  return disabledHosts.some((disabledHost) =>
+    host === disabledHost || host.endsWith(`.${disabledHost}`),
+  );
+}
+
+async function isContextMenuSaveAllowed(sourceUrl) {
+  const host = getUrlHost(sourceUrl);
+  if (isMidjourneyDocumentUrl(sourceUrl)) return false;
+  if (isHostDisabled(BUILTIN_DISABLED_HOSTS, host)) return false;
+
+  const cfg = await chrome.storage.sync.get([DISABLED_HOSTS_KEY]);
+  const disabledHosts = normalizeDisabledHosts(cfg[DISABLED_HOSTS_KEY]);
+  return !isHostDisabled(disabledHosts, host);
+}
+
+async function getDefaultSaveFolderId() {
+  const config = await getConfig();
+  return config.defaultFolderId || config.lastFolderId || undefined;
 }
 
 async function saveToGallery(payload) {
@@ -136,6 +200,104 @@ async function fetchImageBytes(payload) {
   } catch (err) {
     return { ok: false, error: `Decode error: ${err.message}` };
   }
+}
+
+async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderId }) {
+  const captured = await fetchImageBytes({ imageUrl });
+  const response = await saveToGallery({
+    imageUrl,
+    sourceUrl,
+    folderId,
+    file: captured?.ok
+      ? {
+          base64: captured.base64,
+          contentType: captured.contentType,
+        }
+      : undefined,
+  });
+  return {
+    ...response,
+    captureError: captured?.ok ? undefined : captured?.error,
+  };
+}
+
+async function handleImageContextMenuClick(info, tab) {
+  if (info.menuItemId !== SAVE_IMAGE_CONTEXT_MENU_ID) return;
+
+  const imageUrl = typeof info.srcUrl === "string" ? info.srcUrl : "";
+  if (!imageUrl) return;
+
+  const sourceUrl =
+    (typeof info.pageUrl === "string" && info.pageUrl) ||
+    (typeof info.frameUrl === "string" && info.frameUrl) ||
+    tab?.url ||
+    "";
+
+  if (!(await isContextMenuSaveAllowed(sourceUrl))) {
+    return;
+  }
+
+  const folderId = await getDefaultSaveFolderId();
+
+  if (typeof tab?.id === "number" && isTabMessageUrl(sourceUrl)) {
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: "saveImageFromContextMenu",
+        imageUrl,
+        sourceUrl,
+        folderId,
+      });
+      if (response?.handled) return;
+    } catch {
+      // The content script is not reachable on every page. Fall back to a
+      // service-worker save so the context menu still works for normal image URLs.
+    }
+  }
+
+  const response = await saveContextMenuImageInBackground({
+    imageUrl,
+    sourceUrl,
+    folderId,
+  });
+  if (!response.ok) {
+    console.warn("[Save to Gallery] context menu save failed:", response);
+  }
+}
+
+function installContextMenus() {
+  if (!chrome.contextMenus) return;
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create(
+      {
+        id: SAVE_IMAGE_CONTEXT_MENU_ID,
+        title: "Save to laniameda",
+        contexts: ["image"],
+      },
+      () => {
+        // Ignore duplicate/create timing errors across service-worker restarts.
+        void chrome.runtime.lastError;
+      },
+    );
+  });
+}
+
+function updateContextMenuVisibility(info, tab) {
+  const sourceUrl =
+    (typeof info?.pageUrl === "string" && info.pageUrl) ||
+    (typeof info?.frameUrl === "string" && info.frameUrl) ||
+    tab?.url ||
+    "";
+
+  isContextMenuSaveAllowed(sourceUrl).then((isAllowed) => {
+    chrome.contextMenus.update(
+      SAVE_IMAGE_CONTEXT_MENU_ID,
+      { visible: Boolean(isAllowed) },
+      () => {
+        void chrome.runtime.lastError;
+        chrome.contextMenus.refresh?.();
+      },
+    );
+  }).catch(() => {});
 }
 
 async function captureTabScreenshot(tabId) {
@@ -382,4 +544,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+});
+
+installContextMenus();
+chrome.runtime.onInstalled.addListener(installContextMenus);
+chrome.runtime.onStartup.addListener(installContextMenus);
+chrome.contextMenus.onShown?.addListener(updateContextMenuVisibility);
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  handleImageContextMenuClick(info, tab).catch((err) => {
+    console.warn("[Save to Gallery] context menu handler failed:", err);
+  });
 });

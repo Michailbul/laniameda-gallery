@@ -7,6 +7,8 @@
 
   const BADGE_ATTR = "data-stg-badge";
   const DISABLED_HOSTS_KEY = "disabledHosts";
+  const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
+  const LAST_FOLDER_ID_KEY = "lastFolderId";
   // Hosts where the extension should NEVER run (our own app — packs/assets
   // aren't saveable via the extension overlay).
   const BUILTIN_DISABLED_HOSTS = [
@@ -17,12 +19,17 @@
   ];
   const SAVE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
   const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  const CHEVRON_ICON = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7.5 5 5 5-5"/></svg>`;
   const imageQualification = globalThis.SaveToGalleryImageQualification;
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
   let extensionEnabled = false;
   let configLoaded = false;
+  let foldersCache = null;
+  let foldersPromise = null;
+  let contextToast = null;
+  let contextToastTimer = null;
 
   // ── Midjourney adapter ──
 
@@ -277,6 +284,57 @@
     );
   }
 
+  function bindExtensionUiEventShield(root) {
+    const stop = (event) => {
+      event.stopPropagation();
+    };
+    for (const eventName of [
+      "pointerdown",
+      "pointerup",
+      "mousedown",
+      "mouseup",
+      "click",
+      "dblclick",
+      "contextmenu",
+      "touchstart",
+      "touchend",
+      "keydown",
+      "keyup",
+    ]) {
+      root.addEventListener(eventName, stop);
+    }
+  }
+
+  async function readSavedFolderIds() {
+    try {
+      const cfg = await chrome.storage.sync.get([
+        DEFAULT_FOLDER_ID_KEY,
+        LAST_FOLDER_ID_KEY,
+      ]);
+      return {
+        defaultFolderId: String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim(),
+        lastFolderId: String(cfg[LAST_FOLDER_ID_KEY] || "").trim(),
+      };
+    } catch {
+      return { defaultFolderId: "", lastFolderId: "" };
+    }
+  }
+
+  async function getDefaultSaveFolderId() {
+    const { defaultFolderId, lastFolderId } = await readSavedFolderIds();
+    return defaultFolderId || lastFolderId || undefined;
+  }
+
+  async function ensureSiteStateLoaded() {
+    if (configLoaded) return extensionEnabled;
+
+    return new Promise((resolve) => {
+      syncSiteStateFromStorage((isEnabled) => {
+        resolve(Boolean(isEnabled));
+      });
+    });
+  }
+
   // ── Badge creation ──
 
   function createBadge(img) {
@@ -290,6 +348,7 @@
       e.stopImmediatePropagation();
       handleSave(img, badge);
     }, true);
+    bindExtensionUiEventShield(badge);
 
     return badge;
   }
@@ -319,6 +378,21 @@
     return [];
   }
 
+  async function loadFoldersCached() {
+    if (foldersCache) return foldersCache;
+    if (!foldersPromise) {
+      foldersPromise = loadFolders()
+        .then((folders) => {
+          foldersCache = folders;
+          return folders;
+        })
+        .finally(() => {
+          foldersPromise = null;
+        });
+    }
+    return foldersPromise;
+  }
+
   async function createFolderRemote(name) {
     try {
       const response = await chrome.runtime.sendMessage({
@@ -327,6 +401,7 @@
       });
       if (response?.ok) {
         const folders = normalizeFolders(response.folders);
+        foldersCache = folders;
         const id = String(response.result?.folderId || "").trim();
         return { ok: true, folders, id };
       }
@@ -350,13 +425,11 @@
       <div class="stg-popover__title">${title}</div>
       <label class="stg-popover__label">Prompt (optional)</label>
       <textarea class="stg-popover__textarea" placeholder="Paste the prompt here…" rows="2"></textarea>
-      <label class="stg-popover__label">Collection</label>
-      <div class="stg-popover__row">
-        <select class="stg-popover__select stg-popover__select--collection" aria-label="Collection">
-          <option value="">No collection</option>
-        </select>
+      <div class="stg-popover__collection-head">
+        <span class="stg-popover__label">Collection</span>
         <button class="stg-popover__icon-btn stg-popover__new-collection-toggle" type="button" title="New collection">+</button>
       </div>
+      <div class="stg-collection-grid" role="listbox" aria-label="Collection"></div>
       <div class="stg-popover__row stg-popover__new-collection-row" hidden>
         <input class="stg-popover__input stg-popover__new-collection-input" type="text" placeholder="New collection name" />
         <button class="stg-popover__btn stg-popover__new-collection-create" type="button">Add</button>
@@ -368,7 +441,7 @@
 
     const close = pop.querySelector(".stg-popover__close");
     const textarea = pop.querySelector(".stg-popover__textarea");
-    const collectionSelect = pop.querySelector(".stg-popover__select--collection");
+    const collectionGrid = pop.querySelector(".stg-collection-grid");
     const newCollToggle = pop.querySelector(".stg-popover__new-collection-toggle");
     const newCollRow = pop.querySelector(".stg-popover__new-collection-row");
     const newCollInput = pop.querySelector(".stg-popover__new-collection-input");
@@ -380,40 +453,98 @@
       textarea.select();
     }
 
-    // ── Collection (folder) selector ──
+    // ── Collection (folder) cards ──
     let loadedFolders = [];
     let foldersReady = false;
     let rememberedFolderId = "";
 
-    const renderCollectionOptions = (folders, selectedId) => {
-      collectionSelect.innerHTML = "";
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = "No collection";
-      collectionSelect.appendChild(none);
-      for (const folder of folders) {
-        const option = document.createElement("option");
-        option.value = folder.id;
-        option.textContent = folder.name;
-        collectionSelect.appendChild(option);
+    const submitWithFolder = (folderId, remember = true) => {
+      const prompt = textarea.value.trim();
+      if (!allowEmptyPrompt && !prompt) {
+        textarea.focus();
+        return;
       }
-      collectionSelect.value =
-        selectedId && folders.some((folder) => folder.id === selectedId)
-          ? selectedId
-          : "";
+      const normalizedFolderId = folderId || "";
+      if (remember) {
+        chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: normalizedFolderId });
+      }
+      onSubmit({
+        promptText: prompt,
+        folderId: normalizedFolderId || undefined,
+      });
+      onClose();
     };
 
-    // Fast local read first: this gives us the remembered collection even if the
-    // network folder list is still loading, so a quick save still files into it.
-    chrome.storage.sync.get(["lastFolderId"]).then((cfg) => {
-      rememberedFolderId = cfg.lastFolderId || "";
-      if (foldersReady) renderCollectionOptions(loadedFolders, rememberedFolderId);
+    const appendCollectionCard = ({ folderId = "", eyebrow, label, variant = "" }) => {
+      const card = document.createElement("button");
+      card.className = `stg-collection-card ${variant}`.trim();
+      card.type = "button";
+      card.dataset.folderId = folderId;
+
+      const eyebrowEl = document.createElement("span");
+      eyebrowEl.className = "stg-collection-card__eyebrow";
+      eyebrowEl.textContent = eyebrow;
+
+      const labelEl = document.createElement("span");
+      labelEl.className = "stg-collection-card__label";
+      labelEl.textContent = label;
+
+      card.append(eyebrowEl, labelEl);
+      card.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        submitWithFolder(card.dataset.folderId || "");
+      });
+      collectionGrid.appendChild(card);
+    };
+
+    const renderCollectionLoading = () => {
+      collectionGrid.innerHTML = "";
+      const card = document.createElement("button");
+      card.className = "stg-collection-card stg-collection-card--loading";
+      card.type = "button";
+      card.disabled = true;
+      card.textContent = "Loading collections";
+      collectionGrid.appendChild(card);
+    };
+
+    const renderCollectionCards = (folders, selectedId) => {
+      collectionGrid.innerHTML = "";
+      const selectedFolder = folders.find((folder) => folder.id === selectedId);
+      if (selectedFolder) {
+        appendCollectionCard({
+          folderId: selectedFolder.id,
+          eyebrow: "Default",
+          label: selectedFolder.name,
+          variant: "stg-collection-card--default",
+        });
+      }
+      appendCollectionCard({
+        folderId: "",
+        eyebrow: "Loose",
+        label: "No collection",
+        variant: selectedFolder ? "" : "stg-collection-card--default",
+      });
+      for (const folder of folders) {
+        appendCollectionCard({
+          folderId: folder.id,
+          eyebrow: "Collection",
+          label: folder.name,
+        });
+      }
+    };
+
+    renderCollectionLoading();
+
+    readSavedFolderIds().then(({ defaultFolderId, lastFolderId }) => {
+      rememberedFolderId = defaultFolderId || lastFolderId || "";
+      if (foldersReady) renderCollectionCards(loadedFolders, rememberedFolderId);
     });
 
     loadFolders().then((folders) => {
       loadedFolders = folders;
       foldersReady = true;
-      renderCollectionOptions(folders, rememberedFolderId);
+      renderCollectionCards(folders, rememberedFolderId);
     });
 
     const handleCreateCollection = async () => {
@@ -437,9 +568,10 @@
         );
         newId = match ? match.id : "";
       }
-      renderCollectionOptions(loadedFolders, newId);
       newCollInput.value = "";
       newCollRow.setAttribute("hidden", "");
+      renderCollectionCards(loadedFolders, newId);
+      submitWithFolder(newId);
     };
 
     newCollToggle.addEventListener("click", (e) => {
@@ -481,22 +613,7 @@
 
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const prompt = textarea.value.trim();
-      // If the picker has loaded, use its value; if the user saved before the
-      // list finished loading, fall back to the remembered collection so a fast
-      // repeat save still files into it.
-      const folderId = foldersReady
-        ? collectionSelect.value || undefined
-        : rememberedFolderId || undefined;
-      if (allowEmptyPrompt || prompt) {
-        // Only overwrite the remembered collection once the picker reflects a
-        // real choice — never clobber it with "" just because load was pending.
-        if (foldersReady) {
-          chrome.storage.sync.set({ lastFolderId: collectionSelect.value || "" });
-        }
-        onSubmit({ promptText: prompt, folderId });
-      }
-      onClose();
+      submitWithFolder(rememberedFolderId);
     });
 
     // Close on Escape
@@ -507,6 +624,7 @@
 
     // Prevent clicks inside popover from bubbling
     pop.addEventListener("click", (e) => e.stopPropagation());
+    bindExtensionUiEventShield(pop);
 
     return pop;
   }
@@ -571,6 +689,7 @@
     document.addEventListener("keydown", onKey);
 
     pop.addEventListener("click", (e) => e.stopPropagation());
+    bindExtensionUiEventShield(pop);
     return pop;
   }
 
@@ -585,14 +704,47 @@
       popover.classList.remove("stg-popover--visible");
       setTimeout(() => {
         popover.remove();
-        resetBadge(badge);
-        if (topRight) badge.classList.add("stg-badge--top-right");
+        if (badge.classList.contains("stg-mj-save-main")) {
+          resetMidjourneySaveButton(badge);
+        } else {
+          resetBadge(badge);
+          if (topRight) badge.classList.add("stg-badge--top-right");
+        }
       }, 150);
     });
     if (topRight) popover.classList.add("stg-popover--top-right");
 
     container.appendChild(popover);
     requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+  }
+
+  function showContextToast(kind, message) {
+    if (contextToastTimer) {
+      clearTimeout(contextToastTimer);
+      contextToastTimer = null;
+    }
+    if (!contextToast) {
+      contextToast = document.createElement("div");
+      contextToast.className = "stg-context-toast";
+      bindExtensionUiEventShield(contextToast);
+      document.body.appendChild(contextToast);
+    }
+
+    contextToast.className = `stg-context-toast stg-context-toast--${kind}`;
+    contextToast.textContent = message;
+    requestAnimationFrame(() => {
+      contextToast?.classList.add("stg-context-toast--visible");
+    });
+
+    if (kind !== "saving") {
+      contextToastTimer = setTimeout(() => {
+        contextToast?.classList.remove("stg-context-toast--visible");
+        setTimeout(() => {
+          contextToast?.remove();
+          contextToast = null;
+        }, 180);
+      }, 2200);
+    }
   }
 
   // ── Save logic ──
@@ -743,6 +895,73 @@
     });
   }
 
+  async function handleContextMenuImageSave(message) {
+    if (isMidjourneyPage()) {
+      return {
+        handled: true,
+        ok: false,
+        skipped: true,
+        error: "Use the Midjourney save controls on this page.",
+      };
+    }
+
+    const isEnabled = await ensureSiteStateLoaded();
+    if (!isEnabled) {
+      showContextToast("error", "Save disabled on this site");
+      return {
+        handled: true,
+        ok: false,
+        error: "Save to laniameda is disabled on this site.",
+      };
+    }
+
+    const imageUrl = resolveAbsoluteUrl(message?.imageUrl || "");
+    if (!imageUrl) {
+      showContextToast("error", "Image URL unavailable");
+      return { handled: true, ok: false, error: "Image URL unavailable." };
+    }
+
+    const folderId =
+      typeof message?.folderId === "string" && message.folderId.trim()
+        ? message.folderId.trim()
+        : await getDefaultSaveFolderId();
+    const sourceUrl =
+      typeof message?.sourceUrl === "string" && message.sourceUrl
+        ? message.sourceUrl
+        : location.href;
+
+    showContextToast("saving", "Saving to laniameda...");
+    const fileData = await captureImageBytesForSave(imageUrl);
+
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
+        action: "saveImage",
+        imageUrl,
+        sourceUrl,
+        pageTitle: document.title,
+        folderId: folderId || undefined,
+        file: fileData || undefined,
+      });
+    } catch (err) {
+      response = { ok: false, error: err?.message || "Save failed." };
+    }
+
+    if (!response?.ok) {
+      const error = response?.error || "Save failed.";
+      console.warn("[Save to Gallery] context menu save failed:", {
+        error,
+        imageUrl,
+        sourceUrl,
+      });
+      showContextToast("error", error.slice(0, 90));
+      return { handled: true, ok: false, error };
+    }
+
+    showContextToast("saved", "Saved to laniameda");
+    return { handled: true, ok: true, result: response.result };
+  }
+
   function resetBadge(badge) {
     badge.innerHTML = `${SAVE_ICON}<span>Save</span>`;
     badge.className = "stg-badge";
@@ -752,7 +971,7 @@
     hideBadge();
     hideMjGridBadge();
 
-    for (const node of document.querySelectorAll(".stg-badge, .stg-popover")) {
+    for (const node of document.querySelectorAll(".stg-badge, .stg-popover, .stg-mj-quick-save")) {
       node.remove();
     }
 
@@ -848,6 +1067,7 @@
       e.stopImmediatePropagation();
       handleSaveMidjourneyGrid(thumb, badge);
     }, true);
+    bindExtensionUiEventShield(badge);
 
     return badge;
   }
@@ -935,6 +1155,10 @@
       location.pathname.includes("/teach");
   }
 
+  function isMidjourneyImaginePage() {
+    return location.pathname.includes("/imagine");
+  }
+
   function getMidjourneyTagNames() {
     const tags = ["midjourney"];
     if (location.pathname.includes("/explore")) tags.push("midjourney-explore");
@@ -960,9 +1184,22 @@
     return getMidjourneyThumbImageUrl(target);
   }
 
+  function targetHasMidjourneyBackgroundImage(target) {
+    const inlineBackground = target?.style?.backgroundImage || "";
+    const styleAttr = target?.getAttribute?.("style") || "";
+    return /(?:cdn\.midjourney\.com|mj\.run)/i.test(
+      `${inlineBackground} ${styleAttr}`,
+    );
+  }
+
   function isQualifiedMidjourneyMediaTarget(target) {
     if (!target || target.closest?.(".stg-badge, .stg-popover")) return false;
     if (target.hasAttribute?.(MJ_MEDIA_BADGE_ATTR)) return false;
+
+    const tagName = target.tagName?.toLowerCase();
+    if (tagName !== "img" && tagName !== "video" && !targetHasMidjourneyBackgroundImage(target)) {
+      return false;
+    }
 
     if (midjourneyAdapter?.isQualifiedMediaElement) {
       return midjourneyAdapter.isQualifiedMediaElement(target, {
@@ -972,25 +1209,6 @@
 
     const imageUrl = getMidjourneyMediaUrl(target);
     return Boolean(imageUrl && imageUrl.includes("midjourney"));
-  }
-
-  function getMidjourneyMediaMount(target) {
-    if (!target) return null;
-
-    if (target.matches?.("a, button, [role='button']")) {
-      return target;
-    }
-
-    const imageWrapper = target.closest?.(
-      [
-        "a",
-        "button",
-        "[role='button']",
-        "div[class*='overflow-hidden']",
-        "div[class*='relative']",
-      ].join(","),
-    );
-    return imageWrapper || target.parentElement;
   }
 
   function findMidjourneyPromptNear(target) {
@@ -1011,63 +1229,238 @@
     return "";
   }
 
-  function createMidjourneyMediaBadge(target) {
-    const badge = document.createElement("div");
-    badge.className = "stg-badge stg-badge--midjourney stg-badge--visible";
-    badge.innerHTML = `${SAVE_ICON}<span>Save</span>`;
-    badge.setAttribute("role", "button");
-    badge.setAttribute("aria-label", "Save to laniameda.gallery");
-    badge.setAttribute("title", "Save to gallery");
+  function getMidjourneySaveContext(target) {
+    const rawImageUrl = getMidjourneyMediaUrl(target);
+    if (!rawImageUrl) return null;
 
-    badge.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      handleSaveMidjourneyMedia(target, badge);
+    return {
+      imageUrl: resolveAbsoluteUrl(rawImageUrl),
+      promptText: findMidjourneyPromptNear(target),
+      modelName: "Midjourney",
+      tagNames: getMidjourneyTagNames(),
+    };
+  }
+
+  function positionMidjourneyWidget(widget, target) {
+    if (!target || !document.contains(target)) {
+      widget.remove();
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 ||
+        rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) {
+      widget.style.display = "none";
+      return;
+    }
+
+    widget.style.display = "flex";
+    widget.classList.toggle("stg-mj-quick-save--centered", isMidjourneyImaginePage());
+    const width = widget.offsetWidth || 82;
+    const top = Math.max(8, rect.top + 8);
+    const rawLeft = isMidjourneyImaginePage()
+      ? rect.left + (rect.width - width) / 2
+      : rect.right - width - 8;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rawLeft));
+    widget.style.top = `${Math.round(top)}px`;
+    widget.style.left = `${Math.round(left)}px`;
+  }
+
+  function updateMidjourneyWidgetPositions() {
+    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+      const target = widget.__stgTarget;
+      if (!target || !document.contains(target)) {
+        if (target?.removeAttribute) target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
+        widget.remove();
+        continue;
+      }
+      positionMidjourneyWidget(widget, target);
+    }
+  }
+
+  function resetMidjourneySaveButton(button) {
+    button.innerHTML = `${SAVE_ICON}<span>Save</span>`;
+    button.classList.remove("stg-badge--saving", "stg-badge--saved", "stg-badge--error");
+  }
+
+  async function handleSaveMidjourneyMedia(target, button, folderId) {
+    if (button.classList.contains("stg-badge--saving")) return;
+
+    const saveContext = getMidjourneySaveContext(target);
+    if (!saveContext) {
+      console.debug("[Save to Gallery] Midjourney image URL unavailable for media target.");
+      return;
+    }
+
+    let effectiveFolderId = folderId;
+    if (arguments.length < 3) {
+      effectiveFolderId = await getDefaultSaveFolderId();
+    }
+
+    const fileData = await captureImageBytesForSave(saveContext.imageUrl);
+    if (!fileData) {
+      console.warn("[Save to Gallery] Midjourney media: failed to capture image bytes, falling back to URL");
+    }
+
+    await submitImageSave({
+      badge: button,
+      imageUrl: saveContext.imageUrl,
+      promptText: saveContext.promptText,
+      folderId: effectiveFolderId || undefined,
+      modelName: saveContext.modelName,
+      tagNames: saveContext.tagNames,
+      fileData,
+      topRight: true,
+    });
+  }
+
+  function renderMidjourneyCollectionMenu(menu, folders, defaultFolderId) {
+    const defaultFolder = folders.find((folder) => folder.id === defaultFolderId);
+    const rows = [
+      {
+        id: "__default",
+        folderId: defaultFolderId || "",
+        eyebrow: "Default",
+        label: defaultFolder ? defaultFolder.name : "No collection",
+      },
+      {
+        id: "__none",
+        folderId: "",
+        eyebrow: "Save without filing",
+        label: "No collection",
+      },
+      ...folders.map((folder) => ({
+        id: folder.id,
+        folderId: folder.id,
+        eyebrow: "Collection",
+        label: folder.name,
+      })),
+    ];
+
+    menu.innerHTML = "";
+    for (const row of rows) {
+      const item = document.createElement("button");
+      item.className = "stg-mj-menu__item";
+      item.type = "button";
+      item.dataset.folderId = row.folderId;
+      item.dataset.menuId = row.id;
+
+      const eyebrow = document.createElement("span");
+      eyebrow.className = "stg-mj-menu__eyebrow";
+      eyebrow.textContent = row.eyebrow;
+
+      const label = document.createElement("span");
+      label.className = "stg-mj-menu__label";
+      label.textContent = row.label;
+
+      item.append(eyebrow, label);
+      menu.appendChild(item);
+    }
+  }
+
+  async function openMidjourneyCollectionMenu(widget) {
+    const menu = widget.querySelector(".stg-mj-menu");
+    if (!menu || menu.dataset.ready === "1") {
+      if (menu) menu.hidden = false;
+      return;
+    }
+
+    menu.hidden = false;
+    menu.innerHTML = `<div class="stg-mj-menu__loading">Loading collections…</div>`;
+    const [{ defaultFolderId }, folders] = await Promise.all([
+      readSavedFolderIds(),
+      loadFoldersCached(),
+    ]);
+    renderMidjourneyCollectionMenu(menu, folders, defaultFolderId);
+    menu.dataset.ready = "1";
+  }
+
+  function closeMidjourneyCollectionMenu(widget) {
+    const menu = widget.querySelector(".stg-mj-menu");
+    if (menu) menu.hidden = true;
+  }
+
+  function createMidjourneyMediaWidget(target) {
+    const widget = document.createElement("div");
+    widget.className = "stg-mj-quick-save";
+    widget.__stgTarget = target;
+    widget.innerHTML = `
+      <button class="stg-mj-save-main" type="button" title="Save to default collection">
+        ${SAVE_ICON}<span>Save</span>
+      </button>
+      <button class="stg-mj-save-arrow" type="button" title="Choose collection">${CHEVRON_ICON}</button>
+      <div class="stg-mj-menu" hidden></div>
+    `;
+    bindExtensionUiEventShield(widget);
+
+    const mainButton = widget.querySelector(".stg-mj-save-main");
+    const arrowButton = widget.querySelector(".stg-mj-save-arrow");
+    const menu = widget.querySelector(".stg-mj-menu");
+    let closeTimer = null;
+
+    const cancelClose = () => {
+      if (closeTimer) clearTimeout(closeTimer);
+      closeTimer = null;
+    };
+    const scheduleClose = () => {
+      cancelClose();
+      closeTimer = setTimeout(() => closeMidjourneyCollectionMenu(widget), 180);
+    };
+
+    mainButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      void handleSaveMidjourneyMedia(target, mainButton).finally(() => {
+        if (!mainButton.classList.contains("stg-badge--error")) {
+          setTimeout(() => resetMidjourneySaveButton(mainButton), 1800);
+        }
+      });
     }, true);
 
-    return badge;
+    arrowButton.addEventListener("pointerenter", () => {
+      cancelClose();
+      void openMidjourneyCollectionMenu(widget);
+    });
+    arrowButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (menu.hidden) void openMidjourneyCollectionMenu(widget);
+      else closeMidjourneyCollectionMenu(widget);
+    }, true);
+
+    widget.addEventListener("pointerenter", cancelClose);
+    widget.addEventListener("pointerleave", scheduleClose);
+    menu.addEventListener("pointerenter", cancelClose);
+    menu.addEventListener("pointerleave", scheduleClose);
+    menu.addEventListener("click", (event) => {
+      const item = event.target?.closest?.(".stg-mj-menu__item");
+      if (!item) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const selectedFolderId = item.dataset.folderId || "";
+      chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: selectedFolderId });
+      closeMidjourneyCollectionMenu(widget);
+      void handleSaveMidjourneyMedia(target, mainButton, selectedFolderId || undefined)
+        .finally(() => {
+          if (!mainButton.classList.contains("stg-badge--error")) {
+            setTimeout(() => resetMidjourneySaveButton(mainButton), 1800);
+          }
+        });
+    }, true);
+
+    return widget;
   }
 
   function injectMidjourneyMediaBadge(target) {
     if (!isQualifiedMidjourneyMediaTarget(target)) return;
 
-    const mount = getMidjourneyMediaMount(target);
-    if (!mount || mount.querySelector?.(":scope > .stg-badge--midjourney")) {
-      return;
-    }
-
-    const pos = getComputedStyle(mount).position;
-    if (pos === "static") mount.style.position = "relative";
-
-    const badge = createMidjourneyMediaBadge(target);
-    mount.appendChild(badge);
+    const widget = createMidjourneyMediaWidget(target);
+    document.body.appendChild(widget);
     target.setAttribute(MJ_MEDIA_BADGE_ATTR, "1");
-  }
-
-  async function handleSaveMidjourneyMedia(target, badge) {
-    const rawImageUrl = getMidjourneyMediaUrl(target);
-    if (!rawImageUrl) {
-      console.debug("[Save to Gallery] Midjourney image URL unavailable for media target.");
-      return;
-    }
-
-    const imageUrl = resolveAbsoluteUrl(rawImageUrl);
-    const promptText = findMidjourneyPromptNear(target);
-
-    showSavePopover(badge, {
-      imageUrl,
-      promptText,
-      modelName: "Midjourney",
-      tagNames: getMidjourneyTagNames(),
-      resolveFileData: async () => {
-        const fileData = await captureImageBytesForSave(imageUrl);
-        if (!fileData) {
-          console.warn("[Save to Gallery] Midjourney media: failed to capture image bytes, falling back to URL");
-        }
-        return fileData || undefined;
-      },
-    }, { topRight: true });
+    positionMidjourneyWidget(widget, target);
   }
 
   function scanMidjourneyMediaTargets() {
@@ -1083,6 +1476,7 @@
       }
       injectMidjourneyMediaBadge(candidate);
     }
+    updateMidjourneyWidgetPositions();
   }
 
   function scheduleMidjourneyMediaScan(delay = 80) {
@@ -1110,6 +1504,13 @@
       subtree: true,
       attributes: true,
       attributeFilter: ["class", "src", "srcset", "style", "poster"],
+    });
+    window.addEventListener("scroll", updateMidjourneyWidgetPositions, {
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener("resize", updateMidjourneyWidgetPositions, {
+      passive: true,
     });
     scheduleMidjourneyMediaScan(0);
   }
@@ -1238,6 +1639,20 @@
       setExtensionEnabled(Boolean(message.enabled));
       configLoaded = true;
       sendResponse({ ok: true });
+      return false;
+    }
+
+    if (message?.action === "saveImageFromContextMenu") {
+      handleContextMenuImageSave(message)
+        .then(sendResponse)
+        .catch((err) => {
+          sendResponse({
+            handled: true,
+            ok: false,
+            error: err?.message || "Save failed.",
+          });
+        });
+      return true;
     }
   });
 

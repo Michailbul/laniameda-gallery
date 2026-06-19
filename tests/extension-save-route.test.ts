@@ -66,6 +66,83 @@ describe("POST /api/extension/save", () => {
     });
   });
 
+  test("adds Midjourney metadata for CDN-only image saves", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
+    expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
+    expect(state.actionCalls[0]?.tagNames).toEqual([
+      "midjourney",
+      "midjourney-web",
+    ]);
+  });
+
+  test("adds filterable Midjourney teach page tags", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
+          sourceUrl: "https://www.midjourney.com/personalize/7466790784553975846/teach",
+          modelName: "unknown",
+          tagNames: ["midjourney", "Midjourney"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
+    expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
+    expect(state.actionCalls[0]?.tagNames).toEqual([
+      "midjourney",
+      "midjourney-web",
+      "midjourney-teach",
+      "midjourney-personalize",
+      "personalize",
+    ]);
+  });
+
+  test("adds filterable Midjourney explore page tags", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
+          sourceUrl: "https://www.midjourney.com/explore?tab=top",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
+    expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
+    expect(state.actionCalls[0]?.tagNames).toEqual([
+      "midjourney",
+      "midjourney-web",
+      "midjourney-explore",
+    ]);
+  });
+
   test("rejects prompt updates without promptText", async () => {
     const { POST } = await import(routePath);
 
