@@ -50,6 +50,27 @@
     '[style*="cdn.midjourney.com"]',
     '[style*="mj.run"]',
   ].join(",");
+  const EXTENSION_UI_SELECTOR = [
+    ".stg-badge",
+    ".stg-popover",
+    ".stg-context-toast",
+    ".stg-mj-quick-save",
+  ].join(",");
+  const PAGE_CONTROL_SELECTOR = [
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "summary",
+    "[role='button']",
+    "[role='menuitem']",
+    "[role='option']",
+    "[aria-haspopup]",
+    "[data-testid*='button' i]",
+    "[class*='button' i]",
+  ].join(",");
+  const SAVE_CONTROL_GAP = 8;
+  const PAGE_CONTROL_CLEARANCE = 6;
 
   function isMidjourneyPage() {
     return location.hostname.includes("midjourney.com");
@@ -303,6 +324,179 @@
     ]) {
       root.addEventListener(eventName, stop);
     }
+  }
+
+  function isVisibleElement(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = getComputedStyle(element);
+    return style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number(style.opacity || "1") > 0.01;
+  }
+
+  function rectsOverlap(a, b, clearance = 0) {
+    return a.left < b.right + clearance &&
+      a.right > b.left - clearance &&
+      a.top < b.bottom + clearance &&
+      a.bottom > b.top - clearance;
+  }
+
+  function rectFitsInside(a, b, clearance = 0) {
+    return a.left >= b.left + clearance &&
+      a.top >= b.top + clearance &&
+      a.right <= b.right - clearance &&
+      a.bottom <= b.bottom - clearance;
+  }
+
+  function toViewportRect(host, left, top, width, height) {
+    const hostRect = host.getBoundingClientRect();
+    const scrollLeft = host === document.body || host === document.documentElement
+      ? 0
+      : host.scrollLeft;
+    const scrollTop = host === document.body || host === document.documentElement
+      ? 0
+      : host.scrollTop;
+    return {
+      left: hostRect.left + left - scrollLeft,
+      top: hostRect.top + top - scrollTop,
+      right: hostRect.left + left - scrollLeft + width,
+      bottom: hostRect.top + top - scrollTop + height,
+      width,
+      height,
+    };
+  }
+
+  function isPageControlToAvoid(control, target) {
+    if (!control || control.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    if (control === target || control.contains?.(target)) return false;
+    return isVisibleElement(control);
+  }
+
+  function getNearbyPageControlRects(target) {
+    const targetRect = target.getBoundingClientRect();
+    const searchRect = {
+      left: targetRect.left - 96,
+      top: targetRect.top - 96,
+      right: targetRect.right + 96,
+      bottom: targetRect.bottom + 96,
+    };
+    const controls = Array.from(document.querySelectorAll(PAGE_CONTROL_SELECTOR));
+    return controls
+      .filter((control) => isPageControlToAvoid(control, target))
+      .map((control) => control.getBoundingClientRect())
+      .filter((rect) => rectsOverlap(rect, searchRect, 0));
+  }
+
+  function clamp(value, min, max) {
+    if (max < min) return min;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function buildSaveControlCandidates(targetRect, hostRect, width, height, options = {}) {
+    const scrollLeft = options.host?.scrollLeft || 0;
+    const scrollTop = options.host?.scrollTop || 0;
+    const targetLeft = targetRect.left - hostRect.left + scrollLeft;
+    const targetTop = targetRect.top - hostRect.top + scrollTop;
+    const targetRight = targetRect.right - hostRect.left + scrollLeft;
+    const targetBottom = targetRect.bottom - hostRect.top + scrollTop;
+    const gap = SAVE_CONTROL_GAP;
+    const maxLeft = Math.max(gap, hostRect.width + scrollLeft - width - gap);
+    const centeredLeft = targetLeft + (targetRect.width - width) / 2;
+    const placements = options.centered
+      ? ["inside-top-center", "inside-bottom-center", "inside-top-right", "inside-top-left", "outside-above-center", "outside-below-center"]
+      : ["inside-top-right", "inside-top-left", "inside-bottom-right", "inside-bottom-left", "outside-above-right", "outside-below-right"];
+
+    const byPlacement = {
+      "inside-top-center": {
+        left: clamp(centeredLeft, targetLeft + gap, targetRight - width - gap),
+        top: targetTop + gap,
+      },
+      "inside-bottom-center": {
+        left: clamp(centeredLeft, targetLeft + gap, targetRight - width - gap),
+        top: targetBottom - height - gap,
+      },
+      "inside-top-right": {
+        left: targetRight - width - gap,
+        top: targetTop + gap,
+      },
+      "inside-top-left": {
+        left: targetLeft + gap,
+        top: targetTop + gap,
+      },
+      "inside-bottom-right": {
+        left: targetRight - width - gap,
+        top: targetBottom - height - gap,
+      },
+      "inside-bottom-left": {
+        left: targetLeft + gap,
+        top: targetBottom - height - gap,
+      },
+      "outside-above-center": {
+        left: clamp(centeredLeft, gap, maxLeft),
+        top: targetTop - height - gap,
+      },
+      "outside-below-center": {
+        left: clamp(centeredLeft, gap, maxLeft),
+        top: targetBottom + gap,
+      },
+      "outside-above-right": {
+        left: clamp(targetRight - width, gap, maxLeft),
+        top: targetTop - height - gap,
+      },
+      "outside-below-right": {
+        left: clamp(targetRight - width, gap, maxLeft),
+        top: targetBottom + gap,
+      },
+    };
+
+    return placements.map((placement) => ({
+      placement,
+      ...byPlacement[placement],
+    }));
+  }
+
+  function positionSaveControlAvoidingPageUi(control, target, host, options = {}) {
+    if (!control || !target || !host) return false;
+    const targetRect = target.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    if (targetRect.width <= 0 || targetRect.height <= 0 || hostRect.width <= 0 || hostRect.height <= 0) {
+      return false;
+    }
+
+    control.style.right = "auto";
+    control.style.bottom = "auto";
+    control.style.display = options.display || control.style.display || "flex";
+
+    const width = control.offsetWidth || options.fallbackWidth || 82;
+    const height = control.offsetHeight || options.fallbackHeight || 34;
+    const candidates = buildSaveControlCandidates(targetRect, hostRect, width, height, {
+      centered: options.centered,
+      host,
+    });
+    const pageControlRects = getNearbyPageControlRects(target);
+    const viewportBounds = {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+
+    const safeCandidate = candidates.find((candidate) => {
+      const viewportRect = toViewportRect(host, candidate.left, candidate.top, width, height);
+      if (!rectFitsInside(viewportRect, viewportBounds, 1)) return false;
+      return pageControlRects.every(
+        (controlRect) => !rectsOverlap(viewportRect, controlRect, PAGE_CONTROL_CLEARANCE),
+      );
+    });
+
+    if (!safeCandidate) return false;
+
+    control.style.left = `${Math.round(safeCandidate.left)}px`;
+    control.style.top = `${Math.round(safeCandidate.top)}px`;
+    control.dataset.stgPlacement = safeCandidate.placement;
+    return true;
   }
 
   async function readSavedFolderIds() {
@@ -1094,6 +1288,14 @@
     const badge = createBadge(img);
     parent.appendChild(badge);
     img.setAttribute(BADGE_ATTR, "1");
+    if (!positionSaveControlAvoidingPageUi(badge, img, parent, {
+      fallbackWidth: 82,
+      fallbackHeight: 32,
+    })) {
+      badge.remove();
+      img.removeAttribute(BADGE_ATTR);
+      return;
+    }
 
     // Fade in
     requestAnimationFrame(() => badge.classList.add("stg-badge--visible"));
@@ -1147,6 +1349,14 @@
     const badge = createMjGridBadge(thumb);
     card.appendChild(badge);
     card.setAttribute(MJ_GRID_BADGE_ATTR, "1");
+    if (!positionSaveControlAvoidingPageUi(badge, thumb, card, {
+      fallbackWidth: 82,
+      fallbackHeight: 32,
+    })) {
+      badge.remove();
+      card.removeAttribute(MJ_GRID_BADGE_ATTR);
+      return;
+    }
 
     requestAnimationFrame(() => badge.classList.add("stg-badge--visible"));
 
@@ -1218,6 +1428,53 @@
 
   function isMidjourneyImaginePage() {
     return location.pathname.includes("/imagine") || location.pathname.includes("/create");
+  }
+
+  function isLikelyCloseControl(element) {
+    if (!element || element.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    const label = [
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("title"),
+      element.textContent,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+      .toLowerCase();
+    return label === "×" ||
+      label === "x" ||
+      label.includes("close") ||
+      label.includes("dismiss");
+  }
+
+  function hasVisibleMidjourneyViewerCloseControl() {
+    return Array.from(document.querySelectorAll("button, [role='button']"))
+      .some((control) => isLikelyCloseControl(control) && isVisibleElement(control));
+  }
+
+  function hasLargeVisibleMidjourneyMedia() {
+    return Array.from(document.querySelectorAll(MJ_MEDIA_SELECTOR))
+      .some((target) => {
+        if (!isVisibleElement(target)) return false;
+        const rect = target.getBoundingClientRect();
+        return rect.width >= window.innerWidth * 0.34 &&
+          rect.height >= window.innerHeight * 0.24 &&
+          rect.bottom > 80 &&
+          rect.top < window.innerHeight - 80;
+      });
+  }
+
+  function isMidjourneyFullSizeViewerOpen() {
+    if (!isMidjourneyPage() || !isMidjourneyImaginePage()) return false;
+    if (!hasVisibleMidjourneyViewerCloseControl()) return false;
+    if (document.querySelector('[aria-modal="true"], [role="dialog"]')) return true;
+    return hasLargeVisibleMidjourneyMedia();
+  }
+
+  function suppressMidjourneySaveUiForViewer() {
+    if (!isMidjourneyFullSizeViewerOpen()) return false;
+    clearInjectedUi();
+    return true;
   }
 
   function getMidjourneyTagNames() {
@@ -1352,7 +1609,6 @@
     }
 
     const rect = target.getBoundingClientRect();
-    const hostRect = host.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 ||
         rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) {
       widget.style.display = "none";
@@ -1363,23 +1619,19 @@
     const isCentered = isMidjourneyImaginePage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", isCentered);
-    const width = widget.offsetWidth || 82;
-    const targetLeft = rect.left - hostRect.left;
-    const targetRight = rect.right - hostRect.left;
-    const top = Math.max(8, rect.top - hostRect.top + 8);
-    const rawLeft = isCentered
-      ? targetLeft + (rect.width - width) / 2
-      : targetRight - width - 8;
-    const minLeft = targetLeft + 8;
-    const maxLeft = targetRight - width - 8;
-    const left = maxLeft >= minLeft
-      ? Math.max(minLeft, Math.min(maxLeft, rawLeft))
-      : targetLeft + Math.max(0, (rect.width - width) / 2);
-    widget.style.top = `${Math.round(top)}px`;
-    widget.style.left = `${Math.round(left)}px`;
+    const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
+      centered: isCentered,
+      display: "flex",
+      fallbackWidth: 98,
+      fallbackHeight: 36,
+    });
+    if (!placed) {
+      widget.style.display = "none";
+    }
   }
 
   function updateMidjourneyWidgetPositions() {
+    if (suppressMidjourneySaveUiForViewer()) return;
     for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
       const target = widget.__stgTarget;
       if (!target || !document.contains(target)) {
@@ -1746,6 +1998,7 @@
   }
 
   function injectMidjourneyMediaBadge(target) {
+    if (suppressMidjourneySaveUiForViewer()) return;
     if (!isQualifiedMidjourneyMediaTarget(target)) return;
 
     const widget = createMidjourneyMediaWidget(target);
@@ -1756,6 +2009,7 @@
 
   function scanMidjourneyMediaTargets() {
     if (!configLoaded || !extensionEnabled || !isMidjourneyPage()) return;
+    if (suppressMidjourneySaveUiForViewer()) return;
 
     const candidates = document.querySelectorAll(MJ_MEDIA_SELECTOR);
     for (const candidate of candidates) {
@@ -1830,6 +2084,7 @@
   // Midjourney /explore grid — anchors with bg-image (no <img>)
   document.addEventListener("mouseover", (e) => {
     if (!isMidjourneyPage()) return;
+    if (suppressMidjourneySaveUiForViewer()) return;
     const thumb = e.target.closest(MJ_GRID_THUMB_SELECTOR);
     if (!thumb || !isMidjourneyGridThumb(thumb)) return;
     if (thumb.hasAttribute(MJ_MEDIA_BADGE_ATTR)) return;

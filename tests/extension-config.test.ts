@@ -54,6 +54,15 @@ describe("extension endpoint defaults", () => {
     expect(contentScript).toContain("stg-mj-quick-save--hover-reveal");
     expect(contentScript).toContain("stg-mj-quick-save--menu-open");
     expect(contentScript).toContain("getMidjourneyWidgetHost");
+    expect(contentScript).toContain("PAGE_CONTROL_SELECTOR");
+    expect(contentScript).toContain("positionSaveControlAvoidingPageUi");
+    expect(contentScript).toContain("getNearbyPageControlRects");
+    expect(contentScript).toContain("PAGE_CONTROL_CLEARANCE");
+    expect(contentScript).toContain("dataset.stgPlacement");
+    expect(contentScript).toContain("isMidjourneyFullSizeViewerOpen");
+    expect(contentScript).toContain("suppressMidjourneySaveUiForViewer");
+    expect(contentScript).toContain("hasVisibleMidjourneyViewerCloseControl");
+    expect(contentScript).toContain("clearInjectedUi();");
     expect(contentScript).not.toContain('window.addEventListener("scroll", updateMidjourneyWidgetPositions');
     expect(extensionStyles).toContain(".stg-mj-quick-save");
     expect(extensionStyles).toContain('[data-stg-mj-host-prepared="1"]:hover > .stg-mj-quick-save--hover-reveal');
