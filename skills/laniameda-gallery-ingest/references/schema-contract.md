@@ -10,6 +10,7 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
 
 - `assets`
   - Key ingest fields: `ownerUserId`, `kind`, storage refs, `promptId`, `designInspirationId`, `tagIds`, `folderId`, `ingestKey`, `description`, `pillar`, `generationType`, `assetRole`, `ingestSource`, `createdAt`.
+  - `folderId` remains the primary/legacy collection id. The backend also writes `assetFolders` membership rows so an asset can appear in multiple collections.
   - Idempotency index: `by_owner_ingestKey`.
 
 - `designInspirations`
@@ -69,9 +70,10 @@ See `convex/validators.ts`:
 
 - `promptTags`
 - `assetTags`
+- `assetFolders`
 - `designInspirationTags`
 
-These are maintained by backend mutations; callers usually pass tag names or typed tag inputs instead of raw join rows.
+These are maintained by backend mutations; callers usually pass tag names, typed tag inputs, or `folderId` instead of raw join rows.
 
 ## Runtime notes
 

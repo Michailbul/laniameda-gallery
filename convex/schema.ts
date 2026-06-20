@@ -320,6 +320,17 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_tag_createdAt", ["tagId", "createdAt"]),
+  assetFolders: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    folderId: v.id("folders"),
+    createdAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_asset_folder", ["assetId", "folderId"])
+    .index("by_folder_createdAt", ["folderId", "createdAt"])
+    .index("by_owner_asset", ["ownerUserId", "assetId"])
+    .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"]),
   generationLineage: defineTable({
     ownerUserId: v.string(),
     targetPromptId: v.optional(v.id("prompts")),

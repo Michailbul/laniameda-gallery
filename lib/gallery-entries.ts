@@ -39,6 +39,7 @@ export type GalleryAssetRecord = {
   tagNames?: string[];
   createdAt: number;
   folderId?: string;
+  folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
   assetPackId?: string;
@@ -87,6 +88,7 @@ export type GalleryEntry = {
   designInspirationId?: string;
   createdAt?: number;
   folderId?: string;
+  folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
   packMemberCount?: number;
@@ -214,6 +216,7 @@ const buildEntry = (
     designInspirationId: cover.designInspirationId ?? undefined,
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,
+    folderIds: cover.folderIds ?? (cover.folderId ? [cover.folderId] : []),
     isPublic: cover.isPublic ?? false,
     isFeatured: cover.isFeatured ?? false,
     packMemberCount: members.length > 1 ? members.length : undefined,

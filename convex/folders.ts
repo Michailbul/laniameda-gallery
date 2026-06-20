@@ -223,6 +223,7 @@ export const deleteFolder = mutation({
     }
 
     const assets = [];
+    const assetFolderLinks = [];
     for (const ownerCandidate of ownerUserIds) {
       const assetsForOwner = await ctx.db
         .query("assets")
@@ -231,9 +232,28 @@ export const deleteFolder = mutation({
         )
         .collect();
       assets.push(...assetsForOwner);
+
+      const linksForOwner = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
+        )
+        .collect();
+      assetFolderLinks.push(...linksForOwner);
+      for (const link of linksForOwner) {
+        const asset = await ctx.db.get(link.assetId);
+        if (asset) {
+          assets.push(asset);
+        }
+      }
     }
-    for (const asset of assets) {
-      await ctx.db.patch(asset._id, { folderId: undefined });
+    for (const asset of dedupeById(assets)) {
+      if (asset.folderId === args.folderId) {
+        await ctx.db.patch(asset._id, { folderId: undefined });
+      }
+    }
+    for (const link of dedupeById(assetFolderLinks)) {
+      await ctx.db.delete(link._id);
     }
 
     const prompts = [];

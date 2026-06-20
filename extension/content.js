@@ -366,6 +366,19 @@
       .filter((folder) => folder.id && folder.name);
   }
 
+  function normalizeFolderIdList(values) {
+    if (!Array.isArray(values)) return [];
+    const seen = new Set();
+    const ids = [];
+    for (const value of values) {
+      const id = String(value || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    return ids;
+  }
+
   async function loadFolders() {
     try {
       const response = await chrome.runtime.sendMessage({ action: "getFolders" });
@@ -426,10 +439,10 @@
       <label class="stg-popover__label">Prompt (optional)</label>
       <textarea class="stg-popover__textarea" placeholder="Paste the prompt here…" rows="2"></textarea>
       <div class="stg-popover__collection-head">
-        <span class="stg-popover__label">Collection</span>
+        <span class="stg-popover__label">Collections</span>
         <button class="stg-popover__icon-btn stg-popover__new-collection-toggle" type="button" title="New collection">+</button>
       </div>
-      <div class="stg-collection-grid" role="listbox" aria-label="Collection"></div>
+      <div class="stg-collection-grid" role="listbox" aria-label="Collections" aria-multiselectable="true"></div>
       <div class="stg-popover__row stg-popover__new-collection-row" hidden>
         <input class="stg-popover__input stg-popover__new-collection-input" type="text" placeholder="New collection name" />
         <button class="stg-popover__btn stg-popover__new-collection-create" type="button">Add</button>
@@ -457,29 +470,58 @@
     let loadedFolders = [];
     let foldersReady = false;
     let rememberedFolderId = "";
+    let selectedFolderIds = [];
 
-    const submitWithFolder = (folderId, remember = true) => {
+    const updateSubmitLabel = () => {
+      if (selectedFolderIds.length > 1) {
+        btn.textContent = `${buttonLabel} to ${selectedFolderIds.length}`;
+        return;
+      }
+      btn.textContent = buttonLabel;
+    };
+
+    const setSelectedFolderIds = (nextIds) => {
+      selectedFolderIds = normalizeFolderIdList(nextIds);
+      const selectedSet = new Set(selectedFolderIds);
+      for (const card of collectionGrid.querySelectorAll(".stg-collection-card")) {
+        const folderId = card.dataset.folderId || "";
+        const isClearCard = card.dataset.clearSelection === "1";
+        const selected = isClearCard
+          ? selectedFolderIds.length === 0
+          : selectedSet.has(folderId);
+        card.classList.toggle("stg-collection-card--selected", selected);
+        card.setAttribute("aria-selected", selected ? "true" : "false");
+      }
+      updateSubmitLabel();
+    };
+
+    const submitWithFolders = (remember = true) => {
       const prompt = textarea.value.trim();
       if (!allowEmptyPrompt && !prompt) {
         textarea.focus();
         return;
       }
-      const normalizedFolderId = folderId || "";
+      const normalizedFolderIds = normalizeFolderIdList(selectedFolderIds);
+      const normalizedFolderId = normalizedFolderIds[0] || "";
       if (remember) {
         chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: normalizedFolderId });
       }
       onSubmit({
         promptText: prompt,
         folderId: normalizedFolderId || undefined,
+        folderIds: normalizedFolderIds,
       });
       onClose();
     };
 
-    const appendCollectionCard = ({ folderId = "", eyebrow, label, variant = "" }) => {
+    const appendCollectionCard = ({ folderId = "", eyebrow, label, variant = "", clear = false }) => {
       const card = document.createElement("button");
       card.className = `stg-collection-card ${variant}`.trim();
       card.type = "button";
+      card.setAttribute("role", "option");
+      card.setAttribute("aria-selected", "false");
       card.dataset.folderId = folderId;
+      if (clear) card.dataset.clearSelection = "1";
 
       const eyebrowEl = document.createElement("span");
       eyebrowEl.className = "stg-collection-card__eyebrow";
@@ -493,7 +535,18 @@
       card.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        submitWithFolder(card.dataset.folderId || "");
+        if (card.dataset.clearSelection === "1") {
+          setSelectedFolderIds([]);
+          return;
+        }
+        const folderId = card.dataset.folderId || "";
+        const selected = new Set(selectedFolderIds);
+        if (selected.has(folderId)) {
+          selected.delete(folderId);
+        } else {
+          selected.add(folderId);
+        }
+        setSelectedFolderIds([...selected]);
       });
       collectionGrid.appendChild(card);
     };
@@ -510,28 +563,24 @@
 
     const renderCollectionCards = (folders, selectedId) => {
       collectionGrid.innerHTML = "";
-      const selectedFolder = folders.find((folder) => folder.id === selectedId);
-      if (selectedFolder) {
-        appendCollectionCard({
-          folderId: selectedFolder.id,
-          eyebrow: "Default",
-          label: selectedFolder.name,
-          variant: "stg-collection-card--default",
-        });
-      }
+      const activeSelectedId = folders.some((folder) => folder.id === selectedId)
+        ? selectedId
+        : "";
       appendCollectionCard({
         folderId: "",
         eyebrow: "Loose",
         label: "No collection",
-        variant: selectedFolder ? "" : "stg-collection-card--default",
+        clear: true,
       });
       for (const folder of folders) {
         appendCollectionCard({
           folderId: folder.id,
-          eyebrow: "Collection",
+          eyebrow: folder.id === activeSelectedId ? "Default" : "Collection",
           label: folder.name,
+          variant: folder.id === activeSelectedId ? "stg-collection-card--default" : "",
         });
       }
+      setSelectedFolderIds(activeSelectedId ? [activeSelectedId] : []);
     };
 
     renderCollectionLoading();
@@ -570,8 +619,9 @@
       }
       newCollInput.value = "";
       newCollRow.setAttribute("hidden", "");
+      const previousSelectedFolderIds = selectedFolderIds;
       renderCollectionCards(loadedFolders, newId);
-      submitWithFolder(newId);
+      setSelectedFolderIds([...previousSelectedFolderIds, newId]);
     };
 
     newCollToggle.addEventListener("click", (e) => {
@@ -613,7 +663,7 @@
 
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      submitWithFolder(rememberedFolderId);
+      submitWithFolders();
     });
 
     // Close on Escape
@@ -754,6 +804,7 @@
     imageUrl,
     promptText,
     folderId,
+    folderIds,
     modelName,
     tagNames,
     fileData,
@@ -774,6 +825,7 @@
           promptText: promptText || undefined,
           modelName: modelName || undefined,
           folderId: folderId || undefined,
+          folderIds: normalizeFolderIdList(folderIds),
           tagNames: Array.isArray(tagNames) ? tagNames : undefined,
           file: fileData || undefined,
         });
@@ -816,7 +868,7 @@
     badge.classList.remove("stg-badge--visible");
 
     const popover = createPopover(
-      async ({ promptText, folderId }) => {
+      async ({ promptText, folderId, folderIds }) => {
         let fileData = saveContext.fileData;
         if (!fileData && typeof saveContext.resolveFileData === "function") {
           fileData = await saveContext.resolveFileData();
@@ -826,6 +878,7 @@
           imageUrl: saveContext.imageUrl,
           promptText,
           folderId,
+          folderIds,
           modelName: saveContext.modelName,
           tagNames: saveContext.tagNames,
           fileData,
@@ -985,6 +1038,14 @@
 
     for (const target of document.querySelectorAll(`[${MJ_MEDIA_BADGE_ATTR}]`)) {
       target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
+    }
+
+    for (const host of document.querySelectorAll("[data-stg-mj-host-prepared]")) {
+      if (host.dataset.stgMjHostPositioned === "1") {
+        host.style.position = "";
+      }
+      delete host.dataset.stgMjHostPrepared;
+      delete host.dataset.stgMjHostPositioned;
     }
   }
 
@@ -1156,7 +1217,7 @@
   }
 
   function isMidjourneyImaginePage() {
-    return location.pathname.includes("/imagine");
+    return location.pathname.includes("/imagine") || location.pathname.includes("/create");
   }
 
   function getMidjourneyTagNames() {
@@ -1241,13 +1302,57 @@
     };
   }
 
+  function getMidjourneyWidgetHost(target) {
+    if (!target) return null;
+
+    const tagName = target.tagName?.toLowerCase();
+    if (tagName === "a" && target.parentElement) {
+      return target.parentElement;
+    }
+
+    const linkParent = target.closest?.('a[href*="/jobs/"]');
+    if (linkParent?.parentElement) {
+      return linkParent.parentElement;
+    }
+
+    if ((tagName === "img" || tagName === "video") && target.parentElement) {
+      return target.parentElement;
+    }
+
+    return target;
+  }
+
+  function prepareMidjourneyWidgetHost(host) {
+    if (!host || host.nodeType !== Node.ELEMENT_NODE) return;
+    if (host.dataset.stgMjHostPrepared === "1") return;
+
+    const position = getComputedStyle(host).position;
+    if (position === "static") {
+      host.style.position = "relative";
+      host.dataset.stgMjHostPositioned = "1";
+    }
+    host.dataset.stgMjHostPrepared = "1";
+  }
+
   function positionMidjourneyWidget(widget, target) {
     if (!target || !document.contains(target)) {
       widget.remove();
       return;
     }
 
+    const host = getMidjourneyWidgetHost(target);
+    if (!host || !document.contains(host)) {
+      widget.remove();
+      return;
+    }
+
+    prepareMidjourneyWidgetHost(host);
+    if (widget.parentElement !== host) {
+      host.appendChild(widget);
+    }
+
     const rect = target.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 ||
         rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) {
       widget.style.display = "none";
@@ -1255,13 +1360,21 @@
     }
 
     widget.style.display = "flex";
-    widget.classList.toggle("stg-mj-quick-save--centered", isMidjourneyImaginePage());
+    const isCentered = isMidjourneyImaginePage();
+    widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
+    widget.classList.toggle("stg-mj-quick-save--hover-reveal", isCentered);
     const width = widget.offsetWidth || 82;
-    const top = Math.max(8, rect.top + 8);
-    const rawLeft = isMidjourneyImaginePage()
-      ? rect.left + (rect.width - width) / 2
-      : rect.right - width - 8;
-    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rawLeft));
+    const targetLeft = rect.left - hostRect.left;
+    const targetRight = rect.right - hostRect.left;
+    const top = Math.max(8, rect.top - hostRect.top + 8);
+    const rawLeft = isCentered
+      ? targetLeft + (rect.width - width) / 2
+      : targetRight - width - 8;
+    const minLeft = targetLeft + 8;
+    const maxLeft = targetRight - width - 8;
+    const left = maxLeft >= minLeft
+      ? Math.max(minLeft, Math.min(maxLeft, rawLeft))
+      : targetLeft + Math.max(0, (rect.width - width) / 2);
     widget.style.top = `${Math.round(top)}px`;
     widget.style.left = `${Math.round(left)}px`;
   }
@@ -1283,7 +1396,7 @@
     button.classList.remove("stg-badge--saving", "stg-badge--saved", "stg-badge--error");
   }
 
-  async function handleSaveMidjourneyMedia(target, button, folderId) {
+  async function handleSaveMidjourneyMedia(target, button, folderIds) {
     if (button.classList.contains("stg-badge--saving")) return;
 
     const saveContext = getMidjourneySaveContext(target);
@@ -1292,9 +1405,10 @@
       return;
     }
 
-    let effectiveFolderId = folderId;
+    let effectiveFolderIds = normalizeFolderIdList(folderIds);
     if (arguments.length < 3) {
-      effectiveFolderId = await getDefaultSaveFolderId();
+      const defaultFolderId = await getDefaultSaveFolderId();
+      effectiveFolderIds = defaultFolderId ? [defaultFolderId] : [];
     }
 
     const fileData = await captureImageBytesForSave(saveContext.imageUrl);
@@ -1306,7 +1420,8 @@
       badge: button,
       imageUrl: saveContext.imageUrl,
       promptText: saveContext.promptText,
-      folderId: effectiveFolderId || undefined,
+      folderId: effectiveFolderIds[0] || undefined,
+      folderIds: effectiveFolderIds,
       modelName: saveContext.modelName,
       tagNames: saveContext.tagNames,
       fileData,
@@ -1314,25 +1429,111 @@
     });
   }
 
+  function updateMidjourneyMenuSelection(menu, folderIds) {
+    const selectedFolderIds = normalizeFolderIdList(folderIds);
+    const selectedSet = new Set(selectedFolderIds);
+    menu.dataset.selectedFolderIds = JSON.stringify(selectedFolderIds);
+
+    for (const item of menu.querySelectorAll(".stg-mj-menu__item")) {
+      const folderId = item.dataset.folderId || "";
+      const isClearCard = item.dataset.clearSelection === "1";
+      const selected = isClearCard
+        ? selectedFolderIds.length === 0
+        : selectedSet.has(folderId);
+      item.classList.toggle("stg-mj-menu__item--selected", selected);
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+    }
+
+    const saveButton = menu.querySelector(".stg-mj-menu__save");
+    if (saveButton) {
+      saveButton.textContent = selectedFolderIds.length > 1
+        ? `Save to ${selectedFolderIds.length}`
+        : "Save";
+    }
+  }
+
+  function getMidjourneyMenuSelection(menu) {
+    try {
+      return normalizeFolderIdList(JSON.parse(menu.dataset.selectedFolderIds || "[]"));
+    } catch {
+      return [];
+    }
+  }
+
+  function findFolderIdByName(folders, name) {
+    const normalizedName = String(name || "").trim().toLowerCase();
+    if (!normalizedName) return "";
+    const match = folders.find(
+      (folder) => folder.name.toLowerCase() === normalizedName,
+    );
+    return match ? match.id : "";
+  }
+
+  function setMidjourneyNewCollectionError(menu, message) {
+    const input = menu.querySelector(".stg-mj-menu__new-input");
+    if (!input) return;
+    input.value = "";
+    input.placeholder = (message || "Failed").slice(0, 40);
+  }
+
+  async function createMidjourneyCollectionFromMenu(menu) {
+    const input = menu.querySelector(".stg-mj-menu__new-input");
+    const createButton = menu.querySelector(".stg-mj-menu__new-create");
+    if (!input || !createButton) return;
+
+    const name = input.value.trim();
+    if (!name) {
+      input.focus();
+      return;
+    }
+
+    createButton.disabled = true;
+    createButton.textContent = "…";
+    const previousSelectedFolderIds = getMidjourneyMenuSelection(menu);
+    const res = await createFolderRemote(name);
+    createButton.disabled = false;
+    createButton.textContent = "Add";
+
+    if (!res.ok) {
+      setMidjourneyNewCollectionError(menu, res.error);
+      return;
+    }
+
+    const newId = res.id || findFolderIdByName(res.folders, name);
+    renderMidjourneyCollectionMenu(menu, res.folders, newId);
+    updateMidjourneyMenuSelection(menu, [...previousSelectedFolderIds, newId]);
+    const nextInput = menu.querySelector(".stg-mj-menu__new-input");
+    if (nextInput) nextInput.value = "";
+  }
+
+  function toggleMidjourneyNewCollectionRow(menu) {
+    const row = menu.querySelector(".stg-mj-menu__new");
+    const input = menu.querySelector(".stg-mj-menu__new-input");
+    if (!row || !input) return;
+    if (row.hasAttribute("hidden")) {
+      row.removeAttribute("hidden");
+      input.focus();
+      return;
+    }
+    row.setAttribute("hidden", "");
+  }
+
   function renderMidjourneyCollectionMenu(menu, folders, defaultFolderId) {
-    const defaultFolder = folders.find((folder) => folder.id === defaultFolderId);
+    const activeDefaultFolderId = folders.some((folder) => folder.id === defaultFolderId)
+      ? defaultFolderId
+      : "";
     const rows = [
-      {
-        id: "__default",
-        folderId: defaultFolderId || "",
-        eyebrow: "Default",
-        label: defaultFolder ? defaultFolder.name : "No collection",
-      },
       {
         id: "__none",
         folderId: "",
-        eyebrow: "Save without filing",
+        eyebrow: "Loose",
         label: "No collection",
+        clear: true,
       },
       ...folders.map((folder) => ({
         id: folder.id,
         folderId: folder.id,
-        eyebrow: "Collection",
+        eyebrow: folder.id === activeDefaultFolderId ? "Default" : "Collection",
         label: folder.name,
       })),
     ];
@@ -1342,8 +1543,11 @@
       const item = document.createElement("button");
       item.className = "stg-mj-menu__item";
       item.type = "button";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", "false");
       item.dataset.folderId = row.folderId;
       item.dataset.menuId = row.id;
+      if (row.clear) item.dataset.clearSelection = "1";
 
       const eyebrow = document.createElement("span");
       eyebrow.className = "stg-mj-menu__eyebrow";
@@ -1356,16 +1560,64 @@
       item.append(eyebrow, label);
       menu.appendChild(item);
     }
+
+    const createItem = document.createElement("button");
+    createItem.className = "stg-mj-menu__item stg-mj-menu__item--create";
+    createItem.type = "button";
+    createItem.dataset.createCollection = "1";
+
+    const createEyebrow = document.createElement("span");
+    createEyebrow.className = "stg-mj-menu__eyebrow";
+    createEyebrow.textContent = "Create";
+
+    const createLabel = document.createElement("span");
+    createLabel.className = "stg-mj-menu__label";
+    createLabel.textContent = "New collection";
+
+    createItem.append(createEyebrow, createLabel);
+    menu.appendChild(createItem);
+
+    const newRow = document.createElement("div");
+    newRow.className = "stg-mj-menu__new";
+    newRow.hidden = true;
+
+    const input = document.createElement("input");
+    input.className = "stg-mj-menu__new-input";
+    input.type = "text";
+    input.placeholder = "Collection name";
+
+    const add = document.createElement("button");
+    add.className = "stg-mj-menu__new-create";
+    add.type = "button";
+    add.textContent = "Add";
+
+    newRow.append(input, add);
+    menu.appendChild(newRow);
+
+    const footer = document.createElement("div");
+    footer.className = "stg-mj-menu__footer";
+
+    const save = document.createElement("button");
+    save.className = "stg-mj-menu__save";
+    save.type = "button";
+    save.textContent = "Save";
+    footer.appendChild(save);
+    menu.appendChild(footer);
+
+    updateMidjourneyMenuSelection(menu, activeDefaultFolderId ? [activeDefaultFolderId] : []);
   }
 
   async function openMidjourneyCollectionMenu(widget) {
     const menu = widget.querySelector(".stg-mj-menu");
-    if (!menu || menu.dataset.ready === "1") {
-      if (menu) menu.hidden = false;
+    if (!menu) return;
+    if (menu.dataset.ready === "1") {
+      menu.hidden = false;
+      widget.classList.add("stg-mj-quick-save--menu-open");
       return;
     }
 
     menu.hidden = false;
+    widget.classList.add("stg-mj-quick-save--menu-open");
     menu.innerHTML = `<div class="stg-mj-menu__loading">Loading collections…</div>`;
     const [{ defaultFolderId }, folders] = await Promise.all([
       readSavedFolderIds(),
@@ -1378,6 +1630,7 @@
   function closeMidjourneyCollectionMenu(widget) {
     const menu = widget.querySelector(".stg-mj-menu");
     if (menu) menu.hidden = true;
+    widget.classList.remove("stg-mj-quick-save--menu-open");
   }
 
   function createMidjourneyMediaWidget(target) {
@@ -1389,7 +1642,7 @@
         ${SAVE_ICON}<span>Save</span>
       </button>
       <button class="stg-mj-save-arrow" type="button" title="Choose collection">${CHEVRON_ICON}</button>
-      <div class="stg-mj-menu" hidden></div>
+      <div class="stg-mj-menu" role="listbox" aria-label="Collections" aria-multiselectable="true" hidden></div>
     `;
     bindExtensionUiEventShield(widget);
 
@@ -1436,19 +1689,57 @@
     menu.addEventListener("pointerleave", scheduleClose);
     menu.addEventListener("click", (event) => {
       const item = event.target?.closest?.(".stg-mj-menu__item");
-      if (!item) return;
+      const createItem = event.target?.closest?.(".stg-mj-menu__item--create");
+      const createButton = event.target?.closest?.(".stg-mj-menu__new-create");
+      const saveItem = event.target?.closest?.(".stg-mj-menu__save");
+      if (!item && !saveItem && !createButton) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      const selectedFolderId = item.dataset.folderId || "";
-      chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: selectedFolderId });
+
+      if (createButton) {
+        void createMidjourneyCollectionFromMenu(menu);
+        return;
+      }
+
+      if (createItem) {
+        toggleMidjourneyNewCollectionRow(menu);
+        return;
+      }
+
+      if (item) {
+        if (item.dataset.clearSelection === "1") {
+          updateMidjourneyMenuSelection(menu, []);
+          return;
+        }
+        const folderId = item.dataset.folderId || "";
+        const selected = new Set(getMidjourneyMenuSelection(menu));
+        if (selected.has(folderId)) {
+          selected.delete(folderId);
+        } else {
+          selected.add(folderId);
+        }
+        updateMidjourneyMenuSelection(menu, [...selected]);
+        return;
+      }
+
+      const selectedFolderIds = getMidjourneyMenuSelection(menu);
+      chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: selectedFolderIds[0] || "" });
       closeMidjourneyCollectionMenu(widget);
-      void handleSaveMidjourneyMedia(target, mainButton, selectedFolderId || undefined)
+      void handleSaveMidjourneyMedia(target, mainButton, selectedFolderIds)
         .finally(() => {
           if (!mainButton.classList.contains("stg-badge--error")) {
             setTimeout(() => resetMidjourneySaveButton(mainButton), 1800);
           }
         });
+    }, true);
+
+    menu.addEventListener("keydown", (event) => {
+      const input = event.target?.closest?.(".stg-mj-menu__new-input");
+      if (!input || event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      void createMidjourneyCollectionFromMenu(menu);
     }, true);
 
     return widget;
@@ -1504,10 +1795,6 @@
       subtree: true,
       attributes: true,
       attributeFilter: ["class", "src", "srcset", "style", "poster"],
-    });
-    window.addEventListener("scroll", updateMidjourneyWidgetPositions, {
-      capture: true,
-      passive: true,
     });
     window.addEventListener("resize", updateMidjourneyWidgetPositions, {
       passive: true,

@@ -87,6 +87,19 @@ function normalizeDisabledHosts(rawHosts) {
     .filter(Boolean);
 }
 
+function normalizeFolderIds(rawFolderIds) {
+  if (!Array.isArray(rawFolderIds)) return [];
+  const seen = new Set();
+  const folderIds = [];
+  for (const rawFolderId of rawFolderIds) {
+    const folderId = String(rawFolderId || "").trim();
+    if (!folderId || seen.has(folderId)) continue;
+    seen.add(folderId);
+    folderIds.push(folderId);
+  }
+  return folderIds;
+}
+
 function isHostDisabled(disabledHosts, host) {
   if (!host) return false;
   return disabledHosts.some((disabledHost) =>
@@ -111,6 +124,8 @@ async function getDefaultSaveFolderId() {
 
 async function saveToGallery(payload) {
   const config = await getConfig();
+  const folderIds = normalizeFolderIds(payload.folderIds);
+  const folderId = payload.folderId || folderIds[0] || undefined;
 
   let response;
   try {
@@ -121,7 +136,8 @@ async function saveToGallery(payload) {
         mode: payload.mode || "save",
         imageUrl: payload.imageUrl,
         sourceUrl: payload.sourceUrl,
-        folderId: payload.folderId || undefined,
+        folderId,
+        folderIds,
         promptText: payload.promptText || undefined,
         modelName: payload.modelName || undefined,
         tagNames: payload.tagNames || [],
@@ -488,6 +504,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       promptText: message.promptText,
       modelName: message.modelName,
       folderId: message.folderId,
+      folderIds: message.folderIds,
       tagNames: message.tagNames,
       file: message.file,
     })

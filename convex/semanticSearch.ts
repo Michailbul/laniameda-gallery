@@ -220,11 +220,16 @@ export const searchAssets = action({
     return hydrated
       .filter((asset: {
         folderId?: Id<"folders">;
+        folderIds?: Id<"folders">[];
         modelName?: string;
         assetRole?: string;
         kind: "image" | "video";
       }) => {
-        if (args.scope === "mine" && args.folderId && asset.folderId !== args.folderId) {
+        if (
+          args.scope === "mine" &&
+          args.folderId &&
+          !((asset.folderIds ?? [asset.folderId]).includes(args.folderId))
+        ) {
           return false;
         }
         if (args.modelName && asset.modelName !== args.modelName) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const state = {
   actionCalls: [] as Array<Record<string, unknown>>,
+  mutationCalls: [] as Array<Record<string, unknown>>,
 };
 
 const routePath = new URL("../app/api/extension/save/route.ts", import.meta.url)
@@ -22,12 +23,21 @@ mock.module("@/lib/server/convex", () => ({
 
       return { assetId: "assets:1", promptId: "prompts:1" };
     },
+    mutation: async (_reference: unknown, payload: Record<string, unknown>) => {
+      state.mutationCalls.push(payload);
+      return {
+        assetId: payload.assetId,
+        folderId: Array.isArray(payload.folderIds) ? payload.folderIds[0] : undefined,
+        folderIds: Array.isArray(payload.folderIds) ? payload.folderIds : [],
+      };
+    },
   }),
 }));
 
 describe("POST /api/extension/save", () => {
   beforeEach(() => {
     state.actionCalls = [];
+    state.mutationCalls = [];
     process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
   });
 
@@ -140,6 +150,32 @@ describe("POST /api/extension/save", () => {
       "midjourney",
       "midjourney-web",
       "midjourney-explore",
+    ]);
+  });
+
+  test("adds saved image to multiple collections", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: "https://cdn.example.com/image.png",
+          folderIds: ["folders:one", " folders:two ", "folders:one"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]?.folderId).toBe("folders:one");
+    expect(state.mutationCalls).toEqual([
+      {
+        ownerUserId: "telegram:278674008",
+        assetId: "assets:1",
+        folderIds: ["folders:one", "folders:two"],
+      },
     ]);
   });
 

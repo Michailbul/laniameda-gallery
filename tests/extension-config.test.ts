@@ -18,6 +18,10 @@ describe("extension endpoint defaults", () => {
       new URL("../extension/content.js", import.meta.url),
       "utf8",
     );
+    const extensionStyles = readFileSync(
+      new URL("../extension/styles.css", import.meta.url),
+      "utf8",
+    );
 
     expect(popupScript).toContain("laniameda-galery.vercel.app");
     expect(backgroundScript).toContain("laniameda-galery.vercel.app");
@@ -34,12 +38,26 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript).toContain("Save to laniameda");
     expect(backgroundScript).toContain("saveImageFromContextMenu");
     expect(backgroundScript).toContain("contextMenus.onShown");
+    expect(backgroundScript).toContain("folderIds");
     expect(contentScript).toContain("handleContextMenuImageSave");
     expect(contentScript).toContain("stg-context-toast");
     expect(contentScript).toContain("stg-collection-grid");
     expect(contentScript).toContain("stg-collection-card");
+    expect(contentScript).toContain("aria-multiselectable");
+    expect(contentScript).toContain("folderIds");
+    expect(contentScript).toContain("createMidjourneyCollectionFromMenu");
+    expect(contentScript).toContain("stg-mj-menu__item--create");
+    expect(contentScript).toContain("stg-mj-menu__new-input");
     expect(contentScript).not.toContain("stg-popover__select--collection");
     expect(contentScript).toContain("isMidjourneyImaginePage");
     expect(contentScript).toContain("stg-mj-quick-save--centered");
+    expect(contentScript).toContain("stg-mj-quick-save--hover-reveal");
+    expect(contentScript).toContain("stg-mj-quick-save--menu-open");
+    expect(contentScript).toContain("getMidjourneyWidgetHost");
+    expect(contentScript).not.toContain('window.addEventListener("scroll", updateMidjourneyWidgetPositions');
+    expect(extensionStyles).toContain(".stg-mj-quick-save");
+    expect(extensionStyles).toContain('[data-stg-mj-host-prepared="1"]:hover > .stg-mj-quick-save--hover-reveal');
+    expect(extensionStyles).toContain("position: absolute");
+    expect(extensionStyles).toContain(".stg-mj-menu__new");
   });
 });

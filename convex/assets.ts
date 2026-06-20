@@ -4,6 +4,7 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
@@ -226,6 +227,150 @@ const dedupeAssetIds = <T extends { _id: string }>(rows: T[]) => {
   });
 };
 
+const dedupeFolderIds = (folderIds: Array<Id<"folders"> | undefined>) =>
+  dedupeIds(
+    folderIds.filter((folderId): folderId is Id<"folders"> =>
+      Boolean(folderId),
+    ),
+  );
+
+const getAssetFolderLinks = async (
+  ctx: QueryCtx | MutationCtx,
+  assetId: Id<"assets">,
+) =>
+  await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", assetId))
+    .collect();
+
+const addAssetFolderLink = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  assetId: Id<"assets">,
+  folderId: Id<"folders">,
+) => {
+  const existing = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset_folder", (q) =>
+      q.eq("assetId", assetId).eq("folderId", folderId),
+    )
+    .unique();
+  if (existing) {
+    return;
+  }
+
+  await ctx.db.insert("assetFolders", {
+    ownerUserId,
+    assetId,
+    folderId,
+    createdAt: Date.now(),
+  });
+};
+
+const replaceAssetFolderLinks = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  asset: Doc<"assets">,
+  folderIds: Id<"folders">[],
+) => {
+  const nextFolderIds = dedupeFolderIds(folderIds);
+  for (const folderId of nextFolderIds) {
+    await ensureFolderOwnership(ctx, ownerUserId, folderId);
+  }
+
+  const existingLinks = await getAssetFolderLinks(ctx, asset._id);
+  const nextSet = new Set(nextFolderIds);
+
+  for (const link of existingLinks) {
+    if (!nextSet.has(link.folderId)) {
+      await ctx.db.delete(link._id);
+    }
+  }
+
+  const existingSet = new Set(existingLinks.map((link) => link.folderId));
+  for (const folderId of nextFolderIds) {
+    if (!existingSet.has(folderId)) {
+      await addAssetFolderLink(ctx, ownerUserId, asset._id, folderId);
+    }
+  }
+
+  const primaryFolderId = nextFolderIds[0];
+  if (asset.folderId !== primaryFolderId) {
+    await ctx.db.patch(asset._id, {
+      folderId: primaryFolderId,
+    });
+  }
+
+  return {
+    folderId: primaryFolderId,
+    folderIds: nextFolderIds,
+  };
+};
+
+const collectAssetsForFolder = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folderId: Id<"folders">,
+  limit: number,
+) => {
+  const primaryAssets = [];
+  const linkedAssets = [];
+  for (const ownerCandidate of ownerUserIds) {
+    const primaryRows = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .order("desc")
+      .take(limit);
+    primaryAssets.push(...primaryRows);
+
+    const links = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .order("desc")
+      .take(limit);
+    for (const link of links) {
+      const asset = await ctx.db.get(link.assetId);
+      if (asset && canActorAccessOwnerUserId(ownerCandidate, asset.ownerUserId)) {
+        linkedAssets.push(asset);
+      }
+    }
+  }
+
+  return dedupeAssetIds([...primaryAssets, ...linkedAssets])
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, limit);
+};
+
+const collectAssetIdsForFolder = async (
+  ctx: QueryCtx,
+  folderId: Id<"folders">,
+  limit: number,
+) => {
+  const primaryAssets = await ctx.db
+    .query("assets")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", folderId).gte("createdAt", 0),
+    )
+    .order("desc")
+    .take(limit);
+  const links = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", folderId).gte("createdAt", 0),
+    )
+    .order("desc")
+    .take(limit);
+
+  return new Set<Id<"assets">>([
+    ...primaryAssets.map((asset) => asset._id),
+    ...links.map((link) => link.assetId),
+  ]);
+};
+
 export const createAsset = mutation({
   args: {
     ownerUserId: v.string(),
@@ -277,6 +422,12 @@ export const createAsset = mutation({
         )
         .unique();
       if (existing) {
+        if (args.folderId) {
+          await addAssetFolderLink(ctx, ownerUserId, existing._id, args.folderId);
+          if (!existing.folderId) {
+            await ctx.db.patch(existing._id, { folderId: args.folderId });
+          }
+        }
         return { assetId: existing._id, created: false };
       }
     }
@@ -325,6 +476,9 @@ export const createAsset = mutation({
         createdAt,
       });
     }
+    if (args.folderId) {
+      await addAssetFolderLink(ctx, ownerUserId, assetId, args.folderId);
+    }
 
     await bumpTagUsage(ctx, tagIds, 1);
     if (args.promptId) {
@@ -348,6 +502,7 @@ export const setAssetFolder = mutation({
   returns: v.object({
     assetId: v.id("assets"),
     folderId: v.optional(v.id("folders")),
+    folderIds: v.array(v.id("folders")),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -364,20 +519,113 @@ export const setAssetFolder = mutation({
     }
 
     await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
-    if (asset.folderId === args.folderId) {
-      return {
-        assetId: args.assetId,
-        folderId: asset.folderId,
-      };
-    }
-
-    await ctx.db.patch(args.assetId, {
-      folderId: args.folderId,
-    });
+    const result = await replaceAssetFolderLinks(
+      ctx,
+      ownerUserId,
+      asset,
+      args.folderId ? [args.folderId] : [],
+    );
 
     return {
       assetId: args.assetId,
-      folderId: args.folderId,
+      folderId: result.folderId,
+      folderIds: result.folderIds,
+    };
+  },
+});
+
+export const setAssetFolders = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    folderIds: v.array(v.id("folders")),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    folderId: v.optional(v.id("folders")),
+    folderIds: v.array(v.id("folders")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    const result = await replaceAssetFolderLinks(
+      ctx,
+      ownerUserId,
+      asset,
+      args.folderIds,
+    );
+
+    return {
+      assetId: args.assetId,
+      folderId: result.folderId,
+      folderIds: result.folderIds,
+    };
+  },
+});
+
+export const addAssetFolders = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    folderIds: v.array(v.id("folders")),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    folderId: v.optional(v.id("folders")),
+    folderIds: v.array(v.id("folders")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    const requestedFolderIds = dedupeFolderIds(args.folderIds);
+    for (const folderId of requestedFolderIds) {
+      await ensureFolderOwnership(ctx, ownerUserId, folderId);
+    }
+
+    const existingLinks = await getAssetFolderLinks(ctx, args.assetId);
+    const folderIds = dedupeFolderIds([
+      asset.folderId,
+      ...existingLinks.map((link) => link.folderId),
+      ...requestedFolderIds,
+    ]);
+
+    for (const folderId of folderIds) {
+      await addAssetFolderLink(ctx, ownerUserId, args.assetId, folderId);
+    }
+
+    const primaryFolderId = asset.folderId ?? folderIds[0];
+    if (primaryFolderId && asset.folderId !== primaryFolderId) {
+      await ctx.db.patch(args.assetId, {
+        folderId: primaryFolderId,
+      });
+    }
+
+    return {
+      assetId: args.assetId,
+      folderId: primaryFolderId,
+      folderIds,
     };
   },
 });
@@ -496,6 +744,9 @@ export const updateAssetMetadata = mutation({
       assetRole: args.assetRole,
       ingestSource: args.ingestSource,
     });
+    if (args.folderId) {
+      await addAssetFolderLink(ctx, ownerUserId, args.assetId, args.folderId);
+    }
 
     await bumpTagUsage(ctx, asset.tagIds, -1);
     await bumpTagUsage(ctx, tagIds, 1);
@@ -692,6 +943,14 @@ export const adminUpdateAsset = mutation({
         ? (args.ingestSource ?? undefined)
         : asset.ingestSource,
     });
+    if (hasOwn(args, "folderId")) {
+      await replaceAssetFolderLinks(
+        ctx,
+        ownerUserId,
+        { ...asset, folderId: nextFolderId },
+        nextFolderId ? [nextFolderId] : [],
+      );
+    }
 
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
@@ -940,20 +1199,12 @@ export const listAssets = query({
       return results;
     }
     if (args.folderId) {
-      const results = [];
-      for (const ownerCandidate of ownerUserIds) {
-        const rows = await ctx.db
-          .query("assets")
-          .withIndex("by_owner_folder_createdAt", (q) =>
-            q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
-          )
-          .order("desc")
-          .take(limit);
-        results.push(...rows);
-      }
-      return dedupeAssetIds(results)
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, limit);
+      return await collectAssetsForFolder(
+        ctx,
+        ownerUserIds,
+        args.folderId,
+        limit,
+      );
     }
     const kind = args.kind;
     if (kind) {
@@ -1041,73 +1292,66 @@ export const listGalleryAssets = query({
     const pillar = args.pillar;
     const assetRole = args.assetRole;
     const kind = args.kind;
-    const ownerScopedAssets = (
-      await Promise.all(
-        ownerUserIds.map(async (ownerCandidate) => {
-          if (args.folderId) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_folder_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          if (modelNameFilter) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_modelName_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          if (pillar && assetRole) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          if (pillar) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_pillar_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          if (assetRole) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_assetRole_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          if (kind) {
-            return await ctx.db
-              .query("assets")
-              .withIndex("by_owner_kind_createdAt", (q) =>
-                q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
-              )
-              .order("desc")
-              .take(queryTake);
-          }
-          return await ctx.db
-            .query("assets")
-            .withIndex("by_owner_createdAt", (q) =>
-              q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-            )
-            .order("desc")
-            .take(queryTake);
-        }),
-      )
-    ).flat();
+    const ownerScopedAssets = args.folderId
+      ? await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
+      : (
+          await Promise.all(
+            ownerUserIds.map(async (ownerCandidate) => {
+              if (modelNameFilter) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_modelName_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
+              if (pillar && assetRole) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
+              if (pillar) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_pillar_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
+              if (assetRole) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_assetRole_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
+              if (kind) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_kind_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
+              return await ctx.db
+                .query("assets")
+                .withIndex("by_owner_createdAt", (q) =>
+                  q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+                )
+                .order("desc")
+                .take(queryTake);
+            }),
+          )
+        ).flat();
 
     ownerScopedAssets.sort((a, b) => b.createdAt - a.createdAt);
     const seenAssetIds = new Set<Id<"assets">>();
@@ -1120,9 +1364,6 @@ export const listGalleryAssets = query({
     });
     const filteredAssets = assets.filter((asset) => {
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
-        return false;
-      }
-      if (args.folderId && asset.folderId !== args.folderId) {
         return false;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
@@ -1280,11 +1521,15 @@ export const listPublicGalleryAssets = query({
       .order("desc")
       .take(queryTake);
 
+    const folderAssetIds = args.folderId
+      ? await collectAssetIdsForFolder(ctx, args.folderId, queryTake)
+      : null;
+
     const filteredAssets = baseAssets.filter((asset) => {
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         return false;
       }
-      if (args.folderId && asset.folderId !== args.folderId) {
+      if (folderAssetIds && !folderAssetIds.has(asset._id)) {
         return false;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {

@@ -55,6 +55,7 @@ Collections are owner-scoped groupings used to organize saved assets and prompts
 - To create or reuse one, call `create_collection` (idempotent by normalized name) and use the returned `folderId`.
 - To clear an asset's collection on update, pass `folderId: null` to `update_gallery_item`.
 - A collection is optional; assets without one stay uncategorized.
+- Assets can now belong to multiple collections in the gallery UI. Ingest still accepts one `folderId`; the backend stores it as the primary collection and creates the matching collection membership.
 
 The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
 

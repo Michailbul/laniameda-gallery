@@ -38,6 +38,7 @@ export const galleryAssetResultValidator = v.object({
   tagIds: v.array(v.id("tags")),
   tagNames: v.array(v.string()),
   folderId: v.optional(v.id("folders")),
+  folderIds: v.array(v.id("folders")),
   modelName: v.optional(v.string()),
   isPublic: v.optional(v.boolean()),
   isFeatured: v.optional(v.boolean()),
@@ -112,6 +113,26 @@ const resolveTagNameMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
   return tagNameById;
 };
 
+const resolveFolderIdsMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
+  const entries = await Promise.all(
+    assets.map(async (asset) => {
+      const links = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+        .collect();
+      return [
+        asset._id,
+        dedupeIds([
+          asset.folderId,
+          ...links.map((link) => link.folderId),
+        ].filter((folderId): folderId is Id<"folders"> => Boolean(folderId))),
+      ] as const;
+    }),
+  );
+
+  return new Map(entries);
+};
+
 export const hydrateGalleryAssetResults = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
@@ -120,9 +141,10 @@ export const hydrateGalleryAssetResults = async (
     return [];
   }
 
-  const [promptTextById, tagNameById] = await Promise.all([
+  const [promptTextById, tagNameById, folderIdsByAssetId] = await Promise.all([
     resolvePromptTextMap(ctx, assets),
     resolveTagNameMap(ctx, assets),
+    resolveFolderIdsMap(ctx, assets),
   ]);
 
   return await Promise.all(
@@ -166,6 +188,7 @@ export const hydrateGalleryAssetResults = async (
         tagIds: asset.tagIds,
         tagNames,
         folderId: asset.folderId,
+        folderIds: folderIdsByAssetId.get(asset._id) ?? [],
         modelName: asset.modelName,
         isPublic: asset.isPublic,
         isFeatured: asset.isFeatured,

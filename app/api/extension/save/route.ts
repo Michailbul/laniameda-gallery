@@ -9,6 +9,9 @@ import {
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
+const addAssetFoldersMutation = makeFunctionReference<"mutation">(
+  "assets:addAssetFolders",
+);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -67,6 +70,25 @@ function isMidjourneyModel(value: string | undefined) {
   return value?.toLowerCase().includes("midjourney") ?? false;
 }
 
+function normalizeFolderIds(data: unknown) {
+  if (!data || typeof data !== "object") return [];
+  const input = data as { folderId?: unknown; folderIds?: unknown };
+  const values = [
+    ...(typeof input.folderId === "string" ? [input.folderId] : []),
+    ...(Array.isArray(input.folderIds) ? input.folderIds : []),
+  ];
+  const seen = new Set<string>();
+  const folderIds: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const folderId = value.trim();
+    if (!folderId || seen.has(folderId)) continue;
+    seen.add(folderId);
+    folderIds.push(folderId);
+  }
+  return folderIds;
+}
+
 // Auth note: validateExtensionToken enforces EXTENSION_API_TOKEN when set, and
 // fails OPEN (returns true) when it is unset. To actually protect this route,
 // set EXTENSION_API_TOKEN and have the extension send it (X-Extension-Token).
@@ -84,11 +106,10 @@ export async function POST(request: Request) {
     const promptText = typeof data.promptText === "string" ? data.promptText.trim() : undefined;
     const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : undefined;
     const modelName = typeof data.modelName === "string" ? data.modelName : undefined;
-    // Collection (stored as a `folders` row) the asset should be filed under.
-    const folderId =
-      typeof data.folderId === "string" && data.folderId.trim()
-        ? data.folderId.trim()
-        : undefined;
+    // Collections are owner-scoped `folders` rows. `folderId` remains the
+    // primary/back-compat field; `folderIds` can attach the asset to many.
+    const folderIds = normalizeFolderIds(data);
+    const folderId = folderIds[0];
 
     // Accept base64 file data (for CDNs that block server-side fetch, e.g. Midjourney)
     let file: { base64: string; contentType?: string; fileName?: string } | undefined;
@@ -200,6 +221,13 @@ export async function POST(request: Request) {
         modelName: effectiveModelName,
         ...(folderId ? { folderId } : {}),
       });
+      if (assetResult.assetId && folderIds.length > 1) {
+        await client.mutation(addAssetFoldersMutation, {
+          ownerUserId,
+          assetId: assetResult.assetId,
+          folderIds,
+        });
+      }
 
       return corsJson({
         ok: true,
@@ -226,6 +254,13 @@ export async function POST(request: Request) {
       ingestSource: "import",
       domain: sourceUrl || undefined,
     });
+    if (result.assetId && folderIds.length > 1) {
+      await client.mutation(addAssetFoldersMutation, {
+        ownerUserId,
+        assetId: result.assetId,
+        folderIds,
+      });
+    }
 
     return corsJson({ ok: true, result });
   } catch (error) {

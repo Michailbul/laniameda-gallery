@@ -178,8 +178,8 @@
 }
 
 .stg-mj-quick-save {
-  position: fixed;
-  z-index: 2147483647;
+  position: absolute;
+  z-index: 30;
   display: flex;
   align-items: stretch;
   overflow: visible;
@@ -195,6 +195,29 @@
   backdrop-filter: blur(16px) saturate(155%);
   -webkit-backdrop-filter: blur(16px) saturate(155%);
   pointer-events: auto;
+}
+
+.stg-mj-quick-save--hover-reveal {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    background 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+[data-stg-mj-host-prepared="1"]:hover > .stg-mj-quick-save--hover-reveal,
+.stg-mj-quick-save--hover-reveal:focus-within,
+.stg-mj-quick-save--hover-reveal.stg-mj-quick-save--menu-open,
+.stg-mj-quick-save--hover-reveal:has(.stg-badge--saving),
+.stg-mj-quick-save--hover-reveal:has(.stg-badge--saved),
+.stg-mj-quick-save--hover-reveal:has(.stg-badge--error) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .stg-mj-save-main,
@@ -331,6 +354,27 @@
   transform: translateY(-1px);
 }
 
+.stg-mj-menu__item--selected {
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 180, 0.16);
+}
+
+.stg-mj-menu__item--selected:hover {
+  background: rgba(225, 247, 244, 0.96);
+  border-color: rgba(46, 184, 180, 0.58);
+}
+
+.stg-mj-menu__item--create {
+  background: rgba(255, 238, 232, 0.84);
+  border-color: rgba(255, 122, 100, 0.32);
+}
+
+.stg-mj-menu__item--create:hover {
+  background: rgba(255, 226, 216, 0.96);
+  border-color: rgba(255, 122, 100, 0.58);
+}
+
 .stg-mj-menu__eyebrow {
   color: #8a7768;
   font-size: 9px;
@@ -349,6 +393,94 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.stg-mj-menu__new {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+
+.stg-mj-menu__new[hidden] {
+  display: none;
+}
+
+.stg-mj-menu__new-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #1a1410;
+  font-family: inherit;
+  font-size: 12px;
+  border: 1px solid rgba(26, 20, 16, 0.14);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.stg-mj-menu__new-input:focus {
+  outline: none;
+  border-color: rgba(255, 122, 100, 0.72);
+}
+
+.stg-mj-menu__new-input::placeholder {
+  color: #8a7768;
+}
+
+.stg-mj-menu__new-create {
+  width: 46px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.74);
+  color: #1a1410;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid rgba(26, 20, 16, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.stg-mj-menu__new-create:hover {
+  background: rgba(255, 238, 232, 0.94);
+  border-color: rgba(255, 122, 100, 0.56);
+  color: #ff7a64;
+}
+
+.stg-mj-menu__new-create:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.stg-mj-menu__footer {
+  grid-column: 1 / -1;
+  display: flex;
+  padding-top: 2px;
+}
+
+.stg-mj-menu__save {
+  width: 100%;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  background: rgba(26, 20, 16, 0.92);
+  color: #fffaf5;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid rgba(26, 20, 16, 0.18);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+
+.stg-mj-menu__save:hover {
+  background: rgba(255, 122, 100, 0.94);
+  border-color: rgba(255, 122, 100, 0.72);
+  transform: translateY(-1px);
 }
 
 .stg-badge--saving {
@@ -503,6 +635,17 @@
 .stg-collection-card--default {
   background: rgba(235, 249, 247, 0.86);
   border-color: rgba(46, 184, 180, 0.34);
+}
+
+.stg-collection-card--selected {
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 180, 0.18);
+}
+
+.stg-collection-card--selected:hover {
+  background: rgba(225, 247, 244, 0.96);
+  border-color: rgba(46, 184, 180, 0.60);
 }
 
 .stg-collection-card--loading {

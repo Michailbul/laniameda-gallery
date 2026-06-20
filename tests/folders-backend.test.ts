@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { createAsset, setAssetFolder } from "../convex/assets";
+import {
+  addAssetFolders,
+  createAsset,
+  listGalleryAssets,
+  setAssetFolder,
+  setAssetFolders,
+} from "../convex/assets";
 import { createFolder, deleteFolder, listFolders } from "../convex/folders";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
@@ -109,6 +115,84 @@ describe("folders backend", () => {
     ).rejects.toThrow("Folder does not belong to this user.");
   });
 
+  test("setAssetFolders allows one asset in multiple folders", async () => {
+    const folderA = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Editorial",
+    });
+    const folderB = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Reference",
+    });
+    const assetResult = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [],
+      sourceUrl: "https://example.com/image.png",
+    });
+
+    const result = await setAssetFolders._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      assetId: assetResult.assetId,
+      folderIds: [folderA.folderId, folderB.folderId, folderA.folderId],
+    });
+
+    expect(result.folderId).toBe(folderA.folderId);
+    expect(result.folderIds).toEqual([folderA.folderId, folderB.folderId]);
+
+    const links = harness.db.getTableDocs("assetFolders");
+    expect(links.length).toBe(2);
+
+    const folderBResults = await listGalleryAssets._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      folderId: folderB.folderId,
+      limit: 20,
+    });
+    expect(folderBResults.map((asset) => asset._id)).toEqual([
+      assetResult.assetId,
+    ]);
+    expect(folderBResults[0]?.folderIds).toEqual([
+      folderA.folderId,
+      folderB.folderId,
+    ]);
+  });
+
+  test("addAssetFolders appends folders without replacing existing links", async () => {
+    const folderA = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Editorial",
+    });
+    const folderB = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Reference",
+    });
+    const folderC = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Campaign",
+    });
+    const assetResult = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [],
+      folderId: folderA.folderId,
+      sourceUrl: "https://example.com/image.png",
+    });
+
+    const result = await addAssetFolders._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      assetId: assetResult.assetId,
+      folderIds: [folderB.folderId, folderC.folderId, folderB.folderId],
+    });
+
+    expect(result.folderId).toBe(folderA.folderId);
+    expect(result.folderIds).toEqual([
+      folderA.folderId,
+      folderB.folderId,
+      folderC.folderId,
+    ]);
+    expect(harness.db.getTableDocs("assetFolders").length).toBe(3);
+  });
+
   test("deleteFolder clears related asset and prompt references", async () => {
     const folder = await createFolder._handler(harness.ctx as never, {
       ownerUserId: "user-1",
@@ -147,5 +231,6 @@ describe("folders backend", () => {
 
     expect(asset?.folderId).toBeUndefined();
     expect(prompt?.folderId).toBeUndefined();
+    expect(harness.db.getTableDocs("assetFolders")).toEqual([]);
   });
 });

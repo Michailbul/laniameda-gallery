@@ -30,8 +30,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
 
-const NO_FOLDER_VALUE = "__none";
-
 interface CarouselImage {
   id: string;
   thumbSrc: string;
@@ -67,6 +65,7 @@ interface GalleryDetailPanelProps {
     fileName?: string;
     createdAt?: number;
     folderId?: string;
+    folderIds?: string[];
     isPublic?: boolean;
     isFeatured?: boolean;
     isDesignInspiration?: boolean;
@@ -99,9 +98,9 @@ interface GalleryDetailPanelProps {
   curationError?: string;
   folders?: Array<{ _id: string; name: string }>;
   canManageFolder?: boolean;
-  onSetFolder?: (
+  onSetFolders?: (
     imageId: string,
-    folderId: string | null,
+    folderIds: string[],
   ) => Promise<void> | void;
   onCreateFolder?: (name: string) => Promise<string | null>;
   folderBusy?: boolean;
@@ -178,7 +177,7 @@ export function GalleryDetailPanel({
   curationError,
   folders = [],
   canManageFolder = false,
-  onSetFolder,
+  onSetFolders,
   onCreateFolder,
   folderBusy = false,
   folderError,
@@ -220,6 +219,14 @@ export function GalleryDetailPanel({
   const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editFileName, setEditFileName] = useState("");
   const [editContentType, setEditContentType] = useState("");
+  const activeFolderIds = useMemo(
+    () => image.folderIds ?? (image.folderId ? [image.folderId] : []),
+    [image.folderId, image.folderIds],
+  );
+  const activeFolderIdSet = useMemo(
+    () => new Set(activeFolderIds),
+    [activeFolderIds],
+  );
   const [fullLoadedMap, setFullLoadedMap] = useState<
     Record<number, boolean>
   >({});
@@ -485,10 +492,17 @@ export function GalleryDetailPanel({
     setTimeout(() => setDownloadStarted(false), 1500);
   };
 
-  const handleFolderChange = (value: string) => {
-    if (!onSetFolder) return;
-    const nextFolderId = value === NO_FOLDER_VALUE ? null : value;
-    void onSetFolder(image.id, nextFolderId);
+  const handleFolderToggle = (folderId: string, checked: boolean) => {
+    if (!onSetFolders) return;
+    const nextFolderIds = checked
+      ? [...activeFolderIds, folderId]
+      : activeFolderIds.filter((id) => id !== folderId);
+    void onSetFolders(image.id, Array.from(new Set(nextFolderIds)));
+  };
+
+  const handleClearFolders = () => {
+    if (!onSetFolders || activeFolderIds.length === 0) return;
+    void onSetFolders(image.id, []);
   };
 
   const handleCreateFolder = async () => {
@@ -498,8 +512,11 @@ export function GalleryDetailPanel({
     setCreatingFolder(true);
     try {
       const folderId = await onCreateFolder(name);
-      if (folderId && onSetFolder) {
-        await onSetFolder(image.id, folderId);
+      if (folderId && onSetFolders) {
+        await onSetFolders(
+          image.id,
+          Array.from(new Set([...activeFolderIds, folderId])),
+        );
       }
       setFolderDraftName("");
     } finally {
@@ -1570,7 +1587,7 @@ export function GalleryDetailPanel({
                 </div>
               )}
 
-              {/* Folder */}
+              {/* Boards */}
               {canManageFolder && (
                 <div
                   className="pb-2.5"
@@ -1578,36 +1595,81 @@ export function GalleryDetailPanel({
                     borderBottom: "1px solid var(--lm-border)",
                   }}
                 >
-                  <SectionLabel>Collection</SectionLabel>
-                  <div className="mt-2">
-                    <select
-                      aria-label="Select collection"
-                      value={image.folderId ?? NO_FOLDER_VALUE}
-                      onChange={(event) =>
-                        handleFolderChange(event.target.value)
-                      }
-                      disabled={folderBusy}
-                      className="h-8 w-full px-2 outline-none disabled:opacity-60"
+                  <div className="flex items-center justify-between gap-2">
+                    <SectionLabel>Boards</SectionLabel>
+                    <button
+                      type="button"
+                      onClick={handleClearFolders}
+                      disabled={folderBusy || activeFolderIds.length === 0}
+                      className="disabled:opacity-40"
                       style={{
                         fontFamily: "var(--lm-font)",
-                        fontSize: "10px",
+                        fontSize: "9px",
+                        fontWeight: 800,
                         textTransform: "uppercase",
                         letterSpacing: "0.12em",
+                        color: "var(--lm-text-muted)",
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="mt-2">
+                    <div
+                      className="max-h-36 overflow-y-auto"
+                      style={{
                         border: "2px solid var(--lm-border-strong)",
                         backgroundColor: "var(--lm-surface-2)",
-                        color: "var(--lm-text-secondary)",
                         borderRadius: "var(--lm-radius)",
                       }}
                     >
-                      <option value={NO_FOLDER_VALUE}>
-                        NO COLLECTION
-                      </option>
-                      {folders.map((folder) => (
-                        <option key={folder._id} value={folder._id}>
-                          {folder.name}
-                        </option>
-                      ))}
-                    </select>
+                      {folders.length === 0 ? (
+                        <div
+                          className="px-2 py-2"
+                          style={{
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "10px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.10em",
+                            color: "var(--lm-text-muted)",
+                          }}
+                        >
+                          No boards
+                        </div>
+                      ) : (
+                        folders.map((folder) => (
+                          <label
+                            key={folder._id}
+                            className="flex h-8 cursor-pointer items-center gap-2 px-2"
+                            style={{
+                              borderBottom:
+                                "1px solid var(--lm-border)",
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "10px",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.10em",
+                              color: "var(--lm-text-secondary)",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={activeFolderIdSet.has(folder._id)}
+                              onChange={(event) =>
+                                handleFolderToggle(
+                                  folder._id,
+                                  event.target.checked,
+                                )
+                              }
+                              disabled={folderBusy}
+                              className="h-3.5 w-3.5"
+                            />
+                            <span className="min-w-0 truncate">
+                              {folder.name}
+                            </span>
+                          </label>
+                        ))
+                      )}
+                    </div>
                     {onCreateFolder && (
                       <div className="mt-2 flex items-center gap-1.5">
                         <input
@@ -1620,7 +1682,7 @@ export function GalleryDetailPanel({
                             event.preventDefault();
                             void handleCreateFolder();
                           }}
-                          placeholder="CREATE COLLECTION"
+                          placeholder="CREATE BOARD"
                           className="h-8 flex-1 px-2 outline-none"
                           style={{
                             fontFamily: "var(--lm-font)",

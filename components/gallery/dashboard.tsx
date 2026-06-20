@@ -71,6 +71,7 @@ type SelectedImage = {
   fileName?: string;
   createdAt?: number;
   folderId?: string;
+  folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
   isDesignInspiration?: boolean;
@@ -325,8 +326,8 @@ export function GalleryDashboard({
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
 
-  const setAssetFolderMutation = useMutation(
-    api.assets.setAssetFolder,
+  const setAssetFoldersMutation = useMutation(
+    api.assets.setAssetFolders,
   );
   const createFolderMutation = useMutation(
     api.folders.createFolder,
@@ -656,8 +657,8 @@ export function GalleryDashboard({
     [canAccessMyGallery, createFolderMutation, ownerUserId],
   );
 
-  const setAssetFolder = useCallback(
-    async (assetId: string, folderId: string | null) => {
+  const setAssetFolders = useCallback(
+    async (assetId: string, folderIds: string[]) => {
       if (!canAccessMyGallery) {
         setFolderError("Sign in to manage folders.");
         return;
@@ -667,19 +668,21 @@ export function GalleryDashboard({
       setFolderError(undefined);
       setFolderLoadingAssetId(assetId);
       try {
-        const result = await setAssetFolderMutation({
+        const result = await setAssetFoldersMutation({
           ownerUserId,
           assetId: assetId as Id<"assets">,
-          folderId: folderId
-            ? (folderId as Id<"folders">)
-            : undefined,
+          folderIds: Array.from(new Set(folderIds))
+            .filter((folderId) => folderId.trim().length > 0)
+            .map((folderId) => folderId as Id<"folders">),
         });
         const nextFolderId = result.folderId ?? undefined;
+        const nextFolderIds = (result.folderIds ?? []).map(String);
         setSelectedImage((current) =>
           current && current.id === assetId
             ? {
                 ...current,
                 folderId: nextFolderId,
+                folderIds: nextFolderIds,
               }
             : current,
         );
@@ -687,7 +690,7 @@ export function GalleryDashboard({
         if (
           galleryScope === "mine" &&
           selectedFolderId &&
-          nextFolderId !== selectedFolderId
+          !nextFolderIds.includes(selectedFolderId)
         ) {
           setSelectedImage((current) =>
             current?.id === assetId ? null : current,
@@ -711,7 +714,7 @@ export function GalleryDashboard({
       galleryScope,
       ownerUserId,
       selectedFolderId,
-      setAssetFolderMutation,
+      setAssetFoldersMutation,
     ],
   );
 
@@ -1156,7 +1159,8 @@ export function GalleryDashboard({
       if (
         galleryScope === "mine" &&
         effectiveSelectedFolderId &&
-        asset.folderId !== effectiveSelectedFolderId
+        !(asset.folderIds ?? (asset.folderId ? [asset.folderId] : []))
+          .includes(effectiveSelectedFolderId)
       ) {
         return false;
       }
@@ -1210,6 +1214,7 @@ export function GalleryDashboard({
           sourceUrl: entry.sourceUrl ?? undefined,
           createdAt: entry.createdAt,
           folderId: entry.folderId ?? undefined,
+          folderIds: entry.folderId ? [entry.folderId] : [],
           isPublic: false,
           isFeatured: false,
           initiallyLoaded: loadedImageIdsRef.current.has(entry._id),
@@ -1414,6 +1419,12 @@ export function GalleryDashboard({
           "designInspirationId" in entry ? entry.designInspirationId : undefined,
         createdAt: entry.createdAt,
         folderId: entry.folderId,
+        folderIds:
+          "folderIds" in entry
+            ? entry.folderIds
+            : entry.folderId
+              ? [entry.folderId]
+              : [],
         isPublic: entry.isPublic,
         isFeatured: entry.isFeatured,
         previewImages: entry.previewImages ?? [],
@@ -1788,9 +1799,9 @@ export function GalleryDashboard({
       : undefined,
     folders: folders ?? [],
     canManageFolder: canManageFoldersInCurrentView,
-    onSetFolder: canManageFoldersInCurrentView
-      ? (imageId: string, folderId: string | null) => {
-          void setAssetFolder(imageId, folderId);
+    onSetFolders: canManageFoldersInCurrentView
+      ? (imageId: string, folderIds: string[]) => {
+          void setAssetFolders(imageId, folderIds);
         }
       : undefined,
     onCreateFolder: canManageFoldersInCurrentView
