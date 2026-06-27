@@ -132,6 +132,13 @@ interface GalleryDetailPanelProps {
   editingAsset?: boolean;
   editError?: string;
   toast?: (title: string, message?: string, type?: "success" | "warning" | "info" | "default") => void;
+  /**
+   * Layout variant. "sidebar" (default) stacks the media above the details in
+   * a single narrow column. "modal" splits into a wide two-pane layout — large
+   * media on the left, scrollable details on the right — for the full-screen
+   * expanded view.
+   */
+  variant?: "sidebar" | "modal";
 }
 
 const ACTIONS = [
@@ -192,9 +199,11 @@ export function GalleryDetailPanel({
   editingAsset = false,
   editError,
   toast: externalToast,
+  variant = "sidebar",
 }: GalleryDetailPanelProps) {
   const coralCtx = useCoralToastSafe();
   const toastFn = externalToast ?? coralCtx?.toast ?? null;
+  const isModal = variant === "modal";
   const { modelName, tagNames } = image;
   const [activeTab, setActiveTab] = useState<DetailTab>("INFO");
   const [copied, setCopied] = useState(false);
@@ -558,7 +567,7 @@ export function GalleryDetailPanel({
     <div
       ref={panelRef}
       tabIndex={-1}
-      className="flex h-full flex-col lm-animate-slide-right"
+      className={`flex h-full flex-col ${isModal ? "" : "lm-animate-slide-right"}`}
       key={image.id}
       style={{ fontFamily: "var(--lm-font)" }}
     >
@@ -636,16 +645,30 @@ export function GalleryDetailPanel({
         </button>
       </div>
 
-      {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      {/* ── Body ── sidebar: single scrolling column. modal: media left / details right. */}
+      <div
+        className={
+          isModal
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
+            : "flex-1 overflow-y-auto overscroll-contain"
+        }
+      >
         {/* Image */}
         <div
-          className="relative overflow-hidden"
-          style={{
-            aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
-            border: "none",
-            borderBottom: "1px solid var(--lm-border)",
-          }}
+          className={
+            isModal
+              ? "relative flex min-h-0 items-center justify-center overflow-hidden bg-black md:flex-1"
+              : "relative overflow-hidden"
+          }
+          style={
+            isModal
+              ? { minHeight: "40vh" }
+              : {
+                  aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
+                  border: "none",
+                  borderBottom: "1px solid var(--lm-border)",
+                }
+          }
         >
           {isWebBookmark && designView?.sourceUrl ? (
             <>
@@ -736,8 +759,8 @@ export function GalleryDetailPanel({
                 src={currentSlide.thumbSrc}
                 alt={image.prompt}
                 fill
-                sizes="440px"
-                className="object-cover"
+                sizes={isModal ? "(max-width: 768px) 100vw, 60vw" : "440px"}
+                className={isModal ? "object-contain" : "object-cover"}
                 style={{ borderRadius: 0 }}
                 priority
                 unoptimized
@@ -746,8 +769,8 @@ export function GalleryDetailPanel({
                 src={currentSlide.fullSrc}
                 alt={image.prompt}
                 fill
-                sizes="440px"
-                className="object-cover transition-opacity"
+                sizes={isModal ? "(max-width: 768px) 100vw, 60vw" : "440px"}
+                className={`${isModal ? "object-contain" : "object-cover"} transition-opacity`}
                 style={{
                   borderRadius: 0,
                   opacity: currentFullLoaded ? 1 : 0,
@@ -846,6 +869,14 @@ export function GalleryDetailPanel({
             )}
         </div>
 
+        {/* ── Details ── right pane in modal, inline column in sidebar ── */}
+        <div
+          className={
+            isModal
+              ? "flex min-h-0 w-full flex-col overflow-y-auto overscroll-contain bg-[var(--lm-surface-1)] md:w-[400px] md:max-w-[42vw] md:shrink-0 md:border-l md:border-[var(--lm-border)]"
+              : "contents"
+          }
+        >
         {/* Quick metadata strip + actions */}
         <div
           className="flex flex-wrap items-center gap-1.5 px-3 py-2"
@@ -1915,6 +1946,7 @@ export function GalleryDetailPanel({
                 )}
             </div>
           )}
+        </div>
         </div>
       </div>
 

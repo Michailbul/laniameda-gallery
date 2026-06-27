@@ -232,52 +232,6 @@ export function GalleryDashboard({
       setUploadOpen(true);
     }
   }, [selectedPillar]);
-  const [detailPanelWidth, setDetailPanelWidth] = useState<number>(380);
-  const detailPanelResizing = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem("v8.detailPanelWidth");
-    const parsed = stored ? Number(stored) : NaN;
-    if (Number.isFinite(parsed) && parsed >= 320 && parsed <= 720) {
-      setDetailPanelWidth(parsed);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("v8.detailPanelWidth", String(detailPanelWidth));
-  }, [detailPanelWidth]);
-
-  const startDetailPanelResize = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      detailPanelResizing.current = {
-        startX: event.clientX,
-        startWidth: detailPanelWidth,
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const ctx = detailPanelResizing.current;
-        if (!ctx) return;
-        const delta = ctx.startX - moveEvent.clientX;
-        const next = Math.min(720, Math.max(320, ctx.startWidth + delta));
-        setDetailPanelWidth(next);
-      };
-      const onUp = () => {
-        detailPanelResizing.current = null;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [detailPanelWidth],
-  );
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceRunId, setWorkspaceRunId] = useState<string>();
   const [workspaceActionLabel, setWorkspaceActionLabel] =
@@ -1911,7 +1865,7 @@ export function GalleryDashboard({
   return (
     <CoralToastProvider
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
-      contentRight={selectedImage ? "380px" : "0"}
+      contentRight="0"
     >
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
@@ -2338,36 +2292,43 @@ export function GalleryDashboard({
             </main>
           </div>
 
-          {selectedImage && (
-            <aside
-              className="relative hidden shrink-0 overflow-y-auto overscroll-contain md:block"
-              style={{
-                width: `${detailPanelWidth}px`,
-                backgroundColor: "color-mix(in srgb, var(--lm-surface-1) 75%, transparent)",
-                backdropFilter: "blur(16px)",
-                WebkitBackdropFilter: "blur(16px)",
-              }}
-            >
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize gallery"
-                onMouseDown={startDetailPanelResize}
-                className="group/resizer absolute left-0 top-0 z-30 hidden h-full w-2 -translate-x-1/2 cursor-col-resize md:flex md:items-center md:justify-center"
-              >
-                <span
-                  className="h-12 w-[3px] rounded-full bg-[var(--lm-border-strong)] transition-colors duration-150 group-hover/resizer:bg-[var(--lm-coral)]"
-                />
-              </div>
-              <GalleryDetailPanel
-                image={selectedImage}
-                carouselImages={carouselImages}
-                {...expandedDetailProps}
-              />
-            </aside>
-          )}
         </div>
       </div>
+
+      {/* Desktop expanded view — full-screen modal (image left, details right) */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 z-[70] hidden md:flex"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Selected image details"
+        >
+          <div
+            className="absolute inset-0 animate-fade-in bg-black/80"
+            style={{
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+            }}
+            onClick={closeSelectedImage}
+            aria-hidden="true"
+          />
+          <div
+            className="relative z-10 m-auto h-[92vh] w-[94vw] max-w-[1500px] animate-fade-in overflow-hidden rounded-2xl"
+            style={{
+              backgroundColor: "var(--lm-surface-1)",
+              border: "1px solid var(--lm-border-strong)",
+              boxShadow: "var(--shadow-lg)",
+            }}
+          >
+            <GalleryDetailPanel
+              image={selectedImage}
+              carouselImages={carouselImages}
+              variant="modal"
+              {...expandedDetailProps}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Mobile detail sheet */}
       {selectedImage && (
@@ -2439,7 +2400,7 @@ export function GalleryDashboard({
             left: sidebarCollapsed
               ? "var(--lm-sidebar-collapsed)"
               : "var(--lm-sidebar-width)",
-            right: selectedImage ? `${detailPanelWidth}px` : "0",
+            right: "0",
             bottom: "104px",
             transition:
               "left var(--lm-duration-normal) ease-out, right var(--lm-duration-normal) ease-out",
@@ -2572,7 +2533,7 @@ export function GalleryDashboard({
           left: sidebarCollapsed
             ? "var(--lm-sidebar-collapsed)"
             : "var(--lm-sidebar-width)",
-          right: selectedImage ? "380px" : "0",
+          right: "0",
           transition:
             "left var(--lm-duration-normal) ease-out, right var(--lm-duration-normal) ease-out",
         }}
