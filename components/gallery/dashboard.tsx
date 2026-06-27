@@ -188,6 +188,7 @@ export function GalleryDashboard({
   const [selectedPillar, setSelectedPillar] =
     useState<Pillar | null>(null);
   const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
+  const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
@@ -961,6 +962,7 @@ export function GalleryDashboard({
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
           limit: 120,
         }
       : "skip",
@@ -976,6 +978,7 @@ export function GalleryDashboard({
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
           limit: 120,
         }
       : "skip",
@@ -1127,7 +1130,18 @@ export function GalleryDashboard({
     setSelectedFolderId(null);
     setSelectedModelName(null);
     setWorkflowsOnly(false);
+    setMediaKind(null);
   };
+  // Content-type filter: Image/Video (asset kind) and Workflows are mutually
+  // exclusive — picking one clears the others.
+  const handleMediaKindChange = useCallback((next: "image" | "video" | null) => {
+    setMediaKind(next);
+    if (next) setWorkflowsOnly(false);
+  }, []);
+  const handleWorkflowsOnlyChange = useCallback((next: boolean) => {
+    setWorkflowsOnly(next);
+    if (next) setMediaKind(null);
+  }, []);
   const clearSemanticMode = useCallback(() => {
     setAssetSearchQuery("");
     setDebouncedAssetSearchQuery("");
@@ -1166,6 +1180,9 @@ export function GalleryDashboard({
       if (selectedModelName && asset.modelName !== selectedModelName) {
         return false;
       }
+      if (mediaKind && asset.kind !== mediaKind) {
+        return false;
+      }
       if (selectedPillar && asset.pillar !== selectedPillar) {
         return false;
       }
@@ -1180,6 +1197,7 @@ export function GalleryDashboard({
   }, [
     effectiveSelectedFolderId,
     galleryScope,
+    mediaKind,
     selectedModelName,
     selectedPillar,
     selectedTagIds,
@@ -1328,11 +1346,13 @@ export function GalleryDashboard({
 
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
+    // When filtering by media kind (image/video), keep workflows out of the grid.
+    if (mediaKind) return baseImages;
     if (workflowEntries.length === 0) return baseImages;
     return [...workflowEntries, ...baseImages].sort(
       (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
     );
-  }, [workflowsOnly, workflowEntries, baseImages]);
+  }, [workflowsOnly, mediaKind, workflowEntries, baseImages]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -1960,7 +1980,9 @@ export function GalleryDashboard({
               onTagToggle={handleTagToggle}
               onClearAllTags={handleClearAll}
               workflowsOnly={workflowsOnly}
-              onWorkflowsOnlyChange={setWorkflowsOnly}
+              onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
+              mediaKind={mediaKind}
+              onMediaKindChange={handleMediaKindChange}
               sortOrder={sortOrder}
               onSortOrderChange={setSortOrder}
               viewMode={viewMode}
@@ -2295,31 +2317,26 @@ export function GalleryDashboard({
         </div>
       </div>
 
-      {/* Desktop expanded view — full-screen modal (image left, details right) */}
+      {/* Desktop expanded view — cardless: the image + details float directly
+          on the dark canvas, no modal window. */}
       {selectedImage && (
         <div
-          className="fixed inset-0 z-[70] hidden md:flex"
+          className="fixed inset-0 z-[70] hidden md:block"
           role="dialog"
           aria-modal="true"
           aria-label="Selected image details"
         >
           <div
-            className="absolute inset-0 animate-fade-in bg-black/80"
+            className="absolute inset-0 animate-fade-in"
             style={{
-              backdropFilter: "blur(6px)",
-              WebkitBackdropFilter: "blur(6px)",
+              backgroundColor: "rgba(8, 7, 6, 0.992)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
             }}
             onClick={closeSelectedImage}
             aria-hidden="true"
           />
-          <div
-            className="relative z-10 m-auto h-[92vh] w-[94vw] max-w-[1500px] animate-fade-in overflow-hidden rounded-2xl"
-            style={{
-              backgroundColor: "var(--lm-surface-1)",
-              border: "1px solid var(--lm-border-strong)",
-              boxShadow: "var(--shadow-lg)",
-            }}
-          >
+          <div className="relative z-10 h-full w-full animate-fade-in">
             <GalleryDetailPanel
               image={selectedImage}
               carouselImages={carouselImages}

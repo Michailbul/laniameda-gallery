@@ -497,12 +497,15 @@
   border-radius: 6px;
 }
 
-/* Mobile sheet — stroke + shadow */
-.lm-brutal > div[role="dialog"] > div:last-child {
-  border-top: 3px solid var(--lm-coral) !important;
-  box-shadow: 0 -4px 24px rgba(32,23,16,0.08) !important;
-  border-top-left-radius: 16px !important;
-  border-top-right-radius: 16px !important;
+/* Mobile sheet — stroke + shadow. Scoped to mobile so the desktop expanded
+   view (also role="dialog") doesn't pick up the coral top stroke. */
+@media (max-width: 767px) {
+  .lm-brutal > div[role="dialog"] > div:last-child {
+    border-top: 3px solid var(--lm-coral) !important;
+    box-shadow: 0 -4px 24px rgba(32,23,16,0.08) !important;
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════

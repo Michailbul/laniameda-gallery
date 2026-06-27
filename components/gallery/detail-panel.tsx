@@ -575,9 +575,9 @@ export function GalleryDetailPanel({
       <div
         className="flex items-center justify-between px-3"
         style={{
-          height: "40px",
+          height: "44px",
           backgroundColor: "transparent",
-          borderBottom: "1px solid var(--lm-border)",
+          borderBottom: isModal ? "none" : "1px solid var(--lm-border)",
           flexShrink: 0,
         }}
       >
@@ -653,16 +653,34 @@ export function GalleryDetailPanel({
             : "flex-1 overflow-y-auto overscroll-contain"
         }
       >
-        {/* Image */}
+        {/* Media stage — modal lets the image float free on the dark canvas.
+            Clicking the empty canvas around it closes the view. */}
         <div
           className={
             isModal
-              ? "relative flex min-h-0 items-center justify-center overflow-hidden bg-black md:flex-1"
+              ? "flex min-h-0 items-center justify-center p-6 md:flex-1 md:p-10"
+              : "contents"
+          }
+          onClick={isModal ? onClose : undefined}
+        >
+        {/* Image — boxless: shown in its native aspect ratio, no frame */}
+        <div
+          onClick={isModal ? (event) => event.stopPropagation() : undefined}
+          className={
+            isModal
+              ? "relative mx-auto overflow-hidden"
               : "relative overflow-hidden"
           }
           style={
             isModal
-              ? { minHeight: "40vh" }
+              ? {
+                  aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
+                  // Drive sizing off whichever axis is binding so the media keeps
+                  // its native aspect (fill images need one definite dimension).
+                  ...((currentSlide.width ?? 1) >= (currentSlide.height ?? 1)
+                    ? { width: "100%", maxHeight: "100%" }
+                    : { height: "100%", maxWidth: "100%" }),
+                }
               : {
                   aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
                   border: "none",
@@ -868,12 +886,13 @@ export function GalleryDetailPanel({
               </button>
             )}
         </div>
+        </div>
 
         {/* ── Details ── right pane in modal, inline column in sidebar ── */}
         <div
           className={
             isModal
-              ? "flex min-h-0 w-full flex-col overflow-y-auto overscroll-contain bg-[var(--lm-surface-1)] md:w-[400px] md:max-w-[42vw] md:shrink-0 md:border-l md:border-[var(--lm-border)]"
+              ? "flex min-h-0 w-full flex-col overflow-y-auto overscroll-contain md:w-[420px] md:max-w-[42vw] md:shrink-0"
               : "contents"
           }
         >

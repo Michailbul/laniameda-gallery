@@ -25,6 +25,9 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
 - Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
+- Midjourney's `/create` detail panel may not expose a stable `role="dialog"` or close-button signal. Extension save-widget suppression also checks visible detail-panel labels such as `Creation Actions` to avoid injecting save buttons across the dimmed background grid.
+- Midjourney direct job routes (`/jobs/<id>?index=...`) render the same detail-view surface as Create and must also suppress background grid save widgets.
+- Midjourney Create history is virtualized: rendered generation rows are absolutely positioned with inline `top`/`height` values, and only nearby rows exist in the DOM. Do not sort/reorder the feed; the extension's `Liked only` mode can only hide currently rendered unliked cards while preserving Midjourney's original spacing.
 - `bun run build` may fail due to Turbopack font download issues (Nunito Sans) on restricted networks — run from a network-accessible machine.
 - ESLint ignores `convex/_generated/**` — those are generated files; real lint signal comes from app code only.
 

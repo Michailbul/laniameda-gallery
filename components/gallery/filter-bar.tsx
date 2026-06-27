@@ -1,7 +1,18 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Grid3X3, Layers, Package, Search, Workflow, X } from "lucide-react";
+import {
+  Grid3X3,
+  Image as ImageIcon,
+  Layers,
+  Package,
+  Search,
+  Video,
+  Workflow,
+  X,
+} from "lucide-react";
+
+export type MediaKind = "image" | "video";
 
 export type SortOrder = "featured" | "newest" | "popular" | "largest";
 export type GalleryScope = "mine" | "public";
@@ -30,6 +41,8 @@ interface GalleryFilterBarProps {
   onClearAllTags: () => void;
   workflowsOnly: boolean;
   onWorkflowsOnlyChange: (next: boolean) => void;
+  mediaKind: MediaKind | null;
+  onMediaKindChange: (kind: MediaKind | null) => void;
   sortOrder: SortOrder;
   onSortOrderChange: (order: SortOrder) => void;
   viewMode?: ViewMode;
@@ -53,6 +66,8 @@ export function GalleryFilterBar({
   onClearAllTags,
   workflowsOnly,
   onWorkflowsOnlyChange,
+  mediaKind,
+  onMediaKindChange,
   sortOrder,
   onSortOrderChange,
   viewMode,
@@ -176,9 +191,11 @@ export function GalleryFilterBar({
               />
 
               <div className="hidden min-w-0 md:flex md:items-center md:gap-1">
-                <WorkflowsPill
-                  active={workflowsOnly}
-                  onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
+                <ContentTypePills
+                  mediaKind={mediaKind}
+                  onMediaKindChange={onMediaKindChange}
+                  workflowsOnly={workflowsOnly}
+                  onWorkflowsOnlyChange={onWorkflowsOnlyChange}
                 />
               </div>
             </div>
@@ -210,9 +227,11 @@ export function GalleryFilterBar({
           className="flex items-center gap-1 overflow-x-auto px-4 pb-2 md:hidden"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <WorkflowsPill
-            active={workflowsOnly}
-            onClick={() => onWorkflowsOnlyChange(!workflowsOnly)}
+          <ContentTypePills
+            mediaKind={mediaKind}
+            onMediaKindChange={onMediaKindChange}
+            workflowsOnly={workflowsOnly}
+            onWorkflowsOnlyChange={onWorkflowsOnlyChange}
           />
           <div
             style={{
@@ -638,43 +657,84 @@ function ScopePill({
   );
 }
 
-function WorkflowsPill({
-  active,
-  onClick,
+// Content-type filter — Image / Video (asset kind) and Workflows. Single-select:
+// clicking the active chip clears it back to "all".
+function ContentTypePills({
+  mediaKind,
+  onMediaKindChange,
+  workflowsOnly,
+  onWorkflowsOnlyChange,
 }: {
-  active: boolean;
-  onClick: () => void;
+  mediaKind: MediaKind | null;
+  onMediaKindChange: (kind: MediaKind | null) => void;
+  workflowsOnly: boolean;
+  onWorkflowsOnlyChange: (next: boolean) => void;
 }) {
+  const items: Array<{
+    key: string;
+    label: string;
+    icon: typeof Workflow;
+    active: boolean;
+    onClick: () => void;
+  }> = [
+    {
+      key: "image",
+      label: "Image",
+      icon: ImageIcon,
+      active: !workflowsOnly && mediaKind === "image",
+      onClick: () => onMediaKindChange(mediaKind === "image" ? null : "image"),
+    },
+    {
+      key: "video",
+      label: "Video",
+      icon: Video,
+      active: !workflowsOnly && mediaKind === "video",
+      onClick: () => onMediaKindChange(mediaKind === "video" ? null : "video"),
+    },
+    {
+      key: "workflows",
+      label: "Workflows",
+      icon: Workflow,
+      active: workflowsOnly,
+      onClick: () => onWorkflowsOnlyChange(!workflowsOnly),
+    },
+  ];
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1 transition-all"
-      style={{
-        padding: "4px 10px",
-        borderRadius: "12px",
-        background: active
-          ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
-          : "transparent",
-        color: active ? "#fff" : "var(--lm-text-ghost)",
-        fontSize: "9px",
-        fontWeight: active ? 900 : 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.14em",
-        border: active
-          ? "2px solid transparent"
-          : "2px solid var(--lm-border-strong)",
-        boxShadow: active ? "0 0 12px rgba(255, 122, 100, 0.35)" : "none",
-        cursor: "pointer",
-        fontFamily: "var(--lm-font)",
-        whiteSpace: "nowrap",
-        flexShrink: 0,
-      }}
-      title={active ? "Showing workflows only" : "Show workflows only"}
-    >
-      <Workflow className="h-3 w-3" />
-      Workflows
-    </button>
+    <div className="flex items-center gap-1">
+      {items.map(({ key, label, icon: Icon, active, onClick }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={onClick}
+          className="flex items-center gap-1 transition-all"
+          style={{
+            padding: "4px 10px",
+            borderRadius: "12px",
+            background: active
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
+              : "transparent",
+            color: active ? "#fff" : "var(--lm-text-ghost)",
+            fontSize: "9px",
+            fontWeight: active ? 900 : 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.14em",
+            border: active
+              ? "2px solid transparent"
+              : "2px solid var(--lm-border-strong)",
+            boxShadow: active ? "0 0 12px rgba(255, 122, 100, 0.35)" : "none",
+            cursor: "pointer",
+            fontFamily: "var(--lm-font)",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+          title={active ? `Showing ${label.toLowerCase()} only` : `Show ${label.toLowerCase()} only`}
+        >
+          <Icon className="h-3 w-3" />
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
