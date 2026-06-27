@@ -9,6 +9,7 @@ type MidjourneyAdapterApi = {
     el: unknown,
     options?: { badgeAttr?: string },
   ) => boolean;
+  isLikedGenerationElement: (el: unknown) => boolean;
   reconstructPrompt: (job: unknown) => string | null;
 };
 
@@ -116,5 +117,46 @@ describe("Midjourney extension adapter", () => {
     expect(api.reconstructPrompt(job)).toBe(
       "cinematic portrait peach studio light::1.25 --ar 2:3 --stylize 150 --v 6.1",
     );
+  });
+
+  test("detects liked generations from Midjourney like controls", () => {
+    const api = getApi();
+    const likedCard = {
+      querySelectorAll: () => [
+        {
+          textContent: "",
+          getAttribute: (name: string) => name === "title" ? "Unlike Image (L)" : "",
+        },
+      ],
+    };
+    const unlikedCard = {
+      querySelectorAll: () => [
+        {
+          textContent: "",
+          getAttribute: (name: string) => name === "title" ? "Like Image (L)" : "",
+        },
+      ],
+    };
+
+    expect(api.isLikedGenerationElement(likedCard)).toBe(true);
+    expect(api.isLikedGenerationElement(unlikedCard)).toBe(false);
+  });
+
+  test("falls back to React job liked state", () => {
+    const api = getApi();
+    const el = {
+      parentElement: null,
+      querySelectorAll: () => [],
+      "__reactFiber$test": {
+        memoizedProps: {
+          job: {
+            prompt: { decodedPrompt: "portrait" },
+            isLiked: true,
+          },
+        },
+      },
+    };
+
+    expect(api.isLikedGenerationElement(el)).toBe(true);
   });
 });

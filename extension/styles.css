@@ -809,6 +809,18 @@
   bottom: auto;
 }
 
+/* Floating: lifted out of the image's (possibly tiny / overflow-clipped)
+   container and pinned to the viewport via JS-computed left/top, so the
+   collection picker renders in full no matter how small the thumbnail is. */
+.stg-popover--floating {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .stg-popover__title--error {
   color: #c62828;
 }
@@ -853,6 +865,74 @@
 
 .stg-popover__copy:hover {
   background: #a31e1e;
+}
+
+/* ── Midjourney liked navigation ── */
+
+.stg-mj-liked-nav {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 10px;
+  background: rgba(250, 246, 241, 0.90);
+  color: #1a1410;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid rgba(26, 20, 16, 0.14);
+  border-radius: 999px;
+  box-shadow:
+    0 16px 40px rgba(13, 13, 13, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  cursor: pointer;
+  backdrop-filter: blur(16px) saturate(155%);
+  -webkit-backdrop-filter: blur(16px) saturate(155%);
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    color 0.14s ease,
+    transform 0.14s ease;
+}
+
+.stg-mj-liked-nav:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 238, 232, 0.96);
+  border-color: rgba(255, 122, 100, 0.48);
+}
+
+.stg-mj-liked-nav--active {
+  background: rgba(255, 122, 100, 0.94);
+  color: #fffaf5;
+  border-color: rgba(255, 238, 232, 0.92);
+}
+
+.stg-mj-liked-nav__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.stg-mj-liked-nav__count {
+  padding: 3px 6px;
+  background: rgba(26, 20, 16, 0.08);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.stg-mj-liked-nav--active .stg-mj-liked-nav__count {
+  background: rgba(255, 250, 245, 0.22);
+}
+
+[data-stg-mj-liked-filter-hidden="1"] {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* ── Wrapper for positioning ── */

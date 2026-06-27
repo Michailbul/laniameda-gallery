@@ -24,6 +24,54 @@
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
+  function getExtensionRuntime() {
+    const runtime = globalThis.chrome?.runtime;
+    return runtime && typeof runtime.sendMessage === "function" ? runtime : null;
+  }
+
+  function getExtensionStorageSync() {
+    const storage = globalThis.chrome?.storage?.sync;
+    return storage && typeof storage.get === "function" ? storage : null;
+  }
+
+  function createExtensionRuntimeUnavailableError(action) {
+    const err = new Error(
+      "Extension runtime is unavailable. Reload this page after updating or reloading Save to Gallery, then try again.",
+    );
+    err.action = action;
+    err.extensionRuntimeUnavailable = true;
+    return err;
+  }
+
+  async function sendRuntimeMessage(message) {
+    const runtime = getExtensionRuntime();
+    if (!runtime) {
+      throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
+    }
+    return runtime.sendMessage(message);
+  }
+
+  async function getStorageSync(keys) {
+    const storage = getExtensionStorageSync();
+    if (!storage) return {};
+    return storage.get(keys);
+  }
+
+  function setStorageSync(values) {
+    const storage = getExtensionStorageSync();
+    if (!storage || typeof storage.set !== "function") return;
+    try {
+      const result = storage.set(values);
+      if (result && typeof result.catch === "function") {
+        result.catch((err) => {
+          console.warn("[Save to Gallery] Could not persist extension storage:", err);
+        });
+      }
+    } catch (err) {
+      console.warn("[Save to Gallery] Could not persist extension storage:", err);
+    }
+  }
+
   let extensionEnabled = false;
   let configLoaded = false;
   let foldersCache = null;
@@ -39,6 +87,7 @@
   const MJ_GRID_THUMB_SELECTOR = 'a[href*="/jobs/"]';
   const MJ_GRID_BADGE_ATTR = "data-stg-mj-badge";
   const MJ_MEDIA_BADGE_ATTR = "data-stg-mj-media-badge";
+  const MJ_LIKED_FILTER_HIDDEN_ATTR = "data-stg-mj-liked-filter-hidden";
   const MJ_MEDIA_SELECTOR = [
     'img[src*="cdn.midjourney.com"]',
     'img[srcset*="cdn.midjourney.com"]',
@@ -54,6 +103,7 @@
     ".stg-badge",
     ".stg-popover",
     ".stg-context-toast",
+    ".stg-mj-liked-nav",
     ".stg-mj-quick-save",
   ].join(",");
   const PAGE_CONTROL_SELECTOR = [
@@ -234,7 +284,7 @@
   // Recraft, etc.) whose CDN images a server-side refetch can't read.
   async function requestImageBytes(url) {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage({
         action: "fetchImageBytes",
         imageUrl: url,
       });
@@ -499,9 +549,61 @@
     return true;
   }
 
+  // Pin a popover to the viewport (position: fixed) anchored to the badge.
+  // Used so the save/collection popover is never clipped by a small thumbnail's
+  // container bounds. Prefers opening above the badge with right edges aligned,
+  // flips below when there isn't room, and clamps to the viewport on all sides.
+  function positionFloatingPopover(popover, anchor) {
+    if (!popover || !anchor) return;
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const rect = anchor.getBoundingClientRect();
+    const width = popover.offsetWidth || 278;
+    const height = popover.offsetHeight || 0;
+
+    // Right-align the popover with the badge (matches the old bottom-right anchor).
+    let left = rect.right - width;
+    // Prefer above the badge; flip below if it would overflow the top.
+    let top = rect.top - height - margin;
+    if (top < margin) {
+      const below = rect.bottom + margin;
+      // Use whichever side leaves the popover most on-screen.
+      top = below + height + margin <= vh ? below : margin;
+    }
+
+    left = Math.max(margin, Math.min(left, vw - width - margin));
+    top = Math.max(margin, Math.min(top, vh - height - margin));
+
+    popover.style.left = `${Math.round(left)}px`;
+    popover.style.top = `${Math.round(top)}px`;
+  }
+
+  // Mount a popover as a viewport-fixed layer on <body> (escaping the image
+  // container) and keep it anchored to the badge while it's open. Returns a
+  // teardown that removes the scroll/resize listeners.
+  function mountFloatingPopover(popover, anchor) {
+    popover.classList.add("stg-popover--floating");
+    document.body.appendChild(popover);
+
+    const reposition = () => positionFloatingPopover(popover, anchor);
+    reposition();
+    requestAnimationFrame(() => {
+      reposition();
+      popover.classList.add("stg-popover--visible");
+    });
+
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    popover.__stgCleanupFloating = () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }
+
   async function readSavedFolderIds() {
     try {
-      const cfg = await chrome.storage.sync.get([
+      const cfg = await getStorageSync([
         DEFAULT_FOLDER_ID_KEY,
         LAST_FOLDER_ID_KEY,
       ]);
@@ -575,7 +677,7 @@
 
   async function loadFolders() {
     try {
-      const response = await chrome.runtime.sendMessage({ action: "getFolders" });
+      const response = await sendRuntimeMessage({ action: "getFolders" });
       if (response?.ok) {
         return normalizeFolders(response.folders);
       }
@@ -602,7 +704,7 @@
 
   async function createFolderRemote(name) {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage({
         action: "createFolder",
         name,
       });
@@ -698,7 +800,7 @@
       const normalizedFolderIds = normalizeFolderIdList(selectedFolderIds);
       const normalizedFolderId = normalizedFolderIds[0] || "";
       if (remember) {
-        chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: normalizedFolderId });
+        setStorageSync({ [LAST_FOLDER_ID_KEY]: normalizedFolderId });
       }
       onSubmit({
         promptText: prompt,
@@ -939,13 +1041,13 @@
 
   function showErrorPopover(badge, message, opts = {}) {
     const { topRight = false } = opts;
-    const container = badge.parentElement;
-    if (!container) return;
+    if (!badge.isConnected) return;
 
     badge.classList.remove("stg-badge--visible");
 
     const popover = createErrorPopover(message, () => {
       popover.classList.remove("stg-popover--visible");
+      popover.__stgCleanupFloating?.();
       setTimeout(() => {
         popover.remove();
         if (badge.classList.contains("stg-mj-save-main")) {
@@ -956,10 +1058,8 @@
         }
       }, 150);
     });
-    if (topRight) popover.classList.add("stg-popover--top-right");
 
-    container.appendChild(popover);
-    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+    mountFloatingPopover(popover, badge);
   }
 
   function showContextToast(kind, message) {
@@ -1011,7 +1111,7 @@
     try {
       let response;
       try {
-        response = await chrome.runtime.sendMessage({
+        response = await sendRuntimeMessage({
           action: "saveImage",
           imageUrl,
           sourceUrl: location.href,
@@ -1056,8 +1156,7 @@
 
   function showSavePopover(badge, saveContext, opts = {}) {
     const { topRight = false } = opts;
-    const container = badge.parentElement;
-    if (!container) return;
+    if (!badge.isConnected) return;
 
     badge.classList.remove("stg-badge--visible");
 
@@ -1081,6 +1180,7 @@
       },
       () => {
         popover.classList.remove("stg-popover--visible");
+        popover.__stgCleanupFloating?.();
         setTimeout(() => {
           popover.remove();
           if (!badge.classList.contains("stg-badge--saved") &&
@@ -1099,9 +1199,7 @@
       },
     );
 
-    if (topRight) popover.classList.add("stg-popover--top-right");
-    container.appendChild(popover);
-    requestAnimationFrame(() => popover.classList.add("stg-popover--visible"));
+    mountFloatingPopover(popover, badge);
   }
 
   async function handleSave(img, badge) {
@@ -1182,7 +1280,7 @@
 
     let response;
     try {
-      response = await chrome.runtime.sendMessage({
+      response = await sendRuntimeMessage({
         action: "saveImage",
         imageUrl,
         sourceUrl,
@@ -1218,7 +1316,9 @@
     hideBadge();
     hideMjGridBadge();
 
-    for (const node of document.querySelectorAll(".stg-badge, .stg-popover, .stg-mj-quick-save")) {
+    for (const node of document.querySelectorAll(
+      ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save",
+    )) {
       node.remove();
     }
 
@@ -1241,6 +1341,8 @@
       delete host.dataset.stgMjHostPrepared;
       delete host.dataset.stgMjHostPositioned;
     }
+
+    clearMidjourneyLikedNavigation();
   }
 
   function setExtensionEnabled(nextEnabled) {
@@ -1260,12 +1362,17 @@
       onComplete?.(false);
       return;
     }
-    chrome.storage.sync.get([DISABLED_HOSTS_KEY], (cfg) => {
+    void getStorageSync([DISABLED_HOSTS_KEY]).then((cfg) => {
       const disabledHosts = normalizeDisabledHosts(cfg[DISABLED_HOSTS_KEY]);
       const enabled = !isHostDisabled(disabledHosts, currentHost);
       setExtensionEnabled(enabled);
       configLoaded = true;
       onComplete?.(enabled);
+    }).catch((err) => {
+      console.warn("[Save to Gallery] Could not read site state:", err);
+      setExtensionEnabled(false);
+      configLoaded = true;
+      onComplete?.(false);
     });
   }
 
@@ -1420,6 +1527,8 @@
 
   let midjourneyObserver = null;
   let midjourneyScanTimer = null;
+  let midjourneyLikedNavControl = null;
+  let midjourneyLikedOnlyEnabled = false;
 
   function isMidjourneyTeachPage() {
     return location.pathname.includes("/personalize/") &&
@@ -1428,6 +1537,18 @@
 
   function isMidjourneyImaginePage() {
     return location.pathname.includes("/imagine") || location.pathname.includes("/create");
+  }
+
+  function isMidjourneyJobPage() {
+    return /^\/jobs\//.test(location.pathname);
+  }
+
+  function isMidjourneyCreateExperiencePage() {
+    return isMidjourneyImaginePage() || isMidjourneyJobPage();
+  }
+
+  function isMidjourneyLikedNavEligiblePage() {
+    return isMidjourneyPage() && isMidjourneyImaginePage();
   }
 
   function isLikelyCloseControl(element) {
@@ -1464,10 +1585,20 @@
       });
   }
 
+  function hasVisibleMidjourneyCreateDetailPanel() {
+    const bodyText = document.body?.innerText || "";
+    if (!bodyText.includes("Creation Actions")) return false;
+
+    return bodyText.includes("Help us improve") ||
+      (bodyText.includes("Vary") && bodyText.includes("Remix") && bodyText.includes("Use"));
+  }
+
   function isMidjourneyFullSizeViewerOpen() {
-    if (!isMidjourneyPage() || !isMidjourneyImaginePage()) return false;
-    if (!hasVisibleMidjourneyViewerCloseControl()) return false;
+    if (!isMidjourneyPage() || !isMidjourneyCreateExperiencePage()) return false;
+    if (isMidjourneyJobPage()) return true;
     if (document.querySelector('[aria-modal="true"], [role="dialog"]')) return true;
+    if (hasVisibleMidjourneyCreateDetailPanel()) return true;
+    if (!hasVisibleMidjourneyViewerCloseControl()) return false;
     return hasLargeVisibleMidjourneyMedia();
   }
 
@@ -1577,6 +1708,188 @@
     }
 
     return target;
+  }
+
+  function getMidjourneyGenerationCard(target) {
+    if (!target || target.closest?.(EXTENSION_UI_SELECTOR)) return null;
+
+    const link = target.matches?.(MJ_GRID_THUMB_SELECTOR)
+      ? target
+      : target.closest?.(MJ_GRID_THUMB_SELECTOR);
+    if (link?.parentElement) return link.parentElement;
+
+    const host = getMidjourneyWidgetHost(target);
+    if (!host || host.closest?.(EXTENSION_UI_SELECTOR)) return null;
+    return host;
+  }
+
+  function getMidjourneyGenerationRowRoot(target, card) {
+    if (!target || !card) return card;
+
+    let virtualRow = card.parentElement;
+    for (let depth = 0; depth < 8 && virtualRow && virtualRow !== document.body; depth++, virtualRow = virtualRow.parentElement) {
+      const styleTop = virtualRow.style?.top || "";
+      const styleHeight = virtualRow.style?.height || "";
+      const className = String(virtualRow.className || "");
+      if (
+        className.includes("absolute") &&
+        className.includes("grid") &&
+        /\d+px/.test(styleTop) &&
+        /\d+px/.test(styleHeight)
+      ) {
+        return virtualRow;
+      }
+    }
+
+    const cardRect = typeof card.getBoundingClientRect === "function"
+      ? card.getBoundingClientRect()
+      : null;
+    const minRowWidth = Math.max(320, (cardRect?.width || 0) * 1.25);
+    const maxReasonableHeight = Math.max(360, (cardRect?.height || 0) * 2.8);
+
+    let node = card.parentElement;
+    for (let depth = 0; depth < 8 && node && node !== document.body; depth++, node = node.parentElement) {
+      if (node.closest?.(EXTENSION_UI_SELECTOR)) break;
+      if (!node.contains(card)) continue;
+
+      const text = (node.innerText || node.textContent || "").trim();
+      if (!text) continue;
+
+      const hasMidjourneyHistoryText =
+        /\b(variation|upscale|rerun|remix|vary|chaos|stylize|profile|preview|draft)\b/i.test(text) ||
+        /\bar\s*\d+\s*:\s*\d+/i.test(text);
+      if (!hasMidjourneyHistoryText) continue;
+
+      const rect = typeof node.getBoundingClientRect === "function"
+        ? node.getBoundingClientRect()
+        : null;
+      if (!rect || rect.width < minRowWidth) continue;
+      if (rect.height > maxReasonableHeight && rect.height > window.innerHeight * 0.65) continue;
+
+      return node;
+    }
+
+    return card;
+  }
+
+  function getMidjourneyGenerationItems() {
+    const seenCards = new Set();
+    const items = [];
+    for (const target of document.querySelectorAll(MJ_MEDIA_SELECTOR)) {
+      const card = getMidjourneyGenerationCard(target);
+      if (!card || card.closest?.(EXTENSION_UI_SELECTOR) || seenCards.has(card)) continue;
+      seenCards.add(card);
+      items.push({
+        card,
+        row: getMidjourneyGenerationRowRoot(target, card),
+      });
+    }
+    return items;
+  }
+
+  function isMidjourneyGenerationLiked(card) {
+    if (midjourneyAdapter?.isLikedGenerationElement) {
+      return midjourneyAdapter.isLikedGenerationElement(card);
+    }
+
+    return Array.from(card.querySelectorAll('button, [role="button"], [title], [aria-label]'))
+      .some((control) => {
+        const label = [
+          control.getAttribute?.("title"),
+          control.getAttribute?.("aria-label"),
+          control.textContent,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return /\bunlike(?:\s+image)?\b/.test(label);
+      });
+  }
+
+  function clearMidjourneyLikedNavigation() {
+    clearMidjourneyLikedHiddenCards();
+    if (midjourneyLikedNavControl) {
+      midjourneyLikedNavControl.remove();
+      midjourneyLikedNavControl = null;
+    }
+  }
+
+  function updateMidjourneyLikedNavControl(totalCount, likedCount, statusText) {
+    if (!midjourneyLikedNavControl) return;
+    const status = midjourneyLikedNavControl.querySelector(".stg-mj-liked-nav__count");
+    if (status) status.textContent = statusText || `${likedCount}/${totalCount} visible`;
+    midjourneyLikedNavControl.classList.toggle("stg-mj-liked-nav--active", midjourneyLikedOnlyEnabled);
+    midjourneyLikedNavControl.setAttribute("aria-pressed", midjourneyLikedOnlyEnabled ? "true" : "false");
+    midjourneyLikedNavControl.title = midjourneyLikedOnlyEnabled
+      ? "Show all visible Midjourney generations"
+      : "Hide unliked visible Midjourney generations";
+  }
+
+  function clearMidjourneyLikedHiddenCards() {
+    for (const node of document.querySelectorAll(`[${MJ_LIKED_FILTER_HIDDEN_ATTR}]`)) {
+      node.removeAttribute(MJ_LIKED_FILTER_HIDDEN_ATTR);
+    }
+  }
+
+  function applyMidjourneyLikedOnlyFilter(items) {
+    if (!midjourneyLikedOnlyEnabled) {
+      clearMidjourneyLikedHiddenCards();
+      return;
+    }
+
+    const visibleItems = items || getMidjourneyGenerationItems();
+    for (const { card } of visibleItems) {
+      if (isMidjourneyGenerationLiked(card)) {
+        card.removeAttribute(MJ_LIKED_FILTER_HIDDEN_ATTR);
+      } else {
+        card.setAttribute(MJ_LIKED_FILTER_HIDDEN_ATTR, "1");
+      }
+    }
+  }
+
+  function ensureMidjourneyLikedNavControl() {
+    if (!isMidjourneyLikedNavEligiblePage() || !extensionEnabled) {
+      clearMidjourneyLikedNavigation();
+      return null;
+    }
+    if (midjourneyLikedNavControl && document.contains(midjourneyLikedNavControl)) {
+      return midjourneyLikedNavControl;
+    }
+
+    const control = document.createElement("button");
+    control.className = "stg-mj-liked-nav";
+    control.type = "button";
+    control.setAttribute("aria-label", "Show only liked Midjourney generations");
+    control.setAttribute("aria-pressed", "false");
+    control.innerHTML = `
+      <span class="stg-mj-liked-nav__icon">&hearts;</span>
+      <span class="stg-mj-liked-nav__label">Liked only</span>
+      <span class="stg-mj-liked-nav__count">0 visible</span>
+    `;
+    control.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      midjourneyLikedOnlyEnabled = !midjourneyLikedOnlyEnabled;
+      updateMidjourneyLikedNavigation();
+    }, true);
+    bindExtensionUiEventShield(control);
+    document.body.appendChild(control);
+    midjourneyLikedNavControl = control;
+    return control;
+  }
+
+  function updateMidjourneyLikedNavigation(statusText) {
+    if (!isMidjourneyLikedNavEligiblePage() || !extensionEnabled) {
+      clearMidjourneyLikedNavigation();
+      return;
+    }
+
+    ensureMidjourneyLikedNavControl();
+    const items = getMidjourneyGenerationItems();
+    const likedCount = items.filter(({ card }) => isMidjourneyGenerationLiked(card)).length;
+    applyMidjourneyLikedOnlyFilter(items);
+    updateMidjourneyLikedNavControl(items.length, likedCount, statusText);
   }
 
   function prepareMidjourneyWidgetHost(host) {
@@ -1976,7 +2289,7 @@
       }
 
       const selectedFolderIds = getMidjourneyMenuSelection(menu);
-      chrome.storage.sync.set({ [LAST_FOLDER_ID_KEY]: selectedFolderIds[0] || "" });
+      setStorageSync({ [LAST_FOLDER_ID_KEY]: selectedFolderIds[0] || "" });
       closeMidjourneyCollectionMenu(widget);
       void handleSaveMidjourneyMedia(target, mainButton, selectedFolderIds)
         .finally(() => {
@@ -2022,6 +2335,7 @@
       injectMidjourneyMediaBadge(candidate);
     }
     updateMidjourneyWidgetPositions();
+    updateMidjourneyLikedNavigation();
   }
 
   function scheduleMidjourneyMediaScan(delay = 80) {
@@ -2048,7 +2362,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["class", "src", "srcset", "style", "poster"],
+      attributeFilter: ["aria-label", "aria-pressed", "class", "poster", "src", "srcset", "style", "title"],
     });
     window.addEventListener("resize", updateMidjourneyWidgetPositions, {
       passive: true,
@@ -2176,39 +2490,45 @@
     }, 200);
   }, { passive: true });
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.action === "setSiteEnabled") {
-      setExtensionEnabled(Boolean(message.enabled));
-      configLoaded = true;
-      sendResponse({ ok: true });
-      return false;
-    }
+  const runtimeMessageApi = globalThis.chrome?.runtime?.onMessage;
+  if (runtimeMessageApi && typeof runtimeMessageApi.addListener === "function") {
+    runtimeMessageApi.addListener((message, _sender, sendResponse) => {
+      if (message?.action === "setSiteEnabled") {
+        setExtensionEnabled(Boolean(message.enabled));
+        configLoaded = true;
+        sendResponse({ ok: true });
+        return false;
+      }
 
-    if (message?.action === "saveImageFromContextMenu") {
-      handleContextMenuImageSave(message)
-        .then(sendResponse)
-        .catch((err) => {
-          sendResponse({
-            handled: true,
-            ok: false,
-            error: err?.message || "Save failed.",
+      if (message?.action === "saveImageFromContextMenu") {
+        handleContextMenuImageSave(message)
+          .then(sendResponse)
+          .catch((err) => {
+            sendResponse({
+              handled: true,
+              ok: false,
+              error: err?.message || "Save failed.",
+            });
           });
-        });
-      return true;
-    }
-  });
+        return true;
+      }
+    });
+  }
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync" || !changes[DISABLED_HOSTS_KEY]) {
-      return;
-    }
+  const storageChangeApi = globalThis.chrome?.storage?.onChanged;
+  if (storageChangeApi && typeof storageChangeApi.addListener === "function") {
+    storageChangeApi.addListener((changes, areaName) => {
+      if (areaName !== "sync" || !changes[DISABLED_HOSTS_KEY]) {
+        return;
+      }
 
-    const disabledHosts = normalizeDisabledHosts(
-      changes[DISABLED_HOSTS_KEY].newValue,
-    );
-    setExtensionEnabled(!isHostDisabled(disabledHosts, currentHost));
-    configLoaded = true;
-  });
+      const disabledHosts = normalizeDisabledHosts(
+        changes[DISABLED_HOSTS_KEY].newValue,
+      );
+      setExtensionEnabled(!isHostDisabled(disabledHosts, currentHost));
+      configLoaded = true;
+    });
+  }
 
   syncSiteStateFromStorage();
   startMidjourneyMediaObserver();

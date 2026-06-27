@@ -272,6 +272,80 @@
     return null;
   }
 
+  const LIKED_STATE_KEYS = new Set([
+    "liked",
+    "isliked",
+    "hasliked",
+    "userliked",
+    "likedbycurrentuser",
+    "islikedbycurrentuser",
+    "favorited",
+    "favorite",
+    "isfavorite",
+    "isfavorited",
+  ]);
+
+  function normalizeStateKey(key) {
+    return String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function readLikedStateFromValue(value, seen = new WeakSet(), depth = 0) {
+    if (!value || typeof value !== "object" || depth > 4) return null;
+    if (seen.has(value)) return null;
+    seen.add(value);
+
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child === "boolean" && LIKED_STATE_KEYS.has(normalizeStateKey(key))) {
+        return child;
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      if (!child || typeof child !== "object") continue;
+      const nested = readLikedStateFromValue(child, seen, depth + 1);
+      if (nested !== null) return nested;
+    }
+
+    return null;
+  }
+
+  function getControlLabel(control) {
+    return [
+      control?.getAttribute?.("title"),
+      control?.getAttribute?.("aria-label"),
+      control?.textContent,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+      .toLowerCase();
+  }
+
+  function readLikedStateFromDom(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return null;
+
+    const controls = root.querySelectorAll(
+      'button, [role="button"], [title], [aria-label]',
+    );
+    for (const control of controls) {
+      const label = getControlLabel(control);
+      if (!label) continue;
+      if (/\bunlike(?:\s+image)?\b/.test(label)) return true;
+      if (/\blike(?:\s+image)?\b/.test(label)) return false;
+    }
+
+    return null;
+  }
+
+  function isLikedGenerationElement(el) {
+    const domState = readLikedStateFromDom(el);
+    if (domState !== null) return domState;
+
+    const job = findJobObject(el);
+    const jobState = readLikedStateFromValue(job);
+    return jobState === true;
+  }
+
   function formatPromptPart(part) {
     if (!part) return "";
     if (typeof part === "string") return part.trim();
@@ -345,6 +419,7 @@
     getMediaUrl,
     getRenderedSize,
     isMidjourneyMediaUrl,
+    isLikedGenerationElement,
     isQualifiedMediaElement,
     reconstructPrompt,
   };
