@@ -33,6 +33,7 @@ interface User {
 interface Folder {
   _id: string;
   name: string;
+  count?: number;
 }
 
 type GalleryScope = "mine" | "public";
@@ -280,6 +281,7 @@ export function GallerySidebar({
                   <FilterRow
                     key={folder._id}
                     label={folder.name}
+                    count={folder.count}
                     active={selectedFolderId === folder._id}
                     onClick={() =>
                       onFolderSelect(

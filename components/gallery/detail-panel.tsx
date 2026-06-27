@@ -1587,7 +1587,8 @@ export function GalleryDetailPanel({
                 </div>
               )}
 
-              {/* Boards */}
+              {/* Collections — file this asset into one or more collections
+                  (multi-board membership). Toggling moves/copies the asset. */}
               {canManageFolder && (
                 <div
                   className="pb-2.5"
@@ -1596,7 +1597,7 @@ export function GalleryDetailPanel({
                   }}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <SectionLabel>Boards</SectionLabel>
+                    <SectionLabel>Collections</SectionLabel>
                     <button
                       type="button"
                       onClick={handleClearFolders}
@@ -1634,7 +1635,7 @@ export function GalleryDetailPanel({
                             color: "var(--lm-text-muted)",
                           }}
                         >
-                          No boards
+                          No collections
                         </div>
                       ) : (
                         folders.map((folder) => (
@@ -1682,7 +1683,7 @@ export function GalleryDetailPanel({
                             event.preventDefault();
                             void handleCreateFolder();
                           }}
-                          placeholder="CREATE BOARD"
+                          placeholder="NEW COLLECTION"
                           className="h-8 flex-1 px-2 outline-none"
                           style={{
                             fontFamily: "var(--lm-font)",

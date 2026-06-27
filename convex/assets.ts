@@ -1849,6 +1849,74 @@ export const tagAssetCounts = query({
   },
 });
 
+export const folderAssetCounts = query({
+  args: {
+    ownerUserId: v.string(),
+  },
+  returns: v.array(v.object({ folderId: v.id("folders"), count: v.number() })),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+
+    // Collection membership lives in two places: the asset's primary
+    // `folderId` and the `assetFolders` join table (multi-board). Count the
+    // distinct assets reachable through either, per folder.
+    const folders = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const foldersForOwner = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gte("normalizedName", ""),
+        )
+        .collect();
+      folders.push(...foldersForOwner);
+    }
+
+    const seenFolderIds = new Set<Id<"folders">>();
+    const results: Array<{ folderId: Id<"folders">; count: number }> = [];
+    for (const folder of folders) {
+      if (seenFolderIds.has(folder._id)) continue;
+      seenFolderIds.add(folder._id);
+
+      const assetIds = new Set<Id<"assets">>();
+      for (const ownerCandidate of ownerUserIds) {
+        const primaryRows = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .eq("folderId", folder._id)
+              .gte("createdAt", 0),
+          )
+          .collect();
+        for (const asset of primaryRows) {
+          assetIds.add(asset._id);
+        }
+
+        const links = await ctx.db
+          .query("assetFolders")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .eq("folderId", folder._id)
+              .gte("createdAt", 0),
+          )
+          .collect();
+        for (const link of links) {
+          assetIds.add(link.assetId);
+        }
+      }
+
+      results.push({ folderId: folder._id, count: assetIds.size });
+    }
+
+    return results;
+  },
+});
+
 export const replaceAssetThumbnail = mutation({
   args: {
     ownerUserId: v.string(),

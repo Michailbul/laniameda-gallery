@@ -126,25 +126,43 @@ const canonicalTagKey = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const buildAssetSearchHaystack = (asset: {
-  promptText?: string;
-  fileName?: string;
-  sourceUrl?: string;
-  tagNames?: string[];
-  modelName?: string;
-  pillar?: string;
-}) =>
-  [
+const buildAssetSearchHaystack = (
+  asset: {
+    promptText?: string;
+    fileName?: string;
+    sourceUrl?: string;
+    tagNames?: string[];
+    modelName?: string;
+    pillar?: string;
+    folderId?: string;
+    folderIds?: string[];
+  },
+  folderNameById?: Map<string, string>,
+) => {
+  const folderNames = folderNameById
+    ? Array.from(
+        new Set(
+          [asset.folderId, ...(asset.folderIds ?? [])]
+            .filter((folderId): folderId is string => Boolean(folderId))
+            .map((folderId) => folderNameById.get(folderId))
+            .filter((name): name is string => Boolean(name)),
+        ),
+      )
+    : [];
+
+  return [
     asset.promptText,
     asset.fileName,
     asset.sourceUrl,
     asset.modelName,
     asset.pillar,
     ...(asset.tagNames ?? []),
+    ...folderNames,
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ")
     .toLowerCase();
+};
 
 export function GalleryDashboard({
   user,
@@ -827,12 +845,31 @@ export function GalleryDashboard({
     api.folders.listFolders,
     canAccessMyGallery ? { ownerUserId } : "skip",
   );
+  const folderAssetCounts = useQuery(
+    api.assets.folderAssetCounts,
+    canAccessMyGallery ? { ownerUserId } : "skip",
+  );
   const folderNameById = useMemo(
     () =>
       new Map<string, string>(
         (folders ?? []).map((folder) => [folder._id, folder.name]),
       ),
     [folders],
+  );
+  const folderCountById = useMemo(
+    () =>
+      new Map<string, number>(
+        (folderAssetCounts ?? []).map((entry) => [entry.folderId, entry.count]),
+      ),
+    [folderAssetCounts],
+  );
+  const foldersWithCounts = useMemo(
+    () =>
+      (folders ?? []).map((folder) => ({
+        ...folder,
+        count: folderCountById.get(folder._id) ?? 0,
+      })),
+    [folders, folderCountById],
   );
   const knownFolderIds = useMemo(
     () => (folders ? folders.map((folder) => folder._id) : null),
@@ -995,7 +1032,15 @@ export function GalleryDashboard({
     galleryScope === "mine" &&
       canAccessMyGallery &&
       selectedPillar === "designs"
-      ? { ownerUserId, pillar: "designs", requireAsset: true, limit: 120 }
+      ? {
+          ownerUserId,
+          pillar: "designs",
+          requireAsset: true,
+          folderId: effectiveSelectedFolderId
+            ? (effectiveSelectedFolderId as Id<"folders">)
+            : undefined,
+          limit: 120,
+        }
       : "skip",
   );
   const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
@@ -1144,11 +1189,11 @@ export function GalleryDashboard({
     let result = baseGalleryAssets;
     if (search) {
       result = result.filter((asset) =>
-        buildAssetSearchHaystack(asset).includes(search),
+        buildAssetSearchHaystack(asset, folderNameById).includes(search),
       );
     }
     return result;
-  }, [assetSearchQuery, baseGalleryAssets]);
+  }, [assetSearchQuery, baseGalleryAssets, folderNameById]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -1930,7 +1975,7 @@ export function GalleryDashboard({
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
-          folders={folders ?? []}
+          folders={foldersWithCounts}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={setSelectedFolderId}
           galleryScope={galleryScope}
