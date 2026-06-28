@@ -5,7 +5,8 @@ import "@/app/tokens.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Eye, EyeOff, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
+import { Download, Eye, EyeOff, FolderInput, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
+import { downloadImage } from "@/lib/download-image";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
@@ -74,6 +75,7 @@ type SelectedImage = {
   folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
+  isLiked?: boolean;
   isDesignInspiration?: boolean;
   designTitle?: string;
   designDescription?: string;
@@ -188,6 +190,7 @@ export function GalleryDashboard({
   const [selectedPillar, setSelectedPillar] =
     useState<Pillar | null>(null);
   const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
+  const [likedOnly, setLikedOnly] = useState<boolean>(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
@@ -260,6 +263,8 @@ export function GalleryDashboard({
   const [bulkCurationLoading, setBulkCurationLoading] = useState(false);
   const [bulkCurationError, setBulkCurationError] = useState<string>();
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [bulkMoveMenuOpen, setBulkMoveMenuOpen] = useState(false);
   const [replacingThumbAssetId, setReplacingThumbAssetId] =
     useState<string | null>(null);
   const [exitingAssetIds, setExitingAssetIds] = useState<
@@ -302,6 +307,7 @@ export function GalleryDashboard({
   const setAssetFoldersMutation = useMutation(
     api.assets.setAssetFolders,
   );
+  const setAssetLikedMutation = useMutation(api.assets.setAssetLiked);
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
@@ -345,6 +351,8 @@ export function GalleryDashboard({
     setSelectedAssetIds(new Set());
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
+    setBulkMoveMenuOpen(false);
+    setLikedOnly(false);
   }, [galleryScope]);
 
   useEffect(() => {
@@ -544,6 +552,7 @@ export function GalleryDashboard({
     setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
+    setBulkMoveMenuOpen(false);
   }, []);
 
   const runBulkCuration = useCallback(
@@ -689,6 +698,36 @@ export function GalleryDashboard({
       selectedFolderId,
       setAssetFoldersMutation,
     ],
+  );
+
+  const toggleAssetLike = useCallback(
+    async (assetId: string, nextLiked: boolean) => {
+      if (!canAccessMyGallery) {
+        return;
+      }
+      // Optimistic: reflect the new state on the open detail panel immediately;
+      // the reactive gallery query refreshes the card heart shortly after.
+      setSelectedImage((current) =>
+        current && current.id === assetId
+          ? { ...current, isLiked: nextLiked }
+          : current,
+      );
+      try {
+        await setAssetLikedMutation({
+          ownerUserId,
+          assetId: assetId as Id<"assets">,
+          isLiked: nextLiked,
+        });
+      } catch {
+        // Revert the optimistic detail-panel change on failure.
+        setSelectedImage((current) =>
+          current && current.id === assetId
+            ? { ...current, isLiked: !nextLiked }
+            : current,
+        );
+      }
+    },
+    [canAccessMyGallery, ownerUserId, setAssetLikedMutation],
   );
 
   const closeSelectedImage = useCallback(() => {
@@ -963,6 +1002,7 @@ export function GalleryDashboard({
             : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
+          onlyLiked: likedOnly || undefined,
           limit: 120,
         }
       : "skip",
@@ -1131,6 +1171,7 @@ export function GalleryDashboard({
     setSelectedModelName(null);
     setWorkflowsOnly(false);
     setMediaKind(null);
+    setLikedOnly(false);
   };
   // Content-type filter: Image/Video (asset kind) and Workflows are mutually
   // exclusive — picking one clears the others.
@@ -1140,7 +1181,16 @@ export function GalleryDashboard({
   }, []);
   const handleWorkflowsOnlyChange = useCallback((next: boolean) => {
     setWorkflowsOnly(next);
-    if (next) setMediaKind(null);
+    if (next) {
+      setMediaKind(null);
+      // Workflows aren't likeable assets — leave the liked-only view.
+      setLikedOnly(false);
+    }
+  }, []);
+  const handleLikedOnlyChange = useCallback((next: boolean) => {
+    setLikedOnly(next);
+    // Liked filters the asset grid, so it can't coexist with the workflow view.
+    if (next) setWorkflowsOnly(false);
   }, []);
   const clearSemanticMode = useCallback(() => {
     setAssetSearchQuery("");
@@ -1346,13 +1396,101 @@ export function GalleryDashboard({
 
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
-    // When filtering by media kind (image/video), keep workflows out of the grid.
-    if (mediaKind) return baseImages;
+    // When filtering by media kind (image/video) or liked-only, keep workflows
+    // out of the grid — those filters target likeable assets, not workflows.
+    if (mediaKind || likedOnly) return baseImages;
     if (workflowEntries.length === 0) return baseImages;
     return [...workflowEntries, ...baseImages].sort(
       (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
     );
-  }, [workflowsOnly, mediaKind, workflowEntries, baseImages]);
+  }, [workflowsOnly, mediaKind, likedOnly, workflowEntries, baseImages]);
+
+  const downloadSelectedAssets = useCallback(async () => {
+    if (bulkActionLoading) return;
+    const ids = Array.from(selectedAssetIds);
+    if (ids.length === 0) return;
+
+    const byId = new Map(images.map((image) => [image.id, image]));
+    const targets = ids
+      .map((id) => byId.get(id))
+      .filter((image): image is (typeof images)[number] => Boolean(image));
+    if (targets.length === 0) {
+      setBulkCurationError("Selected assets are not in the current view.");
+      return;
+    }
+
+    setBulkActionLoading(true);
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    try {
+      let downloaded = 0;
+      for (const image of targets) {
+        const url = image.fullSrc || image.src;
+        if (!url) continue;
+        const contentType =
+          "contentType" in image && typeof image.contentType === "string"
+            ? image.contentType
+            : undefined;
+        const ext = (contentType?.split("/")[1] ?? "").split(";")[0];
+        const fileName = `${image.id}${ext ? `.${ext}` : ""}`;
+        // Sequential to avoid the browser blocking a burst of download clicks.
+        await downloadImage(url, fileName);
+        downloaded += 1;
+      }
+      setBulkCurationStatus(
+        `Downloaded ${downloaded} asset${downloaded === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setBulkCurationError(
+        error instanceof Error ? error.message : "Download failed.",
+      );
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }, [bulkActionLoading, images, selectedAssetIds]);
+
+  const moveSelectedToFolder = useCallback(
+    async (folderId: string) => {
+      if (bulkActionLoading) return;
+      const ids = Array.from(selectedAssetIds);
+      if (ids.length === 0) return;
+
+      setBulkActionLoading(true);
+      setBulkMoveMenuOpen(false);
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+      try {
+        let moved = 0;
+        for (const assetId of ids) {
+          // Move = set the asset's collections to just the destination.
+          await setAssetFoldersMutation({
+            ownerUserId,
+            assetId: assetId as Id<"assets">,
+            folderIds: [folderId as Id<"folders">],
+          });
+          moved += 1;
+        }
+        const destName = folderNameById.get(folderId) ?? "collection";
+        setBulkCurationStatus(
+          `Moved ${moved} asset${moved === 1 ? "" : "s"} to ${destName}.`,
+        );
+        setSelectedAssetIds(new Set());
+      } catch (error) {
+        setBulkCurationError(
+          error instanceof Error ? error.message : "Move failed.",
+        );
+      } finally {
+        setBulkActionLoading(false);
+      }
+    },
+    [
+      bulkActionLoading,
+      folderNameById,
+      ownerUserId,
+      selectedAssetIds,
+      setAssetFoldersMutation,
+    ],
+  );
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -1757,6 +1895,7 @@ export function GalleryDashboard({
     selectedTags.length > 0 ||
     selectedPillar !== null ||
     workflowsOnly ||
+    likedOnly ||
     effectiveSelectedFolderId !== null ||
     selectedModelName !== null ||
     assetSearchQuery.trim().length > 0 ||
@@ -1981,6 +2120,9 @@ export function GalleryDashboard({
               onClearAllTags={handleClearAll}
               workflowsOnly={workflowsOnly}
               onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
+              likedOnly={likedOnly}
+              onLikedOnlyChange={handleLikedOnlyChange}
+              showLiked={canManageFoldersInCurrentView}
               mediaKind={mediaKind}
               onMediaKindChange={handleMediaKindChange}
               sortOrder={sortOrder}
@@ -2129,9 +2271,13 @@ export function GalleryDashboard({
                     onDeleteImage={(imageId) => {
                       void deleteAsset(imageId);
                     }}
-                    selectable={canCuratePublic}
+                    selectable={canCuratePublic || canManageFoldersInCurrentView}
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
+                    likeable={canManageFoldersInCurrentView}
+                    onToggleLike={(imageId, nextLiked) => {
+                      void toggleAssetLike(imageId, nextLiked);
+                    }}
                   />
                 )
               ) : isNoMatches ? (
@@ -2409,8 +2555,9 @@ export function GalleryDashboard({
         />
       )}
 
-      {/* Admin bulk-curation toolbar — visible only when selection is non-empty */}
-      {canCuratePublic && selectedAssetIds.size > 0 && (
+      {/* Bulk selection toolbar — visible only when selection is non-empty */}
+      {(canCuratePublic || canManageFoldersInCurrentView) &&
+        selectedAssetIds.size > 0 && (
         <div
           className="fixed z-[55] flex justify-center pointer-events-none"
           style={{
@@ -2451,6 +2598,123 @@ export function GalleryDashboard({
               >
                 {selectedAssetIds.size} selected
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void downloadSelectedAssets();
+                }}
+                disabled={bulkCurationLoading || bulkActionLoading}
+                className="lm-btn-ghost inline-flex items-center gap-1.5"
+                style={{
+                  border: "2px solid var(--lm-border-strong)",
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  fontSize: "11px",
+                  opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  cursor:
+                    bulkCurationLoading || bulkActionLoading
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+                aria-label="Download selected assets"
+              >
+                {bulkActionLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                DOWNLOAD
+              </button>
+              {canManageFoldersInCurrentView && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkMoveMenuOpen((open) => !open);
+                    }}
+                    disabled={
+                      bulkCurationLoading ||
+                      bulkActionLoading ||
+                      (folders ?? []).length === 0
+                    }
+                    className="lm-btn-ghost inline-flex items-center gap-1.5"
+                    style={{
+                      border: "2px solid var(--lm-border-strong)",
+                      borderRadius: "10px",
+                      padding: "6px 12px",
+                      fontSize: "11px",
+                      opacity:
+                        bulkCurationLoading ||
+                        bulkActionLoading ||
+                        (folders ?? []).length === 0
+                          ? 0.55
+                          : 1,
+                      cursor:
+                        bulkCurationLoading ||
+                        bulkActionLoading ||
+                        (folders ?? []).length === 0
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={bulkMoveMenuOpen}
+                    aria-label="Move selected assets to a collection"
+                    title={
+                      (folders ?? []).length === 0
+                        ? "Create a collection first"
+                        : "Move to collection"
+                    }
+                  >
+                    <FolderInput className="h-3.5 w-3.5" />
+                    MOVE TO
+                  </button>
+                  {bulkMoveMenuOpen && (folders ?? []).length > 0 && (
+                    <div
+                      role="menu"
+                      className="absolute bottom-full left-0 mb-2 max-h-64 w-56 overflow-y-auto py-1"
+                      style={{
+                        backgroundColor: "var(--lm-surface-1)",
+                        border: "2px solid var(--lm-ink)",
+                        borderRadius: "12px",
+                        boxShadow: "var(--shadow-lg)",
+                        zIndex: 60,
+                      }}
+                    >
+                      {foldersWithCounts.map((folder) => (
+                        <button
+                          key={folder._id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            void moveSelectedToFolder(folder._id);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                          style={{
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: "var(--lm-text-primary)",
+                            backgroundColor: "transparent",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span className="truncate">{folder.name}</span>
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              color: "var(--lm-text-tertiary)",
+                            }}
+                          >
+                            {folder.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {canCuratePublic && (
+              <>
               <button
                 type="button"
                 onClick={() => {
@@ -2498,10 +2762,12 @@ export function GalleryDashboard({
                 )}
                 MAKE PRIVATE
               </button>
+              </>
+              )}
               <button
                 type="button"
                 onClick={clearAssetSelection}
-                disabled={bulkCurationLoading}
+                disabled={bulkCurationLoading || bulkActionLoading}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5"
                 style={{
                   border: "2px solid var(--lm-border-strong)",

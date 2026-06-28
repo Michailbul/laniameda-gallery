@@ -461,6 +461,7 @@ export const createAsset = mutation({
       modelName: args.modelName,
       isPublic: false,
       isFeatured: false,
+      isLiked: false,
       pillar: args.pillar,
       generationType: args.generationType,
       assetRole: args.assetRole,
@@ -531,6 +532,36 @@ export const setAssetFolder = mutation({
       folderId: result.folderId,
       folderIds: result.folderIds,
     };
+  },
+});
+
+export const setAssetLiked = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    isLiked: v.boolean(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    isLiked: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    await ctx.db.patch(args.assetId, { isLiked: args.isLiked });
+
+    return { assetId: args.assetId, isLiked: args.isLiked };
   },
 });
 
@@ -1264,6 +1295,7 @@ export const listGalleryAssets = query({
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
+    onlyLiked: v.optional(v.boolean()),
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -1274,6 +1306,7 @@ export const listGalleryAssets = query({
       throw new ConvexError("ownerUserId is required.");
     }
 
+    const onlyLiked = args.onlyLiked === true;
     const limit = Math.min(args.limit ?? 100, 200);
     const hasPostQueryFilters = Boolean(
       (args.tagIds && args.tagIds.length > 0) ||
@@ -1281,6 +1314,9 @@ export const listGalleryAssets = query({
         (args.modelName && (args.pillar || args.folderId || args.assetRole || args.kind)) ||
         (args.pillar && (args.folderId || args.modelName || args.kind)) ||
         (args.assetRole && (args.folderId || args.modelName || args.kind)) ||
+        // `onlyLiked` post-filters whenever it isn't served by its own index
+        // (i.e. when combined with a folder query), so widen the take then too.
+        (onlyLiked && args.folderId) ||
         args.search,
     );
     const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 600) : limit;
@@ -1297,6 +1333,15 @@ export const listGalleryAssets = query({
       : (
           await Promise.all(
             ownerUserIds.map(async (ownerCandidate) => {
+              if (onlyLiked) {
+                return await ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_isLiked_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("isLiked", true).gte("createdAt", 0),
+                  )
+                  .order("desc")
+                  .take(queryTake);
+              }
               if (modelNameFilter) {
                 return await ctx.db
                   .query("assets")
@@ -1373,6 +1418,9 @@ export const listGalleryAssets = query({
         return false;
       }
       if (kind && asset.kind !== kind) {
+        return false;
+      }
+      if (onlyLiked && asset.isLiked !== true) {
         return false;
       }
       return true;

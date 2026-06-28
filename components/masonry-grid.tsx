@@ -49,6 +49,7 @@ interface GalleryImage {
   folderId?: string;
   isPublic?: boolean;
   isFeatured?: boolean;
+  isLiked?: boolean;
   packMemberCount?: number;
   stepCount?: number;
   cinemaMetadata?: CinemaMetadataLite | null;
@@ -78,6 +79,8 @@ interface MasonryGridProps {
   selectable?: boolean;
   selectedAssetIds?: Set<string>;
   onToggleAssetSelect?: (imageId: string) => void;
+  likeable?: boolean;
+  onToggleLike?: (imageId: string, nextLiked: boolean) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
@@ -98,6 +101,7 @@ interface MasonryGridProps {
       folderId?: string;
       isPublic?: boolean;
       isFeatured?: boolean;
+      isLiked?: boolean;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -206,6 +210,8 @@ export function MasonryGrid({
   selectable = false,
   selectedAssetIds,
   onToggleAssetSelect,
+  likeable = false,
+  onToggleLike,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -315,6 +321,13 @@ export function MasonryGrid({
                 }
                 selected={Boolean(selectedAssetIds?.has(image.id))}
                 onToggleSelect={onToggleAssetSelect}
+                likeable={
+                  likeable &&
+                  (image.galleryItemType === "asset" ||
+                    image.galleryItemType === undefined)
+                }
+                liked={Boolean(image.isLiked)}
+                onToggleLike={onToggleLike}
               />
             </div>
           );

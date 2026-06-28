@@ -179,6 +179,9 @@ export default defineSchema({
     modelName: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
     isFeatured: v.optional(v.boolean()),
+    // Owner's personal "like"/favorite flag. Single-user vault, so a boolean on
+    // the asset is sufficient (no per-user likes join table needed).
+    isLiked: v.optional(v.boolean()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
     pillar: optionalPillarValidator,
@@ -201,6 +204,7 @@ export default defineSchema({
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
     .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])
     .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])

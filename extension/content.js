@@ -1102,6 +1102,8 @@
     modelName,
     tagNames,
     fileData,
+    imageWidth,
+    imageHeight,
     topRight = false,
   }) {
     badge.innerHTML = `<span>Saving…</span>`;
@@ -1122,6 +1124,8 @@
           folderIds: normalizeFolderIdList(folderIds),
           tagNames: Array.isArray(tagNames) ? tagNames : undefined,
           file: fileData || undefined,
+          imageWidth: imageWidth || undefined,
+          imageHeight: imageHeight || undefined,
         });
       } catch (msgErr) {
         msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
@@ -1175,6 +1179,8 @@
           modelName: saveContext.modelName,
           tagNames: saveContext.tagNames,
           fileData,
+          imageWidth: saveContext.imageWidth,
+          imageHeight: saveContext.imageHeight,
           topRight,
         });
       },
@@ -1202,9 +1208,21 @@
     mountFloatingPopover(popover, badge);
   }
 
+  // Intrinsic dimensions of a displayed <img>. The browser knows these for
+  // every format (incl. webp/avif the server decoder may choke on), and the
+  // aspect ratio is identical across resolutions, so this fixes 1:1-cropped
+  // masonry slots for extension saves.
+  function getNaturalDimensions(el) {
+    const w = Number(el?.naturalWidth) || 0;
+    const h = Number(el?.naturalHeight) || 0;
+    if (w > 0 && h > 0) return { imageWidth: w, imageHeight: h };
+    return {};
+  }
+
   async function handleSave(img, badge) {
     let imageUrl = resolveAbsoluteUrl(getImageUrl(img));
     if (!imageUrl) return;
+    const { imageWidth, imageHeight } = getNaturalDimensions(img);
 
     // On Midjourney, try to extract prompt + better image URL from lightbox
     let mjContext = null;
@@ -1220,6 +1238,8 @@
       imageUrl,
       promptText: mjContext?.promptText || "",
       modelName: mjContext?.modelName,
+      imageWidth,
+      imageHeight,
       resolveFileData: async () => {
         if (isMidjourneyPage()) {
           const b64 = await captureImageBytesForSave(imageUrl);
@@ -1508,11 +1528,14 @@
 
     if (!rawImageUrl) return;
     const imageUrl = resolveAbsoluteUrl(rawImageUrl);
+    const { imageWidth, imageHeight } = getNaturalDimensions(thumb);
 
     showSavePopover(badge, {
       imageUrl,
       promptText: promptText || "",
       modelName: "Midjourney",
+      imageWidth,
+      imageHeight,
       resolveFileData: async () => {
         const fileData = await captureImageBytesForSave(imageUrl);
         if (!fileData) {

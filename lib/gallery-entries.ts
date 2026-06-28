@@ -42,6 +42,7 @@ export type GalleryAssetRecord = {
   folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
+  isLiked?: boolean;
   assetPackId?: string;
   packSlotIndex?: number;
   size?: number;
@@ -91,6 +92,7 @@ export type GalleryEntry = {
   folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
+  isLiked?: boolean;
   packMemberCount?: number;
   size?: number;
   totalSize?: number;
@@ -219,6 +221,7 @@ const buildEntry = (
     folderIds: cover.folderIds ?? (cover.folderId ? [cover.folderId] : []),
     isPublic: cover.isPublic ?? false,
     isFeatured: cover.isFeatured ?? false,
+    isLiked: cover.isLiked ?? false,
     packMemberCount: members.length > 1 ? members.length : undefined,
     size: cover.size,
     totalSize: totalSize > 0 ? totalSize : undefined,

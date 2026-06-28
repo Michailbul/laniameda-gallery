@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   Grid3X3,
+  Heart,
   Image as ImageIcon,
   Layers,
   Package,
@@ -41,6 +42,9 @@ interface GalleryFilterBarProps {
   onClearAllTags: () => void;
   workflowsOnly: boolean;
   onWorkflowsOnlyChange: (next: boolean) => void;
+  likedOnly?: boolean;
+  onLikedOnlyChange?: (next: boolean) => void;
+  showLiked?: boolean;
   mediaKind: MediaKind | null;
   onMediaKindChange: (kind: MediaKind | null) => void;
   sortOrder: SortOrder;
@@ -66,6 +70,9 @@ export function GalleryFilterBar({
   onClearAllTags,
   workflowsOnly,
   onWorkflowsOnlyChange,
+  likedOnly = false,
+  onLikedOnlyChange,
+  showLiked = false,
   mediaKind,
   onMediaKindChange,
   sortOrder,
@@ -196,6 +203,9 @@ export function GalleryFilterBar({
                   onMediaKindChange={onMediaKindChange}
                   workflowsOnly={workflowsOnly}
                   onWorkflowsOnlyChange={onWorkflowsOnlyChange}
+                  likedOnly={likedOnly}
+                  onLikedOnlyChange={onLikedOnlyChange}
+                  showLiked={showLiked}
                 />
               </div>
             </div>
@@ -232,6 +242,9 @@ export function GalleryFilterBar({
             onMediaKindChange={onMediaKindChange}
             workflowsOnly={workflowsOnly}
             onWorkflowsOnlyChange={onWorkflowsOnlyChange}
+            likedOnly={likedOnly}
+            onLikedOnlyChange={onLikedOnlyChange}
+            showLiked={showLiked}
           />
           <div
             style={{
@@ -664,11 +677,17 @@ function ContentTypePills({
   onMediaKindChange,
   workflowsOnly,
   onWorkflowsOnlyChange,
+  likedOnly = false,
+  onLikedOnlyChange,
+  showLiked = false,
 }: {
   mediaKind: MediaKind | null;
   onMediaKindChange: (kind: MediaKind | null) => void;
   workflowsOnly: boolean;
   onWorkflowsOnlyChange: (next: boolean) => void;
+  likedOnly?: boolean;
+  onLikedOnlyChange?: (next: boolean) => void;
+  showLiked?: boolean;
 }) {
   const items: Array<{
     key: string;
@@ -698,6 +717,17 @@ function ContentTypePills({
       active: workflowsOnly,
       onClick: () => onWorkflowsOnlyChange(!workflowsOnly),
     },
+    ...(showLiked && onLikedOnlyChange
+      ? [
+          {
+            key: "liked",
+            label: "Liked",
+            icon: Heart,
+            active: likedOnly,
+            onClick: () => onLikedOnlyChange(!likedOnly),
+          },
+        ]
+      : []),
   ];
 
   return (

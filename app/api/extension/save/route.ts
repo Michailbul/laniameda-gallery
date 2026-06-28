@@ -106,6 +106,15 @@ export async function POST(request: Request) {
     const promptText = typeof data.promptText === "string" ? data.promptText.trim() : undefined;
     const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : undefined;
     const modelName = typeof data.modelName === "string" ? data.modelName : undefined;
+    // Client-supplied intrinsic dimensions (naturalWidth/Height from the page).
+    // Used as a fallback when the server decoder can't read the image format,
+    // so the gallery masonry keeps the native aspect instead of a 1:1 square.
+    const toPositiveInt = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value > 0
+        ? Math.round(value)
+        : undefined;
+    const imageWidth = toPositiveInt(data.imageWidth);
+    const imageHeight = toPositiveInt(data.imageHeight);
     // Collections are owner-scoped `folders` rows. `folderId` remains the
     // primary/back-compat field; `folderIds` can attach the asset to many.
     const folderIds = normalizeFolderIds(data);
@@ -249,6 +258,8 @@ export async function POST(request: Request) {
       modelName: effectiveModelName,
       modelProvider: effectiveModelProvider,
       folderId: folderId || undefined,
+      mediaWidth: imageWidth,
+      mediaHeight: imageHeight,
       generationType: "image_gen",
       assetRole: "inspiration_capture",
       ingestSource: "import",

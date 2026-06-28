@@ -703,8 +703,12 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           thumbR2Key = media.thumbR2Key;
           contentType = media.contentType;
           size = media.size;
-          width = media.width;
-          height = media.height;
+          // Prefer dimensions decoded server-side; fall back to client-supplied
+          // hints (e.g. naturalWidth/Height from the extension) when the decoder
+          // can't read the format (some webp/avif). Without dims the masonry
+          // slot falls back to a 1:1 square and object-cover crops the image.
+          width = media.width ?? args.mediaWidth;
+          height = media.height ?? args.mediaHeight;
           thumbSize = media.thumbSize;
           thumbWidth = media.thumbWidth;
           thumbHeight = media.thumbHeight;

@@ -142,6 +142,8 @@ async function saveToGallery(payload) {
         modelName: payload.modelName || undefined,
         tagNames: payload.tagNames || [],
         file: payload.file || undefined,
+        imageWidth: payload.imageWidth || undefined,
+        imageHeight: payload.imageHeight || undefined,
       }),
     });
   } catch (err) {
@@ -507,6 +509,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       folderIds: message.folderIds,
       tagNames: message.tagNames,
       file: message.file,
+      imageWidth: message.imageWidth,
+      imageHeight: message.imageHeight,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));

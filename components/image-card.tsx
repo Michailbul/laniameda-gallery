@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { Check, Copy, Heart, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 
@@ -49,6 +49,7 @@ interface ImageCardProps {
     folderId?: string;
     isPublic?: boolean;
     isFeatured?: boolean;
+    isLiked?: boolean;
     packMemberCount?: number;
     size?: number;
     totalSize?: number;
@@ -88,6 +89,7 @@ interface ImageCardProps {
     folderId?: string;
       isPublic?: boolean;
       isFeatured?: boolean;
+      isLiked?: boolean;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -112,6 +114,9 @@ interface ImageCardProps {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (imageId: string) => void;
+  likeable?: boolean;
+  liked?: boolean;
+  onToggleLike?: (imageId: string, nextLiked: boolean) => void;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -145,6 +150,9 @@ export const ImageCard = memo(function ImageCard({
   selectable = false,
   selected = false,
   onToggleSelect,
+  likeable = false,
+  liked = false,
+  onToggleLike,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -349,6 +357,7 @@ export const ImageCard = memo(function ImageCard({
       folderId: image.folderId,
       isPublic: image.isPublic,
       isFeatured: image.isFeatured,
+      isLiked: image.isLiked,
       previewImages,
     });
 
@@ -369,6 +378,12 @@ export const ImageCard = memo(function ImageCard({
     event.preventDefault();
     event.stopPropagation();
     onToggleSelect?.(image.id);
+  };
+
+  const handleToggleLike = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleLike?.(image.id, !liked);
   };
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -854,12 +869,44 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
+      {likeable && (
+        <button
+          type="button"
+          onClick={handleToggleLike}
+          className={`absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] ${
+            liked
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          }`}
+          style={{
+            backgroundColor: liked
+              ? "var(--lm-coral)"
+              : "var(--image-card-badge-bg)",
+            color: liked ? "#fff" : "var(--image-card-badge-text)",
+            borderColor: liked
+              ? "var(--lm-coral)"
+              : "var(--image-card-badge-border)",
+          }}
+          aria-label={liked ? "Unlike asset" : "Like asset"}
+          aria-pressed={liked}
+          title={liked ? "Liked — click to unlike" : "Like"}
+        >
+          <Heart
+            className="h-4 w-4"
+            strokeWidth={2.25}
+            fill={liked ? "currentColor" : "none"}
+          />
+        </button>
+      )}
+
       {canDelete && (
         <button
           type="button"
           onClick={handleDelete}
           disabled={deleting}
-          className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] disabled:cursor-not-allowed"
+          className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] disabled:cursor-not-allowed ${
+            likeable ? "right-12" : "right-2"
+          }`}
           style={{
             borderColor: deleting
               ? "var(--image-card-delete-border-disabled)"
