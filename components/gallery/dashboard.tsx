@@ -5,8 +5,8 @@ import "@/app/tokens.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Download, Eye, EyeOff, FolderInput, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
-import { downloadImage } from "@/lib/download-image";
+import { Download, Eye, EyeOff, FolderInput, Loader2, Plus, Search as SearchIcon, Upload, X } from "lucide-react";
+import { downloadImagesAsZip } from "@/lib/download-image";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
@@ -222,6 +222,11 @@ export function GalleryDashboard({
   const [sheetDragY, setSheetDragY] = useState(0);
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
+  const [uploadInitialFiles, setUploadInitialFiles] = useState<
+    File[] | undefined
+  >(undefined);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
   const [isCinemaUploadOpen, setCinemaUploadOpen] = useState(false);
   const [selectedCinemaAsset, setSelectedCinemaAsset] =
     useState<CinemaModalAsset | null>(null);
@@ -233,9 +238,73 @@ export function GalleryDashboard({
     if (selectedPillar === "cinema-inspiration") {
       setCinemaUploadOpen(true);
     } else {
+      setUploadInitialFiles(undefined);
       setUploadOpen(true);
     }
   }, [selectedPillar]);
+
+  const closeUploadModal = useCallback(() => {
+    setUploadOpen(false);
+    setUploadInitialFiles(undefined);
+  }, []);
+
+  const openUploadWithFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    setUploadInitialFiles(files);
+    setUploadOpen(true);
+  }, []);
+
+  // ── Gallery drag-and-drop → opens the upload modal pre-loaded with the file ──
+  const dragHasFiles = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes("Files");
+
+  // Don't hijack drags while a modal already owns its own dropzone.
+  const canAcceptShellDrop =
+    canAccessMyGallery && !isUploadOpen && !isCinemaUploadOpen;
+
+  const handleShellDragEnter = useCallback(
+    (event: React.DragEvent) => {
+      if (!canAcceptShellDrop || !dragHasFiles(event)) return;
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDraggingFiles(true);
+    },
+    [canAcceptShellDrop],
+  );
+
+  const handleShellDragOver = useCallback(
+    (event: React.DragEvent) => {
+      if (!canAcceptShellDrop || !dragHasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [canAcceptShellDrop],
+  );
+
+  const handleShellDragLeave = useCallback(
+    (event: React.DragEvent) => {
+      if (!canAcceptShellDrop || !dragHasFiles(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+    },
+    [canAcceptShellDrop],
+  );
+
+  const handleShellDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!canAcceptShellDrop || !dragHasFiles(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDraggingFiles(false);
+      const files = Array.from(event.dataTransfer?.files ?? []).filter(
+        (file) =>
+          file.type.startsWith("image/") || file.type.startsWith("video/"),
+      );
+      if (files.length > 0) openUploadWithFiles(files);
+    },
+    [canAcceptShellDrop, openUploadWithFiles],
+  );
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceRunId, setWorkspaceRunId] = useState<string>();
   const [workspaceActionLabel, setWorkspaceActionLabel] =
@@ -1419,26 +1488,38 @@ export function GalleryDashboard({
       return;
     }
 
-    setBulkActionLoading(true);
-    setBulkCurationError(undefined);
-    setBulkCurationStatus(undefined);
-    try {
-      let downloaded = 0;
-      for (const image of targets) {
+    const zipItems = targets
+      .map((image) => {
         const url = image.fullSrc || image.src;
-        if (!url) continue;
+        if (!url) return null;
+        const kind = "kind" in image ? image.kind : undefined;
         const contentType =
           "contentType" in image && typeof image.contentType === "string"
             ? image.contentType
             : undefined;
-        const ext = (contentType?.split("/")[1] ?? "").split(";")[0];
-        const fileName = `${image.id}${ext ? `.${ext}` : ""}`;
-        // Sequential to avoid the browser blocking a burst of download clicks.
-        await downloadImage(url, fileName);
-        downloaded += 1;
-      }
+        const isImage =
+          kind === "video" || contentType?.startsWith("video/") ? false : true;
+        return { url, name: image.id, isImage };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    if (zipItems.length === 0) {
+      setBulkCurationError("Selected assets have no downloadable files.");
+      return;
+    }
+
+    setBulkActionLoading(true);
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const { zipped, failed } = await downloadImagesAsZip(
+        zipItems,
+        `laniameda-gallery-${stamp}-${zipItems.length}.zip`,
+      );
+      const failedSuffix = failed > 0 ? ` (${failed} failed)` : "";
       setBulkCurationStatus(
-        `Downloaded ${downloaded} asset${downloaded === 1 ? "" : "s"}.`,
+        `Zipped ${zipped} file${zipped === 1 ? "" : "s"} as JPG${failedSuffix}.`,
       );
     } catch (error) {
       setBulkCurationError(
@@ -2030,7 +2111,63 @@ export function GalleryDashboard({
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
       style={{ backgroundColor: "var(--lm-surface-0)" }}
+      onDragEnter={handleShellDragEnter}
+      onDragOver={handleShellDragOver}
+      onDragLeave={handleShellDragLeave}
+      onDrop={handleShellDrop}
     >
+      {/* Drag-and-drop overlay — drop media anywhere to open the upload modal */}
+      {isDraggingFiles && (
+        <div
+          className="pointer-events-none fixed inset-0 z-[90] flex items-center justify-center p-8 lm-animate-fade-in"
+          style={{
+            backgroundColor: "rgba(10, 8, 5, 0.78)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+          }}
+          aria-hidden
+        >
+          <div
+            className="flex flex-col items-center gap-4 px-12 py-10 text-center"
+            style={{
+              border: "3px dashed var(--lm-coral)",
+              borderRadius: "24px",
+              backgroundColor: "var(--lm-accent-dim)",
+            }}
+          >
+            <Upload
+              className="h-10 w-10"
+              style={{ color: "var(--lm-coral)" }}
+              strokeWidth={2}
+            />
+            <div className="flex flex-col gap-1.5">
+              <span
+                style={{
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "18px",
+                  fontWeight: 900,
+                  letterSpacing: "0.04em",
+                  color: "var(--lm-text-primary)",
+                }}
+              >
+                Drop to add to your gallery
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.16em",
+                  color: "var(--lm-text-tertiary)",
+                }}
+              >
+                Images &amp; video · opens the upload form
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Admin mode badge — fixed top-center, unmistakable indicator */}
       {adminMode && (
         <div
@@ -2854,12 +2991,13 @@ export function GalleryDashboard({
       {/* Modals */}
       <UploadModal
         open={isUploadOpen}
-        onClose={() => setUploadOpen(false)}
+        onClose={closeUploadModal}
         availableTags={availableUploadTags}
         folders={folders ?? []}
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }
+        initialFiles={uploadInitialFiles}
       />
 
       <SeedanceIngestModal

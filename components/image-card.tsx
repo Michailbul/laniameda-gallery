@@ -3,9 +3,10 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, Heart, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
+import { downloadAssetFile } from "@/lib/download-image";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -164,6 +165,7 @@ export const ImageCard = memo(function ImageCard({
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
   const [previewCycling, setPreviewCycling] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
 
@@ -385,6 +387,28 @@ export const ImageCard = memo(function ImageCard({
     event.stopPropagation();
     onToggleLike?.(image.id, !liked);
   };
+
+  const handleDownload = useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (downloading) return;
+      setDownloading(true);
+      try {
+        const ok = await downloadAssetFile({
+          url: image.fullSrc || image.src,
+          baseName: image.id,
+          isImage: !isVideo,
+        });
+        if (ok) {
+          toastFn?.("Downloaded", isVideo ? "FILE SAVED" : "JPG SAVED", "success");
+        }
+      } finally {
+        setDownloading(false);
+      }
+    },
+    [downloading, image.fullSrc, image.src, image.id, isVideo, toastFn],
+  );
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -759,6 +783,32 @@ export const ImageCard = memo(function ImageCard({
         title={`Copy ${galleryItemType} ID`}
       >
         <Copy className="h-3.5 w-3.5" />
+      </button>
+
+      {/* One-click download — appears on hover. Images save as JPG. */}
+      <button
+        type="button"
+        onClick={(event) => {
+          void handleDownload(event);
+        }}
+        disabled={downloading}
+        className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed ${
+          selectable ? "left-[5.5rem]" : "left-12"
+        }`}
+        style={{
+          borderRadius: "8px",
+          backgroundColor: "var(--image-card-badge-bg)",
+          color: "var(--image-card-badge-text)",
+          borderColor: "var(--image-card-badge-border)",
+        }}
+        aria-label={isVideo ? "Download file" : "Download as JPG"}
+        title={isVideo ? "Download file" : "Download as JPG"}
+      >
+        {downloading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Download className="h-3.5 w-3.5" />
+        )}
       </button>
 
       {/* Pack badge — top-right */}

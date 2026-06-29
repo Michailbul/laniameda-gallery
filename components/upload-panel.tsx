@@ -46,6 +46,8 @@ export type UploadPanelProps = {
   ownerUserId?: string;
   onDataChanged?: () => void;
   className?: string;
+  /** Files to seed the form with (e.g. dropped onto the gallery). */
+  initialFiles?: File[];
 };
 
 type FilePreview = {
@@ -57,18 +59,27 @@ const NO_FOLDER_VALUE = "__none";
 const NO_VALUE = "__none";
 
 const MODEL_NAME_OPTIONS = [
+  // Image models
   "Midjourney",
+  "Nano Banana Pro",
+  "Nano Banana 2",
   "FLUX",
+  "Recraft V4",
+  "Ideogram",
   "DALL-E 3",
   "Stable Diffusion",
-  "Nano Banana Pro",
-  "CDANCe",
-  "Runway",
-  "Kling",
-  "Sora",
-  "Ideogram",
   "Firefly",
   "Imagen",
+  // Video models
+  "Seedance 2.0",
+  "Seedance",
+  "Kling",
+  "Runway",
+  "Sora",
+  "Veo",
+  "Hailuo",
+  "Luma",
+  "Pika",
 ] as const;
 
 const GENERATION_TYPE_OPTIONS = [
@@ -113,6 +124,7 @@ export function UploadPanel({
   ownerUserId,
   onDataChanged,
   className,
+  initialFiles,
 }: UploadPanelProps) {
   const [promptText, setPromptText] = useState("");
   const [urlInput, setUrlInput] = useState("");
@@ -196,6 +208,16 @@ export function UploadPanel({
       }
     };
   }, [status]);
+
+  // Seed dropped files into the form. The dashboard passes a fresh array
+  // reference each time a new drop happens, so we de-dupe on identity.
+  const seededFilesRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!initialFiles || initialFiles.length === 0) return;
+    if (seededFilesRef.current === initialFiles) return;
+    seededFilesRef.current = initialFiles;
+    setSelectedFiles((previous) => [...previous, ...initialFiles]);
+  }, [initialFiles]);
 
   const tagSuggestions = useMemo(() => {
     const unique = Array.from(new Set(availableTags));

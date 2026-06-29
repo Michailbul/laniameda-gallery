@@ -9,7 +9,7 @@ type UploadModalProps = {
   onClose: () => void;
 } & Pick<
   UploadPanelProps,
-  "availableTags" | "folders" | "ownerUserId" | "onDataChanged"
+  "availableTags" | "folders" | "ownerUserId" | "onDataChanged" | "initialFiles"
 >;
 
 export function UploadModal({
@@ -19,6 +19,7 @@ export function UploadModal({
   folders,
   ownerUserId,
   onDataChanged,
+  initialFiles,
 }: UploadModalProps) {
   useEffect(() => {
     if (!open || typeof window === "undefined") return;
@@ -121,6 +122,7 @@ export function UploadModal({
             folders={folders}
             ownerUserId={ownerUserId}
             onDataChanged={onDataChanged}
+            initialFiles={initialFiles}
             className="h-full"
           />
         </div>

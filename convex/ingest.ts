@@ -7,6 +7,7 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
+import { readImageDimensions } from "./imageDimensions";
 import {
   assetRoleValidator,
   designCaptureKindValidator,
@@ -488,6 +489,17 @@ const processMediaInput = async (
       thumbR2Key = await storeBlobToR2(ctx, thumbBlob, { type: thumbMime });
     } catch (error) {
       console.warn("Thumbnail generation failed:", error);
+    }
+
+    // Jimp can't decode some formats (notably WebP), so width/height stay unset
+    // and the gallery masonry falls back to a 1:1 square. Parse the dimensions
+    // straight from the file header as a fallback — no full decode required.
+    if (!width || !height) {
+      const parsed = readImageDimensions(new Uint8Array(fileBuffer));
+      if (parsed) {
+        width = parsed.width;
+        height = parsed.height;
+      }
     }
   }
 
