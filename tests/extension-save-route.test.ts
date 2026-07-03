@@ -123,7 +123,6 @@ describe("POST /api/extension/save", () => {
       "midjourney",
       "midjourney-web",
       "midjourney-teach",
-      "midjourney-personalize",
       "personalize",
     ]);
   });

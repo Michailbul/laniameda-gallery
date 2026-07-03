@@ -625,9 +625,9 @@ export function GalleryDashboard({
   }, []);
 
   const runBulkCuration = useCallback(
-    async (isPublic: boolean) => {
+    async (isPublic: boolean, overrideIds?: string[]) => {
       if (bulkCurationLoading || !canCuratePublic) return;
-      const ids = Array.from(selectedAssetIds);
+      const ids = overrideIds ?? Array.from(selectedAssetIds);
       if (ids.length === 0) return;
 
       setBulkCurationLoading(true);
@@ -1474,6 +1474,26 @@ export function GalleryDashboard({
     );
   }, [workflowsOnly, mediaKind, likedOnly, workflowEntries, baseImages]);
 
+  const publishAllAssetIds = useMemo(() => {
+    return images
+      .filter(
+        (image) =>
+          (image.galleryItemType === "asset" || image.galleryItemType === undefined) &&
+          !image.isPublic,
+      )
+      .map((image) => image.id);
+  }, [images]);
+
+  const runPublishAll = useCallback(async () => {
+    if (bulkCurationLoading || !canCuratePublic) return;
+    if (publishAllAssetIds.length === 0) return;
+    const confirmed = window.confirm(
+      `Make all ${publishAllAssetIds.length} currently visible private asset${publishAllAssetIds.length === 1 ? "" : "s"} public? This can't be undone in bulk — you'd need to make them private one by one.`,
+    );
+    if (!confirmed) return;
+    await runBulkCuration(true, publishAllAssetIds);
+  }, [bulkCurationLoading, canCuratePublic, publishAllAssetIds, runBulkCuration]);
+
   const downloadSelectedAssets = useCallback(async () => {
     if (bulkActionLoading) return;
     const ids = Array.from(selectedAssetIds);
@@ -2270,6 +2290,52 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
+            {canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runPublishAll();
+                  }}
+                  disabled={bulkCurationLoading}
+                  className="lm-btn-brutal inline-flex items-center gap-1.5"
+                  style={{
+                    borderRadius: "10px",
+                    padding: "6px 12px",
+                    fontSize: "11px",
+                    opacity: bulkCurationLoading ? 0.55 : 1,
+                    cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                  }}
+                  aria-label="Make all visible private assets public"
+                >
+                  {bulkCurationLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                  PUBLISH ALL ({publishAllAssetIds.length})
+                </button>
+                {(bulkCurationError || bulkCurationStatus) && (
+                  <p
+                    style={{
+                      fontFamily: "var(--lm-font)",
+                      fontSize: "10px",
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: bulkCurationError
+                        ? "var(--lm-coral)"
+                        : "var(--lm-text-secondary)",
+                      margin: 0,
+                    }}
+                    role={bulkCurationError ? "alert" : "status"}
+                  >
+                    {bulkCurationError ?? bulkCurationStatus}
+                  </p>
+                )}
+              </div>
+            )}
+
             {(semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
@@ -2415,6 +2481,7 @@ export function GalleryDashboard({
                     onToggleLike={(imageId, nextLiked) => {
                       void toggleAssetLike(imageId, nextLiked);
                     }}
+                    showPublicBadge={galleryScope === "mine"}
                   />
                 )
               ) : isNoMatches ? (

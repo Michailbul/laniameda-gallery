@@ -122,6 +122,30 @@ describe("resolveColumnSpan", () => {
       ),
     ).toBe(1);
   });
+
+  test("makes ultra-wide images (21:9) span two columns so they aren't thin strips", () => {
+    // 21:9 ≈ 2.33 — above the wide threshold.
+    expect(
+      resolveColumnSpan(
+        { width: 2520, height: 1080, kind: "image" },
+        geometry4col1200(),
+      ),
+    ).toBe(2);
+    // Still single-column when there's only one column.
+    expect(
+      resolveColumnSpan(
+        { width: 2520, height: 1080, kind: "image" },
+        { contentWidth: 320, columnCount: 1, gap: 12 },
+      ),
+    ).toBe(1);
+    // 16:9 (1.78) stays single-column — only the truly ultra-wide get promoted.
+    expect(
+      resolveColumnSpan(
+        { width: 1920, height: 1080, kind: "image" },
+        geometry4col1200(),
+      ),
+    ).toBe(1);
+  });
 });
 
 describe("clampAspect", () => {

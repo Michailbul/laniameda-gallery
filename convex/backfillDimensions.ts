@@ -95,6 +95,13 @@ export const backfillImageDimensions = action({
     failed: v.number(),
     isDone: v.boolean(),
     continueCursor: v.union(v.string(), v.null()),
+    failures: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        url: v.optional(v.string()),
+        reason: v.string(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const batchSize = Math.min(Math.max(args.batchSize ?? 50, 1), 200);
@@ -107,6 +114,19 @@ export const backfillImageDimensions = action({
     let updated = 0;
     let failed = 0;
     let isDone = false;
+    const failures: Array<{
+      assetId: import("./_generated/dataModel").Id<"assets">;
+      url?: string;
+      reason: string;
+    }> = [];
+    const recordFailure = (
+      assetId: import("./_generated/dataModel").Id<"assets">,
+      url: string | undefined,
+      reason: string,
+    ) => {
+      failed += 1;
+      if (failures.length < 25) failures.push({ assetId, url, reason });
+    };
 
     for (let batch = 0; batch < maxBatches; batch += 1) {
       const page: {
@@ -121,7 +141,7 @@ export const backfillImageDimensions = action({
       for (const item of page.items) {
         scanned += 1;
         if (!item.url) {
-          failed += 1;
+          recordFailure(item.assetId, item.url, "no-url");
           continue;
         }
         try {
@@ -130,7 +150,10 @@ export const backfillImageDimensions = action({
           const bytes = new Uint8Array(await res.arrayBuffer());
           const dims = readImageDimensions(bytes);
           if (!dims) {
-            failed += 1;
+            const magic = Array.from(bytes.slice(0, 4))
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
+            recordFailure(item.assetId, item.url, `unparsed magic=${magic}`);
             continue;
           }
           await ctx.runMutation(
@@ -138,8 +161,12 @@ export const backfillImageDimensions = action({
             { assetId: item.assetId, width: dims.width, height: dims.height },
           );
           updated += 1;
-        } catch {
-          failed += 1;
+        } catch (error) {
+          recordFailure(
+            item.assetId,
+            item.url,
+            error instanceof Error ? error.message : "error",
+          );
         }
       }
 
@@ -154,6 +181,7 @@ export const backfillImageDimensions = action({
       failed,
       isDone,
       continueCursor: isDone ? null : cursor,
+      failures,
     };
   },
 });

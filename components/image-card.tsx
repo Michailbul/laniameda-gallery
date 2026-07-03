@@ -118,6 +118,7 @@ interface ImageCardProps {
   likeable?: boolean;
   liked?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
+  showPublicBadge?: boolean;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -154,6 +155,7 @@ export const ImageCard = memo(function ImageCard({
   likeable = false,
   liked = false,
   onToggleLike,
+  showPublicBadge = false,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -826,19 +828,38 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model badge — bottom-left, always visible. Suppressed on cinema-inspiration. */}
-      {!isCinema && image.modelName && (
+      {/* Model + public-status badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
+      {!isCinema && (image.modelName || (showPublicBadge && image.isPublic)) && (
         <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0">
-          <div
-            className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-            style={{
-              backgroundColor: "var(--image-card-badge-bg)",
-              color: "var(--image-card-badge-text)",
-              border: "1px solid var(--image-card-badge-border)",
-            }}
-          >
-            {image.modelName}
-          </div>
+          {image.modelName && (
+            <div
+              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
+              style={{
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--image-card-badge-text)",
+                border: "1px solid var(--image-card-badge-border)",
+              }}
+            >
+              {image.modelName}
+            </div>
+          )}
+          {showPublicBadge && image.isPublic && (
+            <div
+              className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--coral)",
+                border: "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+              }}
+              title="Already public"
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: "var(--coral)" }}
+              />
+              Public
+            </div>
+          )}
         </div>
       )}
 

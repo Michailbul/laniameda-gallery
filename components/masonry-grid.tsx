@@ -117,6 +117,7 @@ interface MasonryGridProps {
     }) => void;
   onImageLoad?: (imageId: string) => void;
   loading?: boolean;
+  showPublicBadge?: boolean;
 }
 
 const BATCH_SIZE = 18;
@@ -212,6 +213,7 @@ export function MasonryGrid({
   onToggleAssetSelect,
   likeable = false,
   onToggleLike,
+  showPublicBadge = false,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -328,6 +330,7 @@ export function MasonryGrid({
                 }
                 liked={Boolean(image.isLiked)}
                 onToggleLike={onToggleLike}
+                showPublicBadge={showPublicBadge}
               />
             </div>
           );

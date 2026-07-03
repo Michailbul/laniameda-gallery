@@ -181,7 +181,6 @@ export async function POST(request: Request) {
         sourceParts.pathname.includes("/teach")
       ) {
         addTagName("midjourney-teach");
-        addTagName("midjourney-personalize");
         addTagName("personalize");
       }
     }

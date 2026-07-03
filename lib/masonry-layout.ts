@@ -18,6 +18,12 @@ const SQUAREISH_VIDEO_TOLERANCE = 0.04;
 
 export const VIDEO_CARD_COLUMN_SPAN = 2;
 
+// Ultra-wide images (e.g. 21:9 ≈ 2.33) render as thin, small strips in a single
+// column. Let them span two columns — same footprint trick as videos — so they
+// read as a large banner while keeping their native aspect ratio.
+export const WIDE_CARD_COLUMN_SPAN = 2;
+export const WIDE_IMAGE_ASPECT_THRESHOLD = 2.0;
+
 /**
  * Clamp an aspect ratio (width / height) into a visually reasonable band so a
  * single outlier asset can't blow up the masonry rhythm. Below MIN_ASPECT the
@@ -92,6 +98,14 @@ export function resolveLayoutAspect(input: LayoutInput): number {
     : resolveAspect(input);
 }
 
+export function isWideImage(input: LayoutInput): boolean {
+  return (
+    resolveLayoutKind(input) === "image" &&
+    hasFiniteDims(input.width, input.height) &&
+    input.width! / input.height! >= WIDE_IMAGE_ASPECT_THRESHOLD
+  );
+}
+
 export function resolveColumnSpan(
   input: LayoutInput,
   geometry: ColumnGeometry,
@@ -101,6 +115,9 @@ export function resolveColumnSpan(
     geometry.columnCount >= VIDEO_CARD_COLUMN_SPAN
   ) {
     return VIDEO_CARD_COLUMN_SPAN;
+  }
+  if (isWideImage(input) && geometry.columnCount >= WIDE_CARD_COLUMN_SPAN) {
+    return WIDE_CARD_COLUMN_SPAN;
   }
   return 1;
 }

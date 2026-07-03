@@ -104,9 +104,40 @@ function readJpeg(b: Uint8Array): PixelDimensions | null {
   return null;
 }
 
+function readIsoBmff(b: Uint8Array): PixelDimensions | null {
+  // AVIF/HEIF (ISOBMFF) store the image size in an `ispe` box
+  // (Image Spatial Extent): [u32 size]"ispe"[u8 version][u24 flags][u32 w][u32 h].
+  // A file can carry several (thumbnails, alpha planes); pick the largest area.
+  // Scanning for the fourCC and validating the box size avoids a full,
+  // container-aware box walk while staying robust against false matches.
+  let best: PixelDimensions | null = null;
+  let bestArea = 0;
+  for (let i = 4; i + 16 <= b.length; i += 1) {
+    if (
+      b[i] === 0x69 && // i
+      b[i + 1] === 0x73 && // s
+      b[i + 2] === 0x70 && // p
+      b[i + 3] === 0x65 // e
+    ) {
+      const boxSize = u32be(b, i - 4);
+      if (boxSize < 16 || boxSize > 64) continue;
+      const w = u32be(b, i + 8);
+      const h = u32be(b, i + 12);
+      if (w > 0 && h > 0 && w <= 100000 && h <= 100000) {
+        const area = w * h;
+        if (area > bestArea) {
+          bestArea = area;
+          best = { width: w, height: h };
+        }
+      }
+    }
+  }
+  return best;
+}
+
 /**
  * Best-effort intrinsic dimensions from raw image bytes. Returns null when the
- * format isn't recognized (e.g. AVIF/HEIC), so callers can fall back.
+ * format isn't recognized, so callers can fall back.
  */
 export function readImageDimensions(
   bytes: Uint8Array,
@@ -133,6 +164,10 @@ export function readImageDimensions(
   // WebP: "RIFF"...."WEBP"
   if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") {
     return readWebp(bytes);
+  }
+  // ISOBMFF (AVIF/HEIF): box "ftyp" at offset 4.
+  if (ascii(bytes, 4, 8) === "ftyp") {
+    return readIsoBmff(bytes);
   }
   return null;
 }
