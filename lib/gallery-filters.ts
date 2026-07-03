@@ -32,12 +32,12 @@ export function resolveScopeFolderFilter({
     return null;
   }
 
-  if (galleryScope !== "mine") {
-    return null;
-  }
-
   if (!knownFolderIds) {
-    return normalizedFolderId;
+    // Without an explicit allowlist, only "mine" may pass an arbitrary
+    // folder id through. "public" must always be restricted to a curated,
+    // known set of folder ids (see PUBLIC_COLLECTIONS on the backend) — it
+    // never gets an unrestricted pass-through.
+    return galleryScope === "mine" ? normalizedFolderId : null;
   }
 
   const validIds = new Set(knownFolderIds);

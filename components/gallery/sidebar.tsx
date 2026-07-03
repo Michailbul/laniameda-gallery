@@ -36,8 +36,6 @@ interface Folder {
   count?: number;
 }
 
-type GalleryScope = "mine" | "public";
-
 interface GallerySidebarProps {
   modelTags: ModelTag[];
   hideModelsSection?: boolean;
@@ -53,7 +51,6 @@ interface GallerySidebarProps {
   folders?: Folder[];
   selectedFolderId?: string | null;
   onFolderSelect?: (folderId: string | null) => void;
-  galleryScope?: GalleryScope;
 }
 
 export function GallerySidebar({
@@ -71,7 +68,6 @@ export function GallerySidebar({
   folders = [],
   selectedFolderId,
   onFolderSelect,
-  galleryScope,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -237,8 +233,10 @@ export function GallerySidebar({
       <ScrollArea className="flex-1">
         {!collapsed && (
           <div className="flex flex-col">
-            {/* Folders */}
-            {galleryScope === "mine" && folders.length > 0 && onFolderSelect && (
+            {/* Folders — dashboard.tsx controls which folders are passed in
+                per scope (all owned collections for "mine", a curated
+                public-facing allowlist for "public"), so no scope gate here. */}
+            {folders.length > 0 && onFolderSelect && (
               <div style={{ borderBottom: "1px solid var(--lm-sidebar-divider)" }}>
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span

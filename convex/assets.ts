@@ -1965,6 +1965,63 @@ export const folderAssetCounts = query({
   },
 });
 
+// Curated collections exposed on the Public gallery scope. Deliberately a
+// fixed allowlist (not "all folders") — most collections (e.g. personal
+// names) are private-only; only these are meant to be public-facing filters.
+// Update this list, not the folders table, to change what's public.
+const PUBLIC_COLLECTIONS: Array<{ folderId: Id<"folders">; label: string }> = [
+  { folderId: "j973rvc637sgek1c146nx3r3q188ydv8" as Id<"folders">, label: "Characters" },
+  { folderId: "j975g6k8cg4kf7vhnv69w3tbqx88yzpf" as Id<"folders">, label: "Locations" },
+];
+
+export const listPublicCollections = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      folderId: v.id("folders"),
+      label: v.string(),
+      count: v.number(),
+    }),
+  ),
+  handler: async (ctx) => {
+    const results: Array<{ folderId: Id<"folders">; label: string; count: number }> = [];
+
+    for (const collection of PUBLIC_COLLECTIONS) {
+      const assetIds = new Set<Id<"assets">>();
+
+      const primaryRows = await ctx.db
+        .query("assets")
+        .withIndex("by_folder_createdAt", (q) =>
+          q.eq("folderId", collection.folderId).gte("createdAt", 0),
+        )
+        .collect();
+      for (const asset of primaryRows) {
+        if (asset.isPublic) assetIds.add(asset._id);
+      }
+
+      const links = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_folder_createdAt", (q) =>
+          q.eq("folderId", collection.folderId).gte("createdAt", 0),
+        )
+        .collect();
+      for (const link of links) {
+        if (assetIds.has(link.assetId)) continue;
+        const asset = await ctx.db.get(link.assetId);
+        if (asset?.isPublic) assetIds.add(link.assetId);
+      }
+
+      results.push({
+        folderId: collection.folderId,
+        label: collection.label,
+        count: assetIds.size,
+      });
+    }
+
+    return results;
+  },
+});
+
 export const replaceAssetThumbnail = mutation({
   args: {
     ownerUserId: v.string(),

@@ -24,11 +24,31 @@ test("resolveAccessibleGalleryScope falls back to public when mine is inaccessib
   ).toBe("public");
 });
 
-test("resolveScopeFolderFilter clears folder filter outside my gallery", () => {
+test("resolveScopeFolderFilter clears an unrestricted folder filter in public scope", () => {
   expect(
     resolveScopeFolderFilter({
       galleryScope: "public",
       selectedFolderId: "folder-1",
+      knownFolderIds: null,
+    }),
+  ).toBeNull();
+});
+
+test("resolveScopeFolderFilter allows public scope folder ids from a curated allowlist", () => {
+  expect(
+    resolveScopeFolderFilter({
+      galleryScope: "public",
+      selectedFolderId: "folder-1",
+      knownFolderIds: ["folder-1"],
+    }),
+  ).toBe("folder-1");
+});
+
+test("resolveScopeFolderFilter drops public scope folder ids outside the curated allowlist", () => {
+  expect(
+    resolveScopeFolderFilter({
+      galleryScope: "public",
+      selectedFolderId: "folder-missing",
       knownFolderIds: ["folder-1"],
     }),
   ).toBeNull();

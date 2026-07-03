@@ -934,10 +934,33 @@ export function GalleryDashboard({
       })),
     [folders, folderCountById],
   );
-  const knownFolderIds = useMemo(
-    () => (folders ? folders.map((folder) => folder._id) : null),
-    [folders],
+
+  // Curated, public-facing subset of collections (see PUBLIC_COLLECTIONS in
+  // convex/assets.ts). Counts are pre-scoped to public assets only.
+  const publicCollections = useQuery(
+    api.assets.listPublicCollections,
+    galleryScope === "public" ? {} : "skip",
   );
+  const publicFoldersWithCounts = useMemo(
+    () =>
+      (publicCollections ?? []).map((entry) => ({
+        _id: entry.folderId,
+        name: entry.label,
+        count: entry.count,
+      })),
+    [publicCollections],
+  );
+  const sidebarFolders =
+    galleryScope === "public" ? publicFoldersWithCounts : foldersWithCounts;
+
+  const knownFolderIds = useMemo(() => {
+    if (galleryScope === "public") {
+      return publicCollections
+        ? publicCollections.map((entry) => entry.folderId)
+        : null;
+    }
+    return folders ? folders.map((folder) => folder._id) : null;
+  }, [galleryScope, folders, publicCollections]);
   const effectiveSelectedFolderId = useMemo(
     () =>
       resolveScopeFolderFilter({
@@ -2245,10 +2268,9 @@ export function GalleryDashboard({
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
-          folders={foldersWithCounts}
+          folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={setSelectedFolderId}
-          galleryScope={galleryScope}
         />
       </div>
 
