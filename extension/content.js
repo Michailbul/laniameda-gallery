@@ -1,6 +1,7 @@
 // Save to Gallery — Universal content script
 // Attaches a hover badge on images that are large enough both intrinsically and on screen.
-// Includes Midjourney-specific prompt extraction when on midjourney.com.
+// Includes Midjourney-specific prompt extraction when on midjourney.com and a
+// Krea adapter (persistent quick-save widgets + prompt extraction) on krea.ai.
 
 (() => {
   "use strict";
@@ -22,6 +23,7 @@
   const CHEVRON_ICON = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7.5 5 5 5-5"/></svg>`;
   const imageQualification = globalThis.SaveToGalleryImageQualification;
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
+  const kreaAdapter = globalThis.SaveToGalleryKrea;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
   function getExtensionRuntime() {
@@ -124,6 +126,27 @@
 
   function isMidjourneyPage() {
     return location.hostname.includes("midjourney.com");
+  }
+
+  function isKreaPage() {
+    if (kreaAdapter?.isKreaPage) return kreaAdapter.isKreaPage(location.hostname);
+    const host = location.hostname.toLowerCase();
+    return host === "krea.ai" || host.endsWith(".krea.ai");
+  }
+
+  // Sites that get persistent quick-save widgets (Save + collection menu on
+  // every qualified generation) instead of the generic hover badge.
+  function isPersistentSaveSite() {
+    return isMidjourneyPage() || isKreaPage();
+  }
+
+  // Krea qualification is size-based (see krea-adapter.js), so the scan
+  // considers every rendered <img>/<video> (plus background-image containers)
+  // and filters at inject time.
+  const KREA_MEDIA_SELECTOR = 'img, video, [style*="background-image"]';
+
+  function getSiteMediaSelector() {
+    return isMidjourneyPage() ? MJ_MEDIA_SELECTOR : KREA_MEDIA_SELECTOR;
   }
 
   function extractMidjourneyContext() {
@@ -1369,7 +1392,7 @@
     extensionEnabled = Boolean(nextEnabled);
     if (!extensionEnabled) {
       clearInjectedUi();
-    } else if (isMidjourneyPage()) {
+    } else if (isPersistentSaveSite()) {
       scheduleMidjourneyMediaScan();
     }
   }
@@ -1713,6 +1736,45 @@
     };
   }
 
+  // ── Krea adapter glue ──
+
+  function isQualifiedKreaMediaTarget(target) {
+    if (!target || target.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    if (!kreaAdapter?.isQualifiedMediaElement) return false;
+    return kreaAdapter.isQualifiedMediaElement(target, {
+      badgeAttr: MJ_MEDIA_BADGE_ATTR,
+    });
+  }
+
+  function getKreaSaveContext(target) {
+    const rawImageUrl = kreaAdapter?.getMediaUrl ? kreaAdapter.getMediaUrl(target) : "";
+    if (!rawImageUrl) return null;
+
+    return {
+      imageUrl: resolveAbsoluteUrl(rawImageUrl),
+      promptText: kreaAdapter?.extractPrompt
+        ? kreaAdapter.extractPrompt(target, document)
+        : "",
+      modelName: "Krea",
+      tagNames: kreaAdapter?.getTagNames
+        ? kreaAdapter.getTagNames(location.pathname)
+        : ["krea"],
+      ...getNaturalDimensions(target),
+    };
+  }
+
+  function isQualifiedSiteMediaTarget(target) {
+    return isMidjourneyPage()
+      ? isQualifiedMidjourneyMediaTarget(target)
+      : isQualifiedKreaMediaTarget(target);
+  }
+
+  function getSiteSaveContext(target) {
+    return isMidjourneyPage()
+      ? getMidjourneySaveContext(target)
+      : getKreaSaveContext(target);
+  }
+
   function getMidjourneyWidgetHost(target) {
     if (!target) return null;
 
@@ -1953,8 +2015,11 @@
 
     widget.style.display = "flex";
     const isCentered = isMidjourneyImaginePage();
+    // Hover-reveal keeps generation workspaces uncluttered — the widget only
+    // shows while its host media is hovered.
+    const hoverReveal = isCentered || isKreaPage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
-    widget.classList.toggle("stg-mj-quick-save--hover-reveal", isCentered);
+    widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
       centered: isCentered,
       display: "flex",
@@ -1987,9 +2052,9 @@
   async function handleSaveMidjourneyMedia(target, button, folderIds) {
     if (button.classList.contains("stg-badge--saving")) return;
 
-    const saveContext = getMidjourneySaveContext(target);
+    const saveContext = getSiteSaveContext(target);
     if (!saveContext) {
-      console.debug("[Save to Gallery] Midjourney image URL unavailable for media target.");
+      console.debug("[Save to Gallery] Image URL unavailable for media target.");
       return;
     }
 
@@ -2013,6 +2078,8 @@
       modelName: saveContext.modelName,
       tagNames: saveContext.tagNames,
       fileData,
+      imageWidth: saveContext.imageWidth,
+      imageHeight: saveContext.imageHeight,
       topRight: true,
     });
   }
@@ -2335,7 +2402,7 @@
 
   function injectMidjourneyMediaBadge(target) {
     if (suppressMidjourneySaveUiForViewer()) return;
-    if (!isQualifiedMidjourneyMediaTarget(target)) return;
+    if (!isQualifiedSiteMediaTarget(target)) return;
 
     const widget = createMidjourneyMediaWidget(target);
     document.body.appendChild(widget);
@@ -2344,10 +2411,10 @@
   }
 
   function scanMidjourneyMediaTargets() {
-    if (!configLoaded || !extensionEnabled || !isMidjourneyPage()) return;
+    if (!configLoaded || !extensionEnabled || !isPersistentSaveSite()) return;
     if (suppressMidjourneySaveUiForViewer()) return;
 
-    const candidates = document.querySelectorAll(MJ_MEDIA_SELECTOR);
+    const candidates = document.querySelectorAll(getSiteMediaSelector());
     for (const candidate of candidates) {
       if (candidate.tagName?.toLowerCase() === "img" && !candidate.complete) {
         candidate.addEventListener("load", () => {
@@ -2362,7 +2429,7 @@
   }
 
   function scheduleMidjourneyMediaScan(delay = 80) {
-    if (!isMidjourneyPage()) return;
+    if (!isPersistentSaveSite()) return;
     clearTimeout(midjourneyScanTimer);
     midjourneyScanTimer = setTimeout(() => {
       if (!configLoaded) {
@@ -2376,7 +2443,7 @@
   }
 
   function startMidjourneyMediaObserver() {
-    if (!isMidjourneyPage() || midjourneyObserver) return;
+    if (!isPersistentSaveSite() || midjourneyObserver) return;
 
     midjourneyObserver = new MutationObserver(() => {
       scheduleMidjourneyMediaScan();
@@ -2396,7 +2463,8 @@
   // ── Event listeners ──
 
   document.addEventListener("mouseover", (e) => {
-    if (isMidjourneyPage()) return;
+    // Persistent-widget sites (Midjourney, Krea) get their own save controls.
+    if (isPersistentSaveSite()) return;
 
     const img = e.target.closest("img");
     if (!img) return;
