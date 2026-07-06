@@ -437,6 +437,53 @@ describe("packMasonry — dense flow supports wider video cards", () => {
     }
   });
 
+  test("adaptive stretch closes holes the packer can't level (staggered columns)", () => {
+    // Two columns: a portrait+square stack vs three squares leaves a 10-row
+    // deficit under the shorter column when the wide banner lands. No queue
+    // items remain to level with, so the run of single-column image cards
+    // above the hole must stretch (distributed, capped) until the column is
+    // flush with the banner.
+    const geom: ColumnGeometry = { contentWidth: 1200, columnCount: 2, gap: 14 };
+    const feed: LayoutInput[] = [
+      { width: 1080, height: 1920, kind: "image" }, // portrait, col 0
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 2560, height: 1280, kind: "image" }, // 2:1 banner spans both
+    ];
+
+    const result = packMasonry(feed, geom);
+    const rowsByColumn = new Map<number, Set<number>>();
+    for (const placement of result.placements) {
+      for (
+        let col = placement.column;
+        col < placement.column + placement.colSpan;
+        col += 1
+      ) {
+        const rows = rowsByColumn.get(col) ?? new Set<number>();
+        for (
+          let row = placement.startRow;
+          row < placement.startRow + placement.rowSpan;
+          row += 1
+        ) {
+          expect(rows.has(row)).toBe(false);
+          rows.add(row);
+        }
+        rowsByColumn.set(col, rows);
+      }
+    }
+    for (const rows of rowsByColumn.values()) {
+      const bottomRow = Math.max(...rows);
+      for (let row = 1; row <= bottomRow; row += 1) {
+        expect(rows.has(row)).toBe(true);
+      }
+    }
+    // The banner still spans both columns — wide cards never shrink.
+    const banner = result.placements[5]!;
+    expect(banner.colSpan).toBe(2);
+  });
+
   test("packs tightly across a single-pillar filter (e.g. all designs)", () => {
     const geom = geometry4col1200();
     const designs: LayoutInput[] = Array.from({ length: 16 }, (_, i) => ({

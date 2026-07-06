@@ -489,7 +489,14 @@ export const ImageCard = memo(function ImageCard({
           {(isLoading || hasError) && (
             <div
               className="absolute inset-0"
-              style={{ backgroundColor: "var(--surface-1)" }}
+              style={{
+                // Must read as a card against the page background on both
+                // themes — a bare --surface-1 is nearly invisible on dark.
+                backgroundColor:
+                  "color-mix(in srgb, var(--text-primary) 6%, var(--surface-1))",
+                boxShadow:
+                  "inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent)",
+              }}
             >
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                 <ImageIcon
@@ -614,7 +621,15 @@ export const ImageCard = memo(function ImageCard({
       {(isLoading || hasError) && (
         <div
           className="absolute inset-0"
-          style={{ backgroundColor: "var(--surface-1)" }}
+          style={{
+            // Must read as a card against the page background on both themes
+            // — a bare --surface-1 is nearly invisible on dark and made
+            // loading cards look like holes in the masonry.
+            backgroundColor:
+              "color-mix(in srgb, var(--text-primary) 6%, var(--surface-1))",
+            boxShadow:
+              "inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent)",
+          }}
         >
           <div
             className="absolute inset-0"

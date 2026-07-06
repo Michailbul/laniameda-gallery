@@ -229,17 +229,25 @@ export function MasonryGrid({
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setVisibleCount(Math.min(BATCH_SIZE, images.length));
-  }, [images]);
+  // Clamp at render time and never shrink the counter on list re-emits:
+  // Convex queries re-emit a fresh array identity on any table write, and
+  // resetting to the first batch would unmount cards under the user's
+  // viewport mid-scroll — the grid would show giant holes until the scroll
+  // sentinel re-fired.
+  const effectiveVisibleCount = Math.min(
+    Math.max(visibleCount, BATCH_SIZE),
+    images.length,
+  );
 
   const loadMore = useCallback(() => {
-    setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, images.length));
+    setVisibleCount((prev) =>
+      Math.min(Math.max(prev, BATCH_SIZE) + BATCH_SIZE, images.length),
+    );
   }, [images.length]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || visibleCount >= images.length) return;
+    if (!sentinel || effectiveVisibleCount >= images.length) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -249,7 +257,7 @@ export function MasonryGrid({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [visibleCount, images.length, loadMore]);
+  }, [effectiveVisibleCount, images.length, loadMore]);
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns
@@ -266,7 +274,7 @@ export function MasonryGrid({
   const orderedCards = useMemo(() => {
     if (contentWidth === null) {
       return images
-        .slice(0, visibleCount)
+        .slice(0, effectiveVisibleCount)
         .map((image) => ({ image, placement: undefined }));
     }
     const { placements } = packMasonry(
@@ -279,9 +287,9 @@ export function MasonryGrid({
     );
     return [...placements]
       .sort((a, b) => a.startRow - b.startRow || a.column - b.column)
-      .slice(0, visibleCount)
+      .slice(0, effectiveVisibleCount)
       .map((placement) => ({ image: images[placement.index]!, placement }));
-  }, [columnCount, contentWidth, gap, images, visibleCount]);
+  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount]);
 
   if (loading) {
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
@@ -358,7 +366,7 @@ export function MasonryGrid({
           );
         })}
       </div>
-      {visibleCount < images.length && (
+      {effectiveVisibleCount < images.length && (
         <div ref={sentinelRef} className="h-1" />
       )}
     </>

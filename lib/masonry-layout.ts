@@ -218,6 +218,11 @@ export type PackedItem = {
 export const PACK_PULL_LOOKAHEAD = 16;
 export const MAX_STRETCH_FRACTION = 0.15;
 export const HOLE_TOLERANCE_ROWS = 2;
+// Final adaptive pass: a residual hole is distributed across the contiguous
+// run of single-column image cards directly above it, each stretching at most
+// this fraction of its own height (media renders object-cover, so the crop is
+// modest and spread out). Wide cards are never shrunk.
+export const MAX_ADAPTIVE_STRETCH_FRACTION = 0.5;
 
 type PackWindow = { column: number; startRow: number; holeRows: number };
 
@@ -357,6 +362,8 @@ export function packMasonry(
     });
   }
 
+  closeResidualHoles(items, placements, columnCount);
+
   let totalRows = 0;
   let usedCells = 0;
   for (const placement of placements) {
@@ -366,4 +373,65 @@ export function packMasonry(
   const gapRows = Math.max(0, totalRows * columnCount - usedCells);
 
   return { totalRows, placements, gapRows };
+}
+
+// Adaptive gap absorption: for every interior hole left after packing (a gap
+// between two consecutive cards in a column, which only happens beneath the
+// shorter side of a multi-column card), stretch the contiguous run of
+// single-column image cards directly above it so their combined extra height
+// fills the hole. Single-column cards can shift/stretch freely without
+// touching other columns; videos (object-contain would letterbox) and
+// multi-column cards are left alone.
+function closeResidualHoles(
+  items: LayoutInput[],
+  placements: PackedItem[],
+  columnCount: number,
+): void {
+  for (let col = 0; col < columnCount; col += 1) {
+    const stack = placements
+      .filter(
+        (placement) =>
+          placement.column <= col && col < placement.column + placement.colSpan,
+      )
+      .sort((a, b) => a.startRow - b.startRow);
+
+    for (let i = 1; i < stack.length; i += 1) {
+      const prev = stack[i - 1]!;
+      const next = stack[i]!;
+      const gap = next.startRow - (prev.startRow + prev.rowSpan);
+      if (gap <= 0) continue;
+
+      // Contiguous run of absorbable cards ending at `prev`, walking upward.
+      const run: PackedItem[] = [];
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const candidate = stack[j]!;
+        if (candidate.colSpan !== 1) break;
+        if (resolveLayoutKind(items[candidate.index] ?? {}) !== "image") break;
+        run.unshift(candidate);
+        const above = stack[j - 1];
+        if (above && above.startRow + above.rowSpan !== candidate.startRow) {
+          break;
+        }
+      }
+      if (run.length === 0) continue;
+
+      const capacity = run.map((placement) =>
+        Math.floor(placement.rowSpan * MAX_ADAPTIVE_STRETCH_FRACTION),
+      );
+      let remaining = Math.min(
+        gap,
+        capacity.reduce((sum, value) => sum + value, 0),
+      );
+      let shift = 0;
+      for (let j = 0; j < run.length; j += 1) {
+        const placement = run[j]!;
+        placement.startRow += shift;
+        const fairShare = Math.ceil(remaining / (run.length - j));
+        const add = Math.min(fairShare, capacity[j]!, remaining);
+        placement.rowSpan += add;
+        shift += add;
+        remaining -= add;
+      }
+    }
+  }
 }
