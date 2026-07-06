@@ -244,11 +244,6 @@ export function MasonryGrid({
     return () => observer.disconnect();
   }, [visibleCount, images.length, loadMore]);
 
-  const visibleImages = useMemo(
-    () => images.slice(0, visibleCount),
-    [images, visibleCount],
-  );
-
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns
     ? "columns-1 sm:columns-2 md:columns-2 lg:columns-3 2xl:columns-3"
@@ -256,19 +251,30 @@ export function MasonryGrid({
 
   const [gridRef, contentWidth] = useContentWidth();
 
-  const packedLayout = useMemo(() => {
+  // Pack the FULL list (not just the visible batch) so placements are stable
+  // as batches mount, then mount cards in visual (top-to-bottom) order — the
+  // packer may place a later item above an earlier one when leveling columns
+  // under a wide card, and mounting by array order would leave holes at the
+  // top until that item's batch loads.
+  const orderedCards = useMemo(() => {
     if (contentWidth === null) {
-      return null;
+      return images
+        .slice(0, visibleCount)
+        .map((image) => ({ image, placement: undefined }));
     }
-    return packMasonry(
-      visibleImages.map(resolveGridLayoutInput),
+    const { placements } = packMasonry(
+      images.map(resolveGridLayoutInput),
       {
         contentWidth,
         columnCount,
         gap,
       },
     );
-  }, [columnCount, contentWidth, gap, visibleImages]);
+    return [...placements]
+      .sort((a, b) => a.startRow - b.startRow || a.column - b.column)
+      .slice(0, visibleCount)
+      .map((placement) => ({ image: images[placement.index]!, placement }));
+  }, [columnCount, contentWidth, gap, images, visibleCount]);
 
   if (loading) {
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
@@ -288,8 +294,7 @@ export function MasonryGrid({
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
-        {visibleImages.map((image, originalIndex) => {
-          const placement = packedLayout?.placements[originalIndex];
+        {orderedCards.map(({ image, placement }, originalIndex) => {
           return (
             <div
               key={image.id}

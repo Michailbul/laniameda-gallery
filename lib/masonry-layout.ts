@@ -3,10 +3,10 @@
  *
  * The masonry uses CSS `grid` with a tiny `grid-auto-rows` unit (ROW_UNIT_PX)
  * so each card can occupy a precise number of "row units" matching its
- * rendered pixel height. Images span a single column; videos span two columns
- * when the viewport has room, with height still computed from the video's
- * native visual aspect ratio. Placement is computed explicitly so the browser
- * does not strand empty shelves.
+ * rendered pixel height. Portrait/squarish images span a single column;
+ * videos and wide (≥16:9) images span two columns when the viewport has room,
+ * with height still computed from the media's native aspect ratio. Placement
+ * is computed explicitly so the browser does not strand empty shelves.
  */
 
 export const ROW_UNIT_PX = 1;
@@ -18,11 +18,13 @@ const SQUAREISH_VIDEO_TOLERANCE = 0.04;
 
 export const VIDEO_CARD_COLUMN_SPAN = 2;
 
-// Ultra-wide images (e.g. 21:9 ≈ 2.33) render as thin, small strips in a single
-// column. Let them span two columns — same footprint trick as videos — so they
-// read as a large banner while keeping their native aspect ratio.
+// Wide landscape images (16:9 and wider) render as thin, small strips in a
+// single column. Let them span two columns — same footprint trick as videos —
+// so they read as a large banner while keeping their native aspect ratio.
+// 1.7 catches 16:9 (≈1.78) and everything wider; 3:2 (1.5) and 16:10 (1.6)
+// stay single-column.
 export const WIDE_CARD_COLUMN_SPAN = 2;
-export const WIDE_IMAGE_ASPECT_THRESHOLD = 2.0;
+export const WIDE_IMAGE_ASPECT_THRESHOLD = 1.7;
 
 /**
  * Clamp an aspect ratio (width / height) into a visually reasonable band so a
@@ -191,10 +193,15 @@ export function reservedHeightForCell(
 }
 
 /**
- * Deterministic dense placement for the masonry grid. Items keep their intended
- * width, and the packer scans from the top-left for the first available slot.
- * This preserves consistent two-column videos while still letting later
- * one-column cards backfill around them.
+ * Deterministic gap-free placement for the masonry grid.
+ *
+ * Single-column cards stack onto the shortest column (classic masonry). A
+ * multi-column card needs adjacent columns at the same height, so the packer
+ * (a) picks the window of columns that buries the smallest hole, (b) pulls
+ * upcoming single-column cards forward to level the columns first, and
+ * (c) stretches the card above any small residual hole so the wide card sits
+ * flush (`object-cover` absorbs the crop). Cards may therefore render out of
+ * array order — consumers should mount them sorted by `startRow`.
  */
 export type PackedItem = {
   index: number;
@@ -204,6 +211,16 @@ export type PackedItem = {
   rowSpan: number;
 };
 
+// How many upcoming cards the packer may pull forward to level columns under
+// a wide card, and how much of a card's own height it may stretch to close a
+// residual hole. Holes up to HOLE_TOLERANCE_ROWS are treated as free when
+// choosing a window — they're small enough for the stretch pass to absorb.
+export const PACK_PULL_LOOKAHEAD = 16;
+export const MAX_STRETCH_FRACTION = 0.15;
+export const HOLE_TOLERANCE_ROWS = 2;
+
+type PackWindow = { column: number; startRow: number; holeRows: number };
+
 export function packMasonry(
   items: LayoutInput[],
   geometry: ColumnGeometry,
@@ -212,61 +229,141 @@ export function packMasonry(
   if (columnCount <= 0 || items.length === 0) {
     return { totalRows: 0, placements: [], gapRows: 0 };
   }
-  const occupied = new Set<string>();
-  const placements: PackedItem[] = [];
-  let totalRows = 0;
 
-  const cellKey = (row: number, column: number) => `${row}:${column}`;
-  const canPlace = (
-    startRow: number,
-    column: number,
-    colSpan: number,
-    rowSpan: number,
-  ) => {
-    if (column + colSpan > columnCount) return false;
-    for (let row = startRow; row < startRow + rowSpan; row += 1) {
-      for (let col = column; col < column + colSpan; col += 1) {
-        if (occupied.has(cellKey(row, col))) return false;
-      }
+  const layouts = items.map((item) => computeCellLayout(item, geometry));
+  // Next free row per column (CSS grid rows are 1-based).
+  const bottoms: number[] = new Array(columnCount).fill(1);
+  const lastInColumn: (PackedItem | null)[] = new Array(columnCount).fill(
+    null,
+  );
+  const placements: PackedItem[] = new Array(items.length);
+  const queue: number[] = items.map((_, index) => index);
+
+  const record = (placement: PackedItem) => {
+    placements[placement.index] = placement;
+    const end = placement.column + placement.colSpan;
+    for (let col = placement.column; col < end; col += 1) {
+      bottoms[col] = placement.startRow + placement.rowSpan;
+      lastInColumn[col] = placement;
     }
-    return true;
   };
 
-  items.forEach((item, index) => {
-    const { colSpan, rowSpan } = computeCellLayout(item, geometry);
-    let pickColumn = 0;
-    let pickRow = 1;
-    let placed = false;
+  const shortestColumn = (): number => {
+    let pick = 0;
+    for (let col = 1; col < columnCount; col += 1) {
+      if (bottoms[col] < bottoms[pick]) pick = col;
+    }
+    return pick;
+  };
 
-    while (!placed) {
-      for (let col = 0; col <= columnCount - colSpan; col += 1) {
-        if (canPlace(pickRow, col, colSpan, rowSpan)) {
-          pickColumn = col;
-          placed = true;
+  const placeSingle = (index: number) => {
+    const col = shortestColumn();
+    record({
+      index,
+      column: col,
+      colSpan: 1,
+      startRow: bottoms[col],
+      rowSpan: layouts[index].rowSpan,
+    });
+  };
+
+  const effectiveHole = (holeRows: number) =>
+    holeRows <= HOLE_TOLERANCE_ROWS ? 0 : holeRows;
+
+  const bestWindow = (colSpan: number, floor: number[]): PackWindow => {
+    let best: PackWindow | null = null;
+    for (let col = 0; col + colSpan <= columnCount; col += 1) {
+      let startRow = 1;
+      for (let k = col; k < col + colSpan; k += 1) {
+        startRow = Math.max(startRow, floor[k]);
+      }
+      let holeRows = 0;
+      for (let k = col; k < col + colSpan; k += 1) {
+        holeRows += startRow - floor[k];
+      }
+      if (
+        !best ||
+        effectiveHole(holeRows) < effectiveHole(best.holeRows) ||
+        (effectiveHole(holeRows) === effectiveHole(best.holeRows) &&
+          startRow < best.startRow)
+      ) {
+        best = { column: col, startRow, holeRows };
+      }
+    }
+    return best!;
+  };
+
+  // Stretch the single-column image card at the bottom of `col` so the column
+  // reaches `targetRow`. Skipped when the hole is too tall relative to the
+  // card (the crop would be visible) or the card is a video/multi-column.
+  const absorbHoleBelow = (col: number, targetRow: number) => {
+    const above = lastInColumn[col];
+    if (!above || above.colSpan !== 1) return;
+    if (resolveLayoutKind(items[above.index]) !== "image") return;
+    const hole = targetRow - bottoms[col];
+    if (hole <= 0) return;
+    if (hole > Math.floor(above.rowSpan * MAX_STRETCH_FRACTION)) return;
+    above.rowSpan += hole;
+    bottoms[col] = targetRow;
+  };
+
+  while (queue.length > 0) {
+    const index = queue.shift()!;
+    const { colSpan, rowSpan } = layouts[index];
+    if (colSpan <= 1) {
+      placeSingle(index);
+      continue;
+    }
+
+    // Level the columns before burying a hole under the wide card: pull
+    // upcoming single-column cards forward while doing so strictly shrinks
+    // the hole the wide card would leave behind.
+    let best = bestWindow(colSpan, bottoms);
+    while (effectiveHole(best.holeRows) > 0) {
+      let pullPos = -1;
+      const horizon = Math.min(queue.length, PACK_PULL_LOOKAHEAD);
+      for (let pos = 0; pos < horizon; pos += 1) {
+        if (layouts[queue[pos]].colSpan === 1) {
+          pullPos = pos;
           break;
         }
       }
-      if (!placed) pickRow += 1;
+      if (pullPos === -1) break;
+      const pulledIndex = queue[pullPos];
+      const col = shortestColumn();
+      const simulated = bottoms.slice();
+      simulated[col] += layouts[pulledIndex].rowSpan;
+      const simulatedBest = bestWindow(colSpan, simulated);
+      if (
+        effectiveHole(simulatedBest.holeRows) >= effectiveHole(best.holeRows)
+      ) {
+        break;
+      }
+      queue.splice(pullPos, 1);
+      placeSingle(pulledIndex);
+      best = simulatedBest;
     }
 
-    for (let row = pickRow; row < pickRow + rowSpan; row += 1) {
-      for (let col = pickColumn; col < pickColumn + colSpan; col += 1) {
-        occupied.add(cellKey(row, col));
-      }
+    for (let col = best.column; col < best.column + colSpan; col += 1) {
+      absorbHoleBelow(col, best.startRow);
     }
-    placements.push({
+
+    record({
       index,
-      column: pickColumn,
+      column: best.column,
       colSpan,
-      startRow: pickRow,
+      startRow: best.startRow,
       rowSpan,
     });
-    totalRows = Math.max(totalRows, pickRow + rowSpan - 1);
-  });
+  }
 
-  const usedRows = occupied.size;
-  const reservedRows = totalRows * columnCount;
-  const gapRows = Math.max(0, reservedRows - usedRows);
+  let totalRows = 0;
+  let usedCells = 0;
+  for (const placement of placements) {
+    totalRows = Math.max(totalRows, placement.startRow + placement.rowSpan - 1);
+    usedCells += placement.colSpan * placement.rowSpan;
+  }
+  const gapRows = Math.max(0, totalRows * columnCount - usedCells);
 
   return { totalRows, placements, gapRows };
 }

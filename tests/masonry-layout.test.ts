@@ -102,7 +102,7 @@ describe("resolveColumnSpan", () => {
     ).toBe(VIDEO_CARD_COLUMN_SPAN);
     expect(
       resolveColumnSpan(
-        { width: 1920, height: 1080, kind: "image" },
+        { width: 1500, height: 1000, kind: "image" },
         geometry4col1200(),
       ),
     ).toBe(1);
@@ -123,11 +123,18 @@ describe("resolveColumnSpan", () => {
     ).toBe(1);
   });
 
-  test("makes ultra-wide images (21:9) span two columns so they aren't thin strips", () => {
-    // 21:9 ≈ 2.33 — above the wide threshold.
+  test("makes wide images (16:9 and up) span two columns so they aren't thin strips", () => {
+    // 21:9 ≈ 2.33 — well above the wide threshold.
     expect(
       resolveColumnSpan(
         { width: 2520, height: 1080, kind: "image" },
+        geometry4col1200(),
+      ),
+    ).toBe(2);
+    // 16:9 (1.78) is promoted too — it reads as a large banner, not a strip.
+    expect(
+      resolveColumnSpan(
+        { width: 1920, height: 1080, kind: "image" },
         geometry4col1200(),
       ),
     ).toBe(2);
@@ -138,10 +145,10 @@ describe("resolveColumnSpan", () => {
         { contentWidth: 320, columnCount: 1, gap: 12 },
       ),
     ).toBe(1);
-    // 16:9 (1.78) stays single-column — only the truly ultra-wide get promoted.
+    // 3:2 (1.5) landscape stays single-column — only 16:9 and wider promote.
     expect(
       resolveColumnSpan(
-        { width: 1920, height: 1080, kind: "image" },
+        { width: 1500, height: 1000, kind: "image" },
         geometry4col1200(),
       ),
     ).toBe(1);
@@ -238,7 +245,7 @@ describe("computeCellLayout", () => {
     expect(reserved - expectedH).toBeLessThan(ROW_UNIT_PX + geom.gap);
   });
 
-  test("video cards are larger by width, not by aspect distortion", () => {
+  test("16:9 images get the same large two-column footprint as videos", () => {
     const geom = geometry4col1200();
     const video = computeCellLayout(
       { width: 1920, height: 1080, kind: "video" },
@@ -248,13 +255,33 @@ describe("computeCellLayout", () => {
       { width: 1920, height: 1080, kind: "image" },
       geom,
     );
-    const videoH = reservedHeightForCell(video, geom.gap);
-    const imageH = reservedHeightForCell(image, geom.gap);
 
     expect(video.colSpan).toBe(2);
-    expect(image.colSpan).toBe(1);
-    expect(videoH / imageH).toBeGreaterThan(1.9);
-    expect(videoH / imageH).toBeLessThan(2.2);
+    expect(image.colSpan).toBe(2);
+    expect(image.rowSpan).toBe(video.rowSpan);
+  });
+
+  test("wide cards are larger by width, not by aspect distortion", () => {
+    const geom = geometry4col1200();
+    const wide = computeCellLayout(
+      { width: 1920, height: 1080, kind: "image" },
+      geom,
+    );
+    const narrow = computeCellLayout(
+      { width: 1500, height: 1000, kind: "image" },
+      geom,
+    );
+    const wideH = reservedHeightForCell(wide, geom.gap);
+    const narrowH = reservedHeightForCell(narrow, geom.gap);
+    const colW = columnWidth(geom);
+
+    expect(wide.colSpan).toBe(2);
+    expect(narrow.colSpan).toBe(1);
+    // The 16:9 card keeps its native aspect at double width.
+    const expectedWideH = (colW * 2 + geom.gap) / (1920 / 1080);
+    expect(wideH).toBeGreaterThanOrEqual(expectedWideH);
+    expect(wideH - expectedWideH).toBeLessThan(ROW_UNIT_PX + geom.gap);
+    expect(wideH).toBeGreaterThan(narrowH);
   });
 
   test("falls back gracefully when geometry is not yet measured", () => {
@@ -354,6 +381,60 @@ describe("packMasonry — dense flow supports wider video cards", () => {
       }
     }
     expect(columnsCovered.size).toBe(geom.columnCount);
+  });
+
+  test("wide-heavy feed (2:1 banners + squares) packs with no interior holes", () => {
+    // Mirrors the real gallery feed that produced ~200px holes: 2-column
+    // banner cards interleaved with square cards. Interior holes (empty cells
+    // above a column's bottom) must be gone; bottom raggedness is fine.
+    const geom = geometry4col1200();
+    const feed: LayoutInput[] = [
+      { width: 1280, height: 640, kind: "image" },
+      { width: 1500, height: 640, kind: "image" },
+      { width: 1500, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 1280, height: 640, kind: "image" },
+      { width: 1280, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 1280, height: 640, kind: "image" },
+      { width: 1280, height: 640, kind: "image" },
+      { width: 640, height: 640, kind: "image" },
+      { width: 1280, height: 640, kind: "image" },
+    ];
+
+    const result = packMasonry(feed, geom);
+    expect(result.placements).toHaveLength(feed.length);
+
+    const rowsByColumn = new Map<number, Set<number>>();
+    for (const placement of result.placements) {
+      for (
+        let col = placement.column;
+        col < placement.column + placement.colSpan;
+        col += 1
+      ) {
+        const rows = rowsByColumn.get(col) ?? new Set<number>();
+        for (
+          let row = placement.startRow;
+          row < placement.startRow + placement.rowSpan;
+          row += 1
+        ) {
+          expect(rows.has(row)).toBe(false);
+          rows.add(row);
+        }
+        rowsByColumn.set(col, rows);
+      }
+    }
+
+    expect(rowsByColumn.size).toBe(geom.columnCount);
+    for (const rows of rowsByColumn.values()) {
+      const bottomRow = Math.max(...rows);
+      for (let row = 1; row <= bottomRow; row += 1) {
+        expect(rows.has(row)).toBe(true);
+      }
+    }
   });
 
   test("packs tightly across a single-pillar filter (e.g. all designs)", () => {
