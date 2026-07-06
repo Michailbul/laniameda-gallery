@@ -36,6 +36,7 @@ import {
   type GalleryEntryPreview,
 } from "@/lib/gallery-entries";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
+import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
@@ -334,6 +335,12 @@ export function GalleryDashboard({
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [bulkMoveMenuOpen, setBulkMoveMenuOpen] = useState(false);
+  // Feedback chip for collection moves (drag & drop or MOVE TO menu) — the
+  // bulk toolbar hides once the selection clears, so it can't host this.
+  const [moveStatus, setMoveStatus] = useState<{
+    text: string;
+    error?: boolean;
+  } | null>(null);
   const [replacingThumbAssetId, setReplacingThumbAssetId] =
     useState<string | null>(null);
   const [exitingAssetIds, setExitingAssetIds] = useState<
@@ -1573,11 +1580,10 @@ export function GalleryDashboard({
     }
   }, [bulkActionLoading, images, selectedAssetIds]);
 
-  const moveSelectedToFolder = useCallback(
-    async (folderId: string) => {
+  const moveAssetsToFolder = useCallback(
+    async (folderId: string, assetIds: string[]) => {
       if (bulkActionLoading) return;
-      const ids = Array.from(selectedAssetIds);
-      if (ids.length === 0) return;
+      if (assetIds.length === 0) return;
 
       setBulkActionLoading(true);
       setBulkMoveMenuOpen(false);
@@ -1585,7 +1591,7 @@ export function GalleryDashboard({
       setBulkCurationStatus(undefined);
       try {
         let moved = 0;
-        for (const assetId of ids) {
+        for (const assetId of assetIds) {
           // Move = set the asset's collections to just the destination.
           await setAssetFoldersMutation({
             ownerUserId,
@@ -1595,14 +1601,20 @@ export function GalleryDashboard({
           moved += 1;
         }
         const destName = folderNameById.get(folderId) ?? "collection";
-        setBulkCurationStatus(
-          `Moved ${moved} asset${moved === 1 ? "" : "s"} to ${destName}.`,
-        );
-        setSelectedAssetIds(new Set());
+        setMoveStatus({
+          text: `Moved ${moved} asset${moved === 1 ? "" : "s"} to ${destName}`,
+        });
+        setSelectedAssetIds((prev) => {
+          if (prev.size === 0) return prev;
+          const next = new Set(prev);
+          for (const assetId of assetIds) next.delete(assetId);
+          return next;
+        });
       } catch (error) {
-        setBulkCurationError(
-          error instanceof Error ? error.message : "Move failed.",
-        );
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Move failed.",
+          error: true,
+        });
       } finally {
         setBulkActionLoading(false);
       }
@@ -1611,9 +1623,50 @@ export function GalleryDashboard({
       bulkActionLoading,
       folderNameById,
       ownerUserId,
-      selectedAssetIds,
       setAssetFoldersMutation,
     ],
+  );
+
+  const moveSelectedToFolder = useCallback(
+    async (folderId: string) => {
+      await moveAssetsToFolder(folderId, Array.from(selectedAssetIds));
+    },
+    [moveAssetsToFolder, selectedAssetIds],
+  );
+
+  // Auto-dismiss the move feedback chip.
+  useEffect(() => {
+    if (!moveStatus) return;
+    const timer = window.setTimeout(() => setMoveStatus(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [moveStatus]);
+
+  // Drag & drop: dragging a card exports the asset ids to move — the whole
+  // selection when the dragged card is part of it, otherwise just that card.
+  const handleAssetDragStart = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, imageId: string) => {
+      const ids = selectedAssetIds.has(imageId)
+        ? Array.from(selectedAssetIds)
+        : [imageId];
+      const assetIds = ids.filter((id) => {
+        const image = images.find((entry) => entry.id === id);
+        return (
+          image !== undefined &&
+          (image.galleryItemType === "asset" ||
+            image.galleryItemType === undefined)
+        );
+      });
+      if (assetIds.length === 0) return;
+      writeAssetDragPayload(event.dataTransfer, assetIds);
+    },
+    [images, selectedAssetIds],
+  );
+
+  const handleAssetsDropOnFolder = useCallback(
+    (folderId: string, assetIds: string[]) => {
+      void moveAssetsToFolder(folderId, assetIds);
+    },
+    [moveAssetsToFolder],
   );
 
   // Navigation helpers
@@ -2271,6 +2324,9 @@ export function GalleryDashboard({
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={setSelectedFolderId}
+          onAssetsDropOnFolder={
+            canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
+          }
         />
       </div>
 
@@ -2503,6 +2559,8 @@ export function GalleryDashboard({
                     onToggleLike={(imageId, nextLiked) => {
                       void toggleAssetLike(imageId, nextLiked);
                     }}
+                    draggableAssets={canManageFoldersInCurrentView}
+                    onAssetDragStart={handleAssetDragStart}
                     showPublicBadge={galleryScope === "mine"}
                   />
                 )
@@ -2779,6 +2837,41 @@ export function GalleryDashboard({
           user={user}
           onSignOut={onSignOut}
         />
+      )}
+
+      {/* Collection-move feedback chip — outlives the bulk toolbar */}
+      {moveStatus && (
+        <div
+          className="fixed z-[70] flex justify-center pointer-events-none"
+          style={{
+            left: sidebarCollapsed
+              ? "var(--lm-sidebar-collapsed)"
+              : "var(--lm-sidebar-width)",
+            right: "0",
+            bottom: "56px",
+          }}
+          role={moveStatus.error ? "alert" : "status"}
+        >
+          <div
+            className="px-4 py-2"
+            style={{
+              backgroundColor: "var(--lm-surface-1)",
+              border: `2px solid ${moveStatus.error ? "var(--lm-coral)" : "var(--lm-ink)"}`,
+              borderRadius: "12px",
+              boxShadow: "var(--shadow-lg)",
+              fontFamily: "var(--lm-font)",
+              fontSize: "11px",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: moveStatus.error
+                ? "var(--lm-coral)"
+                : "var(--lm-text-primary)",
+            }}
+          >
+            {moveStatus.text}
+          </div>
+        </div>
       )}
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}

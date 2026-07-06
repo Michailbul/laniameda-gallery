@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,6 +17,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
+import {
+  hasAssetDragPayload,
+  readAssetDragPayload,
+} from "@/lib/asset-drag";
 
 interface ModelTag {
   name: string;
@@ -51,6 +55,8 @@ interface GallerySidebarProps {
   folders?: Folder[];
   selectedFolderId?: string | null;
   onFolderSelect?: (folderId: string | null) => void;
+  /** When set, collection rows accept dragged gallery assets as drop targets. */
+  onAssetsDropOnFolder?: (folderId: string, assetIds: string[]) => void;
 }
 
 export function GallerySidebar({
@@ -68,6 +74,7 @@ export function GallerySidebar({
   folders = [],
   selectedFolderId,
   onFolderSelect,
+  onAssetsDropOnFolder,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -285,6 +292,12 @@ export function GallerySidebar({
                       onFolderSelect(
                         selectedFolderId === folder._id ? null : folder._id,
                       )
+                    }
+                    onDropAssets={
+                      onAssetsDropOnFolder
+                        ? (assetIds) =>
+                            onAssetsDropOnFolder(folder._id, assetIds)
+                        : undefined
                     }
                   />
                 ))}
@@ -639,19 +652,55 @@ function FilterRow({
   count,
   active,
   onClick,
+  onDropAssets,
 }: {
   icon?: React.ElementType;
   label: string;
   count?: number;
   active: boolean;
   onClick: () => void;
+  /** When set, the row accepts dragged gallery assets. */
+  onDropAssets?: (assetIds: string[]) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
+
   return (
     <button
       type="button"
       onClick={onClick}
       className="lm-glass-filter-row cursor-pointer"
       data-active={active ? "true" : "false"}
+      onDragOver={
+        onDropAssets
+          ? (event) => {
+              if (!hasAssetDragPayload(event.dataTransfer)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={onDropAssets ? () => setDragOver(false) : undefined}
+      onDrop={
+        onDropAssets
+          ? (event) => {
+              setDragOver(false);
+              if (!hasAssetDragPayload(event.dataTransfer)) return;
+              event.preventDefault();
+              const assetIds = readAssetDragPayload(event.dataTransfer);
+              if (assetIds.length > 0) onDropAssets(assetIds);
+            }
+          : undefined
+      }
+      style={
+        dragOver
+          ? {
+              backgroundColor: "rgba(255, 122, 100, 0.14)",
+              boxShadow: "inset 0 0 0 2px var(--lm-coral)",
+              borderRadius: "8px",
+            }
+          : undefined
+      }
     >
       {Icon ? (
         <Icon

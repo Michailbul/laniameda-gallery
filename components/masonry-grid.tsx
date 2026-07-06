@@ -81,6 +81,11 @@ interface MasonryGridProps {
   onToggleAssetSelect?: (imageId: string) => void;
   likeable?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
+  draggableAssets?: boolean;
+  onAssetDragStart?: (
+    event: React.DragEvent<HTMLDivElement>,
+    imageId: string,
+  ) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
@@ -213,6 +218,8 @@ export function MasonryGrid({
   onToggleAssetSelect,
   likeable = false,
   onToggleLike,
+  draggableAssets = false,
+  onAssetDragStart,
   showPublicBadge = false,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
@@ -295,9 +302,19 @@ export function MasonryGrid({
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
         {orderedCards.map(({ image, placement }, originalIndex) => {
+          const isAssetCard =
+            image.galleryItemType === "asset" ||
+            image.galleryItemType === undefined;
+          const canDrag = draggableAssets && isAssetCard && Boolean(onAssetDragStart);
           return (
             <div
               key={image.id}
+              draggable={canDrag || undefined}
+              onDragStart={
+                canDrag
+                  ? (event) => onAssetDragStart!(event, image.id)
+                  : undefined
+              }
               style={{
                 gridColumn: placement
                   ? `${placement.column + 1} / span ${placement.colSpan}`
