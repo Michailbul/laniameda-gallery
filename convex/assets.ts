@@ -20,6 +20,7 @@ import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   canActorAccessByUserId,
   canActorAccessOwnerUserId,
@@ -1846,6 +1847,152 @@ export const countAssets = query({
       return dedupeAssetIds(rows).length;
     }
     return await ctx.db.query("assets").collect().then((rows) => rows.length);
+  },
+});
+
+// Idempotently attach tags (by name) to an asset. Creates missing tags via
+// the same normalized/canonical matching as tags.getOrCreateTags, unions with
+// the asset's existing tagIds, and keeps assetTags links + usageCount in sync.
+// Deliberately does NOT schedule a semantic reindex — bulk tagging would fan
+// out hundreds of embedding jobs; the periodic backfill picks the change up.
+export const addAssetTags = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    tagNames: v.array(v.string()),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    addedTagNames: v.array(v.string()),
+    tagIds: v.array(v.id("tags")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    const allTags = await ctx.db
+      .query("tags")
+      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
+      .collect();
+    const byNormalized = new Map(allTags.map((tag) => [tag.normalized, tag]));
+    const byCanonical = new Map(
+      allTags
+        .map((tag) => [canonicalTagKey(tag.name), tag] as const)
+        .filter(([key]) => Boolean(key)),
+    );
+
+    const resolvedTagIds: Id<"tags">[] = [];
+    const addedTagNames: string[] = [];
+    for (const raw of args.tagNames) {
+      const normalized = normalizeTagName(raw);
+      if (!normalized) continue;
+      const canonical = canonicalTagKey(raw);
+      const existing =
+        byNormalized.get(normalized) ??
+        (canonical ? byCanonical.get(canonical) : undefined);
+      if (existing) {
+        resolvedTagIds.push(existing._id);
+        continue;
+      }
+      const tagId = await ctx.db.insert("tags", {
+        name: raw.trim(),
+        normalized,
+        usageCount: 0,
+      });
+      resolvedTagIds.push(tagId);
+      const inserted = { _id: tagId, name: raw.trim(), normalized, usageCount: 0 };
+      byNormalized.set(normalized, inserted as (typeof allTags)[number]);
+      if (canonical) byCanonical.set(canonical, inserted as (typeof allTags)[number]);
+    }
+
+    const existingSet = new Set(asset.tagIds);
+    const newTagIds = dedupeIds(resolvedTagIds).filter(
+      (tagId) => !existingSet.has(tagId),
+    );
+    if (newTagIds.length === 0) {
+      return { assetId: asset._id, addedTagNames: [], tagIds: asset.tagIds };
+    }
+
+    const nextTagIds = [...asset.tagIds, ...newTagIds];
+    await ctx.db.patch(asset._id, { tagIds: nextTagIds });
+    await bumpTagUsage(ctx, newTagIds, 1);
+    for (const tagId of newTagIds) {
+      await ctx.db.insert("assetTags", {
+        assetId: asset._id,
+        tagId,
+        createdAt: asset.createdAt,
+      });
+      const tag = await ctx.db.get(tagId);
+      if (tag) addedTagNames.push(tag.name);
+    }
+
+    return { assetId: asset._id, addedTagNames, tagIds: nextTagIds };
+  },
+});
+
+// Minimal projection of every owned asset for the style-classification
+// backfill (scripts/classify-animation-live-action.ts): media URLs to fetch
+// bytes from plus current tag names for idempotent skip checks.
+export const listAssetsForStyleClassification = query({
+  args: {
+    ownerUserId: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      assetId: v.id("assets"),
+      kind: v.union(v.literal("image"), v.literal("video")),
+      contentType: v.optional(v.string()),
+      url: v.optional(v.string()),
+      thumbUrl: v.optional(v.string()),
+      tagNames: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const rows = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const rowsForOwner = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+        )
+        .collect();
+      rows.push(...rowsForOwner);
+    }
+    const assets = dedupeAssetIds(rows);
+
+    const tagIds = dedupeIds(assets.flatMap((asset) => asset.tagIds));
+    const tagNameById = new Map<Id<"tags">, string>();
+    for (const tagId of tagIds) {
+      const tag = await ctx.db.get(tagId);
+      if (tag) tagNameById.set(tagId, tag.name);
+    }
+
+    return await Promise.all(
+      assets.map(async (asset) => ({
+        assetId: asset._id,
+        kind: asset.kind,
+        contentType: asset.contentType,
+        url: (await resolveAssetUrl(ctx, asset)) ?? undefined,
+        thumbUrl: (await resolveAssetThumbUrl(ctx, asset)) ?? undefined,
+        tagNames: asset.tagIds
+          .map((tagId) => tagNameById.get(tagId))
+          .filter((name): name is string => Boolean(name)),
+      })),
+    );
   },
 });
 

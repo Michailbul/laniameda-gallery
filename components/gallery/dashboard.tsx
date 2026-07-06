@@ -38,6 +38,7 @@ import {
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
+  isHiddenFilterTag,
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
@@ -1028,6 +1029,9 @@ export function GalleryDashboard({
     >();
 
     for (const tag of tags ?? []) {
+      // Source/plumbing tags and duplicates of other filters stay on assets
+      // but never surface as filter chips.
+      if (isHiddenFilterTag(tag.name)) continue;
       const key = canonicalTagKey(tag.name) || tag._id;
       const count = assetCountByTagId.get(tag._id) ?? 0;
       const existing = groups.get(key);

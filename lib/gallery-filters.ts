@@ -47,3 +47,35 @@ export function resolveScopeFolderFilter({
 export function shouldShowFolderFilters(galleryScope: GalleryScopeValue): boolean {
   return galleryScope === "mine";
 }
+
+// Tags hidden from the filter bar (they stay on assets). Three families:
+// source/plumbing tags from ingest pipelines (telegram-*, krea-*, dump,
+// download-import, category:*), tags duplicating the MODELS sidebar filter
+// (midjourney*, nano-banana*, seedance*, recraft), and tags duplicating the
+// media-kind filter (video, ai-video). Edit these lists to change what shows.
+const HIDDEN_FILTER_TAG_PREFIXES = [
+  "telegram-",
+  "midjourney",
+  "category:",
+  "krea-",
+  "nano-banana",
+  "seedance",
+];
+
+const HIDDEN_FILTER_TAGS = new Set([
+  "dump",
+  "download-import",
+  "krea",
+  "recraft",
+  "video",
+  "ai-video",
+]);
+
+export function isHiddenFilterTag(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+  if (HIDDEN_FILTER_TAGS.has(normalized)) return true;
+  return HIDDEN_FILTER_TAG_PREFIXES.some((prefix) =>
+    normalized.startsWith(prefix),
+  );
+}

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  isHiddenFilterTag,
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
   shouldShowFolderFilters,
@@ -87,4 +88,44 @@ test("resolveScopeFolderFilter keeps known folder ids once folders are known", (
 test("shouldShowFolderFilters only returns true for my gallery", () => {
   expect(shouldShowFolderFilters("mine")).toBeTrue();
   expect(shouldShowFolderFilters("public")).toBeFalse();
+});
+
+test("isHiddenFilterTag hides source/plumbing and duplicate-filter tags", () => {
+  // Source plumbing
+  expect(isHiddenFilterTag("telegram-archive")).toBeTrue();
+  expect(isHiddenFilterTag("telegram-fashion-prompts")).toBeTrue();
+  expect(isHiddenFilterTag("category:cinematic")).toBeTrue();
+  expect(isHiddenFilterTag("dump")).toBeTrue();
+  expect(isHiddenFilterTag("download-import")).toBeTrue();
+  expect(isHiddenFilterTag("krea")).toBeTrue();
+  expect(isHiddenFilterTag("krea-image")).toBeTrue();
+  // Duplicates of the MODELS sidebar filter
+  expect(isHiddenFilterTag("Midjourney")).toBeTrue();
+  expect(isHiddenFilterTag("midjourney-web")).toBeTrue();
+  expect(isHiddenFilterTag("midjourney-teach")).toBeTrue();
+  expect(isHiddenFilterTag("nano-banana-2")).toBeTrue();
+  expect(isHiddenFilterTag("seedance-2")).toBeTrue();
+  expect(isHiddenFilterTag("recraft")).toBeTrue();
+  // Duplicates of the media-kind filter
+  expect(isHiddenFilterTag("video")).toBeTrue();
+  expect(isHiddenFilterTag("ai-video")).toBeTrue();
+});
+
+test("isHiddenFilterTag keeps content-descriptive tags", () => {
+  for (const name of [
+    "animation",
+    "live-action",
+    "personalize",
+    "cinematic",
+    "portrait",
+    "fashion",
+    "illustration",
+    "dear-annete",
+    "prompts",
+    "character-consistency",
+    "pose-pack",
+    "video-editing",
+  ]) {
+    expect(isHiddenFilterTag(name)).toBeFalse();
+  }
 });
