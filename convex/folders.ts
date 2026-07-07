@@ -9,6 +9,8 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 
+export const folderKindValidator = v.optional(v.union(v.literal("storybook")));
+
 const folderReturnValidator = v.object({
   _id: v.id("folders"),
   _creationTime: v.number(),
@@ -16,6 +18,7 @@ const folderReturnValidator = v.object({
   name: v.string(),
   normalizedName: v.optional(v.string()),
   description: v.optional(v.string()),
+  kind: folderKindValidator,
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -34,6 +37,7 @@ export const createFolder = mutation({
     ownerUserId: v.string(),
     name: v.string(),
     description: v.optional(v.string()),
+    kind: folderKindValidator,
   },
   returns: v.object({
     folderId: v.id("folders"),
@@ -72,16 +76,19 @@ export const createFolder = mutation({
       const nextDescription = hasDescription
         ? description
         : existing.description;
+      const nextKind = args.kind ?? existing.kind;
       if (
         existing.name !== name ||
         existing.description !== nextDescription ||
-        existing.normalizedName !== normalizedName
+        existing.normalizedName !== normalizedName ||
+        existing.kind !== nextKind
       ) {
         const now = Date.now();
         await ctx.db.patch(existing._id, {
           name,
           description: nextDescription,
           normalizedName,
+          kind: nextKind,
           createdAt: existing.createdAt ?? now,
           updatedAt: now,
         });
@@ -95,6 +102,7 @@ export const createFolder = mutation({
       name,
       normalizedName,
       description,
+      kind: args.kind,
       createdAt: now,
       updatedAt: now,
     });

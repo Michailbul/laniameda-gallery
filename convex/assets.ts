@@ -308,7 +308,7 @@ const replaceAssetFolderLinks = async (
   };
 };
 
-const collectAssetsForFolder = async (
+export const collectAssetsForFolder = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,

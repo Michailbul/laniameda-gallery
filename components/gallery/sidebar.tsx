@@ -4,6 +4,7 @@ import Image from "next/image";
 
 import { useMemo, useState } from "react";
 import {
+  BookOpen,
   ChevronLeft,
   ChevronRight,
   Film,
@@ -57,6 +58,12 @@ interface GallerySidebarProps {
   onFolderSelect?: (folderId: string | null) => void;
   /** When set, collection rows accept dragged gallery assets as drop targets. */
   onAssetsDropOnFolder?: (folderId: string, assetIds: string[]) => void;
+  /** Storybook collections — rows open the storybook modal instead of filtering. */
+  storybooks?: Folder[];
+  onStorybookOpen?: (storybookId: string) => void;
+  onCreateStorybook?: (name: string) => Promise<string | null>;
+  /** Dropping assets on a storybook ADDS them (keeps existing collections). */
+  onAssetsDropOnStorybook?: (storybookId: string, assetIds: string[]) => void;
 }
 
 export function GallerySidebar({
@@ -75,9 +82,33 @@ export function GallerySidebar({
   selectedFolderId,
   onFolderSelect,
   onAssetsDropOnFolder,
+  storybooks = [],
+  onStorybookOpen,
+  onCreateStorybook,
+  onAssetsDropOnStorybook,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
+
+  const [creatingStorybook, setCreatingStorybook] = useState(false);
+  const [storybookDraft, setStorybookDraft] = useState("");
+  const [storybookBusy, setStorybookBusy] = useState(false);
+
+  const submitStorybookDraft = async () => {
+    const name = storybookDraft.trim();
+    if (!name || !onCreateStorybook || storybookBusy) return;
+    setStorybookBusy(true);
+    try {
+      const storybookId = await onCreateStorybook(name);
+      if (storybookId) {
+        setCreatingStorybook(false);
+        setStorybookDraft("");
+        onStorybookOpen?.(storybookId);
+      }
+    } finally {
+      setStorybookBusy(false);
+    }
+  };
 
   const sidebarWidth = collapsed
     ? "var(--lm-sidebar-collapsed)"
@@ -240,6 +271,94 @@ export function GallerySidebar({
       <ScrollArea className="flex-1">
         {!collapsed && (
           <div className="flex flex-col">
+            {/* Storybooks — narrative image sets. Rows open the storybook
+                modal; they never act as grid filters. */}
+            {onStorybookOpen &&
+              (storybooks.length > 0 || Boolean(onCreateStorybook)) && (
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--lm-sidebar-divider)",
+                  }}
+                >
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span
+                      style={{
+                        fontSize: "8px",
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.20em",
+                        color: "var(--lm-sidebar-text-ghost)",
+                      }}
+                    >
+                      STORYBOOKS
+                    </span>
+                    {onCreateStorybook && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreatingStorybook((prev) => !prev);
+                          setStorybookDraft("");
+                        }}
+                        aria-label="New storybook"
+                        title="New storybook"
+                        style={{ color: "var(--lm-coral)" }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {creatingStorybook && (
+                    <div className="px-4 pb-2.5">
+                      <input
+                        autoFocus
+                        value={storybookDraft}
+                        disabled={storybookBusy}
+                        onChange={(event) =>
+                          setStorybookDraft(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void submitStorybookDraft();
+                          }
+                          if (event.key === "Escape") {
+                            setCreatingStorybook(false);
+                            setStorybookDraft("");
+                          }
+                        }}
+                        placeholder="Storybook name"
+                        className="w-full bg-transparent pb-1 outline-none"
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.10em",
+                          color: "var(--lm-sidebar-text)",
+                          borderBottom: "1px solid var(--lm-coral)",
+                          caretColor: "var(--lm-coral)",
+                          opacity: storybookBusy ? 0.5 : 1,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {storybooks.map((storybook) => (
+                    <FilterRow
+                      key={storybook._id}
+                      icon={BookOpen}
+                      label={storybook.name}
+                      count={storybook.count}
+                      active={false}
+                      onClick={() => onStorybookOpen(storybook._id)}
+                      onDropAssets={
+                        onAssetsDropOnStorybook
+                          ? (assetIds) =>
+                              onAssetsDropOnStorybook(storybook._id, assetIds)
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+
             {/* Folders — dashboard.tsx controls which folders are passed in
                 per scope (all owned collections for "mine", a curated
                 public-facing allowlist for "public"), so no scope gate here. */}

@@ -93,6 +93,9 @@ export default defineSchema({
     name: v.string(),
     normalizedName: v.optional(v.string()),
     description: v.optional(v.string()),
+    // Collection flavor. Undefined = standard collection. "storybook" =
+    // a narrative set of images; its story text lives in `description`.
+    kind: v.optional(v.union(v.literal("storybook"))),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })

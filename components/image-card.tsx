@@ -7,6 +7,10 @@ import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Trash2, Workflo
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
+import {
+  CardCollectionButton,
+  type CollectionOption,
+} from "@/components/collection-menu";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -32,7 +36,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -48,6 +52,7 @@ interface ImageCardProps {
     sourceUrl?: string;
     createdAt?: number;
     folderId?: string;
+    folderIds?: string[];
     isPublic?: boolean;
     isFeatured?: boolean;
     isLiked?: boolean;
@@ -59,7 +64,7 @@ interface ImageCardProps {
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "workflow";
+      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
       src: string;
       fullSrc: string;
       prompt: string;
@@ -74,7 +79,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -94,7 +99,7 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -119,6 +124,10 @@ interface ImageCardProps {
   liked?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
   showPublicBadge?: boolean;
+  collections?: CollectionOption[];
+  onMoveToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
+  onCopyToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
+  onCreateCollection?: (name: string) => Promise<string | null>;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -156,6 +165,10 @@ export const ImageCard = memo(function ImageCard({
   liked = false,
   onToggleLike,
   showPublicBadge = false,
+  collections,
+  onMoveToCollection,
+  onCopyToCollection,
+  onCreateCollection,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -827,6 +840,23 @@ export const ImageCard = memo(function ImageCard({
           <Download className="h-3.5 w-3.5" />
         )}
       </button>
+
+      {/* Move/copy to collection — hover control with a floating menu. */}
+      {collections && onMoveToCollection && onCopyToCollection && (
+        <CardCollectionButton
+          imageId={image.id}
+          currentFolderIds={
+            image.folderIds ?? (image.folderId ? [image.folderId] : [])
+          }
+          collections={collections}
+          onMove={onMoveToCollection}
+          onCopy={onCopyToCollection}
+          onCreate={onCreateCollection}
+          positionClassName={`absolute top-2 z-20 ${
+            selectable ? "left-32" : "left-[5.5rem]"
+          }`}
+        />
+      )}
 
       {/* Pack badge — top-right */}
       {image.packMemberCount !== undefined && image.packMemberCount > 1 && (

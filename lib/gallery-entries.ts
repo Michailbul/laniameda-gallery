@@ -52,7 +52,7 @@ export type GalleryAssetRecord = {
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -66,7 +66,7 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -94,6 +94,8 @@ export type GalleryEntry = {
   isFeatured?: boolean;
   isLiked?: boolean;
   packMemberCount?: number;
+  /** Member count for storybook entries (galleryItemType "storybook"). */
+  storybookCount?: number;
   size?: number;
   totalSize?: number;
   cinemaMetadata?: CinemaMetadata | null;

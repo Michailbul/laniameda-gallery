@@ -42,6 +42,7 @@ import type * as removeSauceAssets from "../removeSauceAssets.js";
 import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
+import type * as storybooks from "../storybooks.js";
 import type * as tags from "../tags.js";
 import type * as thumbnails from "../thumbnails.js";
 import type * as userPillars from "../userPillars.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   runs: typeof runs;
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
+  storybooks: typeof storybooks;
   tags: typeof tags;
   thumbnails: typeof thumbnails;
   userPillars: typeof userPillars;

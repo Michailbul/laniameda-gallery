@@ -22,6 +22,7 @@ import { MasonryGrid } from "@/components/masonry-grid";
 import { PackGrid, PackDetailView } from "./pack-grid";
 import { GalleryDetailPanel } from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
+import { StorybookModal } from "./storybook-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaUploadModal } from "@/components/cinema-upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
@@ -33,6 +34,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import {
   buildGalleryEntries,
+  type GalleryEntry,
   type GalleryEntryPreview,
 } from "@/lib/gallery-entries";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
@@ -54,7 +56,7 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
   stepCount?: number;
   thumbSrc: string;
   fullSrc: string;
@@ -197,6 +199,7 @@ export function GalleryDashboard({
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
+  const [openStorybookId, setOpenStorybookId] = useState<string | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -383,6 +386,9 @@ export function GalleryDashboard({
 
   const setAssetFoldersMutation = useMutation(
     api.assets.setAssetFolders,
+  );
+  const addAssetFoldersMutation = useMutation(
+    api.assets.addAssetFolders,
   );
   const setAssetLikedMutation = useMutation(api.assets.setAssetLiked);
   const createFolderMutation = useMutation(
@@ -716,6 +722,35 @@ export function GalleryDashboard({
     [canAccessMyGallery, createFolderMutation, ownerUserId],
   );
 
+  const createStorybook = useCallback(
+    async (name: string): Promise<string | null> => {
+      if (!canAccessMyGallery) {
+        setFolderError("Sign in to create storybooks.");
+        return null;
+      }
+      const trimmedName = name.trim();
+      if (!trimmedName) return null;
+
+      setFolderError(undefined);
+      try {
+        const result = await createFolderMutation({
+          ownerUserId,
+          name: trimmedName,
+          kind: "storybook",
+        });
+        return result.folderId;
+      } catch (error) {
+        setFolderError(
+          error instanceof Error
+            ? error.message
+            : "Failed to create storybook.",
+        );
+        return null;
+      }
+    },
+    [canAccessMyGallery, createFolderMutation, ownerUserId],
+  );
+
   const setAssetFolders = useCallback(
     async (assetId: string, folderIds: string[]) => {
       if (!canAccessMyGallery) {
@@ -942,6 +977,18 @@ export function GalleryDashboard({
       })),
     [folders, folderCountById],
   );
+  // Storybooks are folders too, but they surface as their own sidebar
+  // section and as stack cards in the grid — keep them out of the plain
+  // collections list.
+  const collectionFoldersWithCounts = useMemo(
+    () => foldersWithCounts.filter((folder) => folder.kind !== "storybook"),
+    [foldersWithCounts],
+  );
+
+  const storybooks = useQuery(
+    api.storybooks.listStorybooks,
+    canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
+  );
 
   // Curated, public-facing subset of collections (see PUBLIC_COLLECTIONS in
   // convex/assets.ts). Counts are pre-scoped to public assets only.
@@ -959,7 +1006,9 @@ export function GalleryDashboard({
     [publicCollections],
   );
   const sidebarFolders =
-    galleryScope === "public" ? publicFoldersWithCounts : foldersWithCounts;
+    galleryScope === "public"
+      ? publicFoldersWithCounts
+      : collectionFoldersWithCounts;
 
   const knownFolderIds = useMemo(() => {
     if (galleryScope === "public") {
@@ -1497,16 +1546,82 @@ export function GalleryDashboard({
     });
   }, [workflowCards]);
 
+  // Storybook stack cards only join the grid in the default browse state —
+  // every filter below targets assets, which storybooks are not.
+  const showStorybookStacks =
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !effectiveSelectedFolderId &&
+    !selectedPillar &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly &&
+    !workflowsOnly &&
+    selectedTags.length === 0 &&
+    !semanticMode &&
+    !assetSearchQuery.trim();
+
+  const storybookEntries = useMemo<GalleryEntry[]>(() => {
+    if (!storybooks || storybooks.length === 0) return [];
+    return storybooks.map((storybook) => {
+      const previews = storybook.previewAssets.map((preview) => ({
+        id: preview.assetId,
+        galleryItemId: preview.assetId,
+        galleryItemType: "asset" as const,
+        src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
+        fullSrc: preview.url ?? preview.thumbUrl ?? "/placeholder.svg",
+        prompt: storybook.name,
+        width: preview.thumbWidth ?? preview.width,
+        height: preview.thumbHeight ?? preview.height,
+        kind: preview.kind,
+        contentType: preview.contentType,
+      }));
+      const cover = previews[0];
+      return {
+        id: `storybook:${storybook._id}`,
+        galleryItemId: storybook._id as string,
+        galleryItemType: "storybook" as const,
+        src: cover?.src ?? "/placeholder.svg",
+        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
+        prompt: storybook.name,
+        author: "Storybook",
+        likes: 0,
+        width: cover?.width,
+        height: cover?.height,
+        kind: cover?.kind,
+        contentType: cover?.contentType,
+        description: storybook.story,
+        createdAt: storybook.updatedAt ?? storybook.createdAt,
+        storybookCount: storybook.count,
+        previewImages: previews,
+      };
+    });
+  }, [storybooks]);
+
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
+    const stacks = showStorybookStacks ? storybookEntries : [];
     // When filtering by media kind (image/video) or liked-only, keep workflows
     // out of the grid — those filters target likeable assets, not workflows.
-    if (mediaKind || likedOnly) return baseImages;
-    if (workflowEntries.length === 0) return baseImages;
-    return [...workflowEntries, ...baseImages].sort(
-      (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
-    );
-  }, [workflowsOnly, mediaKind, likedOnly, workflowEntries, baseImages]);
+    const mixed =
+      mediaKind || likedOnly
+        ? baseImages
+        : workflowEntries.length === 0
+          ? baseImages
+          : [...workflowEntries, ...baseImages].sort(
+              (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
+            );
+    // Storybooks lead the grid — they're narrative shelves, not dated assets.
+    return stacks.length > 0 ? [...stacks, ...mixed] : mixed;
+  }, [
+    workflowsOnly,
+    mediaKind,
+    likedOnly,
+    workflowEntries,
+    baseImages,
+    showStorybookStacks,
+    storybookEntries,
+  ]);
 
   const publishAllAssetIds = useMemo(() => {
     return images
@@ -1638,6 +1753,46 @@ export function GalleryDashboard({
     [moveAssetsToFolder, selectedAssetIds],
   );
 
+  // Per-card collection controls (gallery grid): move replaces membership,
+  // copy adds the collection while keeping existing ones.
+  const moveAssetToFolder = useCallback(
+    async (imageId: string, folderId: string) => {
+      await moveAssetsToFolder(folderId, [imageId]);
+    },
+    [moveAssetsToFolder],
+  );
+
+  const copyAssetToFolder = useCallback(
+    async (imageId: string, folderId: string) => {
+      try {
+        await addAssetFoldersMutation({
+          ownerUserId,
+          assetId: imageId as Id<"assets">,
+          folderIds: [folderId as Id<"folders">],
+        });
+        setMoveStatus({
+          text: `Copied to ${folderNameById.get(folderId) ?? "collection"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Copy failed.",
+          error: true,
+        });
+      }
+    },
+    [addAssetFoldersMutation, folderNameById, ownerUserId],
+  );
+
+  const cardCollections = useMemo(
+    () =>
+      foldersWithCounts.map((folder) => ({
+        id: folder._id as string,
+        name: folder.name,
+        count: folder.count,
+      })),
+    [foldersWithCounts],
+  );
+
   // Auto-dismiss the move feedback chip.
   useEffect(() => {
     if (!moveStatus) return;
@@ -1673,6 +1828,37 @@ export function GalleryDashboard({
     [moveAssetsToFolder],
   );
 
+  // Dropping on a storybook ADDS membership (keeps existing collections) —
+  // a storybook is a narrative overlay, not the asset's home.
+  const handleAssetsDropOnStorybook = useCallback(
+    async (storybookId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      try {
+        await Promise.all(
+          assetIds.map((assetId) =>
+            addAssetFoldersMutation({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: [storybookId as Id<"folders">],
+            }),
+          ),
+        );
+        setMoveStatus({
+          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(storybookId) ?? "storybook"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : "Failed to add to storybook.",
+          error: true,
+        });
+      }
+    },
+    [addAssetFoldersMutation, folderNameById, ownerUserId],
+  );
+
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
     if (!selectedImage) return -1;
@@ -1686,6 +1872,11 @@ export function GalleryDashboard({
       // Workflows open a dedicated scrollable modal, not the side panel.
       if (img.galleryItemType === "workflow") {
         setSelectedWorkflowId(img.id);
+        return;
+      }
+      // Storybooks expand into their own modal (images + editable story).
+      if (img.galleryItemType === "storybook") {
+        setOpenStorybookId(img.galleryItemId ?? img.id);
         return;
       }
       // Cinema frames open the cinema popout (shared-layout animation), not the side panel.
@@ -1771,19 +1962,35 @@ export function GalleryDashboard({
     [handleImageSelect],
   );
 
-  const canGoPrev = currentImageIndex > 0;
+  // Storybook stacks live in the grid but open a modal, not the detail
+  // panel — prev/next navigation steps over them.
+  const canGoPrev =
+    currentImageIndex > 0 &&
+    images
+      .slice(0, currentImageIndex)
+      .some((entry) => entry.galleryItemType !== "storybook");
   const canGoNext =
     currentImageIndex >= 0 &&
-    currentImageIndex < images.length - 1;
+    images
+      .slice(currentImageIndex + 1)
+      .some((entry) => entry.galleryItemType !== "storybook");
 
   const goToPrev = useCallback(() => {
     if (!canGoPrev) return;
-    selectImageByEntry(images[currentImageIndex - 1]);
+    for (let index = currentImageIndex - 1; index >= 0; index -= 1) {
+      if (images[index].galleryItemType === "storybook") continue;
+      selectImageByEntry(images[index]);
+      return;
+    }
   }, [canGoPrev, currentImageIndex, images, selectImageByEntry]);
 
   const goToNext = useCallback(() => {
     if (!canGoNext) return;
-    selectImageByEntry(images[currentImageIndex + 1]);
+    for (let index = currentImageIndex + 1; index < images.length; index += 1) {
+      if (images[index].galleryItemType === "storybook") continue;
+      selectImageByEntry(images[index]);
+      return;
+    }
   }, [canGoNext, currentImageIndex, images, selectImageByEntry]);
 
   const imagePosition =
@@ -2331,6 +2538,26 @@ export function GalleryDashboard({
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
+          storybooks={
+            canManageFoldersInCurrentView
+              ? (storybooks ?? []).map((storybook) => ({
+                  _id: storybook._id,
+                  name: storybook.name,
+                  count: storybook.count,
+                }))
+              : []
+          }
+          onStorybookOpen={
+            canManageFoldersInCurrentView ? setOpenStorybookId : undefined
+          }
+          onCreateStorybook={
+            canManageFoldersInCurrentView ? createStorybook : undefined
+          }
+          onAssetsDropOnStorybook={
+            canManageFoldersInCurrentView
+              ? handleAssetsDropOnStorybook
+              : undefined
+          }
         />
       </div>
 
@@ -2565,6 +2792,19 @@ export function GalleryDashboard({
                     }}
                     draggableAssets={canManageFoldersInCurrentView}
                     onAssetDragStart={handleAssetDragStart}
+                    collections={
+                      canManageFoldersInCurrentView ? cardCollections : undefined
+                    }
+                    onMoveAssetToCollection={
+                      canManageFoldersInCurrentView ? moveAssetToFolder : undefined
+                    }
+                    onCopyAssetToCollection={
+                      canManageFoldersInCurrentView ? copyAssetToFolder : undefined
+                    }
+                    onCreateCollection={
+                      canManageFoldersInCurrentView ? createFolder : undefined
+                    }
+                    onStorybookOpen={setOpenStorybookId}
                     showPublicBadge={galleryScope === "mine"}
                   />
                 )
@@ -3216,6 +3456,12 @@ export function GalleryDashboard({
         workflowId={selectedWorkflowId}
         ownerUserId={ownerUserId}
         onClose={() => setSelectedWorkflowId(null)}
+      />
+
+      <StorybookModal
+        ownerUserId={ownerUserId}
+        storybookId={openStorybookId}
+        onClose={() => setOpenStorybookId(null)}
       />
     </div>
     </CoralToastProvider>

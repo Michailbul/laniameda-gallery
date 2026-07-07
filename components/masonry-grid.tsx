@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
+import { StorybookCard } from "@/components/gallery/storybook-card";
+import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import {
   ROW_UNIT_PX,
@@ -30,7 +32,7 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -47,16 +49,18 @@ interface GalleryImage {
   sourceUrl?: string;
   createdAt?: number;
   folderId?: string;
+  folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;
   packMemberCount?: number;
+  storybookCount?: number;
   stepCount?: number;
   cinemaMetadata?: CinemaMetadataLite | null;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -86,11 +90,23 @@ interface MasonryGridProps {
     event: React.DragEvent<HTMLDivElement>,
     imageId: string,
   ) => void;
+  collections?: CollectionOption[];
+  onMoveAssetToCollection?: (
+    imageId: string,
+    folderId: string,
+  ) => Promise<void> | void;
+  onCopyAssetToCollection?: (
+    imageId: string,
+    folderId: string,
+  ) => Promise<void> | void;
+  onCreateCollection?: (name: string) => Promise<string | null>;
+  /** Opens the storybook modal for entries with galleryItemType "storybook". */
+  onStorybookOpen?: (storybookId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -110,7 +126,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -220,6 +236,11 @@ export function MasonryGrid({
   onToggleLike,
   draggableAssets = false,
   onAssetDragStart,
+  collections,
+  onMoveAssetToCollection,
+  onCopyAssetToCollection,
+  onCreateCollection,
+  onStorybookOpen,
   showPublicBadge = false,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
@@ -314,6 +335,41 @@ export function MasonryGrid({
             image.galleryItemType === "asset" ||
             image.galleryItemType === undefined;
           const canDrag = draggableAssets && isAssetCard && Boolean(onAssetDragStart);
+          if (image.galleryItemType === "storybook" && onStorybookOpen) {
+            return (
+              <div
+                key={image.id}
+                style={{
+                  gridColumn: placement
+                    ? `${placement.column + 1} / span ${placement.colSpan}`
+                    : "span 1",
+                  gridRow: placement
+                    ? `${placement.startRow} / span ${placement.rowSpan}`
+                    : "span 1",
+                  display: "grid",
+                  minWidth: 0,
+                }}
+              >
+                <StorybookCard
+                  storybook={{
+                    id: image.id,
+                    storybookId: image.galleryItemId ?? image.id,
+                    name: image.prompt,
+                    count: image.storybookCount ?? image.previewImages.length,
+                    previews: image.previewImages.map((preview) => ({
+                      id: preview.id,
+                      src: preview.src,
+                      width: preview.width,
+                      height: preview.height,
+                      kind: preview.kind,
+                    })),
+                  }}
+                  eager={originalIndex < EAGER_IMAGE_COUNT}
+                  onOpen={onStorybookOpen}
+                />
+              </div>
+            );
+          }
           return (
             <div
               key={image.id}
@@ -360,6 +416,16 @@ export function MasonryGrid({
                 }
                 liked={Boolean(image.isLiked)}
                 onToggleLike={onToggleLike}
+                collections={isAssetCard ? collections : undefined}
+                onMoveToCollection={
+                  isAssetCard ? onMoveAssetToCollection : undefined
+                }
+                onCopyToCollection={
+                  isAssetCard ? onCopyAssetToCollection : undefined
+                }
+                onCreateCollection={
+                  isAssetCard ? onCreateCollection : undefined
+                }
                 showPublicBadge={showPublicBadge}
               />
             </div>
