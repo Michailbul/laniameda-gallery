@@ -213,11 +213,17 @@ export type PackedItem = {
 
 // How many upcoming cards the packer may pull forward to level columns under
 // a wide card, and how much of a card's own height it may stretch to close a
-// residual hole. Holes up to HOLE_TOLERANCE_ROWS are treated as free when
-// choosing a window — they're small enough for the stretch pass to absorb.
+// residual hole. Holes are treated as free when choosing a window if they are
+// small enough for the stretch passes to absorb: at most HOLE_TOLERANCE_ROWS,
+// or HOLE_ABSORB_FRACTION of the incoming card's height, whichever is larger.
+// The fraction matters: with a tiny fixed tolerance, a ~60px column divergence
+// makes the packer refuse that window forever, and long runs of wide cards
+// then stack thousands of pixels deep in the one level window while the rest
+// of the grid sits empty.
 export const PACK_PULL_LOOKAHEAD = 16;
-export const MAX_STRETCH_FRACTION = 0.15;
+export const MAX_STRETCH_FRACTION = 0.3;
 export const HOLE_TOLERANCE_ROWS = 2;
+export const HOLE_ABSORB_FRACTION = 0.3;
 // Final adaptive pass: a residual hole is distributed across the contiguous
 // run of single-column image cards directly above it, each stretching at most
 // this fraction of its own height (media renders object-cover, so the crop is
@@ -272,10 +278,30 @@ export function packMasonry(
     });
   };
 
-  const effectiveHole = (holeRows: number) =>
-    holeRows <= HOLE_TOLERANCE_ROWS ? 0 : holeRows;
+  // A hole is "free" when the stretch passes can absorb it. The absorbable
+  // amount scales with the incoming card's height (similar-height neighbors
+  // above the hole get stretched to close it).
+  const effectiveHole = (holeRows: number, incomingRowSpan: number) =>
+    holeRows <=
+    Math.max(
+      HOLE_TOLERANCE_ROWS,
+      Math.floor(incomingRowSpan * HOLE_ABSORB_FRACTION),
+    )
+      ? 0
+      : holeRows;
 
-  const bestWindow = (colSpan: number, floor: number[]): PackWindow => {
+  // A window's cost trades hole size against stack height 1:1. Minimizing the
+  // hole alone is a trap: once one column pair diverges by more than the
+  // tolerance, every subsequent wide card would stack in the level window
+  // forever — thousands of rows deep — rather than bury a few rows next door.
+  const windowCost = (window: PackWindow, incomingRowSpan: number) =>
+    window.startRow + effectiveHole(window.holeRows, incomingRowSpan);
+
+  const bestWindow = (
+    colSpan: number,
+    floor: number[],
+    incomingRowSpan: number,
+  ): PackWindow => {
     let best: PackWindow | null = null;
     for (let col = 0; col + colSpan <= columnCount; col += 1) {
       let startRow = 1;
@@ -286,30 +312,43 @@ export function packMasonry(
       for (let k = col; k < col + colSpan; k += 1) {
         holeRows += startRow - floor[k];
       }
+      const candidate = { column: col, startRow, holeRows };
       if (
         !best ||
-        effectiveHole(holeRows) < effectiveHole(best.holeRows) ||
-        (effectiveHole(holeRows) === effectiveHole(best.holeRows) &&
+        windowCost(candidate, incomingRowSpan) <
+          windowCost(best, incomingRowSpan) ||
+        (windowCost(candidate, incomingRowSpan) ===
+          windowCost(best, incomingRowSpan) &&
           startRow < best.startRow)
       ) {
-        best = { column: col, startRow, holeRows };
+        best = candidate;
       }
     }
     return best!;
   };
 
-  // Stretch the single-column image card at the bottom of `col` so the column
-  // reaches `targetRow`. Skipped when the hole is too tall relative to the
-  // card (the crop would be visible) or the card is a video/multi-column.
+  // Stretch the image card at the bottom of `col` so the column reaches
+  // `targetRow`. Skipped when the hole is too tall relative to the card (the
+  // crop would be visible) or the card is a video (object-contain would
+  // letterbox). Wide cards may stretch too, but only when they are the last
+  // card in EVERY column they span — otherwise growing them would overlap a
+  // neighbor placed beside them.
   const absorbHoleBelow = (col: number, targetRow: number) => {
     const above = lastInColumn[col];
-    if (!above || above.colSpan !== 1) return;
+    if (!above) return;
     if (resolveLayoutKind(items[above.index]) !== "image") return;
+    const aboveEnd = above.column + above.colSpan;
+    for (let k = above.column; k < aboveEnd; k += 1) {
+      if (lastInColumn[k] !== above) return;
+      if (bottoms[k] > targetRow) return;
+    }
     const hole = targetRow - bottoms[col];
     if (hole <= 0) return;
     if (hole > Math.floor(above.rowSpan * MAX_STRETCH_FRACTION)) return;
     above.rowSpan += hole;
-    bottoms[col] = targetRow;
+    for (let k = above.column; k < aboveEnd; k += 1) {
+      bottoms[k] = above.startRow + above.rowSpan;
+    }
   };
 
   while (queue.length > 0) {
@@ -323,8 +362,8 @@ export function packMasonry(
     // Level the columns before burying a hole under the wide card: pull
     // upcoming single-column cards forward while doing so strictly shrinks
     // the hole the wide card would leave behind.
-    let best = bestWindow(colSpan, bottoms);
-    while (effectiveHole(best.holeRows) > 0) {
+    let best = bestWindow(colSpan, bottoms, rowSpan);
+    while (effectiveHole(best.holeRows, rowSpan) > 0) {
       let pullPos = -1;
       const horizon = Math.min(queue.length, PACK_PULL_LOOKAHEAD);
       for (let pos = 0; pos < horizon; pos += 1) {
@@ -338,10 +377,8 @@ export function packMasonry(
       const col = shortestColumn();
       const simulated = bottoms.slice();
       simulated[col] += layouts[pulledIndex].rowSpan;
-      const simulatedBest = bestWindow(colSpan, simulated);
-      if (
-        effectiveHole(simulatedBest.holeRows) >= effectiveHole(best.holeRows)
-      ) {
+      const simulatedBest = bestWindow(colSpan, simulated, rowSpan);
+      if (windowCost(simulatedBest, rowSpan) >= windowCost(best, rowSpan)) {
         break;
       }
       queue.splice(pullPos, 1);
