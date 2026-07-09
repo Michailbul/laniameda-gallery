@@ -1825,8 +1825,15 @@ export function GalleryDashboard({
   const removeAssetFromFolder = useCallback(
     async (imageId: string, folderId: string) => {
       const image = images.find((entry) => entry.id === imageId);
-      const currentFolderIds =
-        image?.folderIds ?? (image?.folderId ? [image.folderId] : []);
+      // `images` is a union — only asset entries carry folderIds; design/
+      // workflow entries have just folderId. Narrow safely.
+      const currentFolderIds: string[] = image
+        ? "folderIds" in image && Array.isArray(image.folderIds)
+          ? image.folderIds
+          : "folderId" in image && image.folderId
+            ? [image.folderId]
+            : []
+        : [];
       try {
         await setAssetFoldersMutation({
           ownerUserId,
