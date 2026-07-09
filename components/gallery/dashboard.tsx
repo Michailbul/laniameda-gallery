@@ -23,6 +23,7 @@ import { PackGrid, PackDetailView } from "./pack-grid";
 import { GalleryDetailPanel } from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
+import { ReviewModal } from "./review-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaUploadModal } from "@/components/cinema-upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
@@ -200,6 +201,7 @@ export function GalleryDashboard({
     null,
   );
   const [openStorybookId, setOpenStorybookId] = useState<string | null>(null);
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -751,6 +753,35 @@ export function GalleryDashboard({
     [canAccessMyGallery, createFolderMutation, ownerUserId],
   );
 
+  const createProject = useCallback(
+    async (name: string): Promise<string | null> => {
+      if (!canAccessMyGallery) {
+        setFolderError("Sign in to create projects.");
+        return null;
+      }
+      const trimmedName = name.trim();
+      if (!trimmedName) return null;
+
+      setFolderError(undefined);
+      try {
+        const result = await createFolderMutation({
+          ownerUserId,
+          name: trimmedName,
+          kind: "project",
+        });
+        // Open the new project's review workspace immediately.
+        setOpenProjectId(result.folderId);
+        return result.folderId;
+      } catch (error) {
+        setFolderError(
+          error instanceof Error ? error.message : "Failed to create project.",
+        );
+        return null;
+      }
+    },
+    [canAccessMyGallery, createFolderMutation, ownerUserId],
+  );
+
   const setAssetFolders = useCallback(
     async (assetId: string, folderIds: string[]) => {
       if (!canAccessMyGallery) {
@@ -977,16 +1008,24 @@ export function GalleryDashboard({
       })),
     [folders, folderCountById],
   );
-  // Storybooks are folders too, but they surface as their own sidebar
-  // section and as stack cards in the grid — keep them out of the plain
-  // collections list.
+  // Storybooks and projects are folders too, but they surface as their own
+  // sidebar sections (and stack cards / review modal) — keep them out of the
+  // plain collections list.
   const collectionFoldersWithCounts = useMemo(
-    () => foldersWithCounts.filter((folder) => folder.kind !== "storybook"),
+    () =>
+      foldersWithCounts.filter(
+        (folder) => folder.kind !== "storybook" && folder.kind !== "project",
+      ),
     [foldersWithCounts],
   );
 
   const storybooks = useQuery(
     api.storybooks.listStorybooks,
+    canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
+  );
+
+  const projects = useQuery(
+    api.projects.listProjects,
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
   );
 
@@ -1754,7 +1793,7 @@ export function GalleryDashboard({
   );
 
   // Per-card collection controls (gallery grid): move replaces membership,
-  // copy adds the collection while keeping existing ones.
+  // add keeps existing collections, remove drops a single membership.
   const moveAssetToFolder = useCallback(
     async (imageId: string, folderId: string) => {
       await moveAssetsToFolder(folderId, [imageId]);
@@ -1771,16 +1810,42 @@ export function GalleryDashboard({
           folderIds: [folderId as Id<"folders">],
         });
         setMoveStatus({
-          text: `Copied to ${folderNameById.get(folderId) ?? "collection"}`,
+          text: `Added to ${folderNameById.get(folderId) ?? "collection"}`,
         });
       } catch (error) {
         setMoveStatus({
-          text: error instanceof Error ? error.message : "Copy failed.",
+          text: error instanceof Error ? error.message : "Add failed.",
           error: true,
         });
       }
     },
     [addAssetFoldersMutation, folderNameById, ownerUserId],
+  );
+
+  const removeAssetFromFolder = useCallback(
+    async (imageId: string, folderId: string) => {
+      const image = images.find((entry) => entry.id === imageId);
+      const currentFolderIds =
+        image?.folderIds ?? (image?.folderId ? [image.folderId] : []);
+      try {
+        await setAssetFoldersMutation({
+          ownerUserId,
+          assetId: imageId as Id<"assets">,
+          folderIds: currentFolderIds.filter(
+            (id) => id !== folderId,
+          ) as Id<"folders">[],
+        });
+        setMoveStatus({
+          text: `Removed from ${folderNameById.get(folderId) ?? "collection"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Remove failed.",
+          error: true,
+        });
+      }
+    },
+    [folderNameById, images, ownerUserId, setAssetFoldersMutation],
   );
 
   const cardCollections = useMemo(
@@ -1791,6 +1856,18 @@ export function GalleryDashboard({
         count: folder.count,
       })),
     [foldersWithCounts],
+  );
+
+  // Plain collections only (no storybooks/projects) — offered as members a
+  // project's review can aggregate.
+  const projectCollectionOptions = useMemo(
+    () =>
+      collectionFoldersWithCounts.map((folder) => ({
+        id: folder._id as string,
+        name: folder.name,
+        count: folder.count,
+      })),
+    [collectionFoldersWithCounts],
   );
 
   // Auto-dismiss the move feedback chip.
@@ -2558,6 +2635,21 @@ export function GalleryDashboard({
               ? handleAssetsDropOnStorybook
               : undefined
           }
+          projects={
+            canManageFoldersInCurrentView
+              ? (projects ?? []).map((project) => ({
+                  _id: project._id,
+                  name: project.name,
+                  count: project.assetCount,
+                }))
+              : []
+          }
+          onProjectOpen={
+            canManageFoldersInCurrentView ? setOpenProjectId : undefined
+          }
+          onCreateProject={
+            canManageFoldersInCurrentView ? createProject : undefined
+          }
         />
       </div>
 
@@ -2800,6 +2892,11 @@ export function GalleryDashboard({
                     }
                     onCopyAssetToCollection={
                       canManageFoldersInCurrentView ? copyAssetToFolder : undefined
+                    }
+                    onRemoveAssetFromCollection={
+                      canManageFoldersInCurrentView
+                        ? removeAssetFromFolder
+                        : undefined
                     }
                     onCreateCollection={
                       canManageFoldersInCurrentView ? createFolder : undefined
@@ -3462,6 +3559,14 @@ export function GalleryDashboard({
         ownerUserId={ownerUserId}
         storybookId={openStorybookId}
         onClose={() => setOpenStorybookId(null)}
+      />
+
+      <ReviewModal
+        key={openProjectId ?? "review-closed"}
+        ownerUserId={ownerUserId}
+        projectId={openProjectId}
+        allCollections={projectCollectionOptions}
+        onClose={() => setOpenProjectId(null)}
       />
     </div>
     </CoralToastProvider>

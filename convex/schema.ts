@@ -95,13 +95,31 @@ export default defineSchema({
     description: v.optional(v.string()),
     // Collection flavor. Undefined = standard collection. "storybook" =
     // a narrative set of images; its story text lives in `description`.
-    kind: v.optional(v.union(v.literal("storybook"))),
+    // "project" = a review workspace that GROUPS other collections (its member
+    // collections live in the projectCollections join table); its brief lives
+    // in `description`.
+    kind: v.optional(v.union(v.literal("storybook"), v.literal("project"))),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
     .index("by_name", ["name"])
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+
+  // Which collections belong to a project (folder kind:"project"). A project
+  // aggregates the assets of all its member collections for review. Many-to-
+  // many so a collection (e.g. a recurring character set) can sit in several
+  // projects. Mirrors the assetFolders join pattern.
+  projectCollections: defineTable({
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    folderId: v.id("folders"),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_folder", ["projectId", "folderId"])
+    .index("by_owner_project", ["ownerUserId", "projectId"])
+    .index("by_folder", ["folderId"]),
   userPillars: defineTable({
     ownerUserId: v.string(),
     key: v.string(),

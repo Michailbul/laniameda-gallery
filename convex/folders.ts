@@ -9,7 +9,9 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 
-export const folderKindValidator = v.optional(v.union(v.literal("storybook")));
+export const folderKindValidator = v.optional(
+  v.union(v.literal("storybook"), v.literal("project")),
+);
 
 const folderReturnValidator = v.object({
   _id: v.id("folders"),
@@ -276,6 +278,22 @@ export const deleteFolder = mutation({
     }
     for (const prompt of prompts) {
       await ctx.db.patch(prompt._id, { folderId: undefined });
+    }
+
+    // Clear projectCollections rows both ways: this folder as the project
+    // being deleted, and this folder as a member collection of any project.
+    const projectLinks = [
+      ...(await ctx.db
+        .query("projectCollections")
+        .withIndex("by_project", (q) => q.eq("projectId", args.folderId))
+        .collect()),
+      ...(await ctx.db
+        .query("projectCollections")
+        .withIndex("by_folder", (q) => q.eq("folderId", args.folderId))
+        .collect()),
+    ];
+    for (const link of dedupeById(projectLinks)) {
+      await ctx.db.delete(link._id);
     }
 
     await ctx.db.delete(args.folderId);

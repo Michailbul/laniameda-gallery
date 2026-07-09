@@ -99,6 +99,10 @@ interface MasonryGridProps {
     imageId: string,
     folderId: string,
   ) => Promise<void> | void;
+  onRemoveAssetFromCollection?: (
+    imageId: string,
+    folderId: string,
+  ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
@@ -143,6 +147,10 @@ interface MasonryGridProps {
 
 const BATCH_SIZE = 18;
 const EAGER_IMAGE_COUNT = 6;
+// Mount the next batch once the frontier sentinel is within this distance of
+// the viewport bottom — or anywhere above it (scrollbar drags can jump past
+// the frontier in one frame).
+const LOAD_MORE_MARGIN_PX = 800;
 
 /* ── Responsive column count hook ── */
 
@@ -239,6 +247,7 @@ export function MasonryGrid({
   collections,
   onMoveAssetToCollection,
   onCopyAssetToCollection,
+  onRemoveAssetFromCollection,
   onCreateCollection,
   onStorybookOpen,
   showPublicBadge = false,
@@ -266,18 +275,39 @@ export function MasonryGrid({
     );
   }, [images.length]);
 
+  // Load-more driver. The grid always reserves rows for the FULL packed list,
+  // so the sentinel (anchored at the mounted frontier) can be thousands of
+  // pixels above the viewport after a fast scroll or scrollbar drag — an
+  // IntersectionObserver with a finite rootMargin would never fire there.
+  // Instead, check the sentinel's position on scroll/resize: anything above
+  // `viewport bottom + margin` means the user is at or past the frontier.
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || effectiveVisibleCount >= images.length) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) loadMore();
-      },
-      { rootMargin: "400px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    if (effectiveVisibleCount >= images.length) return;
+    let ticking = false;
+    const check = () => {
+      ticking = false;
+      const sentinel = sentinelRef.current;
+      if (!sentinel) return;
+      const top = sentinel.getBoundingClientRect().top;
+      if (top < window.innerHeight + LOAD_MORE_MARGIN_PX) loadMore();
+    };
+    const schedule = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(check);
+    };
+    // Run once immediately: chains batches until the frontier clears the
+    // viewport (initial fill, and after every batch mounts).
+    check();
+    window.addEventListener("scroll", schedule, {
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+    };
   }, [effectiveVisibleCount, images.length, loadMore]);
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
@@ -292,11 +322,14 @@ export function MasonryGrid({
   // packer may place a later item above an earlier one when leveling columns
   // under a wide card, and mounting by array order would leave holes at the
   // top until that item's batch loads.
-  const orderedCards = useMemo(() => {
+  const { orderedCards, frontierRow } = useMemo(() => {
     if (contentWidth === null) {
-      return images
-        .slice(0, effectiveVisibleCount)
-        .map((image) => ({ image, placement: undefined }));
+      return {
+        orderedCards: images
+          .slice(0, effectiveVisibleCount)
+          .map((image) => ({ image, placement: undefined })),
+        frontierRow: undefined,
+      };
     }
     const { placements } = packMasonry(
       images.map(resolveGridLayoutInput),
@@ -306,10 +339,17 @@ export function MasonryGrid({
         gap,
       },
     );
-    return [...placements]
+    const orderedCards = [...placements]
       .sort((a, b) => a.startRow - b.startRow || a.column - b.column)
       .slice(0, effectiveVisibleCount)
       .map((placement) => ({ image: images[placement.index]!, placement }));
+    // Deepest mounted row — the sentinel anchors here so load-more tracks the
+    // mounted frontier instead of the (full-height) grid bottom.
+    let frontierRow = 1;
+    for (const { placement } of orderedCards) {
+      frontierRow = Math.max(frontierRow, placement.startRow + placement.rowSpan);
+    }
+    return { orderedCards, frontierRow };
   }, [columnCount, contentWidth, gap, images, effectiveVisibleCount]);
 
   if (loading) {
@@ -423,6 +463,9 @@ export function MasonryGrid({
                 onCopyToCollection={
                   isAssetCard ? onCopyAssetToCollection : undefined
                 }
+                onRemoveFromCollection={
+                  isAssetCard ? onRemoveAssetFromCollection : undefined
+                }
                 onCreateCollection={
                   isAssetCard ? onCreateCollection : undefined
                 }
@@ -431,10 +474,19 @@ export function MasonryGrid({
             </div>
           );
         })}
+        {effectiveVisibleCount < images.length && (
+          <div
+            ref={sentinelRef}
+            className="h-px"
+            style={
+              frontierRow !== undefined
+                ? { gridColumn: "1 / -1", gridRow: `${frontierRow} / span 1` }
+                : { gridColumn: "1 / -1" }
+            }
+            aria-hidden
+          />
+        )}
       </div>
-      {effectiveVisibleCount < images.length && (
-        <div ref={sentinelRef} className="h-1" />
-      )}
     </>
   );
 }

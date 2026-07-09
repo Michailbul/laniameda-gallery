@@ -10,6 +10,7 @@ import {
   Film,
   FolderOpen,
   Home,
+  Layers,
   Plus,
   Search,
   LayoutGrid,
@@ -64,6 +65,10 @@ interface GallerySidebarProps {
   onCreateStorybook?: (name: string) => Promise<string | null>;
   /** Dropping assets on a storybook ADDS them (keeps existing collections). */
   onAssetsDropOnStorybook?: (storybookId: string, assetIds: string[]) => void;
+  /** Projects — rows open the fullscreen review workspace. */
+  projects?: Folder[];
+  onProjectOpen?: (projectId: string) => void;
+  onCreateProject?: (name: string) => Promise<string | null>;
 }
 
 export function GallerySidebar({
@@ -86,6 +91,9 @@ export function GallerySidebar({
   onStorybookOpen,
   onCreateStorybook,
   onAssetsDropOnStorybook,
+  projects = [],
+  onProjectOpen,
+  onCreateProject,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -107,6 +115,26 @@ export function GallerySidebar({
       }
     } finally {
       setStorybookBusy(false);
+    }
+  };
+
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectDraft, setProjectDraft] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
+
+  const submitProjectDraft = async () => {
+    const name = projectDraft.trim();
+    if (!name || !onCreateProject || projectBusy) return;
+    setProjectBusy(true);
+    try {
+      // createProject opens the review workspace itself.
+      const projectId = await onCreateProject(name);
+      if (projectId) {
+        setCreatingProject(false);
+        setProjectDraft("");
+      }
+    } finally {
+      setProjectBusy(false);
     }
   };
 
@@ -354,6 +382,88 @@ export function GallerySidebar({
                               onAssetsDropOnStorybook(storybook._id, assetIds)
                           : undefined
                       }
+                    />
+                  ))}
+                </div>
+              )}
+
+            {/* Projects — review workspaces that group collections. Rows open
+                the fullscreen review modal; they never act as grid filters. */}
+            {onProjectOpen &&
+              (projects.length > 0 || Boolean(onCreateProject)) && (
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--lm-sidebar-divider)",
+                  }}
+                >
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span
+                      style={{
+                        fontSize: "8px",
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.20em",
+                        color: "var(--lm-sidebar-text-ghost)",
+                      }}
+                    >
+                      PROJECTS
+                    </span>
+                    {onCreateProject && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreatingProject((prev) => !prev);
+                          setProjectDraft("");
+                        }}
+                        aria-label="New project"
+                        title="New project"
+                        style={{ color: "var(--lm-coral)" }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {creatingProject && (
+                    <div className="px-4 pb-2.5">
+                      <input
+                        autoFocus
+                        value={projectDraft}
+                        disabled={projectBusy}
+                        onChange={(event) =>
+                          setProjectDraft(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void submitProjectDraft();
+                          }
+                          if (event.key === "Escape") {
+                            setCreatingProject(false);
+                            setProjectDraft("");
+                          }
+                        }}
+                        placeholder="Project name"
+                        className="w-full bg-transparent pb-1 outline-none"
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.10em",
+                          color: "var(--lm-sidebar-text)",
+                          borderBottom: "1px solid var(--lm-coral)",
+                          caretColor: "var(--lm-coral)",
+                          opacity: projectBusy ? 0.5 : 1,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {projects.map((project) => (
+                    <FilterRow
+                      key={project._id}
+                      icon={Layers}
+                      label={project.name}
+                      count={project.count}
+                      active={false}
+                      onClick={() => onProjectOpen(project._id)}
                     />
                   ))}
                 </div>

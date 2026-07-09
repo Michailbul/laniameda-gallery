@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, FolderPlus, Loader2 } from "lucide-react";
+import { Check, FolderPlus, Loader2, X } from "lucide-react";
 
 export type CollectionOption = {
   id: string;
@@ -18,6 +18,7 @@ interface CardCollectionButtonProps {
   collections: CollectionOption[];
   onMove: (imageId: string, folderId: string) => Promise<void> | void;
   onCopy: (imageId: string, folderId: string) => Promise<void> | void;
+  onRemove?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreate?: (name: string) => Promise<string | null>;
   /** Positioning classes from the host card (absolute offsets). */
   positionClassName: string;
@@ -25,12 +26,14 @@ interface CardCollectionButtonProps {
 
 const MENU_WIDTH = 248;
 const MENU_MAX_HEIGHT = 372;
+const HOVER_OPEN_DELAY_MS = 150;
+const HOVER_CLOSE_DELAY_MS = 280;
 
 /**
- * Per-card "organize into collection" control for the gallery grid: a hover
- * button that opens a floating menu (portaled to <body> — the card clips
- * overflow) with a Move/Copy mode toggle, the collection list, and an inline
- * "new collection" flow.
+ * Per-card "organize into collection" control for the gallery grid: a button
+ * that opens a floating menu (portaled to <body> — the card clips overflow)
+ * on hover or click, with a Move/Add mode toggle, the collection list
+ * (member rows toggle off = remove), and an inline "new collection" flow.
  */
 export function CardCollectionButton({
   imageId,
@@ -38,6 +41,7 @@ export function CardCollectionButton({
   collections,
   onMove,
   onCopy,
+  onRemove,
   onCreate,
   positionClassName,
 }: CardCollectionButtonProps) {
@@ -54,12 +58,50 @@ export function CardCollectionButton({
   const [draftName, setDraftName] = useState("");
   const [createError, setCreateError] = useState(false);
 
+  const hoverOpenTimerRef = useRef<number | null>(null);
+  const hoverCloseTimerRef = useRef<number | null>(null);
+  // Mirror of busy/creating for the close timer: never hover-close while an
+  // action is in flight or the user is typing a new collection name.
+  const stayOpenRef = useRef(false);
+  stayOpenRef.current = busy || creating;
+
   const close = useCallback(() => {
     setOpen(false);
     setCreating(false);
     setDraftName("");
     setCreateError(false);
   }, []);
+
+  const cancelHoverOpen = useCallback(() => {
+    if (hoverOpenTimerRef.current !== null) {
+      window.clearTimeout(hoverOpenTimerRef.current);
+      hoverOpenTimerRef.current = null;
+    }
+  }, []);
+
+  const cancelHoverClose = useCallback(() => {
+    if (hoverCloseTimerRef.current !== null) {
+      window.clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleHoverClose = useCallback(() => {
+    cancelHoverClose();
+    hoverCloseTimerRef.current = window.setTimeout(() => {
+      hoverCloseTimerRef.current = null;
+      if (stayOpenRef.current) return;
+      close();
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelHoverClose, close]);
+
+  useEffect(
+    () => () => {
+      cancelHoverOpen();
+      cancelHoverClose();
+    },
+    [cancelHoverOpen, cancelHoverClose],
+  );
 
   const openMenu = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -108,22 +150,27 @@ export function CardCollectionButton({
 
   const currentSet = new Set(currentFolderIds);
 
+  // Member rows toggle OFF (remove); other rows apply the current mode. The
+  // menu stays open after add/remove so several collections can be managed in
+  // one visit — only a move closes it (the card may leave the current view).
   const runAction = useCallback(
-    async (folderId: string) => {
+    async (folderId: string, isMember: boolean) => {
       if (busy) return;
       setBusy(true);
       try {
-        if (mode === "move") {
+        if (isMember && onRemove) {
+          await onRemove(imageId, folderId);
+        } else if (mode === "move") {
           await onMove(imageId, folderId);
+          close();
         } else {
           await onCopy(imageId, folderId);
         }
-        close();
       } finally {
         setBusy(false);
       }
     },
-    [busy, mode, imageId, onMove, onCopy, close],
+    [busy, mode, imageId, onMove, onCopy, onRemove, close],
   );
 
   const submitCreate = useCallback(async () => {
@@ -183,28 +230,32 @@ export function CardCollectionButton({
         onClick={(event) => {
           event.preventDefault();
           stop(event);
+          cancelHoverOpen();
           if (open) close();
           else openMenu();
         }}
-        className={`${positionClassName} flex h-8 w-8 items-center justify-center border transition-all duration-[var(--duration-fast)] ${
+        onMouseEnter={() => {
+          cancelHoverClose();
+          if (open || hoverOpenTimerRef.current !== null) return;
+          hoverOpenTimerRef.current = window.setTimeout(() => {
+            hoverOpenTimerRef.current = null;
+            openMenu();
+          }, HOVER_OPEN_DELAY_MS);
+        }}
+        onMouseLeave={() => {
+          cancelHoverOpen();
+          scheduleHoverClose();
+        }}
+        className={`${positionClassName} card-icon-btn flex h-8 w-8 items-center justify-center rounded-lg border ${
           open
             ? "opacity-100"
             : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
         }`}
-        style={{
-          borderRadius: "8px",
-          backgroundColor: open
-            ? "var(--lm-coral)"
-            : "var(--image-card-badge-bg)",
-          color: open ? "#000" : "var(--image-card-badge-text)",
-          borderColor: open
-            ? "var(--lm-coral)"
-            : "var(--image-card-badge-border)",
-        }}
+        data-active={open ? "dark" : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Add to collection"
-        title="Move or copy to a collection"
+        title="Add to, move to, or remove from a collection"
       >
         <FolderPlus className="h-3.5 w-3.5" />
       </button>
@@ -218,6 +269,8 @@ export function CardCollectionButton({
             aria-label="Collections"
             onClick={stop}
             onMouseDown={stop}
+            onMouseEnter={cancelHoverClose}
+            onMouseLeave={scheduleHoverClose}
             className="fixed flex flex-col"
             style={{
               left: menuPos.left,
@@ -245,7 +298,7 @@ export function CardCollectionButton({
               </span>
               <div className="flex items-center gap-1">
                 {modePill("move", "Move")}
-                {modePill("copy", "Copy")}
+                {modePill("copy", "Add")}
               </div>
             </div>
 
@@ -260,6 +313,7 @@ export function CardCollectionButton({
               )}
               {collections.map((collection) => {
                 const isMember = currentSet.has(collection.id);
+                const removable = isMember && Boolean(onRemove);
                 return (
                   <button
                     key={collection.id}
@@ -268,22 +322,42 @@ export function CardCollectionButton({
                     disabled={busy}
                     onClick={(event) => {
                       stop(event);
-                      void runAction(collection.id);
+                      void runAction(collection.id, removable);
                     }}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
+                    className="group/row flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
                     style={{
                       fontSize: "12px",
                       fontWeight: 600,
                       color: "var(--lm-text-primary)",
                       backgroundColor: "transparent",
                     }}
+                    title={
+                      removable
+                        ? `Remove from ${collection.name}`
+                        : mode === "move"
+                          ? `Move to ${collection.name}`
+                          : `Add to ${collection.name}`
+                    }
                   >
                     <span className="truncate">{collection.name}</span>
                     {isMember ? (
-                      <Check
-                        className="h-3.5 w-3.5 shrink-0"
-                        style={{ color: "var(--lm-coral)" }}
-                      />
+                      removable ? (
+                        <span className="relative h-3.5 w-3.5 shrink-0">
+                          <Check
+                            className="absolute inset-0 h-3.5 w-3.5 transition-opacity group-hover/row:opacity-0"
+                            style={{ color: "var(--lm-coral)" }}
+                          />
+                          <X
+                            className="absolute inset-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover/row:opacity-100"
+                            style={{ color: "var(--lm-text-primary)" }}
+                          />
+                        </span>
+                      ) : (
+                        <Check
+                          className="h-3.5 w-3.5 shrink-0"
+                          style={{ color: "var(--lm-coral)" }}
+                        />
+                      )
                     ) : (
                       <span
                         className="shrink-0 text-[10px]"
@@ -339,7 +413,7 @@ export function CardCollectionButton({
                       ) : mode === "move" ? (
                         "Move"
                       ) : (
-                        "Copy"
+                        "Add"
                       )}
                     </button>
                   </div>

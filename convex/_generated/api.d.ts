@@ -32,6 +32,7 @@ import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as mergeDuplicateTags from "../mergeDuplicateTags.js";
 import type * as notifications from "../notifications.js";
+import type * as projects from "../projects.js";
 import type * as prompts from "../prompts.js";
 import type * as r2 from "../r2.js";
 import type * as r2_migrate from "../r2_migrate.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   ingest_failures: typeof ingest_failures;
   mergeDuplicateTags: typeof mergeDuplicateTags;
   notifications: typeof notifications;
+  projects: typeof projects;
   prompts: typeof prompts;
   r2: typeof r2;
   r2_migrate: typeof r2_migrate;

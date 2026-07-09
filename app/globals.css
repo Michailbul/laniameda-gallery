@@ -947,6 +947,48 @@
     opacity: 0.85;
   }
 
+  /* ── Card action icons — shared hover treatment ── */
+  /* Default colors live here (not inline) so :hover can shift them; active
+     states (selected / liked / open) still win via inline styles. */
+  .card-icon-btn {
+    background-color: var(--image-card-badge-bg);
+    color: var(--image-card-badge-text);
+    border-color: var(--image-card-badge-border);
+    transition:
+      transform var(--duration-fast) var(--ease-out),
+      box-shadow var(--duration-fast) var(--ease-out),
+      color var(--duration-fast),
+      background-color var(--duration-fast),
+      border-color var(--duration-fast),
+      opacity var(--duration-fast);
+  }
+  .card-icon-btn:hover {
+    color: var(--lm-coral);
+    border-color: color-mix(in srgb, var(--lm-coral) 70%, transparent);
+    transform: translateY(-1px) scale(1.06);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+  .card-icon-btn:active {
+    transform: translateY(0) scale(0.94);
+  }
+  /* Active state (selected / liked / menu open): coral fill. "dark" gets
+     ink-on-coral, "light" keeps a white glyph (liked heart). */
+  .card-icon-btn[data-active] {
+    background-color: var(--lm-coral);
+    border-color: var(--lm-coral);
+  }
+  .card-icon-btn[data-active]:hover {
+    border-color: var(--lm-coral);
+  }
+  .card-icon-btn[data-active="dark"],
+  .card-icon-btn[data-active="dark"]:hover {
+    color: rgba(0, 0, 0, 0.92);
+  }
+  .card-icon-btn[data-active="light"],
+  .card-icon-btn[data-active="light"]:hover {
+    color: #fff;
+  }
+
   /* ── Workflow card — distinct "recipe / blueprint" treatment ── */
   .workflow-card {
     position: relative;

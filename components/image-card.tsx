@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Trash2, Workflow as WorkflowIcon } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
@@ -127,6 +127,7 @@ interface ImageCardProps {
   collections?: CollectionOption[];
   onMoveToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCopyToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
+  onRemoveFromCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
 }
 
@@ -168,6 +169,7 @@ export const ImageCard = memo(function ImageCard({
   collections,
   onMoveToCollection,
   onCopyToCollection,
+  onRemoveFromCollection,
   onCreateCollection,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
@@ -443,6 +445,37 @@ export const ImageCard = memo(function ImageCard({
     [image.prompt, toastFn],
   );
 
+  // Prompt sheet visibility: revealed by hovering the "prompt" chip (not the
+  // whole card — a card-wide scrollable sheet hijacked wheel scrolling while
+  // sweeping through the gallery). A short grace timer lets the pointer
+  // travel from the chip into the sheet.
+  const [promptOpen, setPromptOpen] = useState(false);
+  const promptCloseTimerRef = useRef<number | null>(null);
+
+  const cancelPromptClose = useCallback(() => {
+    if (promptCloseTimerRef.current !== null) {
+      window.clearTimeout(promptCloseTimerRef.current);
+      promptCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const openPromptSheet = useCallback(() => {
+    cancelPromptClose();
+    setPromptOpen(true);
+  }, [cancelPromptClose]);
+
+  const schedulePromptClose = useCallback(() => {
+    cancelPromptClose();
+    promptCloseTimerRef.current = window.setTimeout(() => {
+      promptCloseTimerRef.current = null;
+      setPromptOpen(false);
+    }, 160);
+  }, [cancelPromptClose]);
+
+  useEffect(() => cancelPromptClose, [cancelPromptClose]);
+
+  const hasPrompt = Boolean(activePreview.prompt?.trim());
+
   const handleIdCopy = useCallback(
     async (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -628,6 +661,8 @@ export const ImageCard = memo(function ImageCard({
           }
         }
         setVideoActive(false);
+        cancelPromptClose();
+        setPromptOpen(false);
       }}
     >
       {/* Skeleton / Loading */}
@@ -762,21 +797,12 @@ export const ImageCard = memo(function ImageCard({
         <button
           type="button"
           onClick={handleToggleSelect}
-          className={`absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center border transition-all duration-[var(--duration-fast)] ${
+          className={`card-icon-btn absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-lg border ${
             selected
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
-          style={{
-            borderRadius: "8px",
-            backgroundColor: selected
-              ? "var(--lm-coral)"
-              : "var(--image-card-badge-bg)",
-            color: selected ? "#000" : "var(--image-card-badge-text)",
-            borderColor: selected
-              ? "var(--lm-coral)"
-              : "var(--image-card-badge-border)",
-          }}
+          data-active={selected ? "dark" : undefined}
           aria-label={selected ? "Deselect asset" : "Select asset"}
           aria-pressed={selected}
           title={selected ? "Deselect" : "Select"}
@@ -800,15 +826,9 @@ export const ImageCard = memo(function ImageCard({
         onClick={(event) => {
           void handleIdCopy(event);
         }}
-        className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100 ${
+        className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
           selectable ? "left-12" : "left-2"
         }`}
-        style={{
-          borderRadius: "8px",
-          backgroundColor: "var(--image-card-badge-bg)",
-          color: "var(--image-card-badge-text)",
-          borderColor: "var(--image-card-badge-border)",
-        }}
         aria-label={`Copy ${galleryItemType} ID`}
         title={`Copy ${galleryItemType} ID`}
       >
@@ -822,15 +842,9 @@ export const ImageCard = memo(function ImageCard({
           void handleDownload(event);
         }}
         disabled={downloading}
-        className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center border opacity-0 transition-all duration-[var(--duration-fast)] group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed ${
+        className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed ${
           selectable ? "left-[5.5rem]" : "left-12"
         }`}
-        style={{
-          borderRadius: "8px",
-          backgroundColor: "var(--image-card-badge-bg)",
-          color: "var(--image-card-badge-text)",
-          borderColor: "var(--image-card-badge-border)",
-        }}
         aria-label={isVideo ? "Download file" : "Download as JPG"}
         title={isVideo ? "Download file" : "Download as JPG"}
       >
@@ -851,6 +865,7 @@ export const ImageCard = memo(function ImageCard({
           collections={collections}
           onMove={onMoveToCollection}
           onCopy={onCopyToCollection}
+          onRemove={onRemoveFromCollection}
           onCreate={onCreateCollection}
           positionClassName={`absolute top-2 z-20 ${
             selectable ? "left-32" : "left-[5.5rem]"
@@ -908,21 +923,50 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Hover overlay — cinematic warm gradient with a feathered prompt sheet. Suppressed on cinema. */}
+      {/* Hover gradient — pure visual (icon legibility); never intercepts the
+          pointer, so wheel scrolling passes through the card untouched. */}
       {!isCinema && (
-      <div
-        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100"
-        style={{
-          background: "var(--image-card-overlay-gradient)",
-        }}
-      >
         <div
-          className={`absolute bottom-0 left-0 right-0 flex flex-col gap-3 overflow-hidden p-3 pt-5 ${
-            isVideo ? "min-h-[25%]" : "min-h-[50%]"
-          }`}
+          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100"
           style={{
-            maxHeight: isVideo ? "31%" : "62%",
+            background: "var(--image-card-overlay-gradient)",
           }}
+        />
+      )}
+
+      {/* "Prompt" chip — bottom-left on card hover. Hovering it reveals the
+          prompt sheet; clicking copies the prompt. */}
+      {!isCinema && hasPrompt && (
+        <button
+          type="button"
+          onClick={(event) => {
+            void handlePromptCopy(event);
+          }}
+          onMouseEnter={openPromptSheet}
+          onMouseLeave={schedulePromptClose}
+          onFocus={openPromptSheet}
+          onBlur={schedulePromptClose}
+          className={`card-icon-btn absolute bottom-2 left-2 z-40 flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[9px] font-mono font-bold uppercase tracking-wider ${
+            promptOpen
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          }`}
+          aria-label="Show prompt — click to copy"
+          title="Hover to preview, click to copy prompt"
+        >
+          <Quote className="h-3 w-3" />
+          Prompt
+        </button>
+      )}
+
+      {/* Prompt sheet — feathered blur panel, shown only while hovering the
+          chip or the sheet itself. Click anywhere on the text copies. */}
+      {!isCinema && hasPrompt && promptOpen && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden p-3 pb-11 pt-5 lm-animate-fade-in"
+          style={{ maxHeight: isVideo ? "40%" : "62%" }}
+          onMouseEnter={cancelPromptClose}
+          onMouseLeave={schedulePromptClose}
         >
           <div
             className="pointer-events-none absolute inset-0"
@@ -953,7 +997,6 @@ export const ImageCard = memo(function ImageCard({
             {activePreview.prompt}
           </button>
         </div>
-      </div>
       )}
 
       {/* Cinema hover chip — MOVIE · YEAR — only on cinema-inspiration cards */}
@@ -989,20 +1032,12 @@ export const ImageCard = memo(function ImageCard({
         <button
           type="button"
           onClick={handleToggleLike}
-          className={`absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] ${
+          className={`card-icon-btn absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-full border ${
             liked
               ? "opacity-100"
               : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
-          style={{
-            backgroundColor: liked
-              ? "var(--lm-coral)"
-              : "var(--image-card-badge-bg)",
-            color: liked ? "#fff" : "var(--image-card-badge-text)",
-            borderColor: liked
-              ? "var(--lm-coral)"
-              : "var(--image-card-badge-border)",
-          }}
+          data-active={liked ? "light" : undefined}
           aria-label={liked ? "Unlike asset" : "Like asset"}
           aria-pressed={liked}
           title={liked ? "Liked — click to unlike" : "Like"}
@@ -1020,9 +1055,11 @@ export const ImageCard = memo(function ImageCard({
           type="button"
           onClick={handleDelete}
           disabled={deleting}
-          className={`absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border transition-all duration-[var(--duration-fast)] disabled:cursor-not-allowed ${
-            likeable ? "right-12" : "right-2"
-          }`}
+          className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
+            deleting
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          } ${likeable ? "right-12" : "right-2"}`}
           style={{
             borderColor: deleting
               ? "var(--image-card-delete-border-disabled)"
