@@ -319,6 +319,43 @@
   display: none;
 }
 
+/* Animation / live-action pills at the top of the collection menu */
+.stg-mj-menu__types {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
+  padding-bottom: 2px;
+}
+
+.stg-mj-menu__type {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #8a7768;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(26, 20, 16, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.stg-mj-menu__type:hover {
+  background: rgba(255, 238, 232, 0.96);
+  border-color: rgba(255, 122, 100, 0.48);
+  color: #1a1410;
+}
+
+.stg-mj-menu__type--active {
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.48);
+  color: #166d68;
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 180, 0.16);
+}
+
 .stg-mj-menu__loading,
 .stg-mj-menu__item {
   width: 100%;
@@ -579,6 +616,48 @@
 
 .stg-popover__textarea::placeholder {
   color: #8a7768;
+}
+
+/* Animation / live-action pills in the save popover */
+.stg-type-row {
+  display: flex;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+
+.stg-type-pill {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #8a7768;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(26, 20, 16, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+
+.stg-type-pill:hover {
+  background: rgba(255, 238, 232, 0.96);
+  border-color: rgba(255, 122, 100, 0.52);
+  color: #1a1410;
+  transform: translateY(-1px);
+}
+
+.stg-type-pill:focus-visible {
+  outline: 2px solid rgba(255, 122, 100, 0.55);
+  outline-offset: 1px;
+}
+
+.stg-type-pill--active {
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.48);
+  color: #166d68;
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 180, 0.18);
 }
 
 .stg-popover__collection-head {
@@ -933,6 +1012,320 @@
 [data-stg-mj-liked-filter-hidden="1"] {
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* ── Midjourney notes / scroll bookmarks ── */
+
+/* Notes = right-edge hover-reveal modal. A full-height container anchored to
+   the right edge; a thin hotzone + slim handle reveal a translucent panel that
+   slides in from the right on hover (click the handle to pin it open). */
+.stg-mj-notes {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  z-index: 2147483647;
+  pointer-events: none;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* Invisible right-edge strip: hovering anywhere on the right side reveals the panel. */
+.stg-mj-notes__hotzone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 22px;
+  height: 100%;
+  pointer-events: auto;
+}
+
+/* Slim always-present tab so the feature is discoverable. */
+.stg-mj-notes__handle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 7px;
+  background: rgba(250, 246, 241, 0.82);
+  color: #1a1410;
+  border: 1px solid rgba(26, 20, 16, 0.12);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  box-shadow: -8px 0 24px rgba(13, 13, 13, 0.16);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.5;
+  transition: opacity 0.16s ease, background 0.14s ease, border-color 0.14s ease;
+}
+
+.stg-mj-notes__handle:hover {
+  opacity: 1;
+  background: rgba(255, 238, 232, 0.95);
+  border-color: rgba(255, 122, 100, 0.42);
+}
+
+/* When the panel is open it takes over the edge; fade the handle out. */
+.stg-mj-notes--open .stg-mj-notes__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stg-mj-notes--pinned .stg-mj-notes__handle {
+  border-color: rgba(255, 122, 100, 0.55);
+}
+
+.stg-mj-notes__handle-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.stg-mj-notes__count {
+  min-width: 16px;
+  padding: 2px 5px;
+  background: rgba(255, 122, 100, 0.92);
+  color: #fffaf5;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  border-radius: 999px;
+}
+
+.stg-mj-notes__count--empty {
+  background: rgba(26, 20, 16, 0.14);
+  color: rgba(26, 20, 16, 0.5);
+}
+
+/* The translucent modal itself. */
+.stg-mj-notes__panel {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translate(calc(100% + 20px), -50%);
+  width: 300px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(250, 246, 241, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-right: none;
+  border-radius: 16px 0 0 16px;
+  box-shadow: -20px 0 64px rgba(13, 13, 13, 0.34);
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.18s ease;
+}
+
+.stg-mj-notes--open .stg-mj-notes__panel {
+  transform: translate(0, -50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.stg-mj-notes__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 2px 7px;
+  border-bottom: 1px solid rgba(26, 20, 16, 0.12);
+}
+
+.stg-mj-notes__head-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(26, 20, 16, 0.58);
+}
+
+.stg-mj-notes__list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 34vh;
+}
+
+.stg-mj-notes__empty {
+  padding: 10px 4px;
+  color: rgba(26, 20, 16, 0.55);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stg-mj-notes__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(26, 20, 16, 0.10);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.stg-mj-notes__row:last-child {
+  border-bottom: none;
+}
+
+.stg-mj-notes__row:hover {
+  background: rgba(255, 122, 100, 0.10);
+}
+
+.stg-mj-notes__row-text {
+  flex: 1;
+  min-width: 0;
+  color: #1a1410;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.stg-mj-notes__delete {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: rgba(26, 20, 16, 0.4);
+  font-size: 16px;
+  line-height: 1;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.stg-mj-notes__delete:hover {
+  background: rgba(255, 122, 100, 0.18);
+  color: #c0392b;
+}
+
+.stg-mj-notes__compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stg-mj-notes__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #1a1410;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.35;
+  border: 1px solid rgba(26, 20, 16, 0.16);
+  border-radius: 10px;
+  resize: none;
+  outline: none;
+}
+
+.stg-mj-notes__input:focus {
+  border-color: rgba(255, 122, 100, 0.6);
+}
+
+.stg-mj-notes__compose-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.stg-mj-notes__save {
+  padding: 7px 12px;
+  background: rgba(255, 122, 100, 0.94);
+  color: #fffaf5;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.stg-mj-notes__save:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 100, 76, 0.98);
+}
+
+/* Floating flags that track note positions in the feed as you scroll */
+
+.stg-mj-notes-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+/* Hide the scroll-position flags while the notes panel is open (the list
+   covers the same right edge). */
+.stg-mj-notes-layer--dimmed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stg-mj-note-marker {
+  position: fixed;
+  right: 0;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 210px;
+  padding: 5px 10px 5px 8px;
+  transform: translateY(-50%);
+  background: rgba(255, 122, 100, 0.94);
+  color: #fffaf5;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid rgba(255, 238, 232, 0.6);
+  border-right: none;
+  border-radius: 999px 0 0 999px;
+  box-shadow: 0 8px 22px rgba(13, 13, 13, 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: max-width 0.16s ease, padding 0.16s ease, background 0.14s ease;
+}
+
+.stg-mj-note-marker:hover {
+  background: rgba(255, 100, 76, 0.98);
+}
+
+.stg-mj-note-marker__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fffaf5;
+}
+
+.stg-mj-note-marker__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ── Wrapper for positioning ── */

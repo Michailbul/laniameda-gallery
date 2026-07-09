@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Save to Gallery",
   "description": "One-click save any image to laniameda.gallery",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -16,7 +16,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["image-qualification.js", "midjourney-adapter.js", "krea-adapter.js", "content.js"],
+      "js": ["image-qualification.js", "midjourney-adapter.js", "krea-adapter.js", "pinterest-adapter.js", "shotdeck-adapter.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

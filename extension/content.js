@@ -10,6 +10,14 @@
   const DISABLED_HOSTS_KEY = "disabledHosts";
   const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
   const LAST_FOLDER_ID_KEY = "lastFolderId";
+  // Remembered animation / live-action classification, auto-applied as a tag
+  // to every save until changed.
+  const STYLE_TAG_KEY = "lastStyleTag";
+  const STYLE_TAG_OPTIONS = [
+    { value: "", label: "None" },
+    { value: "animation", label: "Animation" },
+    { value: "live-action", label: "Live action" },
+  ];
   // Hosts where the extension should NEVER run (our own app — packs/assets
   // aren't saveable via the extension overlay).
   const BUILTIN_DISABLED_HOSTS = [
@@ -24,6 +32,8 @@
   const imageQualification = globalThis.SaveToGalleryImageQualification;
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
   const kreaAdapter = globalThis.SaveToGalleryKrea;
+  const pinterestAdapter = globalThis.SaveToGalleryPinterest;
+  const shotdeckAdapter = globalThis.SaveToGalleryShotdeck;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
   function getExtensionRuntime() {
@@ -33,6 +43,11 @@
 
   function getExtensionStorageSync() {
     const storage = globalThis.chrome?.storage?.sync;
+    return storage && typeof storage.get === "function" ? storage : null;
+  }
+
+  function getExtensionStorageLocal() {
+    const storage = globalThis.chrome?.storage?.local;
     return storage && typeof storage.get === "function" ? storage : null;
   }
 
@@ -61,6 +76,27 @@
 
   function setStorageSync(values) {
     const storage = getExtensionStorageSync();
+    if (!storage || typeof storage.set !== "function") return;
+    try {
+      const result = storage.set(values);
+      if (result && typeof result.catch === "function") {
+        result.catch((err) => {
+          console.warn("[Save to Gallery] Could not persist extension storage:", err);
+        });
+      }
+    } catch (err) {
+      console.warn("[Save to Gallery] Could not persist extension storage:", err);
+    }
+  }
+
+  async function getStorageLocal(keys) {
+    const storage = getExtensionStorageLocal();
+    if (!storage) return {};
+    return storage.get(keys);
+  }
+
+  function setStorageLocal(values) {
+    const storage = getExtensionStorageLocal();
     if (!storage || typeof storage.set !== "function") return;
     try {
       const result = storage.set(values);
@@ -107,6 +143,8 @@
     ".stg-context-toast",
     ".stg-mj-liked-nav",
     ".stg-mj-quick-save",
+    ".stg-mj-notes",
+    ".stg-mj-notes-layer",
   ].join(",");
   const PAGE_CONTROL_SELECTOR = [
     "button",
@@ -134,10 +172,29 @@
     return host === "krea.ai" || host.endsWith(".krea.ai");
   }
 
+  function isPinterestPage() {
+    if (pinterestAdapter?.isPinterestPage) {
+      return pinterestAdapter.isPinterestPage(location.hostname);
+    }
+    return /(^|\.)pinterest\.[a-z]{2,3}(\.[a-z]{2})?$/.test(
+      location.hostname.toLowerCase(),
+    );
+  }
+
+  function isShotdeckPage() {
+    if (shotdeckAdapter?.isShotdeckPage) {
+      return shotdeckAdapter.isShotdeckPage(location.hostname);
+    }
+    const host = location.hostname.toLowerCase();
+    return host === "shotdeck.com" || host.endsWith(".shotdeck.com");
+  }
+
   // Sites that get persistent quick-save widgets (Save + collection menu on
   // every qualified generation) instead of the generic hover badge.
   function isPersistentSaveSite() {
-    return isMidjourneyPage() || isKreaPage();
+    return (
+      isMidjourneyPage() || isKreaPage() || isPinterestPage() || isShotdeckPage()
+    );
   }
 
   // Krea qualification is size-based (see krea-adapter.js), so the scan
@@ -644,6 +701,35 @@
     return defaultFolderId || lastFolderId || undefined;
   }
 
+  // ── Animation / live-action style tag ──
+
+  function normalizeStyleTag(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return normalized === "animation" || normalized === "live-action"
+      ? normalized
+      : "";
+  }
+
+  async function readStyleTag() {
+    try {
+      const cfg = await getStorageSync([STYLE_TAG_KEY]);
+      return normalizeStyleTag(cfg[STYLE_TAG_KEY]);
+    } catch {
+      return "";
+    }
+  }
+
+  function rememberStyleTag(value) {
+    setStorageSync({ [STYLE_TAG_KEY]: normalizeStyleTag(value) });
+  }
+
+  function withStyleTag(tagNames, styleTag) {
+    const tags = Array.isArray(tagNames) ? [...tagNames] : [];
+    const tag = normalizeStyleTag(styleTag);
+    if (tag && !tags.includes(tag)) tags.push(tag);
+    return tags;
+  }
+
   async function ensureSiteStateLoaded() {
     if (configLoaded) return extensionEnabled;
 
@@ -757,6 +843,13 @@
       <div class="stg-popover__title">${title}</div>
       <label class="stg-popover__label">Prompt (optional)</label>
       <textarea class="stg-popover__textarea" placeholder="Paste the prompt here…" rows="2"></textarea>
+      <span class="stg-popover__label">Type</span>
+      <div class="stg-type-row" role="radiogroup" aria-label="Animation or live action">
+        ${STYLE_TAG_OPTIONS.map(
+          (option) =>
+            `<button class="stg-type-pill" type="button" data-style-tag="${option.value}" aria-pressed="false">${option.label}</button>`,
+        ).join("")}
+      </div>
       <div class="stg-popover__collection-head">
         <span class="stg-popover__label">Collections</span>
         <button class="stg-popover__icon-btn stg-popover__new-collection-toggle" type="button" title="New collection">+</button>
@@ -784,6 +877,32 @@
     if (initialPrompt) {
       textarea.select();
     }
+
+    // ── Animation / live-action pills ──
+    const typeRow = pop.querySelector(".stg-type-row");
+    let selectedStyleTag = "";
+
+    const setSelectedStyleTag = (value) => {
+      selectedStyleTag = normalizeStyleTag(value);
+      for (const pill of typeRow.querySelectorAll(".stg-type-pill")) {
+        const active = (pill.dataset.styleTag || "") === selectedStyleTag;
+        pill.classList.toggle("stg-type-pill--active", active);
+        pill.setAttribute("aria-pressed", active ? "true" : "false");
+      }
+    };
+
+    setSelectedStyleTag("");
+    void readStyleTag().then(setSelectedStyleTag);
+
+    typeRow.addEventListener("click", (event) => {
+      const pill = event.target?.closest?.(".stg-type-pill");
+      if (!pill) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedStyleTag(pill.dataset.styleTag || "");
+      // Remember immediately — the choice auto-applies to quick saves too.
+      rememberStyleTag(selectedStyleTag);
+    });
 
     // ── Collection (folder) cards ──
     let loadedFolders = [];
@@ -829,6 +948,7 @@
         promptText: prompt,
         folderId: normalizedFolderId || undefined,
         folderIds: normalizedFolderIds,
+        styleTag: selectedStyleTag,
       });
       onClose();
     };
@@ -1127,6 +1247,7 @@
     fileData,
     imageWidth,
     imageHeight,
+    sourceUrl,
     topRight = false,
   }) {
     badge.innerHTML = `<span>Saving…</span>`;
@@ -1139,7 +1260,8 @@
         response = await sendRuntimeMessage({
           action: "saveImage",
           imageUrl,
-          sourceUrl: location.href,
+          // Item-specific permalink (e.g. the pin URL) beats the feed URL.
+          sourceUrl: sourceUrl || location.href,
           pageTitle: document.title,
           promptText: promptText || undefined,
           modelName: modelName || undefined,
@@ -1188,7 +1310,7 @@
     badge.classList.remove("stg-badge--visible");
 
     const popover = createPopover(
-      async ({ promptText, folderId, folderIds }) => {
+      async ({ promptText, folderId, folderIds, styleTag }) => {
         let fileData = saveContext.fileData;
         if (!fileData && typeof saveContext.resolveFileData === "function") {
           fileData = await saveContext.resolveFileData();
@@ -1200,10 +1322,11 @@
           folderId,
           folderIds,
           modelName: saveContext.modelName,
-          tagNames: saveContext.tagNames,
+          tagNames: withStyleTag(saveContext.tagNames, styleTag),
           fileData,
           imageWidth: saveContext.imageWidth,
           imageHeight: saveContext.imageHeight,
+          sourceUrl: saveContext.sourceUrl,
           topRight,
         });
       },
@@ -1320,6 +1443,7 @@
 
     showContextToast("saving", "Saving to laniameda...");
     const fileData = await captureImageBytesForSave(imageUrl);
+    const styleTag = await readStyleTag();
 
     let response;
     try {
@@ -1329,6 +1453,7 @@
         sourceUrl,
         pageTitle: document.title,
         folderId: folderId || undefined,
+        tagNames: styleTag ? [styleTag] : undefined,
         file: fileData || undefined,
       });
     } catch (err) {
@@ -1360,7 +1485,7 @@
     hideMjGridBadge();
 
     for (const node of document.querySelectorAll(
-      ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save",
+      ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer",
     )) {
       node.remove();
     }
@@ -1386,6 +1511,7 @@
     }
 
     clearMidjourneyLikedNavigation();
+    clearMidjourneyNotes();
   }
 
   function setExtensionEnabled(nextEnabled) {
@@ -1763,16 +1889,81 @@
     };
   }
 
+  // ── Pinterest adapter glue ──
+
+  function isQualifiedPinterestMediaTarget(target) {
+    if (!target || target.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    if (!pinterestAdapter?.isQualifiedMediaElement) return false;
+    return pinterestAdapter.isQualifiedMediaElement(target, {
+      badgeAttr: MJ_MEDIA_BADGE_ATTR,
+    });
+  }
+
+  function getPinterestSaveContext(target) {
+    const rawImageUrl = pinterestAdapter?.getMediaUrl
+      ? pinterestAdapter.getMediaUrl(target)
+      : "";
+    if (!rawImageUrl) return null;
+
+    return {
+      imageUrl: resolveAbsoluteUrl(rawImageUrl),
+      promptText: pinterestAdapter?.extractDescription
+        ? pinterestAdapter.extractDescription(target, document)
+        : "",
+      // Pins are references, not generations — no model name.
+      modelName: undefined,
+      tagNames: pinterestAdapter?.getTagNames
+        ? pinterestAdapter.getTagNames()
+        : ["pinterest"],
+      sourceUrl: pinterestAdapter?.getPinUrl
+        ? pinterestAdapter.getPinUrl(target) || undefined
+        : undefined,
+      ...getNaturalDimensions(target),
+    };
+  }
+
+  // ── ShotDeck adapter glue ──
+
+  function isQualifiedShotdeckMediaTarget(target) {
+    if (!target || target.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    if (!shotdeckAdapter?.isQualifiedMediaElement) return false;
+    return shotdeckAdapter.isQualifiedMediaElement(target, {
+      badgeAttr: MJ_MEDIA_BADGE_ATTR,
+    });
+  }
+
+  function getShotdeckSaveContext(target) {
+    const rawImageUrl = shotdeckAdapter?.getMediaUrl
+      ? shotdeckAdapter.getMediaUrl(target)
+      : "";
+    if (!rawImageUrl) return null;
+
+    return {
+      imageUrl: resolveAbsoluteUrl(rawImageUrl),
+      promptText: shotdeckAdapter?.extractDescription
+        ? shotdeckAdapter.extractDescription(target, document)
+        : "",
+      // Film stills are references, not generations — no model name.
+      modelName: undefined,
+      tagNames: shotdeckAdapter?.getTagNames
+        ? shotdeckAdapter.getTagNames()
+        : ["shotdeck"],
+      ...getNaturalDimensions(target),
+    };
+  }
+
   function isQualifiedSiteMediaTarget(target) {
-    return isMidjourneyPage()
-      ? isQualifiedMidjourneyMediaTarget(target)
-      : isQualifiedKreaMediaTarget(target);
+    if (isMidjourneyPage()) return isQualifiedMidjourneyMediaTarget(target);
+    if (isPinterestPage()) return isQualifiedPinterestMediaTarget(target);
+    if (isShotdeckPage()) return isQualifiedShotdeckMediaTarget(target);
+    return isQualifiedKreaMediaTarget(target);
   }
 
   function getSiteSaveContext(target) {
-    return isMidjourneyPage()
-      ? getMidjourneySaveContext(target)
-      : getKreaSaveContext(target);
+    if (isMidjourneyPage()) return getMidjourneySaveContext(target);
+    if (isPinterestPage()) return getPinterestSaveContext(target);
+    if (isShotdeckPage()) return getShotdeckSaveContext(target);
+    return getKreaSaveContext(target);
   }
 
   function getMidjourneyWidgetHost(target) {
@@ -1977,6 +2168,525 @@
     updateMidjourneyLikedNavControl(items.length, likedCount, statusText);
   }
 
+  // ── Midjourney notes / scroll bookmarks ──
+  //
+  // Drop a labeled note anywhere in the create feed. Each note renders as a
+  // flag on the right edge that tracks its position as you scroll (so you see
+  // it while scrolling past), and lists in a floating panel that jumps you back
+  // to that spot. Notes persist per-host in chrome.storage.local.
+
+  const MJ_NOTES_STORAGE_PREFIX = "mjNotes:";
+  let midjourneyNotes = [];
+  let midjourneyNotesLoaded = false;
+  let midjourneyNotesLoading = false;
+  let midjourneyNotesPanel = null;
+  let midjourneyNotesLayer = null;
+  let midjourneyNotesOpen = false; // revealed by hover
+  let midjourneyNotesPinned = false; // kept open by click
+  let midjourneyNotesHoverTimer = null;
+  let midjourneyNotesScrollBound = false;
+  let midjourneyNotesRafPending = false;
+
+  function isMidjourneyNotesEligiblePage() {
+    return (
+      isMidjourneyPage() &&
+      isMidjourneyImaginePage() &&
+      !isMidjourneyFullSizeViewerOpen()
+    );
+  }
+
+  function getMidjourneyNotesStorageKey() {
+    return `${MJ_NOTES_STORAGE_PREFIX}${location.hostname}`;
+  }
+
+  function makeMidjourneyNoteId() {
+    return `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function normalizeStoredNotes(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const text = String(raw.text || "").trim();
+        if (!text) return null;
+        return {
+          id: String(raw.id || makeMidjourneyNoteId()),
+          text: text.slice(0, 400),
+          scrollTop: Number.isFinite(raw.scrollTop) ? raw.scrollTop : 0,
+          anchorHref: typeof raw.anchorHref === "string" ? raw.anchorHref : "",
+          createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : 0,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function loadMidjourneyNotes() {
+    if (midjourneyNotesLoaded || midjourneyNotesLoading) return;
+    midjourneyNotesLoading = true;
+    const key = getMidjourneyNotesStorageKey();
+    void getStorageLocal([key])
+      .then((cfg) => {
+        midjourneyNotes = normalizeStoredNotes(cfg[key]);
+        midjourneyNotesLoaded = true;
+        midjourneyNotesLoading = false;
+        if (isMidjourneyNotesEligiblePage() && extensionEnabled) {
+          updateMidjourneyNotes();
+        }
+      })
+      .catch((err) => {
+        console.warn("[Save to Gallery] Could not load Midjourney notes:", err);
+        midjourneyNotesLoaded = true;
+        midjourneyNotesLoading = false;
+      });
+  }
+
+  function persistMidjourneyNotes() {
+    setStorageLocal({ [getMidjourneyNotesStorageKey()]: midjourneyNotes });
+  }
+
+  let midjourneyScrollContainerCache = null;
+
+  // Prefer the nearest scrollable ancestor of the feed's media; fall back to
+  // the document scroller. MJ's create feed scrolls an inner container, but
+  // some layouts scroll the window — handle both uniformly. Cached because the
+  // rAF scroll handler calls this every frame.
+  function getMidjourneyScrollContainer() {
+    if (
+      midjourneyScrollContainerCache &&
+      (isWindowScroller(midjourneyScrollContainerCache) ||
+        document.contains(midjourneyScrollContainerCache))
+    ) {
+      return midjourneyScrollContainerCache;
+    }
+
+    const sample =
+      document.querySelector(MJ_GRID_THUMB_SELECTOR) ||
+      document.querySelector('img[src*="cdn.midjourney.com"]');
+    let node = sample;
+    for (let depth = 0; depth < 12 && node; depth++, node = node.parentElement) {
+      if (node === document.body || node === document.documentElement) break;
+      const canScroll = node.scrollHeight - node.clientHeight > 40;
+      if (!canScroll) continue;
+      const overflowY = getComputedStyle(node).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+        midjourneyScrollContainerCache = node;
+        return node;
+      }
+    }
+    midjourneyScrollContainerCache = document.scrollingElement || document.documentElement;
+    return midjourneyScrollContainerCache;
+  }
+
+  function isWindowScroller(container) {
+    return (
+      !container ||
+      container === document.scrollingElement ||
+      container === document.documentElement ||
+      container === document.body
+    );
+  }
+
+  function getMidjourneyScrollMetrics(container) {
+    if (isWindowScroller(container)) {
+      return {
+        scrollTop: window.scrollY || document.documentElement.scrollTop || 0,
+        top: 0,
+        bottom: window.innerHeight,
+        right: window.innerWidth,
+      };
+    }
+    const rect = container.getBoundingClientRect();
+    return {
+      scrollTop: container.scrollTop || 0,
+      top: rect.top,
+      bottom: rect.bottom,
+      right: rect.right,
+    };
+  }
+
+  function findMidjourneyAnchorHrefNearCenter() {
+    const centerY = window.innerHeight / 2;
+    let best = "";
+    let bestDist = Infinity;
+    for (const link of document.querySelectorAll(MJ_GRID_THUMB_SELECTOR)) {
+      const rect = link.getBoundingClientRect();
+      if (rect.width < 40 || rect.height < 40) continue;
+      if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
+      const mid = (rect.top + rect.bottom) / 2;
+      const dist = Math.abs(mid - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        const href = link.getAttribute("href") || "";
+        const match = href.match(/\/jobs\/[A-Za-z0-9_-]+/);
+        best = match ? match[0] : "";
+      }
+    }
+    return best;
+  }
+
+  // Resolve a note's live content offset. If its anchored generation is
+  // currently in the DOM, use that element's real position (survives feed
+  // drift as new generations prepend); otherwise fall back to the raw offset.
+  function resolveMidjourneyNoteOffset(note, metrics) {
+    if (note.anchorHref) {
+      const el = document.querySelector(
+        `${MJ_GRID_THUMB_SELECTOR}[href*="${note.anchorHref}"]`,
+      );
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        if (rect.height > 0) {
+          return metrics.scrollTop + (rect.top - metrics.top);
+        }
+      }
+    }
+    return note.scrollTop;
+  }
+
+  function scrollMidjourneyContainerTo(container, top) {
+    const target = Math.max(0, top);
+    if (isWindowScroller(container)) {
+      window.scrollTo({ top: target, behavior: "smooth" });
+    } else if (typeof container.scrollTo === "function") {
+      container.scrollTo({ top: target, behavior: "smooth" });
+    } else {
+      container.scrollTop = target;
+    }
+  }
+
+  function jumpToMidjourneyNote(note) {
+    try {
+      // Primary path: scroll the note's anchored generation into view. The
+      // browser resolves whatever ancestor actually scrolls, so this is robust
+      // to MJ's changing scroll-container structure and to feed drift (new
+      // generations prepending). Manual scrollTop math was the failure mode —
+      // it targeted a detected container that isn't always the real scroller.
+      if (note.anchorHref) {
+        const el = document.querySelector(
+          `${MJ_GRID_THUMB_SELECTOR}[href*="${note.anchorHref}"]`,
+        );
+        if (el && el.getBoundingClientRect().height > 0) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+      }
+      // Fallback: the anchored generation is no longer in the DOM (virtualized
+      // away). Best-effort scroll of the detected container to the raw offset.
+      const container = getMidjourneyScrollContainer();
+      const metrics = getMidjourneyScrollMetrics(container);
+      const offset = resolveMidjourneyNoteOffset(note, metrics);
+      scrollMidjourneyContainerTo(container, offset - 16);
+    } catch (err) {
+      console.warn("[Save to Gallery] Jump to note failed:", err);
+    }
+  }
+
+  function addMidjourneyNote(text) {
+    const clean = String(text || "").trim().slice(0, 400);
+    if (!clean) return;
+    const container = getMidjourneyScrollContainer();
+    const metrics = getMidjourneyScrollMetrics(container);
+    midjourneyNotes.push({
+      id: makeMidjourneyNoteId(),
+      text: clean,
+      scrollTop: metrics.scrollTop,
+      anchorHref: findMidjourneyAnchorHrefNearCenter(),
+      createdAt: Date.now(),
+    });
+    persistMidjourneyNotes();
+    updateMidjourneyNotes();
+  }
+
+  function removeMidjourneyNote(id) {
+    const before = midjourneyNotes.length;
+    midjourneyNotes = midjourneyNotes.filter((note) => note.id !== id);
+    if (midjourneyNotes.length !== before) {
+      persistMidjourneyNotes();
+      updateMidjourneyNotes();
+    }
+  }
+
+  function clearMidjourneyNotesUi() {
+    if (midjourneyNotesPanel) {
+      midjourneyNotesPanel.remove();
+      midjourneyNotesPanel = null;
+    }
+    if (midjourneyNotesLayer) {
+      midjourneyNotesLayer.remove();
+      midjourneyNotesLayer = null;
+    }
+  }
+
+  function cancelMidjourneyNotesHoverClose() {
+    if (midjourneyNotesHoverTimer !== null) {
+      clearTimeout(midjourneyNotesHoverTimer);
+      midjourneyNotesHoverTimer = null;
+    }
+  }
+
+  function openMidjourneyNotesHover() {
+    cancelMidjourneyNotesHoverClose();
+    if (midjourneyNotesOpen) return;
+    midjourneyNotesOpen = true;
+    applyMidjourneyNotesOpenState();
+  }
+
+  function scheduleMidjourneyNotesHoverClose() {
+    cancelMidjourneyNotesHoverClose();
+    midjourneyNotesHoverTimer = setTimeout(() => {
+      midjourneyNotesHoverTimer = null;
+      // Never hover-close while pinned or while the composer is focused.
+      if (midjourneyNotesPinned) return;
+      const active = midjourneyNotesPanel?.contains(document.activeElement);
+      if (active) return;
+      midjourneyNotesOpen = false;
+      applyMidjourneyNotesOpenState();
+    }, 320);
+  }
+
+  function buildMidjourneyNotesPanel() {
+    const root = document.createElement("div");
+    root.className = "stg-mj-notes";
+    root.innerHTML = `
+      <div class="stg-mj-notes__hotzone" aria-hidden="true"></div>
+      <button type="button" class="stg-mj-notes__handle" aria-expanded="false"
+        aria-label="Feed notes" title="Feed notes — hover to open, click to pin">
+        <span class="stg-mj-notes__handle-icon">✎</span>
+        <span class="stg-mj-notes__count">0</span>
+      </button>
+      <div class="stg-mj-notes__panel" role="dialog" aria-label="Feed notes">
+        <div class="stg-mj-notes__head">
+          <span class="stg-mj-notes__head-title">Notes</span>
+          <span class="stg-mj-notes__count">0</span>
+        </div>
+        <div class="stg-mj-notes__list"></div>
+        <div class="stg-mj-notes__compose">
+          <textarea class="stg-mj-notes__input" rows="2" maxlength="400"
+            placeholder="Note this spot…"></textarea>
+          <div class="stg-mj-notes__compose-actions">
+            <button type="button" class="stg-mj-notes__save">Add note here</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const hotzone = root.querySelector(".stg-mj-notes__hotzone");
+    const handle = root.querySelector(".stg-mj-notes__handle");
+    const panel = root.querySelector(".stg-mj-notes__panel");
+    const input = root.querySelector(".stg-mj-notes__input");
+    const saveBtn = root.querySelector(".stg-mj-notes__save");
+    const list = root.querySelector(".stg-mj-notes__list");
+
+    // Reveal on right-edge hover; keep open while the pointer is over the
+    // handle or panel; a grace timer bridges the gap between them.
+    hotzone.addEventListener("pointerenter", openMidjourneyNotesHover);
+    handle.addEventListener("pointerenter", openMidjourneyNotesHover);
+    panel.addEventListener("pointerenter", cancelMidjourneyNotesHoverClose);
+    for (const el of [hotzone, handle, panel]) {
+      el.addEventListener("pointerleave", scheduleMidjourneyNotesHoverClose);
+    }
+
+    // Click the handle to PIN the panel open (so you can add/manage notes
+    // without holding the hover); click again to unpin.
+    handle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      midjourneyNotesPinned = !midjourneyNotesPinned;
+      midjourneyNotesOpen = midjourneyNotesPinned || midjourneyNotesOpen;
+      applyMidjourneyNotesOpenState();
+      if (midjourneyNotesPinned) setTimeout(() => input?.focus(), 0);
+    }, true);
+
+    const commit = () => {
+      const value = input.value;
+      addMidjourneyNote(value);
+      input.value = "";
+      setTimeout(() => input?.focus(), 0);
+    };
+
+    saveBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      commit();
+    }, true);
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        commit();
+      } else if (event.key === "Escape") {
+        input.value = "";
+        input.blur();
+      }
+    });
+
+    list.addEventListener("click", (event) => {
+      const row = event.target.closest?.("[data-note-id]");
+      if (!row) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const id = row.dataset.noteId;
+      if (event.target.closest(".stg-mj-notes__delete")) {
+        removeMidjourneyNote(id);
+        return;
+      }
+      const note = midjourneyNotes.find((n) => n.id === id);
+      if (note) jumpToMidjourneyNote(note);
+    }, true);
+
+    bindExtensionUiEventShield(root);
+    return root;
+  }
+
+  function applyMidjourneyNotesOpenState() {
+    if (!midjourneyNotesPanel) return;
+    const handle = midjourneyNotesPanel.querySelector(".stg-mj-notes__handle");
+    const open = midjourneyNotesOpen || midjourneyNotesPinned;
+    if (handle) handle.setAttribute("aria-expanded", open ? "true" : "false");
+    midjourneyNotesPanel.classList.toggle("stg-mj-notes--open", open);
+    midjourneyNotesPanel.classList.toggle("stg-mj-notes--pinned", midjourneyNotesPinned);
+    // Hide the scroll-position markers while the panel is open (the list
+    // covers the same right edge).
+    if (midjourneyNotesLayer) {
+      midjourneyNotesLayer.classList.toggle("stg-mj-notes-layer--dimmed", open);
+    }
+  }
+
+  function ensureMidjourneyNotesUi() {
+    if (!midjourneyNotesLayer || !document.contains(midjourneyNotesLayer)) {
+      const layer = document.createElement("div");
+      layer.className = "stg-mj-notes-layer";
+      document.body.appendChild(layer);
+      midjourneyNotesLayer = layer;
+    }
+    if (!midjourneyNotesPanel || !document.contains(midjourneyNotesPanel)) {
+      midjourneyNotesPanel = buildMidjourneyNotesPanel();
+      document.body.appendChild(midjourneyNotesPanel);
+      applyMidjourneyNotesOpenState();
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderMidjourneyNotesList() {
+    if (!midjourneyNotesPanel) return;
+    for (const count of midjourneyNotesPanel.querySelectorAll(".stg-mj-notes__count")) {
+      count.textContent = String(midjourneyNotes.length);
+      count.classList.toggle("stg-mj-notes__count--empty", midjourneyNotes.length === 0);
+    }
+    const list = midjourneyNotesPanel.querySelector(".stg-mj-notes__list");
+    if (!list) return;
+
+    if (midjourneyNotes.length === 0) {
+      list.innerHTML = `<div class="stg-mj-notes__empty">No notes yet. Scroll to a spot and add one.</div>`;
+      return;
+    }
+
+    list.innerHTML = midjourneyNotes
+      .map(
+        (note) => `
+        <div class="stg-mj-notes__row" data-note-id="${escapeHtml(note.id)}" role="button" tabindex="0" title="Jump to this note">
+          <span class="stg-mj-notes__row-text">${escapeHtml(note.text)}</span>
+          <button type="button" class="stg-mj-notes__delete" aria-label="Delete note">×</button>
+        </div>
+      `,
+      )
+      .join("");
+  }
+
+  function renderMidjourneyNoteMarkers() {
+    if (!midjourneyNotesLayer) return;
+    midjourneyNotesLayer.innerHTML = midjourneyNotes
+      .map(
+        (note) => `
+        <button type="button" class="stg-mj-note-marker" data-note-id="${escapeHtml(note.id)}" title="${escapeHtml(note.text)}">
+          <span class="stg-mj-note-marker__dot"></span>
+          <span class="stg-mj-note-marker__text">${escapeHtml(note.text)}</span>
+        </button>
+      `,
+      )
+      .join("");
+
+    for (const marker of midjourneyNotesLayer.querySelectorAll(".stg-mj-note-marker")) {
+      marker.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const note = midjourneyNotes.find((n) => n.id === marker.dataset.noteId);
+        if (note) jumpToMidjourneyNote(note);
+      }, true);
+      bindExtensionUiEventShield(marker);
+    }
+
+    positionMidjourneyNoteMarkers();
+  }
+
+  function positionMidjourneyNoteMarkers() {
+    if (!midjourneyNotesLayer) return;
+    const container = getMidjourneyScrollContainer();
+    const metrics = getMidjourneyScrollMetrics(container);
+    const topBound = metrics.top + 8;
+    const bottomBound = metrics.bottom - 8;
+
+    for (const marker of midjourneyNotesLayer.querySelectorAll(".stg-mj-note-marker")) {
+      const note = midjourneyNotes.find((n) => n.id === marker.dataset.noteId);
+      if (!note) {
+        marker.style.display = "none";
+        continue;
+      }
+      const offset = resolveMidjourneyNoteOffset(note, metrics);
+      const y = metrics.top + (offset - metrics.scrollTop);
+      if (y < topBound || y > bottomBound) {
+        marker.style.display = "none";
+        continue;
+      }
+      marker.style.display = "flex";
+      marker.style.top = `${Math.round(y)}px`;
+    }
+  }
+
+  function scheduleMidjourneyNoteMarkerReposition() {
+    if (midjourneyNotesRafPending) return;
+    midjourneyNotesRafPending = true;
+    requestAnimationFrame(() => {
+      midjourneyNotesRafPending = false;
+      if (midjourneyNotesLayer) positionMidjourneyNoteMarkers();
+    });
+  }
+
+  function bindMidjourneyNotesScrollListeners() {
+    if (midjourneyNotesScrollBound) return;
+    midjourneyNotesScrollBound = true;
+    // Capture=true catches scroll from any inner container, not just window.
+    window.addEventListener("scroll", scheduleMidjourneyNoteMarkerReposition, true);
+    window.addEventListener("resize", scheduleMidjourneyNoteMarkerReposition, { passive: true });
+  }
+
+  function updateMidjourneyNotes() {
+    if (!isMidjourneyNotesEligiblePage() || !extensionEnabled) {
+      clearMidjourneyNotesUi();
+      return;
+    }
+    if (!midjourneyNotesLoaded) {
+      loadMidjourneyNotes();
+      return;
+    }
+    ensureMidjourneyNotesUi();
+    bindMidjourneyNotesScrollListeners();
+    renderMidjourneyNotesList();
+    renderMidjourneyNoteMarkers();
+  }
+
+  function clearMidjourneyNotes() {
+    clearMidjourneyNotesUi();
+  }
+
   function prepareMidjourneyWidgetHost(host) {
     if (!host || host.nodeType !== Node.ELEMENT_NODE) return;
     if (host.dataset.stgMjHostPrepared === "1") return;
@@ -2015,9 +2725,10 @@
 
     widget.style.display = "flex";
     const isCentered = isMidjourneyImaginePage();
-    // Hover-reveal keeps generation workspaces uncluttered — the widget only
-    // shows while its host media is hovered.
-    const hoverReveal = isCentered || isKreaPage();
+    // Hover-reveal keeps dense grids and workspaces uncluttered — the widget
+    // only shows while its host media is hovered.
+    const hoverReveal =
+      isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
@@ -2069,6 +2780,7 @@
       console.warn("[Save to Gallery] Midjourney media: failed to capture image bytes, falling back to URL");
     }
 
+    const styleTag = await readStyleTag();
     await submitImageSave({
       badge: button,
       imageUrl: saveContext.imageUrl,
@@ -2076,10 +2788,11 @@
       folderId: effectiveFolderIds[0] || undefined,
       folderIds: effectiveFolderIds,
       modelName: saveContext.modelName,
-      tagNames: saveContext.tagNames,
+      tagNames: withStyleTag(saveContext.tagNames, styleTag),
       fileData,
       imageWidth: saveContext.imageWidth,
       imageHeight: saveContext.imageHeight,
+      sourceUrl: saveContext.sourceUrl,
       topRight: true,
     });
   }
@@ -2173,6 +2886,16 @@
     row.setAttribute("hidden", "");
   }
 
+  function updateMidjourneyMenuStyleTag(menu, styleTag) {
+    const normalized = normalizeStyleTag(styleTag);
+    menu.dataset.styleTag = normalized;
+    for (const pill of menu.querySelectorAll(".stg-mj-menu__type")) {
+      const active = (pill.dataset.styleTag || "") === normalized;
+      pill.classList.toggle("stg-mj-menu__type--active", active);
+      pill.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
   function renderMidjourneyCollectionMenu(menu, folders, defaultFolderId) {
     const activeDefaultFolderId = folders.some((folder) => folder.id === defaultFolderId)
       ? defaultFolderId
@@ -2194,6 +2917,24 @@
     ];
 
     menu.innerHTML = "";
+
+    // Animation / live-action pills — the choice persists and auto-applies
+    // to every save (quick save included) until changed.
+    const typeSection = document.createElement("div");
+    typeSection.className = "stg-mj-menu__types";
+    typeSection.setAttribute("role", "radiogroup");
+    typeSection.setAttribute("aria-label", "Animation or live action");
+    for (const option of STYLE_TAG_OPTIONS) {
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "stg-mj-menu__type";
+      pill.dataset.styleTag = option.value;
+      pill.setAttribute("aria-pressed", "false");
+      pill.textContent = option.label;
+      typeSection.appendChild(pill);
+    }
+    menu.appendChild(typeSection);
+
     for (const row of rows) {
       const item = document.createElement("button");
       item.className = "stg-mj-menu__item";
@@ -2268,17 +3009,22 @@
     if (menu.dataset.ready === "1") {
       menu.hidden = false;
       widget.classList.add("stg-mj-quick-save--menu-open");
+      // Re-sync the type pills — another widget or the popover may have
+      // changed the remembered tag since this menu was built.
+      void readStyleTag().then((tag) => updateMidjourneyMenuStyleTag(menu, tag));
       return;
     }
 
     menu.hidden = false;
     widget.classList.add("stg-mj-quick-save--menu-open");
     menu.innerHTML = `<div class="stg-mj-menu__loading">Loading collections…</div>`;
-    const [{ defaultFolderId }, folders] = await Promise.all([
+    const [{ defaultFolderId }, folders, styleTag] = await Promise.all([
       readSavedFolderIds(),
       loadFoldersCached(),
+      readStyleTag(),
     ]);
     renderMidjourneyCollectionMenu(menu, folders, defaultFolderId);
+    updateMidjourneyMenuStyleTag(menu, styleTag);
     menu.dataset.ready = "1";
   }
 
@@ -2343,14 +3089,22 @@
     menu.addEventListener("pointerenter", cancelClose);
     menu.addEventListener("pointerleave", scheduleClose);
     menu.addEventListener("click", (event) => {
+      const typePill = event.target?.closest?.(".stg-mj-menu__type");
       const item = event.target?.closest?.(".stg-mj-menu__item");
       const createItem = event.target?.closest?.(".stg-mj-menu__item--create");
       const createButton = event.target?.closest?.(".stg-mj-menu__new-create");
       const saveItem = event.target?.closest?.(".stg-mj-menu__save");
-      if (!item && !saveItem && !createButton) return;
+      if (!item && !saveItem && !createButton && !typePill) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+
+      if (typePill) {
+        const nextStyleTag = typePill.dataset.styleTag || "";
+        updateMidjourneyMenuStyleTag(menu, nextStyleTag);
+        rememberStyleTag(nextStyleTag);
+        return;
+      }
 
       if (createButton) {
         void createMidjourneyCollectionFromMenu(menu);
@@ -2426,6 +3180,7 @@
     }
     updateMidjourneyWidgetPositions();
     updateMidjourneyLikedNavigation();
+    updateMidjourneyNotes();
   }
 
   function scheduleMidjourneyMediaScan(delay = 80) {
