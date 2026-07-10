@@ -8,6 +8,12 @@ export type CollectionOption = {
   id: string;
   name: string;
   count?: number;
+  /**
+   * "collection" (default) rows honor the Move/Add toggle. "storybook" rows are
+   * always additive — a storybook is a narrative overlay, so moving an asset
+   * into one (dropping its collections) is never what's wanted.
+   */
+  kind?: "collection" | "storybook";
 };
 
 type CollectionMode = "move" | "copy";
@@ -52,7 +58,9 @@ export function CardCollectionButton({
     left: 0,
     top: 0,
   });
-  const [mode, setMode] = useState<CollectionMode>("move");
+  // Default to Add: an asset can live in many collections, so a plain click
+  // should ADD (keep existing memberships), not relocate. Move is opt-in.
+  const [mode, setMode] = useState<CollectionMode>("copy");
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -118,9 +126,9 @@ export function CardCollectionButton({
         ? Math.max(8, rect.top - 6 - MENU_MAX_HEIGHT)
         : below;
     setMenuPos({ left, top });
-    // Always reopen in Move mode — a sticky Copy mode from a previous open
-    // silently turns "move" clicks into copies.
-    setMode("move");
+    // Always reopen in Add mode (the multi-collection default) — a sticky Move
+    // mode from a previous open would silently relocate on the next click.
+    setMode("copy");
     setOpen(true);
   }, []);
 
@@ -150,21 +158,23 @@ export function CardCollectionButton({
 
   const currentSet = new Set(currentFolderIds);
 
-  // Member rows toggle OFF (remove); other rows apply the current mode. The
-  // menu stays open after add/remove so several collections can be managed in
-  // one visit — only a move closes it (the card may leave the current view).
+  // Member rows toggle OFF (remove); other rows apply the current mode, except
+  // storybook rows which always ADD (moving into a storybook would strip an
+  // asset's collections). The menu stays open after add/remove so several
+  // targets can be managed in one visit — only a move closes it (the card may
+  // leave the current view).
   const runAction = useCallback(
-    async (folderId: string, isMember: boolean) => {
+    async (option: CollectionOption, isMember: boolean) => {
       if (busy) return;
       setBusy(true);
       try {
         if (isMember && onRemove) {
-          await onRemove(imageId, folderId);
-        } else if (mode === "move") {
-          await onMove(imageId, folderId);
+          await onRemove(imageId, option.id);
+        } else if (mode === "move" && option.kind !== "storybook") {
+          await onMove(imageId, option.id);
           close();
         } else {
-          await onCopy(imageId, folderId);
+          await onCopy(imageId, option.id);
         }
       } finally {
         setBusy(false);
@@ -197,6 +207,68 @@ export function CardCollectionButton({
 
   const stop = (event: React.SyntheticEvent) => {
     event.stopPropagation();
+  };
+
+  const collectionRows = collections.filter((c) => c.kind !== "storybook");
+  const storybookRows = collections.filter((c) => c.kind === "storybook");
+
+  const renderRow = (collection: CollectionOption) => {
+    const isMember = currentSet.has(collection.id);
+    const removable = isMember && Boolean(onRemove);
+    const addLabel =
+      collection.kind === "storybook"
+        ? `Add to ${collection.name}`
+        : mode === "move"
+          ? `Move to ${collection.name}`
+          : `Add to ${collection.name}`;
+    return (
+      <button
+        key={collection.id}
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={(event) => {
+          stop(event);
+          void runAction(collection, removable);
+        }}
+        className="group/row flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
+        style={{
+          fontSize: "12px",
+          fontWeight: 600,
+          color: "var(--lm-text-primary)",
+          backgroundColor: "transparent",
+        }}
+        title={removable ? `Remove from ${collection.name}` : addLabel}
+      >
+        <span className="truncate">{collection.name}</span>
+        {isMember ? (
+          removable ? (
+            <span className="relative h-3.5 w-3.5 shrink-0">
+              <Check
+                className="absolute inset-0 h-3.5 w-3.5 transition-opacity group-hover/row:opacity-0"
+                style={{ color: "var(--lm-coral)" }}
+              />
+              <X
+                className="absolute inset-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover/row:opacity-100"
+                style={{ color: "var(--lm-text-primary)" }}
+              />
+            </span>
+          ) : (
+            <Check
+              className="h-3.5 w-3.5 shrink-0"
+              style={{ color: "var(--lm-coral)" }}
+            />
+          )
+        ) : (
+          <span
+            className="shrink-0 text-[10px]"
+            style={{ color: "var(--lm-text-tertiary)" }}
+          >
+            {collection.count ?? ""}
+          </span>
+        )}
+      </button>
+    );
   };
 
   const modePill = (value: CollectionMode, label: string) => (
@@ -311,64 +383,22 @@ export function CardCollectionButton({
                   No collections yet.
                 </p>
               )}
-              {collections.map((collection) => {
-                const isMember = currentSet.has(collection.id);
-                const removable = isMember && Boolean(onRemove);
-                return (
-                  <button
-                    key={collection.id}
-                    type="button"
-                    role="menuitem"
-                    disabled={busy}
-                    onClick={(event) => {
-                      stop(event);
-                      void runAction(collection.id, removable);
-                    }}
-                    className="group/row flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
+              {collectionRows.map(renderRow)}
+
+              {storybookRows.length > 0 && (
+                <>
+                  <div
+                    className="mt-1 px-3 pb-1 pt-2 text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
                     style={{
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: "var(--lm-text-primary)",
-                      backgroundColor: "transparent",
+                      color: "var(--lm-text-tertiary)",
+                      borderTop: "1px solid var(--lm-border-strong)",
                     }}
-                    title={
-                      removable
-                        ? `Remove from ${collection.name}`
-                        : mode === "move"
-                          ? `Move to ${collection.name}`
-                          : `Add to ${collection.name}`
-                    }
                   >
-                    <span className="truncate">{collection.name}</span>
-                    {isMember ? (
-                      removable ? (
-                        <span className="relative h-3.5 w-3.5 shrink-0">
-                          <Check
-                            className="absolute inset-0 h-3.5 w-3.5 transition-opacity group-hover/row:opacity-0"
-                            style={{ color: "var(--lm-coral)" }}
-                          />
-                          <X
-                            className="absolute inset-0 h-3.5 w-3.5 opacity-0 transition-opacity group-hover/row:opacity-100"
-                            style={{ color: "var(--lm-text-primary)" }}
-                          />
-                        </span>
-                      ) : (
-                        <Check
-                          className="h-3.5 w-3.5 shrink-0"
-                          style={{ color: "var(--lm-coral)" }}
-                        />
-                      )
-                    ) : (
-                      <span
-                        className="shrink-0 text-[10px]"
-                        style={{ color: "var(--lm-text-tertiary)" }}
-                      >
-                        {collection.count ?? ""}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                    Storybooks
+                  </div>
+                  {storybookRows.map(renderRow)}
+                </>
+              )}
             </div>
 
             {onCreate && (

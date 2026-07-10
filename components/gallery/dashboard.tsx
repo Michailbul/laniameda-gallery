@@ -202,6 +202,9 @@ export function GalleryDashboard({
   );
   const [openStorybookId, setOpenStorybookId] = useState<string | null>(null);
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  // Top-level "Storybooks" tab: shows every storybook as a masonry of stack
+  // cards, separate from the asset grid.
+  const [storybooksView, setStorybooksView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -1855,14 +1858,25 @@ export function GalleryDashboard({
     [folderNameById, images, ownerUserId, setAssetFoldersMutation],
   );
 
+  // Per-card menu targets: plain collections (Move/Add) plus storybooks
+  // (always additive). Projects group collections, not assets, so they are
+  // never asset-membership targets and are excluded.
   const cardCollections = useMemo(
-    () =>
-      foldersWithCounts.map((folder) => ({
+    () => [
+      ...collectionFoldersWithCounts.map((folder) => ({
         id: folder._id as string,
         name: folder.name,
         count: folder.count,
+        kind: "collection" as const,
       })),
-    [foldersWithCounts],
+      ...(storybooks ?? []).map((storybook) => ({
+        id: storybook._id as string,
+        name: storybook.name,
+        count: storybook.count,
+        kind: "storybook" as const,
+      })),
+    ],
+    [collectionFoldersWithCounts, storybooks],
   );
 
   // Plain collections only (no storybooks/projects) — offered as members a
@@ -2613,6 +2627,13 @@ export function GalleryDashboard({
           onCollapsedChange={setSidebarCollapsed}
           onUploadClick={openAddModal}
           onSeedanceClick={() => setSeedanceOpen(true)}
+          onStorybooksTab={
+            canManageFoldersInCurrentView
+              ? () => setStorybooksView(true)
+              : undefined
+          }
+          storybooksTabActive={storybooksView}
+          onGalleryHome={() => setStorybooksView(false)}
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
@@ -2674,31 +2695,62 @@ export function GalleryDashboard({
 
             style={{}}
           >
-            {/* Filter Bar */}
-            <GalleryFilterBar
-              galleryScope={galleryScope}
-              canAccessMyGallery={canAccessMyGallery}
-              onGalleryScopeChange={setGalleryScope}
-              tags={allTags}
-              selectedTags={selectedTags}
-              onTagToggle={handleTagToggle}
-              onClearAllTags={handleClearAll}
-              workflowsOnly={workflowsOnly}
-              onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
-              likedOnly={likedOnly}
-              onLikedOnlyChange={handleLikedOnlyChange}
-              showLiked={canManageFoldersInCurrentView}
-              mediaKind={mediaKind}
-              onMediaKindChange={handleMediaKindChange}
-              sortOrder={sortOrder}
-              onSortOrderChange={setSortOrder}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
-            />
+            {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
+                apply to a storybook masonry). */}
+            {!storybooksView && (
+              <GalleryFilterBar
+                galleryScope={galleryScope}
+                canAccessMyGallery={canAccessMyGallery}
+                onGalleryScopeChange={setGalleryScope}
+                tags={allTags}
+                selectedTags={selectedTags}
+                onTagToggle={handleTagToggle}
+                onClearAllTags={handleClearAll}
+                workflowsOnly={workflowsOnly}
+                onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
+                likedOnly={likedOnly}
+                onLikedOnlyChange={handleLikedOnlyChange}
+                showLiked={canManageFoldersInCurrentView}
+                mediaKind={mediaKind}
+                onMediaKindChange={handleMediaKindChange}
+                sortOrder={sortOrder}
+                onSortOrderChange={setSortOrder}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+              />
+            )}
+
+            {/* Storybooks tab header */}
+            {storybooksView && (
+              <div className="flex items-center justify-between px-4 pb-2 pt-4">
+                <h2
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    color: "var(--lm-text-primary)",
+                  }}
+                >
+                  Storybooks
+                  <span
+                    style={{
+                      marginLeft: "8px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: "var(--lm-text-tertiary)",
+                    }}
+                  >
+                    {storybookEntries.length}
+                  </span>
+                </h2>
+              </div>
+            )}
 
             {/* Search Vault is now in the bottom dock */}
 
-            {canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -2744,7 +2796,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {(semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -2801,7 +2853,31 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
-              {viewMode === "packs" ? (
+              {storybooksView ? (
+                storybookEntries.length > 0 ? (
+                  <MasonryGrid
+                    images={storybookEntries}
+                    compactColumns={false}
+                    onStorybookOpen={setOpenStorybookId}
+                    onImageLoad={markImageLoaded}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
+                    <p
+                      style={{
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.12em",
+                        color: "var(--lm-text-tertiary)",
+                      }}
+                    >
+                      No storybooks yet. Create one from the sidebar.
+                    </p>
+                  </div>
+                )
+              ) : viewMode === "packs" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
                   selectedPackId ? (
                     <PackDetailView

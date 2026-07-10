@@ -51,6 +51,11 @@ interface GallerySidebarProps {
   onCollapsedChange: (collapsed: boolean) => void;
   onUploadClick: () => void;
   onSeedanceClick?: () => void;
+  /** Opens the dedicated Storybooks masonry tab. */
+  onStorybooksTab?: () => void;
+  storybooksTabActive?: boolean;
+  /** Clears any tab overlay and returns to the asset gallery. */
+  onGalleryHome?: () => void;
   user?: User | null;
   onSignOut?: () => void;
   imageCount?: number;
@@ -80,6 +85,9 @@ export function GallerySidebar({
   onCollapsedChange,
   onUploadClick,
   onSeedanceClick,
+  onStorybooksTab,
+  storybooksTabActive = false,
+  onGalleryHome,
   user,
   onSignOut,
   imageCount,
@@ -264,8 +272,9 @@ export function GallerySidebar({
           icon={Home}
           label="Gallery"
           href="/"
-          active={isGalleryActive}
+          active={isGalleryActive && !storybooksTabActive}
           collapsed={collapsed}
+          onClick={onGalleryHome}
         />
         <NavItem
           icon={Search}
@@ -283,6 +292,16 @@ export function GallerySidebar({
           collapsed={collapsed}
           onClick={onUploadClick}
         />
+        {onStorybooksTab && (
+          <NavItem
+            icon={BookOpen}
+            label="Storybooks"
+            href="#"
+            active={storybooksTabActive}
+            collapsed={collapsed}
+            onClick={onStorybooksTab}
+          />
+        )}
         {onSeedanceClick && (
           <NavItem
             icon={Film}
@@ -847,29 +866,33 @@ function NavItem({
 
   const sharedClass = "lm-glass-nav-item cursor-pointer";
 
-  if (onClick) {
+  // A real route ("/") renders a Link so navigation still works; an onClick, if
+  // present, also fires (e.g. Gallery resets any active tab overlay). The "#"
+  // sentinel means "no route" — render a plain button.
+  if (href && href !== "#") {
     return (
-      <button
-        type="button"
-        className={sharedClass}
+      <Link
+        href={href}
+        className={`${sharedClass} block`}
         data-active={active ? "true" : "false"}
-        onClick={onClick}
         title={collapsed ? label : undefined}
+        onClick={onClick}
       >
         {inner}
-      </button>
+      </Link>
     );
   }
 
   return (
-    <Link
-      href={href}
-      className={`${sharedClass} block`}
+    <button
+      type="button"
+      className={sharedClass}
       data-active={active ? "true" : "false"}
+      onClick={onClick}
       title={collapsed ? label : undefined}
     >
       {inner}
-    </Link>
+    </button>
   );
 }
 
