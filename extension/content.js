@@ -2668,6 +2668,8 @@
     window.addEventListener("resize", scheduleMidjourneyNoteMarkerReposition, { passive: true });
   }
 
+  // Full render — rebuilds the notes list + marker DOM. Only call on an actual
+  // notes DATA change (add / remove / initial load), never from the media scan.
   function updateMidjourneyNotes() {
     if (!isMidjourneyNotesEligiblePage() || !extensionEnabled) {
       clearMidjourneyNotesUi();
@@ -2681,6 +2683,35 @@
     bindMidjourneyNotesScrollListeners();
     renderMidjourneyNotesList();
     renderMidjourneyNoteMarkers();
+  }
+
+  // Cheap, idempotent path for the high-frequency media scan. The scan fires on
+  // every MJ feed mutation (~12x/s), so it must NOT rebuild the notes DOM —
+  // doing so recreated the markers and list on every tick and made them
+  // flicker. Instead: make sure the UI is mounted, and only (re)render note DOM
+  // when it was actually just (re)created; otherwise just reposition the markers
+  // (style-only, no DOM churn).
+  function syncMidjourneyNotesPresence() {
+    if (!isMidjourneyNotesEligiblePage() || !extensionEnabled) {
+      clearMidjourneyNotesUi();
+      return;
+    }
+    if (!midjourneyNotesLoaded) {
+      loadMidjourneyNotes();
+      return;
+    }
+    const panelExisted =
+      Boolean(midjourneyNotesPanel) && document.contains(midjourneyNotesPanel);
+    const layerExisted =
+      Boolean(midjourneyNotesLayer) && document.contains(midjourneyNotesLayer);
+    ensureMidjourneyNotesUi();
+    bindMidjourneyNotesScrollListeners();
+    if (!panelExisted) renderMidjourneyNotesList();
+    if (!layerExisted) {
+      renderMidjourneyNoteMarkers();
+    } else {
+      scheduleMidjourneyNoteMarkerReposition();
+    }
   }
 
   function clearMidjourneyNotes() {
@@ -3180,7 +3211,7 @@
     }
     updateMidjourneyWidgetPositions();
     updateMidjourneyLikedNavigation();
-    updateMidjourneyNotes();
+    syncMidjourneyNotesPresence();
   }
 
   function scheduleMidjourneyMediaScan(delay = 80) {
