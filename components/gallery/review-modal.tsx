@@ -10,8 +10,11 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  ExternalLink,
   FolderPlus,
   LayoutGrid,
+  Link2,
   Play,
   Plus,
   X,
@@ -71,11 +74,20 @@ export function ReviewModal({
   const setApproved = useMutation(api.assets.setAssetApproved);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
+  const enableShare = useMutation(api.directionBoard.enableShare);
+  const disableShare = useMutation(api.directionBoard.disableShare);
+  const shareState = useQuery(
+    api.directionBoard.getShareState,
+    projectId
+      ? { ownerUserId, projectId: projectId as Id<"folders"> }
+      : "skip",
+  );
 
   const [activeCollection, setActiveCollection] = useState<string>(ALL_COLLECTIONS);
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   // Optimistic approve overrides so toggling feels instant before the query
   // re-emits with updated tagNames.
   const [approveOverride, setApproveOverride] = useState<Record<string, boolean>>(
@@ -189,7 +201,8 @@ export function ReviewModal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (pickerOpen) setPickerOpen(false);
+        if (shareOpen) setShareOpen(false);
+        else if (pickerOpen) setPickerOpen(false);
         else if (focusId) setFocusId(null);
         else onClose();
       } else if (focusId && e.key === "ArrowLeft") {
@@ -205,7 +218,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, focusId, focusAsset, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, focusId, focusAsset, goFocus, toggleApprove, onClose]);
 
   // Keep the active filmstrip thumb centered as focus moves.
   useEffect(() => {
@@ -319,6 +332,23 @@ export function ReviewModal({
           </button>
           <button
             type="button"
+            onClick={() => setShareOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: shareState?.enabled
+                ? "var(--lm-coral)"
+                : "var(--lm-border-strong)",
+              color: shareState?.enabled
+                ? "var(--lm-coral)"
+                : "var(--lm-text-secondary)",
+            }}
+            title="Share a read-only direction board link"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            Share
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-lg border transition-opacity hover:opacity-80"
             style={{
@@ -425,6 +455,29 @@ export function ReviewModal({
           </div>
         )}
       </div>
+
+      {/* ── Share panel ── */}
+      {shareOpen && (
+        <SharePanel
+          token={shareState?.token}
+          onEnable={async () => {
+            if (!projectId) return "";
+            const { token } = await enableShare({
+              ownerUserId,
+              projectId: projectId as Id<"folders">,
+            });
+            return token;
+          }}
+          onDisable={async () => {
+            if (!projectId) return;
+            await disableShare({
+              ownerUserId,
+              projectId: projectId as Id<"folders">,
+            });
+          }}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
 
       {/* ── Add-collections picker ── */}
       {pickerOpen && (
@@ -779,6 +832,171 @@ function Media({
           : ""
       }`}
     />
+  );
+}
+
+/* ── Share direction board panel ── */
+function SharePanel({
+  token,
+  onEnable,
+  onDisable,
+  onClose,
+}: {
+  token: string | undefined;
+  onEnable: () => Promise<string>;
+  onDisable: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const boardUrl = token ? `${window.location.origin}/b/${token}` : null;
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard unavailable — the URL stays visible for manual copy.
+    }
+  };
+
+  const handleEnable = async () => {
+    setBusy(true);
+    try {
+      const newToken = await onEnable();
+      if (newToken) {
+        await copyLink(`${window.location.origin}/b/${newToken}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    setBusy(true);
+    try {
+      await onDisable();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-start justify-end p-4 md:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="mt-14 w-[340px] overflow-hidden rounded-xl"
+        style={{
+          backgroundColor: "var(--lm-surface-1)",
+          border: "2px solid var(--lm-ink)",
+          boxShadow: "var(--shadow-lg)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-3.5 py-2.5"
+          style={{ borderBottom: "1px solid var(--lm-border-strong)" }}
+        >
+          <span
+            className="text-[10px] font-mono font-bold uppercase tracking-[0.14em]"
+            style={{ color: "var(--lm-text-tertiary)" }}
+          >
+            Direction board link
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+            style={{ color: "var(--lm-text-secondary)" }}
+            aria-label="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="px-3.5 py-3">
+          <p
+            className="text-[12px] leading-snug"
+            style={{ color: "var(--lm-text-secondary)" }}
+          >
+            Anyone with the link can view and download this project’s assets —
+            no account needed.
+          </p>
+
+          {boardUrl ? (
+            <>
+              <div
+                className="mt-3 truncate rounded-lg px-2.5 py-2 text-[11px] font-mono"
+                style={{
+                  backgroundColor: "var(--lm-surface-2)",
+                  color: "var(--lm-text-secondary)",
+                  border: "1px solid var(--lm-border)",
+                }}
+                title={boardUrl}
+              >
+                {boardUrl}
+              </div>
+              <div className="mt-2.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyLink(boardUrl)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copied ? "Copied" : "Copy link"}
+                </button>
+                <a
+                  href={boardUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                  style={{
+                    borderColor: "var(--lm-border-strong)",
+                    color: "var(--lm-text-secondary)",
+                  }}
+                  title="Open board"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open
+                </a>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDisable()}
+                disabled={busy}
+                className="mt-2.5 w-full rounded-lg border px-3 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{
+                  borderColor: "var(--lm-border-strong)",
+                  color: "var(--lm-text-tertiary)",
+                }}
+              >
+                Disable link
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleEnable()}
+              disabled={busy}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              {busy ? "Creating…" : "Create share link"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

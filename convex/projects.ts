@@ -44,7 +44,7 @@ const projectSummaryValidator = v.object({
 // Collect the folderIds that belong to a project, via the projectCollections
 // join, across the owner's id candidates. Deduped, order preserved by insert
 // time (createdAt asc) so the review view has a stable collection order.
-const collectProjectCollectionIds = async (
+export const collectProjectCollectionIds = async (
   ctx: QueryCtx | MutationCtx,
   ownerUserIds: string[],
   projectId: Id<"folders">,

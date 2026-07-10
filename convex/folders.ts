@@ -21,6 +21,7 @@ const folderReturnValidator = v.object({
   normalizedName: v.optional(v.string()),
   description: v.optional(v.string()),
   kind: folderKindValidator,
+  shareToken: v.optional(v.string()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });

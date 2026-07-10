@@ -99,12 +99,16 @@ export default defineSchema({
     // collections live in the projectCollections join table); its brief lives
     // in `description`.
     kind: v.optional(v.union(v.literal("storybook"), v.literal("project"))),
+    // Unguessable token that makes a project's direction board publicly
+    // viewable at /b/<token>. Unset = sharing off.
+    shareToken: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
     .index("by_name", ["name"])
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
-    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_shareToken", ["shareToken"]),
 
   // Which collections belong to a project (folder kind:"project"). A project
   // aggregates the assets of all its member collections for review. Many-to-
