@@ -7,10 +7,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  ArrowLeft,
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
+  Crown,
   ExternalLink,
   FolderPlus,
   LayoutGrid,
@@ -23,9 +25,27 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 const APPROVED_TAG = "approved";
-const ALL_COLLECTIONS = "__all__";
 
 type CollectionOption = { id: string; name: string; count?: number };
+
+/** The project's layers. Each layer holds "directions" — collections of
+ * similar options with a master (cover) thumbnail. */
+type ProjectSection = "characters" | "locations" | "beats";
+type ReviewTab = "all" | ProjectSection | "unsorted";
+
+const SECTION_TABS: { key: ProjectSection; label: string }[] = [
+  { key: "characters", label: "Characters" },
+  { key: "locations", label: "Locations" },
+  { key: "beats", label: "Beats" },
+];
+
+const TAB_LABELS: Record<ReviewTab, string> = {
+  all: "All",
+  characters: "Characters",
+  locations: "Locations",
+  beats: "Beats",
+  unsorted: "Unsorted",
+};
 
 type ReviewModalProps = {
   ownerUserId: string;
@@ -51,6 +71,14 @@ type ReviewAsset = {
   collectionName: string;
 };
 
+type DirectionCardData = {
+  id: string;
+  name: string;
+  count: number;
+  section?: ProjectSection;
+  cover: ReviewAsset | null;
+};
+
 /**
  * Fullscreen project review workspace. Walks every asset across a project's
  * member collections at large size. Two modes: a big-tile masonry (default)
@@ -74,6 +102,9 @@ export function ReviewModal({
   const setApproved = useMutation(api.assets.setAssetApproved);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
+  const setCollectionSection = useMutation(api.projects.setProjectCollectionSection);
+  const setFolderCover = useMutation(api.folders.setFolderCover);
+  const createFolder = useMutation(api.folders.createFolder);
   const enableShare = useMutation(api.directionBoard.enableShare);
   const disableShare = useMutation(api.directionBoard.disableShare);
   const shareState = useQuery(
@@ -83,7 +114,10 @@ export function ReviewModal({
       : "skip",
   );
 
-  const [activeCollection, setActiveCollection] = useState<string>(ALL_COLLECTIONS);
+  const [activeTab, setActiveTab] = useState<ReviewTab>("all");
+  // Direction currently drilled into (a member collection id), or null when
+  // browsing a layer's direction cards / the flat All view.
+  const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -93,6 +127,10 @@ export function ReviewModal({
   const [approveOverride, setApproveOverride] = useState<Record<string, boolean>>(
     {},
   );
+  // Optimistic master (cover) override per collection id; null = cleared.
+  const [coverOverride, setCoverOverride] = useState<
+    Record<string, string | null>
+  >({});
 
   const filmstripRef = useRef<HTMLDivElement | null>(null);
   const activeThumbRef = useRef<HTMLButtonElement | null>(null);
@@ -105,39 +143,98 @@ export function ReviewModal({
     [project],
   );
 
-  // Flatten collections → assets. "All" dedupes by asset id (first collection
-  // wins the label); a specific collection keeps only its own.
+  type ProjectCollection = NonNullable<typeof project>["collections"][number];
+
+  const toReviewAsset = useCallback(
+    (
+      asset: ProjectCollection["assets"][number],
+      collection: ProjectCollection,
+    ): ReviewAsset => ({
+      id: asset._id as string,
+      url: asset.url ?? asset.thumbUrl,
+      thumbUrl: asset.thumbUrl ?? asset.url,
+      kind: asset.kind,
+      contentType: asset.contentType,
+      width: asset.width,
+      height: asset.height,
+      promptText: asset.promptText,
+      modelName: asset.modelName,
+      approvedByTag: (asset.tagNames ?? []).includes(APPROVED_TAG),
+      collectionId: collection.folderId as string,
+      collectionName: collection.name,
+    }),
+    [],
+  );
+
+  // Which tab a collection files under; no section = "unsorted".
+  const tabOf = (section: string | undefined): ReviewTab =>
+    (section as ProjectSection | undefined) ?? "unsorted";
+
+  // Collections visible in the active tab.
+  const tabCollections = useMemo<ProjectCollection[]>(() => {
+    const collections = project?.collections ?? [];
+    if (activeTab === "all") return collections;
+    return collections.filter((c) => tabOf(c.section) === activeTab);
+  }, [project, activeTab]);
+
+  // The drilled-into direction, if it still exists in the project.
+  const openDirection = useMemo<ProjectCollection | null>(
+    () =>
+      (openDirectionId &&
+        (project?.collections ?? []).find(
+          (c) => (c.folderId as string) === openDirectionId,
+        )) ||
+      null,
+    [project, openDirectionId],
+  );
+
+  const resolveCoverId = useCallback(
+    (collection: ProjectCollection): string | null => {
+      const collectionId = collection.folderId as string;
+      if (collectionId in coverOverride) return coverOverride[collectionId]!;
+      return (collection.coverAssetId as string | undefined) ?? null;
+    },
+    [coverOverride],
+  );
+
+  // Direction cards for a layer tab: one card per collection, thumbed by its
+  // MASTER option (cover asset) with first-asset fallback.
+  const directions = useMemo<DirectionCardData[]>(
+    () =>
+      tabCollections.map((collection) => {
+        const coverId = resolveCoverId(collection);
+        const coverAsset =
+          (coverId &&
+            collection.assets.find((a) => (a._id as string) === coverId)) ||
+          collection.assets[0] ||
+          null;
+        return {
+          id: collection.folderId as string,
+          name: collection.name,
+          count: collection.count,
+          section: collection.section as ProjectSection | undefined,
+          cover: coverAsset ? toReviewAsset(coverAsset, collection) : null,
+        };
+      }),
+    [tabCollections, resolveCoverId, toReviewAsset],
+  );
+
+  // Flatten the current scope → assets. Drilled direction wins; otherwise the
+  // active tab's collections, deduped by asset id (first collection wins).
   const assets = useMemo<ReviewAsset[]>(() => {
-    if (!project) return [];
+    const source = openDirection ? [openDirection] : tabCollections;
     const out: ReviewAsset[] = [];
     const seen = new Set<string>();
-    for (const collection of project.collections) {
+    for (const collection of source) {
       for (const asset of collection.assets) {
         const id = asset._id as string;
-        if (activeCollection === ALL_COLLECTIONS) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-        } else if ((collection.folderId as string) !== activeCollection) {
-          continue;
-        }
-        out.push({
-          id,
-          url: asset.url ?? asset.thumbUrl,
-          thumbUrl: asset.thumbUrl ?? asset.url,
-          kind: asset.kind,
-          contentType: asset.contentType,
-          width: asset.width,
-          height: asset.height,
-          promptText: asset.promptText,
-          modelName: asset.modelName,
-          approvedByTag: (asset.tagNames ?? []).includes(APPROVED_TAG),
-          collectionId: collection.folderId as string,
-          collectionName: collection.name,
-        });
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push(toReviewAsset(asset, collection));
       }
     }
     return out;
-  }, [project, activeCollection]);
+  }, [openDirection, tabCollections, toReviewAsset]);
 
   const isApproved = useCallback(
     (asset: ReviewAsset) =>
@@ -182,6 +279,40 @@ export function ReviewModal({
     [isApproved, ownerUserId, setApproved],
   );
 
+  // Set (or clear, when assetId is null) a direction's MASTER option.
+  const setMaster = useCallback(
+    (collectionId: string, assetId: string | null) => {
+      setCoverOverride((prev) => ({ ...prev, [collectionId]: assetId }));
+      void setFolderCover({
+        ownerUserId,
+        folderId: collectionId as Id<"folders">,
+        assetId: assetId as Id<"assets"> | null,
+      }).catch(() => {
+        // Roll back to server truth on failure.
+        setCoverOverride((prev) => {
+          const next = { ...prev };
+          delete next[collectionId];
+          return next;
+        });
+      });
+    },
+    [ownerUserId, setFolderCover],
+  );
+
+  // Refile a direction under another layer (null = unsorted).
+  const refileDirection = useCallback(
+    (collectionId: string, section: ProjectSection | null) => {
+      if (!projectId) return;
+      void setCollectionSection({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: collectionId as Id<"folders">,
+        section,
+      });
+    },
+    [ownerUserId, projectId, setCollectionSection],
+  );
+
   const goFocus = useCallback((delta: number) => {
     setFocusId((current) => {
       if (!current) return current;
@@ -204,6 +335,7 @@ export function ReviewModal({
         if (shareOpen) setShareOpen(false);
         else if (pickerOpen) setPickerOpen(false);
         else if (focusId) setFocusId(null);
+        else if (openDirectionId) setOpenDirectionId(null);
         else onClose();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
@@ -218,7 +350,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, focusId, focusAsset, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
 
   // Keep the active filmstrip thumb centered as focus moves.
   useEffect(() => {
@@ -232,18 +364,32 @@ export function ReviewModal({
 
   if (!projectId) return null;
 
-  const chips: CollectionOption[] = [
-    { id: ALL_COLLECTIONS, name: "All", count: undefined },
-    ...(project?.collections ?? []).map((c) => ({
-      id: c.folderId as string,
-      name: c.name,
-      count: c.count,
-    })),
-  ];
-
   const isLoading = project === undefined;
   const projectName = project?.project.name ?? "Project";
   const hasCollections = (project?.collections.length ?? 0) > 0;
+
+  // Layer tabs: All + the three layers (+ Unsorted only when needed).
+  const allCollections2 = project?.collections ?? [];
+  const directionCountBy = (tab: ReviewTab) =>
+    allCollections2.filter((c) => tabOf(c.section) === tab).length;
+  const unsortedCount = directionCountBy("unsorted");
+  const tabs: { key: ReviewTab; label: string; count?: number }[] = [
+    { key: "all", label: "All" },
+    ...SECTION_TABS.map(({ key, label }) => ({
+      key: key as ReviewTab,
+      label,
+      count: directionCountBy(key),
+    })),
+    ...(unsortedCount > 0
+      ? [{ key: "unsorted" as ReviewTab, label: "Unsorted", count: unsortedCount }]
+      : []),
+  ];
+
+  // Direction-cards browsing mode: a layer tab with nothing drilled into.
+  const showDirectionCards = activeTab !== "all" && !openDirection;
+  const openDirectionMasterId = openDirection
+    ? resolveCoverId(openDirection)
+    : null;
 
   return (
     <div
@@ -280,7 +426,11 @@ export function ReviewModal({
             className="shrink-0 text-[11px]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            {visibleAssets.length} shown · {approvedCount} approved
+            {showDirectionCards
+              ? `${directions.length} ${
+                  directions.length === 1 ? "direction" : "directions"
+                }`
+              : `${visibleAssets.length} shown · ${approvedCount} approved`}
           </span>
         </div>
 
@@ -362,16 +512,19 @@ export function ReviewModal({
         </div>
       </header>
 
-      {/* ── Collection filter chips ── */}
+      {/* ── Layer tabs ── */}
       {hasCollections && !inFocus && (
         <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
-          {chips.map((chip) => {
-            const active = activeCollection === chip.id;
+          {tabs.map((tab) => {
+            const active = activeTab === tab.key;
             return (
               <button
-                key={chip.id}
+                key={tab.key}
                 type="button"
-                onClick={() => setActiveCollection(chip.id)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setOpenDirectionId(null);
+                }}
                 className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
                 style={{
                   borderColor: active
@@ -385,13 +538,87 @@ export function ReviewModal({
                     : "var(--lm-text-secondary)",
                 }}
               >
-                {chip.name}
-                {chip.count !== undefined && (
-                  <span style={{ opacity: 0.6 }}> {chip.count}</span>
+                {tab.label}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span style={{ opacity: 0.6 }}> {tab.count}</span>
                 )}
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Drilled direction breadcrumb ── */}
+      {openDirection && !inFocus && (
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-2.5 md:px-6">
+          <button
+            type="button"
+            onClick={() => setOpenDirectionId(null)}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-secondary)",
+            }}
+            title="Back to directions (Esc)"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {TAB_LABELS[activeTab]}
+          </button>
+          <span
+            className="truncate text-[14px] font-semibold"
+            style={{ color: "var(--lm-text-primary)" }}
+          >
+            {openDirection.name}
+          </span>
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--lm-text-tertiary)" }}
+          >
+            {openDirection.count}{" "}
+            {openDirection.count === 1 ? "option" : "options"}
+          </span>
+
+          {/* Refile this direction under another layer */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span
+              className="text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
+              style={{ color: "var(--lm-text-ghost)" }}
+            >
+              Layer
+            </span>
+            {SECTION_TABS.map(({ key, label }) => {
+              const current = tabOf(openDirection.section) === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() =>
+                    refileDirection(
+                      openDirection.folderId as string,
+                      current ? null : key,
+                    )
+                  }
+                  className="rounded-full border px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
+                  style={{
+                    borderColor: current
+                      ? "var(--lm-coral)"
+                      : "var(--lm-border-strong)",
+                    color: current
+                      ? "var(--lm-coral)"
+                      : "var(--lm-text-tertiary)",
+                  }}
+                  aria-pressed={current}
+                  title={
+                    current
+                      ? `Filed under ${label} — click to unfile`
+                      : `File under ${label}`
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -411,6 +638,30 @@ export function ReviewModal({
             actionLabel="Add collections"
             onAction={() => setPickerOpen(true)}
           />
+        ) : showDirectionCards ? (
+          directions.length === 0 ? (
+            <EmptyState
+              title={`No directions in ${TAB_LABELS[activeTab]} yet`}
+              hint="A direction is a collection of similar options with a master thumbnail. Add or create one for this layer."
+              actionLabel="Add direction"
+              onAction={() => setPickerOpen(true)}
+            />
+          ) : (
+            <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
+              <div
+                className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
+                style={{ columnGap: "14px" }}
+              >
+                {directions.map((direction) => (
+                  <DirectionCard
+                    key={direction.id}
+                    direction={direction}
+                    onOpen={() => setOpenDirectionId(direction.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )
         ) : visibleAssets.length === 0 ? (
           <EmptyState
             title={approvedOnly ? "Nothing approved yet" : "No assets here"}
@@ -427,6 +678,20 @@ export function ReviewModal({
             total={visibleAssets.length}
             approved={isApproved(focusAsset)}
             onApprove={() => toggleApprove(focusAsset)}
+            isMaster={
+              openDirection ? openDirectionMasterId === focusAsset.id : undefined
+            }
+            onMaster={
+              openDirection
+                ? () =>
+                    setMaster(
+                      openDirection.folderId as string,
+                      openDirectionMasterId === focusAsset.id
+                        ? null
+                        : focusAsset.id,
+                    )
+                : undefined
+            }
             onPrev={() => goFocus(-1)}
             onNext={() => goFocus(1)}
             filmstrip={visibleAssets}
@@ -448,7 +713,21 @@ export function ReviewModal({
                   approved={isApproved(asset)}
                   onOpen={() => setFocusId(asset.id)}
                   onApprove={() => toggleApprove(asset)}
-                  showCollectionLabel={activeCollection === ALL_COLLECTIONS}
+                  showCollectionLabel={activeTab === "all"}
+                  isMaster={
+                    openDirection ? openDirectionMasterId === asset.id : undefined
+                  }
+                  onMaster={
+                    openDirection
+                      ? () =>
+                          setMaster(
+                            openDirection.folderId as string,
+                            openDirectionMasterId === asset.id
+                              ? null
+                              : asset.id,
+                          )
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -484,6 +763,10 @@ export function ReviewModal({
         <CollectionPicker
           allCollections={allCollections}
           memberIds={memberCollectionIds}
+          // Adding from a layer tab files the collection into that layer.
+          section={
+            activeTab !== "all" && activeTab !== "unsorted" ? activeTab : null
+          }
           onToggle={(folderId, isMember) => {
             if (!projectId) return;
             if (isMember) {
@@ -497,12 +780,110 @@ export function ReviewModal({
                 ownerUserId,
                 projectId: projectId as Id<"folders">,
                 folderId: folderId as Id<"folders">,
+                section:
+                  activeTab !== "all" && activeTab !== "unsorted"
+                    ? activeTab
+                    : undefined,
               });
             }
+          }}
+          onCreate={(name) => {
+            if (!projectId) return;
+            void (async () => {
+              const { folderId } = await createFolder({ ownerUserId, name });
+              await addCollection({
+                ownerUserId,
+                projectId: projectId as Id<"folders">,
+                folderId,
+                section:
+                  activeTab !== "all" && activeTab !== "unsorted"
+                    ? activeTab
+                    : undefined,
+              });
+            })();
           }}
           onClose={() => setPickerOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* ── Direction card: a collection of similar options, thumbed by its master ── */
+function DirectionCard({
+  direction,
+  onOpen,
+}: {
+  direction: DirectionCardData;
+  onOpen: () => void;
+}) {
+  const cover = direction.cover;
+  return (
+    <div
+      className="group relative mb-3.5 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
+      style={{
+        border: "1px solid var(--lm-border-strong)",
+        backgroundColor: "var(--lm-surface-1)",
+      }}
+      onClick={onOpen}
+      role="button"
+      aria-label={`Open direction: ${direction.name}`}
+    >
+      <div
+        className="relative w-full"
+        style={{
+          aspectRatio:
+            cover?.width && cover?.height
+              ? `${cover.width} / ${cover.height}`
+              : "4 / 5",
+        }}
+      >
+        {cover ? (
+          <Media asset={cover} variant="tile" />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-[11px] font-mono uppercase tracking-wider"
+            style={{
+              backgroundColor: "var(--lm-surface-2)",
+              color: "var(--lm-text-ghost)",
+            }}
+          >
+            Empty
+          </div>
+        )}
+
+        {/* Bottom label over a gradient so any master image stays readable */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.74), rgba(0,0,0,0.28) 60%, transparent)",
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
+          <div className="min-w-0">
+            <p
+              className="truncate text-[14px] font-semibold"
+              style={{ color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}
+            >
+              {direction.name}
+            </p>
+            <p
+              className="text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{ color: "rgba(255,255,255,0.68)" }}
+            >
+              {direction.count} {direction.count === 1 ? "option" : "options"}
+            </p>
+          </div>
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+          >
+            Explore
+            <ChevronRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -514,12 +895,17 @@ function ReviewTile({
   onOpen,
   onApprove,
   showCollectionLabel,
+  isMaster,
+  onMaster,
 }: {
   asset: ReviewAsset;
   approved: boolean;
   onOpen: () => void;
   onApprove: () => void;
   showCollectionLabel: boolean;
+  /** Only defined inside a drilled direction, where "master" is unambiguous. */
+  isMaster?: boolean;
+  onMaster?: () => void;
 }) {
   return (
     <div
@@ -568,6 +954,36 @@ function ReviewTile({
         {approved ? "Approved" : "Approve"}
       </button>
 
+      {/* Master (direction thumbnail) toggle */}
+      {onMaster && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMaster();
+          }}
+          className={`absolute left-2.5 top-2.5 z-10 flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+            isMaster ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          style={{
+            backgroundColor: isMaster ? "var(--lm-ink)" : "rgba(0,0,0,0.62)",
+            color: isMaster ? "var(--lm-paper)" : "#fff",
+            borderColor: isMaster
+              ? "var(--lm-ink)"
+              : "rgba(255,255,255,0.25)",
+          }}
+          aria-pressed={Boolean(isMaster)}
+          title={
+            isMaster
+              ? "Master option — click to unset"
+              : "Make master (direction thumbnail)"
+          }
+        >
+          <Crown className="h-3 w-3" strokeWidth={2.5} />
+          Master
+        </button>
+      )}
+
       {showCollectionLabel && (
         <div
           className="absolute bottom-2.5 left-2.5 z-10 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
@@ -587,6 +1003,8 @@ function FocusView({
   total,
   approved,
   onApprove,
+  isMaster,
+  onMaster,
   onPrev,
   onNext,
   filmstrip,
@@ -600,6 +1018,9 @@ function FocusView({
   total: number;
   approved: boolean;
   onApprove: () => void;
+  /** Only defined inside a drilled direction, where "master" is unambiguous. */
+  isMaster?: boolean;
+  onMaster?: () => void;
   onPrev: () => void;
   onNext: () => void;
   filmstrip: ReviewAsset[];
@@ -658,6 +1079,31 @@ function FocusView({
             >
               {index + 1}/{total}
             </span>
+            {onMaster && (
+              <button
+                type="button"
+                onClick={onMaster}
+                className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
+                style={{
+                  backgroundColor: isMaster
+                    ? "var(--lm-ink)"
+                    : "rgba(0,0,0,0.62)",
+                  color: isMaster ? "var(--lm-paper)" : "#fff",
+                  borderColor: isMaster
+                    ? "var(--lm-ink)"
+                    : "rgba(255,255,255,0.25)",
+                }}
+                aria-pressed={Boolean(isMaster)}
+                title={
+                  isMaster
+                    ? "Master option — click to unset"
+                    : "Make master (direction thumbnail)"
+                }
+              >
+                <Crown className="h-4 w-4" strokeWidth={2.5} />
+                Master
+              </button>
+            )}
             <button
               type="button"
               onClick={onApprove}
@@ -1004,14 +1450,27 @@ function SharePanel({
 function CollectionPicker({
   allCollections,
   memberIds,
+  section,
   onToggle,
+  onCreate,
   onClose,
 }: {
   allCollections: CollectionOption[];
   memberIds: Set<string>;
+  /** Layer the picker files additions into (from the active tab), if any. */
+  section: ProjectSection | null;
   onToggle: (folderId: string, isMember: boolean) => void;
+  onCreate: (name: string) => void;
   onClose: () => void;
 }) {
+  const [newName, setNewName] = useState("");
+  const submitCreate = () => {
+    const name = newName.trim();
+    if (!name) return;
+    onCreate(name);
+    setNewName("");
+  };
+
   return (
     <div
       className="absolute inset-0 z-20 flex items-start justify-end p-4 md:p-6"
@@ -1034,7 +1493,9 @@ function CollectionPicker({
             className="text-[10px] font-mono font-bold uppercase tracking-[0.14em]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            Collections in project
+            {section
+              ? `Add directions — ${TAB_LABELS[section]}`
+              : "Collections in project"}
           </span>
           <button
             type="button"
@@ -1046,6 +1507,48 @@ function CollectionPicker({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        {/* Inline create: new collection → added straight into this layer */}
+        <div
+          className="flex items-center gap-2 px-3.5 py-2.5"
+          style={{ borderBottom: "1px solid var(--lm-border)" }}
+        >
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitCreate();
+              }
+              e.stopPropagation();
+            }}
+            placeholder={
+              section
+                ? `New ${TAB_LABELS[section].toLowerCase()} direction…`
+                : "New collection…"
+            }
+            className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-[12px] outline-none"
+            style={{
+              backgroundColor: "var(--lm-surface-2)",
+              border: "1px solid var(--lm-border)",
+              color: "var(--lm-text-primary)",
+            }}
+          />
+          <button
+            type="button"
+            onClick={submitCreate}
+            disabled={!newName.trim()}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-opacity hover:opacity-90 disabled:opacity-40"
+            style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+            aria-label="Create and add"
+            title="Create and add to this layer"
+          >
+            <Plus className="h-4 w-4" strokeWidth={3} />
+          </button>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {allCollections.length === 0 && (
             <p

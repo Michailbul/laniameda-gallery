@@ -12,6 +12,10 @@ import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
+import {
+  optionalProjectSectionValidator,
+  projectSectionValidator,
+} from "./validators";
 
 // Preview thumbnails on a project stack card.
 const STACK_PREVIEW_LIMIT = 4;
@@ -41,14 +45,21 @@ const projectSummaryValidator = v.object({
   previewAssets: v.array(projectPreviewValidator),
 });
 
-// Collect the folderIds that belong to a project, via the projectCollections
+export type ProjectSection = "characters" | "locations" | "beats";
+
+export type ProjectCollectionLink = {
+  folderId: Id<"folders">;
+  section?: ProjectSection;
+};
+
+// Collect the member-collection links of a project, via the projectCollections
 // join, across the owner's id candidates. Deduped, order preserved by insert
 // time (createdAt asc) so the review view has a stable collection order.
-export const collectProjectCollectionIds = async (
+export const collectProjectCollectionLinks = async (
   ctx: QueryCtx | MutationCtx,
   ownerUserIds: string[],
   projectId: Id<"folders">,
-): Promise<Id<"folders">[]> => {
+): Promise<ProjectCollectionLink[]> => {
   const rows = await ctx.db
     .query("projectCollections")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -56,13 +67,26 @@ export const collectProjectCollectionIds = async (
   const owned = rows.filter((row) => ownerUserIds.includes(row.ownerUserId));
   owned.sort((a, b) => a.createdAt - b.createdAt);
   const seen = new Set<string>();
-  const ids: Id<"folders">[] = [];
+  const links: ProjectCollectionLink[] = [];
   for (const row of owned) {
     if (seen.has(row.folderId)) continue;
     seen.add(row.folderId);
-    ids.push(row.folderId);
+    links.push({ folderId: row.folderId, section: row.section });
   }
-  return ids;
+  return links;
+};
+
+export const collectProjectCollectionIds = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerUserIds: string[],
+  projectId: Id<"folders">,
+): Promise<Id<"folders">[]> => {
+  const links = await collectProjectCollectionLinks(
+    ctx,
+    ownerUserIds,
+    projectId,
+  );
+  return links.map((link) => link.folderId);
 };
 
 const collectOwnerProjectFolders = async (
@@ -186,6 +210,8 @@ export const getProject = query({
         v.object({
           folderId: v.id("folders"),
           name: v.string(),
+          section: optionalProjectSectionValidator,
+          coverAssetId: v.optional(v.id("assets")),
           count: v.number(),
           assets: v.array(galleryAssetResultValidator),
         }),
@@ -207,14 +233,14 @@ export const getProject = query({
     }
 
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const collectionIds = await collectProjectCollectionIds(
+    const collectionLinks = await collectProjectCollectionLinks(
       ctx,
       ownerUserIds,
       folder._id,
     );
 
     const collections = await Promise.all(
-      collectionIds.map(async (folderId) => {
+      collectionLinks.map(async ({ folderId, section }) => {
         const collectionFolder = await ctx.db.get(folderId);
         const members = await collectAssetsForFolder(
           ctx,
@@ -226,6 +252,8 @@ export const getProject = query({
         return {
           folderId,
           name: collectionFolder?.name ?? "Untitled collection",
+          section,
+          coverAssetId: collectionFolder?.coverAssetId,
           count: assets.length,
           assets,
         };
@@ -271,6 +299,7 @@ export const addCollectionToProject = mutation({
     ownerUserId: v.string(),
     projectId: v.id("folders"),
     folderId: v.id("folders"),
+    section: optionalProjectSectionValidator,
   },
   returns: v.object({ added: v.boolean() }),
   handler: async (ctx, args) => {
@@ -299,6 +328,11 @@ export const addCollectionToProject = mutation({
       )
       .unique();
     if (existing) {
+      // Re-adding into a specific layer refiles the existing membership.
+      if (args.section && existing.section !== args.section) {
+        await ctx.db.patch(existing._id, { section: args.section });
+        await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
+      }
       return { added: false };
     }
 
@@ -306,10 +340,47 @@ export const addCollectionToProject = mutation({
       ownerUserId,
       projectId: args.projectId,
       folderId: args.folderId,
+      section: args.section,
       createdAt: Date.now(),
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { added: true };
+  },
+});
+
+// File (or unfile) a member collection under one of the project's layers.
+// null clears the section back to "unsorted".
+export const setProjectCollectionSection = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    folderId: v.id("folders"),
+    section: v.union(projectSectionValidator, v.null()),
+  },
+  returns: v.object({ updated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
+
+    const existing = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project_folder", (q) =>
+        q.eq("projectId", args.projectId).eq("folderId", args.folderId),
+      )
+      .unique();
+    if (!existing) {
+      throw new ConvexError("Collection is not part of this project.");
+    }
+    const section = args.section ?? undefined;
+    if (existing.section === section) {
+      return { updated: false };
+    }
+    await ctx.db.patch(existing._id, { section });
+    await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
+    return { updated: true };
   },
 });
 

@@ -3,8 +3,12 @@ import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { APPROVED_TAG_NAME, collectAssetsForFolder } from "./assets";
-import { collectProjectCollectionIds } from "./projects";
+import {
+  collectProjectCollectionIds,
+  collectProjectCollectionLinks,
+} from "./projects";
 import { normalizeTagName } from "./helpers";
+import { optionalProjectSectionValidator } from "./validators";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   canActorAccessOwnerUserId,
@@ -41,6 +45,8 @@ const boardValidator = v.object({
     v.object({
       id: v.id("folders"),
       name: v.string(),
+      section: optionalProjectSectionValidator,
+      coverAssetId: v.optional(v.id("assets")),
       count: v.number(),
       assets: v.array(boardAssetValidator),
     }),
@@ -227,7 +233,7 @@ export const getBoard = query({
     }
 
     const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId);
-    const collectionIds = await collectProjectCollectionIds(
+    const collectionLinks = await collectProjectCollectionLinks(
       ctx,
       ownerUserIds,
       folder._id,
@@ -242,7 +248,7 @@ export const getBoard = query({
     const approvedTagId = approvedTag?._id;
 
     const collections = await Promise.all(
-      collectionIds.map(async (folderId) => {
+      collectionLinks.map(async ({ folderId, section }) => {
         const collectionFolder = await ctx.db.get(folderId);
         const members = await collectAssetsForFolder(
           ctx,
@@ -276,6 +282,8 @@ export const getBoard = query({
         return {
           id: folderId,
           name: collectionFolder?.name ?? "Untitled collection",
+          section,
+          coverAssetId: collectionFolder?.coverAssetId,
           count: assets.length,
           assets,
         };

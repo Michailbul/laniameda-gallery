@@ -22,6 +22,7 @@ const folderReturnValidator = v.object({
   description: v.optional(v.string()),
   kind: folderKindValidator,
   shareToken: v.optional(v.string()),
+  coverAssetId: v.optional(v.id("assets")),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -305,5 +306,66 @@ export const deleteFolder = mutation({
       assetsUpdated: dedupeById(assets).length,
       promptsUpdated: dedupeById(prompts).length,
     };
+  },
+});
+
+// Set or clear the MASTER option (cover asset) of a collection — the
+// thumbnail used when the collection is browsed as a "direction" (a set of
+// similar options). The asset must actually be in the collection, via the
+// primary folderId or an assetFolders link.
+export const setFolderCover = mutation({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    assetId: v.union(v.id("assets"), v.null()),
+  },
+  returns: v.object({ coverAssetId: v.union(v.id("assets"), v.null()) }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const folder = await ctx.db.get(args.folderId);
+    if (!folder) {
+      throw new ConvexError("Folder not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
+      throw new ConvexError("Folder does not belong to this user.");
+    }
+
+    if (args.assetId === null) {
+      await ctx.db.patch(folder._id, {
+        coverAssetId: undefined,
+        updatedAt: Date.now(),
+      });
+      return { coverAssetId: null };
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    let isMember = asset.folderId === args.folderId;
+    if (!isMember) {
+      const link = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset_folder", (q) =>
+          q.eq("assetId", asset._id).eq("folderId", args.folderId),
+        )
+        .unique();
+      isMember = Boolean(link);
+    }
+    if (!isMember) {
+      throw new ConvexError("Asset is not in this collection.");
+    }
+
+    await ctx.db.patch(folder._id, {
+      coverAssetId: asset._id,
+      updatedAt: Date.now(),
+    });
+    return { coverAssetId: asset._id };
   },
 });

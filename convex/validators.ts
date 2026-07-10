@@ -289,3 +289,15 @@ export const agentTokenScopeValidator = v.union(
   v.literal("gallery:write"),
   v.literal("gallery:delete"),
 );
+
+// Which layer (tab) of a project a member collection is filed under. A
+// "direction" — a collection of similar options with a master cover — lives
+// in exactly one of these layers per project. Undefined = unsorted.
+export const projectSectionValidator = v.union(
+  v.literal("characters"),
+  v.literal("locations"),
+  v.literal("beats"),
+);
+export const optionalProjectSectionValidator = v.optional(
+  projectSectionValidator,
+);

@@ -15,6 +15,7 @@ import {
   lineageRoleValidator,
   modelProviderValidator,
   optionalPillarValidator,
+  optionalProjectSectionValidator,
   promptProfileValidator,
   promptSectionsValidator,
   promptTypeValidator,
@@ -102,6 +103,10 @@ export default defineSchema({
     // Unguessable token that makes a project's direction board publicly
     // viewable at /b/<token>. Unset = sharing off.
     shareToken: v.optional(v.string()),
+    // MASTER option: the asset used as this collection's thumbnail when it is
+    // browsed as a "direction" (a set of similar options). Falls back to the
+    // first asset when unset or dangling.
+    coverAssetId: v.optional(v.id("assets")),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -118,6 +123,9 @@ export default defineSchema({
     ownerUserId: v.string(),
     projectId: v.id("folders"),
     folderId: v.id("folders"),
+    // Which layer/tab of the project this collection is filed under
+    // (characters | locations | beats). Undefined = unsorted.
+    section: optionalProjectSectionValidator,
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])

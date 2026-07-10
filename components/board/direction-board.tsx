@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useQuery } from "convex/react";
 import {
+  ArrowLeft,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -22,9 +23,18 @@ import {
 import { api } from "@/convex/_generated/api";
 import { DEFAULT_GAP_PX, layoutJustified } from "@/lib/masonry-layout";
 
-const ALL = "__all__";
-
 type TypeFilter = "all" | "image" | "video";
+
+/** The board's layers. Each layer holds "directions" — collections of similar
+ * options thumbed by their master (cover) asset. */
+type BoardSection = "characters" | "locations" | "beats";
+type BoardTab = "all" | BoardSection | "unsorted";
+
+const SECTION_TABS: { key: BoardSection; label: string }[] = [
+  { key: "characters", label: "Characters" },
+  { key: "locations", label: "Locations" },
+  { key: "beats", label: "Beats" },
+];
 
 type BoardAsset = {
   id: string;
@@ -41,6 +51,13 @@ type BoardAsset = {
   collectionName: string;
 };
 
+type BoardDirection = {
+  id: string;
+  name: string;
+  count: number;
+  cover: BoardAsset | null;
+};
+
 /**
  * Public, read-only direction board for a shared project. A colleague opens
  * /b/<token> with no account and can browse the project's collections
@@ -50,7 +67,10 @@ type BoardAsset = {
 export function DirectionBoard({ token }: { token: string }) {
   const board = useQuery(api.directionBoard.getBoard, { token });
 
-  const [activeCollection, setActiveCollection] = useState<string>(ALL);
+  const [activeTab, setActiveTab] = useState<BoardTab>("all");
+  // Direction currently drilled into (collection id), or null when browsing
+  // a layer's direction cards / the flat All view.
+  const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -71,39 +91,91 @@ export function DirectionBoard({ token }: { token: string }) {
     return () => observer.disconnect();
   }, []);
 
-  // Flatten collections → assets. "All" dedupes across collections (first
-  // collection wins the label); a specific collection keeps only its own.
+  type BoardCollection = NonNullable<typeof board>["collections"][number];
+
+  const toBoardAsset = useCallback(
+    (
+      asset: BoardCollection["assets"][number],
+      collection: BoardCollection,
+    ): BoardAsset => ({
+      id: asset.id as string,
+      kind: asset.kind,
+      contentType: asset.contentType,
+      url: asset.url,
+      thumbUrl: asset.thumbUrl,
+      width: asset.width,
+      height: asset.height,
+      fileName: asset.fileName,
+      title: asset.title,
+      approved: asset.approved,
+      collectionId: collection.id as string,
+      collectionName: collection.name,
+    }),
+    [],
+  );
+
+  const tabOf = (section: string | undefined): BoardTab =>
+    (section as BoardSection | undefined) ?? "unsorted";
+
+  const anySectioned = useMemo(
+    () => (board?.collections ?? []).some((c) => c.section),
+    [board],
+  );
+
+  // Collections visible in the active tab.
+  const tabCollections = useMemo<BoardCollection[]>(() => {
+    const collections = board?.collections ?? [];
+    if (activeTab === "all") return collections;
+    return collections.filter((c) => tabOf(c.section) === activeTab);
+  }, [board, activeTab]);
+
+  // The drilled-into direction, if it still exists.
+  const openDirection = useMemo<BoardCollection | null>(
+    () =>
+      (openDirectionId &&
+        (board?.collections ?? []).find(
+          (c) => (c.id as string) === openDirectionId,
+        )) ||
+      null,
+    [board, openDirectionId],
+  );
+
+  // Direction cards for a layer tab, thumbed by the MASTER (cover) asset.
+  const directions = useMemo<BoardDirection[]>(
+    () =>
+      tabCollections.map((collection) => {
+        const coverId = collection.coverAssetId as string | undefined;
+        const coverAsset =
+          (coverId &&
+            collection.assets.find((a) => (a.id as string) === coverId)) ||
+          collection.assets[0] ||
+          null;
+        return {
+          id: collection.id as string,
+          name: collection.name,
+          count: collection.count,
+          cover: coverAsset ? toBoardAsset(coverAsset, collection) : null,
+        };
+      }),
+    [tabCollections, toBoardAsset],
+  );
+
+  // Flatten the current scope → assets. Drilled direction wins; otherwise the
+  // active tab's collections, deduped by asset id (first collection wins).
   const assets = useMemo<BoardAsset[]>(() => {
-    if (!board) return [];
+    const source = openDirection ? [openDirection] : tabCollections;
     const out: BoardAsset[] = [];
     const seen = new Set<string>();
-    for (const collection of board.collections) {
+    for (const collection of source) {
       for (const asset of collection.assets) {
         const id = asset.id as string;
-        if (activeCollection === ALL) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-        } else if ((collection.id as string) !== activeCollection) {
-          continue;
-        }
-        out.push({
-          id,
-          kind: asset.kind,
-          contentType: asset.contentType,
-          url: asset.url,
-          thumbUrl: asset.thumbUrl,
-          width: asset.width,
-          height: asset.height,
-          fileName: asset.fileName,
-          title: asset.title,
-          approved: asset.approved,
-          collectionId: collection.id as string,
-          collectionName: collection.name,
-        });
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push(toBoardAsset(asset, collection));
       }
     }
     return out;
-  }, [board, activeCollection]);
+  }, [openDirection, tabCollections, toBoardAsset]);
 
   const approvedCount = useMemo(
     () => assets.filter((asset) => asset.approved).length,
@@ -136,6 +208,26 @@ export function DirectionBoard({ token }: { token: string }) {
     );
   }, [visibleAssets, gridWidth]);
 
+  // Direction-cards browsing mode: a layer tab with nothing drilled into.
+  const showDirectionCards = activeTab !== "all" && !openDirection;
+
+  // Larger rows for direction cards — they carry a name + count overlay.
+  const cardLayout = useMemo(() => {
+    const targetRowHeight = Math.max(
+      240,
+      Math.min(400, Math.round(gridWidth / 3.4)),
+    );
+    return layoutJustified(
+      directions.map((direction) => ({
+        width: direction.cover?.width,
+        height: direction.cover?.height,
+        kind: direction.cover?.kind ?? "image",
+        contentType: direction.cover?.contentType,
+      })),
+      { containerWidth: gridWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
+    );
+  }, [directions, gridWidth]);
+
   const focusIndex = focusId
     ? visibleAssets.findIndex((asset) => asset.id === focusId)
     : -1;
@@ -159,11 +251,18 @@ export function DirectionBoard({ token }: { token: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!focusId) return;
       if (e.key === "Escape") {
-        e.preventDefault();
-        setFocusId(null);
-      } else if (e.key === "ArrowLeft") {
+        if (focusId) {
+          e.preventDefault();
+          setFocusId(null);
+        } else if (openDirectionId) {
+          e.preventDefault();
+          setOpenDirectionId(null);
+        }
+        return;
+      }
+      if (!focusId) return;
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
         goFocus(-1);
       } else if (e.key === "ArrowRight") {
@@ -173,7 +272,7 @@ export function DirectionBoard({ token }: { token: string }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focusId, goFocus]);
+  }, [focusId, openDirectionId, goFocus]);
 
   // Keep the active filmstrip thumb centered as focus moves.
   useEffect(() => {
@@ -196,13 +295,29 @@ export function DirectionBoard({ token }: { token: string }) {
     return seen.size;
   }, [board]);
 
-  const chips = [
-    { id: ALL, name: "All", count: undefined as number | undefined },
-    ...(board?.collections ?? []).map((collection) => ({
-      id: collection.id as string,
-      name: collection.name,
-      count: collection.count as number | undefined,
-    })),
+  const directionCountBy = (tab: BoardTab) =>
+    (board?.collections ?? []).filter((c) => tabOf(c.section) === tab).length;
+  const unsortedCount = directionCountBy("unsorted");
+  const tabs: { key: BoardTab; label: string; count?: number }[] = [
+    { key: "all", label: "All" },
+    ...SECTION_TABS.filter(({ key }) => directionCountBy(key) > 0).map(
+      ({ key, label }) => ({
+        key: key as BoardTab,
+        label,
+        count: directionCountBy(key),
+      }),
+    ),
+    ...(unsortedCount > 0
+      ? [
+          {
+            key: "unsorted" as BoardTab,
+            // With no layers assigned at all, plain "Directions" reads better
+            // than "Unsorted" for the viewer.
+            label: anySectioned ? "Unsorted" : "Directions",
+            count: unsortedCount,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -285,13 +400,17 @@ export function DirectionBoard({ token }: { token: string }) {
           }}
         >
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2 px-4 py-3 md:px-8">
-            {chips.map((chip) => {
-              const active = activeCollection === chip.id;
+            {tabs.map((tab) => {
+              const active = activeTab === tab.key;
               return (
                 <button
-                  key={chip.id}
+                  key={tab.key}
                   type="button"
-                  onClick={() => setActiveCollection(chip.id)}
+                  onClick={() => {
+                    setActiveTab(tab.key);
+                    setOpenDirectionId(null);
+                    setFocusId(null);
+                  }}
                   className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
                   style={{
                     borderColor: active
@@ -305,77 +424,117 @@ export function DirectionBoard({ token }: { token: string }) {
                       : "var(--lm-text-secondary)",
                   }}
                 >
-                  {chip.name}
-                  {chip.count !== undefined && (
-                    <span style={{ opacity: 0.6 }}> {chip.count}</span>
+                  {tab.label}
+                  {tab.count !== undefined && (
+                    <span style={{ opacity: 0.6 }}> {tab.count}</span>
                   )}
                 </button>
               );
             })}
 
-            <span
-              className="mx-1 hidden h-4 w-px sm:block"
-              style={{ backgroundColor: "var(--lm-border-strong)" }}
-            />
+            {!showDirectionCards && (
+              <>
+                <span
+                  className="mx-1 hidden h-4 w-px sm:block"
+                  style={{ backgroundColor: "var(--lm-border-strong)" }}
+                />
 
-            {(
-              [
-                ["all", "All"],
-                ["image", "Stills"],
-                ["video", "Videos"],
-              ] as const
-            ).map(([value, label]) => {
-              const active = typeFilter === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setTypeFilter(value)}
-                  className="rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
-                  style={{
-                    borderColor: active
-                      ? "var(--lm-text-secondary)"
-                      : "var(--lm-border-strong)",
-                    color: active
-                      ? "var(--lm-text-primary)"
-                      : "var(--lm-text-tertiary)",
-                  }}
-                  aria-pressed={active}
-                >
-                  {label}
-                </button>
-              );
-            })}
+                {(
+                  [
+                    ["all", "All"],
+                    ["image", "Stills"],
+                    ["video", "Videos"],
+                  ] as const
+                ).map(([value, label]) => {
+                  const active = typeFilter === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setTypeFilter(value)}
+                      className="rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+                      style={{
+                        borderColor: active
+                          ? "var(--lm-text-secondary)"
+                          : "var(--lm-border-strong)",
+                        color: active
+                          ? "var(--lm-text-primary)"
+                          : "var(--lm-text-tertiary)",
+                      }}
+                      aria-pressed={active}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
 
-            {approvedCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setApprovedOnly((v) => !v)}
-                className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
-                style={{
-                  borderColor: approvedOnly
-                    ? "var(--lm-coral)"
-                    : "var(--lm-border-strong)",
-                  backgroundColor: approvedOnly
-                    ? "var(--lm-coral)"
-                    : "transparent",
-                  color: approvedOnly ? "#000" : "var(--lm-text-tertiary)",
-                }}
-                aria-pressed={approvedOnly}
-                title="Show only approved"
-              >
-                <Check className="h-3 w-3" strokeWidth={3} />
-                Approved {approvedCount}
-              </button>
+                {approvedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setApprovedOnly((v) => !v)}
+                    className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+                    style={{
+                      borderColor: approvedOnly
+                        ? "var(--lm-coral)"
+                        : "var(--lm-border-strong)",
+                      backgroundColor: approvedOnly
+                        ? "var(--lm-coral)"
+                        : "transparent",
+                      color: approvedOnly ? "#000" : "var(--lm-text-tertiary)",
+                    }}
+                    aria-pressed={approvedOnly}
+                    title="Show only approved"
+                  >
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                    Approved {approvedCount}
+                  </button>
+                )}
+              </>
             )}
 
             <span
               className="ml-auto text-[11px] font-mono"
               style={{ color: "var(--lm-text-ghost)" }}
             >
-              {visibleAssets.length} shown
+              {showDirectionCards
+                ? `${directions.length} ${
+                    directions.length === 1 ? "direction" : "directions"
+                  }`
+                : `${visibleAssets.length} shown`}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* ── Drilled direction breadcrumb ── */}
+      {openDirection && (
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2.5 px-4 pt-5 md:px-8">
+          <button
+            type="button"
+            onClick={() => setOpenDirectionId(null)}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-secondary)",
+            }}
+            title="Back to directions (Esc)"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
+          </button>
+          <span
+            className="truncate text-[16px] font-semibold"
+            style={{ color: "var(--lm-text-primary)" }}
+          >
+            {openDirection.name}
+          </span>
+          <span
+            className="text-[11px] font-mono uppercase tracking-wider"
+            style={{ color: "var(--lm-text-tertiary)" }}
+          >
+            {openDirection.count}{" "}
+            {openDirection.count === 1 ? "option" : "options"}
+          </span>
         </div>
       )}
 
@@ -405,6 +564,41 @@ export function DirectionBoard({ token }: { token: string }) {
                 link.
               </p>
             </div>
+          ) : showDirectionCards ? (
+            directions.length === 0 ? (
+              <p
+                className="py-24 text-center text-[13px]"
+                style={{ color: "var(--lm-text-tertiary)" }}
+              >
+                No directions in this layer yet.
+              </p>
+            ) : (
+              <div
+                className="relative"
+                style={{ height: cardLayout.totalHeight }}
+                role="list"
+                aria-label="Directions"
+              >
+                {cardLayout.tiles.map((tile) => {
+                  const direction = directions[tile.index]!;
+                  return (
+                    <DirectionCardTile
+                      key={direction.id}
+                      direction={direction}
+                      eager={tile.index < 6}
+                      style={{
+                        position: "absolute",
+                        top: tile.top,
+                        left: tile.left,
+                        width: tile.width,
+                        height: tile.height,
+                      }}
+                      onOpen={() => setOpenDirectionId(direction.id)}
+                    />
+                  );
+                })}
+              </div>
+            )
           ) : visibleAssets.length === 0 ? (
             <p
               className="py-24 text-center text-[13px]"
@@ -434,7 +628,7 @@ export function DirectionBoard({ token }: { token: string }) {
                       width: tile.width,
                       height: tile.height,
                     }}
-                    showCollectionLabel={activeCollection === ALL}
+                    showCollectionLabel={activeTab === "all"}
                     onOpen={() => setFocusId(asset.id)}
                   />
                 );
@@ -508,6 +702,83 @@ function DownloadButton({
       <Download className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} />
       Save
     </button>
+  );
+}
+
+/* ── Direction card: a set of similar options, thumbed by its master ── */
+
+function DirectionCardTile({
+  direction,
+  eager,
+  style,
+  onOpen,
+}: {
+  direction: BoardDirection;
+  eager: boolean;
+  style: React.CSSProperties;
+  onOpen: () => void;
+}) {
+  const cover = direction.cover;
+  return (
+    <div
+      className="group cursor-pointer overflow-hidden rounded-xl"
+      style={{
+        ...style,
+        border: "1px solid var(--lm-border-strong)",
+        backgroundColor: "var(--lm-surface-1)",
+      }}
+      role="listitem"
+      onClick={onOpen}
+      aria-label={`Open direction: ${direction.name}`}
+    >
+      <div className="relative h-full w-full">
+        {cover ? (
+          <Media asset={cover} variant="tile" eager={eager} />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-[11px] font-mono uppercase tracking-wider"
+            style={{
+              backgroundColor: "var(--lm-surface-2)",
+              color: "var(--lm-text-ghost)",
+            }}
+          >
+            Empty
+          </div>
+        )}
+
+        {/* Bottom label over a gradient so any master image stays readable */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.74), rgba(0,0,0,0.28) 60%, transparent)",
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
+          <div className="min-w-0">
+            <p
+              className="truncate text-[15px] font-semibold"
+              style={{ color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}
+            >
+              {direction.name}
+            </p>
+            <p
+              className="text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{ color: "rgba(255,255,255,0.68)" }}
+            >
+              {direction.count} {direction.count === 1 ? "option" : "options"}
+            </p>
+          </div>
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+          >
+            Explore
+            <ChevronRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
