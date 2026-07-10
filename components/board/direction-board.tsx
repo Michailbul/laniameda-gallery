@@ -207,7 +207,7 @@ export function DirectionBoard({ token }: { token: string }) {
 
   return (
     <div
-      className="min-h-screen"
+      className="lm-grid-bg min-h-screen"
       style={{
         backgroundColor: "var(--lm-paper)",
         color: "var(--lm-text-primary)",
