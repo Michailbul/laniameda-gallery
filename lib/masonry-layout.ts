@@ -1,38 +1,27 @@
 /**
- * Pure layout math for the gallery masonry grid.
+ * Pure layout math for the gallery grid.
  *
- * The masonry uses CSS `grid` with a tiny `grid-auto-rows` unit (ROW_UNIT_PX)
- * so each card can occupy a precise number of "row units" matching its
- * rendered pixel height. Portrait/squarish images span a single column;
- * videos and wide (≥16:9) images span two columns when the viewport has room,
- * with height still computed from the media's native aspect ratio. Placement
- * is computed explicitly so the browser does not strand empty shelves.
+ * The gallery uses a JUSTIFIED ROWS layout (the "Flickr / Google Photos"
+ * model): items flow left-to-right into rows, and every complete row is scaled
+ * uniformly so it fills the container width exactly. Because every item in a
+ * row shares the same height, each tile keeps its media's native aspect ratio —
+ * there is no distortion and, crucially, no interior gaps or ragged column
+ * bottoms. Only the final row may be partial. This replaced a column/skyline
+ * packer that structurally left holes around wide (16:9+) cards.
  */
 
-export const ROW_UNIT_PX = 1;
 export const DEFAULT_GAP_PX = 12;
 
 const VIDEO_FALLBACK_ASPECT = 16 / 9;
 const IMAGE_FALLBACK_ASPECT = 1;
 const SQUAREISH_VIDEO_TOLERANCE = 0.04;
 
-export const VIDEO_CARD_COLUMN_SPAN = 2;
-
-// Wide landscape images (16:9 and wider) render as thin, small strips in a
-// single column. Let them span two columns — same footprint trick as videos —
-// so they read as a large banner while keeping their native aspect ratio.
-// 1.7 catches 16:9 (≈1.78) and everything wider; 3:2 (1.5) and 16:10 (1.6)
-// stay single-column.
-export const WIDE_CARD_COLUMN_SPAN = 2;
-export const WIDE_IMAGE_ASPECT_THRESHOLD = 1.7;
-
 /**
  * Clamp an aspect ratio (width / height) into a visually reasonable band so a
- * single outlier asset can't blow up the masonry rhythm. Below MIN_ASPECT the
- * card would be very tall portrait (taller than ~2.2x its width); above
- * MAX_ASPECT it would be a thin landscape strip (wider than ~2.4x its height).
- * The source media keeps its true aspect on disk; only the masonry slot is
- * clamped into a manageable display footprint.
+ * single outlier asset can't blow up the row rhythm. Below MIN_ASPECT the tile
+ * would be very tall portrait (taller than ~2.2x its width); above MAX_ASPECT
+ * it would be a thin landscape strip (wider than ~2.4x its height). The source
+ * media keeps its true aspect on disk; only the layout slot is clamped.
  */
 export const MIN_ASPECT = 0.45;
 export const MAX_ASPECT = 2.4;
@@ -47,11 +36,6 @@ export type LayoutInput = {
   height?: number;
   kind?: "image" | "video";
   contentType?: string;
-};
-
-export type CellLayout = {
-  colSpan: number;
-  rowSpan: number;
 };
 
 const hasFiniteDims = (w?: number, h?: number): w is number =>
@@ -100,375 +84,131 @@ export function resolveLayoutAspect(input: LayoutInput): number {
     : resolveAspect(input);
 }
 
-export function isWideImage(input: LayoutInput): boolean {
-  return (
-    resolveLayoutKind(input) === "image" &&
-    hasFiniteDims(input.width, input.height) &&
-    input.width! / input.height! >= WIDE_IMAGE_ASPECT_THRESHOLD
-  );
-}
+/* ── Justified rows layout ── */
 
-export function resolveColumnSpan(
-  input: LayoutInput,
-  geometry: ColumnGeometry,
-): number {
-  if (
-    resolveLayoutKind(input) === "video" &&
-    geometry.columnCount >= VIDEO_CARD_COLUMN_SPAN
-  ) {
-    return VIDEO_CARD_COLUMN_SPAN;
-  }
-  if (isWideImage(input) && geometry.columnCount >= WIDE_CARD_COLUMN_SPAN) {
-    return WIDE_CARD_COLUMN_SPAN;
-  }
-  return 1;
-}
-
-export type ColumnGeometry = {
-  contentWidth: number;
-  columnCount: number;
+export type JustifiedOptions = {
+  /** Content-box width available to the grid, in px (no padding). */
+  containerWidth: number;
+  /** Gap between tiles, both horizontal and vertical, in px. */
   gap: number;
+  /**
+   * Desired row height in px. A row is closed as soon as the accumulated items
+   * would, at this height, meet or exceed the container width — so complete
+   * rows always end up at or slightly below this height.
+   */
+  targetRowHeight: number;
+  /**
+   * Ceiling for a justified row's height. Guards the sparse cases (a lone
+   * ultra-wide item, or a short final row) from ballooning. Defaults to
+   * 1.6 × targetRowHeight.
+   */
+  maxRowHeight?: number;
+  /**
+   * The final row is justified (stretched to fill the width) only when its
+   * items, at target height, already span at least this fraction of the
+   * container. Otherwise it is left-aligned at target height. Defaults to 0.7.
+   */
+  lastRowFillFraction?: number;
 };
 
-/**
- * Compute the pixel width of a single column given the full content area.
- */
-export function columnWidth(geometry: ColumnGeometry): number {
-  const { contentWidth, columnCount, gap } = geometry;
-  if (columnCount <= 0) return 0;
-  return (contentWidth - gap * (columnCount - 1)) / columnCount;
-}
-
-/**
- * Compute the grid `rowSpan` needed to host a card of the given pixel height,
- * with the configured `ROW_UNIT_PX` row size and inter-row gap.
- *
- * Total occupied vertical pixels with N row spans is:
- *   N * ROW_UNIT_PX + (N - 1) * gap
- * We solve for the smallest N such that that height >= cardH.
- */
-export function rowSpanForHeight(cardH: number, gap: number): number {
-  if (!Number.isFinite(cardH) || cardH <= 0) return 1;
-  return Math.max(1, Math.ceil((cardH + gap) / (ROW_UNIT_PX + gap)));
-}
-
-/**
- * Cell layout for an item in masonry. Images stay single-column. Videos span
- * two columns when available, but retain their native aspect ratio; only their
- * masonry footprint gets larger.
- */
-export function computeCellLayout(
-  input: LayoutInput,
-  geometry: ColumnGeometry,
-): CellLayout {
-  const colW = columnWidth(geometry);
-  if (colW <= 0) {
-    return { colSpan: 1, rowSpan: 1 };
-  }
-  const colSpan = resolveColumnSpan(input, geometry);
-  const aspect = resolveLayoutAspect(input);
-  if (!Number.isFinite(aspect) || aspect <= 0) {
-    return { colSpan: 1, rowSpan: 1 };
-  }
-  const cardW = colW * colSpan + geometry.gap * Math.max(0, colSpan - 1);
-  const cardH = cardW / aspect;
-  return {
-    colSpan,
-    rowSpan: rowSpanForHeight(cardH, geometry.gap),
-  };
-}
-
-/**
- * Simulate the visual height of a single card after layout — useful in tests
- * to verify that the rowSpan we picked actually accommodates the card.
- */
-export function reservedHeightForCell(
-  layout: CellLayout,
-  gap: number,
-): number {
-  if (layout.rowSpan <= 0) return 0;
-  return (
-    layout.rowSpan * ROW_UNIT_PX + Math.max(0, layout.rowSpan - 1) * gap
-  );
-}
-
-/**
- * Deterministic gap-free placement for the masonry grid.
- *
- * Single-column cards stack onto the shortest column (classic masonry). A
- * multi-column card needs adjacent columns at the same height, so the packer
- * (a) picks the window of columns that buries the smallest hole, (b) pulls
- * upcoming single-column cards forward to level the columns first, and
- * (c) stretches the card above any small residual hole so the wide card sits
- * flush (`object-cover` absorbs the crop). Cards may therefore render out of
- * array order — consumers should mount them sorted by `startRow`.
- */
-export type PackedItem = {
+export type JustifiedTile = {
+  /** Index into the input array this tile corresponds to. */
   index: number;
-  column: number;
-  colSpan: number;
-  startRow: number;
-  rowSpan: number;
+  /** Row number (0-based) this tile landed in. */
+  row: number;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
 };
 
-// How many upcoming cards the packer may pull forward to level columns under
-// a wide card, and how much of a card's own height it may stretch to close a
-// residual hole. Holes are treated as free when choosing a window if they are
-// small enough for the stretch passes to absorb: at most HOLE_TOLERANCE_ROWS,
-// or HOLE_ABSORB_FRACTION of the incoming card's height, whichever is larger.
-// The fraction matters: with a tiny fixed tolerance, a ~60px column divergence
-// makes the packer refuse that window forever, and long runs of wide cards
-// then stack thousands of pixels deep in the one level window while the rest
-// of the grid sits empty.
-export const PACK_PULL_LOOKAHEAD = 16;
-export const MAX_STRETCH_FRACTION = 0.3;
-export const HOLE_TOLERANCE_ROWS = 2;
-export const HOLE_ABSORB_FRACTION = 0.3;
-// Final adaptive pass: a residual hole is distributed across the contiguous
-// run of single-column image cards directly above it, each stretching at most
-// this fraction of its own height (media renders object-cover, so the crop is
-// modest and spread out). Wide cards are never shrunk.
-export const MAX_ADAPTIVE_STRETCH_FRACTION = 0.5;
+export type JustifiedLayout = {
+  /** Tiles in input order (tiles[i] is the layout for inputs[i]). */
+  tiles: JustifiedTile[];
+  /** Total content height in px (bottom of the last row, no trailing gap). */
+  totalHeight: number;
+  rowCount: number;
+};
 
-type PackWindow = { column: number; startRow: number; holeRows: number };
+/**
+ * Lay out items as justified rows. Every complete row fills `containerWidth`
+ * exactly; each tile keeps its (clamped) native aspect ratio. The last row is
+ * justified only if it is nearly full, otherwise it keeps target height and
+ * left-aligns (a single blown-up image would look worse than trailing space).
+ */
+export function layoutJustified(
+  inputs: LayoutInput[],
+  options: JustifiedOptions,
+): JustifiedLayout {
+  const { containerWidth, gap, targetRowHeight } = options;
+  const maxRowHeight = options.maxRowHeight ?? targetRowHeight * 1.6;
+  const lastRowFillFraction = options.lastRowFillFraction ?? 0.7;
 
-export function packMasonry(
-  items: LayoutInput[],
-  geometry: ColumnGeometry,
-): { totalRows: number; placements: PackedItem[]; gapRows: number } {
-  const { columnCount } = geometry;
-  if (columnCount <= 0 || items.length === 0) {
-    return { totalRows: 0, placements: [], gapRows: 0 };
+  if (
+    containerWidth <= 0 ||
+    targetRowHeight <= 0 ||
+    inputs.length === 0
+  ) {
+    return { tiles: [], totalHeight: 0, rowCount: 0 };
   }
 
-  const layouts = items.map((item) => computeCellLayout(item, geometry));
-  // Next free row per column (CSS grid rows are 1-based).
-  const bottoms: number[] = new Array(columnCount).fill(1);
-  const lastInColumn: (PackedItem | null)[] = new Array(columnCount).fill(
-    null,
-  );
-  const placements: PackedItem[] = new Array(items.length);
-  const queue: number[] = items.map((_, index) => index);
+  const aspects = inputs.map((input) => clampAspect(resolveLayoutAspect(input)));
+  const tiles: JustifiedTile[] = new Array(inputs.length);
 
-  const record = (placement: PackedItem) => {
-    placements[placement.index] = placement;
-    const end = placement.column + placement.colSpan;
-    for (let col = placement.column; col < end; col += 1) {
-      bottoms[col] = placement.startRow + placement.rowSpan;
-      lastInColumn[col] = placement;
+  let top = 0;
+  let rowIndex = 0;
+  let rowStart = 0;
+  let aspectSum = 0;
+
+  const flushRow = (endExclusive: number, isLastRow: boolean) => {
+    const count = endExclusive - rowStart;
+    if (count <= 0) return;
+    const gapsWidth = gap * (count - 1);
+    const available = containerWidth - gapsWidth;
+
+    // A row justifies (fills the full width) when it's an interior row, or the
+    // final row is already nearly full. Otherwise the final row keeps target
+    // height and left-aligns, leaving trailing space rather than blowing up.
+    const naturalWidth = aspectSum * targetRowHeight + gapsWidth;
+    const justify = !isLastRow || naturalWidth >= containerWidth * lastRowFillFraction;
+
+    let height = justify ? available / aspectSum : targetRowHeight;
+    height = Math.min(height, maxRowHeight);
+    height = Math.max(1, Math.round(height));
+
+    let left = 0;
+    for (let i = rowStart; i < endExclusive; i += 1) {
+      const isLastInRow = i === endExclusive - 1;
+      // Snap the final tile of a justified row to the container edge so integer
+      // rounding never leaves a hairline gap; media is object-cover/contain so
+      // the sub-pixel aspect nudge is invisible.
+      const width =
+        justify && isLastInRow
+          ? Math.max(1, containerWidth - left)
+          : Math.max(1, Math.round(height * aspects[i]!));
+      tiles[i] = { index: i, row: rowIndex, top, left, width, height };
+      left += width + gap;
     }
+
+    top += height + gap;
+    rowIndex += 1;
+    rowStart = endExclusive;
+    aspectSum = 0;
   };
 
-  const shortestColumn = (): number => {
-    let pick = 0;
-    for (let col = 1; col < columnCount; col += 1) {
-      if (bottoms[col] < bottoms[pick]) pick = col;
-    }
-    return pick;
-  };
-
-  const placeSingle = (index: number) => {
-    const col = shortestColumn();
-    record({
-      index,
-      column: col,
-      colSpan: 1,
-      startRow: bottoms[col],
-      rowSpan: layouts[index].rowSpan,
-    });
-  };
-
-  // A hole is "free" when the stretch passes can absorb it. The absorbable
-  // amount scales with the incoming card's height (similar-height neighbors
-  // above the hole get stretched to close it).
-  const effectiveHole = (holeRows: number, incomingRowSpan: number) =>
-    holeRows <=
-    Math.max(
-      HOLE_TOLERANCE_ROWS,
-      Math.floor(incomingRowSpan * HOLE_ABSORB_FRACTION),
-    )
-      ? 0
-      : holeRows;
-
-  // A window's cost trades hole size against stack height 1:1. Minimizing the
-  // hole alone is a trap: once one column pair diverges by more than the
-  // tolerance, every subsequent wide card would stack in the level window
-  // forever — thousands of rows deep — rather than bury a few rows next door.
-  const windowCost = (window: PackWindow, incomingRowSpan: number) =>
-    window.startRow + effectiveHole(window.holeRows, incomingRowSpan);
-
-  const bestWindow = (
-    colSpan: number,
-    floor: number[],
-    incomingRowSpan: number,
-  ): PackWindow => {
-    let best: PackWindow | null = null;
-    for (let col = 0; col + colSpan <= columnCount; col += 1) {
-      let startRow = 1;
-      for (let k = col; k < col + colSpan; k += 1) {
-        startRow = Math.max(startRow, floor[k]);
-      }
-      let holeRows = 0;
-      for (let k = col; k < col + colSpan; k += 1) {
-        holeRows += startRow - floor[k];
-      }
-      const candidate = { column: col, startRow, holeRows };
-      if (
-        !best ||
-        windowCost(candidate, incomingRowSpan) <
-          windowCost(best, incomingRowSpan) ||
-        (windowCost(candidate, incomingRowSpan) ===
-          windowCost(best, incomingRowSpan) &&
-          startRow < best.startRow)
-      ) {
-        best = candidate;
-      }
-    }
-    return best!;
-  };
-
-  // Stretch the image card at the bottom of `col` so the column reaches
-  // `targetRow`. Skipped when the hole is too tall relative to the card (the
-  // crop would be visible) or the card is a video (object-contain would
-  // letterbox). Wide cards may stretch too, but only when they are the last
-  // card in EVERY column they span — otherwise growing them would overlap a
-  // neighbor placed beside them.
-  const absorbHoleBelow = (col: number, targetRow: number) => {
-    const above = lastInColumn[col];
-    if (!above) return;
-    if (resolveLayoutKind(items[above.index]) !== "image") return;
-    const aboveEnd = above.column + above.colSpan;
-    for (let k = above.column; k < aboveEnd; k += 1) {
-      if (lastInColumn[k] !== above) return;
-      if (bottoms[k] > targetRow) return;
-    }
-    const hole = targetRow - bottoms[col];
-    if (hole <= 0) return;
-    if (hole > Math.floor(above.rowSpan * MAX_STRETCH_FRACTION)) return;
-    above.rowSpan += hole;
-    for (let k = above.column; k < aboveEnd; k += 1) {
-      bottoms[k] = above.startRow + above.rowSpan;
-    }
-  };
-
-  while (queue.length > 0) {
-    const index = queue.shift()!;
-    const { colSpan, rowSpan } = layouts[index];
-    if (colSpan <= 1) {
-      placeSingle(index);
-      continue;
-    }
-
-    // Level the columns before burying a hole under the wide card: pull
-    // upcoming single-column cards forward while doing so strictly shrinks
-    // the hole the wide card would leave behind.
-    let best = bestWindow(colSpan, bottoms, rowSpan);
-    while (effectiveHole(best.holeRows, rowSpan) > 0) {
-      let pullPos = -1;
-      const horizon = Math.min(queue.length, PACK_PULL_LOOKAHEAD);
-      for (let pos = 0; pos < horizon; pos += 1) {
-        if (layouts[queue[pos]].colSpan === 1) {
-          pullPos = pos;
-          break;
-        }
-      }
-      if (pullPos === -1) break;
-      const pulledIndex = queue[pullPos];
-      const col = shortestColumn();
-      const simulated = bottoms.slice();
-      simulated[col] += layouts[pulledIndex].rowSpan;
-      const simulatedBest = bestWindow(colSpan, simulated, rowSpan);
-      if (windowCost(simulatedBest, rowSpan) >= windowCost(best, rowSpan)) {
-        break;
-      }
-      queue.splice(pullPos, 1);
-      placeSingle(pulledIndex);
-      best = simulatedBest;
-    }
-
-    for (let col = best.column; col < best.column + colSpan; col += 1) {
-      absorbHoleBelow(col, best.startRow);
-    }
-
-    record({
-      index,
-      column: best.column,
-      colSpan,
-      startRow: best.startRow,
-      rowSpan,
-    });
-  }
-
-  closeResidualHoles(items, placements, columnCount);
-
-  let totalRows = 0;
-  let usedCells = 0;
-  for (const placement of placements) {
-    totalRows = Math.max(totalRows, placement.startRow + placement.rowSpan - 1);
-    usedCells += placement.colSpan * placement.rowSpan;
-  }
-  const gapRows = Math.max(0, totalRows * columnCount - usedCells);
-
-  return { totalRows, placements, gapRows };
-}
-
-// Adaptive gap absorption: for every interior hole left after packing (a gap
-// between two consecutive cards in a column, which only happens beneath the
-// shorter side of a multi-column card), stretch the contiguous run of
-// single-column image cards directly above it so their combined extra height
-// fills the hole. Single-column cards can shift/stretch freely without
-// touching other columns; videos (object-contain would letterbox) and
-// multi-column cards are left alone.
-function closeResidualHoles(
-  items: LayoutInput[],
-  placements: PackedItem[],
-  columnCount: number,
-): void {
-  for (let col = 0; col < columnCount; col += 1) {
-    const stack = placements
-      .filter(
-        (placement) =>
-          placement.column <= col && col < placement.column + placement.colSpan,
-      )
-      .sort((a, b) => a.startRow - b.startRow);
-
-    for (let i = 1; i < stack.length; i += 1) {
-      const prev = stack[i - 1]!;
-      const next = stack[i]!;
-      const gap = next.startRow - (prev.startRow + prev.rowSpan);
-      if (gap <= 0) continue;
-
-      // Contiguous run of absorbable cards ending at `prev`, walking upward.
-      const run: PackedItem[] = [];
-      for (let j = i - 1; j >= 0; j -= 1) {
-        const candidate = stack[j]!;
-        if (candidate.colSpan !== 1) break;
-        if (resolveLayoutKind(items[candidate.index] ?? {}) !== "image") break;
-        run.unshift(candidate);
-        const above = stack[j - 1];
-        if (above && above.startRow + above.rowSpan !== candidate.startRow) {
-          break;
-        }
-      }
-      if (run.length === 0) continue;
-
-      const capacity = run.map((placement) =>
-        Math.floor(placement.rowSpan * MAX_ADAPTIVE_STRETCH_FRACTION),
-      );
-      let remaining = Math.min(
-        gap,
-        capacity.reduce((sum, value) => sum + value, 0),
-      );
-      let shift = 0;
-      for (let j = 0; j < run.length; j += 1) {
-        const placement = run[j]!;
-        placement.startRow += shift;
-        const fairShare = Math.ceil(remaining / (run.length - j));
-        const add = Math.min(fairShare, capacity[j]!, remaining);
-        placement.rowSpan += add;
-        shift += add;
-        remaining -= add;
-      }
+  for (let i = 0; i < inputs.length; i += 1) {
+    aspectSum += aspects[i]!;
+    const count = i - rowStart + 1;
+    const gapsWidth = gap * (count - 1);
+    const naturalWidth = aspectSum * targetRowHeight + gapsWidth;
+    if (naturalWidth >= containerWidth) {
+      flushRow(i + 1, false);
     }
   }
+  if (rowStart < inputs.length) {
+    flushRow(inputs.length, true);
+  }
+
+  const totalHeight = Math.max(0, top - gap);
+  return { tiles, totalHeight, rowCount: rowIndex };
 }

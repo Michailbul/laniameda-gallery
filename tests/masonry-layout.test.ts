@@ -2,28 +2,15 @@ import { describe, expect, test } from "bun:test";
 
 import {
   clampAspect,
-  columnWidth,
-  computeCellLayout,
+  layoutJustified,
   MAX_ASPECT,
   MIN_ASPECT,
-  packMasonry,
-  reservedHeightForCell,
   resolveAspect,
-  resolveColumnSpan,
   resolveLayoutAspect,
   resolveLayoutKind,
-  rowSpanForHeight,
-  ROW_UNIT_PX,
-  VIDEO_CARD_COLUMN_SPAN,
-  type ColumnGeometry,
+  type JustifiedOptions,
   type LayoutInput,
 } from "../lib/masonry-layout";
-
-const geometry4col1200 = (): ColumnGeometry => ({
-  contentWidth: 1200,
-  columnCount: 4,
-  gap: 14,
-});
 
 describe("resolveAspect", () => {
   test("uses real dimensions when present, clamped to a sensible band", () => {
@@ -92,69 +79,6 @@ describe("resolveLayoutAspect", () => {
   });
 });
 
-describe("resolveColumnSpan", () => {
-  test("makes videos wider when there is enough masonry space", () => {
-    expect(
-      resolveColumnSpan(
-        { width: 1920, height: 1080, kind: "video" },
-        geometry4col1200(),
-      ),
-    ).toBe(VIDEO_CARD_COLUMN_SPAN);
-    expect(
-      resolveColumnSpan(
-        { width: 1500, height: 1000, kind: "image" },
-        geometry4col1200(),
-      ),
-    ).toBe(1);
-    expect(
-      resolveColumnSpan(
-        { width: 1024, height: 1024, contentType: "video/mp4" },
-        geometry4col1200(),
-      ),
-    ).toBe(VIDEO_CARD_COLUMN_SPAN);
-  });
-
-  test("keeps videos single-column on one-column layouts", () => {
-    expect(
-      resolveColumnSpan(
-        { width: 1920, height: 1080, kind: "video" },
-        { contentWidth: 320, columnCount: 1, gap: 12 },
-      ),
-    ).toBe(1);
-  });
-
-  test("makes wide images (16:9 and up) span two columns so they aren't thin strips", () => {
-    // 21:9 ≈ 2.33 — well above the wide threshold.
-    expect(
-      resolveColumnSpan(
-        { width: 2520, height: 1080, kind: "image" },
-        geometry4col1200(),
-      ),
-    ).toBe(2);
-    // 16:9 (1.78) is promoted too — it reads as a large banner, not a strip.
-    expect(
-      resolveColumnSpan(
-        { width: 1920, height: 1080, kind: "image" },
-        geometry4col1200(),
-      ),
-    ).toBe(2);
-    // Still single-column when there's only one column.
-    expect(
-      resolveColumnSpan(
-        { width: 2520, height: 1080, kind: "image" },
-        { contentWidth: 320, columnCount: 1, gap: 12 },
-      ),
-    ).toBe(1);
-    // 3:2 (1.5) landscape stays single-column — only 16:9 and wider promote.
-    expect(
-      resolveColumnSpan(
-        { width: 1500, height: 1000, kind: "image" },
-        geometry4col1200(),
-      ),
-    ).toBe(1);
-  });
-});
-
 describe("clampAspect", () => {
   test("passes through aspects inside the band", () => {
     expect(clampAspect(1)).toBe(1);
@@ -171,331 +95,166 @@ describe("clampAspect", () => {
   });
 });
 
-describe("columnWidth", () => {
-  test("subtracts gaps before dividing", () => {
-    expect(columnWidth(geometry4col1200())).toBeCloseTo(
-      (1200 - 14 * 3) / 4,
-      4,
-    );
-  });
-
-  test("returns 0 for invalid column counts", () => {
-    expect(columnWidth({ contentWidth: 800, columnCount: 0, gap: 12 })).toBe(0);
-  });
+const opts = (over: Partial<JustifiedOptions> = {}): JustifiedOptions => ({
+  containerWidth: 1200,
+  gap: 12,
+  targetRowHeight: 240,
+  ...over,
 });
 
-describe("rowSpanForHeight", () => {
-  test("a card of height H occupies just enough rows", () => {
-    const gap = 14;
-    const cardH = 180;
-    const span = rowSpanForHeight(cardH, gap);
-    const reserved = span * ROW_UNIT_PX + (span - 1) * gap;
-    expect(reserved).toBeGreaterThanOrEqual(cardH);
-    expect(reserved - cardH).toBeLessThan(ROW_UNIT_PX + gap);
+// Group tiles into rows keyed by their `row` index.
+function rowsOf(tiles: { row: number }[]) {
+  const rows = new Map<number, typeof tiles>();
+  for (const tile of tiles) {
+    const bucket = rows.get(tile.row) ?? [];
+    bucket.push(tile);
+    rows.set(tile.row, bucket);
+  }
+  return [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+}
+
+describe("layoutJustified", () => {
+  test("returns an empty layout for degenerate input", () => {
+    expect(layoutJustified([], opts())).toEqual({
+      tiles: [],
+      totalHeight: 0,
+      rowCount: 0,
+    });
+    expect(layoutJustified([{ width: 100, height: 100 }], opts({ containerWidth: 0 })))
+      .toEqual({ tiles: [], totalHeight: 0, rowCount: 0 });
   });
 
-  test("returns at least 1 row for non-positive heights", () => {
-    expect(rowSpanForHeight(0, 14)).toBe(1);
-    expect(rowSpanForHeight(-5, 14)).toBe(1);
-    expect(rowSpanForHeight(Number.NaN, 14)).toBe(1);
-  });
-});
-
-describe("computeCellLayout", () => {
-  test("images span one column and videos span two columns when available", () => {
-    const geom = geometry4col1200();
-    const images: LayoutInput[] = [
-      { width: 1080, height: 1920, kind: "image" },
-      { width: 512, height: 512, kind: "image" },
-      {},
-    ];
-    for (const item of images) {
-      const layout = computeCellLayout(item, geom);
-      expect(layout.colSpan).toBe(1);
-    }
-    expect(
-      computeCellLayout({ width: 1920, height: 1080, kind: "video" }, geom)
-        .colSpan,
-    ).toBe(2);
-  });
-
-  test("portrait images reserve more vertical space than landscape images", () => {
-    const geom = geometry4col1200();
-    const portrait = computeCellLayout(
-      { width: 1080, height: 1920 },
-      geom,
-    );
-    const landscape = computeCellLayout(
-      { width: 1920, height: 1080 },
-      geom,
-    );
-    expect(portrait.rowSpan).toBeGreaterThan(landscape.rowSpan);
-  });
-
-  test("reserved height keeps the native video aspect in a wider card", () => {
-    const geom = geometry4col1200();
-    const item: LayoutInput = { width: 1920, height: 1080, kind: "video" };
-    const layout = computeCellLayout(item, geom);
-    const colW = columnWidth(geom);
-    const expectedW = colW * layout.colSpan + geom.gap * (layout.colSpan - 1);
-    const expectedH = expectedW / (1920 / 1080);
-    const reserved = reservedHeightForCell(layout, geom.gap);
-    expect(layout.colSpan).toBe(2);
-    expect(reserved).toBeGreaterThanOrEqual(expectedH);
-    expect(reserved - expectedH).toBeLessThan(ROW_UNIT_PX + geom.gap);
-  });
-
-  test("16:9 images get the same large two-column footprint as videos", () => {
-    const geom = geometry4col1200();
-    const video = computeCellLayout(
-      { width: 1920, height: 1080, kind: "video" },
-      geom,
-    );
-    const image = computeCellLayout(
-      { width: 1920, height: 1080, kind: "image" },
-      geom,
-    );
-
-    expect(video.colSpan).toBe(2);
-    expect(image.colSpan).toBe(2);
-    expect(image.rowSpan).toBe(video.rowSpan);
-  });
-
-  test("wide cards are larger by width, not by aspect distortion", () => {
-    const geom = geometry4col1200();
-    const wide = computeCellLayout(
-      { width: 1920, height: 1080, kind: "image" },
-      geom,
-    );
-    const narrow = computeCellLayout(
-      { width: 1500, height: 1000, kind: "image" },
-      geom,
-    );
-    const wideH = reservedHeightForCell(wide, geom.gap);
-    const narrowH = reservedHeightForCell(narrow, geom.gap);
-    const colW = columnWidth(geom);
-
-    expect(wide.colSpan).toBe(2);
-    expect(narrow.colSpan).toBe(1);
-    // The 16:9 card keeps its native aspect at double width.
-    const expectedWideH = (colW * 2 + geom.gap) / (1920 / 1080);
-    expect(wideH).toBeGreaterThanOrEqual(expectedWideH);
-    expect(wideH - expectedWideH).toBeLessThan(ROW_UNIT_PX + geom.gap);
-    expect(wideH).toBeGreaterThan(narrowH);
-  });
-
-  test("falls back gracefully when geometry is not yet measured", () => {
-    const layout = computeCellLayout(
-      { width: 1920, height: 1080 },
-      { contentWidth: 0, columnCount: 4, gap: 14 },
-    );
-    expect(layout).toEqual({ colSpan: 1, rowSpan: 1 });
-  });
-});
-
-describe("packMasonry — dense flow supports wider video cards", () => {
-  test("a mixed gallery of videos and images packs without leaving any column gaps", () => {
-    const geom = geometry4col1200();
-    const gallery: LayoutInput[] = [
-      { width: 1920, height: 1080, kind: "video" },
-      { width: 1080, height: 1920, kind: "image" },
-      { width: 1024, height: 1024, kind: "image" },
-      { kind: "video" },
-      { width: 1500, height: 1000, kind: "image" },
-      { width: 720, height: 1280, kind: "video" },
-      { width: 2048, height: 1152, kind: "video" },
-      { width: 800, height: 800, kind: "image" },
-      {},
-      { width: 1280, height: 720, kind: "video" },
-    ];
-
-    const result = packMasonry(gallery, geom);
-
-    // Every item must land within a real column.
-    for (const placement of result.placements) {
-      expect(placement.column).toBeGreaterThanOrEqual(0);
-      expect(placement.column + placement.colSpan).toBeLessThanOrEqual(
-        geom.columnCount,
-      );
-      expect(placement.colSpan).toBeGreaterThanOrEqual(1);
-      expect(placement.rowSpan).toBeGreaterThanOrEqual(1);
-    }
-    const occupiedCells = new Set<string>();
-    const rowsByColumn = new Map<number, Set<number>>();
-    for (const placement of result.placements) {
-      for (
-        let col = placement.column;
-        col < placement.column + placement.colSpan;
-        col += 1
-      ) {
-        const rows = rowsByColumn.get(col) ?? new Set<number>();
-        for (
-          let row = placement.startRow;
-          row < placement.startRow + placement.rowSpan;
-          row += 1
-        ) {
-          const key = `${row}:${col}`;
-          expect(occupiedCells.has(key)).toBe(false);
-          occupiedCells.add(key);
-          rows.add(row);
-        }
-        rowsByColumn.set(col, rows);
-      }
-    }
-
-    for (const rows of rowsByColumn.values()) {
-      const bottomRow = Math.max(...rows);
-      let missingRun = 0;
-      let maxMissingRun = 0;
-      for (let row = 1; row <= bottomRow; row += 1) {
-        if (rows.has(row)) {
-          missingRun = 0;
-        } else {
-          missingRun += 1;
-          maxMissingRun = Math.max(maxMissingRun, missingRun);
-        }
-      }
-      expect(maxMissingRun).toBeLessThanOrEqual(1);
-    }
-  });
-
-  test("only-videos sequence packs across all columns (the prior buggy case)", () => {
-    const geom = geometry4col1200();
-    const onlyVideos: LayoutInput[] = Array.from({ length: 12 }, () => ({
-      width: 1920,
-      height: 1080,
-      kind: "video" as const,
-    }));
-    const result = packMasonry(onlyVideos, geom);
-    for (const placement of result.placements) {
-      expect(placement.colSpan).toBe(VIDEO_CARD_COLUMN_SPAN);
-    }
-    const columnsCovered = new Set<number>();
-    for (const placement of result.placements) {
-      for (
-        let col = placement.column;
-        col < placement.column + placement.colSpan;
-        col += 1
-      ) {
-        columnsCovered.add(col);
-      }
-    }
-    expect(columnsCovered.size).toBe(geom.columnCount);
-  });
-
-  test("wide-heavy feed (2:1 banners + squares) packs with no interior holes", () => {
-    // Mirrors the real gallery feed that produced ~200px holes: 2-column
-    // banner cards interleaved with square cards. Interior holes (empty cells
-    // above a column's bottom) must be gone; bottom raggedness is fine.
-    const geom = geometry4col1200();
-    const feed: LayoutInput[] = [
-      { width: 1280, height: 640, kind: "image" },
-      { width: 1500, height: 640, kind: "image" },
-      { width: 1500, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 1280, height: 640, kind: "image" },
-      { width: 1280, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 1280, height: 640, kind: "image" },
-      { width: 1280, height: 640, kind: "image" },
-      { width: 640, height: 640, kind: "image" },
-      { width: 1280, height: 640, kind: "image" },
-    ];
-
-    const result = packMasonry(feed, geom);
-    expect(result.placements).toHaveLength(feed.length);
-
-    const rowsByColumn = new Map<number, Set<number>>();
-    for (const placement of result.placements) {
-      for (
-        let col = placement.column;
-        col < placement.column + placement.colSpan;
-        col += 1
-      ) {
-        const rows = rowsByColumn.get(col) ?? new Set<number>();
-        for (
-          let row = placement.startRow;
-          row < placement.startRow + placement.rowSpan;
-          row += 1
-        ) {
-          expect(rows.has(row)).toBe(false);
-          rows.add(row);
-        }
-        rowsByColumn.set(col, rows);
-      }
-    }
-
-    expect(rowsByColumn.size).toBe(geom.columnCount);
-    for (const rows of rowsByColumn.values()) {
-      const bottomRow = Math.max(...rows);
-      for (let row = 1; row <= bottomRow; row += 1) {
-        expect(rows.has(row)).toBe(true);
-      }
-    }
-  });
-
-  test("adaptive stretch closes holes the packer can't level (staggered columns)", () => {
-    // Two columns: a portrait+square stack vs three squares leaves a 10-row
-    // deficit under the shorter column when the wide banner lands. No queue
-    // items remain to level with, so the run of single-column image cards
-    // above the hole must stretch (distributed, capped) until the column is
-    // flush with the banner.
-    const geom: ColumnGeometry = { contentWidth: 1200, columnCount: 2, gap: 14 };
-    const feed: LayoutInput[] = [
-      { width: 1080, height: 1920, kind: "image" }, // portrait, col 0
-      { width: 1024, height: 1024, kind: "image" },
-      { width: 1024, height: 1024, kind: "image" },
-      { width: 1024, height: 1024, kind: "image" },
-      { width: 1024, height: 1024, kind: "image" },
-      { width: 2560, height: 1280, kind: "image" }, // 2:1 banner spans both
-    ];
-
-    const result = packMasonry(feed, geom);
-    const rowsByColumn = new Map<number, Set<number>>();
-    for (const placement of result.placements) {
-      for (
-        let col = placement.column;
-        col < placement.column + placement.colSpan;
-        col += 1
-      ) {
-        const rows = rowsByColumn.get(col) ?? new Set<number>();
-        for (
-          let row = placement.startRow;
-          row < placement.startRow + placement.rowSpan;
-          row += 1
-        ) {
-          expect(rows.has(row)).toBe(false);
-          rows.add(row);
-        }
-        rowsByColumn.set(col, rows);
-      }
-    }
-    for (const rows of rowsByColumn.values()) {
-      const bottomRow = Math.max(...rows);
-      for (let row = 1; row <= bottomRow; row += 1) {
-        expect(rows.has(row)).toBe(true);
-      }
-    }
-    // The banner still spans both columns — wide cards never shrink.
-    const banner = result.placements[5]!;
-    expect(banner.colSpan).toBe(2);
-  });
-
-  test("packs tightly across a single-pillar filter (e.g. all designs)", () => {
-    const geom = geometry4col1200();
-    const designs: LayoutInput[] = Array.from({ length: 16 }, (_, i) => ({
-      width: i % 3 === 0 ? 1080 : 1600,
-      height: i % 3 === 0 ? 1920 : 1000,
+  test("keeps tiles in input order and covers every input", () => {
+    const inputs: LayoutInput[] = Array.from({ length: 20 }, (_, i) => ({
+      width: i % 2 === 0 ? 1080 : 1920,
+      height: i % 2 === 0 ? 1350 : 1080,
       kind: "image" as const,
     }));
-    const result = packMasonry(designs, geom);
-    expect(result.placements).toHaveLength(designs.length);
-    // No item should jump more than a few rows past the next-shortest column —
-    // dense flow rule.
-    const startRows = result.placements.map((p) => p.startRow);
-    expect(Math.min(...startRows)).toBe(1);
+    const { tiles } = layoutJustified(inputs, opts());
+    expect(tiles).toHaveLength(inputs.length);
+    tiles.forEach((tile, i) => expect(tile.index).toBe(i));
+  });
+
+  test("every complete row fills the container width exactly (no horizontal gap)", () => {
+    const inputs: LayoutInput[] = Array.from({ length: 30 }, (_, i) => ({
+      width: [1080, 1920, 1024, 1500][i % 4],
+      height: [1350, 1080, 1024, 1000][i % 4],
+      kind: "image" as const,
+    }));
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    // All rows except possibly the last must span the full width, edge to edge.
+    rows.slice(0, -1).forEach((row) => {
+      const sorted = [...row].sort((a, b) => a.left - b.left);
+      expect(sorted[0]!.left).toBe(0);
+      const last = sorted[sorted.length - 1]!;
+      expect(last.left + last.width).toBe(1200);
+      // Tiles within a row butt up against each other with exactly one gap.
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i]!.left).toBe(
+          sorted[i - 1]!.left + sorted[i - 1]!.width + 12,
+        );
+      }
+    });
+  });
+
+  test("rows stack with no vertical gap and match totalHeight", () => {
+    const inputs: LayoutInput[] = Array.from({ length: 24 }, () => ({
+      width: 1024,
+      height: 1024,
+      kind: "image" as const,
+    }));
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    for (let i = 1; i < rows.length; i += 1) {
+      const prev = rows[i - 1]![0]!;
+      const curr = rows[i]![0]!;
+      // Next row starts exactly one gap below the previous row's bottom.
+      expect(curr.top).toBe(prev.top + prev.height + 12);
+    }
+    const lastRow = rows[rows.length - 1]!;
+    expect(layout.totalHeight).toBe(lastRow[0]!.top + lastRow[0]!.height);
+  });
+
+  test("within a row all tiles share one height and keep native aspect", () => {
+    const inputs: LayoutInput[] = [
+      { width: 1920, height: 1080, kind: "image" }, // 16:9 wide
+      { width: 1080, height: 1350, kind: "image" }, // 4:5 portrait
+      { width: 1024, height: 1024, kind: "image" }, // square
+      { width: 1500, height: 1000, kind: "image" }, // 3:2
+      { width: 1920, height: 1080, kind: "image" },
+      { width: 1080, height: 1350, kind: "image" },
+      { width: 1024, height: 1024, kind: "image" },
+      { width: 1500, height: 1000, kind: "image" },
+    ];
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    for (const row of rows) {
+      const height = row[0]!.height;
+      for (const tile of row) {
+        expect(tile.height).toBe(height);
+      }
+      // Wide tiles are physically wider than portrait tiles in the same row.
+      const widths = row.map((t) => t.width);
+      expect(Math.max(...widths)).toBeGreaterThanOrEqual(Math.min(...widths));
+    }
+    // A 16:9 tile is wider than a portrait tile at the same row height.
+    const first = layout.tiles[0]!; // 16:9
+    const second = layout.tiles[1]!; // portrait, same row (accumulates before flush)
+    if (first.row === second.row) {
+      expect(first.width).toBeGreaterThan(second.width);
+    }
+  });
+
+  test("interior rows never exceed the target row height", () => {
+    const inputs: LayoutInput[] = Array.from({ length: 40 }, (_, i) => ({
+      width: [1080, 1920, 1024][i % 3],
+      height: [1350, 1080, 1024][i % 3],
+      kind: "image" as const,
+    }));
+    const layout = layoutJustified(inputs, opts({ targetRowHeight: 260 }));
+    const rows = rowsOf(layout.tiles);
+    // Every row except the last is closed by overflow, so its justified height
+    // is <= target. Allow +1px for integer rounding.
+    rows.slice(0, -1).forEach((row) => {
+      expect(row[0]!.height).toBeLessThanOrEqual(261);
+    });
+  });
+
+  test("a sparse final row is left-aligned at target height, not blown up", () => {
+    // One lone portrait can't fill a 1200px row at 240px target — it should
+    // stay at target height and left-align rather than stretch huge.
+    const inputs: LayoutInput[] = [{ width: 1080, height: 1350, kind: "image" }];
+    const layout = layoutJustified(inputs, opts());
+    const tile = layout.tiles[0]!;
+    expect(tile.left).toBe(0);
+    expect(tile.height).toBe(240);
+    expect(tile.width).toBeLessThan(1200);
+  });
+
+  test("a nearly-full final row is justified to the edge", () => {
+    // Four squares at 240px target ≈ 4 * 240 + gaps = 996 < 1200, ~0.83 fill →
+    // above the 0.7 threshold, so it justifies to fill the width.
+    const inputs: LayoutInput[] = Array.from({ length: 4 }, () => ({
+      width: 1024,
+      height: 1024,
+      kind: "image" as const,
+    }));
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    const only = rows[0]!.sort((a, b) => a.left - b.left);
+    const last = only[only.length - 1]!;
+    expect(last.left + last.width).toBe(1200);
+  });
+
+  test("caps row height so a lone ultra-wide banner doesn't dominate", () => {
+    const inputs: LayoutInput[] = [
+      { width: 3000, height: 300, kind: "image" }, // aspect clamped to 2.4
+    ];
+    const layout = layoutJustified(
+      inputs,
+      opts({ targetRowHeight: 240, maxRowHeight: 300 }),
+    );
+    expect(layout.tiles[0]!.height).toBeLessThanOrEqual(300);
   });
 });

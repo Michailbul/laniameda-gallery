@@ -6,8 +6,8 @@ import { StorybookCard } from "@/components/gallery/storybook-card";
 import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import {
-  ROW_UNIT_PX,
-  packMasonry,
+  layoutJustified,
+  type JustifiedTile,
   type LayoutInput,
 } from "@/lib/masonry-layout";
 
@@ -152,7 +152,7 @@ const EAGER_IMAGE_COUNT = 6;
 // the frontier in one frame).
 const LOAD_MORE_MARGIN_PX = 800;
 
-/* ── Responsive column count hook ── */
+/* ── Responsive column count → target row height ── */
 
 // Tailwind v4 breakpoints
 const BREAKPOINTS = [
@@ -162,6 +162,10 @@ const BREAKPOINTS = [
   { min: 640, key: "sm" },
 ] as const;
 
+// The justified layout has no fixed columns; instead we derive a target row
+// height from a nominal column count so a square image lands at roughly one
+// "column" wide (keeping the familiar density). Wide/tall items then flex
+// naturally around that target.
 const COLUMN_MAP = {
   normal: { "2xl": 5, lg: 4, md: 3, sm: 2, default: 2 },
   compact: { "2xl": 3, lg: 3, md: 2, sm: 2, default: 1 },
@@ -211,10 +215,7 @@ function useContentWidth(): [
   useLayoutEffect(() => {
     if (!el) return;
     const update = () => {
-      const cs = window.getComputedStyle(el);
-      const padL = parseFloat(cs.paddingLeft) || 0;
-      const padR = parseFloat(cs.paddingRight) || 0;
-      const w = el.clientWidth - padL - padR;
+      const w = el.clientWidth;
       setWidth(w > 0 ? w : null);
     };
     update();
@@ -275,14 +276,59 @@ export function MasonryGrid({
     );
   }, [images.length]);
 
-  // Load-more driver. The grid always reserves rows for the FULL packed list,
-  // so the sentinel (anchored at the mounted frontier) can be thousands of
-  // pixels above the viewport after a fast scroll or scrollbar drag — an
-  // IntersectionObserver with a finite rootMargin would never fire there.
-  // Instead, check the sentinel's position on scroll/resize: anything above
+  const [gridRef, contentWidth] = useContentWidth();
+
+  // Justified layout for the FULL list so tile positions are stable as batches
+  // mount, then mount whole rows up to (and including) the row that holds the
+  // visible-count cutoff. Mounting whole rows means the frontier is always a
+  // complete edge-to-edge row — no half-filled trailing row.
+  const { mounted, mountedHeight, hasMore } = useMemo(() => {
+    if (contentWidth === null) {
+      return {
+        mounted: images
+          .slice(0, effectiveVisibleCount)
+          .map((image) => ({ image, tile: undefined as JustifiedTile | undefined })),
+        mountedHeight: undefined as number | undefined,
+        hasMore: effectiveVisibleCount < images.length,
+      };
+    }
+    // targetRowHeight ≈ the width one column would be, so squares land at about
+    // one column wide and the density matches the old grid.
+    const targetRowHeight =
+      (contentWidth - gap * (columnCount - 1)) / columnCount;
+    const { tiles } = layoutJustified(images.map(resolveGridLayoutInput), {
+      containerWidth: contentWidth,
+      gap,
+      targetRowHeight,
+    });
+
+    // Extend the cutoff to the end of the row containing the last visible item.
+    let cutoff = Math.min(effectiveVisibleCount, images.length);
+    if (cutoff > 0 && cutoff < images.length) {
+      const cutoffRow = tiles[cutoff - 1]?.row;
+      while (cutoff < images.length && tiles[cutoff]?.row === cutoffRow) {
+        cutoff += 1;
+      }
+    }
+
+    const mounted = images
+      .slice(0, cutoff)
+      .map((image, i) => ({ image, tile: tiles[i] }));
+    let mountedHeight = 0;
+    for (const { tile } of mounted) {
+      if (tile) mountedHeight = Math.max(mountedHeight, tile.top + tile.height);
+    }
+    return { mounted, mountedHeight, hasMore: cutoff < images.length };
+  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount]);
+
+  // Load-more driver. The container height is only as tall as MOUNTED content,
+  // so the sentinel sits just under the last mounted row. On a fast scroll or
+  // scrollbar drag it can be far above the viewport bottom — an
+  // IntersectionObserver with a finite rootMargin would miss it. Instead, check
+  // the sentinel's position on scroll/resize: anything above
   // `viewport bottom + margin` means the user is at or past the frontier.
   useEffect(() => {
-    if (effectiveVisibleCount >= images.length) return;
+    if (!hasMore) return;
     let ticking = false;
     const check = () => {
       ticking = false;
@@ -308,88 +354,47 @@ export function MasonryGrid({
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
     };
-  }, [effectiveVisibleCount, images.length, loadMore]);
+  }, [hasMore, mountedHeight, loadMore]);
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns
     ? "columns-1 sm:columns-2 md:columns-2 lg:columns-3 2xl:columns-3"
     : "columns-2 sm:columns-2 md:columns-3 lg:columns-4 2xl:columns-5";
 
-  const [gridRef, contentWidth] = useContentWidth();
-
-  // Pack the FULL list (not just the visible batch) so placements are stable
-  // as batches mount, then mount cards in visual (top-to-bottom) order — the
-  // packer may place a later item above an earlier one when leveling columns
-  // under a wide card, and mounting by array order would leave holes at the
-  // top until that item's batch loads.
-  const { orderedCards, frontierRow } = useMemo(() => {
-    if (contentWidth === null) {
-      return {
-        orderedCards: images
-          .slice(0, effectiveVisibleCount)
-          .map((image) => ({ image, placement: undefined })),
-        frontierRow: undefined,
-      };
-    }
-    const { placements } = packMasonry(
-      images.map(resolveGridLayoutInput),
-      {
-        contentWidth,
-        columnCount,
-        gap,
-      },
-    );
-    const orderedCards = [...placements]
-      .sort((a, b) => a.startRow - b.startRow || a.column - b.column)
-      .slice(0, effectiveVisibleCount)
-      .map((placement) => ({ image: images[placement.index]!, placement }));
-    // Deepest mounted row — the sentinel anchors here so load-more tracks the
-    // mounted frontier instead of the (full-height) grid bottom.
-    let frontierRow = 1;
-    for (const { placement } of orderedCards) {
-      frontierRow = Math.max(frontierRow, placement.startRow + placement.rowSpan);
-    }
-    return { orderedCards, frontierRow };
-  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount]);
-
   if (loading) {
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
   }
 
   return (
-    <>
+    <div style={{ padding: `${PADDING_PX}px` }}>
       <div
         ref={gridRef}
         style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-          gridAutoRows: `${ROW_UNIT_PX}px`,
-          gap: `${gap}px`,
-          padding: `${PADDING_PX}px`,
+          position: "relative",
+          width: "100%",
+          height: mountedHeight !== undefined ? `${mountedHeight}px` : undefined,
         }}
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
-        {orderedCards.map(({ image, placement }, originalIndex) => {
+        {mounted.map(({ image, tile }, originalIndex) => {
           const isAssetCard =
             image.galleryItemType === "asset" ||
             image.galleryItemType === undefined;
           const canDrag = draggableAssets && isAssetCard && Boolean(onAssetDragStart);
+          const tileStyle: React.CSSProperties = tile
+            ? {
+                position: "absolute",
+                top: `${tile.top}px`,
+                left: `${tile.left}px`,
+                width: `${tile.width}px`,
+                height: `${tile.height}px`,
+              }
+            : { position: "relative", width: "100%" };
+
           if (image.galleryItemType === "storybook" && onStorybookOpen) {
             return (
-              <div
-                key={image.id}
-                style={{
-                  gridColumn: placement
-                    ? `${placement.column + 1} / span ${placement.colSpan}`
-                    : "span 1",
-                  gridRow: placement
-                    ? `${placement.startRow} / span ${placement.rowSpan}`
-                    : "span 1",
-                  display: "grid",
-                  minWidth: 0,
-                }}
-              >
+              <div key={image.id} style={tileStyle}>
                 <StorybookCard
                   storybook={{
                     id: image.id,
@@ -419,16 +424,7 @@ export function MasonryGrid({
                   ? (event) => onAssetDragStart!(event, image.id)
                   : undefined
               }
-              style={{
-                gridColumn: placement
-                  ? `${placement.column + 1} / span ${placement.colSpan}`
-                  : "span 1",
-                gridRow: placement
-                  ? `${placement.startRow} / span ${placement.rowSpan}`
-                  : "span 1",
-                display: "grid",
-                minWidth: 0,
-              }}
+              style={tileStyle}
             >
               <ImageCard
                 image={image}
@@ -474,19 +470,19 @@ export function MasonryGrid({
             </div>
           );
         })}
-        {effectiveVisibleCount < images.length && (
+        {hasMore && (
           <div
             ref={sentinelRef}
             className="h-px"
             style={
-              frontierRow !== undefined
-                ? { gridColumn: "1 / -1", gridRow: `${frontierRow} / span 1` }
-                : { gridColumn: "1 / -1" }
+              mountedHeight !== undefined
+                ? { position: "absolute", left: 0, right: 0, top: `${mountedHeight}px` }
+                : { position: "relative" }
             }
             aria-hidden
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
