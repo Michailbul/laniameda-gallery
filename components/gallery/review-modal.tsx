@@ -77,6 +77,8 @@ type DirectionCardData = {
   count: number;
   section?: ProjectSection;
   cover: ReviewAsset | null;
+  /** Thumb urls of the next variations, peeking behind the master. */
+  backs: string[];
 };
 
 /**
@@ -114,7 +116,9 @@ export function ReviewModal({
       : "skip",
   );
 
-  const [activeTab, setActiveTab] = useState<ReviewTab>("all");
+  // null = no explicit choice yet → land on the first non-empty layer so the
+  // project opens on its modes (Characters / Locations / Beats), not the wall.
+  const [activeTab, setActiveTab] = useState<ReviewTab | null>(null);
   // Direction currently drilled into (a member collection id), or null when
   // browsing a layer's direction cards / the flat All view.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
@@ -170,12 +174,22 @@ export function ReviewModal({
   const tabOf = (section: string | undefined): ReviewTab =>
     (section as ProjectSection | undefined) ?? "unsorted";
 
+  // Land on the first layer that has directions; flat All is the fallback.
+  const defaultTab = useMemo<ReviewTab>(() => {
+    const collections = project?.collections ?? [];
+    for (const { key } of SECTION_TABS) {
+      if (collections.some((c) => tabOf(c.section) === key)) return key;
+    }
+    return "all";
+  }, [project]);
+  const effectiveTab = activeTab ?? defaultTab;
+
   // Collections visible in the active tab.
   const tabCollections = useMemo<ProjectCollection[]>(() => {
     const collections = project?.collections ?? [];
-    if (activeTab === "all") return collections;
-    return collections.filter((c) => tabOf(c.section) === activeTab);
-  }, [project, activeTab]);
+    if (effectiveTab === "all") return collections;
+    return collections.filter((c) => tabOf(c.section) === effectiveTab);
+  }, [project, effectiveTab]);
 
   // The drilled-into direction, if it still exists in the project.
   const openDirection = useMemo<ProjectCollection | null>(
@@ -208,12 +222,18 @@ export function ReviewModal({
             collection.assets.find((a) => (a._id as string) === coverId)) ||
           collection.assets[0] ||
           null;
+        const backs = collection.assets
+          .filter((a) => a !== coverAsset)
+          .slice(0, 2)
+          .map((a) => a.thumbUrl ?? a.url)
+          .filter((src): src is string => Boolean(src));
         return {
           id: collection.folderId as string,
           name: collection.name,
           count: collection.count,
           section: collection.section as ProjectSection | undefined,
           cover: coverAsset ? toReviewAsset(coverAsset, collection) : null,
+          backs,
         };
       }),
     [tabCollections, resolveCoverId, toReviewAsset],
@@ -386,7 +406,7 @@ export function ReviewModal({
   ];
 
   // Direction-cards browsing mode: a layer tab with nothing drilled into.
-  const showDirectionCards = activeTab !== "all" && !openDirection;
+  const showDirectionCards = effectiveTab !== "all" && !openDirection;
   const openDirectionMasterId = openDirection
     ? resolveCoverId(openDirection)
     : null;
@@ -516,7 +536,7 @@ export function ReviewModal({
       {hasCollections && !inFocus && (
         <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
           {tabs.map((tab) => {
-            const active = activeTab === tab.key;
+            const active = effectiveTab === tab.key;
             return (
               <button
                 key={tab.key}
@@ -562,7 +582,7 @@ export function ReviewModal({
             title="Back to directions (Esc)"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            {TAB_LABELS[activeTab]}
+            {TAB_LABELS[effectiveTab]}
           </button>
           <span
             className="truncate text-[14px] font-semibold"
@@ -641,7 +661,7 @@ export function ReviewModal({
         ) : showDirectionCards ? (
           directions.length === 0 ? (
             <EmptyState
-              title={`No directions in ${TAB_LABELS[activeTab]} yet`}
+              title={`No directions in ${TAB_LABELS[effectiveTab]} yet`}
               hint="A direction is a collection of similar options with a master thumbnail. Add or create one for this layer."
               actionLabel="Add direction"
               onAction={() => setPickerOpen(true)}
@@ -713,7 +733,7 @@ export function ReviewModal({
                   approved={isApproved(asset)}
                   onOpen={() => setFocusId(asset.id)}
                   onApprove={() => toggleApprove(asset)}
-                  showCollectionLabel={activeTab === "all"}
+                  showCollectionLabel={effectiveTab === "all"}
                   isMaster={
                     openDirection ? openDirectionMasterId === asset.id : undefined
                   }
@@ -765,7 +785,7 @@ export function ReviewModal({
           memberIds={memberCollectionIds}
           // Adding from a layer tab files the collection into that layer.
           section={
-            activeTab !== "all" && activeTab !== "unsorted" ? activeTab : null
+            effectiveTab !== "all" && effectiveTab !== "unsorted" ? effectiveTab : null
           }
           onToggle={(folderId, isMember) => {
             if (!projectId) return;
@@ -781,8 +801,8 @@ export function ReviewModal({
                 projectId: projectId as Id<"folders">,
                 folderId: folderId as Id<"folders">,
                 section:
-                  activeTab !== "all" && activeTab !== "unsorted"
-                    ? activeTab
+                  effectiveTab !== "all" && effectiveTab !== "unsorted"
+                    ? effectiveTab
                     : undefined,
               });
             }
@@ -796,8 +816,8 @@ export function ReviewModal({
                 projectId: projectId as Id<"folders">,
                 folderId,
                 section:
-                  activeTab !== "all" && activeTab !== "unsorted"
-                    ? activeTab
+                  effectiveTab !== "all" && effectiveTab !== "unsorted"
+                    ? effectiveTab
                     : undefined,
               });
             })();
@@ -809,7 +829,7 @@ export function ReviewModal({
   );
 }
 
-/* ── Direction card: a collection of similar options, thumbed by its master ── */
+/* ── Direction card: a stacked deck of similar options, master on top ── */
 function DirectionCard({
   direction,
   onOpen,
@@ -820,22 +840,50 @@ function DirectionCard({
   const cover = direction.cover;
   return (
     <div
-      className="group relative mb-3.5 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
+      className="group relative mb-5 block break-inside-avoid cursor-pointer"
       style={{
-        border: "1px solid var(--lm-border-strong)",
-        backgroundColor: "var(--lm-surface-1)",
+        aspectRatio:
+          cover?.width && cover?.height
+            ? `${cover.width} / ${cover.height}`
+            : "4 / 5",
       }}
       onClick={onOpen}
       role="button"
       aria-label={`Open direction: ${direction.name}`}
     >
+      {/* Fanned deck — next variations peeking behind the master */}
+      {direction.backs.map((src, index) => (
+        <div
+          key={`${direction.id}-back-${index}`}
+          className="absolute inset-0 overflow-hidden rounded-xl transition-transform duration-200 ease-out"
+          style={{
+            border: "1px solid var(--lm-border)",
+            backgroundColor: "var(--lm-surface-2)",
+            transform:
+              index === 0
+                ? "rotate(-2deg) translate(-6px, 5px) scale(0.985)"
+                : "rotate(2.6deg) translate(7px, 7px) scale(0.97)",
+            zIndex: index === 0 ? 2 : 1,
+          }}
+        >
+          <img
+            src={src}
+            alt=""
+            aria-hidden
+            className="h-full w-full object-cover"
+            style={{ opacity: 0.85 }}
+            loading="lazy"
+          />
+        </div>
+      ))}
+
+      {/* Master on top */}
       <div
-        className="relative w-full"
+        className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
         style={{
-          aspectRatio:
-            cover?.width && cover?.height
-              ? `${cover.width} / ${cover.height}`
-              : "4 / 5",
+          border: "2px solid var(--lm-border-strong)",
+          backgroundColor: "var(--lm-surface-1)",
+          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
         }}
       >
         {cover ? (
@@ -852,6 +900,19 @@ function DirectionCard({
           </div>
         )}
 
+        {/* Option count badge */}
+        <span
+          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.62)",
+            color: "var(--lm-coral)",
+            border:
+              "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+          }}
+        >
+          {direction.count}
+        </span>
+
         {/* Bottom label over a gradient so any master image stays readable */}
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
@@ -862,6 +923,12 @@ function DirectionCard({
         />
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
           <div className="min-w-0">
+            <p
+              className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+              style={{ color: "var(--lm-coral)" }}
+            >
+              Direction
+            </p>
             <p
               className="truncate text-[14px] font-semibold"
               style={{ color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}
