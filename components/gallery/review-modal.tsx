@@ -14,6 +14,7 @@ import {
   Copy,
   Crown,
   ExternalLink,
+  FileDown,
   FolderPlus,
   LayoutGrid,
   Link2,
@@ -597,6 +598,22 @@ export function ReviewModal({
             {openDirection.count}{" "}
             {openDirection.count === 1 ? "option" : "options"}
           </span>
+          <a
+            href={`/api/projects/direction-pdf?projectId=${encodeURIComponent(
+              projectId ?? "",
+            )}&folderId=${encodeURIComponent(openDirection.folderId as string)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-secondary)",
+            }}
+            title="Package this direction as a PDF (images embedded, videos as links)"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            PDF
+          </a>
 
           {/* Refile this direction under another layer */}
           <div className="ml-auto flex items-center gap-1.5">

@@ -210,6 +210,128 @@ export const getBoardAssetDownload = query({
   },
 });
 
+// One direction (member collection) of a project, in the trimmed public
+// asset shape — the payload behind the packaged-PDF export.
+const directionPayloadValidator = v.union(
+  v.null(),
+  v.object({
+    projectName: v.string(),
+    direction: v.object({
+      id: v.id("folders"),
+      name: v.string(),
+      coverAssetId: v.optional(v.id("assets")),
+      assets: v.array(boardAssetValidator),
+    }),
+  }),
+);
+
+const resolveDirectionPayload = async (
+  ctx: QueryCtx,
+  projectFolder: Doc<"folders">,
+  folderId: Id<"folders">,
+) => {
+  if (!projectFolder.ownerUserId) return null;
+  const ownerUserIds = resolveUserIdCandidates(projectFolder.ownerUserId);
+  const collectionIds = await collectProjectCollectionIds(
+    ctx,
+    ownerUserIds,
+    projectFolder._id,
+  );
+  if (!collectionIds.includes(folderId)) return null;
+
+  const collectionFolder = await ctx.db.get(folderId);
+  if (!collectionFolder) return null;
+
+  const approvedTag = await ctx.db
+    .query("tags")
+    .withIndex("by_normalized", (q) =>
+      q.eq("normalized", normalizeTagName(APPROVED_TAG_NAME)),
+    )
+    .unique();
+  const approvedTagId = approvedTag?._id;
+
+  const members = await collectAssetsForFolder(
+    ctx,
+    ownerUserIds,
+    folderId,
+    BOARD_COLLECTION_ASSET_LIMIT,
+  );
+  const assets = await Promise.all(
+    members.map(async (asset) => {
+      const [url, thumbUrl] = await Promise.all([
+        resolveAssetUrl(ctx, asset),
+        resolveAssetThumbUrl(ctx, asset),
+      ]);
+      return {
+        id: asset._id,
+        kind: asset.kind,
+        contentType: asset.contentType,
+        url: url ?? undefined,
+        thumbUrl: thumbUrl ?? undefined,
+        width: asset.width,
+        height: asset.height,
+        fileName: asset.fileName,
+        title: asset.description,
+        approved: approvedTagId ? asset.tagIds.includes(approvedTagId) : false,
+        createdAt: asset.createdAt,
+      };
+    }),
+  );
+
+  return {
+    projectName: projectFolder.name,
+    direction: {
+      id: folderId,
+      name: collectionFolder.name,
+      coverAssetId: collectionFolder.coverAssetId,
+      assets,
+    },
+  };
+};
+
+/**
+ * PUBLIC: one direction of a shared board, token-gated. Backs the
+ * /api/board/direction-pdf export.
+ */
+export const getBoardDirection = query({
+  args: {
+    token: v.string(),
+    folderId: v.id("folders"),
+  },
+  returns: directionPayloadValidator,
+  handler: async (ctx, args) => {
+    const token = args.token.trim();
+    if (!token) return null;
+    const folder = await ctx.db
+      .query("folders")
+      .withIndex("by_shareToken", (q) => q.eq("shareToken", token))
+      .unique();
+    if (!folder || folder.kind !== "project") return null;
+    return await resolveDirectionPayload(ctx, folder, args.folderId);
+  },
+});
+
+/**
+ * Owner-side twin of getBoardDirection — same trimmed payload, gated by
+ * ownerUserId instead of a share token. Backs /api/projects/direction-pdf.
+ */
+export const getOwnerDirection = query({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    folderId: v.id("folders"),
+  },
+  returns: directionPayloadValidator,
+  handler: async (ctx, args) => {
+    const folder = await requireOwnedProject(
+      ctx,
+      args.ownerUserId,
+      args.projectId,
+    );
+    return await resolveDirectionPayload(ctx, folder, args.folderId);
+  },
+});
+
 /**
  * PUBLIC: resolve a shared direction board by its token. No auth — the
  * unguessable token IS the capability. Returns null for unknown/revoked

@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FileDown,
   Play,
   X,
 } from "lucide-react";
@@ -555,6 +556,22 @@ export function DirectionBoard({ token }: { token: string }) {
             {openDirection.count}{" "}
             {openDirection.count === 1 ? "option" : "options"}
           </span>
+          <a
+            href={`/api/board/direction-pdf?token=${encodeURIComponent(
+              token,
+            )}&folderId=${encodeURIComponent(openDirection.id as string)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-secondary)",
+            }}
+            title="Download this direction as a PDF (images embedded, videos as links)"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            PDF
+          </a>
         </div>
       )}
 
