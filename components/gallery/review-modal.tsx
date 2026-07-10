@@ -24,6 +24,10 @@ import {
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  StackHoverPreviewOverlay,
+  useStackHoverPreview,
+} from "@/components/gallery/stack-hover-preview";
 
 const APPROVED_TAG = "approved";
 
@@ -82,6 +86,8 @@ type DirectionCardData = {
   cover: ReviewAsset | null;
   /** Thumb urls of the next variations, peeking behind the master. */
   backs: string[];
+  /** Thumb urls (master first) for the hover-to-preview rotation. */
+  previews: string[];
 };
 
 /**
@@ -232,6 +238,13 @@ export function ReviewModal({
           .slice(0, 2)
           .map((a) => a.thumbUrl ?? a.url)
           .filter((src): src is string => Boolean(src));
+        const previews = (coverAsset
+          ? [coverAsset, ...collection.assets.filter((a) => a !== coverAsset)]
+          : collection.assets
+        )
+          .slice(0, 8)
+          .map((a) => a.thumbUrl ?? a.url)
+          .filter((src): src is string => Boolean(src));
         return {
           id: collection.folderId as string,
           name: collection.name,
@@ -239,6 +252,7 @@ export function ReviewModal({
           section: collection.section as ProjectSection | undefined,
           cover: coverAsset ? toReviewAsset(coverAsset, collection) : null,
           backs,
+          previews,
         };
       }),
     [tabCollections, resolveCoverId, toReviewAsset],
@@ -877,6 +891,8 @@ function DirectionCard({
   onOpen: () => void;
 }) {
   const cover = direction.cover;
+  // Hover 1s → rotate through the direction's options in place.
+  const preview = useStackHoverPreview(direction.previews.length);
   return (
     <div
       className="group relative mb-5 block break-inside-avoid cursor-pointer"
@@ -887,6 +903,8 @@ function DirectionCard({
             : "4 / 5",
       }}
       onClick={onOpen}
+      onMouseEnter={preview.start}
+      onMouseLeave={preview.stop}
       role="button"
       aria-label={`Open direction: ${direction.name}`}
     >
@@ -939,7 +957,13 @@ function DirectionCard({
           </div>
         )}
 
-        {/* Option count badge */}
+        <StackHoverPreviewOverlay
+          previews={direction.previews}
+          index={preview.index}
+          engaged={preview.engaged}
+        />
+
+        {/* Option count badge — turns into a n/N counter while previewing */}
         <span
           className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
@@ -949,7 +973,9 @@ function DirectionCard({
               "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
           }}
         >
-          {direction.count}
+          {preview.engaged
+            ? `${(preview.index % direction.previews.length) + 1}/${direction.previews.length}`
+            : direction.count}
         </span>
 
         {/* Bottom label over a gradient so any master image stays readable */}

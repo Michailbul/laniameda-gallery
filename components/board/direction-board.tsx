@@ -23,6 +23,10 @@ import {
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { DEFAULT_GAP_PX, layoutJustified } from "@/lib/masonry-layout";
+import {
+  StackHoverPreviewOverlay,
+  useStackHoverPreview,
+} from "@/components/gallery/stack-hover-preview";
 
 type TypeFilter = "all" | "image" | "video";
 
@@ -59,6 +63,8 @@ type BoardDirection = {
   cover: BoardAsset | null;
   /** Thumb urls of the next variations, peeking behind the master. */
   backs: string[];
+  /** Thumb urls (master first) for the hover-to-preview rotation. */
+  previews: string[];
 };
 
 /**
@@ -170,12 +176,20 @@ export function DirectionBoard({ token }: { token: string }) {
           .slice(0, 2)
           .map((a) => a.thumbUrl ?? a.url)
           .filter((src): src is string => Boolean(src));
+        const previews = (coverAsset
+          ? [coverAsset, ...collection.assets.filter((a) => a !== coverAsset)]
+          : collection.assets
+        )
+          .slice(0, 8)
+          .map((a) => a.thumbUrl ?? a.url)
+          .filter((src): src is string => Boolean(src));
         return {
           id: collection.id as string,
           name: collection.name,
           count: collection.count,
           cover: coverAsset ? toBoardAsset(coverAsset, collection) : null,
           backs,
+          previews,
         };
       }),
     [tabCollections, toBoardAsset],
@@ -756,12 +770,16 @@ function DirectionCardTile({
   onOpen: () => void;
 }) {
   const cover = direction.cover;
+  // Hover 1s → rotate through the direction's options in place.
+  const preview = useStackHoverPreview(direction.previews.length);
   return (
     <div
       className="group relative cursor-pointer"
       style={style}
       role="listitem"
       onClick={onOpen}
+      onMouseEnter={preview.start}
+      onMouseLeave={preview.stop}
       aria-label={`Open direction: ${direction.name}`}
     >
       {/* Fanned deck — next variations peeking behind the master */}
@@ -813,7 +831,13 @@ function DirectionCardTile({
           </div>
         )}
 
-        {/* Option count badge */}
+        <StackHoverPreviewOverlay
+          previews={direction.previews}
+          index={preview.index}
+          engaged={preview.engaged}
+        />
+
+        {/* Option count badge — turns into a n/N counter while previewing */}
         <span
           className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
@@ -823,7 +847,9 @@ function DirectionCardTile({
               "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
           }}
         >
-          {direction.count}
+          {preview.engaged
+            ? `${(preview.index % direction.previews.length) + 1}/${direction.previews.length}`
+            : direction.count}
         </span>
 
         {/* Bottom label over a gradient so any master image stays readable */}
