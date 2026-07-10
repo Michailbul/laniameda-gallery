@@ -43,6 +43,14 @@ const projectSummaryValidator = v.object({
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
   previewAssets: v.array(projectPreviewValidator),
+  // Member directions, so the sidebar can offer them as drop targets.
+  collections: v.array(
+    v.object({
+      folderId: v.id("folders"),
+      name: v.string(),
+      section: optionalProjectSectionValidator,
+    }),
+  ),
 });
 
 export type ProjectSection = "characters" | "locations" | "beats";
@@ -126,10 +134,21 @@ export const listProjects = query({
 
     const results = await Promise.all(
       projects.map(async (folder) => {
-        const collectionIds = await collectProjectCollectionIds(
+        const collectionLinks = await collectProjectCollectionLinks(
           ctx,
           ownerUserIds,
           folder._id,
+        );
+        const collectionIds = collectionLinks.map((link) => link.folderId);
+        const memberCollections = await Promise.all(
+          collectionLinks.map(async ({ folderId, section }) => {
+            const collectionFolder = await ctx.db.get(folderId);
+            return {
+              folderId,
+              name: collectionFolder?.name ?? "Untitled collection",
+              section,
+            };
+          }),
         );
 
         // Union assets across member collections (deduped) for the stack
@@ -179,6 +198,7 @@ export const listProjects = query({
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt,
           previewAssets: previews,
+          collections: memberCollections,
         };
       }),
     );

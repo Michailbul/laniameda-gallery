@@ -71,9 +71,18 @@ interface GallerySidebarProps {
   /** Dropping assets on a storybook ADDS them (keeps existing collections). */
   onAssetsDropOnStorybook?: (storybookId: string, assetIds: string[]) => void;
   /** Projects — rows open the fullscreen review workspace. */
-  projects?: Folder[];
+  projects?: ProjectEntry[];
   onProjectOpen?: (projectId: string) => void;
   onCreateProject?: (name: string) => Promise<string | null>;
+  /** Dropping assets on a project files them into its Inbox direction. */
+  onAssetsDropOnProject?: (projectId: string, assetIds: string[]) => void;
+  /** Dropping assets on a direction ADDS them to that collection. */
+  onAssetsDropOnDirection?: (directionId: string, assetIds: string[]) => void;
+}
+
+interface ProjectEntry extends Folder {
+  /** Member directions (collections), for expandable drop targets. */
+  directions?: { id: string; name: string }[];
 }
 
 export function GallerySidebar({
@@ -102,6 +111,8 @@ export function GallerySidebar({
   projects = [],
   onProjectOpen,
   onCreateProject,
+  onAssetsDropOnProject,
+  onAssetsDropOnDirection,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -476,13 +487,17 @@ export function GallerySidebar({
                     </div>
                   )}
                   {projects.map((project) => (
-                    <FilterRow
+                    <ProjectRow
                       key={project._id}
-                      icon={Layers}
-                      label={project.name}
-                      count={project.count}
-                      active={false}
-                      onClick={() => onProjectOpen(project._id)}
+                      project={project}
+                      onOpen={() => onProjectOpen(project._id)}
+                      onDropAssets={
+                        onAssetsDropOnProject
+                          ? (assetIds) =>
+                              onAssetsDropOnProject(project._id, assetIds)
+                          : undefined
+                      }
+                      onDropAssetsOnDirection={onAssetsDropOnDirection}
                     />
                   ))}
                 </div>
@@ -892,6 +907,202 @@ function NavItem({
       title={collapsed ? label : undefined}
     >
       {inner}
+    </button>
+  );
+}
+
+/* Project row — expandable, with per-direction drop targets. Dropping on the
+   project itself files assets into its Inbox direction; hovering a drag over
+   the row auto-expands it so a direction can be targeted directly. */
+
+function ProjectRow({
+  project,
+  onOpen,
+  onDropAssets,
+  onDropAssetsOnDirection,
+}: {
+  project: ProjectEntry;
+  onOpen: () => void;
+  onDropAssets?: (assetIds: string[]) => void;
+  onDropAssetsOnDirection?: (directionId: string, assetIds: string[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const directions = project.directions ?? [];
+  const droppable = Boolean(onDropAssets);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="lm-glass-filter-row cursor-pointer"
+        data-active="false"
+        onDragOver={
+          droppable
+            ? (event) => {
+                if (!hasAssetDragPayload(event.dataTransfer)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDragOver(true);
+                if (directions.length > 0) setExpanded(true);
+              }
+            : undefined
+        }
+        onDragLeave={droppable ? () => setDragOver(false) : undefined}
+        onDrop={
+          droppable
+            ? (event) => {
+                setDragOver(false);
+                if (!hasAssetDragPayload(event.dataTransfer)) return;
+                event.preventDefault();
+                const assetIds = readAssetDragPayload(event.dataTransfer);
+                if (assetIds.length > 0) onDropAssets!(assetIds);
+              }
+            : undefined
+        }
+        style={
+          dragOver
+            ? {
+                backgroundColor: "rgba(255, 122, 100, 0.14)",
+                boxShadow: "inset 0 0 0 2px var(--lm-coral)",
+                borderRadius: "8px",
+              }
+            : undefined
+        }
+        title={
+          droppable
+            ? "Open review — drop assets to file them into this project's Inbox"
+            : "Open review"
+        }
+      >
+        <Layers
+          className="h-3 w-3 flex-shrink-0"
+          style={{ color: "var(--lm-sidebar-text-ghost)" }}
+        />
+        <span
+          className="min-w-0 flex-1 truncate text-left"
+          style={{
+            fontSize: "10px",
+            fontWeight: 500,
+            textTransform: "uppercase",
+            letterSpacing: "0.10em",
+          }}
+        >
+          {project.name}
+        </span>
+        {project.count !== undefined && (
+          <span
+            style={{
+              fontSize: "9px",
+              fontVariantNumeric: "tabular-nums",
+              color: "var(--lm-sidebar-text-ghost)",
+            }}
+          >
+            {project.count}
+          </span>
+        )}
+        {directions.length > 0 && (
+          <span
+            role="button"
+            tabIndex={-1}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((prev) => !prev);
+            }}
+            aria-label={expanded ? "Collapse directions" : "Expand directions"}
+            className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
+            style={{ color: "var(--lm-sidebar-text-ghost)" }}
+          >
+            <ChevronRight
+              className="h-3 w-3 transition-transform"
+              style={{ transform: expanded ? "rotate(90deg)" : undefined }}
+            />
+          </span>
+        )}
+      </button>
+
+      {expanded &&
+        directions.map((direction) => (
+          <DirectionDropRow
+            key={direction.id}
+            name={direction.name}
+            onClick={onOpen}
+            onDropAssets={
+              onDropAssetsOnDirection
+                ? (assetIds) => onDropAssetsOnDirection(direction.id, assetIds)
+                : undefined
+            }
+          />
+        ))}
+    </div>
+  );
+}
+
+function DirectionDropRow({
+  name,
+  onClick,
+  onDropAssets,
+}: {
+  name: string;
+  onClick: () => void;
+  onDropAssets?: (assetIds: string[]) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="lm-glass-filter-row cursor-pointer"
+      data-active="false"
+      onDragOver={
+        onDropAssets
+          ? (event) => {
+              if (!hasAssetDragPayload(event.dataTransfer)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={onDropAssets ? () => setDragOver(false) : undefined}
+      onDrop={
+        onDropAssets
+          ? (event) => {
+              setDragOver(false);
+              if (!hasAssetDragPayload(event.dataTransfer)) return;
+              event.preventDefault();
+              const assetIds = readAssetDragPayload(event.dataTransfer);
+              if (assetIds.length > 0) onDropAssets(assetIds);
+            }
+          : undefined
+      }
+      style={{
+        paddingLeft: "26px",
+        ...(dragOver
+          ? {
+              backgroundColor: "rgba(255, 122, 100, 0.14)",
+              boxShadow: "inset 0 0 0 2px var(--lm-coral)",
+              borderRadius: "8px",
+            }
+          : {}),
+      }}
+      title={onDropAssets ? "Drop assets to add to this direction" : undefined}
+    >
+      <FolderOpen
+        className="h-3 w-3 flex-shrink-0"
+        style={{ color: "var(--lm-sidebar-text-ghost)" }}
+      />
+      <span
+        className="min-w-0 flex-1 truncate text-left"
+        style={{
+          fontSize: "10px",
+          fontWeight: 500,
+          letterSpacing: "0.06em",
+        }}
+      >
+        {name}
+      </span>
     </button>
   );
 }

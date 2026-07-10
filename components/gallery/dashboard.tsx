@@ -399,6 +399,9 @@ export function GalleryDashboard({
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
+  const addCollectionToProjectMutation = useMutation(
+    api.projects.addCollectionToProject,
+  );
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const processAndReplaceThumbnail = useAction(
     api.thumbnails.processAndReplaceThumbnail,
@@ -1957,6 +1960,86 @@ export function GalleryDashboard({
     [addAssetFoldersMutation, folderNameById, ownerUserId],
   );
 
+  // Dropping on a direction (a project's member collection) ADDS membership,
+  // same semantics as storybooks — directions layer on top of the asset's home.
+  const handleAssetsDropOnDirection = useCallback(
+    async (directionId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      try {
+        await Promise.all(
+          assetIds.map((assetId) =>
+            addAssetFoldersMutation({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: [directionId as Id<"folders">],
+            }),
+          ),
+        );
+        setMoveStatus({
+          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(directionId) ?? "direction"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : "Failed to add to direction.",
+          error: true,
+        });
+      }
+    },
+    [addAssetFoldersMutation, folderNameById, ownerUserId],
+  );
+
+  // Dropping on a project files assets into its "<Project> — Inbox" direction
+  // (created + attached on first drop, idempotent) so a drop never needs a
+  // target choice mid-drag; sort into proper directions later.
+  const handleAssetsDropOnProject = useCallback(
+    async (projectId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      const project = (projects ?? []).find((p) => p._id === projectId);
+      const projectName = project?.name ?? "Project";
+      try {
+        const inbox = await createFolderMutation({
+          ownerUserId,
+          name: `${projectName} — Inbox`,
+        });
+        await addCollectionToProjectMutation({
+          ownerUserId,
+          projectId: projectId as Id<"folders">,
+          folderId: inbox.folderId,
+        });
+        await Promise.all(
+          assetIds.map((assetId) =>
+            addAssetFoldersMutation({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: [inbox.folderId],
+            }),
+          ),
+        );
+        setMoveStatus({
+          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${projectName} — Inbox`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : "Failed to add to project.",
+          error: true,
+        });
+      }
+    },
+    [
+      addAssetFoldersMutation,
+      addCollectionToProjectMutation,
+      createFolderMutation,
+      ownerUserId,
+      projects,
+    ],
+  );
+
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
     if (!selectedImage) return -1;
@@ -2669,6 +2752,12 @@ export function GalleryDashboard({
                   _id: project._id,
                   name: project.name,
                   count: project.assetCount,
+                  directions: (project.collections ?? []).map(
+                    (collection) => ({
+                      id: collection.folderId as string,
+                      name: collection.name,
+                    }),
+                  ),
                 }))
               : []
           }
@@ -2677,6 +2766,16 @@ export function GalleryDashboard({
           }
           onCreateProject={
             canManageFoldersInCurrentView ? createProject : undefined
+          }
+          onAssetsDropOnProject={
+            canManageFoldersInCurrentView
+              ? handleAssetsDropOnProject
+              : undefined
+          }
+          onAssetsDropOnDirection={
+            canManageFoldersInCurrentView
+              ? handleAssetsDropOnDirection
+              : undefined
           }
         />
       </div>

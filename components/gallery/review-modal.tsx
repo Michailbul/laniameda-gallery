@@ -70,6 +70,8 @@ type ReviewAsset = {
   approvedByTag: boolean;
   collectionId: string;
   collectionName: string;
+  /** All collections this asset belongs to (for membership removal). */
+  folderIds: string[];
 };
 
 type DirectionCardData = {
@@ -103,6 +105,7 @@ export function ReviewModal({
   );
 
   const setApproved = useMutation(api.assets.setAssetApproved);
+  const setAssetFolders = useMutation(api.assets.setAssetFolders);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
   const setCollectionSection = useMutation(api.projects.setProjectCollectionSection);
@@ -167,6 +170,7 @@ export function ReviewModal({
       approvedByTag: (asset.tagNames ?? []).includes(APPROVED_TAG),
       collectionId: collection.folderId as string,
       collectionName: collection.name,
+      folderIds: (asset.folderIds ?? []).map((id) => id as string),
     }),
     [],
   );
@@ -318,6 +322,21 @@ export function ReviewModal({
       });
     },
     [ownerUserId, setFolderCover],
+  );
+
+  // Remove an asset's membership in the drilled direction — other collection
+  // memberships stay intact; the asset is never deleted from the gallery.
+  const removeFromDirection = useCallback(
+    (asset: ReviewAsset) => {
+      if (!openDirectionId) return;
+      const next = asset.folderIds.filter((id) => id !== openDirectionId);
+      void setAssetFolders({
+        ownerUserId,
+        assetId: asset.id as Id<"assets">,
+        folderIds: next as Id<"folders">[],
+      });
+    },
+    [openDirectionId, ownerUserId, setAssetFolders],
   );
 
   // Refile a direction under another layer (null = unsorted).
@@ -765,6 +784,9 @@ export function ReviewModal({
                           )
                       : undefined
                   }
+                  onRemove={
+                    openDirection ? () => removeFromDirection(asset) : undefined
+                  }
                 />
               ))}
             </div>
@@ -981,6 +1003,7 @@ function ReviewTile({
   showCollectionLabel,
   isMaster,
   onMaster,
+  onRemove,
 }: {
   asset: ReviewAsset;
   approved: boolean;
@@ -990,6 +1013,8 @@ function ReviewTile({
   /** Only defined inside a drilled direction, where "master" is unambiguous. */
   isMaster?: boolean;
   onMaster?: () => void;
+  /** Removes the asset from the drilled direction (membership only). */
+  onRemove?: () => void;
 }) {
   return (
     <div
@@ -1075,6 +1100,27 @@ function ReviewTile({
         >
           {asset.collectionName}
         </div>
+      )}
+
+      {/* Remove from this direction (membership only, asset stays in gallery) */}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.62)",
+            color: "#fff",
+            borderColor: "rgba(255,255,255,0.25)",
+          }}
+          title="Remove from this direction (stays in the gallery)"
+        >
+          <X className="h-3 w-3" strokeWidth={3} />
+          Remove
+        </button>
       )}
     </div>
   );
