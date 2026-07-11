@@ -42,6 +42,8 @@ const boardAssetValidator = v.object({
   ...directionAssetValidator.fields,
   likeCount: v.number(),
   likedByMe: v.boolean(),
+  // Tag names, so viewers can filter the expanded views by metadata.
+  tags: v.array(v.string()),
 });
 
 const boardValidator = v.object({
@@ -522,6 +524,21 @@ export const getBoard = query({
       .unique();
     const approvedTagId = approvedTag?._id;
 
+    // Tag-name cache shared across all member assets (ids repeat heavily).
+    const tagNameById = new Map<string, string | null>();
+    const resolveTagNames = async (tagIds: Id<"tags">[]) => {
+      const names: string[] = [];
+      for (const tagId of tagIds) {
+        if (!tagNameById.has(tagId)) {
+          const tag = await ctx.db.get(tagId);
+          tagNameById.set(tagId, tag?.name ?? null);
+        }
+        const name = tagNameById.get(tagId);
+        if (name && name !== APPROVED_TAG_NAME) names.push(name);
+      }
+      return names;
+    };
+
     const collections = await Promise.all(
       collectionLinks.map(
         async ({
@@ -558,6 +575,7 @@ export const getBoard = query({
                 : false,
               likeCount: likeCountByAsset.get(asset._id) ?? 0,
               likedByMe: likedByViewer.has(asset._id),
+              tags: await resolveTagNames(asset.tagIds),
               createdAt: asset.createdAt,
             };
           }),

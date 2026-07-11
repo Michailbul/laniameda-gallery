@@ -20,10 +20,12 @@ import {
   Link2,
   Play,
   Plus,
+  Upload,
   X,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { buildUploadFormData } from "@/lib/upload-form";
 import {
   StackHoverPreviewOverlay,
   useStackHoverPreview,
@@ -94,6 +96,8 @@ type ReviewAsset = {
   collectionName: string;
   /** All collections this asset belongs to (for membership removal). */
   folderIds: string[];
+  /** Tag names, for the metadata filter chips. */
+  tagNames: string[];
 };
 
 type DirectionCardData = {
@@ -154,9 +158,18 @@ export function ReviewModal({
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [likedOnly, setLikedOnly] = useState(false);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // File drop → upload straight into the project.
+  const [dragFilesOver, setDragFilesOver] = useState(false);
+  const dragDepthRef = useRef(0);
+  const [uploadState, setUploadState] = useState<{
+    done: number;
+    total: number;
+    error?: string;
+  } | null>(null);
   // Optimistic approve overrides so toggling feels instant before the query
   // re-emits with updated tagNames.
   const [approveOverride, setApproveOverride] = useState<Record<string, boolean>>(
@@ -212,6 +225,7 @@ export function ReviewModal({
       collectionId: collection.folderId as string,
       collectionName: collection.name,
       folderIds: (asset.folderIds ?? []).map((id) => id as string),
+      tagNames: asset.tagNames ?? [],
     }),
     [],
   );
@@ -318,14 +332,35 @@ export function ReviewModal({
     [approveOverride],
   );
 
+  // Tag chips for the flat/drilled views, ranked by frequency in scope. The
+  // selected tag only applies while it exists in scope — switching tabs to a
+  // scope without it silently deactivates it (no state-sync effect needed).
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const asset of assets) {
+      for (const tag of asset.tagNames) {
+        if (tag === APPROVED_TAG) continue;
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 14);
+  }, [assets]);
+  const activeTag =
+    selectedTag && tagCounts.some(([tag]) => tag === selectedTag)
+      ? selectedTag
+      : null;
+
   const visibleAssets = useMemo(
     () =>
       assets.filter(
         (asset) =>
           (!approvedOnly || isApproved(asset)) &&
-          (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0),
+          (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0) &&
+          (!activeTag || asset.tagNames.includes(activeTag)),
       ),
-    [assets, approvedOnly, likedOnly, isApproved, likesByAsset],
+    [assets, approvedOnly, likedOnly, activeTag, isApproved, likesByAsset],
   );
 
   const approvedCount = useMemo(
@@ -357,6 +392,129 @@ export function ReviewModal({
     },
     [isApproved, ownerUserId, setApproved],
   );
+
+  // ── File drop → upload into the project ──
+  // Drilled: files land in that direction. On a layer tab: a new direction is
+  // created in that layer, named after the first file. A dropped .txt becomes
+  // the prompt for every file in the pack; a beat's first video becomes its
+  // MASTER so the stack previews as the resulting shot.
+  const handleFilesDrop = async (dropped: File[]) => {
+    if (!projectId) return;
+    const media = dropped.filter(
+      (file) =>
+        file.type.startsWith("image/") || file.type.startsWith("video/"),
+    );
+    if (media.length === 0) {
+      setUploadState({ done: 0, total: 0, error: "Drop images or videos." });
+      return;
+    }
+    const promptFile = dropped.find(
+      (file) =>
+        file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt"),
+    );
+    const promptText = promptFile
+      ? (await promptFile.text()).trim().slice(0, 4000)
+      : "";
+
+    const section =
+      effectiveTab !== "all" && effectiveTab !== "unsorted"
+        ? effectiveTab
+        : undefined;
+    const targetSection = openDirection ? tabOf(openDirection.section) : section;
+
+    let targetFolderId = openDirection
+      ? (openDirection.folderId as string)
+      : null;
+    setUploadState({ done: 0, total: media.length });
+    try {
+      if (!targetFolderId) {
+        const baseName =
+          media[0]!.name
+            .replace(/\.[^.]+$/, "")
+            .replace(/[-_]+/g, " ")
+            .trim() || "New direction";
+        const created = await createFolder({ ownerUserId, name: baseName });
+        await addCollection({
+          ownerUserId,
+          projectId: projectId as Id<"folders">,
+          folderId: created.folderId,
+          section,
+        });
+        targetFolderId = created.folderId as string;
+        setOpenDirectionId(targetFolderId);
+      }
+
+      let masterVideoAssetId: string | null = null;
+      let failed = 0;
+      for (const file of media) {
+        try {
+          const formData = buildUploadFormData({
+            promptText,
+            folderId: targetFolderId,
+            file,
+          });
+          const response = await fetch("/api/ingest", {
+            method: "POST",
+            body: formData,
+          });
+          const body = (await response.json().catch(() => null)) as {
+            result?: { assetId?: string };
+            error?: string;
+          } | null;
+          if (!response.ok) {
+            throw new Error(body?.error || "Upload failed.");
+          }
+          const assetId = body?.result?.assetId;
+          if (
+            !masterVideoAssetId &&
+            assetId &&
+            file.type.startsWith("video/")
+          ) {
+            masterVideoAssetId = assetId;
+          }
+        } catch {
+          failed += 1;
+        }
+        setUploadState((prev) =>
+          prev ? { ...prev, done: prev.done + 1 } : prev,
+        );
+      }
+
+      if (targetSection === "beats" && masterVideoAssetId) {
+        await setFolderCover({
+          ownerUserId,
+          folderId: targetFolderId as Id<"folders">,
+          assetId: masterVideoAssetId as Id<"assets">,
+        }).catch(() => {});
+      }
+
+      if (failed > 0) {
+        setUploadState({
+          done: media.length,
+          total: media.length,
+          error: `${failed} of ${media.length} failed to upload.`,
+        });
+      } else {
+        setUploadState({ done: media.length, total: media.length });
+        setTimeout(() => setUploadState(null), 2500);
+      }
+    } catch (error) {
+      setUploadState({
+        done: 0,
+        total: media.length,
+        error: error instanceof Error ? error.message : "Upload failed.",
+      });
+    }
+  };
+
+  const dragHasFiles = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes("Files");
+
+  const dropTargetLabel = openDirection
+    ? `Drop to add to ${openDirection.name}`
+    : effectiveTab !== "all" && effectiveTab !== "unsorted"
+      ? `Drop to create a ${TAB_LABELS[effectiveTab]} direction`
+      : "Drop to create a direction";
 
   // Set (or clear, when assetId is null) a direction's MASTER option.
   const setMaster = useCallback(
@@ -519,6 +677,31 @@ export function ReviewModal({
       role="dialog"
       aria-modal="true"
       aria-label={`Review: ${projectName}`}
+      onDragEnter={(event) => {
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setDragFilesOver(true);
+      }}
+      onDragOver={(event) => {
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDragFilesOver(false);
+      }}
+      onDrop={(event) => {
+        if (!dragHasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setDragFilesOver(false);
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (files.length > 0) void handleFilesDrop(files);
+      }}
     >
       {/* ── Header ── */}
       <header
@@ -548,6 +731,26 @@ export function ReviewModal({
                 }`
               : `${visibleAssets.length} shown · ${approvedCount} approved`}
           </span>
+          {uploadState && (
+            <span
+              className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: uploadState.error
+                  ? "color-mix(in srgb, var(--lm-coral) 22%, transparent)"
+                  : "var(--lm-surface-2)",
+                color: uploadState.error
+                  ? "var(--lm-coral)"
+                  : "var(--lm-text-secondary)",
+              }}
+              role="status"
+            >
+              {uploadState.error
+                ? uploadState.error
+                : uploadState.done < uploadState.total
+                  ? `Uploading ${uploadState.done + 1}/${uploadState.total}…`
+                  : `Uploaded ${uploadState.total}`}
+            </span>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -677,6 +880,58 @@ export function ReviewModal({
                 {tab.count !== undefined && tab.count > 0 && (
                   <span style={{ opacity: 0.6 }}> {tab.count}</span>
                 )}
+              </button>
+            );
+          })}
+
+          {/* New direction in the active layer — or just drop files anywhere */}
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-[12px] font-medium transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-tertiary)",
+            }}
+            title="Create a direction in this layer — or drop files anywhere to create one from them"
+          >
+            <Plus className="h-3 w-3" />
+            New direction
+          </button>
+          <span
+            className="hidden items-center gap-1 text-[10px] font-mono uppercase tracking-wider md:flex"
+            style={{ color: "var(--lm-text-ghost)" }}
+          >
+            <Upload className="h-3 w-3" />
+            or drop files
+          </span>
+        </div>
+      )}
+
+      {/* ── Tag filter chips (flat + drilled views) ── */}
+      {hasCollections && !inFocus && !showDirectionCards && tagCounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-2 md:px-6">
+          {tagCounts.map(([tag, count]) => {
+            const active = activeTag === tag;
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setSelectedTag(active ? null : tag)}
+                className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
+                style={{
+                  borderColor: active
+                    ? "var(--lm-coral)"
+                    : "var(--lm-border)",
+                  backgroundColor: active
+                    ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
+                    : "transparent",
+                  color: active ? "var(--lm-coral)" : "var(--lm-text-ghost)",
+                }}
+                aria-pressed={active}
+              >
+                {tag}
+                <span style={{ opacity: 0.6 }}> {count}</span>
               </button>
             );
           })}
@@ -929,6 +1184,39 @@ export function ReviewModal({
           </div>
         )}
       </div>
+
+      {/* ── File drop overlay ── */}
+      {dragFilesOver && (
+        <div
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(8,7,6,0.72)" }}
+        >
+          <div
+            className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-10 py-8"
+            style={{
+              borderColor: "var(--lm-coral)",
+              backgroundColor: "var(--lm-surface-1)",
+            }}
+          >
+            <Upload className="h-8 w-8" style={{ color: "var(--lm-coral)" }} />
+            <p
+              className="text-[15px] font-semibold"
+              style={{ color: "var(--lm-text-primary)" }}
+            >
+              {dropTargetLabel}
+            </p>
+            <p
+              className="text-[11px] font-mono uppercase tracking-wider"
+              style={{ color: "var(--lm-text-tertiary)" }}
+            >
+              Images &amp; videos · a .txt becomes the prompt
+              {effectiveTab === "beats" || tabOf(openDirection?.section) === "beats"
+                ? " · the video becomes the master"
+                : ""}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Share panel ── */}
       {shareOpen && (

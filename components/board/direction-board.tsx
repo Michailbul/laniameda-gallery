@@ -77,6 +77,8 @@ type BoardAsset = {
   approved: boolean;
   likeCount: number;
   likedByMe: boolean;
+  /** Tag names, for the metadata filter chips. */
+  tags: string[];
   collectionId: string;
   collectionName: string;
 };
@@ -167,6 +169,7 @@ export function DirectionBoard({ token }: { token: string }) {
   const [sort, setSort] = useState<DirectionSort>("curated");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [approvedOnly, setApprovedOnly] = useState(false);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
 
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -204,6 +207,7 @@ export function DirectionBoard({ token }: { token: string }) {
       approved: asset.approved,
       likeCount: asset.likeCount,
       likedByMe: asset.likedByMe,
+      tags: asset.tags,
       collectionId: collection.id as string,
       collectionName: collection.name,
     }),
@@ -352,14 +356,33 @@ export function DirectionBoard({ token }: { token: string }) {
     [assets],
   );
 
+  // Tag chips for the expanded views, ranked by frequency in scope. The
+  // selection only applies while the tag exists in scope.
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const asset of assets) {
+      for (const tag of asset.tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 14);
+  }, [assets]);
+  const activeTag =
+    selectedTag && tagCounts.some(([tag]) => tag === selectedTag)
+      ? selectedTag
+      : null;
+
   const visibleAssets = useMemo(
     () =>
       assets.filter(
         (asset) =>
           (typeFilter === "all" || asset.kind === typeFilter) &&
-          (!approvedOnly || asset.approved),
+          (!approvedOnly || asset.approved) &&
+          (!activeTag || asset.tags.includes(activeTag)),
       ),
-    [assets, typeFilter, approvedOnly],
+    [assets, typeFilter, approvedOnly, activeTag],
   );
 
   const layout = useMemo(() => {
@@ -773,6 +796,38 @@ export function DirectionBoard({ token }: { token: string }) {
               </>
             )}
           </div>
+
+          {/* Tag filter chips — metadata across the expanded view */}
+          {view.type !== "overview" && tagCounts.length > 0 && (
+            <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-1.5 px-4 pb-2.5 md:px-8">
+              {tagCounts.map(([tag, count]) => {
+                const active = activeTag === tag;
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setSelectedTag(active ? null : tag)}
+                    className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
+                    style={{
+                      borderColor: active
+                        ? "var(--lm-coral)"
+                        : "var(--lm-border)",
+                      backgroundColor: active
+                        ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
+                        : "transparent",
+                      color: active
+                        ? "var(--lm-coral)"
+                        : "var(--lm-text-ghost)",
+                    }}
+                    aria-pressed={active}
+                  >
+                    {tag}
+                    <span style={{ opacity: 0.6 }}> {count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

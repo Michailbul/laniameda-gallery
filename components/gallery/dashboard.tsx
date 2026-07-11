@@ -268,9 +268,16 @@ export function GalleryDashboard({
   const dragHasFiles = (event: React.DragEvent) =>
     Array.from(event.dataTransfer?.types ?? []).includes("Files");
 
-  // Don't hijack drags while a modal already owns its own dropzone.
+  // Don't hijack drags while a modal already owns its own dropzone — the
+  // upload modals have one, and the project review modal uploads dropped
+  // files straight into a direction. Without this the shell overlay and the
+  // review modal fight over the drag and the drop goes nowhere.
   const canAcceptShellDrop =
-    canAccessMyGallery && !isUploadOpen && !isCinemaUploadOpen;
+    canAccessMyGallery &&
+    !isUploadOpen &&
+    !isCinemaUploadOpen &&
+    !openProjectId &&
+    !openStorybookId;
 
   const handleShellDragEnter = useCallback(
     (event: React.DragEvent) => {
