@@ -210,6 +210,7 @@
 }
 
 [data-stg-mj-host-prepared="1"]:hover > .stg-mj-quick-save--hover-reveal,
+.stg-mj-quick-save--hover-reveal:hover,
 .stg-mj-quick-save--hover-reveal:focus-within,
 .stg-mj-quick-save--hover-reveal.stg-mj-quick-save--menu-open,
 .stg-mj-quick-save--hover-reveal:has(.stg-badge--saving),

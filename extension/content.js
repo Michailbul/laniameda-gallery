@@ -2743,6 +2743,16 @@
       return;
     }
 
+    // Freeze the widget while the user is on it (or its host, or its open
+    // menu). MJ mutates the feed constantly, so the scan keeps firing during
+    // hover — repositioning/reparenting mid-approach resets the CSS hover
+    // reveal and yanks the widget away from the cursor.
+    const interacting =
+      widget.classList.contains("stg-mj-quick-save--menu-open") ||
+      (widget.isConnected && widget.matches(":hover")) ||
+      Boolean(widget.parentElement?.matches?.(":hover"));
+    if (interacting) return;
+
     const host = getMidjourneyWidgetHost(target);
     if (!host || !document.contains(host)) {
       widget.remove();
@@ -2790,6 +2800,9 @@
     for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
       const target = widget.__stgTarget;
       if (!target || !document.contains(target)) {
+        // MJ often swaps a media node out and back within a tick — never
+        // yank the widget out from under the cursor mid-click.
+        if (widget.matches(":hover")) continue;
         if (target?.removeAttribute) target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
         widget.remove();
         continue;
