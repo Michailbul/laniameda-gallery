@@ -23,7 +23,8 @@ const BOARD_COLLECTION_ASSET_LIMIT = 200;
  * trimmed: no prompt text, model names, tags, or owner ids leak to viewers —
  * a colleague needs the media, its dimensions, a label, and the approved flag.
  */
-const boardAssetValidator = v.object({
+// Base shape shared with the PDF direction payload (which needs no likes).
+const directionAssetValidator = v.object({
   id: v.id("assets"),
   kind: v.union(v.literal("image"), v.literal("video")),
   contentType: v.optional(v.string()),
@@ -35,6 +36,12 @@ const boardAssetValidator = v.object({
   title: v.optional(v.string()),
   approved: v.boolean(),
   createdAt: v.number(),
+});
+
+const boardAssetValidator = v.object({
+  ...directionAssetValidator.fields,
+  likeCount: v.number(),
+  likedByMe: v.boolean(),
 });
 
 const boardValidator = v.object({
@@ -146,6 +153,139 @@ export const disableShare = mutation({
   },
 });
 
+// Resolve a share token to its project folder, or null.
+const resolveSharedProject = async (
+  ctx: QueryCtx | MutationCtx,
+  rawToken: string,
+): Promise<Doc<"folders"> | null> => {
+  const token = rawToken.trim();
+  if (!token) return null;
+  const folder = await ctx.db
+    .query("folders")
+    .withIndex("by_shareToken", (q) => q.eq("shareToken", token))
+    .unique();
+  if (!folder || folder.kind !== "project" || !folder.ownerUserId) {
+    return null;
+  }
+  return folder;
+};
+
+// Does this asset belong to one of the shared project's member collections?
+const assetInSharedProject = async (
+  ctx: QueryCtx | MutationCtx,
+  folder: Doc<"folders">,
+  asset: Doc<"assets">,
+): Promise<boolean> => {
+  const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId!);
+  if (!asset.ownerUserId || !ownerUserIds.includes(asset.ownerUserId)) {
+    return false;
+  }
+  const collectionIds = new Set<string>(
+    await collectProjectCollectionIds(ctx, ownerUserIds, folder._id),
+  );
+  if (asset.folderId && collectionIds.has(asset.folderId)) return true;
+  const links = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  return links.some((link) => collectionIds.has(link.folderId));
+};
+
+/**
+ * PUBLIC: toggle an authless viewer like on a shared-board asset. The share
+ * token is the capability; viewerKey is a random client id from the viewer's
+ * localStorage so the same browser can un-like. Likes are stored on the
+ * project owner's account (beta — no viewer auth).
+ */
+export const toggleBoardLike = mutation({
+  args: {
+    token: v.string(),
+    assetId: v.id("assets"),
+    viewerKey: v.string(),
+    viewerName: v.optional(v.string()),
+  },
+  returns: v.object({ liked: v.boolean(), likeCount: v.number() }),
+  handler: async (ctx, args) => {
+    const viewerKey = args.viewerKey.trim();
+    if (viewerKey.length < 8 || viewerKey.length > 64) {
+      throw new ConvexError("Invalid viewer key.");
+    }
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder) {
+      throw new ConvexError("This link isn't active.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || !(await assetInSharedProject(ctx, folder, asset))) {
+      throw new ConvexError("Asset is not on this board.");
+    }
+
+    const existing = await ctx.db
+      .query("boardReactions")
+      .withIndex("by_project_viewer_asset", (q) =>
+        q
+          .eq("projectId", folder._id)
+          .eq("viewerKey", viewerKey)
+          .eq("assetId", args.assetId),
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    } else {
+      await ctx.db.insert("boardReactions", {
+        ownerUserId: folder.ownerUserId!,
+        projectId: folder._id,
+        assetId: args.assetId,
+        viewerKey,
+        viewerName: args.viewerName?.trim().slice(0, 40) || undefined,
+        createdAt: Date.now(),
+      });
+    }
+
+    const reactions = await ctx.db
+      .query("boardReactions")
+      .withIndex("by_project_asset", (q) =>
+        q.eq("projectId", folder._id).eq("assetId", args.assetId),
+      )
+      .collect();
+    return { liked: !existing, likeCount: reactions.length };
+  },
+});
+
+/**
+ * PUBLIC: attach/refresh the viewer's display name on all their likes in this
+ * board, so the owner sees "Lukas" instead of an anonymous count.
+ */
+export const setBoardViewerName = mutation({
+  args: {
+    token: v.string(),
+    viewerKey: v.string(),
+    name: v.string(),
+  },
+  returns: v.object({ updated: v.number() }),
+  handler: async (ctx, args) => {
+    const viewerKey = args.viewerKey.trim();
+    if (viewerKey.length < 8 || viewerKey.length > 64) {
+      throw new ConvexError("Invalid viewer key.");
+    }
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder) {
+      throw new ConvexError("This link isn't active.");
+    }
+    const viewerName = args.name.trim().slice(0, 40) || undefined;
+    const rows = await ctx.db
+      .query("boardReactions")
+      .withIndex("by_project_viewer", (q) =>
+        q.eq("projectId", folder._id).eq("viewerKey", viewerKey),
+      )
+      .collect();
+    for (const row of rows) {
+      await ctx.db.patch(row._id, { viewerName });
+    }
+    return { updated: rows.length };
+  },
+});
+
 /**
  * PUBLIC: resolve one asset of a shared board for the download proxy route.
  * Validates that the asset actually belongs to one of the shared project's
@@ -222,7 +362,7 @@ const directionPayloadValidator = v.union(
       id: v.id("folders"),
       name: v.string(),
       coverAssetId: v.optional(v.id("assets")),
-      assets: v.array(boardAssetValidator),
+      assets: v.array(directionAssetValidator),
     }),
   }),
 );
@@ -342,21 +482,32 @@ export const getOwnerDirection = query({
 export const getBoard = query({
   args: {
     token: v.string(),
+    // The viewer's anonymous client id, to mark which assets they liked.
+    viewerKey: v.optional(v.string()),
   },
   returns: v.union(v.null(), boardValidator),
   handler: async (ctx, args) => {
-    const token = args.token.trim();
-    if (!token) return null;
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder) return null;
 
-    const folder = await ctx.db
-      .query("folders")
-      .withIndex("by_shareToken", (q) => q.eq("shareToken", token))
-      .unique();
-    if (!folder || folder.kind !== "project" || !folder.ownerUserId) {
-      return null;
+    const viewerKey = args.viewerKey?.trim();
+    const reactions = await ctx.db
+      .query("boardReactions")
+      .withIndex("by_project", (q) => q.eq("projectId", folder._id))
+      .collect();
+    const likeCountByAsset = new Map<string, number>();
+    const likedByViewer = new Set<string>();
+    for (const reaction of reactions) {
+      likeCountByAsset.set(
+        reaction.assetId,
+        (likeCountByAsset.get(reaction.assetId) ?? 0) + 1,
+      );
+      if (viewerKey && reaction.viewerKey === viewerKey) {
+        likedByViewer.add(reaction.assetId);
+      }
     }
 
-    const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId);
+    const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId!);
     const collectionLinks = await collectProjectCollectionLinks(
       ctx,
       ownerUserIds,
@@ -405,6 +556,8 @@ export const getBoard = query({
               approved: approvedTagId
                 ? asset.tagIds.includes(approvedTagId)
                 : false,
+              likeCount: likeCountByAsset.get(asset._id) ?? 0,
+              likedByMe: likedByViewer.has(asset._id),
               createdAt: asset.createdAt,
             };
           }),

@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Check,
@@ -18,12 +18,14 @@ import {
   ChevronRight,
   Download,
   FileDown,
+  Heart,
   LayoutGrid,
   Play,
   Plus,
   X,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { DEFAULT_GAP_PX, layoutJustified } from "@/lib/masonry-layout";
 import {
   StackHoverPreviewOverlay,
@@ -74,6 +76,8 @@ type BoardAsset = {
   fileName?: string;
   title?: string;
   approved: boolean;
+  likeCount: number;
+  likedByMe: boolean;
   collectionId: string;
   collectionName: string;
 };
@@ -107,7 +111,59 @@ type BoardDirection = {
  * options in a dedicated masonry with a Back button.
  */
 export function DirectionBoard({ token }: { token: string }) {
-  const board = useQuery(api.directionBoard.getBoard, { token });
+  // Anonymous viewer identity (beta, no auth): a random client id persisted
+  // in this browser so likes toggle, plus an optional self-typed name shown
+  // to the board's owner.
+  const [viewerKey, setViewerKey] = useState<string | null>(null);
+  const [viewerName, setViewerName] = useState("");
+  useEffect(() => {
+    let key = window.localStorage.getItem("lm-board-viewer-key");
+    if (!key) {
+      key = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+      window.localStorage.setItem("lm-board-viewer-key", key);
+    }
+    // Mount-only localStorage hydration; lazy initializers would render
+    // different markup on the server and break hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setViewerKey(key);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setViewerName(window.localStorage.getItem("lm-board-viewer-name") ?? "");
+  }, []);
+
+  const board = useQuery(api.directionBoard.getBoard, {
+    token,
+    viewerKey: viewerKey ?? undefined,
+  });
+  const toggleLikeMutation = useMutation(api.directionBoard.toggleBoardLike);
+  const setViewerNameMutation = useMutation(
+    api.directionBoard.setBoardViewerName,
+  );
+
+  const toggleLike = useCallback(
+    (assetId: string) => {
+      if (!viewerKey) return;
+      void toggleLikeMutation({
+        token,
+        assetId: assetId as Id<"assets">,
+        viewerKey,
+        viewerName: viewerName.trim() || undefined,
+      });
+    },
+    [token, viewerKey, viewerName, toggleLikeMutation],
+  );
+
+  // Persist the name and stamp it onto this viewer's existing likes.
+  const commitViewerName = useCallback(
+    (raw: string) => {
+      const name = raw.trim().slice(0, 40);
+      setViewerName(name);
+      window.localStorage.setItem("lm-board-viewer-name", name);
+      if (viewerKey) {
+        void setViewerNameMutation({ token, viewerKey, name });
+      }
+    },
+    [token, viewerKey, setViewerNameMutation],
+  );
 
   const [view, setView] = useState<BoardView>({ type: "overview" });
   const [sort, setSort] = useState<DirectionSort>("curated");
@@ -150,6 +206,8 @@ export function DirectionBoard({ token }: { token: string }) {
       fileName: asset.fileName,
       title: asset.title,
       approved: asset.approved,
+      likeCount: asset.likeCount,
+      likedByMe: asset.likedByMe,
       collectionId: collection.id as string,
       collectionName: collection.name,
     }),
@@ -557,9 +615,31 @@ export function DirectionBoard({ token }: { token: string }) {
                   <span style={{ opacity: 0.6 }}>{totalAssets}</span>
                 </button>
 
+                {/* Viewer name — shows next to this browser's likes */}
+                <input
+                  type="text"
+                  defaultValue={viewerName}
+                  key={viewerName ? "named" : "anon"}
+                  placeholder="Your name — shown with your ♥"
+                  onBlur={(e) => commitViewerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="ml-auto w-[200px] rounded-full border px-3 py-1 text-[11px] outline-none transition-colors focus:border-[var(--lm-coral)]"
+                  style={{
+                    backgroundColor: "transparent",
+                    borderColor: "var(--lm-border-strong)",
+                    color: "var(--lm-text-secondary)",
+                  }}
+                  aria-label="Your name, shown with your likes"
+                />
+
                 {/* Sort */}
                 <span
-                  className="ml-auto text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                  className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
                   style={{ color: "var(--lm-text-ghost)" }}
                 >
                   Sort
@@ -842,6 +922,7 @@ export function DirectionBoard({ token }: { token: string }) {
                     }}
                     showCollectionLabel={view.type === "all"}
                     onOpen={() => setFocusId(asset.id)}
+                    onToggleLike={() => toggleLike(asset.id)}
                   />
                 );
               })}
@@ -864,6 +945,7 @@ export function DirectionBoard({ token }: { token: string }) {
           filmstripRef={filmstripRef}
           activeThumbRef={activeThumbRef}
           onPick={(id) => setFocusId(id)}
+          onToggleLike={() => toggleLike(focusAsset.id)}
         />
       )}
     </div>
@@ -983,6 +1065,45 @@ function triggerDownload(token: string, assetId: string) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+/** Authless viewer like — coral heart, filled when this browser liked it. */
+function LikeButton({
+  asset,
+  onToggle,
+  size = "sm",
+}: {
+  asset: BoardAsset;
+  onToggle: () => void;
+  size?: "sm" | "lg";
+}) {
+  const liked = asset.likedByMe;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`flex items-center gap-1.5 rounded-lg border font-mono font-bold uppercase tracking-wider transition-all active:scale-95 ${
+        size === "lg" ? "px-3 py-2 text-[12px]" : "px-2 py-1 text-[10px]"
+      }`}
+      style={{
+        backgroundColor: liked ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
+        color: liked ? "#000" : "#fff",
+        borderColor: liked ? "var(--lm-coral)" : "rgba(255,255,255,0.25)",
+      }}
+      aria-pressed={liked}
+      title={liked ? "Liked — click to remove" : "Like"}
+    >
+      <Heart
+        className={size === "lg" ? "h-4 w-4" : "h-3 w-3"}
+        fill={liked ? "currentColor" : "none"}
+        strokeWidth={2.5}
+      />
+      {asset.likeCount > 0 ? asset.likeCount : ""}
+    </button>
+  );
 }
 
 function DownloadButton({
@@ -1221,6 +1342,7 @@ function BoardTile({
   style,
   showCollectionLabel,
   onOpen,
+  onToggleLike,
 }: {
   asset: BoardAsset;
   token: string;
@@ -1228,6 +1350,7 @@ function BoardTile({
   style: React.CSSProperties;
   showCollectionLabel: boolean;
   onOpen: () => void;
+  onToggleLike: () => void;
 }) {
   return (
     <div
@@ -1247,6 +1370,17 @@ function BoardTile({
 
         <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
           <DownloadButton token={token} assetId={asset.id} />
+        </div>
+
+        {/* Like — always visible once liked, hover otherwise */}
+        <div
+          className={`absolute bottom-2 right-2 z-10 transition-opacity ${
+            asset.likedByMe || asset.likeCount > 0
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          <LikeButton asset={asset} onToggle={onToggleLike} />
         </div>
 
         {asset.approved && (
@@ -1286,6 +1420,7 @@ function Lightbox({
   filmstripRef,
   activeThumbRef,
   onPick,
+  onToggleLike,
 }: {
   asset: BoardAsset;
   token: string;
@@ -1298,6 +1433,7 @@ function Lightbox({
   filmstripRef: React.RefObject<HTMLDivElement | null>;
   activeThumbRef: React.RefObject<HTMLButtonElement | null>;
   onPick: (id: string) => void;
+  onToggleLike: () => void;
 }) {
   return (
     <div
@@ -1360,6 +1496,7 @@ function Lightbox({
             >
               {index + 1}/{total}
             </span>
+            <LikeButton asset={asset} onToggle={onToggleLike} size="lg" />
             <DownloadButton token={token} assetId={asset.id} size="lg" />
           </div>
         </div>

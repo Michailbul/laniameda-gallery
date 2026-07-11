@@ -245,6 +245,14 @@ export const getProject = query({
           assets: v.array(galleryAssetResultValidator),
         }),
       ),
+      // Authless viewer likes from the shared board, per asset.
+      assetLikes: v.array(
+        v.object({
+          assetId: v.id("assets"),
+          count: v.number(),
+          names: v.array(v.string()),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -298,6 +306,33 @@ export const getProject = query({
       ),
     );
 
+    // Viewer likes from the shared board, grouped per asset with the names
+    // viewers chose to leave (anonymous likes count but add no name).
+    const reactions = await ctx.db
+      .query("boardReactions")
+      .withIndex("by_project", (q) => q.eq("projectId", folder._id))
+      .collect();
+    const likesByAsset = new Map<
+      Id<"assets">,
+      { count: number; names: Set<string> }
+    >();
+    for (const reaction of reactions) {
+      const entry = likesByAsset.get(reaction.assetId) ?? {
+        count: 0,
+        names: new Set<string>(),
+      };
+      entry.count += 1;
+      if (reaction.viewerName) entry.names.add(reaction.viewerName);
+      likesByAsset.set(reaction.assetId, entry);
+    }
+    const assetLikes = [...likesByAsset.entries()].map(
+      ([assetId, entry]) => ({
+        assetId,
+        count: entry.count,
+        names: [...entry.names],
+      }),
+    );
+
     return {
       project: {
         _id: folder._id,
@@ -307,6 +342,7 @@ export const getProject = query({
         updatedAt: folder.updatedAt,
       },
       collections,
+      assetLikes,
     };
   },
 });

@@ -16,6 +16,7 @@ import {
   ExternalLink,
   FileDown,
   FolderPlus,
+  Heart,
   LayoutGrid,
   Link2,
   Play,
@@ -50,6 +51,19 @@ const TAB_LABELS: Record<ReviewTab, string> = {
   locations: "Locations",
   beats: "Beats",
   unsorted: "Unsorted",
+};
+
+type AssetLikes = { count: number; names: string[] };
+
+// Tooltip text for a like badge: viewer names when they left one, plus an
+// anonymous remainder.
+const likeTitle = (entry: AssetLikes | undefined): string => {
+  if (!entry || entry.count === 0) return "";
+  if (entry.names.length === 0) {
+    return `${entry.count} like${entry.count === 1 ? "" : "s"} from the shared board`;
+  }
+  const anonymous = entry.count - entry.names.length;
+  return `Liked by ${entry.names.join(", ")}${anonymous > 0 ? ` +${anonymous}` : ""}`;
 };
 
 type ReviewModalProps = {
@@ -140,6 +154,7 @@ export function ReviewModal({
   // browsing a layer's direction cards / the flat All view.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
   const [approvedOnly, setApprovedOnly] = useState(false);
+  const [likedOnly, setLikedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -162,6 +177,23 @@ export function ReviewModal({
   const memberCollectionIds = useMemo(
     () => new Set((project?.collections ?? []).map((c) => c.folderId as string)),
     [project],
+  );
+
+  // Viewer likes from the shared board, keyed by asset id.
+  const likesByAsset = useMemo(
+    () =>
+      new Map<string, AssetLikes>(
+        (project?.assetLikes ?? []).map((entry) => [
+          entry.assetId as string,
+          { count: entry.count, names: entry.names },
+        ]),
+      ),
+    [project],
+  );
+  const totalLikes = useMemo(
+    () =>
+      [...likesByAsset.values()].reduce((sum, entry) => sum + entry.count, 0),
+    [likesByAsset],
   );
 
   type ProjectCollection = NonNullable<typeof project>["collections"][number];
@@ -291,8 +323,13 @@ export function ReviewModal({
   );
 
   const visibleAssets = useMemo(
-    () => (approvedOnly ? assets.filter(isApproved) : assets),
-    [assets, approvedOnly, isApproved],
+    () =>
+      assets.filter(
+        (asset) =>
+          (!approvedOnly || isApproved(asset)) &&
+          (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0),
+      ),
+    [assets, approvedOnly, likedOnly, isApproved, likesByAsset],
   );
 
   const approvedCount = useMemo(
@@ -541,6 +578,25 @@ export function ReviewModal({
             >
               <LayoutGrid className="h-3.5 w-3.5" />
               Grid
+            </button>
+          )}
+          {totalLikes > 0 && (
+            <button
+              type="button"
+              onClick={() => setLikedOnly((v) => !v)}
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+              style={{
+                borderColor: likedOnly
+                  ? "var(--lm-coral)"
+                  : "var(--lm-border-strong)",
+                backgroundColor: likedOnly ? "var(--lm-coral)" : "transparent",
+                color: likedOnly ? "#000" : "var(--lm-text-secondary)",
+              }}
+              aria-pressed={likedOnly}
+              title="Show only assets liked on the shared board"
+            >
+              <Heart className="h-3.5 w-3.5" />
+              Liked {totalLikes}
             </button>
           )}
           <button
@@ -834,6 +890,7 @@ export function ReviewModal({
             index={focusIndex}
             total={visibleAssets.length}
             approved={isApproved(focusAsset)}
+            likes={likesByAsset.get(focusAsset.id)}
             onApprove={() => toggleApprove(focusAsset)}
             isMaster={
               openDirection ? openDirectionMasterId === focusAsset.id : undefined
@@ -868,6 +925,7 @@ export function ReviewModal({
                   key={asset.id}
                   asset={asset}
                   approved={isApproved(asset)}
+                  likes={likesByAsset.get(asset.id)}
                   onOpen={() => setFocusId(asset.id)}
                   onApprove={() => toggleApprove(asset)}
                   showCollectionLabel={effectiveTab === "all"}
@@ -1111,6 +1169,7 @@ function DirectionCard({
 function ReviewTile({
   asset,
   approved,
+  likes,
   onOpen,
   onApprove,
   showCollectionLabel,
@@ -1120,6 +1179,8 @@ function ReviewTile({
 }: {
   asset: ReviewAsset;
   approved: boolean;
+  /** Viewer likes from the shared board. */
+  likes?: AssetLikes;
   onOpen: () => void;
   onApprove: () => void;
   showCollectionLabel: boolean;
@@ -1152,29 +1213,46 @@ function ReviewTile({
         <Media asset={asset} variant="tile" />
       </div>
 
-      {/* Approve toggle */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onApprove();
-        }}
-        className={`absolute right-2.5 top-2.5 z-10 flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
-          approved
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100"
-        }`}
-        style={{
-          backgroundColor: approved ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
-          color: approved ? "#000" : "#fff",
-          borderColor: approved ? "var(--lm-coral)" : "rgba(255,255,255,0.25)",
-        }}
-        aria-pressed={approved}
-        title={approved ? "Approved — click to remove" : "Approve"}
-      >
-        <Check className="h-3 w-3" strokeWidth={3} />
-        {approved ? "Approved" : "Approve"}
-      </button>
+      {/* Viewer likes + approve, grouped top-right */}
+      <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
+        {likes && likes.count > 0 && (
+          <span
+            className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+            style={{
+              backgroundColor: "rgba(0,0,0,0.62)",
+              color: "var(--lm-coral)",
+              borderColor:
+                "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+            }}
+            title={likeTitle(likes)}
+          >
+            <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
+            {likes.count}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onApprove();
+          }}
+          className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+            approved
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+          style={{
+            backgroundColor: approved ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
+            color: approved ? "#000" : "#fff",
+            borderColor: approved ? "var(--lm-coral)" : "rgba(255,255,255,0.25)",
+          }}
+          aria-pressed={approved}
+          title={approved ? "Approved — click to remove" : "Approve"}
+        >
+          <Check className="h-3 w-3" strokeWidth={3} />
+          {approved ? "Approved" : "Approve"}
+        </button>
+      </div>
 
       {/* Master (direction thumbnail) toggle */}
       {onMaster && (
@@ -1245,6 +1323,7 @@ function FocusView({
   index,
   total,
   approved,
+  likes,
   onApprove,
   isMaster,
   onMaster,
@@ -1260,6 +1339,8 @@ function FocusView({
   index: number;
   total: number;
   approved: boolean;
+  /** Viewer likes from the shared board. */
+  likes?: AssetLikes;
   onApprove: () => void;
   /** Only defined inside a drilled direction, where "master" is unambiguous. */
   isMaster?: boolean;
@@ -1322,6 +1403,25 @@ function FocusView({
             >
               {index + 1}/{total}
             </span>
+            {likes && likes.count > 0 && (
+              <span
+                className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-mono font-bold uppercase tracking-wider"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  color: "var(--lm-coral)",
+                  borderColor:
+                    "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+                }}
+                title={likeTitle(likes)}
+              >
+                <Heart
+                  className="h-4 w-4"
+                  fill="currentColor"
+                  strokeWidth={2.5}
+                />
+                {likes.count}
+              </span>
+            )}
             {onMaster && (
               <button
                 type="button"

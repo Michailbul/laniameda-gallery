@@ -137,6 +137,22 @@ export default defineSchema({
     .index("by_project_folder", ["projectId", "folderId"])
     .index("by_owner_project", ["ownerUserId", "projectId"])
     .index("by_folder", ["folderId"]),
+  // Authless reactions from shared-board viewers (beta: the share token is
+  // the only capability; no viewer accounts). viewerKey is a random client id
+  // persisted in the viewer's localStorage so likes toggle per browser;
+  // viewerName is whatever they typed ("Lukas"), shown to the owner.
+  boardReactions: defineTable({
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    assetId: v.id("assets"),
+    viewerKey: v.string(),
+    viewerName: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_asset", ["projectId", "assetId"])
+    .index("by_project_viewer_asset", ["projectId", "viewerKey", "assetId"])
+    .index("by_project_viewer", ["projectId", "viewerKey"]),
   userPillars: defineTable({
     ownerUserId: v.string(),
     key: v.string(),
