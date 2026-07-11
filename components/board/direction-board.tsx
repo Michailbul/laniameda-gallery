@@ -18,7 +18,9 @@ import {
   ChevronRight,
   Download,
   FileDown,
+  LayoutGrid,
   Play,
+  Plus,
   X,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -33,13 +35,33 @@ type TypeFilter = "all" | "image" | "video";
 /** The board's layers. Each layer holds "directions" — collections of similar
  * options thumbed by their master (cover) asset. */
 type BoardSection = "characters" | "locations" | "beats";
-type BoardTab = "all" | BoardSection | "unsorted";
 
-const SECTION_TABS: { key: BoardSection; label: string }[] = [
-  { key: "characters", label: "Characters" },
-  { key: "locations", label: "Locations" },
-  { key: "beats", label: "Beats" },
+const SECTION_ORDER: { key: BoardSection; label: string; blurb: string }[] = [
+  {
+    key: "characters",
+    label: "Characters",
+    blurb: "Alternate takes on the cast. One stack = one direction.",
+  },
+  {
+    key: "locations",
+    label: "Locations",
+    blurb: "Where it happens. One stack = one direction.",
+  },
+  {
+    key: "beats",
+    label: "Beats",
+    blurb: "A character direction meets a location — with the resulting shot.",
+  },
 ];
+
+/** What the viewer is looking at: the scrollable overview, one opened
+ * direction, or the flat everything grid. */
+type BoardView =
+  | { type: "overview" }
+  | { type: "direction"; id: string }
+  | { type: "all" };
+
+type DirectionSort = "curated" | "name" | "options";
 
 type BoardAsset = {
   id: string;
@@ -56,6 +78,13 @@ type BoardAsset = {
   collectionName: string;
 };
 
+/** A paired direction reference shown on a beat card. */
+type PairRef = {
+  id: string;
+  name: string;
+  thumb?: string;
+};
+
 type BoardDirection = {
   id: string;
   name: string;
@@ -65,23 +94,23 @@ type BoardDirection = {
   backs: string[];
   /** Thumb urls (master first) for the hover-to-preview rotation. */
   previews: string[];
+  /** Beat pairing (beats layer only). */
+  pairCharacter?: PairRef;
+  pairLocation?: PairRef;
 };
 
 /**
- * Public, read-only direction board for a shared project. A colleague opens
- * /b/<token> with no account and can browse the project's collections
- * (characters, locations, stories…), filter by section / stills / videos /
- * approved, view everything large, and download assets.
+ * Public, read-only direction board for a shared project, built to be read
+ * top-to-bottom by someone who has never seen the tool: project header, then
+ * one section per layer (Characters / Locations / Beats) with direction
+ * stacks, then a link to the flat everything-grid. Clicking a stack opens its
+ * options in a dedicated masonry with a Back button.
  */
 export function DirectionBoard({ token }: { token: string }) {
   const board = useQuery(api.directionBoard.getBoard, { token });
 
-  // null = no explicit choice yet → land on the first non-empty layer so the
-  // board opens on its modes (Characters / Locations / Beats), not the wall.
-  const [activeTab, setActiveTab] = useState<BoardTab | null>(null);
-  // Direction currently drilled into (collection id), or null when browsing
-  // a layer's direction cards / the flat All view.
-  const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
+  const [view, setView] = useState<BoardView>({ type: "overview" });
+  const [sort, setSort] = useState<DirectionSort>("curated");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -90,6 +119,8 @@ export function DirectionBoard({ token }: { token: string }) {
   const [gridWidth, setGridWidth] = useState(0);
   const filmstripRef = useRef<HTMLDivElement | null>(null);
   const activeThumbRef = useRef<HTMLButtonElement | null>(null);
+  // Overview scroll position, restored when backing out of a drill-in.
+  const overviewScrollRef = useRef(0);
 
   useEffect(() => {
     const el = gridRef.current;
@@ -125,80 +156,130 @@ export function DirectionBoard({ token }: { token: string }) {
     [],
   );
 
-  const tabOf = (section: string | undefined): BoardTab =>
+  const sectionOf = (section: string | undefined): BoardSection | "unsorted" =>
     (section as BoardSection | undefined) ?? "unsorted";
 
-  const anySectioned = useMemo(
-    () => (board?.collections ?? []).some((c) => c.section),
+  const collections = useMemo(
+    () => board?.collections ?? [],
     [board],
   );
 
-  // Land on the first layer that has directions; flat All is the fallback.
-  const defaultTab = useMemo<BoardTab>(() => {
-    const collections = board?.collections ?? [];
-    for (const { key } of SECTION_TABS) {
-      if (collections.some((c) => tabOf(c.section) === key)) return key;
+  // id → collection, for beat pairing lookups.
+  const collectionById = useMemo(() => {
+    const map = new Map<string, BoardCollection>();
+    for (const collection of collections) {
+      map.set(collection.id as string, collection);
     }
-    return "all";
-  }, [board]);
-  const effectiveTab = activeTab ?? defaultTab;
+    return map;
+  }, [collections]);
 
-  // Collections visible in the active tab.
-  const tabCollections = useMemo<BoardCollection[]>(() => {
-    const collections = board?.collections ?? [];
-    if (effectiveTab === "all") return collections;
-    return collections.filter((c) => tabOf(c.section) === effectiveTab);
-  }, [board, effectiveTab]);
+  const resolveCover = useCallback((collection: BoardCollection) => {
+    const coverId = collection.coverAssetId as string | undefined;
+    return (
+      (coverId &&
+        collection.assets.find((a) => (a.id as string) === coverId)) ||
+      collection.assets[0] ||
+      null
+    );
+  }, []);
 
-  // The drilled-into direction, if it still exists.
+  const pairRef = useCallback(
+    (folderId: string | undefined): PairRef | undefined => {
+      if (!folderId) return undefined;
+      const collection = collectionById.get(folderId);
+      if (!collection) return undefined;
+      const cover = resolveCover(collection);
+      return {
+        id: collection.id as string,
+        name: collection.name,
+        thumb: cover ? (cover.thumbUrl ?? cover.url) : undefined,
+      };
+    },
+    [collectionById, resolveCover],
+  );
+
+  const toDirection = useCallback(
+    (collection: BoardCollection): BoardDirection => {
+      const coverAsset = resolveCover(collection);
+      const backs = collection.assets
+        .filter((a) => a !== coverAsset)
+        .slice(0, 2)
+        .map((a) => a.thumbUrl ?? a.url)
+        .filter((src): src is string => Boolean(src));
+      const previews = (coverAsset
+        ? [coverAsset, ...collection.assets.filter((a) => a !== coverAsset)]
+        : collection.assets
+      )
+        .slice(0, 8)
+        .map((a) => a.thumbUrl ?? a.url)
+        .filter((src): src is string => Boolean(src));
+      return {
+        id: collection.id as string,
+        name: collection.name,
+        count: collection.count,
+        cover: coverAsset ? toBoardAsset(coverAsset, collection) : null,
+        backs,
+        previews,
+        pairCharacter: pairRef(
+          collection.beatCharacterFolderId as string | undefined,
+        ),
+        pairLocation: pairRef(
+          collection.beatLocationFolderId as string | undefined,
+        ),
+      };
+    },
+    [resolveCover, toBoardAsset, pairRef],
+  );
+
+  const sortDirections = useCallback(
+    (list: BoardDirection[]) => {
+      if (sort === "name") {
+        return [...list].sort((a, b) => a.name.localeCompare(b.name));
+      }
+      if (sort === "options") {
+        return [...list].sort((a, b) => b.count - a.count);
+      }
+      return list;
+    },
+    [sort],
+  );
+
+  // Directions bucketed per layer, in the owner's curated order (then sorted).
+  const sections = useMemo(() => {
+    const buckets: Record<BoardSection | "unsorted", BoardDirection[]> = {
+      characters: [],
+      locations: [],
+      beats: [],
+      unsorted: [],
+    };
+    for (const collection of collections) {
+      buckets[sectionOf(collection.section)].push(toDirection(collection));
+    }
+    return {
+      characters: sortDirections(buckets.characters),
+      locations: sortDirections(buckets.locations),
+      beats: sortDirections(buckets.beats),
+      unsorted: sortDirections(buckets.unsorted),
+    };
+  }, [collections, toDirection, sortDirections]);
+
+  const anySectioned = useMemo(
+    () => collections.some((c) => c.section),
+    [collections],
+  );
+
+  // The opened direction, if it still exists.
   const openDirection = useMemo<BoardCollection | null>(
     () =>
-      (openDirectionId &&
-        (board?.collections ?? []).find(
-          (c) => (c.id as string) === openDirectionId,
-        )) ||
-      null,
-    [board, openDirectionId],
+      (view.type === "direction" && collectionById.get(view.id)) || null,
+    [view, collectionById],
   );
 
-  // Direction cards for a layer tab, thumbed by the MASTER (cover) asset.
-  const directions = useMemo<BoardDirection[]>(
-    () =>
-      tabCollections.map((collection) => {
-        const coverId = collection.coverAssetId as string | undefined;
-        const coverAsset =
-          (coverId &&
-            collection.assets.find((a) => (a.id as string) === coverId)) ||
-          collection.assets[0] ||
-          null;
-        const backs = collection.assets
-          .filter((a) => a !== coverAsset)
-          .slice(0, 2)
-          .map((a) => a.thumbUrl ?? a.url)
-          .filter((src): src is string => Boolean(src));
-        const previews = (coverAsset
-          ? [coverAsset, ...collection.assets.filter((a) => a !== coverAsset)]
-          : collection.assets
-        )
-          .slice(0, 8)
-          .map((a) => a.thumbUrl ?? a.url)
-          .filter((src): src is string => Boolean(src));
-        return {
-          id: collection.id as string,
-          name: collection.name,
-          count: collection.count,
-          cover: coverAsset ? toBoardAsset(coverAsset, collection) : null,
-          backs,
-          previews,
-        };
-      }),
-    [tabCollections, toBoardAsset],
-  );
-
-  // Flatten the current scope → assets. Drilled direction wins; otherwise the
-  // active tab's collections, deduped by asset id (first collection wins).
+  // Flatten the current scope → assets. Opened direction wins; the flat
+  // everything view dedupes by asset id (first collection wins the label).
   const assets = useMemo<BoardAsset[]>(() => {
-    const source = openDirection ? [openDirection] : tabCollections;
+    if (view.type === "overview") return [];
+    const source = openDirection ? [openDirection] : collections;
     const out: BoardAsset[] = [];
     const seen = new Set<string>();
     for (const collection of source) {
@@ -210,7 +291,7 @@ export function DirectionBoard({ token }: { token: string }) {
       }
     }
     return out;
-  }, [openDirection, tabCollections, toBoardAsset]);
+  }, [view.type, openDirection, collections, toBoardAsset]);
 
   const approvedCount = useMemo(
     () => assets.filter((asset) => asset.approved).length,
@@ -243,25 +324,20 @@ export function DirectionBoard({ token }: { token: string }) {
     );
   }, [visibleAssets, gridWidth]);
 
-  // Direction-cards browsing mode: a layer tab with nothing drilled into.
-  const showDirectionCards = effectiveTab !== "all" && !openDirection;
+  const openDirectionById = useCallback((id: string) => {
+    overviewScrollRef.current = window.scrollY;
+    setView({ type: "direction", id });
+    setFocusId(null);
+    window.scrollTo(0, 0);
+  }, []);
 
-  // Larger rows for direction cards — they carry a name + count overlay.
-  const cardLayout = useMemo(() => {
-    const targetRowHeight = Math.max(
-      240,
-      Math.min(400, Math.round(gridWidth / 3.4)),
+  const backToOverview = useCallback(() => {
+    setView({ type: "overview" });
+    setFocusId(null);
+    requestAnimationFrame(() =>
+      window.scrollTo(0, overviewScrollRef.current),
     );
-    return layoutJustified(
-      directions.map((direction) => ({
-        width: direction.cover?.width,
-        height: direction.cover?.height,
-        kind: direction.cover?.kind ?? "image",
-        contentType: direction.cover?.contentType,
-      })),
-      { containerWidth: gridWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
-    );
-  }, [directions, gridWidth]);
+  }, []);
 
   const focusIndex = focusId
     ? visibleAssets.findIndex((asset) => asset.id === focusId)
@@ -290,9 +366,9 @@ export function DirectionBoard({ token }: { token: string }) {
         if (focusId) {
           e.preventDefault();
           setFocusId(null);
-        } else if (openDirectionId) {
+        } else if (view.type !== "overview") {
           e.preventDefault();
-          setOpenDirectionId(null);
+          backToOverview();
         }
         return;
       }
@@ -307,7 +383,7 @@ export function DirectionBoard({ token }: { token: string }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focusId, openDirectionId, goFocus]);
+  }, [focusId, view.type, goFocus, backToOverview]);
 
   // Keep the active filmstrip thumb centered as focus moves.
   useEffect(() => {
@@ -322,38 +398,23 @@ export function DirectionBoard({ token }: { token: string }) {
   const isLoading = board === undefined;
   const notFound = board === null;
   const totalAssets = useMemo(() => {
-    if (!board) return 0;
     const seen = new Set<string>();
-    for (const collection of board.collections) {
+    for (const collection of collections) {
       for (const asset of collection.assets) seen.add(asset.id as string);
     }
     return seen.size;
-  }, [board]);
+  }, [collections]);
 
-  const directionCountBy = (tab: BoardTab) =>
-    (board?.collections ?? []).filter((c) => tabOf(c.section) === tab).length;
-  const unsortedCount = directionCountBy("unsorted");
-  const tabs: { key: BoardTab; label: string; count?: number }[] = [
-    { key: "all", label: "All" },
-    ...SECTION_TABS.filter(({ key }) => directionCountBy(key) > 0).map(
-      ({ key, label }) => ({
-        key: key as BoardTab,
-        label,
-        count: directionCountBy(key),
-      }),
-    ),
-    ...(unsortedCount > 0
-      ? [
-          {
-            key: "unsorted" as BoardTab,
-            // With no layers assigned at all, plain "Directions" reads better
-            // than "Unsorted" for the viewer.
-            label: anySectioned ? "Unsorted" : "Directions",
-            count: unsortedCount,
-          },
-        ]
-      : []),
-  ];
+  const visibleSections = SECTION_ORDER.filter(
+    ({ key }) => sections[key].length > 0,
+  );
+  const unsortedLabel = anySectioned ? "More" : "Directions";
+
+  const scrollToSection = (key: string) => {
+    document
+      .getElementById(`board-${key}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div
@@ -381,7 +442,7 @@ export function DirectionBoard({ token }: { token: string }) {
           </span>
         </div>
 
-        {!isLoading && !notFound && (
+        {!isLoading && !notFound && view.type === "overview" && (
           <div className="mt-8 md:mt-12">
             <p
               className="text-[11px] font-mono font-bold uppercase tracking-[0.2em]"
@@ -411,19 +472,25 @@ export function DirectionBoard({ token }: { token: string }) {
               className="mt-3 text-[11px] font-mono uppercase tracking-wider"
               style={{ color: "var(--lm-text-tertiary)" }}
             >
-              {board.collections.length}{" "}
-              {board.collections.length === 1 ? "section" : "sections"} ·{" "}
               {totalAssets} assets
               {board.updatedAt
                 ? ` · updated ${new Date(board.updatedAt).toLocaleDateString()}`
                 : ""}
             </p>
+            <p
+              className="mt-4 max-w-[70ch] text-[12px] leading-relaxed"
+              style={{ color: "var(--lm-text-tertiary)" }}
+            >
+              Each stack is one direction — a set of options for a character
+              or location. Hover a stack to flip through it, click to open
+              every option. Save downloads any file.
+            </p>
           </div>
         )}
       </header>
 
-      {/* ── Filters ── */}
-      {!isLoading && !notFound && board.collections.length > 0 && (
+      {/* ── Sticky nav ── */}
+      {!isLoading && !notFound && (
         <div
           className="sticky top-0 z-20 mt-6"
           style={{
@@ -435,45 +502,153 @@ export function DirectionBoard({ token }: { token: string }) {
           }}
         >
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2 px-4 py-3 md:px-8">
-            {tabs.map((tab) => {
-              const active = effectiveTab === tab.key;
-              return (
+            {view.type === "overview" ? (
+              <>
+                {visibleSections.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => scrollToSection(key)}
+                    className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
+                    style={{
+                      borderColor: "var(--lm-border-strong)",
+                      color: "var(--lm-text-secondary)",
+                    }}
+                  >
+                    {label}
+                    <span style={{ opacity: 0.6 }}>
+                      {" "}
+                      {sections[key].length}
+                    </span>
+                  </button>
+                ))}
+                {sections.unsorted.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("unsorted")}
+                    className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
+                    style={{
+                      borderColor: "var(--lm-border-strong)",
+                      color: "var(--lm-text-secondary)",
+                    }}
+                  >
+                    {unsortedLabel}
+                    <span style={{ opacity: 0.6 }}>
+                      {" "}
+                      {sections.unsorted.length}
+                    </span>
+                  </button>
+                )}
                 <button
-                  key={tab.key}
                   type="button"
                   onClick={() => {
-                    setActiveTab(tab.key);
-                    setOpenDirectionId(null);
-                    setFocusId(null);
+                    overviewScrollRef.current = window.scrollY;
+                    setView({ type: "all" });
+                    window.scrollTo(0, 0);
                   }}
-                  className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium transition-colors hover:opacity-80"
                   style={{
-                    borderColor: active
-                      ? "var(--lm-coral)"
-                      : "var(--lm-border-strong)",
-                    backgroundColor: active
-                      ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
-                      : "transparent",
-                    color: active
-                      ? "var(--lm-coral)"
-                      : "var(--lm-text-secondary)",
+                    borderColor: "var(--lm-border-strong)",
+                    color: "var(--lm-text-secondary)",
                   }}
                 >
-                  {tab.label}
-                  {tab.count !== undefined && (
-                    <span style={{ opacity: 0.6 }}> {tab.count}</span>
-                  )}
+                  <LayoutGrid className="h-3 w-3" />
+                  All assets
+                  <span style={{ opacity: 0.6 }}>{totalAssets}</span>
                 </button>
-              );
-            })}
 
-            {!showDirectionCards && (
+                {/* Sort */}
+                <span
+                  className="ml-auto text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  Sort
+                </span>
+                {(
+                  [
+                    ["curated", "Curated"],
+                    ["name", "A–Z"],
+                    ["options", "Most options"],
+                  ] as const
+                ).map(([value, label]) => {
+                  const active = sort === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSort(value)}
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
+                      style={{
+                        borderColor: active
+                          ? "var(--lm-coral)"
+                          : "var(--lm-border-strong)",
+                        color: active
+                          ? "var(--lm-coral)"
+                          : "var(--lm-text-tertiary)",
+                      }}
+                      aria-pressed={active}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
               <>
+                <button
+                  type="button"
+                  onClick={backToOverview}
+                  className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                  style={{
+                    borderColor: "var(--lm-border-strong)",
+                    color: "var(--lm-text-secondary)",
+                  }}
+                  title="Back to the board (Esc)"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  {board.name}
+                </button>
+                <span
+                  className="truncate text-[15px] font-semibold"
+                  style={{ color: "var(--lm-text-primary)" }}
+                >
+                  {view.type === "all"
+                    ? "All assets"
+                    : openDirection?.name ?? "Direction"}
+                </span>
+                <span
+                  className="text-[11px] font-mono uppercase tracking-wider"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  {view.type === "all"
+                    ? `${totalAssets} assets`
+                    : `${openDirection?.count ?? 0} options`}
+                </span>
+                {openDirection && (
+                  <a
+                    href={`/api/board/direction-pdf?token=${encodeURIComponent(
+                      token,
+                    )}&folderId=${encodeURIComponent(
+                      openDirection.id as string,
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                    style={{
+                      borderColor: "var(--lm-border-strong)",
+                      color: "var(--lm-text-secondary)",
+                    }}
+                    title="Download this direction as a PDF (images embedded, videos as links)"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    PDF
+                  </a>
+                )}
+
                 <span
                   className="mx-1 hidden h-4 w-px sm:block"
                   style={{ backgroundColor: "var(--lm-border-strong)" }}
                 />
-
                 {(
                   [
                     ["all", "All"],
@@ -502,7 +677,6 @@ export function DirectionBoard({ token }: { token: string }) {
                     </button>
                   );
                 })}
-
                 {approvedCount > 0 && (
                   <button
                     type="button"
@@ -524,72 +698,19 @@ export function DirectionBoard({ token }: { token: string }) {
                     Approved {approvedCount}
                   </button>
                 )}
+                <span
+                  className="ml-auto text-[11px] font-mono"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  {visibleAssets.length} shown
+                </span>
               </>
             )}
-
-            <span
-              className="ml-auto text-[11px] font-mono"
-              style={{ color: "var(--lm-text-ghost)" }}
-            >
-              {showDirectionCards
-                ? `${directions.length} ${
-                    directions.length === 1 ? "direction" : "directions"
-                  }`
-                : `${visibleAssets.length} shown`}
-            </span>
           </div>
         </div>
       )}
 
-      {/* ── Drilled direction breadcrumb ── */}
-      {openDirection && (
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2.5 px-4 pt-5 md:px-8">
-          <button
-            type="button"
-            onClick={() => setOpenDirectionId(null)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-secondary)",
-            }}
-            title="Back to directions (Esc)"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
-          </button>
-          <span
-            className="truncate text-[16px] font-semibold"
-            style={{ color: "var(--lm-text-primary)" }}
-          >
-            {openDirection.name}
-          </span>
-          <span
-            className="text-[11px] font-mono uppercase tracking-wider"
-            style={{ color: "var(--lm-text-tertiary)" }}
-          >
-            {openDirection.count}{" "}
-            {openDirection.count === 1 ? "option" : "options"}
-          </span>
-          <a
-            href={`/api/board/direction-pdf?token=${encodeURIComponent(
-              token,
-            )}&folderId=${encodeURIComponent(openDirection.id as string)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-secondary)",
-            }}
-            title="Download this direction as a PDF (images embedded, videos as links)"
-          >
-            <FileDown className="h-3.5 w-3.5" />
-            PDF
-          </a>
-        </div>
-      )}
-
-      {/* ── Grid ── */}
+      {/* ── Body ── */}
       <main className="mx-auto max-w-[1500px] px-4 pb-20 pt-5 md:px-8">
         <div ref={gridRef}>
           {isLoading ? (
@@ -615,41 +736,81 @@ export function DirectionBoard({ token }: { token: string }) {
                 link.
               </p>
             </div>
-          ) : showDirectionCards ? (
-            directions.length === 0 ? (
-              <p
-                className="py-24 text-center text-[13px]"
-                style={{ color: "var(--lm-text-tertiary)" }}
-              >
-                No directions in this layer yet.
-              </p>
-            ) : (
-              <div
-                className="relative"
-                style={{ height: cardLayout.totalHeight }}
-                role="list"
-                aria-label="Directions"
-              >
-                {cardLayout.tiles.map((tile) => {
-                  const direction = directions[tile.index]!;
-                  return (
-                    <DirectionCardTile
-                      key={direction.id}
-                      direction={direction}
-                      eager={tile.index < 6}
-                      style={{
-                        position: "absolute",
-                        top: tile.top,
-                        left: tile.left,
-                        width: tile.width,
-                        height: tile.height,
-                      }}
-                      onOpen={() => setOpenDirectionId(direction.id)}
-                    />
-                  );
-                })}
-              </div>
-            )
+          ) : view.type === "overview" ? (
+            <>
+              {visibleSections.map(({ key, label, blurb }) => (
+                <section
+                  key={key}
+                  id={`board-${key}`}
+                  className="scroll-mt-20 pt-8 first:pt-2"
+                >
+                  <SectionHeader
+                    label={label}
+                    count={sections[key].length}
+                    blurb={blurb}
+                  />
+                  <DirectionGrid
+                    directions={sections[key]}
+                    gridWidth={gridWidth}
+                    isBeats={key === "beats"}
+                    onOpen={openDirectionById}
+                  />
+                </section>
+              ))}
+
+              {sections.unsorted.length > 0 && (
+                <section
+                  id="board-unsorted"
+                  className="scroll-mt-20 pt-8"
+                >
+                  <SectionHeader
+                    label={unsortedLabel}
+                    count={sections.unsorted.length}
+                    blurb="Directions not filed under a layer yet."
+                  />
+                  <DirectionGrid
+                    directions={sections.unsorted}
+                    gridWidth={gridWidth}
+                    isBeats={false}
+                    onOpen={openDirectionById}
+                  />
+                </section>
+              )}
+
+              {visibleSections.length === 0 &&
+                sections.unsorted.length === 0 && (
+                  <p
+                    className="py-24 text-center text-[13px]"
+                    style={{ color: "var(--lm-text-tertiary)" }}
+                  >
+                    Nothing on this board yet.
+                  </p>
+                )}
+
+              {totalAssets > 0 && (
+                <div
+                  className="mt-14 flex justify-center border-t pt-8"
+                  style={{ borderColor: "var(--lm-border)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      overviewScrollRef.current = window.scrollY;
+                      setView({ type: "all" });
+                      window.scrollTo(0, 0);
+                    }}
+                    className="flex items-center gap-2 rounded-full border px-5 py-2.5 text-[12px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                    style={{
+                      borderColor: "var(--lm-border-strong)",
+                      color: "var(--lm-text-secondary)",
+                    }}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                    Browse all {totalAssets} assets
+                  </button>
+                </div>
+              )}
+            </>
           ) : visibleAssets.length === 0 ? (
             <p
               className="py-24 text-center text-[13px]"
@@ -679,7 +840,7 @@ export function DirectionBoard({ token }: { token: string }) {
                       width: tile.width,
                       height: tile.height,
                     }}
-                    showCollectionLabel={effectiveTab === "all"}
+                    showCollectionLabel={view.type === "all"}
                     onOpen={() => setFocusId(asset.id)}
                   />
                 );
@@ -705,6 +866,106 @@ export function DirectionBoard({ token }: { token: string }) {
           onPick={(id) => setFocusId(id)}
         />
       )}
+    </div>
+  );
+}
+
+/* ── Overview section pieces ── */
+
+function SectionHeader({
+  label,
+  count,
+  blurb,
+}: {
+  label: string;
+  count: number;
+  blurb: string;
+}) {
+  return (
+    <div
+      className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b pb-3"
+      style={{ borderColor: "var(--lm-border)" }}
+    >
+      <h2
+        className="text-2xl md:text-3xl"
+        style={{
+          fontFamily: "var(--font-display), Georgia, serif",
+          color: "var(--lm-text-primary)",
+        }}
+      >
+        {label}
+      </h2>
+      <span
+        className="text-[11px] font-mono font-bold uppercase tracking-wider"
+        style={{ color: "var(--lm-coral)" }}
+      >
+        {count} {count === 1 ? "direction" : "directions"}
+      </span>
+      <span
+        className="text-[12px]"
+        style={{ color: "var(--lm-text-tertiary)" }}
+      >
+        {blurb}
+      </span>
+    </div>
+  );
+}
+
+/** Justified rows of direction stacks for one section. */
+function DirectionGrid({
+  directions,
+  gridWidth,
+  isBeats,
+  onOpen,
+}: {
+  directions: BoardDirection[];
+  gridWidth: number;
+  isBeats: boolean;
+  onOpen: (id: string) => void;
+}) {
+  const cardLayout = useMemo(() => {
+    const targetRowHeight = Math.max(
+      240,
+      Math.min(400, Math.round(gridWidth / 3.4)),
+    );
+    return layoutJustified(
+      directions.map((direction) => ({
+        width: direction.cover?.width,
+        height: direction.cover?.height,
+        kind: direction.cover?.kind ?? "image",
+        contentType: direction.cover?.contentType,
+      })),
+      { containerWidth: gridWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
+    );
+  }, [directions, gridWidth]);
+
+  return (
+    <div
+      className="relative"
+      style={{ height: cardLayout.totalHeight }}
+      role="list"
+      aria-label="Directions"
+    >
+      {cardLayout.tiles.map((tile) => {
+        const direction = directions[tile.index]!;
+        return (
+          <DirectionCardTile
+            key={direction.id}
+            direction={direction}
+            isBeat={isBeats}
+            eager={tile.index < 6}
+            style={{
+              position: "absolute",
+              top: tile.top,
+              left: tile.left,
+              width: tile.width,
+              height: tile.height,
+            }}
+            onOpen={() => onOpen(direction.id)}
+            onOpenDirection={onOpen}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -760,18 +1021,26 @@ function DownloadButton({
 
 function DirectionCardTile({
   direction,
+  isBeat = false,
   eager,
   style,
   onOpen,
+  onOpenDirection,
 }: {
   direction: BoardDirection;
+  /** Beat cards carry the character + location pairing chips. */
+  isBeat?: boolean;
   eager: boolean;
   style: React.CSSProperties;
   onOpen: () => void;
+  onOpenDirection?: (id: string) => void;
 }) {
   const cover = direction.cover;
   // Hover 1s → rotate through the direction's options in place.
   const preview = useStackHoverPreview(direction.previews.length);
+  const pairs = [direction.pairCharacter, direction.pairLocation].filter(
+    (pair): pair is PairRef => Boolean(pair),
+  );
   return (
     <div
       className="group relative cursor-pointer"
@@ -852,6 +1121,55 @@ function DirectionCardTile({
             : direction.count}
         </span>
 
+        {/* Beat pairing chips — the character + location this beat combines */}
+        {isBeat && pairs.length > 0 && (
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1">
+            {pairs.map((pair, index) => (
+              <span key={pair.id} className="flex items-center gap-1">
+                {index > 0 && (
+                  <Plus
+                    className="h-3 w-3"
+                    style={{ color: "rgba(255,255,255,0.8)" }}
+                    strokeWidth={3}
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDirection?.(pair.id);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border p-0.5 pr-2 transition-transform hover:scale-105"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.62)",
+                    borderColor: "rgba(255,255,255,0.25)",
+                  }}
+                  title={`Open direction: ${pair.name}`}
+                >
+                  {pair.thumb ? (
+                    <img
+                      src={pair.thumb}
+                      alt=""
+                      className="h-6 w-6 rounded-md object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="h-6 w-6 rounded-md"
+                      style={{ backgroundColor: "var(--lm-surface-3)" }}
+                    />
+                  )}
+                  <span
+                    className="max-w-[9ch] truncate text-[9px] font-mono font-bold uppercase tracking-wider"
+                    style={{ color: "#fff" }}
+                  >
+                    {pair.name}
+                  </span>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Bottom label over a gradient so any master image stays readable */}
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
@@ -866,7 +1184,7 @@ function DirectionCardTile({
               className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
               style={{ color: "var(--lm-coral)" }}
             >
-              Direction
+              {isBeat ? "Storybeat" : "Direction"}
             </p>
             <p
               className="truncate text-[15px] font-semibold"

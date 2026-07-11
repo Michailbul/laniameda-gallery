@@ -121,6 +121,7 @@ export function ReviewModal({
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
   const setCollectionSection = useMutation(api.projects.setProjectCollectionSection);
+  const setBeatPairingMutation = useMutation(api.projects.setBeatPairing);
   const setFolderCover = useMutation(api.folders.setFolderCover);
   const createFolder = useMutation(api.folders.createFolder);
   const enableShare = useMutation(api.directionBoard.enableShare);
@@ -371,6 +372,37 @@ export function ReviewModal({
       });
     },
     [ownerUserId, projectId, setCollectionSection],
+  );
+
+  // Update one side of a beat's pairing, preserving the other side.
+  const updateBeatPairing = useCallback(
+    (
+      collection: ProjectCollection,
+      side: "character" | "location",
+      value: string,
+    ) => {
+      if (!projectId) return;
+      const nextCharacter =
+        side === "character"
+          ? value
+            ? (value as Id<"folders">)
+            : null
+          : ((collection.beatCharacterFolderId as Id<"folders">) ?? null);
+      const nextLocation =
+        side === "location"
+          ? value
+            ? (value as Id<"folders">)
+            : null
+          : ((collection.beatLocationFolderId as Id<"folders">) ?? null);
+      void setBeatPairingMutation({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: collection.folderId,
+        characterFolderId: nextCharacter,
+        locationFolderId: nextLocation,
+      });
+    },
+    [ownerUserId, projectId, setBeatPairingMutation],
   );
 
   const goFocus = useCallback((delta: number) => {
@@ -696,6 +728,54 @@ export function ReviewModal({
               );
             })}
           </div>
+
+          {/* Beat pairing: which character + location this beat combines */}
+          {tabOf(openDirection.section) === "beats" && (
+            <div className="flex basis-full flex-wrap items-center gap-2 pt-1">
+              <span
+                className="text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--lm-text-ghost)" }}
+              >
+                Pairs
+              </span>
+              {(
+                [
+                  ["character", "characters", openDirection.beatCharacterFolderId],
+                  ["location", "locations", openDirection.beatLocationFolderId],
+                ] as const
+              ).map(([side, sectionKey, currentId]) => (
+                <select
+                  key={side}
+                  value={(currentId as string | undefined) ?? ""}
+                  onChange={(e) =>
+                    updateBeatPairing(openDirection, side, e.target.value)
+                  }
+                  className="rounded-lg border px-2 py-1 text-[11px] outline-none"
+                  style={{
+                    backgroundColor: "var(--lm-surface-2)",
+                    borderColor: "var(--lm-border-strong)",
+                    color: currentId
+                      ? "var(--lm-text-primary)"
+                      : "var(--lm-text-tertiary)",
+                  }}
+                  aria-label={`Paired ${side} direction`}
+                >
+                  <option value="">No {side}</option>
+                  {(project?.collections ?? [])
+                    .filter(
+                      (c) =>
+                        tabOf(c.section) === sectionKey &&
+                        c.folderId !== openDirection.folderId,
+                    )
+                    .map((c) => (
+                      <option key={c.folderId} value={c.folderId as string}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

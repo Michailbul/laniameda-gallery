@@ -47,6 +47,8 @@ const boardValidator = v.object({
       name: v.string(),
       section: optionalProjectSectionValidator,
       coverAssetId: v.optional(v.id("assets")),
+      beatCharacterFolderId: v.optional(v.id("folders")),
+      beatLocationFolderId: v.optional(v.id("folders")),
       count: v.number(),
       assets: v.array(boardAssetValidator),
     }),
@@ -370,7 +372,13 @@ export const getBoard = query({
     const approvedTagId = approvedTag?._id;
 
     const collections = await Promise.all(
-      collectionLinks.map(async ({ folderId, section }) => {
+      collectionLinks.map(
+        async ({
+          folderId,
+          section,
+          beatCharacterFolderId,
+          beatLocationFolderId,
+        }) => {
         const collectionFolder = await ctx.db.get(folderId);
         const members = await collectAssetsForFolder(
           ctx,
@@ -406,10 +414,13 @@ export const getBoard = query({
           name: collectionFolder?.name ?? "Untitled collection",
           section,
           coverAssetId: collectionFolder?.coverAssetId,
+          beatCharacterFolderId,
+          beatLocationFolderId,
           count: assets.length,
           assets,
         };
-      }),
+        },
+      ),
     );
 
     return {

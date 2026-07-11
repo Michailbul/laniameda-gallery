@@ -126,6 +126,11 @@ export default defineSchema({
     // Which layer/tab of the project this collection is filed under
     // (characters | locations | beats). Undefined = unsorted.
     section: optionalProjectSectionValidator,
+    // For beat-layer rows only: a beat pairs one character direction with one
+    // location direction (both member collections of the same project); the
+    // beat collection's own assets are the resulting media (video/stills).
+    beatCharacterFolderId: v.optional(v.id("folders")),
+    beatLocationFolderId: v.optional(v.id("folders")),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])

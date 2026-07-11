@@ -58,6 +58,8 @@ export type ProjectSection = "characters" | "locations" | "beats";
 export type ProjectCollectionLink = {
   folderId: Id<"folders">;
   section?: ProjectSection;
+  beatCharacterFolderId?: Id<"folders">;
+  beatLocationFolderId?: Id<"folders">;
 };
 
 // Collect the member-collection links of a project, via the projectCollections
@@ -79,7 +81,12 @@ export const collectProjectCollectionLinks = async (
   for (const row of owned) {
     if (seen.has(row.folderId)) continue;
     seen.add(row.folderId);
-    links.push({ folderId: row.folderId, section: row.section });
+    links.push({
+      folderId: row.folderId,
+      section: row.section,
+      beatCharacterFolderId: row.beatCharacterFolderId,
+      beatLocationFolderId: row.beatLocationFolderId,
+    });
   }
   return links;
 };
@@ -232,6 +239,8 @@ export const getProject = query({
           name: v.string(),
           section: optionalProjectSectionValidator,
           coverAssetId: v.optional(v.id("assets")),
+          beatCharacterFolderId: v.optional(v.id("folders")),
+          beatLocationFolderId: v.optional(v.id("folders")),
           count: v.number(),
           assets: v.array(galleryAssetResultValidator),
         }),
@@ -260,24 +269,33 @@ export const getProject = query({
     );
 
     const collections = await Promise.all(
-      collectionLinks.map(async ({ folderId, section }) => {
-        const collectionFolder = await ctx.db.get(folderId);
-        const members = await collectAssetsForFolder(
-          ctx,
-          ownerUserIds,
+      collectionLinks.map(
+        async ({
           folderId,
-          PROJECT_COLLECTION_ASSET_LIMIT,
-        );
-        const assets = await hydrateGalleryAssetResults(ctx, members);
-        return {
-          folderId,
-          name: collectionFolder?.name ?? "Untitled collection",
           section,
-          coverAssetId: collectionFolder?.coverAssetId,
-          count: assets.length,
-          assets,
-        };
-      }),
+          beatCharacterFolderId,
+          beatLocationFolderId,
+        }) => {
+          const collectionFolder = await ctx.db.get(folderId);
+          const members = await collectAssetsForFolder(
+            ctx,
+            ownerUserIds,
+            folderId,
+            PROJECT_COLLECTION_ASSET_LIMIT,
+          );
+          const assets = await hydrateGalleryAssetResults(ctx, members);
+          return {
+            folderId,
+            name: collectionFolder?.name ?? "Untitled collection",
+            section,
+            coverAssetId: collectionFolder?.coverAssetId,
+            beatCharacterFolderId,
+            beatLocationFolderId,
+            count: assets.length,
+            assets,
+          };
+        },
+      ),
     );
 
     return {
@@ -365,6 +383,53 @@ export const addCollectionToProject = mutation({
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { added: true };
+  },
+});
+
+// Pair a beat direction with one character direction and one location
+// direction (both must be members of the same project). null clears a side.
+export const setBeatPairing = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    folderId: v.id("folders"),
+    characterFolderId: v.union(v.id("folders"), v.null()),
+    locationFolderId: v.union(v.id("folders"), v.null()),
+  },
+  returns: v.object({ updated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
+
+    const existing = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project_folder", (q) =>
+        q.eq("projectId", args.projectId).eq("folderId", args.folderId),
+      )
+      .unique();
+    if (!existing) {
+      throw new ConvexError("Collection is not part of this project.");
+    }
+
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const memberIds = new Set(
+      await collectProjectCollectionIds(ctx, ownerUserIds, args.projectId),
+    );
+    for (const pairedId of [args.characterFolderId, args.locationFolderId]) {
+      if (pairedId && !memberIds.has(pairedId)) {
+        throw new ConvexError("Paired direction is not part of this project.");
+      }
+    }
+
+    await ctx.db.patch(existing._id, {
+      beatCharacterFolderId: args.characterFolderId ?? undefined,
+      beatLocationFolderId: args.locationFolderId ?? undefined,
+    });
+    await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
+    return { updated: true };
   },
 });
 
