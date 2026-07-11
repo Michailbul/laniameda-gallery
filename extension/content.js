@@ -595,9 +595,12 @@
       return false;
     }
 
-    control.style.right = "auto";
-    control.style.bottom = "auto";
-    control.style.display = options.display || control.style.display || "flex";
+    // Style writes are guarded (same-value assignments still queue mutation
+    // records, which would feed the media-scan observer) and cheap to skip.
+    if (control.style.right !== "auto") control.style.right = "auto";
+    if (control.style.bottom !== "auto") control.style.bottom = "auto";
+    const display = options.display || control.style.display || "flex";
+    if (control.style.display !== display) control.style.display = display;
 
     const width = control.offsetWidth || options.fallbackWidth || 82;
     const height = control.offsetHeight || options.fallbackHeight || 34;
@@ -623,9 +626,13 @@
 
     if (!safeCandidate) return false;
 
-    control.style.left = `${Math.round(safeCandidate.left)}px`;
-    control.style.top = `${Math.round(safeCandidate.top)}px`;
-    control.dataset.stgPlacement = safeCandidate.placement;
+    const nextLeft = `${Math.round(safeCandidate.left)}px`;
+    const nextTop = `${Math.round(safeCandidate.top)}px`;
+    if (control.style.left !== nextLeft) control.style.left = nextLeft;
+    if (control.style.top !== nextTop) control.style.top = nextTop;
+    if (control.dataset.stgPlacement !== safeCandidate.placement) {
+      control.dataset.stgPlacement = safeCandidate.placement;
+    }
     return true;
   }
 
@@ -2750,11 +2757,11 @@
     const rect = target.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 ||
         rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) {
-      widget.style.display = "none";
+      if (widget.style.display !== "none") widget.style.display = "none";
       return;
     }
 
-    widget.style.display = "flex";
+    if (widget.style.display !== "flex") widget.style.display = "flex";
     const isCentered = isMidjourneyImaginePage();
     // Hover-reveal keeps dense grids and workspaces uncluttered — the widget
     // only shows while its host media is hovered.
@@ -2769,7 +2776,12 @@
       fallbackHeight: 36,
     });
     if (!placed) {
-      widget.style.display = "none";
+      // No safe spot THIS tick. If the widget was placed before, keep that
+      // placement — MJ's own controls appear/disappear during feed re-renders,
+      // and hiding for one tick then re-showing reads as flicker.
+      if (!widget.dataset.stgPlacement) {
+        if (widget.style.display !== "none") widget.style.display = "none";
+      }
     }
   }
 
@@ -3228,10 +3240,35 @@
     }, delay);
   }
 
+  // All extension UI carries an "stg-" class prefix. Mutations inside our own
+  // UI (widget repositioning, badge text, marker styles) must NOT re-trigger
+  // the media scan — otherwise the observer feeds itself and the scan loops
+  // forever (~12x/s) even on an idle page, repositioning widgets into a
+  // visible flicker.
+  function isExtensionUiNode(node) {
+    if (!node) return false;
+    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!el) return false;
+    if (typeof el.className === "string" && el.className.includes("stg-")) {
+      return true;
+    }
+    return Boolean(el.closest?.('[class*="stg-"]'));
+  }
+
+  function isExtensionOnlyMutation(record) {
+    if (isExtensionUiNode(record.target)) return true;
+    if (record.type === "childList") {
+      const nodes = [...record.addedNodes, ...record.removedNodes];
+      return nodes.length > 0 && nodes.every(isExtensionUiNode);
+    }
+    return false;
+  }
+
   function startMidjourneyMediaObserver() {
     if (!isPersistentSaveSite() || midjourneyObserver) return;
 
-    midjourneyObserver = new MutationObserver(() => {
+    midjourneyObserver = new MutationObserver((records) => {
+      if (records.every(isExtensionOnlyMutation)) return;
       scheduleMidjourneyMediaScan();
     });
     midjourneyObserver.observe(document.documentElement, {
