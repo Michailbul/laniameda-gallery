@@ -14,7 +14,6 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Check,
-  ChevronLeft,
   ChevronRight,
   Download,
   FileDown,
@@ -126,7 +125,6 @@ export function DirectionBoard({ token }: { token: string }) {
     // different markup on the server and break hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewerKey(key);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewerName(window.localStorage.getItem("lm-board-viewer-name") ?? "");
   }, []);
 
@@ -173,8 +171,6 @@ export function DirectionBoard({ token }: { token: string }) {
 
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
-  const filmstripRef = useRef<HTMLDivElement | null>(null);
-  const activeThumbRef = useRef<HTMLButtonElement | null>(null);
   // Overview scroll position, restored when backing out of a drill-in.
   const overviewScrollRef = useRef(0);
 
@@ -442,16 +438,6 @@ export function DirectionBoard({ token }: { token: string }) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [focusId, view.type, goFocus, backToOverview]);
-
-  // Keep the active filmstrip thumb centered as focus moves.
-  useEffect(() => {
-    if (!focusId) return;
-    activeThumbRef.current?.scrollIntoView({
-      behavior: "smooth",
-      inline: "center",
-      block: "nearest",
-    });
-  }, [focusId]);
 
   const isLoading = board === undefined;
   const notFound = board === null;
@@ -931,21 +917,15 @@ export function DirectionBoard({ token }: { token: string }) {
         </div>
       </main>
 
-      {/* ── Lightbox ── */}
+      {/* ── Full-resolution scroll-through viewer ── */}
       {focusAsset && (
         <Lightbox
-          asset={focusAsset}
+          assets={visibleAssets}
+          focusId={focusAsset.id}
           token={token}
-          index={focusIndex}
-          total={visibleAssets.length}
+          onFocusChange={setFocusId}
           onClose={() => setFocusId(null)}
-          onPrev={() => goFocus(-1)}
-          onNext={() => goFocus(1)}
-          filmstrip={visibleAssets}
-          filmstripRef={filmstripRef}
-          activeThumbRef={activeThumbRef}
-          onPick={(id) => setFocusId(id)}
-          onToggleLike={() => toggleLike(focusAsset.id)}
+          onToggleLike={toggleLike}
         />
       )}
     </div>
@@ -1406,35 +1386,70 @@ function BoardTile({
   );
 }
 
-/* ── Lightbox: hero + filmstrip ── */
+/* ── Lightbox: full-resolution scroll-through viewer (MJ-style) ── */
 
 function Lightbox({
-  asset,
+  assets,
+  focusId,
   token,
-  index,
-  total,
+  onFocusChange,
   onClose,
-  onPrev,
-  onNext,
-  filmstrip,
-  filmstripRef,
-  activeThumbRef,
-  onPick,
   onToggleLike,
 }: {
-  asset: BoardAsset;
+  assets: BoardAsset[];
+  focusId: string;
   token: string;
-  index: number;
-  total: number;
+  onFocusChange: (id: string) => void;
   onClose: () => void;
-  onPrev: () => void;
-  onNext: () => void;
-  filmstrip: BoardAsset[];
-  filmstripRef: React.RefObject<HTMLDivElement | null>;
-  activeThumbRef: React.RefObject<HTMLButtonElement | null>;
-  onPick: (id: string) => void;
-  onToggleLike: () => void;
+  onToggleLike: (assetId: string) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const didInitialScrollRef = useRef(false);
+  const current = assets.find((asset) => asset.id === focusId) ?? assets[0];
+
+  // Keep the viewport on the focused item when focus changes via keyboard;
+  // scroll-driven focus changes are already visible so this no-ops.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !focusId) return;
+    const el = container.querySelector(
+      `[data-focus-id="${CSS.escape(focusId)}"]`,
+    );
+    if (!el) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const mid = containerRect.top + containerRect.height / 2;
+    const visible = elRect.top <= mid && elRect.bottom >= mid;
+    if (!visible) {
+      el.scrollIntoView({
+        behavior: didInitialScrollRef.current ? "smooth" : "auto",
+        block: "start",
+      });
+    }
+    didInitialScrollRef.current = true;
+  }, [focusId]);
+
+  // Track which item owns the viewport while the viewer scrolls through.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute("data-focus-id");
+            if (id) onFocusChange(id);
+          }
+        }
+      },
+      { root: container, threshold: 0.55 },
+    );
+    for (const section of container.querySelectorAll("[data-focus-id]")) {
+      observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, [assets, onFocusChange]);
+
   return (
     <div
       className="fixed inset-0 z-[80] flex flex-col lm-animate-fade-in"
@@ -1445,20 +1460,26 @@ function Lightbox({
       }}
       role="dialog"
       aria-modal="true"
-      aria-label={asset.title ?? asset.collectionName}
+      aria-label={current?.title ?? current?.collectionName ?? "Viewer"}
     >
       <div className="flex items-center gap-3 px-4 py-3 md:px-6">
         <span
           className="truncate text-[12px] font-mono uppercase tracking-wider"
           style={{ color: "var(--lm-text-tertiary)" }}
         >
-          {asset.collectionName}
-          {asset.title ? ` — ${asset.title}` : ""}
+          {current?.collectionName}
+          {current?.title ? ` — ${current.title}` : ""}
+        </span>
+        <span
+          className="ml-auto text-[11px] font-mono"
+          style={{ color: "var(--lm-text-ghost)" }}
+        >
+          Scroll to browse · Esc to close
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg border transition-opacity hover:opacity-80"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border transition-opacity hover:opacity-80"
           style={{
             borderColor: "var(--lm-border-strong)",
             color: "var(--lm-text-secondary)",
@@ -1469,105 +1490,56 @@ function Lightbox({
         </button>
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        <div className="absolute inset-0 flex items-center justify-center p-3 md:p-6">
-          <Media asset={asset} variant="hero" />
-        </div>
-
-        {index > 0 && <HeroArrow side="left" onClick={onPrev} />}
-        {index < total - 1 && <HeroArrow side="right" onClick={onNext} />}
-
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4 md:p-6">
-          <div className="pointer-events-auto flex items-center gap-2">
-            {asset.approved && (
-              <span
-                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-                style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
-              >
-                <Check className="h-3 w-3" strokeWidth={3} />
-                Approved
-              </span>
-            )}
-          </div>
-          <div className="pointer-events-auto flex shrink-0 items-center gap-2">
-            <span
-              className="text-[11px] font-mono"
-              style={{ color: "rgba(255,255,255,0.6)" }}
-            >
-              {index + 1}/{total}
-            </span>
-            <LikeButton asset={asset} onToggle={onToggleLike} size="lg" />
-            <DownloadButton token={token} assetId={asset.id} size="lg" />
-          </div>
-        </div>
-      </div>
-
       <div
-        ref={filmstripRef}
-        className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 py-3"
-        style={{
-          borderTop: "1px solid var(--lm-border-strong)",
-          scrollbarWidth: "thin",
-        }}
+        ref={containerRef}
+        className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto"
       >
-        {filmstrip.map((item) => {
-          const active = item.id === asset.id;
-          return (
-            <button
-              key={item.id}
-              ref={active ? activeThumbRef : undefined}
-              type="button"
-              onClick={() => onPick(item.id)}
-              className="relative h-20 shrink-0 overflow-hidden rounded-lg transition-all md:h-24"
-              style={{
-                aspectRatio:
-                  item.width && item.height
-                    ? `${item.width} / ${item.height}`
-                    : "1 / 1",
-                outline: active
-                  ? "2px solid var(--lm-coral)"
-                  : "1px solid var(--lm-border)",
-                opacity: active ? 1 : 0.62,
-              }}
-              title={item.collectionName}
-            >
-              <Media asset={item} variant="thumb" />
-            </button>
-          );
-        })}
+        {assets.map((asset, index) => (
+          <section
+            key={asset.id}
+            data-focus-id={asset.id}
+            className="flex h-full snap-start flex-col items-center justify-center gap-3 px-4 py-4 md:px-10"
+          >
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+              <Media asset={asset} variant="hero" />
+            </div>
+
+            {/* Per-item actions */}
+            <div className="flex w-full max-w-[1100px] flex-wrap items-center gap-2 pb-1">
+              <span
+                className="text-[11px] font-mono"
+                style={{ color: "rgba(255,255,255,0.6)" }}
+              >
+                {index + 1}/{assets.length}
+              </span>
+              <span
+                className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+                style={{ backgroundColor: "rgba(0,0,0,0.55)", color: "#fff" }}
+              >
+                {asset.collectionName}
+              </span>
+              {asset.approved && (
+                <span
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+                  style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+                >
+                  <Check className="h-3 w-3" strokeWidth={3} />
+                  Approved
+                </span>
+              )}
+              <span className="ml-auto flex items-center gap-2">
+                <LikeButton
+                  asset={asset}
+                  onToggle={() => onToggleLike(asset.id)}
+                  size="lg"
+                />
+                <DownloadButton token={token} assetId={asset.id} size="lg" />
+              </span>
+            </div>
+          </section>
+        ))}
       </div>
     </div>
-  );
-}
-
-function HeroArrow({
-  side,
-  onClick,
-}: {
-  side: "left" | "right";
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border transition-opacity hover:opacity-100 ${
-        side === "left" ? "left-3" : "right-3"
-      }`}
-      style={{
-        backgroundColor: "rgba(0,0,0,0.55)",
-        borderColor: "rgba(255,255,255,0.2)",
-        color: "#fff",
-        opacity: 0.7,
-      }}
-      aria-label={side === "left" ? "Previous" : "Next"}
-    >
-      {side === "left" ? (
-        <ChevronLeft className="h-6 w-6" />
-      ) : (
-        <ChevronRight className="h-6 w-6" />
-      )}
-    </button>
   );
 }
 
@@ -1599,8 +1571,8 @@ function Media({
             muted
             loop
             playsInline
-            preload="metadata"
-            className="max-h-full max-w-full object-contain"
+            preload={asset.thumbUrl ? "none" : "metadata"}
+            className="max-h-full w-full max-w-full object-contain"
             style={{ maxHeight: "78vh" }}
           />
         </div>
@@ -1610,6 +1582,7 @@ function Media({
       <img
         src={src}
         alt={asset.title ?? asset.collectionName}
+        loading="lazy"
         className="max-h-full max-w-full object-contain"
         style={{ maxHeight: "82vh" }}
       />

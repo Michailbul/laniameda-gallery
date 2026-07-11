@@ -9,7 +9,6 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Check,
-  ChevronLeft,
   ChevronRight,
   Copy,
   Crown,
@@ -167,9 +166,6 @@ export function ReviewModal({
   const [coverOverride, setCoverOverride] = useState<
     Record<string, string | null>
   >({});
-
-  const filmstripRef = useRef<HTMLDivElement | null>(null);
-  const activeThumbRef = useRef<HTMLButtonElement | null>(null);
 
   // Per-open transient state resets via the `key={projectId}` remount in the
   // dashboard — no reset effect needed.
@@ -480,16 +476,6 @@ export function ReviewModal({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [projectId, pickerOpen, shareOpen, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
-
-  // Keep the active filmstrip thumb centered as focus moves.
-  useEffect(() => {
-    if (!focusId) return;
-    activeThumbRef.current?.scrollIntoView({
-      behavior: "smooth",
-      inline: "center",
-      block: "nearest",
-    });
-  }, [focusId]);
 
   if (!projectId) return null;
 
@@ -885,34 +871,25 @@ export function ReviewModal({
             }
           />
         ) : focusAsset ? (
-          <FocusView
-            asset={focusAsset}
-            index={focusIndex}
-            total={visibleAssets.length}
-            approved={isApproved(focusAsset)}
-            likes={likesByAsset.get(focusAsset.id)}
-            onApprove={() => toggleApprove(focusAsset)}
-            isMaster={
-              openDirection ? openDirectionMasterId === focusAsset.id : undefined
-            }
+          <FocusScrollFeed
+            assets={visibleAssets}
+            focusId={focusAsset.id}
+            onFocusChange={setFocusId}
+            isApproved={isApproved}
+            onToggleApprove={toggleApprove}
+            likesByAsset={likesByAsset}
+            masterId={openDirection ? openDirectionMasterId : null}
             onMaster={
               openDirection
-                ? () =>
+                ? (asset) =>
                     setMaster(
                       openDirection.folderId as string,
-                      openDirectionMasterId === focusAsset.id
-                        ? null
-                        : focusAsset.id,
+                      openDirectionMasterId === asset.id ? null : asset.id,
                     )
                 : undefined
             }
-            onPrev={() => goFocus(-1)}
-            onNext={() => goFocus(1)}
-            filmstrip={visibleAssets}
-            filmstripRef={filmstripRef}
-            activeThumbRef={activeThumbRef}
-            isApproved={isApproved}
-            onPick={(id) => setFocusId(id)}
+            onRemove={openDirection ? removeFromDirection : undefined}
+            showCollectionLabel={effectiveTab === "all"}
           />
         ) : (
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
@@ -1317,235 +1294,199 @@ function ReviewTile({
   );
 }
 
-/* ── Focus view: hero + filmstrip ── */
-function FocusView({
-  asset,
-  index,
-  total,
-  approved,
-  likes,
-  onApprove,
-  isMaster,
-  onMaster,
-  onPrev,
-  onNext,
-  filmstrip,
-  filmstripRef,
-  activeThumbRef,
+/* ── Focus feed: full-resolution scroll-through viewer (MJ-style) ── */
+function FocusScrollFeed({
+  assets,
+  focusId,
+  onFocusChange,
   isApproved,
-  onPick,
+  onToggleApprove,
+  likesByAsset,
+  masterId,
+  onMaster,
+  onRemove,
+  showCollectionLabel,
 }: {
-  asset: ReviewAsset;
-  index: number;
-  total: number;
-  approved: boolean;
-  /** Viewer likes from the shared board. */
-  likes?: AssetLikes;
-  onApprove: () => void;
-  /** Only defined inside a drilled direction, where "master" is unambiguous. */
-  isMaster?: boolean;
-  onMaster?: () => void;
-  onPrev: () => void;
-  onNext: () => void;
-  filmstrip: ReviewAsset[];
-  filmstripRef: React.RefObject<HTMLDivElement | null>;
-  activeThumbRef: React.RefObject<HTMLButtonElement | null>;
-  isApproved: (a: ReviewAsset) => boolean;
-  onPick: (id: string) => void;
+  assets: ReviewAsset[];
+  focusId: string;
+  onFocusChange: (id: string) => void;
+  isApproved: (asset: ReviewAsset) => boolean;
+  onToggleApprove: (asset: ReviewAsset) => void;
+  likesByAsset: Map<string, AssetLikes>;
+  /** Current master id when drilled into a direction, else null. */
+  masterId: string | null;
+  onMaster?: (asset: ReviewAsset) => void;
+  onRemove?: (asset: ReviewAsset) => void;
+  showCollectionLabel: boolean;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const didInitialScrollRef = useRef(false);
+
+  // Keep the viewport on the focused item when focus changes via keyboard;
+  // scroll-driven focus changes are already visible so this no-ops.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !focusId) return;
+    const el = container.querySelector(
+      `[data-focus-id="${CSS.escape(focusId)}"]`,
+    );
+    if (!el) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const mid = containerRect.top + containerRect.height / 2;
+    const visible = elRect.top <= mid && elRect.bottom >= mid;
+    if (!visible) {
+      el.scrollIntoView({
+        behavior: didInitialScrollRef.current ? "smooth" : "auto",
+        block: "start",
+      });
+    }
+    didInitialScrollRef.current = true;
+  }, [focusId]);
+
+  // Track which item owns the viewport while the user scrolls through.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute("data-focus-id");
+            if (id) onFocusChange(id);
+          }
+        }
+      },
+      { root: container, threshold: 0.55 },
+    );
+    for (const section of container.querySelectorAll("[data-focus-id]")) {
+      observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, [assets, onFocusChange]);
+
   return (
-    <div className="flex h-full flex-col">
-      {/* Hero */}
-      <div className="relative min-h-0 flex-1">
-        <div className="absolute inset-0 flex items-center justify-center p-3 md:p-6">
-          <Media asset={asset} variant="hero" />
-        </div>
+    <div
+      ref={containerRef}
+      className="h-full snap-y snap-mandatory overflow-y-auto"
+    >
+      {assets.map((asset, index) => {
+        const approved = isApproved(asset);
+        const likes = likesByAsset.get(asset.id);
+        const isMaster = masterId !== null && masterId === asset.id;
+        return (
+          <section
+            key={asset.id}
+            data-focus-id={asset.id}
+            className="flex h-full snap-start flex-col items-center justify-center gap-3 px-4 py-4 md:px-10"
+          >
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+              <Media asset={asset} variant="hero" />
+            </div>
 
-        {index > 0 && (
-          <HeroArrow side="left" onClick={onPrev} />
-        )}
-        {index < total - 1 && (
-          <HeroArrow side="right" onClick={onNext} />
-        )}
-
-        {/* Caption + approve */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4 md:p-6">
-          <div className="pointer-events-auto min-w-0">
-            {asset.modelName && (
-              <div
-                className="mb-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-                style={{
-                  backgroundColor: "rgba(0,0,0,0.55)",
-                  color: "var(--lm-text-secondary)",
-                }}
-              >
-                {asset.modelName} · {asset.collectionName}
-              </div>
-            )}
-            {asset.promptText && (
-              <p
-                className="max-w-[62ch] text-[11px] leading-snug"
-                style={{
-                  color: "rgba(255,255,255,0.82)",
-                  textShadow: "0 1px 6px rgba(0,0,0,0.9)",
-                }}
-              >
-                {asset.promptText.length > 220
-                  ? `${asset.promptText.slice(0, 220)}…`
-                  : asset.promptText}
-              </p>
-            )}
-          </div>
-          <div className="pointer-events-auto flex shrink-0 items-center gap-2">
-            <span
-              className="text-[11px] font-mono"
-              style={{ color: "rgba(255,255,255,0.6)" }}
-            >
-              {index + 1}/{total}
-            </span>
-            {likes && likes.count > 0 && (
+            {/* Per-item actions */}
+            <div className="flex w-full max-w-[1100px] flex-wrap items-center gap-2 pb-1">
               <span
-                className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-mono font-bold uppercase tracking-wider"
-                style={{
-                  backgroundColor: "rgba(0,0,0,0.62)",
-                  color: "var(--lm-coral)",
-                  borderColor:
-                    "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-                }}
-                title={likeTitle(likes)}
+                className="text-[11px] font-mono"
+                style={{ color: "rgba(255,255,255,0.6)" }}
               >
-                <Heart
-                  className="h-4 w-4"
-                  fill="currentColor"
-                  strokeWidth={2.5}
-                />
-                {likes.count}
+                {index + 1}/{assets.length}
               </span>
-            )}
-            {onMaster && (
-              <button
-                type="button"
-                onClick={onMaster}
-                className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
-                style={{
-                  backgroundColor: isMaster
-                    ? "var(--lm-ink)"
-                    : "rgba(0,0,0,0.62)",
-                  color: isMaster ? "var(--lm-paper)" : "#fff",
-                  borderColor: isMaster
-                    ? "var(--lm-ink)"
-                    : "rgba(255,255,255,0.25)",
-                }}
-                aria-pressed={Boolean(isMaster)}
-                title={
-                  isMaster
-                    ? "Master option — click to unset"
-                    : "Make master (direction thumbnail)"
-                }
-              >
-                <Crown className="h-4 w-4" strokeWidth={2.5} />
-                Master
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onApprove}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
-              style={{
-                backgroundColor: approved ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
-                color: approved ? "#000" : "#fff",
-                borderColor: approved
-                  ? "var(--lm-coral)"
-                  : "rgba(255,255,255,0.25)",
-              }}
-              aria-pressed={approved}
-              title="Approve (Space)"
-            >
-              <Check className="h-4 w-4" strokeWidth={3} />
-              {approved ? "Approved" : "Approve"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Filmstrip — horizontal, trackpad-scrollable */}
-      <div
-        ref={filmstripRef}
-        className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 py-3"
-        style={{
-          borderTop: "1px solid var(--lm-border-strong)",
-          scrollbarWidth: "thin",
-        }}
-      >
-        {filmstrip.map((item) => {
-          const active = item.id === asset.id;
-          const itemApproved = isApproved(item);
-          return (
-            <button
-              key={item.id}
-              ref={active ? activeThumbRef : undefined}
-              type="button"
-              onClick={() => onPick(item.id)}
-              className="relative h-24 shrink-0 overflow-hidden rounded-lg transition-all md:h-28"
-              style={{
-                width: "auto",
-                aspectRatio:
-                  item.width && item.height
-                    ? `${item.width} / ${item.height}`
-                    : "1 / 1",
-                outline: active
-                  ? "2px solid var(--lm-coral)"
-                  : "1px solid var(--lm-border-subtle)",
-                outlineOffset: active ? "0px" : "0px",
-                opacity: active ? 1 : 0.62,
-              }}
-              title={item.collectionName}
-            >
-              <Media asset={item} variant="thumb" />
-              {itemApproved && (
+              {showCollectionLabel && (
                 <span
-                  className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full"
-                  style={{ backgroundColor: "var(--lm-coral)" }}
+                  className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+                  style={{ backgroundColor: "rgba(0,0,0,0.55)", color: "#fff" }}
                 >
-                  <Check className="h-2.5 w-2.5" strokeWidth={3} color="#000" />
+                  {asset.collectionName}
                 </span>
               )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+              {likes && likes.count > 0 && (
+                <span
+                  className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.62)",
+                    color: "var(--lm-coral)",
+                    borderColor:
+                      "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+                  }}
+                  title={likeTitle(likes)}
+                >
+                  <Heart
+                    className="h-3 w-3"
+                    fill="currentColor"
+                    strokeWidth={2.5}
+                  />
+                  {likes.count}
+                </span>
+              )}
 
-function HeroArrow({
-  side,
-  onClick,
-}: {
-  side: "left" | "right";
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border transition-opacity hover:opacity-100 ${
-        side === "left" ? "left-3" : "right-3"
-      }`}
-      style={{
-        backgroundColor: "rgba(0,0,0,0.55)",
-        borderColor: "rgba(255,255,255,0.2)",
-        color: "#fff",
-        opacity: 0.7,
-      }}
-      aria-label={side === "left" ? "Previous" : "Next"}
-    >
-      {side === "left" ? (
-        <ChevronLeft className="h-6 w-6" />
-      ) : (
-        <ChevronRight className="h-6 w-6" />
-      )}
-    </button>
+              <span className="ml-auto flex items-center gap-2">
+                {onMaster && (
+                  <button
+                    type="button"
+                    onClick={() => onMaster(asset)}
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
+                    style={{
+                      backgroundColor: isMaster
+                        ? "var(--lm-ink)"
+                        : "rgba(0,0,0,0.62)",
+                      color: isMaster ? "var(--lm-paper)" : "#fff",
+                      borderColor: isMaster
+                        ? "var(--lm-ink)"
+                        : "rgba(255,255,255,0.25)",
+                    }}
+                    aria-pressed={isMaster}
+                    title={
+                      isMaster
+                        ? "Master option — click to unset"
+                        : "Make master (direction thumbnail)"
+                    }
+                  >
+                    <Crown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    Master
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onToggleApprove(asset)}
+                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
+                  style={{
+                    backgroundColor: approved
+                      ? "var(--lm-coral)"
+                      : "rgba(0,0,0,0.62)",
+                    color: approved ? "#000" : "#fff",
+                    borderColor: approved
+                      ? "var(--lm-coral)"
+                      : "rgba(255,255,255,0.25)",
+                  }}
+                  aria-pressed={approved}
+                  title="Approve (Space)"
+                >
+                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                  {approved ? "Approved" : "Approve"}
+                </button>
+                {onRemove && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(asset)}
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                    style={{
+                      backgroundColor: "rgba(0,0,0,0.62)",
+                      color: "#fff",
+                      borderColor: "rgba(255,255,255,0.25)",
+                    }}
+                    title="Remove from this direction (stays in the gallery)"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={3} />
+                    Remove
+                  </button>
+                )}
+              </span>
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1573,8 +1514,8 @@ function Media({
             muted
             loop
             playsInline
-            preload="metadata"
-            className="max-h-full max-w-full object-contain"
+            preload={asset.thumbUrl ? "none" : "metadata"}
+            className="max-h-full w-full max-w-full object-contain"
             style={{ maxHeight: "78vh" }}
           />
         </div>
@@ -1584,6 +1525,7 @@ function Media({
       <img
         src={src}
         alt={asset.promptText ?? asset.collectionName}
+        loading="lazy"
         className="max-h-full max-w-full object-contain"
         style={{ maxHeight: "82vh" }}
       />
