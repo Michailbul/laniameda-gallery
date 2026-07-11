@@ -402,6 +402,11 @@ export function GalleryDashboard({
   const addCollectionToProjectMutation = useMutation(
     api.projects.addCollectionToProject,
   );
+  const deleteWorkflowMutation = useMutation(api.workflows.deleteWorkflow);
+  // Ids of workflow grid entries, so delete can route to the right backend.
+  // A ref (synced below where workflow entries are computed) because
+  // deleteAsset is declared before the workflows query.
+  const workflowIdsRef = useRef<Set<string>>(new Set());
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const processAndReplaceThumbnail = useAction(
     api.thumbnails.processAndReplaceThumbnail,
@@ -922,15 +927,27 @@ export function GalleryDashboard({
       setDeletingAssetId(assetId);
 
       try {
-        const response = await fetch(
-          `/api/assets/${encodeURIComponent(assetId)}`,
-          { method: "DELETE" },
-        );
-        if (!response.ok) {
-          const payload = (await response
-            .json()
-            .catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error || "Failed to delete asset.");
+        // Workflow grid entries carry a workflows-table id — the assets
+        // DELETE route can't touch them, so route by item type.
+        if (workflowIdsRef.current.has(assetId)) {
+          await deleteWorkflowMutation({
+            ownerUserId,
+            id: assetId as Id<"workflows">,
+          });
+          setSelectedWorkflowId((current) =>
+            current === assetId ? null : current,
+          );
+        } else {
+          const response = await fetch(
+            `/api/assets/${encodeURIComponent(assetId)}`,
+            { method: "DELETE" },
+          );
+          if (!response.ok) {
+            const payload = (await response
+              .json()
+              .catch(() => ({}))) as { error?: string };
+            throw new Error(payload.error || "Failed to delete asset.");
+          }
         }
 
         loadedImageIdsRef.current.delete(assetId);
@@ -971,6 +988,8 @@ export function GalleryDashboard({
     [
       canDeleteInCurrentView,
       deletingAssetId,
+      deleteWorkflowMutation,
+      ownerUserId,
     ],
   );
 
@@ -1590,6 +1609,13 @@ export function GalleryDashboard({
       };
     });
   }, [workflowCards]);
+
+  // Keep the delete router's workflow-id set in sync with the grid entries.
+  useEffect(() => {
+    workflowIdsRef.current = new Set(
+      workflowEntries.map((entry) => entry.id as string),
+    );
+  }, [workflowEntries]);
 
   // Storybook stack cards only join the grid in the default browse state —
   // every filter below targets assets, which storybooks are not.
@@ -3748,6 +3774,7 @@ export function GalleryDashboard({
         ownerUserId={ownerUserId}
         projectId={openProjectId}
         allCollections={projectCollectionOptions}
+        leftOffset={contentMarginLeft}
         onClose={() => setOpenProjectId(null)}
       />
     </div>

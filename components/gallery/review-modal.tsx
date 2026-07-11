@@ -58,6 +58,11 @@ type ReviewModalProps = {
   projectId: string | null;
   /** All of the owner's plain collections, for the "add collections" picker. */
   allCollections: CollectionOption[];
+  /**
+   * Left edge of the workspace on md+ (the sidebar width), so the sidebar
+   * stays visible and usable while reviewing. Mobile stays full-bleed.
+   */
+  leftOffset?: string;
   onClose: () => void;
 };
 
@@ -101,6 +106,7 @@ export function ReviewModal({
   ownerUserId,
   projectId,
   allCollections,
+  leftOffset,
   onClose,
 }: ReviewModalProps) {
   const project = useQuery(
@@ -447,8 +453,9 @@ export function ReviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex flex-col lm-animate-fade-in"
+      className="fixed inset-y-0 left-0 right-0 z-[80] flex flex-col lm-animate-fade-in transition-[left] duration-200 md:left-[var(--review-left)]"
       style={{
+        ["--review-left" as string]: leftOffset ?? "0px",
         backgroundColor: "rgba(8,7,6,0.985)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
