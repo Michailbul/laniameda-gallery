@@ -22,6 +22,8 @@ import {
   Pencil,
   Play,
   Plus,
+  SquareCheck,
+  Trash2,
   Upload,
   User,
   X,
@@ -158,6 +160,7 @@ export function ReviewModal({
   const setFolderCover = useMutation(api.folders.setFolderCover);
   const createFolder = useMutation(api.folders.createFolder);
   const updateFolder = useMutation(api.folders.updateFolder);
+  const deleteFolderMutation = useMutation(api.folders.deleteFolder);
   // Videos upload straight from the browser to R2 (the ingest route only
   // carries image bytes — video files would blow the serverless body limit).
   const uploadVideo = useUploadFile(api.r2);
@@ -229,6 +232,12 @@ export function ReviewModal({
   const [coverOverride, setCoverOverride] = useState<
     Record<string, string | null>
   >({});
+  // Multiselect: tile clicks toggle selection instead of opening the feed;
+  // a floating bar offers bulk remove / permanent delete.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Non-null while a bulk delete runs ("Deleting 2/5…").
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
 
   // Per-open transient state resets via the `key={projectId}` remount in the
   // dashboard — no reset effect needed.
@@ -776,6 +785,102 @@ export function ReviewModal({
     [openDirectionId, ownerUserId, setAssetFolders],
   );
 
+  // ── Multiselect + destructive actions ──
+  const toggleSelect = useCallback((assetId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.add(assetId);
+      return next;
+    });
+  }, []);
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  // Permanently delete assets via the same admin-gated route the gallery
+  // uses. The reactive project query drops the tiles as each delete lands.
+  const deleteAssetsByIds = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0 || bulkBusy) return;
+      setBulkBusy(`Deleting 0/${ids.length}…`);
+      let failed = 0;
+      let done = 0;
+      for (const id of ids) {
+        try {
+          const response = await fetch(
+            `/api/assets/${encodeURIComponent(id)}`,
+            { method: "DELETE" },
+          );
+          if (!response.ok) failed += 1;
+        } catch {
+          failed += 1;
+        }
+        done += 1;
+        setBulkBusy(`Deleting ${done}/${ids.length}…`);
+      }
+      setBulkBusy(null);
+      exitSelect();
+      if (failed > 0) {
+        setUploadState({
+          done: 0,
+          total: 0,
+          error: `${failed} of ${ids.length} failed to delete.`,
+        });
+      }
+    },
+    [bulkBusy, exitSelect],
+  );
+
+  // Bulk remove from the drilled direction — membership only, assets stay.
+  const removeSelectedFromDirection = useCallback(async () => {
+    if (!openDirectionId) return;
+    const byId = new Map(assets.map((asset) => [asset.id, asset]));
+    for (const id of selectedIds) {
+      const asset = byId.get(id);
+      if (!asset) continue;
+      await setAssetFolders({
+        ownerUserId,
+        assetId: id as Id<"assets">,
+        folderIds: asset.folderIds.filter(
+          (folderId) => folderId !== openDirectionId,
+        ) as Id<"folders">[],
+      }).catch(() => {});
+    }
+    exitSelect();
+  }, [openDirectionId, assets, selectedIds, ownerUserId, setAssetFolders, exitSelect]);
+
+  // Delete a whole direction (the folder). Assets stay in the gallery.
+  const deleteDirectionById = useCallback(
+    (folderId: string) => {
+      setOpenDirectionId((current) =>
+        current === folderId ? null : current,
+      );
+      setDrillFrom((current) => (current === folderId ? null : current));
+      void deleteFolderMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+      }).catch(() => {});
+    },
+    [ownerUserId, deleteFolderMutation],
+  );
+
+  // Save the drilled direction's text (its description).
+  const saveDirectionText = useCallback(
+    (text: string) => {
+      if (!openDirection) return;
+      void updateFolder({
+        ownerUserId,
+        folderId: openDirection.folderId,
+        name: openDirection.name,
+        description: text,
+      }).catch(() => {});
+    },
+    [openDirection, ownerUserId, updateFolder],
+  );
+
   const goFocus = useCallback((delta: number) => {
     setFocusId((current) => {
       if (!current) return current;
@@ -810,6 +915,7 @@ export function ReviewModal({
         if (shareOpen) setShareOpen(false);
         else if (pickerOpen) setPickerOpen(false);
         else if (composerOpen) setComposer(null);
+        else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
         else if (openDirectionId && drillFrom) {
           // A stack opened from a beat's detail view backs out to the beat.
@@ -830,7 +936,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, focusId, focusAsset, openDirectionId, drillFrom, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, drillFrom, goFocus, toggleApprove, onClose]);
 
   if (!projectId) return null;
 
@@ -1018,6 +1124,29 @@ export function ReviewModal({
             <Check className="h-3.5 w-3.5" />
             Approved
           </button>
+          {hasCollections && !inFocus && (
+            <button
+              type="button"
+              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+              style={{
+                borderColor: selectMode
+                  ? "var(--lm-coral)"
+                  : "var(--lm-border-strong)",
+                backgroundColor: selectMode
+                  ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
+                  : "transparent",
+                color: selectMode
+                  ? "var(--lm-coral)"
+                  : "var(--lm-text-secondary)",
+              }}
+              aria-pressed={selectMode}
+              title="Select multiple assets to remove or delete"
+            >
+              <SquareCheck className="h-3.5 w-3.5" />
+              Select
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setPickerOpen((v) => !v)}
@@ -1310,6 +1439,16 @@ export function ReviewModal({
               {openDirectionLikes.count}
             </span>
           )}
+          <span className="ml-auto">
+            <ArmedDeleteButton
+              label="Delete"
+              variant="chrome"
+              title="Delete this direction — its assets stay in the gallery"
+              onConfirm={() =>
+                deleteDirectionById(openDirection.folderId as string)
+              }
+            />
+          </span>
         </div>
       )}
 
@@ -1576,6 +1715,7 @@ export function ReviewModal({
                       setDrillFrom(null);
                       setOpenDirectionId(direction.id);
                     }}
+                    onDelete={() => deleteDirectionById(direction.id)}
                   />
                 ))}
               </div>
@@ -1600,6 +1740,7 @@ export function ReviewModal({
                 : undefined
             }
             onRemove={openDirection ? removeFromDirection : undefined}
+            onDelete={(asset) => void deleteAssetsByIds([asset.id])}
             showCollectionLabel={effectiveTab === "all"}
           />
         ) : openDirection && drilledIsBeat ? (
@@ -1631,14 +1772,10 @@ export function ReviewModal({
                   first becomes its master shot.
                 </p>
               )}
-              {openDirection.description && (
-                <p
-                  className="mt-4 max-w-[900px] whitespace-pre-wrap text-[13px] leading-relaxed"
-                  style={{ color: "var(--lm-text-secondary)" }}
-                >
-                  {openDirection.description}
-                </p>
-              )}
+              <DirectionTextBlock
+                description={openDirection.description}
+                onSave={saveDirectionText}
+              />
 
               {/* The character / location stacks this beat uses */}
               {(
@@ -1783,6 +1920,10 @@ export function ReviewModal({
                           )
                         }
                         onRemove={() => removeFromDirection(asset)}
+                        onDelete={() => void deleteAssetsByIds([asset.id])}
+                        selectable={selectMode}
+                        selected={selectedIds.has(asset.id)}
+                        onToggleSelect={() => toggleSelect(asset.id)}
                       />
                     ))}
                   </div>
@@ -1829,6 +1970,10 @@ export function ReviewModal({
                           )
                         }
                         onRemove={() => removeFromDirection(asset)}
+                        onDelete={() => void deleteAssetsByIds([asset.id])}
+                        selectable={selectMode}
+                        selected={selectedIds.has(asset.id)}
+                        onToggleSelect={() => toggleSelect(asset.id)}
                       />
                     ))}
                   </div>
@@ -1856,6 +2001,14 @@ export function ReviewModal({
         ) : (
           /* ── Stack drill-in + flat All view ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
+            {openDirection && (
+              <div className="mb-4">
+                <DirectionTextBlock
+                  description={openDirection.description}
+                  onSave={saveDirectionText}
+                />
+              </div>
+            )}
             <div
               className="columns-1 sm:columns-2 lg:columns-3"
               style={{ columnGap: "14px" }}
@@ -1888,12 +2041,82 @@ export function ReviewModal({
                   onRemove={
                     openDirection ? () => removeFromDirection(asset) : undefined
                   }
+                  onDelete={() => void deleteAssetsByIds([asset.id])}
+                  selectable={selectMode}
+                  selected={selectedIds.has(asset.id)}
+                  onToggleSelect={() => toggleSelect(asset.id)}
                 />
               ))}
             </div>
           </div>
         )}
       </div>
+
+      {/* ── Multiselect action bar ── */}
+      {selectMode && (
+        <div
+          className="absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border px-3.5 py-2.5"
+          style={{
+            backgroundColor: "var(--lm-surface-1)",
+            borderColor: "var(--lm-ink)",
+            boxShadow: "var(--shadow-lg)",
+          }}
+          role="toolbar"
+          aria-label="Selection actions"
+        >
+          {bulkBusy ? (
+            <span
+              className="px-1 text-[11px] font-mono font-bold uppercase tracking-wider"
+              style={{ color: "var(--lm-text-secondary)" }}
+              role="status"
+            >
+              {bulkBusy}
+            </span>
+          ) : (
+            <>
+              <span
+                className="text-[11px] font-mono font-bold uppercase tracking-wider"
+                style={{ color: "var(--lm-text-secondary)" }}
+              >
+                {selectedIds.size} selected
+              </span>
+              {openDirection && (
+                <button
+                  type="button"
+                  disabled={selectedIds.size === 0}
+                  onClick={() => void removeSelectedFromDirection()}
+                  className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80 disabled:opacity-40"
+                  style={{
+                    borderColor: "var(--lm-border-strong)",
+                    color: "var(--lm-text-secondary)",
+                  }}
+                  title="Remove from this direction — assets stay in the gallery"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={3} />
+                  Remove
+                </button>
+              )}
+              {selectedIds.size > 0 && (
+                <ArmedDeleteButton
+                  label={`Delete ${selectedIds.size}`}
+                  variant="chrome"
+                  title="Permanently delete from the gallery"
+                  onConfirm={() => void deleteAssetsByIds([...selectedIds])}
+                />
+              )}
+              <button
+                type="button"
+                onClick={exitSelect}
+                className="rounded-lg px-2 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                style={{ color: "var(--lm-text-tertiary)" }}
+                title="Exit selection (Esc)"
+              >
+                Done
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── File drop overlay ── */}
       {dragFilesOver && (
@@ -2009,9 +2232,12 @@ export function ReviewModal({
 function DirectionCard({
   direction,
   onOpen,
+  onDelete,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
+  /** Deletes the whole direction (assets stay in the gallery). */
+  onDelete?: () => void;
 }) {
   const cover = direction.cover;
   const beat = direction.beat;
@@ -2066,6 +2292,17 @@ function DirectionCard({
         >
           <Play className="ml-0.5 h-5 w-5" fill="#fff" color="#fff" />
         </span>
+
+        {/* Delete the direction (hover, two-step) */}
+        {onDelete && (
+          <div className="absolute left-2.5 top-2.5 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+            <ArmedDeleteButton
+              compact
+              title="Delete this direction — assets stay in the gallery"
+              onConfirm={onDelete}
+            />
+          </div>
+        )}
 
         {/* Viewer likes + option count */}
         <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
@@ -2212,6 +2449,17 @@ function DirectionCard({
           engaged={preview.engaged}
         />
 
+        {/* Delete the direction (hover, two-step) */}
+        {onDelete && (
+          <div className="absolute left-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+            <ArmedDeleteButton
+              compact
+              title="Delete this direction — assets stay in the gallery"
+              onConfirm={onDelete}
+            />
+          </div>
+        )}
+
         {/* Option count badge — turns into a n/N counter while previewing */}
         <span
           className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
@@ -2281,6 +2529,10 @@ function ReviewTile({
   isMaster,
   onMaster,
   onRemove,
+  onDelete,
+  selectable,
+  selected,
+  onToggleSelect,
 }: {
   asset: ReviewAsset;
   approved: boolean;
@@ -2294,17 +2546,26 @@ function ReviewTile({
   onMaster?: () => void;
   /** Removes the asset from the drilled direction (membership only). */
   onRemove?: () => void;
+  /** Permanently deletes the asset from the gallery. */
+  onDelete?: () => void;
+  /** Multiselect: clicks toggle selection instead of opening the feed. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   return (
     <div
       className="group relative mb-3.5 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
       style={{
-        border: approved
-          ? "2px solid var(--lm-coral)"
-          : "1px solid var(--lm-border-subtle)",
+        border: selected
+          ? "2px solid #fff"
+          : approved
+            ? "2px solid var(--lm-coral)"
+            : "1px solid var(--lm-border-subtle)",
         backgroundColor: "var(--lm-surface-1)",
       }}
-      onClick={onOpen}
+      onClick={selectable ? onToggleSelect : onOpen}
+      aria-selected={selectable ? Boolean(selected) : undefined}
     >
       <div
         className="relative w-full"
@@ -2317,6 +2578,21 @@ function ReviewTile({
       >
         <Media asset={asset} variant="tile" />
       </div>
+
+      {/* Selection check (multiselect mode) */}
+      {selectable && (
+        <span
+          className="absolute left-2.5 top-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-full border"
+          style={{
+            backgroundColor: selected ? "#fff" : "rgba(0,0,0,0.55)",
+            borderColor: selected ? "#fff" : "rgba(255,255,255,0.45)",
+            color: "#000",
+          }}
+          aria-hidden
+        >
+          {selected && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+        </span>
+      )}
 
       {/* Viewer likes + approve, grouped top-right */}
       <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
@@ -2335,6 +2611,7 @@ function ReviewTile({
             {likes.count}
           </span>
         )}
+        {!selectable && (
         <button
           type="button"
           onClick={(e) => {
@@ -2357,10 +2634,11 @@ function ReviewTile({
           <Check className="h-3 w-3" strokeWidth={3} />
           {approved ? "Approved" : "Approve"}
         </button>
+        )}
       </div>
 
       {/* Master (direction thumbnail) toggle */}
-      {onMaster && (
+      {onMaster && !selectable && (
         <button
           type="button"
           onClick={(e) => {
@@ -2398,26 +2676,185 @@ function ReviewTile({
         </div>
       )}
 
-      {/* Remove from this direction (membership only, asset stays in gallery) */}
-      {onRemove && (
+      {/* Remove (membership) + Delete (permanent), bottom-right on hover */}
+      {(onRemove || onDelete) && !selectable && (
+        <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {onRemove && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="Remove from this direction (stays in the gallery)"
+            >
+              <X className="h-3 w-3" strokeWidth={3} />
+              Remove
+            </button>
+          )}
+          {onDelete && (
+            <ArmedDeleteButton
+              compact
+              title="Permanently delete from the gallery"
+              onConfirm={onDelete}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Two-step destructive button: first click arms, pointer-leave disarms ── */
+function ArmedDeleteButton({
+  label,
+  size = "sm",
+  variant = "overlay",
+  compact = false,
+  title,
+  onConfirm,
+}: {
+  /** Idle label; omitted when compact (icon-only until armed). */
+  label?: string;
+  size?: "sm" | "lg";
+  /** overlay = dark chip over media; chrome = bordered header/bar button. */
+  variant?: "overlay" | "chrome";
+  compact?: boolean;
+  title?: string;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!armed) {
+          setArmed(true);
+          return;
+        }
+        setArmed(false);
+        onConfirm();
+      }}
+      onPointerLeave={() => setArmed(false)}
+      className={`flex items-center gap-1 rounded-lg border font-mono font-bold uppercase tracking-wider transition-colors ${
+        size === "lg" ? "px-3 py-1.5 text-[11px]" : "px-2 py-1 text-[10px]"
+      }`}
+      style={
+        armed
+          ? {
+              backgroundColor: "var(--lm-coral)",
+              color: "#000",
+              borderColor: "var(--lm-coral)",
+            }
+          : variant === "chrome"
+            ? {
+                backgroundColor: "transparent",
+                color: "var(--lm-text-tertiary)",
+                borderColor: "var(--lm-border-strong)",
+              }
+            : {
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }
+      }
+      aria-pressed={armed}
+      title={title}
+    >
+      <Trash2
+        className={size === "lg" ? "h-3.5 w-3.5" : "h-3 w-3"}
+        strokeWidth={2.5}
+      />
+      {armed ? "Sure?" : compact ? "" : label}
+    </button>
+  );
+}
+
+/* ── Direction text: read view with an edit affordance → inline textarea ── */
+function DirectionTextBlock({
+  description,
+  onSave,
+}: {
+  description?: string;
+  onSave: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (draft === null) {
+    return (
+      <div className="mt-4 max-w-[900px]">
+        {description && (
+          <p
+            className="whitespace-pre-wrap text-[13px] leading-relaxed"
+            style={{ color: "var(--lm-text-secondary)" }}
+          >
+            {description}
+          </p>
+        )}
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.62)",
-            color: "#fff",
-            borderColor: "rgba(255,255,255,0.25)",
-          }}
-          title="Remove from this direction (stays in the gallery)"
+          onClick={() => setDraft(description ?? "")}
+          className="mt-1.5 flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-70"
+          style={{ color: "var(--lm-text-ghost)" }}
+          title="Edit this direction's text"
         >
-          <X className="h-3 w-3" strokeWidth={3} />
-          Remove
+          <Pencil className="h-3 w-3" />
+          {description ? "Edit text" : "Add text"}
         </button>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 max-w-[900px]">
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setDraft(null);
+          }
+        }}
+        rows={4}
+        className="w-full resize-y bg-transparent text-[13px] leading-relaxed outline-none"
+        style={{
+          color: "var(--lm-text-secondary)",
+          borderBottom: "1px solid var(--lm-border)",
+          caretColor: "var(--lm-coral)",
+        }}
+        aria-label="Direction text"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            onSave(draft.trim());
+            setDraft(null);
+          }}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+        >
+          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => setDraft(null)}
+          className="text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+          style={{ color: "var(--lm-text-tertiary)" }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -2505,6 +2942,7 @@ function FocusScrollFeed({
   masterId,
   onMaster,
   onRemove,
+  onDelete,
   showCollectionLabel,
 }: {
   assets: ReviewAsset[];
@@ -2517,6 +2955,8 @@ function FocusScrollFeed({
   masterId: string | null;
   onMaster?: (asset: ReviewAsset) => void;
   onRemove?: (asset: ReviewAsset) => void;
+  /** Permanently delete from the gallery. */
+  onDelete?: (asset: ReviewAsset) => void;
   showCollectionLabel: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -2680,6 +3120,14 @@ function FocusScrollFeed({
                     <X className="h-3.5 w-3.5" strokeWidth={3} />
                     Remove
                   </button>
+                )}
+                {onDelete && (
+                  <ArmedDeleteButton
+                    label="Delete"
+                    size="lg"
+                    title="Permanently delete from the gallery"
+                    onConfirm={() => onDelete(asset)}
+                  />
                 )}
               </span>
             </div>
