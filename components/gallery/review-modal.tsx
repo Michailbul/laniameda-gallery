@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   AtSign,
   Check,
+  Clapperboard,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -72,13 +73,17 @@ const TAB_LABELS: Record<ReviewTab, string> = {
  * default to stills and can be flipped to character / location. */
 type BeatBucket = "video" | "character" | "location" | "still";
 
-/** An existing asset pulled into a drafted beat via the @name selector. */
+/** An existing asset pulled into a drafted beat — via the @name selector,
+ * or promoted from the project's Unsorted files. */
 type LinkedRef = {
   assetId: string;
   name: string;
   kind: "image" | "video";
   thumbUrl?: string;
   bucket: BeatBucket;
+  /** Set when the asset should MOVE into the beat: on save its memberships
+   * become exactly these + the new beat (strips Unsorted). */
+  retainedFolderIds?: string[];
 };
 
 type AssetLikes = { count: number; names: string[] };
@@ -819,6 +824,42 @@ export function ReviewModal({
     await uploadToPool(media, effectiveTab);
   };
 
+  // Open the beat composer with existing assets pre-staged (promoting
+  // Unsorted files — usually videos — into a new beat). The user still names
+  // it; on save the assets MOVE out of Unsorted into the beat.
+  const startBeatFromAssets = (list: ReviewAsset[]) => {
+    if (list.length === 0) return;
+    const refs: LinkedRef[] = list.map((asset) => ({
+      assetId: asset.id,
+      name: asset.name ?? "",
+      kind: asset.kind,
+      thumbUrl: asset.thumbUrl,
+      bucket:
+        asset.kind === "video"
+          ? "video"
+          : asset.tagNames.includes("character")
+            ? "character"
+            : asset.tagNames.includes("location")
+              ? "location"
+              : "still",
+      retainedFolderIds: asset.folderIds.filter((id) => !unsortedIds.has(id)),
+    }));
+    setComposer((prev) => {
+      const existing = new Set((prev?.linked ?? []).map((l) => l.assetId));
+      return {
+        name: prev?.name ?? "",
+        files: prev?.files ?? [],
+        buckets: prev?.buckets ?? [],
+        linked: [
+          ...(prev?.linked ?? []),
+          ...refs.filter((ref) => !existing.has(ref.assetId)),
+        ],
+        prompt: prev?.prompt ?? "",
+      };
+    });
+    exitSelect();
+  };
+
   // Save the drafted beat: create + attach it, upload the staged files, and
   // file each character/location-bucketed asset into the project's pool with
   // its role tag (so it also shows in that mode).
@@ -884,13 +925,24 @@ export function ReviewModal({
         }
       }
 
-      // Existing assets pulled in by @name: attach to the beat + pool-file.
+      // Existing assets pulled in by @name or promoted from Unsorted:
+      // attach to the beat (moving strips the old Unsorted memberships).
       for (const ref of linked) {
-        await addAssetFolders({
-          ownerUserId,
-          assetId: ref.assetId as Id<"assets">,
-          folderIds: [created.folderId],
-        }).catch(() => {});
+        if (ref.retainedFolderIds) {
+          await setAssetFolders({
+            ownerUserId,
+            assetId: ref.assetId as Id<"assets">,
+            folderIds: [
+              ...new Set([...ref.retainedFolderIds, created.folderId as string]),
+            ] as Id<"folders">[],
+          }).catch(() => {});
+        } else {
+          await addAssetFolders({
+            ownerUserId,
+            assetId: ref.assetId as Id<"assets">,
+            folderIds: [created.folderId],
+          }).catch(() => {});
+        }
         if (ref.kind !== "video") {
           await fileToPool(ref.assetId, ref.bucket);
         } else if (!hasVideoMaster) {
@@ -1924,9 +1976,13 @@ export function ReviewModal({
                           </button>
                           <p
                             className="mt-1 truncate text-[10px] font-mono font-bold tracking-wider"
-                            style={{ color: "var(--lm-coral)" }}
+                            style={{
+                              color: ref.name
+                                ? "var(--lm-coral)"
+                                : "var(--lm-text-ghost)",
+                            }}
                           >
-                            @{ref.name}
+                            {ref.name ? `@${ref.name}` : "from Unsorted"}
                           </p>
                           {ref.kind === "video" ? (
                             <span
@@ -2392,12 +2448,17 @@ export function ReviewModal({
                       onApprove={() => toggleApprove(asset)}
                       showCollectionLabel={false}
                       onDelete={() => void deleteAssetsByIds([asset.id])}
-                      onFileCharacter={() =>
-                        void fileUnsortedTo(asset, "characters")
+                      onFileCharacter={
+                        asset.kind !== "video"
+                          ? () => void fileUnsortedTo(asset, "characters")
+                          : undefined
                       }
-                      onFileLocation={() =>
-                        void fileUnsortedTo(asset, "locations")
+                      onFileLocation={
+                        asset.kind !== "video"
+                          ? () => void fileUnsortedTo(asset, "locations")
+                          : undefined
                       }
+                      onMakeBeat={() => startBeatFromAssets([asset])}
                       selectable={selectMode}
                       selected={selectedIds.has(asset.id)}
                       onToggleSelect={() => toggleSelect(asset.id)}
@@ -2519,6 +2580,24 @@ export function ReviewModal({
                   Remove
                 </button>
               )}
+              {!openDirection &&
+                effectiveTab === "beats" &&
+                selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      startBeatFromAssets(
+                        assets.filter((asset) => selectedIds.has(asset.id)),
+                      )
+                    }
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+                    title="Start a new beat from the selection — name it, then save"
+                  >
+                    <Clapperboard className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    New beat
+                  </button>
+                )}
               {!openDirection &&
                 effectiveTab !== "beats" &&
                 selectedIds.size > 0 && (
@@ -3082,6 +3161,7 @@ function ReviewTile({
   onDelete,
   onFileCharacter,
   onFileLocation,
+  onMakeBeat,
   selectable,
   selected,
   onToggleSelect,
@@ -3104,6 +3184,8 @@ function ReviewTile({
    * pool (a move — it leaves the unsorted section). */
   onFileCharacter?: () => void;
   onFileLocation?: () => void;
+  /** Start a new beat from this asset (videos in Unsorted). */
+  onMakeBeat?: () => void;
   /** Multiselect: clicks toggle selection instead of opening the feed. */
   selectable?: boolean;
   selected?: boolean;
@@ -3236,7 +3318,7 @@ function ReviewTile({
       {asset.name && !selectable && (
         <div
           className={`pointer-events-none absolute bottom-2.5 left-2.5 z-10 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold tracking-wider ${
-            onFileCharacter || onFileLocation
+            onFileCharacter || onFileLocation || onMakeBeat
               ? "transition-opacity group-hover:opacity-0"
               : ""
           }`}
@@ -3246,9 +3328,28 @@ function ReviewTile({
         </div>
       )}
 
-      {/* File an unsorted asset into a pool (hover) */}
-      {(onFileCharacter || onFileLocation) && !selectable && (
+      {/* File an unsorted asset into a pool / start a beat from it (hover) */}
+      {(onFileCharacter || onFileLocation || onMakeBeat) && !selectable && (
         <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {onMakeBeat && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMakeBeat();
+              }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="Start a new beat with this — name it, then save"
+            >
+              <Clapperboard className="h-3 w-3" strokeWidth={2.5} />
+              Beat
+            </button>
+          )}
           {onFileCharacter && (
             <button
               type="button"
