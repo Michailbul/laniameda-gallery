@@ -7,7 +7,7 @@ import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
 import { storeBlobToR2 } from "./r2_store";
 
-const THUMB_WIDTH = 420;
+const THUMB_WIDTH = 1024;
 
 const replaceAssetThumbnailRef = makeFunctionReference<"mutation">(
   "assets:replaceAssetThumbnail",

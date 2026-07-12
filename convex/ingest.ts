@@ -464,7 +464,8 @@ const processMediaInput = async (
       width = originalImage.bitmap.width ?? undefined;
       height = originalImage.bitmap.height ?? undefined;
 
-      const thumbWidthTarget = 420;
+      // Wide enough for retina masonry columns; never upscale the original.
+      const thumbWidthTarget = width ? Math.min(1024, width) : 1024;
       const generatedThumbHeight =
         width && height
           ? Math.max(1, Math.round((thumbWidthTarget * height) / width))

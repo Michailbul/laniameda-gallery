@@ -24,7 +24,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 
-const THUMB_WIDTH = 420;
+const THUMB_WIDTH = 1024;
 
 const getDesignInspirationBySourceFingerprintQuery = makeFunctionReference<"query">(
   "designInspirations:getDesignInspirationIdForSourceFingerprint",

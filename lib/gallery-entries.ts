@@ -157,11 +157,25 @@ const resolvePreviewDimensions = (asset: GalleryAssetRecord) => {
   return thumbnailDimensions ?? originalDimensions ?? {};
 };
 
+// Thumbs narrower than this look visibly soft on modern masonry columns
+// (~450 CSS px at 2x DPR). Below it, serve the original instead: images
+// render the full file; videos drop the tiny poster so the card mounts the
+// real <video> and paints a native-resolution first frame.
+const SHARP_THUMB_MIN_WIDTH = 800;
+
+const displaySrc = (asset: GalleryAssetRecord): string => {
+  const thumbIsSharp = (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
+  const sharp = thumbIsSharp ? asset.thumbUrl : undefined;
+  return (
+    sharp ?? asset.url ?? asset.thumbUrl ?? asset.sourceUrl ?? FALLBACK_SRC
+  );
+};
+
 const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
   galleryItemId: asset._id,
   galleryItemType: "asset",
-  src: asset.thumbUrl ?? asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
+  src: displaySrc(asset),
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
   ...resolvePreviewDimensions(asset),
@@ -199,7 +213,7 @@ const buildEntry = (
     packId: cover.assetPackId ?? undefined,
     galleryItemId: cover.assetPackId ?? cover._id,
     galleryItemType: cover.assetPackId ? "pack" : "asset",
-    src: cover.thumbUrl ?? cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
+    src: displaySrc(cover),
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",
     author: "Agent",

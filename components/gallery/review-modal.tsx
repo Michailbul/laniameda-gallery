@@ -43,6 +43,12 @@ import {
 
 const APPROVED_TAG = "approved";
 
+// Thumbs/posters narrower than this look soft at tile sizes — serve the
+// original image, or let the <video> paint a native-res first frame.
+const SHARP_THUMB_MIN_WIDTH = 800;
+const thumbIsSharp = (asset: { thumbWidth?: number }) =>
+  (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
+
 type CollectionOption = { id: string; name: string; count?: number };
 
 /** The project's layers. Beats lead — the packaged pitch view. Characters
@@ -108,6 +114,7 @@ type ReviewAsset = {
   name?: string;
   url?: string;
   thumbUrl?: string;
+  thumbWidth?: number;
   kind: "image" | "video";
   contentType?: string;
   width?: number;
@@ -309,6 +316,7 @@ export function ReviewModal({
       name: asset.name,
       url: asset.url ?? asset.thumbUrl,
       thumbUrl: asset.thumbUrl ?? asset.url,
+      thumbWidth: asset.thumbWidth,
       kind: asset.kind,
       contentType: asset.contentType,
       width: asset.width,
@@ -2047,7 +2055,11 @@ export function ReviewModal({
                       <video
                         key={beatFocus.id}
                         src={beatFocus.url}
-                        poster={beatFocus.thumbUrl}
+                        poster={
+                          thumbIsSharp(beatFocus)
+                            ? beatFocus.thumbUrl
+                            : undefined
+                        }
                         controls
                         playsInline
                         preload="metadata"
@@ -2768,11 +2780,19 @@ function DirectionCard({
             ref={videoRef}
             key={activeVideo.id}
             src={activeVideo.url}
-            poster={activeVideo.thumbUrl}
+            poster={thumbIsSharp(activeVideo) ? activeVideo.thumbUrl : undefined}
             muted
             loop
             playsInline
-            preload="none"
+            preload={thumbIsSharp(activeVideo) ? "none" : "metadata"}
+            onLoadedMetadata={(e) => {
+              if (
+                !thumbIsSharp(activeVideo) &&
+                e.currentTarget.currentTime === 0
+              ) {
+                e.currentTarget.currentTime = 0.001;
+              }
+            }}
             className="absolute inset-0 h-full w-full object-cover"
           />
 
@@ -3882,7 +3902,11 @@ function Media({
 }) {
   const isVideo = asset.kind === "video";
   const src =
-    variant === "hero" ? asset.url ?? asset.thumbUrl : asset.thumbUrl ?? asset.url;
+    variant === "hero"
+      ? (asset.url ?? asset.thumbUrl)
+      : thumbIsSharp(asset)
+        ? (asset.thumbUrl ?? asset.url)
+        : (asset.url ?? asset.thumbUrl);
 
   if (variant === "hero") {
     // Centered, fully visible; parent flex-centers it.
@@ -3914,15 +3938,23 @@ function Media({
     );
   }
 
-  // tile / thumb: fill the boxed parent (absolute inset).
+  // tile / thumb: fill the boxed parent (absolute inset). A soft (legacy
+  // 320px) poster is dropped so the video paints its own first frame.
   if (isVideo) {
+    const posterSharp = thumbIsSharp(asset);
     return (
       <>
         <video
-          poster={asset.thumbUrl}
+          src={posterSharp ? undefined : asset.url}
+          poster={posterSharp ? asset.thumbUrl : undefined}
           muted
           playsInline
-          preload="none"
+          preload={posterSharp ? "none" : "metadata"}
+          onLoadedMetadata={(e) => {
+            if (!posterSharp && e.currentTarget.currentTime === 0) {
+              e.currentTarget.currentTime = 0.001;
+            }
+          }}
           className="absolute inset-0 h-full w-full object-cover"
         />
         <span

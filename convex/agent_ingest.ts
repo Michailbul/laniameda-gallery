@@ -252,7 +252,10 @@ const createThumbnail = async (
     const originalImage = await Jimp.read(buffer);
     const originalWidth = originalImage.bitmap.width;
     const originalHeight = originalImage.bitmap.height;
-    const thumbWidthTarget = 420;
+    // Wide enough for retina masonry columns; never upscale the original.
+    const thumbWidthTarget = originalWidth
+      ? Math.min(1024, originalWidth)
+      : 1024;
     const generatedThumbHeight =
       originalWidth && originalHeight
         ? Math.max(1, Math.round((thumbWidthTarget * originalHeight) / originalWidth))

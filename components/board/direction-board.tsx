@@ -33,6 +33,12 @@ import {
 
 type TypeFilter = "all" | "image" | "video";
 
+// Thumbs/posters narrower than this look soft at card sizes — serve the
+// original image, or let the <video> paint a native-res first frame.
+const SHARP_THUMB_MIN_WIDTH = 800;
+const thumbIsSharp = (asset: { thumbWidth?: number }) =>
+  (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
+
 /** The board's layers. Each layer holds "directions" — collections of similar
  * options thumbed by their master (cover) asset. */
 type BoardSection = "characters" | "locations" | "beats";
@@ -71,6 +77,7 @@ type BoardAsset = {
   contentType?: string;
   url?: string;
   thumbUrl?: string;
+  thumbWidth?: number;
   width?: number;
   height?: number;
   fileName?: string;
@@ -222,6 +229,7 @@ export function DirectionBoard({ token }: { token: string }) {
       contentType: asset.contentType,
       url: asset.url,
       thumbUrl: asset.thumbUrl,
+      thumbWidth: asset.thumbWidth,
       width: asset.width,
       height: asset.height,
       fileName: asset.fileName,
@@ -1208,7 +1216,7 @@ function BeatHero({
       <video
         key={asset.id}
         src={asset.url}
-        poster={asset.thumbUrl}
+        poster={thumbIsSharp(asset) ? asset.thumbUrl : undefined}
         controls
         playsInline
         preload="metadata"
@@ -1511,11 +1519,16 @@ function DirectionCardTile({
         <video
           ref={videoRef}
           src={beat.url}
-          poster={beat.thumbUrl}
+          poster={thumbIsSharp(beat) ? beat.thumbUrl : undefined}
           muted
           loop
           playsInline
-          preload="none"
+          preload={thumbIsSharp(beat) ? "none" : "metadata"}
+          onLoadedMetadata={(e) => {
+            if (!thumbIsSharp(beat) && e.currentTarget.currentTime === 0) {
+              e.currentTarget.currentTime = 0.001;
+            }
+          }}
           className="absolute inset-0 h-full w-full object-cover"
         />
 
@@ -2054,8 +2067,10 @@ function Media({
   const isVideo = asset.kind === "video";
   const src =
     variant === "hero"
-      ? asset.url ?? asset.thumbUrl
-      : asset.thumbUrl ?? asset.url;
+      ? (asset.url ?? asset.thumbUrl)
+      : thumbIsSharp(asset)
+        ? (asset.thumbUrl ?? asset.url)
+        : (asset.url ?? asset.thumbUrl);
 
   if (variant === "hero") {
     if (isVideo) {
@@ -2063,12 +2078,12 @@ function Media({
         <div className="relative flex max-h-full max-w-full items-center justify-center">
           <video
             src={asset.url}
-            poster={asset.thumbUrl}
+            poster={thumbIsSharp(asset) ? asset.thumbUrl : undefined}
             controls
             muted
             loop
             playsInline
-            preload={asset.thumbUrl ? "none" : "metadata"}
+            preload={thumbIsSharp(asset) ? "none" : "metadata"}
             className="max-h-full w-full max-w-full object-contain"
             style={{ maxHeight: "78vh" }}
           />
@@ -2090,11 +2105,16 @@ function Media({
     return (
       <>
         <video
-          src={asset.thumbUrl ? undefined : asset.url}
-          poster={asset.thumbUrl}
+          src={thumbIsSharp(asset) ? undefined : asset.url}
+          poster={thumbIsSharp(asset) ? asset.thumbUrl : undefined}
           muted
           playsInline
-          preload={asset.thumbUrl ? "none" : "metadata"}
+          preload={thumbIsSharp(asset) ? "none" : "metadata"}
+          onLoadedMetadata={(e) => {
+            if (!thumbIsSharp(asset) && e.currentTarget.currentTime === 0) {
+              e.currentTarget.currentTime = 0.001;
+            }
+          }}
           className="absolute inset-0 h-full w-full object-cover"
         />
         <span

@@ -8,7 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { storeBlobToR2 } from "./r2_store";
 
 const CINEMA_PILLAR_KEY = "cinema-inspiration";
-const THUMB_WIDTH_TARGET = 420;
+const THUMB_WIDTH_TARGET = 1024;
 
 const cinemaMetadataInputValidator = v.object({
   movieTitle: v.string(),
