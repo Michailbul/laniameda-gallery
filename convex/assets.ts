@@ -1942,10 +1942,90 @@ export const addAssetTags = mutation({
 // The global tag used to mark an asset "approved" in the review workflow.
 export const APPROVED_TAG_NAME = "approved";
 
+// Shared engine for boolean-flag tags (approved, character, location, …):
+// add or remove one tag on an asset with an owner check, keeping tagIds +
+// assetTags links + usageCount in sync. Idempotent in both directions.
+const setTagPresenceOnAsset = async (
+  ctx: MutationCtx,
+  args: { ownerUserId: string; assetId: Id<"assets"> },
+  tagName: string,
+  present: boolean,
+): Promise<Id<"assets">> => {
+  const ownerUserId = args.ownerUserId.trim();
+  if (!ownerUserId) {
+    throw new ConvexError("ownerUserId is required.");
+  }
+  const asset = await ctx.db.get(args.assetId);
+  if (!asset) {
+    throw new ConvexError("Asset not found.");
+  }
+  if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+    throw new ConvexError("Asset does not belong to this user.");
+  }
+
+  const normalized = normalizeTagName(tagName);
+  if (!normalized) {
+    throw new ConvexError("Tag name is required.");
+  }
+  let tag = await ctx.db
+    .query("tags")
+    .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
+    .unique();
+
+  if (present) {
+    if (!tag) {
+      const tagId = await ctx.db.insert("tags", {
+        name: tagName,
+        normalized,
+        usageCount: 0,
+      });
+      tag = await ctx.db.get(tagId);
+    }
+    if (!tag) {
+      throw new ConvexError(`Failed to resolve tag "${tagName}".`);
+    }
+    if (asset.tagIds.includes(tag._id)) {
+      return asset._id;
+    }
+    await ctx.db.patch(asset._id, { tagIds: [...asset.tagIds, tag._id] });
+    await bumpTagUsage(ctx, [tag._id], 1);
+    const existingLink = await ctx.db
+      .query("assetTags")
+      .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+      .filter((q) => q.eq(q.field("tagId"), tag!._id))
+      .unique();
+    if (!existingLink) {
+      await ctx.db.insert("assetTags", {
+        assetId: asset._id,
+        tagId: tag._id,
+        createdAt: asset.createdAt,
+      });
+    }
+    return asset._id;
+  }
+
+  // Remove: strip the tag from the asset if present.
+  if (!tag || !asset.tagIds.includes(tag._id)) {
+    return asset._id;
+  }
+  await ctx.db.patch(asset._id, {
+    tagIds: asset.tagIds.filter((id) => id !== tag!._id),
+  });
+  await bumpTagUsage(ctx, [tag._id], -1);
+  const links = await ctx.db
+    .query("assetTags")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .filter((q) => q.eq(q.field("tagId"), tag!._id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+  }
+  return asset._id;
+};
+
 // Toggle the global "approved" tag on an asset. Boolean-flag ergonomics like
 // setAssetLiked, but stored as a regular tag so the existing tag filter shows
-// the approved shortlist (project view + "approved" filter). Keeps tagIds +
-// assetTags links + usageCount in sync. Idempotent in both directions.
+// the approved shortlist (project view + "approved" filter).
 export const setAssetApproved = mutation({
   args: {
     ownerUserId: v.string(),
@@ -1957,73 +2037,38 @@ export const setAssetApproved = mutation({
     approved: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset) {
-      throw new ConvexError("Asset not found.");
-    }
-    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
-      throw new ConvexError("Asset does not belong to this user.");
-    }
+    const assetId = await setTagPresenceOnAsset(
+      ctx,
+      args,
+      APPROVED_TAG_NAME,
+      args.approved,
+    );
+    return { assetId, approved: args.approved };
+  },
+});
 
-    const normalized = normalizeTagName(APPROVED_TAG_NAME);
-    let tag = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
-      .unique();
-
-    if (args.approved) {
-      if (!tag) {
-        const tagId = await ctx.db.insert("tags", {
-          name: APPROVED_TAG_NAME,
-          normalized,
-          usageCount: 0,
-        });
-        tag = await ctx.db.get(tagId);
-      }
-      if (!tag) {
-        throw new ConvexError("Failed to resolve approved tag.");
-      }
-      if (asset.tagIds.includes(tag._id)) {
-        return { assetId: asset._id, approved: true };
-      }
-      await ctx.db.patch(asset._id, { tagIds: [...asset.tagIds, tag._id] });
-      await bumpTagUsage(ctx, [tag._id], 1);
-      const existingLink = await ctx.db
-        .query("assetTags")
-        .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
-        .filter((q) => q.eq(q.field("tagId"), tag!._id))
-        .unique();
-      if (!existingLink) {
-        await ctx.db.insert("assetTags", {
-          assetId: asset._id,
-          tagId: tag._id,
-          createdAt: asset.createdAt,
-        });
-      }
-      return { assetId: asset._id, approved: true };
-    }
-
-    // Un-approve: remove the tag from the asset if present.
-    if (!tag || !asset.tagIds.includes(tag._id)) {
-      return { assetId: asset._id, approved: false };
-    }
-    await ctx.db.patch(asset._id, {
-      tagIds: asset.tagIds.filter((id) => id !== tag!._id),
-    });
-    await bumpTagUsage(ctx, [tag._id], -1);
-    const links = await ctx.db
-      .query("assetTags")
-      .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
-      .filter((q) => q.eq(q.field("tagId"), tag!._id))
-      .collect();
-    for (const link of links) {
-      await ctx.db.delete(link._id);
-    }
-    return { assetId: asset._id, approved: false };
+// Toggle any global tag on an asset with the same boolean-flag ergonomics.
+// Powers the project workspace role chips (character / location), where a
+// tag IS the asset's role inside a direction.
+export const setAssetTagState = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    tagName: v.string(),
+    present: v.boolean(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    present: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const assetId = await setTagPresenceOnAsset(
+      ctx,
+      args,
+      args.tagName.trim(),
+      args.present,
+    );
+    return { assetId, present: args.present };
   },
 });
 

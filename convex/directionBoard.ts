@@ -54,10 +54,15 @@ const boardValidator = v.object({
     v.object({
       id: v.id("folders"),
       name: v.string(),
+      description: v.optional(v.string()),
       section: optionalProjectSectionValidator,
       coverAssetId: v.optional(v.id("assets")),
-      beatCharacterFolderId: v.optional(v.id("folders")),
-      beatLocationFolderId: v.optional(v.id("folders")),
+      // Which character / location directions a beat uses.
+      beatCharacterFolderIds: v.array(v.id("folders")),
+      beatLocationFolderIds: v.array(v.id("folders")),
+      // Whole-direction likes (the Like button on a beat).
+      likeCount: v.number(),
+      likedByMe: v.boolean(),
       count: v.number(),
       assets: v.array(boardAssetValidator),
     }),
@@ -202,7 +207,9 @@ const assetInSharedProject = async (
 export const toggleBoardLike = mutation({
   args: {
     token: v.string(),
-    assetId: v.id("assets"),
+    // Exactly one target: an asset, or a whole direction (a beat card).
+    assetId: v.optional(v.id("assets")),
+    folderId: v.optional(v.id("folders")),
     viewerKey: v.string(),
     viewerName: v.optional(v.string()),
   },
@@ -212,24 +219,50 @@ export const toggleBoardLike = mutation({
     if (viewerKey.length < 8 || viewerKey.length > 64) {
       throw new ConvexError("Invalid viewer key.");
     }
+    if (Boolean(args.assetId) === Boolean(args.folderId)) {
+      throw new ConvexError("Pass exactly one of assetId / folderId.");
+    }
     const folder = await resolveSharedProject(ctx, args.token);
     if (!folder) {
       throw new ConvexError("This link isn't active.");
     }
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset || !(await assetInSharedProject(ctx, folder, asset))) {
-      throw new ConvexError("Asset is not on this board.");
+
+    if (args.assetId) {
+      const asset = await ctx.db.get(args.assetId);
+      if (!asset || !(await assetInSharedProject(ctx, folder, asset))) {
+        throw new ConvexError("Asset is not on this board.");
+      }
+    } else if (args.folderId) {
+      const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId!);
+      const memberIds = await collectProjectCollectionIds(
+        ctx,
+        ownerUserIds,
+        folder._id,
+      );
+      if (!memberIds.includes(args.folderId)) {
+        throw new ConvexError("Direction is not on this board.");
+      }
     }
 
-    const existing = await ctx.db
-      .query("boardReactions")
-      .withIndex("by_project_viewer_asset", (q) =>
-        q
-          .eq("projectId", folder._id)
-          .eq("viewerKey", viewerKey)
-          .eq("assetId", args.assetId),
-      )
-      .unique();
+    const existing = args.assetId
+      ? await ctx.db
+          .query("boardReactions")
+          .withIndex("by_project_viewer_asset", (q) =>
+            q
+              .eq("projectId", folder._id)
+              .eq("viewerKey", viewerKey)
+              .eq("assetId", args.assetId),
+          )
+          .unique()
+      : await ctx.db
+          .query("boardReactions")
+          .withIndex("by_project_viewer_folder", (q) =>
+            q
+              .eq("projectId", folder._id)
+              .eq("viewerKey", viewerKey)
+              .eq("folderId", args.folderId),
+          )
+          .unique();
 
     if (existing) {
       await ctx.db.delete(existing._id);
@@ -238,18 +271,26 @@ export const toggleBoardLike = mutation({
         ownerUserId: folder.ownerUserId!,
         projectId: folder._id,
         assetId: args.assetId,
+        folderId: args.folderId,
         viewerKey,
         viewerName: args.viewerName?.trim().slice(0, 40) || undefined,
         createdAt: Date.now(),
       });
     }
 
-    const reactions = await ctx.db
-      .query("boardReactions")
-      .withIndex("by_project_asset", (q) =>
-        q.eq("projectId", folder._id).eq("assetId", args.assetId),
-      )
-      .collect();
+    const reactions = args.assetId
+      ? await ctx.db
+          .query("boardReactions")
+          .withIndex("by_project_asset", (q) =>
+            q.eq("projectId", folder._id).eq("assetId", args.assetId),
+          )
+          .collect()
+      : await ctx.db
+          .query("boardReactions")
+          .withIndex("by_project_folder", (q) =>
+            q.eq("projectId", folder._id).eq("folderId", args.folderId),
+          )
+          .collect();
     return { liked: !existing, likeCount: reactions.length };
   },
 });
@@ -498,14 +539,26 @@ export const getBoard = query({
       .withIndex("by_project", (q) => q.eq("projectId", folder._id))
       .collect();
     const likeCountByAsset = new Map<string, number>();
+    const likeCountByFolder = new Map<string, number>();
     const likedByViewer = new Set<string>();
+    const likedFoldersByViewer = new Set<string>();
     for (const reaction of reactions) {
-      likeCountByAsset.set(
-        reaction.assetId,
-        (likeCountByAsset.get(reaction.assetId) ?? 0) + 1,
-      );
-      if (viewerKey && reaction.viewerKey === viewerKey) {
-        likedByViewer.add(reaction.assetId);
+      if (reaction.assetId) {
+        likeCountByAsset.set(
+          reaction.assetId,
+          (likeCountByAsset.get(reaction.assetId) ?? 0) + 1,
+        );
+        if (viewerKey && reaction.viewerKey === viewerKey) {
+          likedByViewer.add(reaction.assetId);
+        }
+      } else if (reaction.folderId) {
+        likeCountByFolder.set(
+          reaction.folderId,
+          (likeCountByFolder.get(reaction.folderId) ?? 0) + 1,
+        );
+        if (viewerKey && reaction.viewerKey === viewerKey) {
+          likedFoldersByViewer.add(reaction.folderId);
+        }
       }
     }
 
@@ -544,8 +597,8 @@ export const getBoard = query({
         async ({
           folderId,
           section,
-          beatCharacterFolderId,
-          beatLocationFolderId,
+          beatCharacterFolderIds,
+          beatLocationFolderIds,
         }) => {
         const collectionFolder = await ctx.db.get(folderId);
         const members = await collectAssetsForFolder(
@@ -583,10 +636,13 @@ export const getBoard = query({
         return {
           id: folderId,
           name: collectionFolder?.name ?? "Untitled collection",
+          description: collectionFolder?.description,
           section,
           coverAssetId: collectionFolder?.coverAssetId,
-          beatCharacterFolderId,
-          beatLocationFolderId,
+          beatCharacterFolderIds,
+          beatLocationFolderIds,
+          likeCount: likeCountByFolder.get(folderId) ?? 0,
+          likedByMe: likedFoldersByViewer.has(folderId),
           count: assets.length,
           assets,
         };

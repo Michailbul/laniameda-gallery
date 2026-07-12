@@ -126,11 +126,15 @@ export default defineSchema({
     // Which layer/tab of the project this collection is filed under
     // (characters | locations | beats). Undefined = unsorted.
     section: optionalProjectSectionValidator,
-    // For beat-layer rows only: a beat pairs one character direction with one
-    // location direction (both member collections of the same project); the
-    // beat collection's own assets are the resulting media (video/stills).
+    // For beat-layer rows only: which character / location directions this
+    // beat uses (member collections of the same project); the beat
+    // collection's own assets are the resulting media (videos/stills).
+    // The single-id fields are the legacy shape — reads merge them into the
+    // arrays; writes go to the arrays only.
     beatCharacterFolderId: v.optional(v.id("folders")),
     beatLocationFolderId: v.optional(v.id("folders")),
+    beatCharacterFolderIds: v.optional(v.array(v.id("folders"))),
+    beatLocationFolderIds: v.optional(v.array(v.id("folders"))),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -144,14 +148,19 @@ export default defineSchema({
   boardReactions: defineTable({
     ownerUserId: v.string(),
     projectId: v.id("folders"),
-    assetId: v.id("assets"),
+    // Exactly one of assetId / folderId is set: a like on one asset, or on a
+    // whole direction (a beat card on the shared board).
+    assetId: v.optional(v.id("assets")),
+    folderId: v.optional(v.id("folders")),
     viewerKey: v.string(),
     viewerName: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
     .index("by_project_asset", ["projectId", "assetId"])
+    .index("by_project_folder", ["projectId", "folderId"])
     .index("by_project_viewer_asset", ["projectId", "viewerKey", "assetId"])
+    .index("by_project_viewer_folder", ["projectId", "viewerKey", "folderId"])
     .index("by_project_viewer", ["projectId", "viewerKey"]),
   userPillars: defineTable({
     ownerUserId: v.string(),

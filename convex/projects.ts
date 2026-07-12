@@ -58,8 +58,18 @@ export type ProjectSection = "characters" | "locations" | "beats";
 export type ProjectCollectionLink = {
   folderId: Id<"folders">;
   section?: ProjectSection;
-  beatCharacterFolderId?: Id<"folders">;
-  beatLocationFolderId?: Id<"folders">;
+  beatCharacterFolderIds: Id<"folders">[];
+  beatLocationFolderIds: Id<"folders">[];
+};
+
+// Merge the legacy single-id beat pairing into the arrays shape (dedup,
+// legacy id first when both exist).
+const mergeBeatLinks = (
+  legacy: Id<"folders"> | undefined,
+  ids: Id<"folders">[] | undefined,
+): Id<"folders">[] => {
+  const merged = [...(legacy ? [legacy] : []), ...(ids ?? [])];
+  return [...new Set(merged)];
 };
 
 // Collect the member-collection links of a project, via the projectCollections
@@ -84,8 +94,14 @@ export const collectProjectCollectionLinks = async (
     links.push({
       folderId: row.folderId,
       section: row.section,
-      beatCharacterFolderId: row.beatCharacterFolderId,
-      beatLocationFolderId: row.beatLocationFolderId,
+      beatCharacterFolderIds: mergeBeatLinks(
+        row.beatCharacterFolderId,
+        row.beatCharacterFolderIds,
+      ),
+      beatLocationFolderIds: mergeBeatLinks(
+        row.beatLocationFolderId,
+        row.beatLocationFolderIds,
+      ),
     });
   }
   return links;
@@ -237,10 +253,11 @@ export const getProject = query({
         v.object({
           folderId: v.id("folders"),
           name: v.string(),
+          description: v.optional(v.string()),
           section: optionalProjectSectionValidator,
           coverAssetId: v.optional(v.id("assets")),
-          beatCharacterFolderId: v.optional(v.id("folders")),
-          beatLocationFolderId: v.optional(v.id("folders")),
+          beatCharacterFolderIds: v.array(v.id("folders")),
+          beatLocationFolderIds: v.array(v.id("folders")),
           count: v.number(),
           assets: v.array(galleryAssetResultValidator),
         }),
@@ -249,6 +266,14 @@ export const getProject = query({
       assetLikes: v.array(
         v.object({
           assetId: v.id("assets"),
+          count: v.number(),
+          names: v.array(v.string()),
+        }),
+      ),
+      // …and per direction (beat cards on the board take whole-beat likes).
+      collectionLikes: v.array(
+        v.object({
+          folderId: v.id("folders"),
           count: v.number(),
           names: v.array(v.string()),
         }),
@@ -281,8 +306,8 @@ export const getProject = query({
         async ({
           folderId,
           section,
-          beatCharacterFolderId,
-          beatLocationFolderId,
+          beatCharacterFolderIds,
+          beatLocationFolderIds,
         }) => {
           const collectionFolder = await ctx.db.get(folderId);
           const members = await collectAssetsForFolder(
@@ -295,10 +320,11 @@ export const getProject = query({
           return {
             folderId,
             name: collectionFolder?.name ?? "Untitled collection",
+            description: collectionFolder?.description,
             section,
             coverAssetId: collectionFolder?.coverAssetId,
-            beatCharacterFolderId,
-            beatLocationFolderId,
+            beatCharacterFolderIds,
+            beatLocationFolderIds,
             count: assets.length,
             assets,
           };
@@ -306,8 +332,9 @@ export const getProject = query({
       ),
     );
 
-    // Viewer likes from the shared board, grouped per asset with the names
-    // viewers chose to leave (anonymous likes count but add no name).
+    // Viewer likes from the shared board, grouped per asset and per whole
+    // direction, with the names viewers chose to leave (anonymous likes count
+    // but add no name).
     const reactions = await ctx.db
       .query("boardReactions")
       .withIndex("by_project", (q) => q.eq("projectId", folder._id))
@@ -316,18 +343,39 @@ export const getProject = query({
       Id<"assets">,
       { count: number; names: Set<string> }
     >();
+    const likesByFolder = new Map<
+      Id<"folders">,
+      { count: number; names: Set<string> }
+    >();
     for (const reaction of reactions) {
-      const entry = likesByAsset.get(reaction.assetId) ?? {
-        count: 0,
-        names: new Set<string>(),
-      };
-      entry.count += 1;
-      if (reaction.viewerName) entry.names.add(reaction.viewerName);
-      likesByAsset.set(reaction.assetId, entry);
+      if (reaction.assetId) {
+        const entry = likesByAsset.get(reaction.assetId) ?? {
+          count: 0,
+          names: new Set<string>(),
+        };
+        entry.count += 1;
+        if (reaction.viewerName) entry.names.add(reaction.viewerName);
+        likesByAsset.set(reaction.assetId, entry);
+      } else if (reaction.folderId) {
+        const entry = likesByFolder.get(reaction.folderId) ?? {
+          count: 0,
+          names: new Set<string>(),
+        };
+        entry.count += 1;
+        if (reaction.viewerName) entry.names.add(reaction.viewerName);
+        likesByFolder.set(reaction.folderId, entry);
+      }
     }
     const assetLikes = [...likesByAsset.entries()].map(
       ([assetId, entry]) => ({
         assetId,
+        count: entry.count,
+        names: [...entry.names],
+      }),
+    );
+    const collectionLikes = [...likesByFolder.entries()].map(
+      ([folderId, entry]) => ({
+        folderId,
         count: entry.count,
         names: [...entry.names],
       }),
@@ -343,6 +391,7 @@ export const getProject = query({
       },
       collections,
       assetLikes,
+      collectionLikes,
     };
   },
 });
@@ -422,15 +471,16 @@ export const addCollectionToProject = mutation({
   },
 });
 
-// Pair a beat direction with one character direction and one location
-// direction (both must be members of the same project). null clears a side.
-export const setBeatPairing = mutation({
+// Set which character / location directions a beat uses (all must be member
+// collections of the same project). Replaces both lists wholesale; writes go
+// to the array fields, clearing the legacy single-id pair.
+export const setBeatLinks = mutation({
   args: {
     ownerUserId: v.string(),
     projectId: v.id("folders"),
     folderId: v.id("folders"),
-    characterFolderId: v.union(v.id("folders"), v.null()),
-    locationFolderId: v.union(v.id("folders"), v.null()),
+    characterFolderIds: v.array(v.id("folders")),
+    locationFolderIds: v.array(v.id("folders")),
   },
   returns: v.object({ updated: v.boolean() }),
   handler: async (ctx, args) => {
@@ -454,15 +504,19 @@ export const setBeatPairing = mutation({
     const memberIds = new Set(
       await collectProjectCollectionIds(ctx, ownerUserIds, args.projectId),
     );
-    for (const pairedId of [args.characterFolderId, args.locationFolderId]) {
-      if (pairedId && !memberIds.has(pairedId)) {
-        throw new ConvexError("Paired direction is not part of this project.");
+    const characterFolderIds = [...new Set(args.characterFolderIds)];
+    const locationFolderIds = [...new Set(args.locationFolderIds)];
+    for (const linkedId of [...characterFolderIds, ...locationFolderIds]) {
+      if (!memberIds.has(linkedId) || linkedId === args.folderId) {
+        throw new ConvexError("Linked direction is not part of this project.");
       }
     }
 
     await ctx.db.patch(existing._id, {
-      beatCharacterFolderId: args.characterFolderId ?? undefined,
-      beatLocationFolderId: args.locationFolderId ?? undefined,
+      beatCharacterFolderId: undefined,
+      beatLocationFolderId: undefined,
+      beatCharacterFolderIds: characterFolderIds,
+      beatLocationFolderIds: locationFolderIds,
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { updated: true };

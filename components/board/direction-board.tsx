@@ -39,6 +39,12 @@ type BoardSection = "characters" | "locations" | "beats";
 
 const SECTION_ORDER: { key: BoardSection; label: string; blurb: string }[] = [
   {
+    key: "beats",
+    label: "Beats",
+    blurb:
+      "The shots. Hover to play, click to open a beat with the characters and locations it uses.",
+  },
+  {
     key: "characters",
     label: "Characters",
     blurb: "Alternate takes on the cast. One stack = one direction.",
@@ -47,11 +53,6 @@ const SECTION_ORDER: { key: BoardSection; label: string; blurb: string }[] = [
     key: "locations",
     label: "Locations",
     blurb: "Where it happens. One stack = one direction.",
-  },
-  {
-    key: "beats",
-    label: "Beats",
-    blurb: "A character direction meets a location — with the resulting shot.",
   },
 ];
 
@@ -95,13 +96,19 @@ type BoardDirection = {
   name: string;
   count: number;
   cover: BoardAsset | null;
+  /** The beat's premade video (video master, first-video fallback). When
+   * set, the card renders the shot and plays it on hover. */
+  beat: BoardAsset | null;
   /** Thumb urls of the next variations, peeking behind the master. */
   backs: string[];
   /** Thumb urls (master first) for the hover-to-preview rotation. */
   previews: string[];
-  /** Beat pairing (beats layer only). */
-  pairCharacter?: PairRef;
-  pairLocation?: PairRef;
+  /** The character / location stacks a beat uses. */
+  pairCharacters: PairRef[];
+  pairLocations: PairRef[];
+  /** Whole-direction likes (the Like button on a beat). */
+  likeCount: number;
+  likedByMe: boolean;
 };
 
 /**
@@ -145,6 +152,21 @@ export function DirectionBoard({ token }: { token: string }) {
       void toggleLikeMutation({
         token,
         assetId: assetId as Id<"assets">,
+        viewerKey,
+        viewerName: viewerName.trim() || undefined,
+      });
+    },
+    [token, viewerKey, viewerName, toggleLikeMutation],
+  );
+
+  // Like a whole direction (the Like button on a beat). Same one-per-viewer
+  // rule, keyed on the folder instead of an asset.
+  const toggleDirectionLike = useCallback(
+    (folderId: string) => {
+      if (!viewerKey) return;
+      void toggleLikeMutation({
+        token,
+        folderId: folderId as Id<"folders">,
         viewerKey,
         viewerName: viewerName.trim() || undefined,
       });
@@ -256,9 +278,21 @@ export function DirectionBoard({ token }: { token: string }) {
     [collectionById, resolveCover],
   );
 
+  const pairRefs = useCallback(
+    (folderIds: readonly string[]): PairRef[] =>
+      folderIds
+        .map((id) => pairRef(id))
+        .filter((pair): pair is PairRef => Boolean(pair)),
+    [pairRef],
+  );
+
   const toDirection = useCallback(
     (collection: BoardCollection): BoardDirection => {
       const coverAsset = resolveCover(collection);
+      const beatAsset =
+        coverAsset?.kind === "video"
+          ? coverAsset
+          : (collection.assets.find((a) => a.kind === "video") ?? null);
       const backs = collection.assets
         .filter((a) => a !== coverAsset)
         .slice(0, 2)
@@ -276,17 +310,20 @@ export function DirectionBoard({ token }: { token: string }) {
         name: collection.name,
         count: collection.count,
         cover: coverAsset ? toBoardAsset(coverAsset, collection) : null,
+        beat: beatAsset ? toBoardAsset(beatAsset, collection) : null,
         backs,
         previews,
-        pairCharacter: pairRef(
-          collection.beatCharacterFolderId as string | undefined,
+        pairCharacters: pairRefs(
+          (collection.beatCharacterFolderIds ?? []) as string[],
         ),
-        pairLocation: pairRef(
-          collection.beatLocationFolderId as string | undefined,
+        pairLocations: pairRefs(
+          (collection.beatLocationFolderIds ?? []) as string[],
         ),
+        likeCount: collection.likeCount,
+        likedByMe: collection.likedByMe,
       };
     },
-    [resolveCover, toBoardAsset, pairRef],
+    [resolveCover, toBoardAsset, pairRefs],
   );
 
   const sortDirections = useCallback(
@@ -385,13 +422,35 @@ export function DirectionBoard({ token }: { token: string }) {
     [assets, typeFilter, approvedOnly, activeTag],
   );
 
+  // The opened beat's hero video (video master, first-video fallback) —
+  // rendered as a big player above the grid, and pulled out of the tiles.
+  const openBeatHero = useMemo<BoardAsset | null>(() => {
+    if (!openDirection || sectionOf(openDirection.section) !== "beats") {
+      return null;
+    }
+    const cover = resolveCover(openDirection);
+    const video =
+      cover?.kind === "video"
+        ? cover
+        : openDirection.assets.find((a) => a.kind === "video");
+    return video ? toBoardAsset(video, openDirection) : null;
+  }, [openDirection, resolveCover, toBoardAsset]);
+
+  const gridAssets = useMemo(
+    () =>
+      openBeatHero
+        ? visibleAssets.filter((asset) => asset.id !== openBeatHero.id)
+        : visibleAssets,
+    [visibleAssets, openBeatHero],
+  );
+
   const layout = useMemo(() => {
     const targetRowHeight = Math.max(
       200,
       Math.min(340, Math.round(gridWidth / 4.2)),
     );
     return layoutJustified(
-      visibleAssets.map((asset) => ({
+      gridAssets.map((asset) => ({
         width: asset.width,
         height: asset.height,
         kind: asset.kind,
@@ -399,7 +458,7 @@ export function DirectionBoard({ token }: { token: string }) {
       })),
       { containerWidth: gridWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
     );
-  }, [visibleAssets, gridWidth]);
+  }, [gridAssets, gridWidth]);
 
   const openDirectionById = useCallback((id: string) => {
     overviewScrollRef.current = window.scrollY;
@@ -548,9 +607,10 @@ export function DirectionBoard({ token }: { token: string }) {
               className="mt-4 max-w-[70ch] text-[12px] leading-relaxed"
               style={{ color: "var(--lm-text-tertiary)" }}
             >
-              Each stack is one direction — a set of options for a character
-              or location. Hover a stack to flip through it, click to open
-              every option. Save downloads any file.
+              Beats are the shots — hover one to play it, click it to see
+              the characters and locations it uses, and tap ♥ if it works
+              for you. Below them, each stack is one direction — a set of
+              options. Save downloads any file.
             </p>
           </div>
         )}
@@ -738,15 +798,13 @@ export function DirectionBoard({ token }: { token: string }) {
                 {openDirection &&
                   sectionOf(openDirection.section) === "beats" &&
                   [
-                    pairRef(
-                      openDirection.beatCharacterFolderId as string | undefined,
+                    ...pairRefs(
+                      (openDirection.beatCharacterFolderIds ?? []) as string[],
                     ),
-                    pairRef(
-                      openDirection.beatLocationFolderId as string | undefined,
+                    ...pairRefs(
+                      (openDirection.beatLocationFolderIds ?? []) as string[],
                     ),
-                  ]
-                    .filter((pair): pair is PairRef => Boolean(pair))
-                    .map((pair, index) => (
+                  ].map((pair, index) => (
                       <span key={pair.id} className="flex items-center gap-1.5">
                         {index === 0 && (
                           <span
@@ -936,6 +994,7 @@ export function DirectionBoard({ token }: { token: string }) {
                     gridWidth={gridWidth}
                     isBeats={key === "beats"}
                     onOpen={openDirectionById}
+                    onToggleDirectionLike={toggleDirectionLike}
                   />
                 </section>
               ))}
@@ -955,6 +1014,7 @@ export function DirectionBoard({ token }: { token: string }) {
                     gridWidth={gridWidth}
                     isBeats={false}
                     onOpen={openDirectionById}
+                    onToggleDirectionLike={toggleDirectionLike}
                   />
                 </section>
               )}
@@ -993,42 +1053,68 @@ export function DirectionBoard({ token }: { token: string }) {
                 </div>
               )}
             </>
-          ) : visibleAssets.length === 0 ? (
-            <p
-              className="py-24 text-center text-[13px]"
-              style={{ color: "var(--lm-text-tertiary)" }}
-            >
-              Nothing here for this filter yet.
-            </p>
           ) : (
-            <div
-              className="relative"
-              style={{ height: layout.totalHeight }}
-              role="list"
-              aria-label="Board assets"
-            >
-              {layout.tiles.map((tile) => {
-                const asset = visibleAssets[tile.index]!;
-                return (
-                  <BoardTile
-                    key={asset.id}
-                    asset={asset}
-                    token={token}
-                    eager={tile.index < 8}
-                    style={{
-                      position: "absolute",
-                      top: tile.top,
-                      left: tile.left,
-                      width: tile.width,
-                      height: tile.height,
-                    }}
-                    showCollectionLabel={view.type === "all"}
-                    onOpen={() => setFocusId(asset.id)}
-                    onToggleLike={() => toggleLike(asset.id)}
-                  />
-                );
-              })}
-            </div>
+            <>
+              {openBeatHero && openDirection && (
+                <BeatHero
+                  asset={openBeatHero}
+                  description={openDirection.description}
+                  likeCount={openDirection.likeCount}
+                  likedByMe={openDirection.likedByMe}
+                  characters={pairRefs(
+                    (openDirection.beatCharacterFolderIds ?? []) as string[],
+                  )}
+                  locations={pairRefs(
+                    (openDirection.beatLocationFolderIds ?? []) as string[],
+                  )}
+                  onToggleLike={() =>
+                    toggleDirectionLike(openDirection.id as string)
+                  }
+                  onOpenDirection={openDirectionById}
+                  onOpenFull={() => setFocusId(openBeatHero.id)}
+                />
+              )}
+              {visibleAssets.length === 0 && !openBeatHero ? (
+                <p
+                  className="py-24 text-center text-[13px]"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  Nothing here for this filter yet.
+                </p>
+              ) : gridAssets.length > 0 ? (
+                <div
+                  className="relative"
+                  style={{
+                    height: layout.totalHeight,
+                    marginTop: openBeatHero ? 20 : 0,
+                  }}
+                  role="list"
+                  aria-label="Board assets"
+                >
+                  {layout.tiles.map((tile) => {
+                    const asset = gridAssets[tile.index]!;
+                    return (
+                      <BoardTile
+                        key={asset.id}
+                        asset={asset}
+                        token={token}
+                        eager={tile.index < 8}
+                        style={{
+                          position: "absolute",
+                          top: tile.top,
+                          left: tile.left,
+                          width: tile.width,
+                          height: tile.height,
+                        }}
+                        showCollectionLabel={view.type === "all"}
+                        onOpen={() => setFocusId(asset.id)}
+                        onToggleLike={() => toggleLike(asset.id)}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </main>
@@ -1089,33 +1175,174 @@ function SectionHeader({
   );
 }
 
+/** The opened beat's detail header: the shot big, a whole-beat like, the
+ * text, and the character / location stacks it uses. */
+function BeatHero({
+  asset,
+  description,
+  likeCount,
+  likedByMe,
+  characters,
+  locations,
+  onToggleLike,
+  onOpenDirection,
+  onOpenFull,
+}: {
+  asset: BoardAsset;
+  description?: string;
+  likeCount: number;
+  likedByMe: boolean;
+  characters: PairRef[];
+  locations: PairRef[];
+  onToggleLike: () => void;
+  onOpenDirection: (id: string) => void;
+  onOpenFull: () => void;
+}) {
+  const linkGroups = [
+    { label: "Characters", pairs: characters },
+    { label: "Locations", pairs: locations },
+  ].filter((group) => group.pairs.length > 0);
+
+  return (
+    <div className="mb-2">
+      <video
+        key={asset.id}
+        src={asset.url}
+        poster={asset.thumbUrl}
+        controls
+        playsInline
+        preload="metadata"
+        className="w-full rounded-xl"
+        style={{
+          maxHeight: "62vh",
+          backgroundColor: "#000",
+          border: "1px solid var(--lm-border)",
+          objectFit: "contain",
+        }}
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <LikeButton
+          likeCount={likeCount}
+          likedByMe={likedByMe}
+          onToggle={onToggleLike}
+          size="lg"
+        />
+        <span
+          className="text-[11px]"
+          style={{ color: "var(--lm-text-tertiary)" }}
+        >
+          Like this beat if it works for you.
+        </span>
+        <button
+          type="button"
+          onClick={onOpenFull}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+          style={{
+            borderColor: "var(--lm-border-strong)",
+            color: "var(--lm-text-secondary)",
+          }}
+          title="Open the shot in the full-screen viewer"
+        >
+          <Play className="h-3.5 w-3.5" />
+          Full view
+        </button>
+      </div>
+
+      {description && (
+        <p
+          className="mt-3 max-w-[80ch] whitespace-pre-wrap text-[13px] leading-relaxed"
+          style={{ color: "var(--lm-text-secondary)" }}
+        >
+          {description}
+        </p>
+      )}
+
+      {linkGroups.map(({ label, pairs }) => (
+        <div key={label} className="mt-4">
+          <p
+            className="mb-2 text-[10px] font-mono font-bold uppercase tracking-[0.16em]"
+            style={{ color: "var(--lm-coral)" }}
+          >
+            {label} in this beat
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {pairs.map((pair) => (
+              <button
+                key={pair.id}
+                type="button"
+                onClick={() => onOpenDirection(pair.id)}
+                className="flex items-center gap-2 rounded-lg border p-1 pr-3 transition-transform hover:scale-[1.03]"
+                style={{
+                  backgroundColor: "var(--lm-surface-1)",
+                  borderColor: "var(--lm-border-strong)",
+                }}
+                title={`Open direction: ${pair.name}`}
+              >
+                {pair.thumb ? (
+                  <img
+                    src={pair.thumb}
+                    alt=""
+                    className="h-9 w-9 rounded-md object-cover"
+                  />
+                ) : (
+                  <span
+                    className="h-9 w-9 rounded-md"
+                    style={{ backgroundColor: "var(--lm-surface-3)" }}
+                  />
+                )}
+                <span
+                  className="max-w-[22ch] truncate text-[12px] font-semibold"
+                  style={{ color: "var(--lm-text-primary)" }}
+                >
+                  {pair.name}
+                </span>
+                <ChevronRight
+                  className="h-3.5 w-3.5"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Justified rows of direction stacks for one section. */
 function DirectionGrid({
   directions,
   gridWidth,
   isBeats,
   onOpen,
+  onToggleDirectionLike,
 }: {
   directions: BoardDirection[];
   gridWidth: number;
   isBeats: boolean;
   onOpen: (id: string) => void;
+  onToggleDirectionLike: (id: string) => void;
 }) {
   const cardLayout = useMemo(() => {
-    const targetRowHeight = Math.max(
-      240,
-      Math.min(400, Math.round(gridWidth / 3.4)),
-    );
+    // Beats are the pitch — big shots at the video's aspect ratio. Stacks
+    // stay denser.
+    const targetRowHeight = isBeats
+      ? Math.max(280, Math.min(520, Math.round(gridWidth / 2.4)))
+      : Math.max(240, Math.min(400, Math.round(gridWidth / 3.4)));
     return layoutJustified(
-      directions.map((direction) => ({
-        width: direction.cover?.width,
-        height: direction.cover?.height,
-        kind: direction.cover?.kind ?? "image",
-        contentType: direction.cover?.contentType,
-      })),
+      directions.map((direction) => {
+        const sizing = direction.beat ?? direction.cover;
+        return {
+          width: sizing?.width,
+          height: sizing?.height,
+          kind: sizing?.kind ?? "image",
+          contentType: sizing?.contentType,
+        };
+      }),
       { containerWidth: gridWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
     );
-  }, [directions, gridWidth]);
+  }, [directions, gridWidth, isBeats]);
 
   return (
     <div
@@ -1141,6 +1368,7 @@ function DirectionGrid({
             }}
             onOpen={() => onOpen(direction.id)}
             onOpenDirection={onOpen}
+            onToggleLike={() => onToggleDirectionLike(direction.id)}
           />
         );
       })}
@@ -1165,15 +1393,17 @@ function triggerDownload(token: string, assetId: string) {
 
 /** Authless viewer like — coral heart, filled when this browser liked it. */
 function LikeButton({
-  asset,
+  likeCount,
+  likedByMe,
   onToggle,
   size = "sm",
 }: {
-  asset: BoardAsset;
+  likeCount: number;
+  likedByMe: boolean;
   onToggle: () => void;
   size?: "sm" | "lg";
 }) {
-  const liked = asset.likedByMe;
+  const liked = likedByMe;
   return (
     <button
       type="button"
@@ -1197,7 +1427,7 @@ function LikeButton({
         fill={liked ? "currentColor" : "none"}
         strokeWidth={2.5}
       />
-      {asset.likeCount > 0 ? asset.likeCount : ""}
+      {likeCount > 0 ? likeCount : ""}
     </button>
   );
 }
@@ -1243,21 +1473,167 @@ function DirectionCardTile({
   style,
   onOpen,
   onOpenDirection,
+  onToggleLike,
 }: {
   direction: BoardDirection;
-  /** Beat cards carry the character + location pairing chips. */
+  /** Beat cards carry the character + location chips and a whole-beat like. */
   isBeat?: boolean;
   eager: boolean;
   style: React.CSSProperties;
   onOpen: () => void;
   onOpenDirection?: (id: string) => void;
+  onToggleLike?: () => void;
 }) {
   const cover = direction.cover;
-  // Hover 1s → rotate through the direction's options in place.
-  const preview = useStackHoverPreview(direction.previews.length);
-  const pairs = [direction.pairCharacter, direction.pairLocation].filter(
-    (pair): pair is PairRef => Boolean(pair),
-  );
+  const beat = isBeat ? direction.beat : null;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Hover 1s → rotate through the direction's options in place (image decks
+  // only — beat cards play their video on hover instead).
+  const preview = useStackHoverPreview(beat ? 0 : direction.previews.length);
+  const pairs = [...direction.pairCharacters, ...direction.pairLocations];
+
+  if (beat) {
+    return (
+      <div
+        className="group relative cursor-pointer overflow-hidden rounded-xl"
+        style={{
+          ...style,
+          border: "1px solid var(--lm-border-strong)",
+          backgroundColor: "#000",
+          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+        }}
+        role="listitem"
+        onClick={onOpen}
+        onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
+        onMouseLeave={() => videoRef.current?.pause()}
+        aria-label={`Open beat: ${direction.name}`}
+      >
+        <video
+          ref={videoRef}
+          src={beat.url}
+          poster={beat.thumbUrl}
+          muted
+          loop
+          playsInline
+          preload="none"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+
+        {/* Play affordance until hover starts the shot */}
+        <span
+          className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-opacity duration-200 group-hover:opacity-0"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <Play className="ml-0.5 h-5 w-5" fill="#fff" color="#fff" />
+        </span>
+
+        {/* Whole-beat like — always visible once liked, hover otherwise */}
+        {onToggleLike && (
+          <div
+            className={`absolute right-2 top-2 z-10 transition-opacity ${
+              direction.likedByMe || direction.likeCount > 0
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100"
+            }`}
+          >
+            <LikeButton
+              likeCount={direction.likeCount}
+              likedByMe={direction.likedByMe}
+              onToggle={onToggleLike}
+            />
+          </div>
+        )}
+
+        {/* The character + location stacks this beat uses */}
+        {pairs.length > 0 && (
+          <div className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-1">
+            {pairs.map((pair, index) => (
+              <span key={pair.id} className="flex items-center gap-1">
+                {index > 0 && (
+                  <Plus
+                    className="h-3 w-3"
+                    style={{ color: "rgba(255,255,255,0.8)" }}
+                    strokeWidth={3}
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDirection?.(pair.id);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border p-0.5 pr-2 transition-transform hover:scale-105"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.62)",
+                    borderColor: "rgba(255,255,255,0.25)",
+                  }}
+                  title={`Open direction: ${pair.name}`}
+                >
+                  {pair.thumb ? (
+                    <img
+                      src={pair.thumb}
+                      alt=""
+                      className="h-6 w-6 rounded-md object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="h-6 w-6 rounded-md"
+                      style={{ backgroundColor: "var(--lm-surface-3)" }}
+                    />
+                  )}
+                  <span
+                    className="max-w-[9ch] truncate text-[9px] font-mono font-bold uppercase tracking-wider"
+                    style={{ color: "#fff" }}
+                  >
+                    {pair.name}
+                  </span>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Bottom label over a gradient */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-24"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.3) 60%, transparent)",
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
+          <div className="min-w-0">
+            <p
+              className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+              style={{ color: "var(--lm-coral)" }}
+            >
+              Beat
+            </p>
+            <p
+              className="truncate text-[16px] font-semibold"
+              style={{ color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}
+            >
+              {direction.name}
+            </p>
+            <p
+              className="text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{ color: "rgba(255,255,255,0.68)" }}
+            >
+              {direction.count} {direction.count === 1 ? "option" : "options"}
+            </p>
+          </div>
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+          >
+            Explore
+            <ChevronRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="group relative cursor-pointer"
@@ -1401,7 +1777,7 @@ function DirectionCardTile({
               className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
               style={{ color: "var(--lm-coral)" }}
             >
-              {isBeat ? "Storybeat" : "Direction"}
+              {isBeat ? "Beat" : "Direction"}
             </p>
             <p
               className="truncate text-[15px] font-semibold"
@@ -1476,7 +1852,11 @@ function BoardTile({
               : "opacity-0 group-hover:opacity-100"
           }`}
         >
-          <LikeButton asset={asset} onToggle={onToggleLike} />
+          <LikeButton
+            likeCount={asset.likeCount}
+            likedByMe={asset.likedByMe}
+            onToggle={onToggleLike}
+          />
         </div>
 
         {asset.approved && (
@@ -1645,7 +2025,8 @@ function Lightbox({
               )}
               <span className="ml-auto flex items-center gap-2">
                 <LikeButton
-                  asset={asset}
+                  likeCount={asset.likeCount}
+                  likedByMe={asset.likedByMe}
                   onToggle={() => onToggleLike(asset.id)}
                   size="lg"
                 />

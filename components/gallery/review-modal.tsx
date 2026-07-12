@@ -41,23 +41,24 @@ const APPROVED_TAG = "approved";
 
 type CollectionOption = { id: string; name: string; count?: number };
 
-/** The project's layers. Each layer holds "directions" — collections of
- * similar options with a master (cover) thumbnail. */
+/** The project's layers. Beats lead — the packaged pitch view a reviewer
+ * lands on: video shots that link the character / location stacks they use.
+ * Characters and Locations hold named stacks of options. */
 type ProjectSection = "characters" | "locations" | "beats";
-type ReviewTab = "all" | ProjectSection | "unsorted";
+type ReviewTab = ProjectSection | "unsorted" | "all";
 
 const SECTION_TABS: { key: ProjectSection; label: string }[] = [
+  { key: "beats", label: "Beats" },
   { key: "characters", label: "Characters" },
   { key: "locations", label: "Locations" },
-  { key: "beats", label: "Beats" },
 ];
 
 const TAB_LABELS: Record<ReviewTab, string> = {
-  all: "All",
+  beats: "Beats",
   characters: "Characters",
   locations: "Locations",
-  beats: "Beats",
   unsorted: "Unsorted",
+  all: "All",
 };
 
 type AssetLikes = { count: number; names: string[] };
@@ -111,11 +112,21 @@ type DirectionCardData = {
   name: string;
   count: number;
   section?: ProjectSection;
+  /** The direction's premade video. When set, the card IS the shot: it
+   * renders at the video's aspect and plays on hover. */
+  beat: ReviewAsset | null;
+  /** Image master for beat-less directions (cover asset, first-image
+   * fallback). */
   cover: ReviewAsset | null;
   /** Thumb urls of the next variations, peeking behind the master. */
   backs: string[];
   /** Thumb urls (master first) for the hover-to-preview rotation. */
   previews: string[];
+  /** Kind breakdown for the card footer. */
+  videos: number;
+  images: number;
+  /** Whole-direction likes left by board viewers. */
+  likes: number;
 };
 
 /**
@@ -141,12 +152,9 @@ export function ReviewModal({
 
   const setApproved = useMutation(api.assets.setAssetApproved);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
-  const addAssetFolders = useMutation(api.assets.addAssetFolders);
-  const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
+  const setBeatLinksMutation = useMutation(api.projects.setBeatLinks);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
-  const setCollectionSection = useMutation(api.projects.setProjectCollectionSection);
-  const setBeatPairingMutation = useMutation(api.projects.setBeatPairing);
   const setFolderCover = useMutation(api.folders.setFolderCover);
   const createFolder = useMutation(api.folders.createFolder);
   const updateFolder = useMutation(api.folders.updateFolder);
@@ -162,12 +170,14 @@ export function ReviewModal({
       : "skip",
   );
 
-  // null = no explicit choice yet → land on the first non-empty layer so the
-  // project opens on its modes (Characters / Locations / Beats), not the wall.
+  // null = no explicit choice yet → the project opens on its directions.
   const [activeTab, setActiveTab] = useState<ReviewTab | null>(null);
   // Direction currently drilled into (a member collection id), or null when
   // browsing a layer's direction cards / the flat All view.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
+  // When a stack was opened from inside a beat's detail view, remember the
+  // beat so Back / Esc return there instead of to the cards grid.
+  const [drillFrom, setDrillFrom] = useState<string | null>(null);
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [likedOnly, setLikedOnly] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -244,6 +254,17 @@ export function ReviewModal({
       [...likesByAsset.values()].reduce((sum, entry) => sum + entry.count, 0),
     [likesByAsset],
   );
+  // Whole-direction likes (a viewer liking a beat card), keyed by folder id.
+  const likesByCollection = useMemo(
+    () =>
+      new Map<string, AssetLikes>(
+        (project?.collectionLikes ?? []).map((entry) => [
+          entry.folderId as string,
+          { count: entry.count, names: entry.names },
+        ]),
+      ),
+    [project],
+  );
 
   type ProjectCollection = NonNullable<typeof project>["collections"][number];
 
@@ -274,13 +295,15 @@ export function ReviewModal({
   const tabOf = (section: string | undefined): ReviewTab =>
     (section as ProjectSection | undefined) ?? "unsorted";
 
-  // Land on the first layer that has directions; flat All is the fallback.
+  // Land on Beats when it has directions (the packaged view a reviewer sees
+  // first); otherwise the first non-empty layer.
   const defaultTab = useMemo<ReviewTab>(() => {
     const collections = project?.collections ?? [];
     for (const { key } of SECTION_TABS) {
       if (collections.some((c) => tabOf(c.section) === key)) return key;
     }
-    return "all";
+    if (collections.length > 0) return "unsorted";
+    return "beats";
   }, [project]);
   const effectiveTab = activeTab ?? defaultTab;
 
@@ -311,25 +334,38 @@ export function ReviewModal({
     [coverOverride],
   );
 
-  // Direction cards for a layer tab: one card per collection, thumbed by its
-  // MASTER option (cover asset) with first-asset fallback.
+  // One card per collection in the active tab. The beat (video master,
+  // first-video fallback) makes the card play the shot; beat-less stacks
+  // keep the fanned-deck look with the image master on top.
   const directions = useMemo<DirectionCardData[]>(
     () =>
       tabCollections.map((collection) => {
+        const reviewAssets = collection.assets.map((a) =>
+          toReviewAsset(a, collection),
+        );
         const coverId = resolveCoverId(collection);
         const coverAsset =
-          (coverId &&
-            collection.assets.find((a) => (a._id as string) === coverId)) ||
-          collection.assets[0] ||
+          reviewAssets.find((a) => a.id === coverId) ??
+          reviewAssets[0] ??
           null;
-        const backs = collection.assets
-          .filter((a) => a !== coverAsset)
+        const beat =
+          coverAsset?.kind === "video"
+            ? coverAsset
+            : (reviewAssets.find((a) => a.kind === "video") ?? null);
+        const images = reviewAssets.filter((a) => a.kind !== "video");
+        const imageCover =
+          coverAsset && coverAsset.kind !== "video"
+            ? coverAsset
+            : (images[0] ?? null);
+        const backs = images
+          .filter((a) => a !== imageCover)
           .slice(0, 2)
           .map((a) => a.thumbUrl ?? a.url)
           .filter((src): src is string => Boolean(src));
-        const previews = (coverAsset
-          ? [coverAsset, ...collection.assets.filter((a) => a !== coverAsset)]
-          : collection.assets
+        const previews = (
+          imageCover
+            ? [imageCover, ...images.filter((a) => a !== imageCover)]
+            : images
         )
           .slice(0, 8)
           .map((a) => a.thumbUrl ?? a.url)
@@ -339,21 +375,62 @@ export function ReviewModal({
           name: collection.name,
           count: collection.count,
           section: collection.section as ProjectSection | undefined,
-          cover: coverAsset ? toReviewAsset(coverAsset, collection) : null,
+          beat,
+          cover: imageCover,
           backs,
           previews,
+          videos: reviewAssets.length - images.length,
+          images: images.length,
+          likes:
+            likesByCollection.get(collection.folderId as string)?.count ?? 0,
         };
       }),
-    [tabCollections, resolveCoverId, toReviewAsset],
+    [tabCollections, resolveCoverId, toReviewAsset, likesByCollection],
   );
+
+  // Member collections by id, for resolving a beat's linked stacks.
+  const memberById = useMemo(
+    () =>
+      new Map<string, ProjectCollection>(
+        (project?.collections ?? []).map((c) => [c.folderId as string, c]),
+      ),
+    [project],
+  );
+  const linkedStacks = useCallback(
+    (ids: readonly string[]) =>
+      ids
+        .map((id) => memberById.get(id))
+        .filter((c): c is ProjectCollection => Boolean(c)),
+    [memberById],
+  );
+
+  const drilledAssets = useMemo<ReviewAsset[]>(
+    () =>
+      openDirection
+        ? openDirection.assets.map((a) => toReviewAsset(a, openDirection))
+        : [],
+    [openDirection, toReviewAsset],
+  );
+
+  // The drilled direction's hero video: its master when that's a video, else
+  // the first video in the pack.
+  const drilledBeat = useMemo<ReviewAsset | null>(() => {
+    if (!openDirection) return null;
+    const videos = drilledAssets.filter((a) => a.kind === "video");
+    const coverId = resolveCoverId(openDirection);
+    return videos.find((a) => a.id === coverId) ?? videos[0] ?? null;
+  }, [openDirection, drilledAssets, resolveCoverId]);
+  const drilledIsBeat = openDirection
+    ? tabOf(openDirection.section) === "beats"
+    : false;
 
   // Flatten the current scope → assets. Drilled direction wins; otherwise the
   // active tab's collections, deduped by asset id (first collection wins).
   const assets = useMemo<ReviewAsset[]>(() => {
-    const source = openDirection ? [openDirection] : tabCollections;
+    if (openDirection) return drilledAssets;
     const out: ReviewAsset[] = [];
     const seen = new Set<string>();
-    for (const collection of source) {
+    for (const collection of tabCollections) {
       for (const asset of collection.assets) {
         const id = asset._id as string;
         if (seen.has(id)) continue;
@@ -362,7 +439,7 @@ export function ReviewModal({
       }
     }
     return out;
-  }, [openDirection, tabCollections, toReviewAsset]);
+  }, [openDirection, drilledAssets, tabCollections, toReviewAsset]);
 
   const isApproved = useCallback(
     (asset: ReviewAsset) =>
@@ -392,15 +469,54 @@ export function ReviewModal({
       ? selectedTag
       : null;
 
+  const passesFilters = useCallback(
+    (asset: ReviewAsset) =>
+      (!approvedOnly || isApproved(asset)) &&
+      (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0) &&
+      (!activeTag || asset.tagNames.includes(activeTag)),
+    [approvedOnly, likedOnly, activeTag, isApproved, likesByAsset],
+  );
+
   const visibleAssets = useMemo(
+    () => assets.filter(passesFilters),
+    [assets, passesFilters],
+  );
+
+  // Drilled scope split by kind — the beat detail lays out extra takes apart
+  // from frames; the hero beat never doubles up under the player.
+  const drilledVideos = useMemo(
     () =>
-      assets.filter(
-        (asset) =>
-          (!approvedOnly || isApproved(asset)) &&
-          (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0) &&
-          (!activeTag || asset.tagNames.includes(activeTag)),
+      visibleAssets.filter(
+        (a) => a.kind === "video" && a.id !== drilledBeat?.id,
       ),
-    [assets, approvedOnly, likedOnly, activeTag, isApproved, likesByAsset],
+    [visibleAssets, drilledBeat],
+  );
+  const drilledImages = useMemo(
+    () => visibleAssets.filter((a) => a.kind !== "video"),
+    [visibleAssets],
+  );
+
+  // Replace one side of a beat's linked stacks wholesale.
+  const updateBeatLinks = useCallback(
+    (side: "character" | "location", nextIds: string[]) => {
+      if (!projectId || !openDirection) return;
+      const current = {
+        character: (openDirection.beatCharacterFolderIds ?? []) as string[],
+        location: (openDirection.beatLocationFolderIds ?? []) as string[],
+      };
+      void setBeatLinksMutation({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: openDirection.folderId,
+        characterFolderIds: (side === "character"
+          ? nextIds
+          : current.character) as Id<"folders">[],
+        locationFolderIds: (side === "location"
+          ? nextIds
+          : current.location) as Id<"folders">[],
+      });
+    },
+    [projectId, openDirection, ownerUserId, setBeatLinksMutation],
   );
 
   const approvedCount = useMemo(
@@ -433,86 +549,15 @@ export function ReviewModal({
     [isApproved, ownerUserId, setApproved],
   );
 
-  // ── Character / Location filing ──
-  // Any image inside a direction can be filed into this project's Characters
-  // or Locations layer: it lands in an auto-created "<Project> — Characters"
-  // (or — Locations) collection and gets the matching global tag. Toggleable.
-  const layerAggregates = useMemo(() => {
-    const projectName = project?.project.name;
-    const find = (label: string, section: ProjectSection) =>
-      project?.collections.find(
-        (c) =>
-          c.name === `${projectName} — ${label}` &&
-          tabOf(c.section) === section,
-      )?.folderId as string | undefined;
-    return {
-      characters: find("Characters", "characters"),
-      locations: find("Locations", "locations"),
-    };
-  }, [project]);
-
-  const isFiledToLayer = useCallback(
-    (asset: ReviewAsset, layer: "characters" | "locations") => {
-      const aggregateId = layerAggregates[layer];
-      return Boolean(aggregateId && asset.folderIds.includes(aggregateId));
-    },
-    [layerAggregates],
-  );
-
-  const fileAssetToLayer = async (
-    asset: ReviewAsset,
-    layer: "characters" | "locations",
-  ) => {
-    if (!projectId || !project) return;
-    const label = layer === "characters" ? "Characters" : "Locations";
-    const aggregateId = layerAggregates[layer];
-
-    if (aggregateId && asset.folderIds.includes(aggregateId)) {
-      // Already filed → unfile (membership only; the tag stays).
-      await setAssetFolders({
-        ownerUserId,
-        assetId: asset.id as Id<"assets">,
-        folderIds: asset.folderIds.filter(
-          (id) => id !== aggregateId,
-        ) as Id<"folders">[],
-      });
-      return;
-    }
-
-    let folderId = aggregateId as Id<"folders"> | undefined;
-    if (!folderId) {
-      const created = await createFolder({
-        ownerUserId,
-        name: `${project.project.name} — ${label}`,
-      });
-      await addCollection({
-        ownerUserId,
-        projectId: projectId as Id<"folders">,
-        folderId: created.folderId,
-        section: layer,
-      });
-      folderId = created.folderId;
-    }
-    await addAssetFolders({
-      ownerUserId,
-      assetId: asset.id as Id<"assets">,
-      folderIds: [folderId],
-    });
-    void addAssetTagsMutation({
-      ownerUserId,
-      assetId: asset.id as Id<"assets">,
-      tagNames: [layer === "characters" ? "character" : "location"],
-    }).catch(() => {});
-  };
-
   // ── File uploads into a direction ──
-  // A dropped/typed text becomes the prompt for every file in the pack; a
-  // beat's first video becomes its MASTER so the stack previews as the shot.
+  // A dropped/typed text becomes the prompt for every file in the pack; the
+  // first video becomes the direction's MASTER (its beat) unless a video
+  // master already exists, so the card previews as the shot.
   const uploadFilesToDirection = async (
     media: File[],
     targetFolderId: string,
     promptText: string,
-    targetSection: ReviewTab | undefined,
+    hasVideoMaster: boolean,
   ) => {
     setUploadState({ done: 0, total: media.length });
     try {
@@ -577,7 +622,7 @@ export function ReviewModal({
         );
       }
 
-      if (targetSection === "beats" && masterVideoAssetId) {
+      if (masterVideoAssetId && !hasVideoMaster) {
         await setFolderCover({
           ownerUserId,
           folderId: targetFolderId as Id<"folders">,
@@ -630,7 +675,7 @@ export function ReviewModal({
         media,
         openDirection.folderId as string,
         promptText,
-        tabOf(openDirection.section),
+        drilledBeat !== null && drilledBeat.id === resolveCoverId(openDirection),
       );
       return;
     }
@@ -647,8 +692,8 @@ export function ReviewModal({
     }));
   };
 
-  // Approve the drafted direction: create it under the chosen layer, attach
-  // it to the project, upload the staged files, and drill in.
+  // Approve the drafted direction: create it, attach it to the project,
+  // upload the staged files, and drill in.
   const approveComposer = async () => {
     if (!composer || !projectId) return;
     const name = composer.name.trim();
@@ -673,7 +718,7 @@ export function ReviewModal({
           files,
           created.folderId as string,
           prompt.trim(),
-          layer ?? "unsorted",
+          false,
         );
       }
     } catch (error) {
@@ -731,51 +776,6 @@ export function ReviewModal({
     [openDirectionId, ownerUserId, setAssetFolders],
   );
 
-  // Refile a direction under another layer (null = unsorted).
-  const refileDirection = useCallback(
-    (collectionId: string, section: ProjectSection | null) => {
-      if (!projectId) return;
-      void setCollectionSection({
-        ownerUserId,
-        projectId: projectId as Id<"folders">,
-        folderId: collectionId as Id<"folders">,
-        section,
-      });
-    },
-    [ownerUserId, projectId, setCollectionSection],
-  );
-
-  // Update one side of a beat's pairing, preserving the other side.
-  const updateBeatPairing = useCallback(
-    (
-      collection: ProjectCollection,
-      side: "character" | "location",
-      value: string,
-    ) => {
-      if (!projectId) return;
-      const nextCharacter =
-        side === "character"
-          ? value
-            ? (value as Id<"folders">)
-            : null
-          : ((collection.beatCharacterFolderId as Id<"folders">) ?? null);
-      const nextLocation =
-        side === "location"
-          ? value
-            ? (value as Id<"folders">)
-            : null
-          : ((collection.beatLocationFolderId as Id<"folders">) ?? null);
-      void setBeatPairingMutation({
-        ownerUserId,
-        projectId: projectId as Id<"folders">,
-        folderId: collection.folderId,
-        characterFolderId: nextCharacter,
-        locationFolderId: nextLocation,
-      });
-    },
-    [ownerUserId, projectId, setBeatPairingMutation],
-  );
-
   const goFocus = useCallback((delta: number) => {
     setFocusId((current) => {
       if (!current) return current;
@@ -811,7 +811,11 @@ export function ReviewModal({
         else if (pickerOpen) setPickerOpen(false);
         else if (composerOpen) setComposer(null);
         else if (focusId) setFocusId(null);
-        else if (openDirectionId) setOpenDirectionId(null);
+        else if (openDirectionId && drillFrom) {
+          // A stack opened from a beat's detail view backs out to the beat.
+          setOpenDirectionId(drillFrom);
+          setDrillFrom(null);
+        } else if (openDirectionId) setOpenDirectionId(null);
         else onClose();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
@@ -826,7 +830,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, focusId, focusAsset, openDirectionId, drillFrom, goFocus, toggleApprove, onClose]);
 
   if (!projectId) return null;
 
@@ -834,13 +838,13 @@ export function ReviewModal({
   const projectName = project?.project.name ?? "Project";
   const hasCollections = (project?.collections.length ?? 0) > 0;
 
-  // Layer tabs: All + the three layers (+ Unsorted only when needed).
+  // Layer tabs: Beats leads, then Characters / Locations (+ Unsorted only
+  // when needed) + the flat All view.
   const allCollections2 = project?.collections ?? [];
   const directionCountBy = (tab: ReviewTab) =>
     allCollections2.filter((c) => tabOf(c.section) === tab).length;
   const unsortedCount = directionCountBy("unsorted");
   const tabs: { key: ReviewTab; label: string; count?: number }[] = [
-    { key: "all", label: "All" },
     ...SECTION_TABS.map(({ key, label }) => ({
       key: key as ReviewTab,
       label,
@@ -849,6 +853,7 @@ export function ReviewModal({
     ...(unsortedCount > 0
       ? [{ key: "unsorted" as ReviewTab, label: "Unsorted", count: unsortedCount }]
       : []),
+    { key: "all" as ReviewTab, label: "All" },
   ];
 
   // Direction-cards browsing mode: a layer tab with nothing drilled into.
@@ -856,6 +861,21 @@ export function ReviewModal({
   const openDirectionMasterId = openDirection
     ? resolveCoverId(openDirection)
     : null;
+  const openDirectionLikes = openDirectionId
+    ? likesByCollection.get(openDirectionId)
+    : undefined;
+  const drillFromName = drillFrom
+    ? (memberById.get(drillFrom)?.name ?? null)
+    : null;
+  // Thumb for a linked stack chip: its master (cover) with first-asset
+  // fallback.
+  const stackThumb = (collection: ProjectCollection): string | undefined => {
+    const coverId = resolveCoverId(collection);
+    const cover =
+      collection.assets.find((a) => (a._id as string) === coverId) ??
+      collection.assets[0];
+    return cover?.thumbUrl ?? cover?.url ?? undefined;
+  };
 
   return (
     <div
@@ -1055,6 +1075,7 @@ export function ReviewModal({
                 onClick={() => {
                   setActiveTab(tab.key);
                   setOpenDirectionId(null);
+                  setDrillFrom(null);
                 }}
                 className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
                 style={{
@@ -1077,7 +1098,7 @@ export function ReviewModal({
             );
           })}
 
-          {/* New direction in the active layer — or just drop files anywhere */}
+          {/* New direction — or just drop files anywhere */}
           <button
             type="button"
             onClick={() =>
@@ -1099,7 +1120,7 @@ export function ReviewModal({
               borderColor: "var(--lm-border-strong)",
               color: "var(--lm-text-tertiary)",
             }}
-            title="Create a direction in this layer — or drop files anywhere to create one from them"
+            title="Create a direction — or drop files anywhere to draft one from them"
           >
             <Plus className="h-3 w-3" />
             New direction
@@ -1173,16 +1194,23 @@ export function ReviewModal({
         <div className="flex flex-wrap items-center gap-2 px-4 pb-2.5 md:px-6">
           <button
             type="button"
-            onClick={() => setOpenDirectionId(null)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            onClick={() => {
+              if (drillFrom) {
+                setOpenDirectionId(drillFrom);
+                setDrillFrom(null);
+              } else {
+                setOpenDirectionId(null);
+              }
+            }}
+            className="flex max-w-[220px] items-center gap-1.5 truncate rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
             style={{
               borderColor: "var(--lm-border-strong)",
               color: "var(--lm-text-secondary)",
             }}
-            title="Back to directions (Esc)"
+            title="Back (Esc)"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            {TAB_LABELS[effectiveTab]}
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+            {drillFromName ?? TAB_LABELS[effectiveTab]}
           </button>
           {renameDraft !== null ? (
             <input
@@ -1266,95 +1294,21 @@ export function ReviewModal({
             <FileDown className="h-3.5 w-3.5" />
             PDF
           </a>
-
-          {/* Refile this direction under another layer */}
-          <div className="ml-auto flex items-center gap-1.5">
+          {openDirectionLikes && openDirectionLikes.count > 0 && (
             <span
-              className="text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
-              style={{ color: "var(--lm-text-ghost)" }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor:
+                  "color-mix(in srgb, var(--lm-coral) 14%, transparent)",
+                color: "var(--lm-coral)",
+                borderColor:
+                  "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+              }}
+              title={likeTitle(openDirectionLikes)}
             >
-              Layer
+              <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
+              {openDirectionLikes.count}
             </span>
-            {SECTION_TABS.map(({ key, label }) => {
-              const current = tabOf(openDirection.section) === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    refileDirection(
-                      openDirection.folderId as string,
-                      current ? null : key,
-                    )
-                  }
-                  className="rounded-full border px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
-                  style={{
-                    borderColor: current
-                      ? "var(--lm-coral)"
-                      : "var(--lm-border-strong)",
-                    color: current
-                      ? "var(--lm-coral)"
-                      : "var(--lm-text-tertiary)",
-                  }}
-                  aria-pressed={current}
-                  title={
-                    current
-                      ? `Filed under ${label} — click to unfile`
-                      : `File under ${label}`
-                  }
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Beat pairing: which character + location this beat combines */}
-          {tabOf(openDirection.section) === "beats" && (
-            <div className="flex basis-full flex-wrap items-center gap-2 pt-1">
-              <span
-                className="text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--lm-text-ghost)" }}
-              >
-                Pairs
-              </span>
-              {(
-                [
-                  ["character", "characters", openDirection.beatCharacterFolderId],
-                  ["location", "locations", openDirection.beatLocationFolderId],
-                ] as const
-              ).map(([side, sectionKey, currentId]) => (
-                <select
-                  key={side}
-                  value={(currentId as string | undefined) ?? ""}
-                  onChange={(e) =>
-                    updateBeatPairing(openDirection, side, e.target.value)
-                  }
-                  className="rounded-lg border px-2 py-1 text-[11px] outline-none"
-                  style={{
-                    backgroundColor: "var(--lm-surface-2)",
-                    borderColor: "var(--lm-border-strong)",
-                    color: currentId
-                      ? "var(--lm-text-primary)"
-                      : "var(--lm-text-tertiary)",
-                  }}
-                  aria-label={`Paired ${side} direction`}
-                >
-                  <option value="">No {side}</option>
-                  {(project?.collections ?? [])
-                    .filter(
-                      (c) =>
-                        tabOf(c.section) === sectionKey &&
-                        c.folderId !== openDirection.folderId,
-                    )
-                    .map((c) => (
-                      <option key={c.folderId} value={c.folderId as string}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              ))}
-            </div>
           )}
         </div>
       )}
@@ -1498,7 +1452,6 @@ export function ReviewModal({
                             className="h-24 rounded-lg object-cover"
                           />
                         ) : (
-                          /* eslint-disable-next-line @next/next/no-img-element */
                           <img
                             src={url}
                             alt={file.name}
@@ -1575,46 +1528,59 @@ export function ReviewModal({
           </div>
         ) : !hasCollections ? (
           <EmptyState
-            title="No directions yet"
-            hint="A direction is one take — images, video, and a text prompt together. Drop files anywhere to start one, or create it by name. Existing collections can also be attached."
-            actionLabel="Add direction"
+            title="No beats yet"
+            hint="A beat is one shot — its videos (with a master thumbnail), the characters and locations it uses, and a text. Drop files anywhere to draft one, or create it by name."
+            actionLabel="Add beat"
             onAction={() =>
-              setComposer({ name: "", layer: null, files: [], prompt: "" })
+              setComposer({ name: "", layer: "beats", files: [], prompt: "" })
             }
           />
         ) : showDirectionCards ? (
           directions.length === 0 ? (
             <EmptyState
-              title={`No directions in ${TAB_LABELS[effectiveTab]} yet`}
-              hint="A direction is a collection of similar options with a master thumbnail. Add or create one for this layer."
-              actionLabel="Add direction"
-              onAction={() => setPickerOpen(true)}
+              title={`No ${TAB_LABELS[effectiveTab].toLowerCase()} yet`}
+              hint={
+                effectiveTab === "beats"
+                  ? "A beat is one shot — videos plus the character and location stacks it uses."
+                  : "A stack is a named set of options — create one and drop images into it."
+              }
+              actionLabel={
+                effectiveTab === "beats" ? "Add beat" : "New stack"
+              }
+              onAction={() =>
+                setComposer({
+                  name: "",
+                  layer: effectiveTab === "unsorted" ? null : effectiveTab,
+                  files: [],
+                  prompt: "",
+                })
+              }
             />
           ) : (
-            <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
+            <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-8">
               <div
-                className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
-                style={{ columnGap: "14px" }}
+                className={
+                  effectiveTab === "beats"
+                    ? "mx-auto max-w-[1600px] columns-1 lg:columns-2"
+                    : "columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
+                }
+                style={{
+                  columnGap: effectiveTab === "beats" ? "20px" : "14px",
+                }}
               >
                 {directions.map((direction) => (
                   <DirectionCard
                     key={direction.id}
                     direction={direction}
-                    onOpen={() => setOpenDirectionId(direction.id)}
+                    onOpen={() => {
+                      setDrillFrom(null);
+                      setOpenDirectionId(direction.id);
+                    }}
                   />
                 ))}
               </div>
             </div>
           )
-        ) : visibleAssets.length === 0 ? (
-          <EmptyState
-            title={approvedOnly ? "Nothing approved yet" : "No assets here"}
-            hint={
-              approvedOnly
-                ? "Approve options to build the showcase shortlist."
-                : "This collection has no assets."
-            }
-          />
         ) : focusAsset ? (
           <FocusScrollFeed
             assets={visibleAssets}
@@ -1636,7 +1602,259 @@ export function ReviewModal({
             onRemove={openDirection ? removeFromDirection : undefined}
             showCollectionLabel={effectiveTab === "all"}
           />
+        ) : openDirection && drilledIsBeat ? (
+          /* ── Beat detail: hero shot + the stacks it uses + extra takes ── */
+          <div className="h-full overflow-y-auto px-4 pb-12 pt-2 md:px-8">
+            <div className="mx-auto w-full max-w-[1400px]">
+              {drilledBeat ? (
+                <video
+                  key={drilledBeat.id}
+                  src={drilledBeat.url}
+                  poster={drilledBeat.thumbUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="w-full rounded-xl"
+                  style={{
+                    maxHeight: "60vh",
+                    backgroundColor: "#000",
+                    border: "1px solid var(--lm-border)",
+                    objectFit: "contain",
+                  }}
+                />
+              ) : (
+                <p
+                  className="mt-6 text-[13px]"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  No video yet — drop this beat&apos;s takes anywhere; the
+                  first becomes its master shot.
+                </p>
+              )}
+              {openDirection.description && (
+                <p
+                  className="mt-4 max-w-[900px] whitespace-pre-wrap text-[13px] leading-relaxed"
+                  style={{ color: "var(--lm-text-secondary)" }}
+                >
+                  {openDirection.description}
+                </p>
+              )}
+
+              {/* The character / location stacks this beat uses */}
+              {(
+                [
+                  {
+                    side: "character" as const,
+                    label: "Characters in this beat",
+                    Icon: User,
+                    ids: (openDirection.beatCharacterFolderIds ??
+                      []) as string[],
+                    sectionKey: "characters" as const,
+                  },
+                  {
+                    side: "location" as const,
+                    label: "Locations in this beat",
+                    Icon: MapPin,
+                    ids: (openDirection.beatLocationFolderIds ??
+                      []) as string[],
+                    sectionKey: "locations" as const,
+                  },
+                ]
+              ).map(({ side, label, Icon, ids, sectionKey }) => {
+                const stacks = linkedStacks(ids);
+                const candidates = (project?.collections ?? []).filter(
+                  (c) =>
+                    tabOf(c.section) === sectionKey &&
+                    !ids.includes(c.folderId as string) &&
+                    c.folderId !== openDirection.folderId,
+                );
+                return (
+                  <section key={side} className="mt-7">
+                    <div className="mb-3 flex flex-wrap items-center gap-2.5">
+                      <Icon
+                        className="h-3.5 w-3.5"
+                        style={{ color: "var(--lm-coral)" }}
+                      />
+                      <h3
+                        className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
+                        style={{ color: "var(--lm-coral)" }}
+                      >
+                        {label}
+                      </h3>
+                      {candidates.length > 0 && (
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            updateBeatLinks(side, [...ids, e.target.value]);
+                          }}
+                          className="rounded-lg border px-2 py-1 text-[11px] outline-none"
+                          style={{
+                            backgroundColor: "var(--lm-surface-2)",
+                            borderColor: "var(--lm-border-strong)",
+                            color: "var(--lm-text-tertiary)",
+                          }}
+                          aria-label={`Link a ${side} stack`}
+                        >
+                          <option value="">+ Link {side}…</option>
+                          {candidates.map((c) => (
+                            <option
+                              key={c.folderId}
+                              value={c.folderId as string}
+                            >
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    {stacks.length === 0 ? (
+                      <p
+                        className="text-[12px]"
+                        style={{ color: "var(--lm-text-ghost)" }}
+                      >
+                        None linked yet.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-3">
+                        {stacks.map((stack) => (
+                          <LinkedStackCard
+                            key={stack.folderId as string}
+                            name={stack.name}
+                            count={stack.count}
+                            thumbUrl={stackThumb(stack)}
+                            onOpen={() => {
+                              setDrillFrom(openDirectionId);
+                              setOpenDirectionId(stack.folderId as string);
+                            }}
+                            onUnlink={() =>
+                              updateBeatLinks(
+                                side,
+                                ids.filter(
+                                  (id) => id !== (stack.folderId as string),
+                                ),
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+
+              {/* Extra takes beyond the master */}
+              {drilledVideos.length > 0 && (
+                <section className="mt-7">
+                  <div className="mb-3 flex items-baseline gap-2.5">
+                    <h3
+                      className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
+                      style={{ color: "var(--lm-coral)" }}
+                    >
+                      More takes
+                    </h3>
+                    <span
+                      className="text-[11px]"
+                      style={{ color: "var(--lm-text-tertiary)" }}
+                    >
+                      {drilledVideos.length}
+                    </span>
+                  </div>
+                  <div
+                    className="columns-1 sm:columns-2 xl:columns-3"
+                    style={{ columnGap: "12px" }}
+                  >
+                    {drilledVideos.map((asset) => (
+                      <ReviewTile
+                        key={asset.id}
+                        asset={asset}
+                        approved={isApproved(asset)}
+                        likes={likesByAsset.get(asset.id)}
+                        onOpen={() => setFocusId(asset.id)}
+                        onApprove={() => toggleApprove(asset)}
+                        showCollectionLabel={false}
+                        isMaster={openDirectionMasterId === asset.id}
+                        onMaster={() =>
+                          setMaster(
+                            openDirection.folderId as string,
+                            openDirectionMasterId === asset.id
+                              ? null
+                              : asset.id,
+                          )
+                        }
+                        onRemove={() => removeFromDirection(asset)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Stills belonging to the beat itself */}
+              {drilledImages.length > 0 && (
+                <section className="mt-7">
+                  <div className="mb-3 flex items-baseline gap-2.5">
+                    <h3
+                      className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
+                      style={{ color: "var(--lm-coral)" }}
+                    >
+                      Frames
+                    </h3>
+                    <span
+                      className="text-[11px]"
+                      style={{ color: "var(--lm-text-tertiary)" }}
+                    >
+                      {drilledImages.length}
+                    </span>
+                  </div>
+                  <div
+                    className="columns-2 md:columns-3 xl:columns-4"
+                    style={{ columnGap: "12px" }}
+                  >
+                    {drilledImages.map((asset) => (
+                      <ReviewTile
+                        key={asset.id}
+                        asset={asset}
+                        approved={isApproved(asset)}
+                        likes={likesByAsset.get(asset.id)}
+                        onOpen={() => setFocusId(asset.id)}
+                        onApprove={() => toggleApprove(asset)}
+                        showCollectionLabel={false}
+                        isMaster={openDirectionMasterId === asset.id}
+                        onMaster={() =>
+                          setMaster(
+                            openDirection.folderId as string,
+                            openDirectionMasterId === asset.id
+                              ? null
+                              : asset.id,
+                          )
+                        }
+                        onRemove={() => removeFromDirection(asset)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+        ) : visibleAssets.length === 0 ? (
+          <EmptyState
+            title={
+              approvedOnly
+                ? "Nothing approved yet"
+                : openDirection
+                  ? "Empty stack"
+                  : "No assets here"
+            }
+            hint={
+              approvedOnly
+                ? "Approve options to build the showcase shortlist."
+                : openDirection
+                  ? "Drop images anywhere to fill this stack."
+                  : "Drop files anywhere to add assets."
+            }
+          />
         ) : (
+          /* ── Stack drill-in + flat All view ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
             <div
               className="columns-1 sm:columns-2 lg:columns-3"
@@ -1650,9 +1868,11 @@ export function ReviewModal({
                   likes={likesByAsset.get(asset.id)}
                   onOpen={() => setFocusId(asset.id)}
                   onApprove={() => toggleApprove(asset)}
-                  showCollectionLabel={effectiveTab === "all"}
+                  showCollectionLabel={effectiveTab === "all" && !openDirection}
                   isMaster={
-                    openDirection ? openDirectionMasterId === asset.id : undefined
+                    openDirection
+                      ? openDirectionMasterId === asset.id
+                      : undefined
                   }
                   onMaster={
                     openDirection
@@ -1668,18 +1888,6 @@ export function ReviewModal({
                   onRemove={
                     openDirection ? () => removeFromDirection(asset) : undefined
                   }
-                  onFileCharacter={
-                    openDirection
-                      ? () => void fileAssetToLayer(asset, "characters")
-                      : undefined
-                  }
-                  onFileLocation={
-                    openDirection
-                      ? () => void fileAssetToLayer(asset, "locations")
-                      : undefined
-                  }
-                  filedCharacter={isFiledToLayer(asset, "characters")}
-                  filedLocation={isFiledToLayer(asset, "locations")}
                 />
               ))}
             </div>
@@ -1711,10 +1919,8 @@ export function ReviewModal({
               className="text-[11px] font-mono uppercase tracking-wider"
               style={{ color: "var(--lm-text-tertiary)" }}
             >
-              Images &amp; videos · a .txt becomes the prompt
-              {effectiveTab === "beats" || tabOf(openDirection?.section) === "beats"
-                ? " · the video becomes the master"
-                : ""}
+              Images &amp; videos · a .txt becomes the prompt · the first
+              video becomes the shot
             </p>
           </div>
         </div>
@@ -1750,7 +1956,9 @@ export function ReviewModal({
           memberIds={memberCollectionIds}
           // Adding from a layer tab files the collection into that layer.
           section={
-            effectiveTab !== "all" && effectiveTab !== "unsorted" ? effectiveTab : null
+            effectiveTab !== "all" && effectiveTab !== "unsorted"
+              ? effectiveTab
+              : null
           }
           onToggle={(folderId, isMember) => {
             if (!projectId) return;
@@ -1794,7 +2002,10 @@ export function ReviewModal({
   );
 }
 
-/* ── Direction card: a stacked deck of similar options, master on top ── */
+/* ── Direction card ──
+ * With a beat: the card IS the shot — rendered at the video's aspect
+ * (mostly 16:9), poster idle, playback on hover, full view on click.
+ * Without one: the stacked deck of options with the image master on top. */
 function DirectionCard({
   direction,
   onOpen,
@@ -1803,11 +2014,137 @@ function DirectionCard({
   onOpen: () => void;
 }) {
   const cover = direction.cover;
-  // Hover 1s → rotate through the direction's options in place.
-  const preview = useStackHoverPreview(direction.previews.length);
+  const beat = direction.beat;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Hover 1s → rotate through the direction's options in place (image decks).
+  const preview = useStackHoverPreview(beat ? 0 : direction.previews.length);
+
+  const optionNoun = direction.section === "beats" ? "frame" : "option";
+  const breakdown = [
+    direction.videos > 0 &&
+      `${direction.videos} video${direction.videos === 1 ? "" : "s"}`,
+    direction.images > 0 &&
+      `${direction.images} ${optionNoun}${direction.images === 1 ? "" : "s"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (beat) {
+    return (
+      <div
+        className="group relative mb-6 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
+        style={{
+          aspectRatio:
+            beat.width && beat.height
+              ? `${beat.width} / ${beat.height}`
+              : "16 / 9",
+          border: "1px solid var(--lm-border-strong)",
+          backgroundColor: "#000",
+          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+        }}
+        onClick={onOpen}
+        onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
+        onMouseLeave={() => videoRef.current?.pause()}
+        role="button"
+        aria-label={`Open direction: ${direction.name}`}
+      >
+        <video
+          ref={videoRef}
+          src={beat.url}
+          poster={beat.thumbUrl}
+          muted
+          loop
+          playsInline
+          preload="none"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+
+        {/* Play affordance until hover starts the shot */}
+        <span
+          className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-opacity duration-200 group-hover:opacity-0"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <Play className="ml-0.5 h-5 w-5" fill="#fff" color="#fff" />
+        </span>
+
+        {/* Viewer likes + option count */}
+        <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
+          {direction.likes > 0 && (
+            <span
+              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "var(--lm-coral)",
+                border:
+                  "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+              }}
+            >
+              <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
+              {direction.likes}
+            </span>
+          )}
+          <span
+            className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+            style={{
+              backgroundColor: "rgba(0,0,0,0.62)",
+              color: "var(--lm-coral)",
+              border:
+                "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+            }}
+          >
+            {direction.count}
+          </span>
+        </div>
+
+        {/* Bottom label over a gradient */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.3) 60%, transparent)",
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4">
+          <div className="min-w-0">
+            <p
+              className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+              style={{ color: "var(--lm-coral)" }}
+            >
+              {direction.section === "beats" ? "Beat" : "Direction"}
+            </p>
+            <p
+              className="truncate text-[17px] font-semibold"
+              style={{
+                color: "#fff",
+                textShadow: "0 1px 4px rgba(0,0,0,0.8)",
+              }}
+            >
+              {direction.name}
+            </p>
+            {breakdown && (
+              <p
+                className="text-[10px] font-mono font-bold uppercase tracking-wider"
+                style={{ color: "rgba(255,255,255,0.68)" }}
+              >
+                {breakdown}
+              </p>
+            )}
+          </div>
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+          >
+            Explore
+            <ChevronRight className="h-3 w-3" />
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="group relative mb-5 block break-inside-avoid cursor-pointer"
+      className="group relative mb-6 block break-inside-avoid cursor-pointer"
       style={{
         aspectRatio:
           cover?.width && cover?.height
@@ -1916,7 +2253,8 @@ function DirectionCard({
               className="text-[10px] font-mono font-bold uppercase tracking-wider"
               style={{ color: "rgba(255,255,255,0.68)" }}
             >
-              {direction.count} {direction.count === 1 ? "option" : "options"}
+              {breakdown ||
+                `${direction.count} ${direction.count === 1 ? "option" : "options"}`}
             </p>
           </div>
           <span
@@ -1943,10 +2281,6 @@ function ReviewTile({
   isMaster,
   onMaster,
   onRemove,
-  onFileCharacter,
-  onFileLocation,
-  filedCharacter,
-  filedLocation,
 }: {
   asset: ReviewAsset;
   approved: boolean;
@@ -1960,11 +2294,6 @@ function ReviewTile({
   onMaster?: () => void;
   /** Removes the asset from the drilled direction (membership only). */
   onRemove?: () => void;
-  /** File into the project's Characters / Locations layer (toggle). */
-  onFileCharacter?: () => void;
-  onFileLocation?: () => void;
-  filedCharacter?: boolean;
-  filedLocation?: boolean;
 }) {
   return (
     <div
@@ -2069,76 +2398,6 @@ function ReviewTile({
         </div>
       )}
 
-      {/* File into the project's Characters / Locations layer */}
-      {(onFileCharacter || onFileLocation) && (
-        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1">
-          {onFileCharacter && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onFileCharacter();
-              }}
-              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
-                filedCharacter
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100"
-              }`}
-              style={{
-                backgroundColor: filedCharacter
-                  ? "var(--lm-coral)"
-                  : "rgba(0,0,0,0.62)",
-                color: filedCharacter ? "#000" : "#fff",
-                borderColor: filedCharacter
-                  ? "var(--lm-coral)"
-                  : "rgba(255,255,255,0.25)",
-              }}
-              aria-pressed={Boolean(filedCharacter)}
-              title={
-                filedCharacter
-                  ? "In this project's Characters — click to unfile"
-                  : "File into this project's Characters"
-              }
-            >
-              <User className="h-3 w-3" strokeWidth={2.5} />
-              Char
-            </button>
-          )}
-          {onFileLocation && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onFileLocation();
-              }}
-              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
-                filedLocation
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100"
-              }`}
-              style={{
-                backgroundColor: filedLocation
-                  ? "var(--lm-coral)"
-                  : "rgba(0,0,0,0.62)",
-                color: filedLocation ? "#000" : "#fff",
-                borderColor: filedLocation
-                  ? "var(--lm-coral)"
-                  : "rgba(255,255,255,0.25)",
-              }}
-              aria-pressed={Boolean(filedLocation)}
-              title={
-                filedLocation
-                  ? "In this project's Locations — click to unfile"
-                  : "File into this project's Locations"
-              }
-            >
-              <MapPin className="h-3 w-3" strokeWidth={2.5} />
-              Loc
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Remove from this direction (membership only, asset stays in gallery) */}
       {onRemove && (
         <button
@@ -2157,6 +2416,78 @@ function ReviewTile({
         >
           <X className="h-3 w-3" strokeWidth={3} />
           Remove
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── Linked stack chip: a character/location stack a beat uses ── */
+function LinkedStackCard({
+  name,
+  count,
+  thumbUrl,
+  onOpen,
+  onUnlink,
+}: {
+  name: string;
+  count: number;
+  thumbUrl?: string;
+  onOpen: () => void;
+  onUnlink?: () => void;
+}) {
+  return (
+    <div
+      className="group relative flex w-[220px] cursor-pointer items-center gap-2.5 rounded-xl border p-2 transition-colors hover:border-[var(--lm-border-strong)]"
+      style={{
+        borderColor: "var(--lm-border)",
+        backgroundColor: "var(--lm-surface-1)",
+      }}
+      onClick={onOpen}
+      role="button"
+      aria-label={`Open stack: ${name}`}
+    >
+      {thumbUrl ? (
+        <img
+          src={thumbUrl}
+          alt=""
+          aria-hidden
+          className="h-12 w-12 shrink-0 rounded-lg object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div
+          className="h-12 w-12 shrink-0 rounded-lg"
+          style={{ backgroundColor: "var(--lm-surface-2)" }}
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p
+          className="truncate text-[13px] font-semibold"
+          style={{ color: "var(--lm-text-primary)" }}
+        >
+          {name}
+        </p>
+        <p
+          className="text-[10px] font-mono font-bold uppercase tracking-wider"
+          style={{ color: "var(--lm-text-tertiary)" }}
+        >
+          {count} {count === 1 ? "option" : "options"}
+        </p>
+      </div>
+      {onUnlink && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnlink();
+          }}
+          className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full group-hover:flex"
+          style={{ backgroundColor: "var(--lm-ink)", color: "var(--lm-paper)" }}
+          aria-label={`Unlink ${name} from this beat`}
+          title="Unlink from this beat"
+        >
+          <X className="h-3 w-3" strokeWidth={3} />
         </button>
       )}
     </div>
