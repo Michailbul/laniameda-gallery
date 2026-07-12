@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Crown,
@@ -43,11 +44,10 @@ const APPROVED_TAG = "approved";
 
 type CollectionOption = { id: string; name: string; count?: number };
 
-/** The project's layers. Beats lead — the packaged pitch view a reviewer
- * lands on: video shots that link the character / location stacks they use.
- * Characters and Locations hold named stacks of options. */
+/** The project's layers. Beats lead — the packaged pitch view. Characters
+ * and Locations are asset pools where selections become named stacks. */
 type ProjectSection = "characters" | "locations" | "beats";
-type ReviewTab = ProjectSection | "unsorted" | "all";
+type ReviewTab = ProjectSection;
 
 const SECTION_TABS: { key: ProjectSection; label: string }[] = [
   { key: "beats", label: "Beats" },
@@ -59,9 +59,11 @@ const TAB_LABELS: Record<ReviewTab, string> = {
   beats: "Beats",
   characters: "Characters",
   locations: "Locations",
-  unsorted: "Unsorted",
-  all: "All",
 };
+
+/** Which bucket a staged beat file sorts into. Videos are fixed; images
+ * default to stills and can be flipped to character / location. */
+type BeatBucket = "video" | "character" | "location" | "still";
 
 type AssetLikes = { count: number; names: string[] };
 
@@ -114,10 +116,10 @@ type DirectionCardData = {
   name: string;
   count: number;
   section?: ProjectSection;
-  /** The direction's premade video. When set, the card IS the shot: it
-   * renders at the video's aspect and plays on hover. */
-  beat: ReviewAsset | null;
-  /** Image master for beat-less directions (cover asset, first-image
+  /** The beat's videos, master first. The card shows the current one on top
+   * of the stack, plays it on hover, and offers arrows to cycle. */
+  beatVideos: ReviewAsset[];
+  /** Image master for video-less stacks (cover asset, first-image
    * fallback). */
   cover: ReviewAsset | null;
   /** Thumb urls of the next variations, peeking behind the master. */
@@ -154,7 +156,8 @@ export function ReviewModal({
 
   const setApproved = useMutation(api.assets.setAssetApproved);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
-  const setBeatLinksMutation = useMutation(api.projects.setBeatLinks);
+  const addAssetFolders = useMutation(api.assets.addAssetFolders);
+  const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
   const setFolderCover = useMutation(api.folders.setFolderCover);
@@ -173,29 +176,29 @@ export function ReviewModal({
       : "skip",
   );
 
-  // null = no explicit choice yet → the project opens on its directions.
-  const [activeTab, setActiveTab] = useState<ReviewTab | null>(null);
+  // The active mode of the centered toggle. Projects open on Beats.
+  const [activeTab, setActiveTab] = useState<ReviewTab>("beats");
   // Direction currently drilled into (a member collection id), or null when
-  // browsing a layer's direction cards / the flat All view.
+  // browsing a mode.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
-  // When a stack was opened from inside a beat's detail view, remember the
-  // beat so Back / Esc return there instead of to the cards grid.
-  const [drillFrom, setDrillFrom] = useState<string | null>(null);
   const [approvedOnly, setApprovedOnly] = useState(false);
   const [likedOnly, setLikedOnly] = useState(false);
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
+  // Focused element inside a drilled beat's preview viewer.
+  const [beatFocusId, setBeatFocusId] = useState<string | null>(null);
+  // Name draft for "create a stack from the selection" (characters/locations).
+  const [stackName, setStackName] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   // Inline rename of the drilled direction (null = not renaming).
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  // Draft direction composer: the user names a direction, stages files and an
-  // optional text, and only Approve creates + attaches it. Directions are
-  // never auto-created from file names.
+  // Draft beat composer: the user stages files, sorts each into a bucket
+  // (character / location / still; videos are fixed), names the beat, and
+  // only Save creates + attaches it. Beats are never auto-created.
   const [composer, setComposer] = useState<null | {
     name: string;
-    layer: ProjectSection | null;
     files: File[];
+    buckets: BeatBucket[];
     prompt: string;
   }>(null);
   const composerOpen = composer !== null;
@@ -300,28 +303,38 @@ export function ReviewModal({
     [],
   );
 
-  // Which tab a collection files under; no section = "unsorted".
-  const tabOf = (section: string | undefined): ReviewTab =>
+  // Which layer a collection files under; no section = invisible to the
+  // three modes (legacy/unsorted memberships stay reachable via the picker).
+  const tabOf = (section: string | undefined): ProjectSection | "unsorted" =>
     (section as ProjectSection | undefined) ?? "unsorted";
 
-  // Land on Beats when it has directions (the packaged view a reviewer sees
-  // first); otherwise the first non-empty layer.
-  const defaultTab = useMemo<ReviewTab>(() => {
-    const collections = project?.collections ?? [];
-    for (const { key } of SECTION_TABS) {
-      if (collections.some((c) => tabOf(c.section) === key)) return key;
-    }
-    if (collections.length > 0) return "unsorted";
-    return "beats";
-  }, [project]);
-  const effectiveTab = activeTab ?? defaultTab;
+  const effectiveTab = activeTab;
 
-  // Collections visible in the active tab.
-  const tabCollections = useMemo<ProjectCollection[]>(() => {
-    const collections = project?.collections ?? [];
-    if (effectiveTab === "all") return collections;
-    return collections.filter((c) => tabOf(c.section) === effectiveTab);
-  }, [project, effectiveTab]);
+  // Collections visible in the active mode.
+  const tabCollections = useMemo<ProjectCollection[]>(
+    () =>
+      (project?.collections ?? []).filter(
+        (c) => tabOf(c.section) === effectiveTab,
+      ),
+    [project, effectiveTab],
+  );
+
+  // Per-project asset POOLS for the Characters / Locations modes: auto-
+  // created "<Project> — Characters/Locations" collections that hold the
+  // loose assets. Named stacks are every OTHER collection in that section.
+  const pools = useMemo(() => {
+    const projectName = project?.project.name;
+    const find = (label: string, section: ProjectSection) =>
+      (project?.collections ?? []).find(
+        (c) =>
+          c.name === `${projectName} — ${label}` &&
+          tabOf(c.section) === section,
+      );
+    return {
+      characters: find("Characters", "characters"),
+      locations: find("Locations", "locations"),
+    };
+  }, [project]);
 
   // The drilled-into direction, if it still exists in the project.
   const openDirection = useMemo<ProjectCollection | null>(
@@ -343,75 +356,104 @@ export function ReviewModal({
     [coverOverride],
   );
 
-  // One card per collection in the active tab. The beat (video master,
-  // first-video fallback) makes the card play the shot; beat-less stacks
-  // keep the fanned-deck look with the image master on top.
-  const directions = useMemo<DirectionCardData[]>(
-    () =>
-      tabCollections.map((collection) => {
-        const reviewAssets = collection.assets.map((a) =>
-          toReviewAsset(a, collection),
-        );
-        const coverId = resolveCoverId(collection);
-        const coverAsset =
-          reviewAssets.find((a) => a.id === coverId) ??
-          reviewAssets[0] ??
-          null;
-        const beat =
-          coverAsset?.kind === "video"
-            ? coverAsset
-            : (reviewAssets.find((a) => a.kind === "video") ?? null);
-        const images = reviewAssets.filter((a) => a.kind !== "video");
-        const imageCover =
-          coverAsset && coverAsset.kind !== "video"
-            ? coverAsset
-            : (images[0] ?? null);
-        const backs = images
-          .filter((a) => a !== imageCover)
-          .slice(0, 2)
-          .map((a) => a.thumbUrl ?? a.url)
-          .filter((src): src is string => Boolean(src));
-        const previews = (
-          imageCover
-            ? [imageCover, ...images.filter((a) => a !== imageCover)]
-            : images
-        )
-          .slice(0, 8)
-          .map((a) => a.thumbUrl ?? a.url)
-          .filter((src): src is string => Boolean(src));
-        return {
-          id: collection.folderId as string,
-          name: collection.name,
-          count: collection.count,
-          section: collection.section as ProjectSection | undefined,
-          beat,
-          cover: imageCover,
-          backs,
-          previews,
-          videos: reviewAssets.length - images.length,
-          images: images.length,
-          likes:
-            likesByCollection.get(collection.folderId as string)?.count ?? 0,
-        };
-      }),
-    [tabCollections, resolveCoverId, toReviewAsset, likesByCollection],
+  // One card per collection. Beat cards cycle their videos (master first);
+  // video-less stacks keep the fanned-deck look with the image master on top.
+  const toDirectionCard = useCallback(
+    (collection: ProjectCollection): DirectionCardData => {
+      const reviewAssets = collection.assets.map((a) =>
+        toReviewAsset(a, collection),
+      );
+      const coverId = resolveCoverId(collection);
+      const coverAsset =
+        reviewAssets.find((a) => a.id === coverId) ?? reviewAssets[0] ?? null;
+      const videos = reviewAssets.filter((a) => a.kind === "video");
+      const beatVideos =
+        coverAsset?.kind === "video"
+          ? [coverAsset, ...videos.filter((a) => a !== coverAsset)]
+          : videos;
+      const images = reviewAssets.filter((a) => a.kind !== "video");
+      const imageCover =
+        coverAsset && coverAsset.kind !== "video"
+          ? coverAsset
+          : (images[0] ?? null);
+      const backs = images
+        .filter((a) => a !== imageCover)
+        .slice(0, 2)
+        .map((a) => a.thumbUrl ?? a.url)
+        .filter((src): src is string => Boolean(src));
+      const previews = (
+        imageCover
+          ? [imageCover, ...images.filter((a) => a !== imageCover)]
+          : images
+      )
+        .slice(0, 8)
+        .map((a) => a.thumbUrl ?? a.url)
+        .filter((src): src is string => Boolean(src));
+      return {
+        id: collection.folderId as string,
+        name: collection.name,
+        count: collection.count,
+        section: collection.section as ProjectSection | undefined,
+        beatVideos,
+        cover: imageCover,
+        backs,
+        previews,
+        videos: videos.length,
+        images: images.length,
+        likes:
+          likesByCollection.get(collection.folderId as string)?.count ?? 0,
+      };
+    },
+    [resolveCoverId, toReviewAsset, likesByCollection],
   );
 
-  // Member collections by id, for resolving a beat's linked stacks.
-  const memberById = useMemo(
+  // Beats mode cards.
+  const beatCards = useMemo<DirectionCardData[]>(
     () =>
-      new Map<string, ProjectCollection>(
-        (project?.collections ?? []).map((c) => [c.folderId as string, c]),
-      ),
-    [project],
+      effectiveTab === "beats" ? tabCollections.map(toDirectionCard) : [],
+    [effectiveTab, tabCollections, toDirectionCard],
   );
-  const linkedStacks = useCallback(
-    (ids: readonly string[]) =>
-      ids
-        .map((id) => memberById.get(id))
-        .filter((c): c is ProjectCollection => Boolean(c)),
-    [memberById],
+
+  // Characters / Locations mode: named stacks (every section collection
+  // except the pool) + the loose pool assets not yet in any stack.
+  const poolCollection =
+    effectiveTab === "characters"
+      ? pools.characters
+      : effectiveTab === "locations"
+        ? pools.locations
+        : undefined;
+  const stackCards = useMemo<DirectionCardData[]>(
+    () =>
+      effectiveTab === "beats"
+        ? []
+        : tabCollections
+            .filter((c) => c.folderId !== poolCollection?.folderId)
+            .map(toDirectionCard),
+    [effectiveTab, tabCollections, poolCollection, toDirectionCard],
   );
+  const looseAssets = useMemo<ReviewAsset[]>(() => {
+    if (effectiveTab === "beats") return [];
+    const stackIds = new Set(
+      tabCollections
+        .filter((c) => c.folderId !== poolCollection?.folderId)
+        .map((c) => c.folderId as string),
+    );
+    const out: ReviewAsset[] = [];
+    const seen = new Set<string>();
+    for (const collection of tabCollections) {
+      for (const raw of collection.assets) {
+        const id = raw._id as string;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const asset = toReviewAsset(raw, collection);
+        if (asset.folderIds.some((folderId) => stackIds.has(folderId))) {
+          continue; // lives inside a named stack — shown on its card
+        }
+        out.push(asset);
+      }
+    }
+    return out;
+  }, [effectiveTab, tabCollections, poolCollection, toReviewAsset]);
 
   const drilledAssets = useMemo<ReviewAsset[]>(
     () =>
@@ -433,22 +475,11 @@ export function ReviewModal({
     ? tabOf(openDirection.section) === "beats"
     : false;
 
-  // Flatten the current scope → assets. Drilled direction wins; otherwise the
-  // active tab's collections, deduped by asset id (first collection wins).
-  const assets = useMemo<ReviewAsset[]>(() => {
-    if (openDirection) return drilledAssets;
-    const out: ReviewAsset[] = [];
-    const seen = new Set<string>();
-    for (const collection of tabCollections) {
-      for (const asset of collection.assets) {
-        const id = asset._id as string;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        out.push(toReviewAsset(asset, collection));
-      }
-    }
-    return out;
-  }, [openDirection, drilledAssets, tabCollections, toReviewAsset]);
+  // The tile scope: a drilled direction's assets, or the mode's loose pool.
+  const assets = useMemo<ReviewAsset[]>(
+    () => (openDirection ? drilledAssets : looseAssets),
+    [openDirection, drilledAssets, looseAssets],
+  );
 
   const isApproved = useCallback(
     (asset: ReviewAsset) =>
@@ -458,32 +489,11 @@ export function ReviewModal({
     [approveOverride],
   );
 
-  // Tag chips for the flat/drilled views, ranked by frequency in scope. The
-  // selected tag only applies while it exists in scope — switching tabs to a
-  // scope without it silently deactivates it (no state-sync effect needed).
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const asset of assets) {
-      for (const tag of asset.tagNames) {
-        if (tag === APPROVED_TAG) continue;
-        counts.set(tag, (counts.get(tag) ?? 0) + 1);
-      }
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 14);
-  }, [assets]);
-  const activeTag =
-    selectedTag && tagCounts.some(([tag]) => tag === selectedTag)
-      ? selectedTag
-      : null;
-
   const passesFilters = useCallback(
     (asset: ReviewAsset) =>
       (!approvedOnly || isApproved(asset)) &&
-      (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0) &&
-      (!activeTag || asset.tagNames.includes(activeTag)),
-    [approvedOnly, likedOnly, activeTag, isApproved, likesByAsset],
+      (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0),
+    [approvedOnly, likedOnly, isApproved, likesByAsset],
   );
 
   const visibleAssets = useMemo(
@@ -491,42 +501,28 @@ export function ReviewModal({
     [assets, passesFilters],
   );
 
-  // Drilled scope split by kind — the beat detail lays out extra takes apart
-  // from frames; the hero beat never doubles up under the player.
-  const drilledVideos = useMemo(
-    () =>
-      visibleAssets.filter(
-        (a) => a.kind === "video" && a.id !== drilledBeat?.id,
-      ),
-    [visibleAssets, drilledBeat],
-  );
-  const drilledImages = useMemo(
-    () => visibleAssets.filter((a) => a.kind !== "video"),
-    [visibleAssets],
-  );
-
-  // Replace one side of a beat's linked stacks wholesale.
-  const updateBeatLinks = useCallback(
-    (side: "character" | "location", nextIds: string[]) => {
-      if (!projectId || !openDirection) return;
-      const current = {
-        character: (openDirection.beatCharacterFolderIds ?? []) as string[],
-        location: (openDirection.beatLocationFolderIds ?? []) as string[],
-      };
-      void setBeatLinksMutation({
-        ownerUserId,
-        projectId: projectId as Id<"folders">,
-        folderId: openDirection.folderId,
-        characterFolderIds: (side === "character"
-          ? nextIds
-          : current.character) as Id<"folders">[],
-        locationFolderIds: (side === "location"
-          ? nextIds
-          : current.location) as Id<"folders">[],
-      });
-    },
-    [projectId, openDirection, ownerUserId, setBeatLinksMutation],
-  );
+  // A drilled beat's elements in presentation order: videos (master first),
+  // then characters, locations, and stills. Drives the preview strip.
+  const beatElements = useMemo<ReviewAsset[]>(() => {
+    if (!openDirection) return [];
+    const rank = (a: ReviewAsset) =>
+      a.kind === "video"
+        ? a.id === drilledBeat?.id
+          ? 0
+          : 1
+        : a.tagNames.includes("character")
+          ? 2
+          : a.tagNames.includes("location")
+            ? 3
+            : 4;
+    return [...visibleAssets].sort((a, b) => rank(a) - rank(b));
+  }, [openDirection, visibleAssets, drilledBeat]);
+  // Focused element in the beat viewer: explicit pick, else the master.
+  const beatFocus =
+    beatElements.find((a) => a.id === beatFocusId) ??
+    beatElements.find((a) => a.id === drilledBeat?.id) ??
+    beatElements[0] ??
+    null;
 
   const approvedCount = useMemo(
     () => assets.filter(isApproved).length,
@@ -561,13 +557,15 @@ export function ReviewModal({
   // ── File uploads into a direction ──
   // A dropped/typed text becomes the prompt for every file in the pack; the
   // first video becomes the direction's MASTER (its beat) unless a video
-  // master already exists, so the card previews as the shot.
+  // master already exists, so the card previews as the shot. Returns the
+  // created asset ids in file order (null where an upload failed).
   const uploadFilesToDirection = async (
     media: File[],
     targetFolderId: string,
     promptText: string,
     hasVideoMaster: boolean,
-  ) => {
+  ): Promise<{ assetId: string | null; isVideo: boolean }[]> => {
+    const uploaded: { assetId: string | null; isVideo: boolean }[] = [];
     setUploadState({ done: 0, total: media.length });
     try {
       let masterVideoAssetId: string | null = null;
@@ -620,11 +618,16 @@ export function ReviewModal({
             throw new Error(body?.error || "Upload failed.");
           }
           const assetId = body?.result?.assetId;
+          uploaded.push({ assetId: assetId ?? null, isVideo });
           if (!masterVideoAssetId && assetId && isVideo) {
             masterVideoAssetId = assetId;
           }
         } catch {
           failed += 1;
+          uploaded.push({
+            assetId: null,
+            isVideo: file.type.startsWith("video/"),
+          });
         }
         setUploadState((prev) =>
           prev ? { ...prev, done: prev.done + 1 } : prev,
@@ -656,11 +659,54 @@ export function ReviewModal({
         error: error instanceof Error ? error.message : "Upload failed.",
       });
     }
+    return uploaded;
   };
 
-  // Drilled: dropped files land in that direction. Anywhere else they STAGE
-  // into the composer — directions are only ever created and named by the
-  // user, never auto-named from a file.
+  // Ensure the section's pool collection exists on this project; returns its
+  // folder id. Reattaches a detached same-named folder instead of erroring.
+  const ensurePool = async (
+    section: "characters" | "locations",
+  ): Promise<string> => {
+    const existing =
+      section === "characters" ? pools.characters : pools.locations;
+    if (existing) return existing.folderId as string;
+    const label = section === "characters" ? "Characters" : "Locations";
+    const name = `${project?.project.name ?? "Project"} — ${label}`;
+    const detached = allCollections.find((c) => c.name === name);
+    const folderId = detached
+      ? detached.id
+      : ((await createFolder({ ownerUserId, name })).folderId as string);
+    await addCollection({
+      ownerUserId,
+      projectId: projectId as Id<"folders">,
+      folderId: folderId as Id<"folders">,
+      section,
+    });
+    return folderId;
+  };
+
+  // Characters / Locations mode: uploads land straight in the pool, tagged
+  // with their role.
+  const uploadToPool = async (
+    media: File[],
+    section: "characters" | "locations",
+  ) => {
+    const poolId = await ensurePool(section);
+    const uploaded = await uploadFilesToDirection(media, poolId, "", true);
+    const tag = section === "characters" ? "character" : "location";
+    for (const { assetId, isVideo } of uploaded) {
+      if (!assetId || isVideo) continue;
+      void addAssetTagsMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        tagNames: [tag],
+      }).catch(() => {});
+    }
+  };
+
+  // Drilled: dropped files land in that direction. Beats mode: they STAGE
+  // into the beat composer (never auto-created). Characters / Locations:
+  // straight into the pool.
   const handleFilesDrop = async (dropped: File[]) => {
     if (!projectId) return;
     const media = dropped.filter(
@@ -689,25 +735,37 @@ export function ReviewModal({
       return;
     }
 
-    setComposer((prev) => ({
-      name: prev?.name ?? "",
-      layer:
-        prev?.layer ??
-        (effectiveTab !== "all" && effectiveTab !== "unsorted"
-          ? effectiveTab
-          : null),
-      files: [...(prev?.files ?? []), ...media],
-      prompt: [prev?.prompt, promptText].filter(Boolean).join("\n\n"),
-    }));
+    if (composer || effectiveTab === "beats") {
+      setComposer((prev) => ({
+        name: prev?.name ?? "",
+        files: [...(prev?.files ?? []), ...media],
+        buckets: [
+          ...(prev?.buckets ?? []),
+          ...media.map(
+            (file): BeatBucket =>
+              file.type.startsWith("video/") ? "video" : "still",
+          ),
+        ],
+        prompt: [prev?.prompt, promptText].filter(Boolean).join("\n\n"),
+      }));
+      return;
+    }
+
+    if (media.length === 0) {
+      setUploadState({ done: 0, total: 0, error: "Drop images or videos." });
+      return;
+    }
+    await uploadToPool(media, effectiveTab);
   };
 
-  // Approve the drafted direction: create it, attach it to the project,
-  // upload the staged files, and drill in.
-  const approveComposer = async () => {
+  // Save the drafted beat: create + attach it, upload the staged files, and
+  // file each character/location-bucketed asset into the project's pool with
+  // its role tag (so it also shows in that mode).
+  const saveBeat = async () => {
     if (!composer || !projectId) return;
     const name = composer.name.trim();
     if (!name) return;
-    const { files, prompt, layer } = composer;
+    const { files, buckets, prompt } = composer;
     try {
       const created = await createFolder({
         ownerUserId,
@@ -718,24 +776,88 @@ export function ReviewModal({
         ownerUserId,
         projectId: projectId as Id<"folders">,
         folderId: created.folderId,
-        section: layer ?? undefined,
+        section: "beats",
       });
       setComposer(null);
       setOpenDirectionId(created.folderId as string);
+      setBeatFocusId(null);
       if (files.length > 0) {
-        await uploadFilesToDirection(
+        const uploaded = await uploadFilesToDirection(
           files,
           created.folderId as string,
           prompt.trim(),
           false,
         );
+        // Resolve each pool once per save — `pools` is stale inside this
+        // closure after the first ensurePool creates one.
+        const poolIds: Partial<Record<"characters" | "locations", string>> =
+          {};
+        for (const [index, entry] of uploaded.entries()) {
+          const bucket = buckets[index];
+          if (!entry.assetId || entry.isVideo) continue;
+          if (bucket !== "character" && bucket !== "location") continue;
+          const section =
+            bucket === "character"
+              ? ("characters" as const)
+              : ("locations" as const);
+          try {
+            poolIds[section] = poolIds[section] ?? (await ensurePool(section));
+            await addAssetFolders({
+              ownerUserId,
+              assetId: entry.assetId as Id<"assets">,
+              folderIds: [poolIds[section] as Id<"folders">],
+            });
+          } catch {
+            // Pool filing is best-effort; the asset still lives in the beat.
+          }
+          void addAssetTagsMutation({
+            ownerUserId,
+            assetId: entry.assetId as Id<"assets">,
+            tagNames: [bucket],
+          }).catch(() => {});
+        }
       }
     } catch (error) {
       setUploadState({
         done: 0,
         total: files.length,
         error:
-          error instanceof Error ? error.message : "Could not create direction.",
+          error instanceof Error ? error.message : "Could not create the beat.",
+      });
+    }
+  };
+
+  // Create a named stack from the current selection (characters/locations
+  // modes) — membership is additive, the assets stay in the pool.
+  const createStackFromSelection = async () => {
+    if (!projectId || effectiveTab === "beats") return;
+    const name = stackName.trim();
+    if (!name || selectedIds.size === 0) return;
+    try {
+      const created = await createFolder({ ownerUserId, name });
+      await addCollection({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: created.folderId,
+        section: effectiveTab,
+      });
+      for (const id of selectedIds) {
+        await addAssetFolders({
+          ownerUserId,
+          assetId: id as Id<"assets">,
+          folderIds: [created.folderId],
+        }).catch(() => {});
+      }
+      setStackName("");
+      exitSelect();
+    } catch (error) {
+      setUploadState({
+        done: 0,
+        total: 0,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not create the stack.",
       });
     }
   };
@@ -858,7 +980,6 @@ export function ReviewModal({
       setOpenDirectionId((current) =>
         current === folderId ? null : current,
       );
-      setDrillFrom((current) => (current === folderId ? null : current));
       void deleteFolderMutation({
         ownerUserId,
         folderId: folderId as Id<"folders">,
@@ -917,11 +1038,7 @@ export function ReviewModal({
         else if (composerOpen) setComposer(null);
         else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
-        else if (openDirectionId && drillFrom) {
-          // A stack opened from a beat's detail view backs out to the beat.
-          setOpenDirectionId(drillFrom);
-          setDrillFrom(null);
-        } else if (openDirectionId) setOpenDirectionId(null);
+        else if (openDirectionId) setOpenDirectionId(null);
         else onClose();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
@@ -936,7 +1053,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, drillFrom, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
 
   if (!projectId) return null;
 
@@ -944,44 +1061,25 @@ export function ReviewModal({
   const projectName = project?.project.name ?? "Project";
   const hasCollections = (project?.collections.length ?? 0) > 0;
 
-  // Layer tabs: Beats leads, then Characters / Locations (+ Unsorted only
-  // when needed) + the flat All view.
+  // Counts for the centered mode toggle: beats = number of beats;
+  // characters / locations = assets in that layer (loose + stacked, deduped).
   const allCollections2 = project?.collections ?? [];
-  const directionCountBy = (tab: ReviewTab) =>
-    allCollections2.filter((c) => tabOf(c.section) === tab).length;
-  const unsortedCount = directionCountBy("unsorted");
-  const tabs: { key: ReviewTab; label: string; count?: number }[] = [
-    ...SECTION_TABS.map(({ key, label }) => ({
-      key: key as ReviewTab,
-      label,
-      count: directionCountBy(key),
-    })),
-    ...(unsortedCount > 0
-      ? [{ key: "unsorted" as ReviewTab, label: "Unsorted", count: unsortedCount }]
-      : []),
-    { key: "all" as ReviewTab, label: "All" },
-  ];
+  const modeCount = (tab: ReviewTab) => {
+    const inTab = allCollections2.filter((c) => tabOf(c.section) === tab);
+    if (tab === "beats") return inTab.length;
+    const seen = new Set<string>();
+    for (const c of inTab) {
+      for (const a of c.assets) seen.add(a._id as string);
+    }
+    return seen.size;
+  };
 
-  // Direction-cards browsing mode: a layer tab with nothing drilled into.
-  const showDirectionCards = effectiveTab !== "all" && !openDirection;
   const openDirectionMasterId = openDirection
     ? resolveCoverId(openDirection)
     : null;
   const openDirectionLikes = openDirectionId
     ? likesByCollection.get(openDirectionId)
     : undefined;
-  const drillFromName = drillFrom
-    ? (memberById.get(drillFrom)?.name ?? null)
-    : null;
-  // Thumb for a linked stack chip: its master (cover) with first-asset
-  // fallback.
-  const stackThumb = (collection: ProjectCollection): string | undefined => {
-    const coverId = resolveCoverId(collection);
-    const cover =
-      collection.assets.find((a) => (a._id as string) === coverId) ??
-      collection.assets[0];
-    return cover?.thumbUrl ?? cover?.url ?? undefined;
-  };
 
   return (
     <div
@@ -1044,11 +1142,13 @@ export function ReviewModal({
             className="shrink-0 text-[11px]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            {showDirectionCards
-              ? `${directions.length} ${
-                  directions.length === 1 ? "direction" : "directions"
-                }`
-              : `${visibleAssets.length} shown · ${approvedCount} approved`}
+            {openDirection
+              ? `${visibleAssets.length} shown · ${approvedCount} approved`
+              : effectiveTab === "beats"
+                ? `${beatCards.length} ${beatCards.length === 1 ? "beat" : "beats"}`
+                : `${modeCount(effectiveTab)} assets · ${stackCards.length} ${
+                    stackCards.length === 1 ? "stack" : "stacks"
+                  }`}
           </span>
           {uploadState && (
             <span
@@ -1124,7 +1224,9 @@ export function ReviewModal({
             <Check className="h-3.5 w-3.5" />
             Approved
           </button>
-          {hasCollections && !inFocus && (
+          {hasCollections &&
+            !inFocus &&
+            (Boolean(openDirection) || effectiveTab !== "beats") && (
             <button
               type="button"
               onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
@@ -1192,129 +1294,60 @@ export function ReviewModal({
         </div>
       </header>
 
-      {/* ── Layer tabs ── */}
-      {hasCollections && !inFocus && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 md:px-6">
-          {tabs.map((tab) => {
-            const active = effectiveTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.key);
-                  setOpenDirectionId(null);
-                  setDrillFrom(null);
-                }}
-                className="rounded-full border px-3 py-1 text-[12px] font-medium transition-colors"
-                style={{
-                  borderColor: active
-                    ? "var(--lm-coral)"
-                    : "var(--lm-border-strong)",
-                  backgroundColor: active
-                    ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
-                    : "transparent",
-                  color: active
-                    ? "var(--lm-coral)"
-                    : "var(--lm-text-secondary)",
-                }}
-              >
-                {tab.label}
-                {tab.count !== undefined && tab.count > 0 && (
-                  <span style={{ opacity: 0.6 }}> {tab.count}</span>
-                )}
-              </button>
-            );
-          })}
+      {/* Hidden file input — always mounted so browse works in any state */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,video/*,.txt"
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length > 0) void handleFilesDrop(files);
+        }}
+      />
 
-          {/* New direction — or just drop files anywhere */}
-          <button
-            type="button"
-            onClick={() =>
-              setComposer(
-                (prev) =>
-                  prev ?? {
-                    name: "",
-                    layer:
-                      effectiveTab !== "all" && effectiveTab !== "unsorted"
-                        ? effectiveTab
-                        : null,
-                    files: [],
-                    prompt: "",
-                  },
-              )
-            }
-            className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-[12px] font-medium transition-opacity hover:opacity-80"
+      {/* ── Centered mode toggle: Beats / Characters / Locations ── */}
+      {!inFocus && !composerOpen && (
+        <div className="flex items-center justify-center px-4 py-3">
+          <div
+            className="flex items-center gap-1 rounded-full border p-1"
             style={{
               borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-tertiary)",
+              backgroundColor: "var(--lm-surface-1)",
             }}
-            title="Create a direction — or drop files anywhere to draft one from them"
+            role="tablist"
+            aria-label="Project layers"
           >
-            <Plus className="h-3 w-3" />
-            New direction
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-[12px] font-medium transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-tertiary)",
-            }}
-            title={dropTargetLabel.replace("Drop", "Pick files")}
-          >
-            <Upload className="h-3 w-3" />
-            Upload files
-          </button>
-          <span
-            className="hidden text-[10px] font-mono uppercase tracking-wider md:inline"
-            style={{ color: "var(--lm-text-ghost)" }}
-          >
-            or drop anywhere
-          </span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,video/*,.txt"
-            className="hidden"
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (files.length > 0) void handleFilesDrop(files);
-            }}
-          />
-        </div>
-      )}
-
-      {/* ── Tag filter chips (flat + drilled views) ── */}
-      {hasCollections && !inFocus && !showDirectionCards && tagCounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-2 md:px-6">
-          {tagCounts.map(([tag, count]) => {
-            const active = activeTag === tag;
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => setSelectedTag(active ? null : tag)}
-                className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors"
-                style={{
-                  borderColor: active
-                    ? "var(--lm-coral)"
-                    : "var(--lm-border)",
-                  backgroundColor: active
-                    ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
-                    : "transparent",
-                  color: active ? "var(--lm-coral)" : "var(--lm-text-ghost)",
-                }}
-                aria-pressed={active}
-              >
-                {tag}
-                <span style={{ opacity: 0.6 }}> {count}</span>
-              </button>
-            );
-          })}
+            {SECTION_TABS.map(({ key, label }) => {
+              const active = effectiveTab === key;
+              const count = modeCount(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    setActiveTab(key);
+                    setOpenDirectionId(null);
+                    setBeatFocusId(null);
+                  }}
+                  className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+                  style={{
+                    backgroundColor: active ? "var(--lm-coral)" : "transparent",
+                    color: active ? "#000" : "var(--lm-text-secondary)",
+                  }}
+                >
+                  {label}
+                  {count > 0 && (
+                    <span style={{ opacity: 0.6 }}> {count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1323,15 +1356,8 @@ export function ReviewModal({
         <div className="flex flex-wrap items-center gap-2 px-4 pb-2.5 md:px-6">
           <button
             type="button"
-            onClick={() => {
-              if (drillFrom) {
-                setOpenDirectionId(drillFrom);
-                setDrillFrom(null);
-              } else {
-                setOpenDirectionId(null);
-              }
-            }}
-            className="flex max-w-[220px] items-center gap-1.5 truncate rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            onClick={() => setOpenDirectionId(null)}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
             style={{
               borderColor: "var(--lm-border-strong)",
               color: "var(--lm-text-secondary)",
@@ -1339,7 +1365,7 @@ export function ReviewModal({
             title="Back (Esc)"
           >
             <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-            {drillFromName ?? TAB_LABELS[effectiveTab]}
+            {TAB_LABELS[effectiveTab]}
           </button>
           {renameDraft !== null ? (
             <input
@@ -1462,13 +1488,14 @@ export function ReviewModal({
             Loading project…
           </div>
         ) : composer ? (
+          /* ── Beat composer: stage files → sort into buckets → name → save ── */
           <div className="h-full overflow-y-auto px-6 py-10 md:px-12">
-            <div className="mx-auto max-w-[720px]">
+            <div className="mx-auto max-w-[860px]">
               <p
                 className="text-[10px] font-mono font-bold uppercase tracking-[0.2em]"
                 style={{ color: "var(--lm-coral)" }}
               >
-                New direction
+                New beat
               </p>
 
               <input
@@ -1479,59 +1506,15 @@ export function ReviewModal({
                     prev ? { ...prev, name: e.target.value } : prev,
                   )
                 }
-                placeholder="Name the direction…"
+                placeholder="Name the beat…"
                 className="mt-3 w-full bg-transparent pb-2 text-[26px] font-semibold outline-none md:text-[32px]"
                 style={{
                   color: "var(--lm-text-primary)",
                   borderBottom: "1px solid var(--lm-border-strong)",
                   caretColor: "var(--lm-coral)",
                 }}
-                aria-label="Direction name"
+                aria-label="Beat name"
               />
-
-              {/* Layer */}
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <span
-                  className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
-                  style={{ color: "var(--lm-text-ghost)" }}
-                >
-                  Layer
-                </span>
-                {SECTION_TABS.map(({ key, label }) => {
-                  const active = composer.layer === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() =>
-                        setComposer((prev) =>
-                          prev
-                            ? { ...prev, layer: active ? null : key }
-                            : prev,
-                        )
-                      }
-                      className="rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
-                      style={{
-                        borderColor: active
-                          ? "var(--lm-coral)"
-                          : "var(--lm-border-strong)",
-                        color: active
-                          ? "var(--lm-coral)"
-                          : "var(--lm-text-tertiary)",
-                      }}
-                      aria-pressed={active}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-                <span
-                  className="text-[10px] font-mono uppercase tracking-wider"
-                  style={{ color: "var(--lm-text-ghost)" }}
-                >
-                  {composer.layer ? "" : "unsorted"}
-                </span>
-              </div>
 
               {/* Text */}
               <textarea
@@ -1541,7 +1524,7 @@ export function ReviewModal({
                     prev ? { ...prev, prompt: e.target.value } : prev,
                   )
                 }
-                placeholder="Optional text — the prompt, the beat, notes…"
+                placeholder="Optional text — the prompt, style notes, the beat…"
                 rows={3}
                 className="mt-6 w-full resize-y bg-transparent text-[14px] leading-relaxed outline-none"
                 style={{
@@ -1549,17 +1532,17 @@ export function ReviewModal({
                   borderBottom: "1px solid var(--lm-border)",
                   caretColor: "var(--lm-coral)",
                 }}
-                aria-label="Direction text"
+                aria-label="Beat text"
               />
 
-              {/* Staged files */}
+              {/* Staged files, each sorted into a bucket */}
               <div className="mt-6">
-                <div className="flex items-baseline gap-3">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span
                     className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
                     style={{ color: "var(--lm-text-ghost)" }}
                   >
-                    Files
+                    Assets
                   </span>
                   <span
                     className="text-[11px]"
@@ -1577,74 +1560,153 @@ export function ReviewModal({
                   >
                     browse
                   </button>
+                  {composer.files.some((f) => !f.type.startsWith("video/")) && (
+                    <span
+                      className="text-[10px]"
+                      style={{ color: "var(--lm-text-ghost)" }}
+                    >
+                      sort each image: character · location · still
+                    </span>
+                  )}
                 </div>
                 {composerPreviews.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-3">
-                    {composerPreviews.map(({ file, url }, index) => (
-                      <div key={`${file.name}-${index}`} className="group relative">
-                        {file.type.startsWith("video/") ? (
-                          <video
-                            src={url}
-                            muted
-                            playsInline
-                            preload="metadata"
-                            className="h-24 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <img
-                            src={url}
-                            alt={file.name}
-                            className="h-24 rounded-lg object-cover"
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setComposer((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    files: prev.files.filter(
-                                      (_, i) => i !== index,
-                                    ),
-                                  }
-                                : prev,
-                            )
-                          }
-                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
-                          style={{
-                            backgroundColor: "var(--lm-ink)",
-                            color: "var(--lm-paper)",
-                          }}
-                          aria-label={`Remove ${file.name}`}
+                  <div className="mt-4 flex flex-wrap gap-4">
+                    {composerPreviews.map(({ file, url }, index) => {
+                      const isVideo = file.type.startsWith("video/");
+                      const bucket = composer.buckets[index] ?? "still";
+                      const setBucket = (next: BeatBucket) =>
+                        setComposer((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                buckets: prev.buckets.map((b, i) =>
+                                  i === index ? next : b,
+                                ),
+                              }
+                            : prev,
+                        );
+                      return (
+                        <div
+                          key={`${file.name}-${index}`}
+                          className="group relative w-[132px]"
                         >
-                          <X className="h-3 w-3" strokeWidth={3} />
-                        </button>
-                      </div>
-                    ))}
+                          {isVideo ? (
+                            <video
+                              src={url}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              className="h-24 w-full rounded-lg object-cover"
+                            />
+                          ) : (
+                            <img
+                              src={url}
+                              alt={file.name}
+                              className="h-24 w-full rounded-lg object-cover"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setComposer((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      files: prev.files.filter(
+                                        (_, i) => i !== index,
+                                      ),
+                                      buckets: prev.buckets.filter(
+                                        (_, i) => i !== index,
+                                      ),
+                                    }
+                                  : prev,
+                              )
+                            }
+                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                            style={{
+                              backgroundColor: "var(--lm-ink)",
+                              color: "var(--lm-paper)",
+                            }}
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="h-3 w-3" strokeWidth={3} />
+                          </button>
+
+                          {/* Bucket chips */}
+                          {isVideo ? (
+                            <span
+                              className="mt-1.5 flex items-center justify-center gap-1 rounded-md py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+                              style={{
+                                backgroundColor: "var(--lm-surface-2)",
+                                color: "var(--lm-text-tertiary)",
+                              }}
+                            >
+                              <Play className="h-2.5 w-2.5" fill="currentColor" />
+                              Video
+                            </span>
+                          ) : (
+                            <div className="mt-1.5 flex items-center gap-0.5">
+                              {(
+                                [
+                                  ["character", "Char", User],
+                                  ["location", "Loc", MapPin],
+                                  ["still", "Still", null],
+                                ] as const
+                              ).map(([key, label, Icon]) => {
+                                const active = bucket === key;
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setBucket(key)}
+                                    className="flex flex-1 items-center justify-center gap-0.5 rounded-md border py-0.5 text-[8px] font-mono font-bold uppercase tracking-wide transition-colors"
+                                    style={{
+                                      borderColor: active
+                                        ? "var(--lm-coral)"
+                                        : "var(--lm-border)",
+                                      backgroundColor: active
+                                        ? "color-mix(in srgb, var(--lm-coral) 18%, transparent)"
+                                        : "transparent",
+                                      color: active
+                                        ? "var(--lm-coral)"
+                                        : "var(--lm-text-ghost)",
+                                    }}
+                                    aria-pressed={active}
+                                    title={`Sort as ${label.toLowerCase()}`}
+                                  >
+                                    {Icon && <Icon className="h-2.5 w-2.5" />}
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Approve / discard */}
+              {/* Save / discard */}
               <div
                 className="mt-8 flex items-center gap-3 border-t pt-5"
                 style={{ borderColor: "var(--lm-border)" }}
               >
                 <button
                   type="button"
-                  onClick={() => void approveComposer()}
+                  onClick={() => void saveBeat()}
                   disabled={!composer.name.trim()}
                   className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-40"
                   style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
                   title={
                     composer.name.trim()
-                      ? "Create the direction and upload the staged files"
-                      : "Name the direction first"
+                      ? "Create the beat and upload the staged assets"
+                      : "Name the beat first"
                   }
                 >
                   <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                  Approve direction
+                  Save beat
                 </button>
                 <button
                   type="button"
@@ -1659,68 +1721,12 @@ export function ReviewModal({
                     className="text-[11px]"
                     style={{ color: "var(--lm-text-tertiary)" }}
                   >
-                    Name it to approve.
+                    Name it to save.
                   </span>
                 )}
               </div>
             </div>
           </div>
-        ) : !hasCollections ? (
-          <EmptyState
-            title="No beats yet"
-            hint="A beat is one shot — its videos (with a master thumbnail), the characters and locations it uses, and a text. Drop files anywhere to draft one, or create it by name."
-            actionLabel="Add beat"
-            onAction={() =>
-              setComposer({ name: "", layer: "beats", files: [], prompt: "" })
-            }
-          />
-        ) : showDirectionCards ? (
-          directions.length === 0 ? (
-            <EmptyState
-              title={`No ${TAB_LABELS[effectiveTab].toLowerCase()} yet`}
-              hint={
-                effectiveTab === "beats"
-                  ? "A beat is one shot — videos plus the character and location stacks it uses."
-                  : "A stack is a named set of options — create one and drop images into it."
-              }
-              actionLabel={
-                effectiveTab === "beats" ? "Add beat" : "New stack"
-              }
-              onAction={() =>
-                setComposer({
-                  name: "",
-                  layer: effectiveTab === "unsorted" ? null : effectiveTab,
-                  files: [],
-                  prompt: "",
-                })
-              }
-            />
-          ) : (
-            <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-8">
-              <div
-                className={
-                  effectiveTab === "beats"
-                    ? "mx-auto max-w-[1600px] columns-1 lg:columns-2"
-                    : "columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
-                }
-                style={{
-                  columnGap: effectiveTab === "beats" ? "20px" : "14px",
-                }}
-              >
-                {directions.map((direction) => (
-                  <DirectionCard
-                    key={direction.id}
-                    direction={direction}
-                    onOpen={() => {
-                      setDrillFrom(null);
-                      setOpenDirectionId(direction.id);
-                    }}
-                    onDelete={() => deleteDirectionById(direction.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          )
         ) : focusAsset ? (
           <FocusScrollFeed
             assets={visibleAssets}
@@ -1741,278 +1747,363 @@ export function ReviewModal({
             }
             onRemove={openDirection ? removeFromDirection : undefined}
             onDelete={(asset) => void deleteAssetsByIds([asset.id])}
-            showCollectionLabel={effectiveTab === "all"}
+            showCollectionLabel={false}
           />
         ) : openDirection && drilledIsBeat ? (
-          /* ── Beat detail: hero shot + the stacks it uses + extra takes ── */
-          <div className="h-full overflow-y-auto px-4 pb-12 pt-2 md:px-8">
-            <div className="mx-auto w-full max-w-[1400px]">
-              {drilledBeat ? (
-                <video
-                  key={drilledBeat.id}
-                  src={drilledBeat.url}
-                  poster={drilledBeat.thumbUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="w-full rounded-xl"
-                  style={{
-                    maxHeight: "60vh",
-                    backgroundColor: "#000",
-                    border: "1px solid var(--lm-border)",
-                    objectFit: "contain",
-                  }}
-                />
+          /* ── Beat detail: focused full-res viewer + element strip ── */
+          <div className="h-full overflow-y-auto px-4 pb-8 pt-2 md:px-8">
+            <div className="mx-auto flex w-full max-w-[1400px] flex-col">
+              {beatFocus ? (
+                <>
+                  <div className="flex items-center justify-center">
+                    {beatFocus.kind === "video" ? (
+                      <video
+                        key={beatFocus.id}
+                        src={beatFocus.url}
+                        poster={beatFocus.thumbUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="w-full rounded-xl"
+                        style={{
+                          maxHeight: "58vh",
+                          backgroundColor: "#000",
+                          border: "1px solid var(--lm-border)",
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : (
+                      <img
+                        key={beatFocus.id}
+                        src={beatFocus.url ?? beatFocus.thumbUrl}
+                        alt={beatFocus.promptText ?? openDirection.name}
+                        className="max-w-full rounded-xl object-contain"
+                        style={{ maxHeight: "58vh" }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Focused element actions */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className="text-[11px] font-mono"
+                      style={{ color: "var(--lm-text-tertiary)" }}
+                    >
+                      {Math.max(
+                        1,
+                        beatElements.findIndex((a) => a.id === beatFocus.id) +
+                          1,
+                      )}
+                      /{beatElements.length}
+                    </span>
+                    {(() => {
+                      const focusLikes = likesByAsset.get(beatFocus.id);
+                      return focusLikes && focusLikes.count > 0 ? (
+                        <span
+                          className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+                          style={{
+                            backgroundColor: "rgba(0,0,0,0.62)",
+                            color: "var(--lm-coral)",
+                            borderColor:
+                              "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+                          }}
+                          title={likeTitle(focusLikes)}
+                        >
+                          <Heart
+                            className="h-3 w-3"
+                            fill="currentColor"
+                            strokeWidth={2.5}
+                          />
+                          {focusLikes.count}
+                        </span>
+                      ) : null;
+                    })()}
+                    <span className="ml-auto flex items-center gap-2">
+                      {beatFocus.kind === "video" && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMaster(
+                              openDirection.folderId as string,
+                              openDirectionMasterId === beatFocus.id
+                                ? null
+                                : beatFocus.id,
+                            )
+                          }
+                          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
+                          style={{
+                            backgroundColor:
+                              openDirectionMasterId === beatFocus.id
+                                ? "var(--lm-ink)"
+                                : "transparent",
+                            color:
+                              openDirectionMasterId === beatFocus.id
+                                ? "var(--lm-paper)"
+                                : "var(--lm-text-secondary)",
+                            borderColor:
+                              openDirectionMasterId === beatFocus.id
+                                ? "var(--lm-ink)"
+                                : "var(--lm-border-strong)",
+                          }}
+                          aria-pressed={openDirectionMasterId === beatFocus.id}
+                          title="Master — the video on the beat's thumbnail"
+                        >
+                          <Crown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                          Master
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleApprove(beatFocus)}
+                        className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
+                        style={{
+                          backgroundColor: isApproved(beatFocus)
+                            ? "var(--lm-coral)"
+                            : "transparent",
+                          color: isApproved(beatFocus)
+                            ? "#000"
+                            : "var(--lm-text-secondary)",
+                          borderColor: isApproved(beatFocus)
+                            ? "var(--lm-coral)"
+                            : "var(--lm-border-strong)",
+                        }}
+                        aria-pressed={isApproved(beatFocus)}
+                      >
+                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                        {isApproved(beatFocus) ? "Approved" : "Approve"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeFromDirection(beatFocus)}
+                        className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                        style={{
+                          borderColor: "var(--lm-border-strong)",
+                          color: "var(--lm-text-secondary)",
+                        }}
+                        title="Remove from this beat (stays in the gallery)"
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={3} />
+                        Remove
+                      </button>
+                      <ArmedDeleteButton
+                        label="Delete"
+                        size="lg"
+                        variant="chrome"
+                        title="Permanently delete from the gallery"
+                        onConfirm={() =>
+                          void deleteAssetsByIds([beatFocus.id])
+                        }
+                      />
+                    </span>
+                  </div>
+
+                  {/* Element strip: scroll through the beat's assets */}
+                  {beatElements.length > 1 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                      {beatElements.map((el) => {
+                        const active = el.id === beatFocus.id;
+                        const role =
+                          el.kind === "video"
+                            ? "video"
+                            : el.tagNames.includes("character")
+                              ? "C"
+                              : el.tagNames.includes("location")
+                                ? "L"
+                                : null;
+                        return (
+                          <button
+                            key={el.id}
+                            type="button"
+                            onClick={() => setBeatFocusId(el.id)}
+                            className="relative h-20 shrink-0 overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
+                            style={{
+                              border: active
+                                ? "2px solid var(--lm-coral)"
+                                : "1px solid var(--lm-border)",
+                              aspectRatio:
+                                el.width && el.height
+                                  ? `${el.width} / ${el.height}`
+                                  : "1 / 1",
+                            }}
+                            aria-pressed={active}
+                            title={
+                              el.kind === "video" ? "Video take" : undefined
+                            }
+                          >
+                            <img
+                              src={el.thumbUrl ?? el.url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                            {el.kind === "video" && (
+                              <span
+                                className="pointer-events-none absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
+                                style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+                              >
+                                <Play
+                                  className="ml-0.5 h-3 w-3"
+                                  fill="#fff"
+                                  color="#fff"
+                                />
+                              </span>
+                            )}
+                            {role && role !== "video" && (
+                              <span
+                                className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded text-[8px] font-mono font-bold"
+                                style={{
+                                  backgroundColor: "rgba(0,0,0,0.62)",
+                                  color: "#fff",
+                                }}
+                              >
+                                {role}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               ) : (
                 <p
-                  className="mt-6 text-[13px]"
+                  className="mt-10 text-center text-[13px]"
                   style={{ color: "var(--lm-text-tertiary)" }}
                 >
-                  No video yet — drop this beat&apos;s takes anywhere; the
-                  first becomes its master shot.
+                  No elements yet — drop images and video anywhere to build
+                  this beat.
                 </p>
               )}
               <DirectionTextBlock
                 description={openDirection.description}
                 onSave={saveDirectionText}
               />
-
-              {/* The character / location stacks this beat uses */}
-              {(
-                [
-                  {
-                    side: "character" as const,
-                    label: "Characters in this beat",
-                    Icon: User,
-                    ids: (openDirection.beatCharacterFolderIds ??
-                      []) as string[],
-                    sectionKey: "characters" as const,
-                  },
-                  {
-                    side: "location" as const,
-                    label: "Locations in this beat",
-                    Icon: MapPin,
-                    ids: (openDirection.beatLocationFolderIds ??
-                      []) as string[],
-                    sectionKey: "locations" as const,
-                  },
-                ]
-              ).map(({ side, label, Icon, ids, sectionKey }) => {
-                const stacks = linkedStacks(ids);
-                const candidates = (project?.collections ?? []).filter(
-                  (c) =>
-                    tabOf(c.section) === sectionKey &&
-                    !ids.includes(c.folderId as string) &&
-                    c.folderId !== openDirection.folderId,
-                );
-                return (
-                  <section key={side} className="mt-7">
-                    <div className="mb-3 flex flex-wrap items-center gap-2.5">
-                      <Icon
-                        className="h-3.5 w-3.5"
-                        style={{ color: "var(--lm-coral)" }}
-                      />
-                      <h3
-                        className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
-                        style={{ color: "var(--lm-coral)" }}
-                      >
-                        {label}
-                      </h3>
-                      {candidates.length > 0 && (
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            updateBeatLinks(side, [...ids, e.target.value]);
-                          }}
-                          className="rounded-lg border px-2 py-1 text-[11px] outline-none"
-                          style={{
-                            backgroundColor: "var(--lm-surface-2)",
-                            borderColor: "var(--lm-border-strong)",
-                            color: "var(--lm-text-tertiary)",
-                          }}
-                          aria-label={`Link a ${side} stack`}
-                        >
-                          <option value="">+ Link {side}…</option>
-                          {candidates.map((c) => (
-                            <option
-                              key={c.folderId}
-                              value={c.folderId as string}
-                            >
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    {stacks.length === 0 ? (
-                      <p
-                        className="text-[12px]"
-                        style={{ color: "var(--lm-text-ghost)" }}
-                      >
-                        None linked yet.
-                      </p>
-                    ) : (
-                      <div className="flex flex-wrap gap-3">
-                        {stacks.map((stack) => (
-                          <LinkedStackCard
-                            key={stack.folderId as string}
-                            name={stack.name}
-                            count={stack.count}
-                            thumbUrl={stackThumb(stack)}
-                            onOpen={() => {
-                              setDrillFrom(openDirectionId);
-                              setOpenDirectionId(stack.folderId as string);
-                            }}
-                            onUnlink={() =>
-                              updateBeatLinks(
-                                side,
-                                ids.filter(
-                                  (id) => id !== (stack.folderId as string),
-                                ),
-                              )
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-
-              {/* Extra takes beyond the master */}
-              {drilledVideos.length > 0 && (
-                <section className="mt-7">
-                  <div className="mb-3 flex items-baseline gap-2.5">
-                    <h3
-                      className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
-                      style={{ color: "var(--lm-coral)" }}
-                    >
-                      More takes
-                    </h3>
-                    <span
-                      className="text-[11px]"
-                      style={{ color: "var(--lm-text-tertiary)" }}
-                    >
-                      {drilledVideos.length}
-                    </span>
-                  </div>
-                  <div
-                    className="columns-1 sm:columns-2 xl:columns-3"
-                    style={{ columnGap: "12px" }}
-                  >
-                    {drilledVideos.map((asset) => (
-                      <ReviewTile
-                        key={asset.id}
-                        asset={asset}
-                        approved={isApproved(asset)}
-                        likes={likesByAsset.get(asset.id)}
-                        onOpen={() => setFocusId(asset.id)}
-                        onApprove={() => toggleApprove(asset)}
-                        showCollectionLabel={false}
-                        isMaster={openDirectionMasterId === asset.id}
-                        onMaster={() =>
-                          setMaster(
-                            openDirection.folderId as string,
-                            openDirectionMasterId === asset.id
-                              ? null
-                              : asset.id,
-                          )
-                        }
-                        onRemove={() => removeFromDirection(asset)}
-                        onDelete={() => void deleteAssetsByIds([asset.id])}
-                        selectable={selectMode}
-                        selected={selectedIds.has(asset.id)}
-                        onToggleSelect={() => toggleSelect(asset.id)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {/* Stills belonging to the beat itself */}
-              {drilledImages.length > 0 && (
-                <section className="mt-7">
-                  <div className="mb-3 flex items-baseline gap-2.5">
-                    <h3
-                      className="text-[11px] font-mono font-bold uppercase tracking-[0.18em]"
-                      style={{ color: "var(--lm-coral)" }}
-                    >
-                      Frames
-                    </h3>
-                    <span
-                      className="text-[11px]"
-                      style={{ color: "var(--lm-text-tertiary)" }}
-                    >
-                      {drilledImages.length}
-                    </span>
-                  </div>
-                  <div
-                    className="columns-2 md:columns-3 xl:columns-4"
-                    style={{ columnGap: "12px" }}
-                  >
-                    {drilledImages.map((asset) => (
-                      <ReviewTile
-                        key={asset.id}
-                        asset={asset}
-                        approved={isApproved(asset)}
-                        likes={likesByAsset.get(asset.id)}
-                        onOpen={() => setFocusId(asset.id)}
-                        onApprove={() => toggleApprove(asset)}
-                        showCollectionLabel={false}
-                        isMaster={openDirectionMasterId === asset.id}
-                        onMaster={() =>
-                          setMaster(
-                            openDirection.folderId as string,
-                            openDirectionMasterId === asset.id
-                              ? null
-                              : asset.id,
-                          )
-                        }
-                        onRemove={() => removeFromDirection(asset)}
-                        onDelete={() => void deleteAssetsByIds([asset.id])}
-                        selectable={selectMode}
-                        selected={selectedIds.has(asset.id)}
-                        onToggleSelect={() => toggleSelect(asset.id)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
             </div>
           </div>
-        ) : visibleAssets.length === 0 ? (
-          <EmptyState
-            title={
-              approvedOnly
-                ? "Nothing approved yet"
-                : openDirection
-                  ? "Empty stack"
-                  : "No assets here"
-            }
-            hint={
-              approvedOnly
-                ? "Approve options to build the showcase shortlist."
-                : openDirection
-                  ? "Drop images anywhere to fill this stack."
-                  : "Drop files anywhere to add assets."
-            }
-          />
-        ) : (
-          /* ── Stack drill-in + flat All view ── */
+        ) : openDirection ? (
+          /* ── Stack drill-in ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
-            {openDirection && (
-              <div className="mb-4">
-                <DirectionTextBlock
-                  description={openDirection.description}
-                  onSave={saveDirectionText}
-                />
+            <div className="mb-4">
+              <DirectionTextBlock
+                description={openDirection.description}
+                onSave={saveDirectionText}
+              />
+            </div>
+            {visibleAssets.length === 0 ? (
+              <p
+                className="mt-10 text-center text-[13px]"
+                style={{ color: "var(--lm-text-tertiary)" }}
+              >
+                {approvedOnly
+                  ? "Nothing approved in this stack yet."
+                  : "Empty stack — drop images anywhere to fill it."}
+              </p>
+            ) : (
+              <div
+                className="columns-1 sm:columns-2 lg:columns-3"
+                style={{ columnGap: "14px" }}
+              >
+                {visibleAssets.map((asset) => (
+                  <ReviewTile
+                    key={asset.id}
+                    asset={asset}
+                    approved={isApproved(asset)}
+                    likes={likesByAsset.get(asset.id)}
+                    onOpen={() => setFocusId(asset.id)}
+                    onApprove={() => toggleApprove(asset)}
+                    showCollectionLabel={false}
+                    isMaster={openDirectionMasterId === asset.id}
+                    onMaster={() =>
+                      setMaster(
+                        openDirection.folderId as string,
+                        openDirectionMasterId === asset.id ? null : asset.id,
+                      )
+                    }
+                    onRemove={() => removeFromDirection(asset)}
+                    onDelete={() => void deleteAssetsByIds([asset.id])}
+                    selectable={selectMode}
+                    selected={selectedIds.has(asset.id)}
+                    onToggleSelect={() => toggleSelect(asset.id)}
+                  />
+                ))}
               </div>
             )}
+          </div>
+        ) : effectiveTab === "beats" ? (
+          /* ── Beats mode: stacked beat cards + New beat ── */
+          <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-8">
             <div
-              className="columns-1 sm:columns-2 lg:columns-3"
+              className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
+              style={{ columnGap: "16px" }}
+            >
+              <AddCard
+                label="New beat"
+                hint="Upload assets, sort them, name it"
+                onClick={() =>
+                  setComposer({ name: "", files: [], buckets: [], prompt: "" })
+                }
+              />
+              {beatCards.map((direction) => (
+                <DirectionCard
+                  key={direction.id}
+                  direction={direction}
+                  onOpen={() => {
+                    setOpenDirectionId(direction.id);
+                    setBeatFocusId(null);
+                  }}
+                  onDelete={() => deleteDirectionById(direction.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* ── Characters / Locations mode: stacks + loose pool assets ── */
+          <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
+            {stackCards.length > 0 && (
+              <div className="mb-5">
+                <p
+                  className="mb-2.5 text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
+                  style={{ color: "var(--lm-coral)" }}
+                >
+                  Stacks
+                </p>
+                <div
+                  className="columns-2 sm:columns-3 xl:columns-5"
+                  style={{ columnGap: "12px" }}
+                >
+                  {stackCards.map((direction) => (
+                    <DirectionCard
+                      key={direction.id}
+                      direction={direction}
+                      onOpen={() => setOpenDirectionId(direction.id)}
+                      onDelete={() => deleteDirectionById(direction.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <p
+              className="mb-2.5 text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
+              style={{ color: "var(--lm-text-ghost)" }}
+            >
+              Assets
+              <span className="ml-2 normal-case tracking-normal">
+                — Select several to group them into a stack
+              </span>
+            </p>
+            <div
+              className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
               style={{ columnGap: "14px" }}
             >
+              <AddCard
+                label={
+                  effectiveTab === "characters"
+                    ? "Add characters"
+                    : "Add locations"
+                }
+                hint="Upload images — or drop them anywhere"
+                onClick={() => fileInputRef.current?.click()}
+              />
               {visibleAssets.map((asset) => (
                 <ReviewTile
                   key={asset.id}
@@ -2021,26 +2112,7 @@ export function ReviewModal({
                   likes={likesByAsset.get(asset.id)}
                   onOpen={() => setFocusId(asset.id)}
                   onApprove={() => toggleApprove(asset)}
-                  showCollectionLabel={effectiveTab === "all" && !openDirection}
-                  isMaster={
-                    openDirection
-                      ? openDirectionMasterId === asset.id
-                      : undefined
-                  }
-                  onMaster={
-                    openDirection
-                      ? () =>
-                          setMaster(
-                            openDirection.folderId as string,
-                            openDirectionMasterId === asset.id
-                              ? null
-                              : asset.id,
-                          )
-                      : undefined
-                  }
-                  onRemove={
-                    openDirection ? () => removeFromDirection(asset) : undefined
-                  }
+                  showCollectionLabel={false}
                   onDelete={() => void deleteAssetsByIds([asset.id])}
                   selectable={selectMode}
                   selected={selectedIds.has(asset.id)}
@@ -2096,6 +2168,43 @@ export function ReviewModal({
                   Remove
                 </button>
               )}
+              {!openDirection &&
+                effectiveTab !== "beats" &&
+                selectedIds.size > 0 && (
+                  <>
+                    <input
+                      type="text"
+                      value={stackName}
+                      onChange={(e) => setStackName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void createStackFromSelection();
+                        }
+                        e.stopPropagation();
+                      }}
+                      placeholder="Stack name…"
+                      className="w-[150px] rounded-lg border px-2.5 py-1.5 text-[12px] outline-none"
+                      style={{
+                        backgroundColor: "var(--lm-surface-2)",
+                        borderColor: "var(--lm-border)",
+                        color: "var(--lm-text-primary)",
+                      }}
+                      aria-label="Name for the new stack"
+                    />
+                    <button
+                      type="button"
+                      disabled={!stackName.trim()}
+                      onClick={() => void createStackFromSelection()}
+                      className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-40"
+                      style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+                      title="Group the selected assets into a named stack (one direction)"
+                    >
+                      <Plus className="h-3.5 w-3.5" strokeWidth={3} />
+                      Create stack
+                    </button>
+                  </>
+                )}
               {selectedIds.size > 0 && (
                 <ArmedDeleteButton
                   label={`Delete ${selectedIds.size}`}
@@ -2177,12 +2286,8 @@ export function ReviewModal({
         <CollectionPicker
           allCollections={allCollections}
           memberIds={memberCollectionIds}
-          // Adding from a layer tab files the collection into that layer.
-          section={
-            effectiveTab !== "all" && effectiveTab !== "unsorted"
-              ? effectiveTab
-              : null
-          }
+          // Adding files the collection into the active layer.
+          section={effectiveTab}
           onToggle={(folderId, isMember) => {
             if (!projectId) return;
             if (isMember) {
@@ -2196,10 +2301,7 @@ export function ReviewModal({
                 ownerUserId,
                 projectId: projectId as Id<"folders">,
                 folderId: folderId as Id<"folders">,
-                section:
-                  effectiveTab !== "all" && effectiveTab !== "unsorted"
-                    ? effectiveTab
-                    : undefined,
+                section: effectiveTab,
               });
             }
           }}
@@ -2211,10 +2313,7 @@ export function ReviewModal({
                 ownerUserId,
                 projectId: projectId as Id<"folders">,
                 folderId,
-                section:
-                  effectiveTab !== "all" && effectiveTab !== "unsorted"
-                    ? effectiveTab
-                    : undefined,
+                section: effectiveTab,
               });
             })();
           }}
@@ -2226,9 +2325,9 @@ export function ReviewModal({
 }
 
 /* ── Direction card ──
- * With a beat: the card IS the shot — rendered at the video's aspect
- * (mostly 16:9), poster idle, playback on hover, full view on click.
- * Without one: the stacked deck of options with the image master on top. */
+ * Beats: a compact STACK with the master video on top — poster idle,
+ * playback on hover, arrows to cycle when the beat has several takes.
+ * Video-less stacks: the fanned deck with the image master + hover rotate. */
 function DirectionCard({
   direction,
   onOpen,
@@ -2240,10 +2339,17 @@ function DirectionCard({
   onDelete?: () => void;
 }) {
   const cover = direction.cover;
-  const beat = direction.beat;
+  const beatVideos = direction.beatVideos;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  // Hover 1s → rotate through the direction's options in place (image decks).
-  const preview = useStackHoverPreview(beat ? 0 : direction.previews.length);
+  const [videoIndex, setVideoIndex] = useState(0);
+  const activeVideo =
+    beatVideos.length > 0
+      ? beatVideos[Math.min(videoIndex, beatVideos.length - 1)]!
+      : null;
+  // Hover 1s → rotate through the options in place (image decks only).
+  const preview = useStackHoverPreview(
+    activeVideo ? 0 : direction.previews.length,
+  );
 
   const optionNoun = direction.section === "beats" ? "frame" : "option";
   const breakdown = [
@@ -2255,60 +2361,151 @@ function DirectionCard({
     .filter(Boolean)
     .join(" · ");
 
-  if (beat) {
+  const cycleVideo = (delta: number) => {
+    setVideoIndex(
+      (current) =>
+        (current + delta + beatVideos.length) % beatVideos.length,
+    );
+    // Still hovered — keep the new take playing.
+    requestAnimationFrame(() => void videoRef.current?.play().catch(() => {}));
+  };
+
+  if (activeVideo) {
     return (
       <div
-        className="group relative mb-6 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
+        className="group relative mb-5 block break-inside-avoid cursor-pointer"
         style={{
           aspectRatio:
-            beat.width && beat.height
-              ? `${beat.width} / ${beat.height}`
+            activeVideo.width && activeVideo.height
+              ? `${activeVideo.width} / ${activeVideo.height}`
               : "16 / 9",
-          border: "1px solid var(--lm-border-strong)",
-          backgroundColor: "#000",
-          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
         }}
         onClick={onOpen}
         onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
         onMouseLeave={() => videoRef.current?.pause()}
         role="button"
-        aria-label={`Open direction: ${direction.name}`}
+        aria-label={`Open beat: ${direction.name}`}
       >
-        <video
-          ref={videoRef}
-          src={beat.url}
-          poster={beat.thumbUrl}
-          muted
-          loop
-          playsInline
-          preload="none"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-
-        {/* Play affordance until hover starts the shot */}
-        <span
-          className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-opacity duration-200 group-hover:opacity-0"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-        >
-          <Play className="ml-0.5 h-5 w-5" fill="#fff" color="#fff" />
-        </span>
-
-        {/* Delete the direction (hover, two-step) */}
-        {onDelete && (
-          <div className="absolute left-2.5 top-2.5 z-10 opacity-0 transition-opacity group-hover:opacity-100">
-            <ArmedDeleteButton
-              compact
-              title="Delete this direction — assets stay in the gallery"
-              onConfirm={onDelete}
+        {/* Fanned deck — the beat's other assets peeking behind the shot */}
+        {direction.backs.map((src, index) => (
+          <div
+            key={`${direction.id}-back-${index}`}
+            className="absolute inset-0 overflow-hidden rounded-xl transition-transform duration-200 ease-out"
+            style={{
+              border: "1px solid var(--lm-border)",
+              backgroundColor: "var(--lm-surface-2)",
+              transform:
+                index === 0
+                  ? "rotate(-2deg) translate(-6px, 5px) scale(0.985)"
+                  : "rotate(2.6deg) translate(7px, 7px) scale(0.97)",
+              zIndex: index === 0 ? 2 : 1,
+            }}
+          >
+            <img
+              src={src}
+              alt=""
+              aria-hidden
+              className="h-full w-full object-cover"
+              style={{ opacity: 0.85 }}
+              loading="lazy"
             />
           </div>
-        )}
+        ))}
 
-        {/* Viewer likes + option count */}
-        <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
-          {direction.likes > 0 && (
+        {/* Master video on top */}
+        <div
+          className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
+          style={{
+            border: "2px solid var(--lm-border-strong)",
+            backgroundColor: "#000",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+          }}
+        >
+          <video
+            ref={videoRef}
+            key={activeVideo.id}
+            src={activeVideo.url}
+            poster={activeVideo.thumbUrl}
+            muted
+            loop
+            playsInline
+            preload="none"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+
+          {/* Play affordance until hover starts the shot */}
+          <span
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-opacity duration-200 group-hover:opacity-0"
+            style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          >
+            <Play className="ml-0.5 h-4 w-4" fill="#fff" color="#fff" />
+          </span>
+
+          {/* Cycle between the beat's takes */}
+          {beatVideos.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cycleVideo(-1);
+                }}
+                className="absolute left-1.5 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+                aria-label="Previous take"
+                title="Previous take"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cycleVideo(1);
+                }}
+                className="absolute right-1.5 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+                aria-label="Next take"
+                title="Next take"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </>
+          )}
+
+          {/* Delete the direction (hover, two-step) */}
+          {onDelete && (
+            <div className="absolute left-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+              <ArmedDeleteButton
+                compact
+                title="Delete this beat — assets stay in the gallery"
+                onConfirm={onDelete}
+              />
+            </div>
+          )}
+
+          {/* Likes + take counter */}
+          <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+            {direction.likes > 0 && (
+              <span
+                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  color: "var(--lm-coral)",
+                  border:
+                    "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+                }}
+              >
+                <Heart
+                  className="h-3 w-3"
+                  fill="currentColor"
+                  strokeWidth={2.5}
+                />
+                {direction.likes}
+              </span>
+            )}
             <span
-              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+              className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
               style={{
                 backgroundColor: "rgba(0,0,0,0.62)",
                 color: "var(--lm-coral)",
@@ -2316,64 +2513,54 @@ function DirectionCard({
                   "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
               }}
             >
-              <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
-              {direction.likes}
+              {beatVideos.length > 1
+                ? `${videoIndex + 1}/${beatVideos.length}`
+                : direction.count}
             </span>
-          )}
-          <span
-            className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-            style={{
-              backgroundColor: "rgba(0,0,0,0.62)",
-              color: "var(--lm-coral)",
-              border:
-                "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-            }}
-          >
-            {direction.count}
-          </span>
-        </div>
-
-        {/* Bottom label over a gradient */}
-        <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
-          style={{
-            background:
-              "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.3) 60%, transparent)",
-          }}
-        />
-        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4">
-          <div className="min-w-0">
-            <p
-              className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
-              style={{ color: "var(--lm-coral)" }}
-            >
-              {direction.section === "beats" ? "Beat" : "Direction"}
-            </p>
-            <p
-              className="truncate text-[17px] font-semibold"
-              style={{
-                color: "#fff",
-                textShadow: "0 1px 4px rgba(0,0,0,0.8)",
-              }}
-            >
-              {direction.name}
-            </p>
-            {breakdown && (
-              <p
-                className="text-[10px] font-mono font-bold uppercase tracking-wider"
-                style={{ color: "rgba(255,255,255,0.68)" }}
-              >
-                {breakdown}
-              </p>
-            )}
           </div>
-          <span
-            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
-            style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
-          >
-            Explore
-            <ChevronRight className="h-3 w-3" />
-          </span>
+
+          {/* Bottom label over a gradient */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-20"
+            style={{
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.3) 60%, transparent)",
+            }}
+          />
+          <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3">
+            <div className="min-w-0">
+              <p
+                className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                style={{ color: "var(--lm-coral)" }}
+              >
+                Beat
+              </p>
+              <p
+                className="truncate text-[15px] font-semibold"
+                style={{
+                  color: "#fff",
+                  textShadow: "0 1px 4px rgba(0,0,0,0.8)",
+                }}
+              >
+                {direction.name}
+              </p>
+              {breakdown && (
+                <p
+                  className="text-[10px] font-mono font-bold uppercase tracking-wider"
+                  style={{ color: "rgba(255,255,255,0.68)" }}
+                >
+                  {breakdown}
+                </p>
+              )}
+            </div>
+            <span
+              className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
+            >
+              Expand
+              <ChevronRight className="h-3 w-3" />
+            </span>
+          </div>
         </div>
       </div>
     );
@@ -2711,6 +2898,38 @@ function ReviewTile({
   );
 }
 
+/* ── Dashed add-card: the mode's primary create action, in the masonry ── */
+function AddCard({
+  label,
+  hint,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-5 flex w-full break-inside-avoid flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-12 transition-colors hover:border-[var(--lm-coral)] hover:text-[var(--lm-coral)]"
+      style={{
+        borderColor: "var(--lm-border-strong)",
+        color: "var(--lm-text-tertiary)",
+      }}
+    >
+      <Plus className="h-6 w-6" />
+      <span className="text-[13px] font-semibold">{label}</span>
+      <span
+        className="text-[10px] font-mono uppercase tracking-wider"
+        style={{ color: "var(--lm-text-ghost)" }}
+      >
+        {hint}
+      </span>
+    </button>
+  );
+}
+
 /* ── Two-step destructive button: first click arms, pointer-leave disarms ── */
 function ArmedDeleteButton({
   label,
@@ -2855,78 +3074,6 @@ function DirectionTextBlock({
           Cancel
         </button>
       </div>
-    </div>
-  );
-}
-
-/* ── Linked stack chip: a character/location stack a beat uses ── */
-function LinkedStackCard({
-  name,
-  count,
-  thumbUrl,
-  onOpen,
-  onUnlink,
-}: {
-  name: string;
-  count: number;
-  thumbUrl?: string;
-  onOpen: () => void;
-  onUnlink?: () => void;
-}) {
-  return (
-    <div
-      className="group relative flex w-[220px] cursor-pointer items-center gap-2.5 rounded-xl border p-2 transition-colors hover:border-[var(--lm-border-strong)]"
-      style={{
-        borderColor: "var(--lm-border)",
-        backgroundColor: "var(--lm-surface-1)",
-      }}
-      onClick={onOpen}
-      role="button"
-      aria-label={`Open stack: ${name}`}
-    >
-      {thumbUrl ? (
-        <img
-          src={thumbUrl}
-          alt=""
-          aria-hidden
-          className="h-12 w-12 shrink-0 rounded-lg object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div
-          className="h-12 w-12 shrink-0 rounded-lg"
-          style={{ backgroundColor: "var(--lm-surface-2)" }}
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <p
-          className="truncate text-[13px] font-semibold"
-          style={{ color: "var(--lm-text-primary)" }}
-        >
-          {name}
-        </p>
-        <p
-          className="text-[10px] font-mono font-bold uppercase tracking-wider"
-          style={{ color: "var(--lm-text-tertiary)" }}
-        >
-          {count} {count === 1 ? "option" : "options"}
-        </p>
-      </div>
-      {onUnlink && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onUnlink();
-          }}
-          className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full group-hover:flex"
-          style={{ backgroundColor: "var(--lm-ink)", color: "var(--lm-paper)" }}
-          aria-label={`Unlink ${name} from this beat`}
-          title="Unlink from this beat"
-        >
-          <X className="h-3 w-3" strokeWidth={3} />
-        </button>
-      )}
     </div>
   );
 }
@@ -3538,42 +3685,3 @@ function CollectionPicker({
   );
 }
 
-function EmptyState({
-  title,
-  hint,
-  actionLabel,
-  onAction,
-}: {
-  title: string;
-  hint: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-      <p
-        className="text-[15px] font-semibold"
-        style={{ color: "var(--lm-text-primary)" }}
-      >
-        {title}
-      </p>
-      <p
-        className="max-w-[42ch] text-[13px]"
-        style={{ color: "var(--lm-text-tertiary)" }}
-      >
-        {hint}
-      </p>
-      {actionLabel && onAction && (
-        <button
-          type="button"
-          onClick={onAction}
-          className="mt-1 flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-mono font-bold uppercase tracking-wider"
-          style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
-        >
-          <FolderPlus className="h-3.5 w-3.5" />
-          {actionLabel}
-        </button>
-      )}
-    </div>
-  );
-}
