@@ -18,14 +18,18 @@ import {
   Heart,
   LayoutGrid,
   Link2,
+  Pencil,
   Play,
   Plus,
   Upload,
   X,
 } from "lucide-react";
+import { useUploadFile } from "@convex-dev/r2/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { buildUploadFormData } from "@/lib/upload-form";
+import { buildIngestKey } from "@/lib/ingest";
+import { uploadVideoToR2 } from "@/lib/video-ingest";
 import {
   StackHoverPreviewOverlay,
   useStackHoverPreview,
@@ -141,6 +145,10 @@ export function ReviewModal({
   const setBeatPairingMutation = useMutation(api.projects.setBeatPairing);
   const setFolderCover = useMutation(api.folders.setFolderCover);
   const createFolder = useMutation(api.folders.createFolder);
+  const updateFolder = useMutation(api.folders.updateFolder);
+  // Videos upload straight from the browser to R2 (the ingest route only
+  // carries image bytes — video files would blow the serverless body limit).
+  const uploadVideo = useUploadFile(api.r2);
   const enableShare = useMutation(api.directionBoard.enableShare);
   const disableShare = useMutation(api.directionBoard.disableShare);
   const shareState = useQuery(
@@ -162,9 +170,12 @@ export function ReviewModal({
   const [focusId, setFocusId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Inline rename of the drilled direction (null = not renaming).
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
   // File drop → upload straight into the project.
   const [dragFilesOver, setDragFilesOver] = useState(false);
   const dragDepthRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadState, setUploadState] = useState<{
     done: number;
     total: number;
@@ -448,11 +459,40 @@ export function ReviewModal({
       let failed = 0;
       for (const file of media) {
         try {
+          const isVideo = file.type.startsWith("video/");
+          // Mirrors the upload panel: images travel in the ingest request;
+          // videos upload browser→R2 with a client-extracted poster, and the
+          // ingest request only carries the r2Key + poster + metadata.
           const formData = buildUploadFormData({
             promptText,
             folderId: targetFolderId,
-            file,
+            file: isVideo ? null : file,
           });
+          if (isVideo) {
+            const upload = await uploadVideoToR2(file, { uploadVideo });
+            formData.append("r2Key", upload.r2Key);
+            formData.append("mediaContentType", upload.contentType);
+            formData.append("mediaSize", String(upload.size));
+            formData.append("mediaWidth", String(upload.poster.width));
+            formData.append("mediaHeight", String(upload.poster.height));
+            formData.append("mediaFileName", upload.fileName);
+            formData.append(
+              "posterFile",
+              new File(
+                [upload.poster.blob],
+                `${upload.fileName}.poster.jpg`,
+                { type: upload.poster.blob.type || "image/jpeg" },
+              ),
+            );
+            formData.append("posterWidth", String(upload.poster.width));
+            formData.append("posterHeight", String(upload.poster.height));
+            // Without a `file` field the form builder derives no ingest key —
+            // key the drop on the file name so re-drops stay idempotent.
+            if (!formData.get("ingestKey")) {
+              const key = buildIngestKey({ fileName: file.name });
+              if (key) formData.append("ingestKey", key);
+            }
+          }
           const response = await fetch("/api/ingest", {
             method: "POST",
             body: formData,
@@ -465,11 +505,7 @@ export function ReviewModal({
             throw new Error(body?.error || "Upload failed.");
           }
           const assetId = body?.result?.assetId;
-          if (
-            !masterVideoAssetId &&
-            assetId &&
-            file.type.startsWith("video/")
-          ) {
+          if (!masterVideoAssetId && assetId && isVideo) {
             masterVideoAssetId = assetId;
           }
         } catch {
@@ -613,6 +649,18 @@ export function ReviewModal({
   useEffect(() => {
     if (!projectId) return;
     const onKey = (e: KeyboardEvent) => {
+      // Typing in an input (rename, picker create, pairing selects) must not
+      // trigger the modal shortcuts — Space would approve, Esc would drill out.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         if (shareOpen) setShareOpen(false);
@@ -898,13 +946,37 @@ export function ReviewModal({
             <Plus className="h-3 w-3" />
             New direction
           </button>
-          <span
-            className="hidden items-center gap-1 text-[10px] font-mono uppercase tracking-wider md:flex"
-            style={{ color: "var(--lm-text-ghost)" }}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-[12px] font-medium transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-tertiary)",
+            }}
+            title={dropTargetLabel.replace("Drop", "Pick files")}
           >
             <Upload className="h-3 w-3" />
-            or drop files
+            Upload files
+          </button>
+          <span
+            className="hidden text-[10px] font-mono uppercase tracking-wider md:inline"
+            style={{ color: "var(--lm-text-ghost)" }}
+          >
+            or drop anywhere
           </span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*,.txt"
+            className="hidden"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              if (files.length > 0) void handleFilesDrop(files);
+            }}
+          />
         </div>
       )}
 
@@ -954,12 +1026,65 @@ export function ReviewModal({
             <ArrowLeft className="h-3.5 w-3.5" />
             {TAB_LABELS[effectiveTab]}
           </button>
-          <span
-            className="truncate text-[14px] font-semibold"
-            style={{ color: "var(--lm-text-primary)" }}
-          >
-            {openDirection.name}
-          </span>
+          {renameDraft !== null ? (
+            <input
+              autoFocus
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const name = renameDraft.trim();
+                  setRenameDraft(null);
+                  if (!name || name === openDirection.name) return;
+                  void updateFolder({
+                    ownerUserId,
+                    folderId: openDirection.folderId,
+                    name,
+                  });
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenameDraft(null);
+                }
+              }}
+              onBlur={() => {
+                const name = (renameDraft ?? "").trim();
+                setRenameDraft(null);
+                if (!name || name === openDirection.name) return;
+                void updateFolder({
+                  ownerUserId,
+                  folderId: openDirection.folderId,
+                  name,
+                });
+              }}
+              className="w-[220px] rounded-lg border px-2 py-1 text-[14px] font-semibold outline-none"
+              style={{
+                backgroundColor: "var(--lm-surface-2)",
+                borderColor: "var(--lm-coral)",
+                color: "var(--lm-text-primary)",
+              }}
+              aria-label="Rename direction"
+            />
+          ) : (
+            <>
+              <span
+                className="truncate text-[14px] font-semibold"
+                style={{ color: "var(--lm-text-primary)" }}
+              >
+                {openDirection.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setRenameDraft(openDirection.name)}
+                className="flex h-6 w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+                style={{ color: "var(--lm-text-ghost)" }}
+                aria-label="Rename direction"
+                title="Rename this direction"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </>
+          )}
           <span
             className="text-[11px]"
             style={{ color: "var(--lm-text-tertiary)" }}
