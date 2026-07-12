@@ -221,18 +221,31 @@ export function GallerySidebar({
         )}
 
         {collapsed && (
-          <span
-            style={{
-              width: "10px",
-              height: "10px",
-              background:
-                "linear-gradient(135deg, var(--lm-coral) 0%, rgba(255, 122, 100, 0.65) 100%)",
-              transform: "rotate(45deg)",
-              flexShrink: 0,
-              boxShadow: "0 0 10px rgba(255, 122, 100, 0.5)",
-              borderRadius: "1px",
-            }}
-          />
+          <button
+            type="button"
+            onClick={() => onCollapsedChange(false)}
+            className="group/expand flex h-full w-full items-center justify-center"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <span
+              className="group-hover/expand:hidden"
+              style={{
+                width: "10px",
+                height: "10px",
+                background:
+                  "linear-gradient(135deg, var(--lm-coral) 0%, rgba(255, 122, 100, 0.65) 100%)",
+                transform: "rotate(45deg)",
+                flexShrink: 0,
+                boxShadow: "0 0 10px rgba(255, 122, 100, 0.5)",
+                borderRadius: "1px",
+              }}
+            />
+            <ChevronRight
+              className="hidden h-4 w-4 group-hover/expand:block"
+              style={{ color: "var(--lm-coral)" }}
+            />
+          </button>
         )}
 
         {!collapsed && (
@@ -248,31 +261,6 @@ export function GallerySidebar({
           </div>
         )}
       </div>
-
-      {/* Expand toggle (collapsed) — floating glass chip */}
-      {collapsed && (
-        <button
-          type="button"
-          onClick={() => onCollapsedChange(false)}
-          className="absolute -right-3.5 top-[64px] flex items-center justify-center z-10 transition-all"
-          style={{
-            width: "26px",
-            height: "26px",
-            background:
-              "linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.78) 100%)",
-            border: "1px solid rgba(255, 122, 100, 0.45)",
-            borderRadius: "999px",
-            color: "var(--lm-coral)",
-            backdropFilter: "blur(10px) saturate(180%)",
-            WebkitBackdropFilter: "blur(10px) saturate(180%)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 8px rgba(255, 122, 100, 0.18), 0 4px 16px rgba(32, 23, 16, 0.08)",
-          }}
-          aria-label="Expand sidebar"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      )}
 
       {/* Navigation */}
       <div

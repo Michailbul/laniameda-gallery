@@ -795,6 +795,18 @@ export function GalleryDetailPanel({
                   transitionDuration: "500ms",
                 }}
                 priority
+                ref={(node) => {
+                  // Cached full-res images can be complete before onLoad wires
+                  // up — never leave the full layer invisible behind the
+                  // compressed thumb.
+                  if (node?.complete && node.naturalWidth > 0) {
+                    setFullLoadedMap((prev) =>
+                      prev[carouselIndex]
+                        ? prev
+                        : { ...prev, [carouselIndex]: true },
+                    );
+                  }
+                }}
                 onLoad={(e) => {
                   if (e.currentTarget.naturalWidth > 0) {
                     setFullLoadedMap((prev) => ({
