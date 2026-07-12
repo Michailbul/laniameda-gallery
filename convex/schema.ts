@@ -217,6 +217,8 @@ export default defineSchema({
     .index("by_tag_createdAt", ["tagId", "createdAt"]),
   assets: defineTable({
     ownerUserId: v.optional(v.string()),
+    // User-given handle, referenced as @name when composing beats.
+    name: v.optional(v.string()),
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),
@@ -267,6 +269,7 @@ export default defineSchema({
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_name", ["ownerUserId", "name"])
     .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
     .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])

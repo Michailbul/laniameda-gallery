@@ -1939,6 +1939,95 @@ export const addAssetTags = mutation({
   },
 });
 
+// Rename an asset. The name is a short user-given handle, referenced as
+// @name when composing beats. Empty clears it.
+export const renameAsset = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    name: v.string(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    name: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    const name = args.name.trim().slice(0, 80) || undefined;
+    await ctx.db.patch(asset._id, { name });
+    return { assetId: asset._id, name };
+  },
+});
+
+// Every named asset of this owner, for the @name selector when composing a
+// beat. Names are hand-given and sparse, so the full list stays small; the
+// client filters as the user types.
+export const listNamedAssets = query({
+  args: {
+    ownerUserId: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      assetId: v.id("assets"),
+      name: v.string(),
+      kind: v.union(v.literal("image"), v.literal("video")),
+      thumbUrl: v.optional(v.string()),
+      tagNames: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const named: Doc<"assets">[] = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const rows = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_name", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gt("name", ""),
+        )
+        .take(300);
+      named.push(...rows);
+    }
+
+    const tagNameById = new Map<Id<"tags">, string | null>();
+    const resolveTagNames = async (tagIds: Id<"tags">[]) => {
+      const names: string[] = [];
+      for (const tagId of tagIds) {
+        if (!tagNameById.has(tagId)) {
+          const tag = await ctx.db.get(tagId);
+          tagNameById.set(tagId, tag?.name ?? null);
+        }
+        const name = tagNameById.get(tagId);
+        if (name) names.push(name);
+      }
+      return names;
+    };
+
+    return await Promise.all(
+      named.map(async (asset) => ({
+        assetId: asset._id,
+        name: asset.name!,
+        kind: asset.kind,
+        thumbUrl: (await resolveAssetThumbUrl(ctx, asset)) ?? undefined,
+        tagNames: await resolveTagNames(asset.tagIds),
+      })),
+    );
+  },
+});
+
 // The global tag used to mark an asset "approved" in the review workflow.
 export const APPROVED_TAG_NAME = "approved";
 

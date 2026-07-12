@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
+  AtSign,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -65,6 +66,15 @@ const TAB_LABELS: Record<ReviewTab, string> = {
  * default to stills and can be flipped to character / location. */
 type BeatBucket = "video" | "character" | "location" | "still";
 
+/** An existing asset pulled into a drafted beat via the @name selector. */
+type LinkedRef = {
+  assetId: string;
+  name: string;
+  kind: "image" | "video";
+  thumbUrl?: string;
+  bucket: BeatBucket;
+};
+
 type AssetLikes = { count: number; names: string[] };
 
 // Tooltip text for a like badge: viewer names when they left one, plus an
@@ -94,6 +104,8 @@ type ReviewModalProps = {
 
 type ReviewAsset = {
   id: string;
+  /** User-given handle, referenced as @name when composing beats. */
+  name?: string;
   url?: string;
   thumbUrl?: string;
   kind: "image" | "video";
@@ -155,6 +167,7 @@ export function ReviewModal({
   );
 
   const setApproved = useMutation(api.assets.setAssetApproved);
+  const renameAssetMutation = useMutation(api.assets.renameAsset);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
   const addAssetFolders = useMutation(api.assets.addAssetFolders);
   const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
@@ -174,6 +187,11 @@ export function ReviewModal({
     projectId
       ? { ownerUserId, projectId: projectId as Id<"folders"> }
       : "skip",
+  );
+  // Named assets across the gallery, for the beat composer's @name selector.
+  const namedAssets = useQuery(
+    api.assets.listNamedAssets,
+    projectId ? { ownerUserId } : "skip",
   );
 
   // The active mode of the centered toggle. Projects open on Beats.
@@ -199,6 +217,8 @@ export function ReviewModal({
     name: string;
     files: File[];
     buckets: BeatBucket[];
+    /** Existing assets pulled in via @name. */
+    linked: LinkedRef[];
     prompt: string;
   }>(null);
   const composerOpen = composer !== null;
@@ -286,6 +306,7 @@ export function ReviewModal({
       collection: ProjectCollection,
     ): ReviewAsset => ({
       id: asset._id as string,
+      name: asset.name,
       url: asset.url ?? asset.thumbUrl,
       thumbUrl: asset.thumbUrl ?? asset.url,
       kind: asset.kind,
@@ -455,6 +476,34 @@ export function ReviewModal({
     return out;
   }, [effectiveTab, tabCollections, poolCollection, toReviewAsset]);
 
+  // Files dropped into the project from the gallery (e.g. the Inbox from
+  // "Add to project") — neither beats nor characters/locations. They show on
+  // the project's main (Beats) page until filed.
+  const unsortedCollections = useMemo(
+    () =>
+      (project?.collections ?? []).filter(
+        (c) => tabOf(c.section) === "unsorted",
+      ),
+    [project],
+  );
+  const unsortedIds = useMemo(
+    () => new Set(unsortedCollections.map((c) => c.folderId as string)),
+    [unsortedCollections],
+  );
+  const unsortedAssets = useMemo<ReviewAsset[]>(() => {
+    const out: ReviewAsset[] = [];
+    const seen = new Set<string>();
+    for (const collection of unsortedCollections) {
+      for (const raw of collection.assets) {
+        const id = raw._id as string;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push(toReviewAsset(raw, collection));
+      }
+    }
+    return out;
+  }, [unsortedCollections, toReviewAsset]);
+
   const drilledAssets = useMemo<ReviewAsset[]>(
     () =>
       openDirection
@@ -475,11 +524,13 @@ export function ReviewModal({
     ? tabOf(openDirection.section) === "beats"
     : false;
 
-  // The tile scope: a drilled direction's assets, or the mode's loose pool.
-  const assets = useMemo<ReviewAsset[]>(
-    () => (openDirection ? drilledAssets : looseAssets),
-    [openDirection, drilledAssets, looseAssets],
-  );
+  // The tile scope: a drilled direction's assets, the mode's loose pool, or
+  // (on the Beats main page) the project's unsorted files.
+  const assets = useMemo<ReviewAsset[]>(() => {
+    if (openDirection) return drilledAssets;
+    if (effectiveTab === "beats") return unsortedAssets;
+    return looseAssets;
+  }, [openDirection, drilledAssets, effectiveTab, unsortedAssets, looseAssets]);
 
   const isApproved = useCallback(
     (asset: ReviewAsset) =>
@@ -746,6 +797,7 @@ export function ReviewModal({
               file.type.startsWith("video/") ? "video" : "still",
           ),
         ],
+        linked: prev?.linked ?? [],
         prompt: [prev?.prompt, promptText].filter(Boolean).join("\n\n"),
       }));
       return;
@@ -765,7 +817,7 @@ export function ReviewModal({
     if (!composer || !projectId) return;
     const name = composer.name.trim();
     if (!name) return;
-    const { files, buckets, prompt } = composer;
+    const { files, buckets, linked, prompt } = composer;
     try {
       const created = await createFolder({
         ownerUserId,
@@ -781,6 +833,33 @@ export function ReviewModal({
       setComposer(null);
       setOpenDirectionId(created.folderId as string);
       setBeatFocusId(null);
+      // Resolve each pool once per save — `pools` is stale inside this
+      // closure after the first ensurePool creates one.
+      const poolIds: Partial<Record<"characters" | "locations", string>> = {};
+      const fileToPool = async (assetId: string, bucket: BeatBucket) => {
+        if (bucket !== "character" && bucket !== "location") return;
+        const section =
+          bucket === "character"
+            ? ("characters" as const)
+            : ("locations" as const);
+        try {
+          poolIds[section] = poolIds[section] ?? (await ensurePool(section));
+          await addAssetFolders({
+            ownerUserId,
+            assetId: assetId as Id<"assets">,
+            folderIds: [poolIds[section] as Id<"folders">],
+          });
+        } catch {
+          // Pool filing is best-effort; the asset still lives in the beat.
+        }
+        void addAssetTagsMutation({
+          ownerUserId,
+          assetId: assetId as Id<"assets">,
+          tagNames: [bucket],
+        }).catch(() => {});
+      };
+
+      let hasVideoMaster = false;
       if (files.length > 0) {
         const uploaded = await uploadFilesToDirection(
           files,
@@ -788,32 +867,29 @@ export function ReviewModal({
           prompt.trim(),
           false,
         );
-        // Resolve each pool once per save — `pools` is stale inside this
-        // closure after the first ensurePool creates one.
-        const poolIds: Partial<Record<"characters" | "locations", string>> =
-          {};
+        hasVideoMaster = uploaded.some((u) => u.assetId && u.isVideo);
         for (const [index, entry] of uploaded.entries()) {
-          const bucket = buckets[index];
           if (!entry.assetId || entry.isVideo) continue;
-          if (bucket !== "character" && bucket !== "location") continue;
-          const section =
-            bucket === "character"
-              ? ("characters" as const)
-              : ("locations" as const);
-          try {
-            poolIds[section] = poolIds[section] ?? (await ensurePool(section));
-            await addAssetFolders({
-              ownerUserId,
-              assetId: entry.assetId as Id<"assets">,
-              folderIds: [poolIds[section] as Id<"folders">],
-            });
-          } catch {
-            // Pool filing is best-effort; the asset still lives in the beat.
-          }
-          void addAssetTagsMutation({
+          await fileToPool(entry.assetId, buckets[index] ?? "still");
+        }
+      }
+
+      // Existing assets pulled in by @name: attach to the beat + pool-file.
+      for (const ref of linked) {
+        await addAssetFolders({
+          ownerUserId,
+          assetId: ref.assetId as Id<"assets">,
+          folderIds: [created.folderId],
+        }).catch(() => {});
+        if (ref.kind !== "video") {
+          await fileToPool(ref.assetId, ref.bucket);
+        } else if (!hasVideoMaster) {
+          // A referenced video becomes the master when no upload claimed it.
+          hasVideoMaster = true;
+          await setFolderCover({
             ownerUserId,
-            assetId: entry.assetId as Id<"assets">,
-            tagNames: [bucket],
+            folderId: created.folderId,
+            assetId: ref.assetId as Id<"assets">,
           }).catch(() => {});
         }
       }
@@ -987,6 +1063,44 @@ export function ReviewModal({
     },
     [ownerUserId, deleteFolderMutation],
   );
+
+  // Rename an asset — its @name handle for beat composing.
+  const renameAsset = useCallback(
+    (assetId: string, name: string) => {
+      void renameAssetMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        name,
+      }).catch(() => {});
+    },
+    [ownerUserId, renameAssetMutation],
+  );
+
+  // File an unsorted project file into the Characters/Locations pool: pool
+  // membership + role tag replace its unsorted memberships (a move). Plain
+  // closure (not memoized) because ensurePool is re-created each render.
+  const fileUnsortedTo = async (
+    asset: ReviewAsset,
+    section: "characters" | "locations",
+  ) => {
+    const poolId = await ensurePool(section);
+    const next = [
+      ...new Set([
+        ...asset.folderIds.filter((id) => !unsortedIds.has(id)),
+        poolId,
+      ]),
+    ];
+    await setAssetFolders({
+      ownerUserId,
+      assetId: asset.id as Id<"assets">,
+      folderIds: next as Id<"folders">[],
+    }).catch(() => {});
+    void addAssetTagsMutation({
+      ownerUserId,
+      assetId: asset.id as Id<"assets">,
+      tagNames: [section === "characters" ? "character" : "location"],
+    }).catch(() => {});
+  };
 
   // Save the drilled direction's text (its description).
   const saveDirectionText = useCallback(
@@ -1226,7 +1340,9 @@ export function ReviewModal({
           </button>
           {hasCollections &&
             !inFocus &&
-            (Boolean(openDirection) || effectiveTab !== "beats") && (
+            (Boolean(openDirection) ||
+              effectiveTab !== "beats" ||
+              unsortedAssets.length > 0) && (
             <button
               type="button"
               onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
@@ -1688,6 +1804,170 @@ export function ReviewModal({
                 )}
               </div>
 
+              {/* Pull in existing assets by @name */}
+              <div className="mt-6">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span
+                    className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                    style={{ color: "var(--lm-text-ghost)" }}
+                  >
+                    By name
+                  </span>
+                  <span
+                    className="text-[11px]"
+                    style={{ color: "var(--lm-text-tertiary)" }}
+                  >
+                    Reference named assets — characters, locations, takes
+                  </span>
+                </div>
+                <AtNameSelector
+                  options={(namedAssets ?? []).filter(
+                    (option) =>
+                      !composer.linked.some(
+                        (ref) => ref.assetId === (option.assetId as string),
+                      ),
+                  )}
+                  onPick={(option) =>
+                    setComposer((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            linked: [
+                              ...prev.linked,
+                              {
+                                assetId: option.assetId as string,
+                                name: option.name,
+                                kind: option.kind,
+                                thumbUrl: option.thumbUrl,
+                                bucket:
+                                  option.kind === "video"
+                                    ? "video"
+                                    : option.tagNames.includes("character")
+                                      ? "character"
+                                      : option.tagNames.includes("location")
+                                        ? "location"
+                                        : "still",
+                              },
+                            ],
+                          }
+                        : prev,
+                    )
+                  }
+                />
+                {composer.linked.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-4">
+                    {composer.linked.map((ref, index) => {
+                      const setBucket = (next: BeatBucket) =>
+                        setComposer((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                linked: prev.linked.map((l, i) =>
+                                  i === index ? { ...l, bucket: next } : l,
+                                ),
+                              }
+                            : prev,
+                        );
+                      return (
+                        <div
+                          key={ref.assetId}
+                          className="group relative w-[132px]"
+                        >
+                          {ref.thumbUrl ? (
+                            <img
+                              src={ref.thumbUrl}
+                              alt={ref.name}
+                              className="h-24 w-full rounded-lg object-cover"
+                            />
+                          ) : (
+                            <div
+                              className="h-24 w-full rounded-lg"
+                              style={{ backgroundColor: "var(--lm-surface-2)" }}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setComposer((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      linked: prev.linked.filter(
+                                        (_, i) => i !== index,
+                                      ),
+                                    }
+                                  : prev,
+                              )
+                            }
+                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                            style={{
+                              backgroundColor: "var(--lm-ink)",
+                              color: "var(--lm-paper)",
+                            }}
+                            aria-label={`Remove @${ref.name}`}
+                          >
+                            <X className="h-3 w-3" strokeWidth={3} />
+                          </button>
+                          <p
+                            className="mt-1 truncate text-[10px] font-mono font-bold tracking-wider"
+                            style={{ color: "var(--lm-coral)" }}
+                          >
+                            @{ref.name}
+                          </p>
+                          {ref.kind === "video" ? (
+                            <span
+                              className="mt-1 flex items-center justify-center gap-1 rounded-md py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+                              style={{
+                                backgroundColor: "var(--lm-surface-2)",
+                                color: "var(--lm-text-tertiary)",
+                              }}
+                            >
+                              <Play className="h-2.5 w-2.5" fill="currentColor" />
+                              Video
+                            </span>
+                          ) : (
+                            <div className="mt-1 flex items-center gap-0.5">
+                              {(
+                                [
+                                  ["character", "Char", User],
+                                  ["location", "Loc", MapPin],
+                                  ["still", "Still", null],
+                                ] as const
+                              ).map(([key, label, Icon]) => {
+                                const active = ref.bucket === key;
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setBucket(key)}
+                                    className="flex flex-1 items-center justify-center gap-0.5 rounded-md border py-0.5 text-[8px] font-mono font-bold uppercase tracking-wide transition-colors"
+                                    style={{
+                                      borderColor: active
+                                        ? "var(--lm-coral)"
+                                        : "var(--lm-border)",
+                                      backgroundColor: active
+                                        ? "color-mix(in srgb, var(--lm-coral) 18%, transparent)"
+                                        : "transparent",
+                                      color: active
+                                        ? "var(--lm-coral)"
+                                        : "var(--lm-text-ghost)",
+                                    }}
+                                    aria-pressed={active}
+                                  >
+                                    {Icon && <Icon className="h-2.5 w-2.5" />}
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Save / discard */}
               <div
                 className="mt-8 flex items-center gap-3 border-t pt-5"
@@ -1747,6 +2027,7 @@ export function ReviewModal({
             }
             onRemove={openDirection ? removeFromDirection : undefined}
             onDelete={(asset) => void deleteAssetsByIds([asset.id])}
+            onRename={(asset, next) => renameAsset(asset.id, next)}
             showCollectionLabel={false}
           />
         ) : openDirection && drilledIsBeat ? (
@@ -1785,6 +2066,10 @@ export function ReviewModal({
 
                   {/* Focused element actions */}
                   <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <AssetNameEditor
+                      name={beatFocus.name}
+                      onSave={(next) => renameAsset(beatFocus.id, next)}
+                    />
                     <span
                       className="text-[11px] font-mono"
                       style={{ color: "var(--lm-text-tertiary)" }}
@@ -2040,7 +2325,13 @@ export function ReviewModal({
                 label="New beat"
                 hint="Upload assets, sort them, name it"
                 onClick={() =>
-                  setComposer({ name: "", files: [], buckets: [], prompt: "" })
+                  setComposer({
+                    name: "",
+                    files: [],
+                    buckets: [],
+                    linked: [],
+                    prompt: "",
+                  })
                 }
               />
               {beatCards.map((direction) => (
@@ -2055,6 +2346,48 @@ export function ReviewModal({
                 />
               ))}
             </div>
+
+            {/* Unsorted project files (added from the gallery) */}
+            {visibleAssets.length > 0 && (
+              <div className="mx-auto mt-8 max-w-[1500px]">
+                <p
+                  className="mb-2.5 text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  Unsorted
+                  <span className="ml-2 normal-case tracking-normal">
+                    — added from the gallery; file them as characters or
+                    locations, or use them in beats
+                  </span>
+                </p>
+                <div
+                  className="columns-2 sm:columns-3 xl:columns-5"
+                  style={{ columnGap: "12px" }}
+                >
+                  {visibleAssets.map((asset) => (
+                    <ReviewTile
+                      key={asset.id}
+                      asset={asset}
+                      approved={isApproved(asset)}
+                      likes={likesByAsset.get(asset.id)}
+                      onOpen={() => setFocusId(asset.id)}
+                      onApprove={() => toggleApprove(asset)}
+                      showCollectionLabel={false}
+                      onDelete={() => void deleteAssetsByIds([asset.id])}
+                      onFileCharacter={() =>
+                        void fileUnsortedTo(asset, "characters")
+                      }
+                      onFileLocation={() =>
+                        void fileUnsortedTo(asset, "locations")
+                      }
+                      selectable={selectMode}
+                      selected={selectedIds.has(asset.id)}
+                      onToggleSelect={() => toggleSelect(asset.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* ── Characters / Locations mode: stacks + loose pool assets ── */
@@ -2717,6 +3050,8 @@ function ReviewTile({
   onMaster,
   onRemove,
   onDelete,
+  onFileCharacter,
+  onFileLocation,
   selectable,
   selected,
   onToggleSelect,
@@ -2735,6 +3070,10 @@ function ReviewTile({
   onRemove?: () => void;
   /** Permanently deletes the asset from the gallery. */
   onDelete?: () => void;
+  /** One-shot filing of an unsorted file into the Characters / Locations
+   * pool (a move — it leaves the unsorted section). */
+  onFileCharacter?: () => void;
+  onFileLocation?: () => void;
   /** Multiselect: clicks toggle selection instead of opening the feed. */
   selectable?: boolean;
   selected?: boolean;
@@ -2863,6 +3202,64 @@ function ReviewTile({
         </div>
       )}
 
+      {/* @name handle */}
+      {asset.name && !selectable && (
+        <div
+          className={`pointer-events-none absolute bottom-2.5 left-2.5 z-10 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold tracking-wider ${
+            onFileCharacter || onFileLocation
+              ? "transition-opacity group-hover:opacity-0"
+              : ""
+          }`}
+          style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "var(--lm-coral)" }}
+        >
+          @{asset.name}
+        </div>
+      )}
+
+      {/* File an unsorted asset into a pool (hover) */}
+      {(onFileCharacter || onFileLocation) && !selectable && (
+        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {onFileCharacter && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFileCharacter();
+              }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="File into this project's Characters"
+            >
+              <User className="h-3 w-3" strokeWidth={2.5} />
+              Char
+            </button>
+          )}
+          {onFileLocation && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFileLocation();
+              }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="File into this project's Locations"
+            >
+              <MapPin className="h-3 w-3" strokeWidth={2.5} />
+              Loc
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Remove (membership) + Delete (permanent), bottom-right on hover */}
       {(onRemove || onDelete) && !selectable && (
         <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -2892,6 +3289,177 @@ function ReviewTile({
               onConfirm={onDelete}
             />
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Inline @name editor: the asset's handle for beat composing ── */
+function AssetNameEditor({
+  name,
+  onSave,
+}: {
+  name?: string;
+  onSave: (name: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (draft === null) {
+    return (
+      <button
+        type="button"
+        onClick={() => setDraft(name ?? "")}
+        className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold tracking-wider transition-opacity hover:opacity-80"
+        style={{
+          borderColor: "var(--lm-border)",
+          color: name ? "var(--lm-coral)" : "var(--lm-text-ghost)",
+        }}
+        title="Name this asset — reference it later as @name"
+      >
+        <AtSign className="h-3 w-3" />
+        {name ?? "name"}
+      </button>
+    );
+  }
+
+  const commit = () => {
+    const next = (draft ?? "").trim();
+    setDraft(null);
+    if (next === (name ?? "")) return;
+    onSave(next);
+  };
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setDraft(null);
+        }
+      }}
+      onBlur={commit}
+      placeholder="e.g. cassandra"
+      className="w-[150px] rounded-lg border px-2 py-1 text-[12px] outline-none"
+      style={{
+        backgroundColor: "var(--lm-surface-2)",
+        borderColor: "var(--lm-coral)",
+        color: "var(--lm-text-primary)",
+      }}
+      aria-label="Asset name"
+    />
+  );
+}
+
+/* ── @name autocomplete for the beat composer ── */
+type NamedAssetOption = {
+  assetId: string;
+  name: string;
+  kind: "image" | "video";
+  thumbUrl?: string;
+  tagNames: string[];
+};
+
+function AtNameSelector({
+  options,
+  onPick,
+}: {
+  options: NamedAssetOption[];
+  onPick: (option: NamedAssetOption) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const needle = query.replace(/^@/, "").trim().toLowerCase();
+  const matches = needle
+    ? options
+        .filter((option) => option.name.toLowerCase().includes(needle))
+        .slice(0, 8)
+    : [];
+
+  return (
+    <div className="relative mt-3 max-w-[420px]">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && matches[0]) {
+            e.preventDefault();
+            onPick(matches[0]);
+            setQuery("");
+          } else if (e.key === "Escape") {
+            setQuery("");
+          }
+          e.stopPropagation();
+        }}
+        placeholder="@name — pull in an existing asset…"
+        className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none transition-colors focus:border-[var(--lm-coral)]"
+        style={{
+          backgroundColor: "var(--lm-surface-2)",
+          borderColor: "var(--lm-border)",
+          color: "var(--lm-text-primary)",
+        }}
+        aria-label="Add an existing asset by name"
+      />
+      {matches.length > 0 && (
+        <div
+          className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-lg border"
+          style={{
+            backgroundColor: "var(--lm-surface-1)",
+            borderColor: "var(--lm-border-strong)",
+            boxShadow: "var(--shadow-lg)",
+          }}
+          role="listbox"
+        >
+          {matches.map((option) => (
+            <button
+              key={option.assetId}
+              type="button"
+              onClick={() => {
+                onPick(option);
+                setQuery("");
+              }}
+              className="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left transition-colors hover:bg-[var(--lm-surface-2)]"
+              role="option"
+              aria-selected={false}
+            >
+              {option.thumbUrl ? (
+                <img
+                  src={option.thumbUrl}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded-md object-cover"
+                />
+              ) : (
+                <span
+                  className="h-8 w-8 shrink-0 rounded-md"
+                  style={{ backgroundColor: "var(--lm-surface-2)" }}
+                />
+              )}
+              <span
+                className="min-w-0 flex-1 truncate text-[12px] font-semibold"
+                style={{ color: "var(--lm-text-primary)" }}
+              >
+                @{option.name}
+              </span>
+              <span
+                className="shrink-0 text-[9px] font-mono font-bold uppercase tracking-wider"
+                style={{ color: "var(--lm-text-ghost)" }}
+              >
+                {option.kind === "video"
+                  ? "video"
+                  : option.tagNames.includes("character")
+                    ? "character"
+                    : option.tagNames.includes("location")
+                      ? "location"
+                      : "image"}
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -3090,6 +3658,7 @@ function FocusScrollFeed({
   onMaster,
   onRemove,
   onDelete,
+  onRename,
   showCollectionLabel,
 }: {
   assets: ReviewAsset[];
@@ -3104,6 +3673,8 @@ function FocusScrollFeed({
   onRemove?: (asset: ReviewAsset) => void;
   /** Permanently delete from the gallery. */
   onDelete?: (asset: ReviewAsset) => void;
+  /** Rename the asset (its @name handle). */
+  onRename?: (asset: ReviewAsset, name: string) => void;
   showCollectionLabel: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -3179,6 +3750,12 @@ function FocusScrollFeed({
               >
                 {index + 1}/{assets.length}
               </span>
+              {onRename && (
+                <AssetNameEditor
+                  name={asset.name}
+                  onSave={(next) => onRename(asset, next)}
+                />
+              )}
               {showCollectionLabel && (
                 <span
                   className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
