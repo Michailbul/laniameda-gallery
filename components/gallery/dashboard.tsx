@@ -2738,24 +2738,41 @@ export function GalleryDashboard({
           modelTags={modelTags}
           hideModelsSection={selectedPillar === "cinema-inspiration"}
           selectedModelName={selectedModelName}
-          onModelSelect={setSelectedModelName}
+          onModelSelect={(name) => {
+            // Navigating anywhere else leaves the project workspace — the
+            // gallery behind it is what these filters act on.
+            setOpenProjectId(null);
+            setSelectedModelName(name);
+          }}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
-          onUploadClick={openAddModal}
+          onUploadClick={() => {
+            setOpenProjectId(null);
+            openAddModal();
+          }}
           onSeedanceClick={() => setSeedanceOpen(true)}
           onStorybooksTab={
             canManageFoldersInCurrentView
-              ? () => setStorybooksView(true)
+              ? () => {
+                  setOpenProjectId(null);
+                  setStorybooksView(true);
+                }
               : undefined
           }
           storybooksTabActive={storybooksView}
-          onGalleryHome={() => setStorybooksView(false)}
+          onGalleryHome={() => {
+            setOpenProjectId(null);
+            setStorybooksView(false);
+          }}
           user={user}
           onSignOut={onSignOut}
           imageCount={imageCount}
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
-          onFolderSelect={setSelectedFolderId}
+          onFolderSelect={(folderId) => {
+            setOpenProjectId(null);
+            setSelectedFolderId(folderId);
+          }}
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
@@ -2769,7 +2786,12 @@ export function GalleryDashboard({
               : []
           }
           onStorybookOpen={
-            canManageFoldersInCurrentView ? setOpenStorybookId : undefined
+            canManageFoldersInCurrentView
+              ? (storybookId) => {
+                  setOpenProjectId(null);
+                  setOpenStorybookId(storybookId);
+                }
+              : undefined
           }
           onCreateStorybook={
             canManageFoldersInCurrentView ? createStorybook : undefined
@@ -2779,6 +2801,7 @@ export function GalleryDashboard({
               ? handleAssetsDropOnStorybook
               : undefined
           }
+          activeProjectId={openProjectId}
           projects={
             canManageFoldersInCurrentView
               ? (projects ?? []).map((project) => ({

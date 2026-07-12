@@ -72,6 +72,8 @@ interface GallerySidebarProps {
   onAssetsDropOnStorybook?: (storybookId: string, assetIds: string[]) => void;
   /** Projects — rows open the fullscreen review workspace. */
   projects?: ProjectEntry[];
+  /** The project whose review workspace is currently open, if any. */
+  activeProjectId?: string | null;
   onProjectOpen?: (projectId: string) => void;
   onCreateProject?: (name: string) => Promise<string | null>;
   /** Dropping assets on a project files them into its Inbox direction. */
@@ -109,6 +111,7 @@ export function GallerySidebar({
   onCreateStorybook,
   onAssetsDropOnStorybook,
   projects = [],
+  activeProjectId,
   onProjectOpen,
   onCreateProject,
   onAssetsDropOnProject,
@@ -478,6 +481,7 @@ export function GallerySidebar({
                     <ProjectRow
                       key={project._id}
                       project={project}
+                      active={project._id === activeProjectId}
                       onOpen={() => onProjectOpen(project._id)}
                       onDropAssets={
                         onAssetsDropOnProject
@@ -905,11 +909,14 @@ function NavItem({
 
 function ProjectRow({
   project,
+  active = false,
   onOpen,
   onDropAssets,
   onDropAssetsOnDirection,
 }: {
   project: ProjectEntry;
+  /** True while this project's review workspace is open. */
+  active?: boolean;
   onOpen: () => void;
   onDropAssets?: (assetIds: string[]) => void;
   onDropAssetsOnDirection?: (directionId: string, assetIds: string[]) => void;
@@ -925,7 +932,7 @@ function ProjectRow({
         type="button"
         onClick={onOpen}
         className="lm-glass-filter-row cursor-pointer"
-        data-active="false"
+        data-active={active ? "true" : "false"}
         onDragOver={
           droppable
             ? (event) => {
@@ -966,13 +973,16 @@ function ProjectRow({
       >
         <Layers
           className="h-3 w-3 flex-shrink-0"
-          style={{ color: "var(--lm-sidebar-text-ghost)" }}
+          style={{
+            color: active ? "var(--lm-coral)" : "var(--lm-sidebar-text-ghost)",
+            transition: "color var(--lm-duration-fast)",
+          }}
         />
         <span
           className="min-w-0 flex-1 truncate text-left"
           style={{
             fontSize: "10px",
-            fontWeight: 500,
+            fontWeight: active ? 700 : 500,
             textTransform: "uppercase",
             letterSpacing: "0.10em",
           }}

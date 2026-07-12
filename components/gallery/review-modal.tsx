@@ -176,6 +176,31 @@ export function ReviewModal({
   const [shareOpen, setShareOpen] = useState(false);
   // Inline rename of the drilled direction (null = not renaming).
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  // Draft direction composer: the user names a direction, stages files and an
+  // optional text, and only Approve creates + attaches it. Directions are
+  // never auto-created from file names.
+  const [composer, setComposer] = useState<null | {
+    name: string;
+    layer: ProjectSection | null;
+    files: File[];
+    prompt: string;
+  }>(null);
+  const composerOpen = composer !== null;
+  // Object URLs for staged-file previews, revoked when files change/unmount.
+  const composerPreviews = useMemo(
+    () =>
+      (composer?.files ?? []).map((file) => ({
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    [composer?.files],
+  );
+  useEffect(
+    () => () => {
+      for (const preview of composerPreviews) URL.revokeObjectURL(preview.url);
+    },
+    [composerPreviews],
+  );
   // File drop → upload straight into the project.
   const [dragFilesOver, setDragFilesOver] = useState(false);
   const dragDepthRef = useRef(0);
@@ -480,57 +505,17 @@ export function ReviewModal({
     }).catch(() => {});
   };
 
-  // ── File drop → upload into the project ──
-  // Drilled: files land in that direction. On a layer tab: a new direction is
-  // created in that layer, named after the first file. A dropped .txt becomes
-  // the prompt for every file in the pack; a beat's first video becomes its
-  // MASTER so the stack previews as the resulting shot.
-  const handleFilesDrop = async (dropped: File[]) => {
-    if (!projectId) return;
-    const media = dropped.filter(
-      (file) =>
-        file.type.startsWith("image/") || file.type.startsWith("video/"),
-    );
-    if (media.length === 0) {
-      setUploadState({ done: 0, total: 0, error: "Drop images or videos." });
-      return;
-    }
-    const promptFile = dropped.find(
-      (file) =>
-        file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt"),
-    );
-    const promptText = promptFile
-      ? (await promptFile.text()).trim().slice(0, 4000)
-      : "";
-
-    const section =
-      effectiveTab !== "all" && effectiveTab !== "unsorted"
-        ? effectiveTab
-        : undefined;
-    const targetSection = openDirection ? tabOf(openDirection.section) : section;
-
-    let targetFolderId = openDirection
-      ? (openDirection.folderId as string)
-      : null;
+  // ── File uploads into a direction ──
+  // A dropped/typed text becomes the prompt for every file in the pack; a
+  // beat's first video becomes its MASTER so the stack previews as the shot.
+  const uploadFilesToDirection = async (
+    media: File[],
+    targetFolderId: string,
+    promptText: string,
+    targetSection: ReviewTab | undefined,
+  ) => {
     setUploadState({ done: 0, total: media.length });
     try {
-      if (!targetFolderId) {
-        const baseName =
-          media[0]!.name
-            .replace(/\.[^.]+$/, "")
-            .replace(/[-_]+/g, " ")
-            .trim() || "New direction";
-        const created = await createFolder({ ownerUserId, name: baseName });
-        await addCollection({
-          ownerUserId,
-          projectId: projectId as Id<"folders">,
-          folderId: created.folderId,
-          section,
-        });
-        targetFolderId = created.folderId as string;
-        setOpenDirectionId(targetFolderId);
-      }
-
       let masterVideoAssetId: string | null = null;
       let failed = 0;
       for (const file of media) {
@@ -619,14 +604,97 @@ export function ReviewModal({
     }
   };
 
+  // Drilled: dropped files land in that direction. Anywhere else they STAGE
+  // into the composer — directions are only ever created and named by the
+  // user, never auto-named from a file.
+  const handleFilesDrop = async (dropped: File[]) => {
+    if (!projectId) return;
+    const media = dropped.filter(
+      (file) =>
+        file.type.startsWith("image/") || file.type.startsWith("video/"),
+    );
+    const promptFile = dropped.find(
+      (file) =>
+        file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt"),
+    );
+    const promptText = promptFile
+      ? (await promptFile.text()).trim().slice(0, 4000)
+      : "";
+
+    if (openDirection && !composer) {
+      if (media.length === 0) {
+        setUploadState({ done: 0, total: 0, error: "Drop images or videos." });
+        return;
+      }
+      await uploadFilesToDirection(
+        media,
+        openDirection.folderId as string,
+        promptText,
+        tabOf(openDirection.section),
+      );
+      return;
+    }
+
+    setComposer((prev) => ({
+      name: prev?.name ?? "",
+      layer:
+        prev?.layer ??
+        (effectiveTab !== "all" && effectiveTab !== "unsorted"
+          ? effectiveTab
+          : null),
+      files: [...(prev?.files ?? []), ...media],
+      prompt: [prev?.prompt, promptText].filter(Boolean).join("\n\n"),
+    }));
+  };
+
+  // Approve the drafted direction: create it under the chosen layer, attach
+  // it to the project, upload the staged files, and drill in.
+  const approveComposer = async () => {
+    if (!composer || !projectId) return;
+    const name = composer.name.trim();
+    if (!name) return;
+    const { files, prompt, layer } = composer;
+    try {
+      const created = await createFolder({
+        ownerUserId,
+        name,
+        description: prompt.trim() || undefined,
+      });
+      await addCollection({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: created.folderId,
+        section: layer ?? undefined,
+      });
+      setComposer(null);
+      setOpenDirectionId(created.folderId as string);
+      if (files.length > 0) {
+        await uploadFilesToDirection(
+          files,
+          created.folderId as string,
+          prompt.trim(),
+          layer ?? "unsorted",
+        );
+      }
+    } catch (error) {
+      setUploadState({
+        done: 0,
+        total: files.length,
+        error:
+          error instanceof Error ? error.message : "Could not create direction.",
+      });
+    }
+  };
+
   const dragHasFiles = (event: React.DragEvent) =>
     Array.from(event.dataTransfer?.types ?? []).includes("Files");
 
-  const dropTargetLabel = openDirection
-    ? `Drop to add to ${openDirection.name}`
-    : effectiveTab !== "all" && effectiveTab !== "unsorted"
-      ? `Drop to create a ${TAB_LABELS[effectiveTab]} direction`
-      : "Drop to create a direction";
+  const dropTargetLabel =
+    openDirection && !composer
+      ? `Drop to add to ${openDirection.name}`
+      : composer
+        ? "Drop to stage in the new direction"
+        : "Drop to draft a new direction";
 
   // Set (or clear, when assetId is null) a direction's MASTER option.
   const setMaster = useCallback(
@@ -741,6 +809,7 @@ export function ReviewModal({
         e.preventDefault();
         if (shareOpen) setShareOpen(false);
         else if (pickerOpen) setPickerOpen(false);
+        else if (composerOpen) setComposer(null);
         else if (focusId) setFocusId(null);
         else if (openDirectionId) setOpenDirectionId(null);
         else onClose();
@@ -757,7 +826,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
 
   if (!projectId) return null;
 
@@ -1011,7 +1080,20 @@ export function ReviewModal({
           {/* New direction in the active layer — or just drop files anywhere */}
           <button
             type="button"
-            onClick={() => setPickerOpen(true)}
+            onClick={() =>
+              setComposer(
+                (prev) =>
+                  prev ?? {
+                    name: "",
+                    layer:
+                      effectiveTab !== "all" && effectiveTab !== "unsorted"
+                        ? effectiveTab
+                        : null,
+                    files: [],
+                    prompt: "",
+                  },
+              )
+            }
             className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-[12px] font-medium transition-opacity hover:opacity-80"
             style={{
               borderColor: "var(--lm-border-strong)",
@@ -1286,12 +1368,219 @@ export function ReviewModal({
           >
             Loading project…
           </div>
+        ) : composer ? (
+          <div className="h-full overflow-y-auto px-6 py-10 md:px-12">
+            <div className="mx-auto max-w-[720px]">
+              <p
+                className="text-[10px] font-mono font-bold uppercase tracking-[0.2em]"
+                style={{ color: "var(--lm-coral)" }}
+              >
+                New direction
+              </p>
+
+              <input
+                autoFocus
+                value={composer.name}
+                onChange={(e) =>
+                  setComposer((prev) =>
+                    prev ? { ...prev, name: e.target.value } : prev,
+                  )
+                }
+                placeholder="Name the direction…"
+                className="mt-3 w-full bg-transparent pb-2 text-[26px] font-semibold outline-none md:text-[32px]"
+                style={{
+                  color: "var(--lm-text-primary)",
+                  borderBottom: "1px solid var(--lm-border-strong)",
+                  caretColor: "var(--lm-coral)",
+                }}
+                aria-label="Direction name"
+              />
+
+              {/* Layer */}
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <span
+                  className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  Layer
+                </span>
+                {SECTION_TABS.map(({ key, label }) => {
+                  const active = composer.layer === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() =>
+                        setComposer((prev) =>
+                          prev
+                            ? { ...prev, layer: active ? null : key }
+                            : prev,
+                        )
+                      }
+                      className="rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+                      style={{
+                        borderColor: active
+                          ? "var(--lm-coral)"
+                          : "var(--lm-border-strong)",
+                        color: active
+                          ? "var(--lm-coral)"
+                          : "var(--lm-text-tertiary)",
+                      }}
+                      aria-pressed={active}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <span
+                  className="text-[10px] font-mono uppercase tracking-wider"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  {composer.layer ? "" : "unsorted"}
+                </span>
+              </div>
+
+              {/* Text */}
+              <textarea
+                value={composer.prompt}
+                onChange={(e) =>
+                  setComposer((prev) =>
+                    prev ? { ...prev, prompt: e.target.value } : prev,
+                  )
+                }
+                placeholder="Optional text — the prompt, the beat, notes…"
+                rows={3}
+                className="mt-6 w-full resize-y bg-transparent text-[14px] leading-relaxed outline-none"
+                style={{
+                  color: "var(--lm-text-secondary)",
+                  borderBottom: "1px solid var(--lm-border)",
+                  caretColor: "var(--lm-coral)",
+                }}
+                aria-label="Direction text"
+              />
+
+              {/* Staged files */}
+              <div className="mt-6">
+                <div className="flex items-baseline gap-3">
+                  <span
+                    className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                    style={{ color: "var(--lm-text-ghost)" }}
+                  >
+                    Files
+                  </span>
+                  <span
+                    className="text-[11px]"
+                    style={{ color: "var(--lm-text-tertiary)" }}
+                  >
+                    {composer.files.length === 0
+                      ? "Drop images and video anywhere, or"
+                      : `${composer.files.length} staged — drop more anywhere, or`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-[11px] underline underline-offset-4 transition-opacity hover:opacity-80"
+                    style={{ color: "var(--lm-coral)" }}
+                  >
+                    browse
+                  </button>
+                </div>
+                {composerPreviews.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    {composerPreviews.map(({ file, url }, index) => (
+                      <div key={`${file.name}-${index}`} className="group/stage relative">
+                        {file.type.startsWith("video/") ? (
+                          <video
+                            src={url}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="h-24 rounded-lg object-cover"
+                          />
+                        ) : (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={url}
+                            alt={file.name}
+                            className="h-24 rounded-lg object-cover"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setComposer((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    files: prev.files.filter(
+                                      (_, i) => i !== index,
+                                    ),
+                                  }
+                                : prev,
+                            )
+                          }
+                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover/stage:opacity-100"
+                          style={{
+                            backgroundColor: "var(--lm-ink)",
+                            color: "var(--lm-paper)",
+                          }}
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <X className="h-3 w-3" strokeWidth={3} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Approve / discard */}
+              <div
+                className="mt-8 flex items-center gap-3 border-t pt-5"
+                style={{ borderColor: "var(--lm-border)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => void approveComposer()}
+                  disabled={!composer.name.trim()}
+                  className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-40"
+                  style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
+                  title={
+                    composer.name.trim()
+                      ? "Create the direction and upload the staged files"
+                      : "Name the direction first"
+                  }
+                >
+                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                  Approve direction
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setComposer(null)}
+                  className="text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  Discard
+                </button>
+                {!composer.name.trim() && composer.files.length > 0 && (
+                  <span
+                    className="text-[11px]"
+                    style={{ color: "var(--lm-text-tertiary)" }}
+                  >
+                    Name it to approve.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         ) : !hasCollections ? (
           <EmptyState
             title="No directions yet"
             hint="A direction is one take — images, video, and a text prompt together. Drop files anywhere to start one, or create it by name. Existing collections can also be attached."
-            actionLabel="Add directions"
-            onAction={() => setPickerOpen(true)}
+            actionLabel="Add direction"
+            onAction={() =>
+              setComposer({ name: "", layer: null, files: [], prompt: "" })
+            }
           />
         ) : showDirectionCards ? (
           directions.length === 0 ? (
