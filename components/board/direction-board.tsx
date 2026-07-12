@@ -734,6 +734,67 @@ export function DirectionBoard({ token }: { token: string }) {
                   </a>
                 )}
 
+                {/* Inside a beat: the character + location it combines */}
+                {openDirection &&
+                  sectionOf(openDirection.section) === "beats" &&
+                  [
+                    pairRef(
+                      openDirection.beatCharacterFolderId as string | undefined,
+                    ),
+                    pairRef(
+                      openDirection.beatLocationFolderId as string | undefined,
+                    ),
+                  ]
+                    .filter((pair): pair is PairRef => Boolean(pair))
+                    .map((pair, index) => (
+                      <span key={pair.id} className="flex items-center gap-1.5">
+                        {index === 0 && (
+                          <span
+                            className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
+                            style={{ color: "var(--lm-text-ghost)" }}
+                          >
+                            Pairs
+                          </span>
+                        )}
+                        {index > 0 && (
+                          <Plus
+                            className="h-3 w-3"
+                            style={{ color: "var(--lm-text-ghost)" }}
+                            strokeWidth={3}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openDirectionById(pair.id)}
+                          className="flex items-center gap-1.5 rounded-lg border p-0.5 pr-2 transition-transform hover:scale-105"
+                          style={{
+                            backgroundColor: "var(--lm-surface-2)",
+                            borderColor: "var(--lm-border-strong)",
+                          }}
+                          title={`Open direction: ${pair.name}`}
+                        >
+                          {pair.thumb ? (
+                            <img
+                              src={pair.thumb}
+                              alt=""
+                              className="h-6 w-6 rounded-md object-cover"
+                            />
+                          ) : (
+                            <span
+                              className="h-6 w-6 rounded-md"
+                              style={{ backgroundColor: "var(--lm-surface-3)" }}
+                            />
+                          )}
+                          <span
+                            className="max-w-[14ch] truncate text-[10px] font-mono font-bold uppercase tracking-wider"
+                            style={{ color: "var(--lm-text-secondary)" }}
+                          >
+                            {pair.name}
+                          </span>
+                        </button>
+                      </span>
+                    ))}
+
                 <span
                   className="mx-1 hidden h-4 w-px sm:block"
                   style={{ backgroundColor: "var(--lm-border-strong)" }}
