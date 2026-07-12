@@ -409,6 +409,8 @@ export function GalleryDashboard({
   const addCollectionToProjectMutation = useMutation(
     api.projects.addCollectionToProject,
   );
+  const updateFolderMutation = useMutation(api.folders.updateFolder);
+  const deleteFolderMutation = useMutation(api.folders.deleteFolder);
   const deleteWorkflowMutation = useMutation(api.workflows.deleteWorkflow);
   // Ids of workflow grid entries, so delete can route to the right backend.
   // A ref (synced below where workflow entries are computed) because
@@ -2073,6 +2075,60 @@ export function GalleryDashboard({
     ],
   );
 
+  // Rename any folder-backed sidebar row (collection / storybook / project).
+  const handleRenameFolder = useCallback(
+    async (folderId: string, name: string) => {
+      try {
+        await updateFolderMutation({
+          ownerUserId,
+          folderId: folderId as Id<"folders">,
+          name,
+        });
+        setMoveStatus({ text: `Renamed to ${name}` });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Failed to rename.",
+          error: true,
+        });
+      }
+    },
+    [ownerUserId, updateFolderMutation],
+  );
+
+  // Delete a folder-backed row. Assets always survive as gallery entries;
+  // the backend clears assetFolders + projectCollections links both ways.
+  const handleDeleteFolder = useCallback(
+    async (folderId: string) => {
+      const name = folderNameById.get(folderId) ?? "collection";
+      try {
+        await deleteFolderMutation({
+          ownerUserId,
+          folderId: folderId as Id<"folders">,
+        });
+        setSelectedFolderId((current) =>
+          current === folderId ? null : current,
+        );
+        setOpenStorybookId((current) =>
+          current === folderId ? null : current,
+        );
+        setOpenProjectId((current) =>
+          current === folderId ? null : current,
+        );
+        setMoveStatus({
+          text: `Deleted ${name} — assets stay in the gallery`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Failed to delete.",
+          error: true,
+        });
+      }
+    },
+    [ownerUserId, deleteFolderMutation, folderNameById],
+  );
+
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
     if (!selectedImage) return -1;
@@ -2832,6 +2888,12 @@ export function GalleryDashboard({
             canManageFoldersInCurrentView
               ? handleAssetsDropOnDirection
               : undefined
+          }
+          onRenameFolder={
+            canManageFoldersInCurrentView ? handleRenameFolder : undefined
+          }
+          onDeleteFolder={
+            canManageFoldersInCurrentView ? handleDeleteFolder : undefined
           }
         />
       </div>

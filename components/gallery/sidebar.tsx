@@ -11,8 +11,10 @@ import {
   FolderOpen,
   Home,
   Layers,
+  Pencil,
   Plus,
   Search,
+  Trash2,
   LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
@@ -80,6 +82,10 @@ interface GallerySidebarProps {
   onAssetsDropOnProject?: (projectId: string, assetIds: string[]) => void;
   /** Dropping assets on a direction ADDS them to that collection. */
   onAssetsDropOnDirection?: (directionId: string, assetIds: string[]) => void;
+  /** Manage any folder-backed row (collection / storybook / project). */
+  onRenameFolder?: (folderId: string, name: string) => Promise<void> | void;
+  /** Deletes the folder; its assets stay in the gallery. */
+  onDeleteFolder?: (folderId: string) => Promise<void> | void;
 }
 
 interface ProjectEntry extends Folder {
@@ -116,6 +122,8 @@ export function GallerySidebar({
   onCreateProject,
   onAssetsDropOnProject,
   onAssetsDropOnDirection,
+  onRenameFolder,
+  onDeleteFolder,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -403,6 +411,16 @@ export function GallerySidebar({
                               onAssetsDropOnStorybook(storybook._id, assetIds)
                           : undefined
                       }
+                      onRename={
+                        onRenameFolder
+                          ? (name) => onRenameFolder(storybook._id, name)
+                          : undefined
+                      }
+                      onDelete={
+                        onDeleteFolder
+                          ? () => onDeleteFolder(storybook._id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -490,6 +508,16 @@ export function GallerySidebar({
                           : undefined
                       }
                       onDropAssetsOnDirection={onAssetsDropOnDirection}
+                      onRename={
+                        onRenameFolder
+                          ? (name) => onRenameFolder(project._id, name)
+                          : undefined
+                      }
+                      onDelete={
+                        onDeleteFolder
+                          ? () => onDeleteFolder(project._id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -552,6 +580,16 @@ export function GallerySidebar({
                       onAssetsDropOnFolder
                         ? (assetIds) =>
                             onAssetsDropOnFolder(folder._id, assetIds)
+                        : undefined
+                    }
+                    onRename={
+                      onRenameFolder
+                        ? (name) => onRenameFolder(folder._id, name)
+                        : undefined
+                    }
+                    onDelete={
+                      onDeleteFolder
+                        ? () => onDeleteFolder(folder._id)
                         : undefined
                     }
                   />
@@ -913,6 +951,8 @@ function ProjectRow({
   onOpen,
   onDropAssets,
   onDropAssetsOnDirection,
+  onRename,
+  onDelete,
 }: {
   project: ProjectEntry;
   /** True while this project's review workspace is open. */
@@ -920,19 +960,31 @@ function ProjectRow({
   onOpen: () => void;
   onDropAssets?: (assetIds: string[]) => void;
   onDropAssetsOnDirection?: (directionId: string, assetIds: string[]) => void;
+  onRename?: (name: string) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const directions = project.directions ?? [];
   const droppable = Boolean(onDropAssets);
+
+  const commitRename = () => {
+    const name = (renameDraft ?? "").trim();
+    setRenameDraft(null);
+    if (!name || name === project.name || !onRename) return;
+    void onRename(name);
+  };
 
   return (
     <div>
       <button
         type="button"
-        onClick={onOpen}
-        className="lm-glass-filter-row cursor-pointer"
+        onClick={renameDraft !== null ? undefined : onOpen}
+        className="group/prow lm-glass-filter-row cursor-pointer"
         data-active={active ? "true" : "false"}
+        onPointerLeave={() => setDeleteArmed(false)}
         onDragOver={
           droppable
             ? (event) => {
@@ -978,19 +1030,53 @@ function ProjectRow({
             transition: "color var(--lm-duration-fast)",
           }}
         />
-        <span
-          className="min-w-0 flex-1 truncate text-left"
-          style={{
-            fontSize: "10px",
-            fontWeight: active ? 700 : 500,
-            textTransform: "uppercase",
-            letterSpacing: "0.10em",
-          }}
-        >
-          {project.name}
-        </span>
-        {project.count !== undefined && (
+        {renameDraft !== null ? (
+          <input
+            autoFocus
+            value={renameDraft}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setRenameDraft(null);
+              }
+            }}
+            onBlur={commitRename}
+            className="min-w-0 flex-1 bg-transparent text-left outline-none"
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.10em",
+              color: "var(--lm-sidebar-text)",
+              borderBottom: "1px solid var(--lm-coral)",
+              caretColor: "var(--lm-coral)",
+            }}
+            aria-label={`Rename ${project.name}`}
+          />
+        ) : (
           <span
+            className="min-w-0 flex-1 truncate text-left"
+            style={{
+              fontSize: "10px",
+              fontWeight: active ? 700 : 500,
+              textTransform: "uppercase",
+              letterSpacing: "0.10em",
+            }}
+          >
+            {project.name}
+          </span>
+        )}
+        {project.count !== undefined && renameDraft === null && (
+          <span
+            className={
+              onRename || onDelete ? "group-hover/prow:hidden" : undefined
+            }
             style={{
               fontSize: "9px",
               fontVariantNumeric: "tabular-nums",
@@ -998,6 +1084,71 @@ function ProjectRow({
             }}
           >
             {project.count}
+          </span>
+        )}
+        {(onRename || onDelete) && renameDraft === null && (
+          <span className="hidden shrink-0 items-center gap-0.5 group-hover/prow:flex">
+            {onRename && (
+              <span
+                role="button"
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenameDraft(project.name);
+                }}
+                className="flex h-4 w-4 items-center justify-center"
+                style={{ color: "var(--lm-sidebar-text-ghost)" }}
+                aria-label={`Rename ${project.name}`}
+                title="Rename project"
+              >
+                <Pencil className="h-2.5 w-2.5" />
+              </span>
+            )}
+            {onDelete && (
+              <span
+                role="button"
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!deleteArmed) {
+                    setDeleteArmed(true);
+                    return;
+                  }
+                  setDeleteArmed(false);
+                  void onDelete();
+                }}
+                className="flex h-4 items-center justify-center gap-0.5 px-0.5"
+                style={{
+                  color: deleteArmed
+                    ? "var(--lm-coral)"
+                    : "var(--lm-sidebar-text-ghost)",
+                }}
+                aria-label={
+                  deleteArmed
+                    ? `Confirm delete ${project.name}`
+                    : `Delete ${project.name}`
+                }
+                title={
+                  deleteArmed
+                    ? "Click again to delete — directions and assets survive"
+                    : "Delete project (directions and assets survive)"
+                }
+              >
+                <Trash2 className="h-2.5 w-2.5" />
+                {deleteArmed && (
+                  <span
+                    style={{
+                      fontSize: "8px",
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
+                    sure?
+                  </span>
+                )}
+              </span>
+            )}
           </span>
         )}
         {directions.length > 0 && (
@@ -1114,6 +1265,8 @@ function FilterRow({
   active,
   onClick,
   onDropAssets,
+  onRename,
+  onDelete,
 }: {
   icon?: React.ElementType;
   label: string;
@@ -1122,15 +1275,30 @@ function FilterRow({
   onClick: () => void;
   /** When set, the row accepts dragged gallery assets. */
   onDropAssets?: (assetIds: string[]) => void;
+  /** When set, the row shows hover manage controls. */
+  onRename?: (name: string) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  // Two-step delete: first click arms, second executes; leaving disarms.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const manageable = Boolean(onRename || onDelete);
+
+  const commitRename = () => {
+    const name = (renameDraft ?? "").trim();
+    setRenameDraft(null);
+    if (!name || name === label || !onRename) return;
+    void onRename(name);
+  };
 
   return (
     <button
       type="button"
-      onClick={onClick}
-      className="lm-glass-filter-row cursor-pointer"
+      onClick={renameDraft !== null ? undefined : onClick}
+      className="group/frow lm-glass-filter-row cursor-pointer"
       data-active={active ? "true" : "false"}
+      onPointerLeave={() => setDeleteArmed(false)}
       onDragOver={
         onDropAssets
           ? (event) => {
@@ -1174,19 +1342,51 @@ function FilterRow({
           }}
         />
       ) : null}
-      <span
-        className="min-w-0 flex-1 truncate text-left"
-        style={{
-          fontSize: "10px",
-          fontWeight: active ? 700 : 500,
-          textTransform: "uppercase",
-          letterSpacing: "0.10em",
-        }}
-      >
-        {label}
-      </span>
-      {count !== undefined && (
+      {renameDraft !== null ? (
+        <input
+          autoFocus
+          value={renameDraft}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setRenameDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitRename();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setRenameDraft(null);
+            }
+          }}
+          onBlur={commitRename}
+          className="min-w-0 flex-1 bg-transparent text-left outline-none"
+          style={{
+            fontSize: "10px",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.10em",
+            color: "var(--lm-sidebar-text)",
+            borderBottom: "1px solid var(--lm-coral)",
+            caretColor: "var(--lm-coral)",
+          }}
+          aria-label={`Rename ${label}`}
+        />
+      ) : (
         <span
+          className="min-w-0 flex-1 truncate text-left"
+          style={{
+            fontSize: "10px",
+            fontWeight: active ? 700 : 500,
+            textTransform: "uppercase",
+            letterSpacing: "0.10em",
+          }}
+        >
+          {label}
+        </span>
+      )}
+      {count !== undefined && renameDraft === null && (
+        <span
+          className={manageable ? "group-hover/frow:hidden" : undefined}
           style={{
             fontSize: "9px",
             fontVariantNumeric: "tabular-nums",
@@ -1197,6 +1397,71 @@ function FilterRow({
           }}
         >
           {count}
+        </span>
+      )}
+      {manageable && renameDraft === null && (
+        <span className="hidden shrink-0 items-center gap-0.5 group-hover/frow:flex">
+          {onRename && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                setRenameDraft(label);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{ color: "var(--lm-sidebar-text-ghost)" }}
+              aria-label={`Rename ${label}`}
+              title="Rename"
+            >
+              <Pencil className="h-2.5 w-2.5" />
+            </span>
+          )}
+          {onDelete && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!deleteArmed) {
+                  setDeleteArmed(true);
+                  return;
+                }
+                setDeleteArmed(false);
+                void onDelete();
+              }}
+              className="flex h-4 items-center justify-center gap-0.5 px-0.5"
+              style={{
+                color: deleteArmed
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+              }}
+              aria-label={
+                deleteArmed
+                  ? `Confirm delete ${label}`
+                  : `Delete ${label}`
+              }
+              title={
+                deleteArmed
+                  ? "Click again to delete — assets stay in the gallery"
+                  : "Delete (assets stay in the gallery)"
+              }
+            >
+              <Trash2 className="h-2.5 w-2.5" />
+              {deleteArmed && (
+                <span
+                  style={{
+                    fontSize: "8px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  sure?
+                </span>
+              )}
+            </span>
+          )}
         </span>
       )}
     </button>
