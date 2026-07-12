@@ -129,6 +129,9 @@ interface ImageCardProps {
   onCopyToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onRemoveFromCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
+  /** Projects the asset can be sent to via the collection menu (→ Inbox). */
+  projects?: CollectionOption[];
+  onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -171,6 +174,8 @@ export const ImageCard = memo(function ImageCard({
   onCopyToCollection,
   onRemoveFromCollection,
   onCreateCollection,
+  projects,
+  onAddToProject,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -867,6 +872,8 @@ export const ImageCard = memo(function ImageCard({
           onCopy={onCopyToCollection}
           onRemove={onRemoveFromCollection}
           onCreate={onCreateCollection}
+          projects={projects}
+          onAddToProject={onAddToProject}
           positionClassName={`absolute top-2 z-20 ${
             selectable ? "left-32" : "left-[5.5rem]"
           }`}

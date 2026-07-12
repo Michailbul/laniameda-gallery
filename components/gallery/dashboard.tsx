@@ -3116,6 +3116,20 @@ export function GalleryDashboard({
                     onCreateCollection={
                       canManageFoldersInCurrentView ? createFolder : undefined
                     }
+                    projects={
+                      canManageFoldersInCurrentView
+                        ? (projects ?? []).map((project) => ({
+                            id: project._id as string,
+                            name: project.name,
+                          }))
+                        : undefined
+                    }
+                    onAddAssetToProject={
+                      canManageFoldersInCurrentView
+                        ? (imageId, projectId) =>
+                            handleAssetsDropOnProject(projectId, [imageId])
+                        : undefined
+                    }
                     onStorybookOpen={setOpenStorybookId}
                     showPublicBadge={galleryScope === "mine"}
                   />

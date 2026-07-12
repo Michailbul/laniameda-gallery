@@ -104,6 +104,12 @@ interface MasonryGridProps {
     folderId: string,
   ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
+  /** Projects the asset can be sent to via the collection menu (→ Inbox). */
+  projects?: CollectionOption[];
+  onAddAssetToProject?: (
+    imageId: string,
+    projectId: string,
+  ) => Promise<void> | void;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
   onImageSelect?: (image: {
@@ -250,6 +256,8 @@ export function MasonryGrid({
   onCopyAssetToCollection,
   onRemoveAssetFromCollection,
   onCreateCollection,
+  projects,
+  onAddAssetToProject,
   onStorybookOpen,
   showPublicBadge = false,
 }: MasonryGridProps) {
@@ -465,6 +473,8 @@ export function MasonryGrid({
                 onCreateCollection={
                   isAssetCard ? onCreateCollection : undefined
                 }
+                projects={isAssetCard ? projects : undefined}
+                onAddToProject={isAssetCard ? onAddAssetToProject : undefined}
                 showPublicBadge={showPublicBadge}
               />
             </div>

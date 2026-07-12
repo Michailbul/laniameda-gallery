@@ -18,10 +18,12 @@ import {
   Heart,
   LayoutGrid,
   Link2,
+  MapPin,
   Pencil,
   Play,
   Plus,
   Upload,
+  User,
   X,
 } from "lucide-react";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -139,6 +141,8 @@ export function ReviewModal({
 
   const setApproved = useMutation(api.assets.setAssetApproved);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
+  const addAssetFolders = useMutation(api.assets.addAssetFolders);
+  const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
   const addCollection = useMutation(api.projects.addCollectionToProject);
   const removeCollection = useMutation(api.projects.removeCollectionFromProject);
   const setCollectionSection = useMutation(api.projects.setProjectCollectionSection);
@@ -403,6 +407,78 @@ export function ReviewModal({
     },
     [isApproved, ownerUserId, setApproved],
   );
+
+  // ── Character / Location filing ──
+  // Any image inside a direction can be filed into this project's Characters
+  // or Locations layer: it lands in an auto-created "<Project> — Characters"
+  // (or — Locations) collection and gets the matching global tag. Toggleable.
+  const layerAggregates = useMemo(() => {
+    const projectName = project?.project.name;
+    const find = (label: string, section: ProjectSection) =>
+      project?.collections.find(
+        (c) =>
+          c.name === `${projectName} — ${label}` &&
+          tabOf(c.section) === section,
+      )?.folderId as string | undefined;
+    return {
+      characters: find("Characters", "characters"),
+      locations: find("Locations", "locations"),
+    };
+  }, [project]);
+
+  const isFiledToLayer = useCallback(
+    (asset: ReviewAsset, layer: "characters" | "locations") => {
+      const aggregateId = layerAggregates[layer];
+      return Boolean(aggregateId && asset.folderIds.includes(aggregateId));
+    },
+    [layerAggregates],
+  );
+
+  const fileAssetToLayer = async (
+    asset: ReviewAsset,
+    layer: "characters" | "locations",
+  ) => {
+    if (!projectId || !project) return;
+    const label = layer === "characters" ? "Characters" : "Locations";
+    const aggregateId = layerAggregates[layer];
+
+    if (aggregateId && asset.folderIds.includes(aggregateId)) {
+      // Already filed → unfile (membership only; the tag stays).
+      await setAssetFolders({
+        ownerUserId,
+        assetId: asset.id as Id<"assets">,
+        folderIds: asset.folderIds.filter(
+          (id) => id !== aggregateId,
+        ) as Id<"folders">[],
+      });
+      return;
+    }
+
+    let folderId = aggregateId as Id<"folders"> | undefined;
+    if (!folderId) {
+      const created = await createFolder({
+        ownerUserId,
+        name: `${project.project.name} — ${label}`,
+      });
+      await addCollection({
+        ownerUserId,
+        projectId: projectId as Id<"folders">,
+        folderId: created.folderId,
+        section: layer,
+      });
+      folderId = created.folderId;
+    }
+    await addAssetFolders({
+      ownerUserId,
+      assetId: asset.id as Id<"assets">,
+      folderIds: [folderId],
+    });
+    void addAssetTagsMutation({
+      ownerUserId,
+      assetId: asset.id as Id<"assets">,
+      tagNames: [layer === "characters" ? "character" : "location"],
+    }).catch(() => {});
+  };
 
   // ── File drop → upload into the project ──
   // Drilled: files land in that direction. On a layer tab: a new direction is
@@ -1212,9 +1288,9 @@ export function ReviewModal({
           </div>
         ) : !hasCollections ? (
           <EmptyState
-            title="No collections in this project yet"
-            hint="Add collections (Characters, Locations, Styles…) to review their options together."
-            actionLabel="Add collections"
+            title="No directions yet"
+            hint="A direction is one take — images, video, and a text prompt together. Drop files anywhere to start one, or create it by name. Existing collections can also be attached."
+            actionLabel="Add directions"
             onAction={() => setPickerOpen(true)}
           />
         ) : showDirectionCards ? (
@@ -1303,6 +1379,18 @@ export function ReviewModal({
                   onRemove={
                     openDirection ? () => removeFromDirection(asset) : undefined
                   }
+                  onFileCharacter={
+                    openDirection
+                      ? () => void fileAssetToLayer(asset, "characters")
+                      : undefined
+                  }
+                  onFileLocation={
+                    openDirection
+                      ? () => void fileAssetToLayer(asset, "locations")
+                      : undefined
+                  }
+                  filedCharacter={isFiledToLayer(asset, "characters")}
+                  filedLocation={isFiledToLayer(asset, "locations")}
                 />
               ))}
             </div>
@@ -1566,6 +1654,10 @@ function ReviewTile({
   isMaster,
   onMaster,
   onRemove,
+  onFileCharacter,
+  onFileLocation,
+  filedCharacter,
+  filedLocation,
 }: {
   asset: ReviewAsset;
   approved: boolean;
@@ -1579,6 +1671,11 @@ function ReviewTile({
   onMaster?: () => void;
   /** Removes the asset from the drilled direction (membership only). */
   onRemove?: () => void;
+  /** File into the project's Characters / Locations layer (toggle). */
+  onFileCharacter?: () => void;
+  onFileLocation?: () => void;
+  filedCharacter?: boolean;
+  filedLocation?: boolean;
 }) {
   return (
     <div
@@ -1680,6 +1777,76 @@ function ReviewTile({
           style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "#fff" }}
         >
           {asset.collectionName}
+        </div>
+      )}
+
+      {/* File into the project's Characters / Locations layer */}
+      {(onFileCharacter || onFileLocation) && (
+        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1">
+          {onFileCharacter && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFileCharacter();
+              }}
+              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+                filedCharacter
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              style={{
+                backgroundColor: filedCharacter
+                  ? "var(--lm-coral)"
+                  : "rgba(0,0,0,0.62)",
+                color: filedCharacter ? "#000" : "#fff",
+                borderColor: filedCharacter
+                  ? "var(--lm-coral)"
+                  : "rgba(255,255,255,0.25)",
+              }}
+              aria-pressed={Boolean(filedCharacter)}
+              title={
+                filedCharacter
+                  ? "In this project's Characters — click to unfile"
+                  : "File into this project's Characters"
+              }
+            >
+              <User className="h-3 w-3" strokeWidth={2.5} />
+              Char
+            </button>
+          )}
+          {onFileLocation && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFileLocation();
+              }}
+              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+                filedLocation
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              style={{
+                backgroundColor: filedLocation
+                  ? "var(--lm-coral)"
+                  : "rgba(0,0,0,0.62)",
+                color: filedLocation ? "#000" : "#fff",
+                borderColor: filedLocation
+                  ? "var(--lm-coral)"
+                  : "rgba(255,255,255,0.25)",
+              }}
+              aria-pressed={Boolean(filedLocation)}
+              title={
+                filedLocation
+                  ? "In this project's Locations — click to unfile"
+                  : "File into this project's Locations"
+              }
+            >
+              <MapPin className="h-3 w-3" strokeWidth={2.5} />
+              Loc
+            </button>
+          )}
         </div>
       )}
 

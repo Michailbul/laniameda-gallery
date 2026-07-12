@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, FolderPlus, Loader2, X } from "lucide-react";
+import { Check, FolderPlus, Layers, Loader2, X } from "lucide-react";
 
 export type CollectionOption = {
   id: string;
@@ -26,6 +26,9 @@ interface CardCollectionButtonProps {
   onCopy: (imageId: string, folderId: string) => Promise<void> | void;
   onRemove?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreate?: (name: string) => Promise<string | null>;
+  /** Projects the asset can be sent to (lands in the project's Inbox). */
+  projects?: CollectionOption[];
+  onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
   /** Positioning classes from the host card (absolute offsets). */
   positionClassName: string;
 }
@@ -49,6 +52,8 @@ export function CardCollectionButton({
   onCopy,
   onRemove,
   onCreate,
+  projects,
+  onAddToProject,
   positionClassName,
 }: CardCollectionButtonProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -397,6 +402,51 @@ export function CardCollectionButton({
                     Storybooks
                   </div>
                   {storybookRows.map(renderRow)}
+                </>
+              )}
+
+              {onAddToProject && (projects?.length ?? 0) > 0 && (
+                <>
+                  <div
+                    className="mt-1 px-3 pb-1 pt-2 text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
+                    style={{
+                      color: "var(--lm-text-tertiary)",
+                      borderTop: "1px solid var(--lm-border-strong)",
+                    }}
+                  >
+                    Projects
+                  </div>
+                  {projects!.map((project) => (
+                    <button
+                      key={project.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (busy) return;
+                        setBusy(true);
+                        void Promise.resolve(
+                          onAddToProject(imageId, project.id),
+                        ).finally(() => setBusy(false));
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-opacity hover:opacity-75 disabled:opacity-50"
+                      style={{ color: "var(--lm-text-primary)" }}
+                      title={`Add to ${project.name} (lands in its Inbox)`}
+                    >
+                      <Layers
+                        className="h-3.5 w-3.5 shrink-0"
+                        style={{ color: "var(--lm-text-tertiary)" }}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+                        {project.name}
+                      </span>
+                      <span
+                        className="shrink-0 text-[9px] font-mono uppercase tracking-wider"
+                        style={{ color: "var(--lm-text-ghost)" }}
+                      >
+                        Inbox
+                      </span>
+                    </button>
+                  ))}
                 </>
               )}
             </div>
