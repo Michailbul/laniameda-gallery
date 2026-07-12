@@ -235,12 +235,12 @@ export function GallerySidebar({
           <button
             type="button"
             onClick={() => onCollapsedChange(false)}
-            className="group/expand flex h-full w-full items-center justify-center"
+            className="group flex h-full w-full items-center justify-center"
             aria-label="Expand sidebar"
             title="Expand sidebar"
           >
             <span
-              className="group-hover/expand:hidden"
+              className="group-hover:hidden"
               style={{
                 width: "10px",
                 height: "10px",
@@ -253,7 +253,7 @@ export function GallerySidebar({
               }}
             />
             <ChevronRight
-              className="hidden h-4 w-4 group-hover/expand:block"
+              className="hidden h-4 w-4 group-hover:block"
               style={{ color: "var(--lm-coral)" }}
             />
           </button>
@@ -982,7 +982,7 @@ function ProjectRow({
       <button
         type="button"
         onClick={renameDraft !== null ? undefined : onOpen}
-        className="group/prow lm-glass-filter-row cursor-pointer"
+        className="group lm-glass-filter-row cursor-pointer"
         data-active={active ? "true" : "false"}
         onPointerLeave={() => setDeleteArmed(false)}
         onDragOver={
@@ -1075,7 +1075,7 @@ function ProjectRow({
         {project.count !== undefined && renameDraft === null && (
           <span
             className={
-              onRename || onDelete ? "group-hover/prow:hidden" : undefined
+              onRename || onDelete ? "group-hover:hidden" : undefined
             }
             style={{
               fontSize: "9px",
@@ -1087,7 +1087,7 @@ function ProjectRow({
           </span>
         )}
         {(onRename || onDelete) && renameDraft === null && (
-          <span className="hidden shrink-0 items-center gap-0.5 group-hover/prow:flex">
+          <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
             {onRename && (
               <span
                 role="button"
@@ -1296,7 +1296,7 @@ function FilterRow({
     <button
       type="button"
       onClick={renameDraft !== null ? undefined : onClick}
-      className="group/frow lm-glass-filter-row cursor-pointer"
+      className="group lm-glass-filter-row cursor-pointer"
       data-active={active ? "true" : "false"}
       onPointerLeave={() => setDeleteArmed(false)}
       onDragOver={
@@ -1386,7 +1386,7 @@ function FilterRow({
       )}
       {count !== undefined && renameDraft === null && (
         <span
-          className={manageable ? "group-hover/frow:hidden" : undefined}
+          className={manageable ? "group-hover:hidden" : undefined}
           style={{
             fontSize: "9px",
             fontVariantNumeric: "tabular-nums",
@@ -1400,7 +1400,7 @@ function FilterRow({
         </span>
       )}
       {manageable && renameDraft === null && (
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/frow:flex">
+        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
           {onRename && (
             <span
               role="button"

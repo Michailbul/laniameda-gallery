@@ -1488,7 +1488,7 @@ export function ReviewModal({
                 {composerPreviews.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-3">
                     {composerPreviews.map(({ file, url }, index) => (
-                      <div key={`${file.name}-${index}`} className="group/stage relative">
+                      <div key={`${file.name}-${index}`} className="group relative">
                         {file.type.startsWith("video/") ? (
                           <video
                             src={url}
@@ -1519,7 +1519,7 @@ export function ReviewModal({
                                 : prev,
                             )
                           }
-                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover/stage:opacity-100"
+                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                           style={{
                             backgroundColor: "var(--lm-ink)",
                             color: "var(--lm-paper)",
