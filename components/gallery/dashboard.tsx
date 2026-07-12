@@ -1042,13 +1042,16 @@ export function GalleryDashboard({
       })),
     [folders, folderCountById],
   );
-  // Storybooks and projects are folders too, but they surface as their own
-  // sidebar sections (and stack cards / review modal) — keep them out of the
-  // plain collections list.
+  // Storybooks, projects, and project directions (beats/stacks/pools) are
+  // folders too, but they surface through their own UIs — keep them out of
+  // the plain collections list.
   const collectionFoldersWithCounts = useMemo(
     () =>
       foldersWithCounts.filter(
-        (folder) => folder.kind !== "storybook" && folder.kind !== "project",
+        (folder) =>
+          folder.kind !== "storybook" &&
+          folder.kind !== "project" &&
+          folder.kind !== "direction",
       ),
     [foldersWithCounts],
   );
@@ -2038,6 +2041,7 @@ export function GalleryDashboard({
         const inbox = await createFolderMutation({
           ownerUserId,
           name: `${projectName} — Inbox`,
+          kind: "direction",
         });
         await addCollectionToProjectMutation({
           ownerUserId,

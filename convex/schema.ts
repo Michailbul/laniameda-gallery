@@ -99,7 +99,15 @@ export default defineSchema({
     // "project" = a review workspace that GROUPS other collections (its member
     // collections live in the projectCollections join table); its brief lives
     // in `description`.
-    kind: v.optional(v.union(v.literal("storybook"), v.literal("project"))),
+    kind: v.optional(
+      v.union(
+        v.literal("storybook"),
+        v.literal("project"),
+        // A project-scoped direction (beat / stack / pool) created from the
+        // workspace — hidden from the sidebar collections list.
+        v.literal("direction"),
+      ),
+    ),
     // Unguessable token that makes a project's direction board publicly
     // viewable at /b/<token>. Unset = sharing off.
     shareToken: v.optional(v.string()),

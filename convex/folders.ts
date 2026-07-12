@@ -10,7 +10,11 @@ import {
 } from "./authz";
 
 export const folderKindValidator = v.optional(
-  v.union(v.literal("storybook"), v.literal("project")),
+  v.union(
+    v.literal("storybook"),
+    v.literal("project"),
+    v.literal("direction"),
+  ),
 );
 
 const folderReturnValidator = v.object({

@@ -150,7 +150,14 @@ export function CardCollectionButton({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
-    const handleScroll = () => close();
+    const handleScroll = (event: Event) => {
+      // The menu's own list is scrollable — the capture-phase listener sees
+      // that too, and closing on it made long lists unscrollable. Only close
+      // when something OUTSIDE the menu scrolls (stale anchor position).
+      const target = event.target as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      close();
+    };
     document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("scroll", handleScroll, true);

@@ -726,7 +726,8 @@ export function ReviewModal({
     const detached = allCollections.find((c) => c.name === name);
     const folderId = detached
       ? detached.id
-      : ((await createFolder({ ownerUserId, name })).folderId as string);
+      : ((await createFolder({ ownerUserId, name, kind: "direction" }))
+          .folderId as string);
     await addCollection({
       ownerUserId,
       projectId: projectId as Id<"folders">,
@@ -823,6 +824,7 @@ export function ReviewModal({
         ownerUserId,
         name,
         description: prompt.trim() || undefined,
+        kind: "direction",
       });
       await addCollection({
         ownerUserId,
@@ -910,7 +912,11 @@ export function ReviewModal({
     const name = stackName.trim();
     if (!name || selectedIds.size === 0) return;
     try {
-      const created = await createFolder({ ownerUserId, name });
+      const created = await createFolder({
+        ownerUserId,
+        name,
+        kind: "direction",
+      });
       await addCollection({
         ownerUserId,
         projectId: projectId as Id<"folders">,
@@ -2641,7 +2647,11 @@ export function ReviewModal({
           onCreate={(name) => {
             if (!projectId) return;
             void (async () => {
-              const { folderId } = await createFolder({ ownerUserId, name });
+              const { folderId } = await createFolder({
+                ownerUserId,
+                name,
+                kind: "direction",
+              });
               await addCollection({
                 ownerUserId,
                 projectId: projectId as Id<"folders">,
