@@ -58,6 +58,10 @@ const SHARP_THUMB_MIN_WIDTH = 800;
 const thumbIsSharp = (asset: { thumbWidth?: number }) =>
   (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
 
+// Masonry tile-size slider bounds (CSS column-width, px).
+const TILE_SIZE_MIN = 240;
+const TILE_SIZE_MAX = 720;
+
 // Stable manual-order comparator: pinned floats above everything (latest
 // pin first), then move-to-top/bottom weights, then the list's natural
 // order (newest-first) as the tiebreak.
@@ -402,6 +406,22 @@ export function ReviewModal({
   // browsing a mode.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
   const [likedOnly, setLikedOnly] = useState(false);
+  // Masonry tile size (target CSS column width). Driven by the header
+  // slider; the browser fits as many columns as the viewport allows, so the
+  // grid stays responsive at every size. Persisted per browser.
+  const [tileSize, setTileSize] = useState(480);
+  useEffect(() => {
+    const stored = Number(
+      window.localStorage.getItem("lm-review-tile-size") ?? "",
+    );
+    if (stored >= TILE_SIZE_MIN && stored <= TILE_SIZE_MAX) {
+      setTileSize(stored);
+    }
+  }, []);
+  const pickTileSize = useCallback((next: number) => {
+    setTileSize(next);
+    window.localStorage.setItem("lm-review-tile-size", String(next));
+  }, []);
   const [focusId, setFocusId] = useState<string | null>(null);
   // Focused element inside a drilled beat's preview viewer.
   const [beatFocusId, setBeatFocusId] = useState<string | null>(null);
@@ -1716,6 +1736,26 @@ export function ReviewModal({
           )}
           {!readOnly && (
             <>
+              {!inFocus && !composerOpen && (
+                <label
+                  className="hidden items-center gap-1.5 lg:flex"
+                  title="Tile size"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  <LayoutGrid className="h-3 w-3" />
+                  <input
+                    type="range"
+                    min={TILE_SIZE_MIN}
+                    max={TILE_SIZE_MAX}
+                    step={20}
+                    value={tileSize}
+                    onChange={(e) => pickTileSize(Number(e.target.value))}
+                    className="w-24 cursor-pointer"
+                    style={{ accentColor: "var(--lm-coral)" }}
+                    aria-label="Tile size"
+                  />
+                </label>
+              )}
               {hasCollections &&
                 !inFocus &&
                 (Boolean(openDirection) ||
@@ -2433,8 +2473,7 @@ export function ReviewModal({
           /* ── Drilled direction in select mode: flat grid to multi-pick ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
             <div
-              className="columns-1 sm:columns-2 lg:columns-3"
-              style={{ columnGap: "14px" }}
+              style={{ columns: `${tileSize}px`, columnGap: "14px" }}
             >
               {visibleAssets.map((asset) => (
                 <ReviewTile
@@ -2806,8 +2845,8 @@ export function ReviewModal({
               </div>
             )}
             <div
-              className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
-              style={{ columnGap: "16px" }}
+              className="mx-auto max-w-[1500px]"
+              style={{ columns: `${tileSize}px`, columnGap: "16px" }}
             >
               {beatCards.map((direction) => (
                 <DirectionCard
@@ -2840,8 +2879,7 @@ export function ReviewModal({
                   Unsorted
                 </p>
                 <div
-                  className="columns-1 sm:columns-2 xl:columns-3"
-                  style={{ columnGap: "14px" }}
+                  style={{ columns: `${tileSize}px`, columnGap: "14px" }}
                 >
                   {visibleAssets.map((asset) => (
                     <ReviewTile
@@ -2904,8 +2942,8 @@ export function ReviewModal({
               </div>
             )}
             <div
-              className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
-              style={{ columnGap: "14px" }}
+              className="mx-auto max-w-[1500px]"
+              style={{ columns: `${tileSize}px`, columnGap: "14px" }}
             >
               {modeItems.map((item) =>
                 item.kind === "stack" ? (
