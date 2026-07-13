@@ -2940,8 +2940,19 @@ export function ReviewModal({
                 </button>
               </div>
             )}
-            {(() => {
-              const renderBeat = (direction: DirectionCardData) => (
+            {/* One row-major grid: beat cards read left→right with the
+                pinned ones first, so pins are horizontal and no slot is
+                ever left as a hole. */}
+            <div
+              className="mx-auto max-w-[1500px]"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(auto-fill, minmax(min(${tileSize}px, 100%), 1fr))`,
+                gap: "0 16px",
+                alignItems: "start",
+              }}
+            >
+              {beatCards.map((direction) => (
                 <DirectionCard
                   key={direction.id}
                   direction={direction}
@@ -2959,44 +2970,8 @@ export function ReviewModal({
                       : undefined
                   }
                 />
-              );
-              const pinned = beatCards.filter((d) => d.pinned);
-              const rest = beatCards.filter((d) => !d.pinned);
-              return (
-                <>
-                  {/* Pinned beats ride a horizontal shelf above the
-                      masonry — fixed height, natural widths, no grid holes */}
-                  {pinned.length > 0 && (
-                    <div
-                      className="mx-auto mb-4 flex max-w-[1500px] gap-4 overflow-x-auto border-b pb-4"
-                      style={{ borderColor: "var(--lm-border)" }}
-                    >
-                      {pinned.map((direction) => (
-                        <div
-                          key={`pin-${direction.id}`}
-                          className="shrink-0"
-                          style={{
-                            height: Math.max(
-                              200,
-                              Math.min(360, Math.round(tileSize * 0.62)),
-                            ),
-                            aspectRatio: cardAspect(direction),
-                          }}
-                        >
-                          {renderBeat(direction)}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div
-                    className="mx-auto max-w-[1500px]"
-                    style={{ columns: `${tileSize}px`, columnGap: "16px" }}
-                  >
-                    {rest.map(renderBeat)}
-                  </div>
-                </>
-              );
-            })()}
+              ))}
+            </div>
 
             {/* Unsorted project files (added from the gallery) */}
             {visibleAssets.length > 0 && (
