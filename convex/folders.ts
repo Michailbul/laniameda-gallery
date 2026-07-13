@@ -27,6 +27,7 @@ const folderReturnValidator = v.object({
   kind: folderKindValidator,
   shareToken: v.optional(v.string()),
   coverAssetId: v.optional(v.id("assets")),
+  pinnedAt: v.optional(v.number()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -204,6 +205,35 @@ export const updateFolder = mutation({
     });
 
     return args.folderId;
+  },
+});
+
+// Pin/unpin a direction (beat/stack) in the project workspace — pinned
+// cards float first in their mode.
+export const setFolderPinned = mutation({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    pinned: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const folder = await ctx.db.get(args.folderId);
+    if (!folder) {
+      throw new ConvexError("Folder not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
+      throw new ConvexError("Folder does not belong to this user.");
+    }
+    await ctx.db.patch(args.folderId, {
+      pinnedAt: args.pinned ? Date.now() : undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 

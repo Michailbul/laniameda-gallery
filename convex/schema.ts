@@ -115,6 +115,8 @@ export default defineSchema({
     // browsed as a "direction" (a set of similar options). Falls back to the
     // first asset when unset or dangling.
     coverAssetId: v.optional(v.id("assets")),
+    // Pinned in the project workspace (beat/stack cards float first).
+    pinnedAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -230,6 +232,9 @@ export default defineSchema({
     // Manual sort weight (higher floats first). Set via move-to-top/bottom
     // in the project workspace; unset = neutral (0).
     orderPriority: v.optional(v.number()),
+    // Pinned in the project workspace — floats above everything, with a pin
+    // marker. Timestamp so the latest pin leads. Unset = not pinned.
+    pinnedAt: v.optional(v.number()),
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),

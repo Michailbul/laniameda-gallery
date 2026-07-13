@@ -1998,6 +1998,34 @@ export const setAssetPriority = mutation({
   },
 });
 
+// Pin/unpin an asset in the project workspace. Pinned assets float above
+// everything (latest pin first) and carry a pin marker.
+export const setAssetPinned = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    pinned: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    await ctx.db.patch(asset._id, {
+      pinnedAt: args.pinned ? Date.now() : undefined,
+    });
+    return null;
+  },
+});
+
 // Every named asset of this owner, for the @name selector when composing a
 // beat. Names are hand-given and sparse, so the full list stays small; the
 // client filters as the user types.

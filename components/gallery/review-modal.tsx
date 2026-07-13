@@ -25,6 +25,7 @@ import {
   Link2,
   MapPin,
   Pencil,
+  Pin,
   Play,
   Plus,
   SquareCheck,
@@ -50,9 +51,11 @@ const SHARP_THUMB_MIN_WIDTH = 800;
 const thumbIsSharp = (asset: { thumbWidth?: number }) =>
   (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
 
-// Stable manual-order comparator: move-to-top/bottom weights first, the
-// list's natural order (newest-first) as the tiebreak.
+// Stable manual-order comparator: pinned floats above everything (latest
+// pin first), then move-to-top/bottom weights, then the list's natural
+// order (newest-first) as the tiebreak.
 const byPriority = (a: ReviewAsset, b: ReviewAsset) =>
+  (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) ||
   (b.orderPriority ?? 0) - (a.orderPriority ?? 0);
 
 type CollectionOption = { id: string; name: string; count?: number };
@@ -124,6 +127,8 @@ type ReviewAsset = {
   name?: string;
   /** Manual sort weight — higher floats first, unset = 0. */
   orderPriority?: number;
+  /** Pinned in the workspace — floats above everything, pin marker shown. */
+  pinnedAt?: number;
   url?: string;
   thumbUrl?: string;
   thumbWidth?: number;
@@ -161,6 +166,8 @@ type DirectionCardData = {
   images: number;
   /** Whole-direction likes left by board viewers. */
   likes: number;
+  /** Pinned cards float first in their mode. */
+  pinned: boolean;
 };
 
 /**
@@ -186,6 +193,9 @@ export function ReviewModal({
 
   const renameAssetMutation = useMutation(api.assets.renameAsset);
   const setAssetPriorityMutation = useMutation(api.assets.setAssetPriority);
+  const setAssetPinnedMutation = useMutation(api.assets.setAssetPinned);
+  const setFolderPinnedMutation = useMutation(api.folders.setFolderPinned);
+  const setTagStateMutation = useMutation(api.assets.setAssetTagState);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
   const addAssetFolders = useMutation(api.assets.addAssetFolders);
   const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
@@ -322,6 +332,7 @@ export function ReviewModal({
       id: asset._id as string,
       name: asset.name,
       orderPriority: asset.orderPriority,
+      pinnedAt: asset.pinnedAt,
       url: asset.url ?? asset.thumbUrl,
       thumbUrl: asset.thumbUrl ?? asset.url,
       thumbWidth: asset.thumbWidth,
@@ -438,15 +449,20 @@ export function ReviewModal({
         images: images.length,
         likes:
           likesByCollection.get(collection.folderId as string)?.count ?? 0,
+        pinned: Boolean(collection.pinnedAt),
       };
     },
     [resolveCoverId, toReviewAsset, likesByCollection],
   );
 
-  // Beats mode cards.
+  // Beats mode cards, pinned first.
   const beatCards = useMemo<DirectionCardData[]>(
     () =>
-      effectiveTab === "beats" ? tabCollections.map(toDirectionCard) : [],
+      effectiveTab === "beats"
+        ? [...tabCollections]
+            .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
+            .map(toDirectionCard)
+        : [],
     [effectiveTab, tabCollections, toDirectionCard],
   );
 
@@ -462,8 +478,9 @@ export function ReviewModal({
     () =>
       effectiveTab === "beats"
         ? []
-        : tabCollections
+        : [...tabCollections]
             .filter((c) => c.folderId !== poolCollection?.folderId)
+            .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
             .map(toDirectionCard),
     [effectiveTab, tabCollections, poolCollection, toDirectionCard],
   );
@@ -1183,6 +1200,43 @@ export function ReviewModal({
       }).catch(() => {});
     },
     [ownerUserId, setAssetPriorityMutation],
+  );
+
+  // Pin/unpin an asset (floats first with a pin marker).
+  const toggleAssetPin = useCallback(
+    (asset: ReviewAsset) => {
+      void setAssetPinnedMutation({
+        ownerUserId,
+        assetId: asset.id as Id<"assets">,
+        pinned: !asset.pinnedAt,
+      }).catch(() => {});
+    },
+    [ownerUserId, setAssetPinnedMutation],
+  );
+
+  // Pin/unpin a direction card (beat or stack).
+  const toggleDirectionPin = useCallback(
+    (direction: DirectionCardData) => {
+      void setFolderPinnedMutation({
+        ownerUserId,
+        folderId: direction.id as Id<"folders">,
+        pinned: !direction.pinned,
+      }).catch(() => {});
+    },
+    [ownerUserId, setFolderPinnedMutation],
+  );
+
+  // Add/remove a free-form tag on an asset (visible on the project tiles).
+  const setAssetTag = useCallback(
+    (assetId: string, tagName: string, present: boolean) => {
+      void setTagStateMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        tagName,
+        present,
+      }).catch(() => {});
+    },
+    [ownerUserId, setTagStateMutation],
   );
 
   // Save the drilled direction's text (its description).
@@ -2090,6 +2144,10 @@ export function ReviewModal({
             onRemove={openDirection ? removeFromDirection : undefined}
             onDelete={(asset) => void deleteAssetsByIds([asset.id])}
             onRename={(asset, next) => renameAsset(asset.id, next)}
+            onSetTag={(asset, tag, present) =>
+              setAssetTag(asset.id, tag, present)
+            }
+            onPin={(asset) => toggleAssetPin(asset)}
             showCollectionLabel={false}
           />
         ) : openDirection && drilledIsBeat ? (
@@ -2136,6 +2194,35 @@ export function ReviewModal({
                       name={beatFocus.name}
                       onSave={(next) => renameAsset(beatFocus.id, next)}
                     />
+                    <TagEditor
+                      tags={beatFocus.tagNames}
+                      onAdd={(tag) => setAssetTag(beatFocus.id, tag, true)}
+                      onRemove={(tag) => setAssetTag(beatFocus.id, tag, false)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleAssetPin(beatFocus)}
+                      className="flex items-center rounded-lg border p-2"
+                      style={{
+                        backgroundColor: beatFocus.pinnedAt
+                          ? "var(--lm-coral)"
+                          : "transparent",
+                        color: beatFocus.pinnedAt
+                          ? "#000"
+                          : "var(--lm-text-secondary)",
+                        borderColor: beatFocus.pinnedAt
+                          ? "var(--lm-coral)"
+                          : "var(--lm-border-strong)",
+                      }}
+                      aria-pressed={Boolean(beatFocus.pinnedAt)}
+                      title={beatFocus.pinnedAt ? "Unpin" : "Pin to the top"}
+                    >
+                      <Pin
+                        className="h-3.5 w-3.5"
+                        fill={beatFocus.pinnedAt ? "currentColor" : "none"}
+                        strokeWidth={2.5}
+                      />
+                    </button>
                     <span
                       className="text-[11px] font-mono"
                       style={{ color: "var(--lm-text-tertiary)" }}
@@ -2369,6 +2456,8 @@ export function ReviewModal({
                     onOpen={() => setFocusId(asset.id)}
                     showCollectionLabel={false}
                     onMoveTop={() => moveAsset(asset.id, "top")}
+                    onPin={() => toggleAssetPin(asset)}
+                    onRename={(next) => renameAsset(asset.id, next)}
                     onMoveBottom={() => moveAsset(asset.id, "bottom")}
                     isMaster={openDirectionMasterId === asset.id}
                     onMaster={() =>
@@ -2423,6 +2512,7 @@ export function ReviewModal({
                     setBeatFocusId(null);
                   }}
                   onDelete={() => deleteDirectionById(direction.id)}
+                  onPin={() => toggleDirectionPin(direction)}
                 />
               ))}
             </div>
@@ -2452,6 +2542,8 @@ export function ReviewModal({
                       onOpen={() => setFocusId(asset.id)}
                       showCollectionLabel={false}
                       onMoveTop={() => moveAsset(asset.id, "top")}
+                      onPin={() => toggleAssetPin(asset)}
+                      onRename={(next) => renameAsset(asset.id, next)}
                       onMoveBottom={() => moveAsset(asset.id, "bottom")}
                       onDelete={() => void deleteAssetsByIds([asset.id])}
                       onFileCharacter={
@@ -2506,6 +2598,7 @@ export function ReviewModal({
                         )
                       }
                       onDelete={() => deleteDirectionById(direction.id)}
+                      onPin={() => toggleDirectionPin(direction)}
                     />
                   ))}
                 </div>
@@ -2562,6 +2655,8 @@ export function ReviewModal({
                           }}
                           onDelete={() => void deleteAssetsByIds([asset.id])}
                           onMoveTop={() => moveAsset(asset.id, "top")}
+                          onPin={() => toggleAssetPin(asset)}
+                          onRename={(next) => renameAsset(asset.id, next)}
                           onMoveBottom={() => moveAsset(asset.id, "bottom")}
                         />
                       ))}
@@ -2602,6 +2697,8 @@ export function ReviewModal({
                   showCollectionLabel={false}
                   onDelete={() => void deleteAssetsByIds([asset.id])}
                   onMoveTop={() => moveAsset(asset.id, "top")}
+                  onPin={() => toggleAssetPin(asset)}
+                  onRename={(next) => renameAsset(asset.id, next)}
                   onMoveBottom={() => moveAsset(asset.id, "bottom")}
                   selectable={selectMode}
                   selected={selectedIds.has(asset.id)}
@@ -2843,12 +2940,15 @@ function DirectionCard({
   direction,
   onOpen,
   onDelete,
+  onPin,
   active = false,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
   /** Deletes the whole direction (assets stay in the gallery). */
   onDelete?: () => void;
+  /** Pin/unpin — pinned cards float first in their mode. */
+  onPin?: () => void;
   /** Highlight state — e.g. the stack currently expanded in place. */
   active?: boolean;
 }) {
@@ -2997,16 +3097,49 @@ function DirectionCard({
             </>
           )}
 
-          {/* Delete the direction (hover, two-step) */}
-          {onDelete && (
-            <div className="absolute left-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
-              <ArmedDeleteButton
-                compact
-                title="Delete this beat — assets stay in the gallery"
-                onConfirm={onDelete}
-              />
-            </div>
-          )}
+          {/* Pin + delete (top-left) */}
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1">
+            {onPin && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPin();
+                }}
+                className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
+                  direction.pinned
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100"
+                }`}
+                style={{
+                  backgroundColor: direction.pinned
+                    ? "var(--lm-coral)"
+                    : "rgba(0,0,0,0.62)",
+                  color: direction.pinned ? "#000" : "#fff",
+                  borderColor: direction.pinned
+                    ? "var(--lm-coral)"
+                    : "rgba(255,255,255,0.25)",
+                }}
+                aria-pressed={direction.pinned}
+                title={direction.pinned ? "Unpin" : "Pin to the top"}
+              >
+                <Pin
+                  className="h-3 w-3"
+                  fill={direction.pinned ? "currentColor" : "none"}
+                  strokeWidth={2.5}
+                />
+              </button>
+            )}
+            {onDelete && (
+              <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                <ArmedDeleteButton
+                  compact
+                  title="Delete this beat — assets stay in the gallery"
+                  onConfirm={onDelete}
+                />
+              </span>
+            )}
+          </div>
 
           {/* Likes + take counter */}
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
@@ -3162,16 +3295,49 @@ function DirectionCard({
           engaged={preview.engaged}
         />
 
-        {/* Delete the direction (hover, two-step) */}
-        {onDelete && (
-          <div className="absolute left-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
-            <ArmedDeleteButton
-              compact
-              title="Delete this direction — assets stay in the gallery"
-              onConfirm={onDelete}
-            />
+          {/* Pin + delete (top-left) */}
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1">
+            {onPin && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPin();
+                }}
+                className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
+                  direction.pinned
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100"
+                }`}
+                style={{
+                  backgroundColor: direction.pinned
+                    ? "var(--lm-coral)"
+                    : "rgba(0,0,0,0.62)",
+                  color: direction.pinned ? "#000" : "#fff",
+                  borderColor: direction.pinned
+                    ? "var(--lm-coral)"
+                    : "rgba(255,255,255,0.25)",
+                }}
+                aria-pressed={direction.pinned}
+                title={direction.pinned ? "Unpin" : "Pin to the top"}
+              >
+                <Pin
+                  className="h-3 w-3"
+                  fill={direction.pinned ? "currentColor" : "none"}
+                  strokeWidth={2.5}
+                />
+              </button>
+            )}
+            {onDelete && (
+              <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                <ArmedDeleteButton
+                  compact
+                  title="Delete this direction — assets stay in the gallery"
+                  onConfirm={onDelete}
+                />
+              </span>
+            )}
           </div>
-        )}
 
         {/* Option count badge — turns into a n/N counter while previewing */}
         <span
@@ -3246,6 +3412,8 @@ function ReviewTile({
   onMakeBeat,
   onMoveTop,
   onMoveBottom,
+  onPin,
+  onRename,
   selectable,
   selected,
   onToggleSelect,
@@ -3271,6 +3439,10 @@ function ReviewTile({
   /** Manual ordering: float to the top / sink to the bottom. */
   onMoveTop?: () => void;
   onMoveBottom?: () => void;
+  /** Pin/unpin — pinned assets float first with a pin marker. */
+  onPin?: () => void;
+  /** Rename the asset's @name handle inline on the tile. */
+  onRename?: (name: string) => void;
   /** Multiselect: clicks toggle selection instead of opening the feed. */
   selectable?: boolean;
   selected?: boolean;
@@ -3315,8 +3487,37 @@ function ReviewTile({
         </span>
       )}
 
-      {/* Viewer likes + approve, grouped top-right */}
+      {/* Pin + viewer likes, grouped top-right */}
       <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
+        {onPin && !selectable && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPin();
+            }}
+            className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
+              asset.pinnedAt ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+            style={{
+              backgroundColor: asset.pinnedAt
+                ? "var(--lm-coral)"
+                : "rgba(0,0,0,0.62)",
+              color: asset.pinnedAt ? "#000" : "#fff",
+              borderColor: asset.pinnedAt
+                ? "var(--lm-coral)"
+                : "rgba(255,255,255,0.25)",
+            }}
+            aria-pressed={Boolean(asset.pinnedAt)}
+            title={asset.pinnedAt ? "Unpin" : "Pin to the top"}
+          >
+            <Pin
+              className="h-3 w-3"
+              fill={asset.pinnedAt ? "currentColor" : "none"}
+              strokeWidth={2.5}
+            />
+          </button>
+        )}
         {likes && likes.count > 0 && (
           <span
             className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
@@ -3373,17 +3574,53 @@ function ReviewTile({
         </div>
       )}
 
-      {/* @name handle */}
-      {asset.name && !selectable && (
+      {/* @name handle + tags, always visible on the tile */}
+      {!selectable && (onRename || asset.name || asset.tagNames.length > 0) && (
         <div
-          className={`pointer-events-none absolute bottom-2.5 left-2.5 z-10 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold tracking-wider ${
+          className={`absolute bottom-2.5 left-2.5 z-10 flex max-w-[85%] flex-col items-start gap-1 ${
             onFileCharacter || onFileLocation || onMakeBeat
               ? "transition-opacity group-hover:opacity-0"
               : ""
           }`}
-          style={{ backgroundColor: "rgba(0,0,0,0.62)", color: "var(--lm-coral)" }}
         >
-          @{asset.name}
+          {onRename ? (
+            <AssetNameEditor
+              overlay
+              name={asset.name}
+              onSave={onRename}
+            />
+          ) : (
+            asset.name && (
+              <span
+                className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold tracking-wider"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  color: "var(--lm-coral)",
+                }}
+              >
+                @{asset.name}
+              </span>
+            )
+          )}
+          {asset.tagNames.filter((t) => t !== "approved").length > 0 && (
+            <span className="flex flex-wrap items-center gap-1">
+              {asset.tagNames
+                .filter((t) => t !== "approved")
+                .slice(0, 3)
+                .map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-md px-1.5 py-0.5 text-[8px] font-mono font-bold uppercase tracking-wider"
+                    style={{
+                      backgroundColor: "rgba(0,0,0,0.55)",
+                      color: "rgba(255,255,255,0.75)",
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+            </span>
+          )}
         </div>
       )}
 
@@ -3527,9 +3764,12 @@ function ReviewTile({
 function AssetNameEditor({
   name,
   onSave,
+  overlay = false,
 }: {
   name?: string;
   onSave: (name: string) => void;
+  /** Dark-chip styling for use on top of tile media. */
+  overlay?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -3537,12 +3777,26 @@ function AssetNameEditor({
     return (
       <button
         type="button"
-        onClick={() => setDraft(name ?? "")}
-        className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold tracking-wider transition-opacity hover:opacity-80"
-        style={{
-          borderColor: "var(--lm-border)",
-          color: name ? "var(--lm-coral)" : "var(--lm-text-ghost)",
+        onClick={(e) => {
+          e.stopPropagation();
+          setDraft(name ?? "");
         }}
+        className={`flex items-center gap-1 rounded-lg font-mono font-bold tracking-wider transition-opacity hover:opacity-80 ${
+          overlay
+            ? "px-2 py-0.5 text-[9px]"
+            : "border px-2 py-1 text-[10px]"
+        }`}
+        style={
+          overlay
+            ? {
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: name ? "var(--lm-coral)" : "rgba(255,255,255,0.6)",
+              }
+            : {
+                borderColor: "var(--lm-border)",
+                color: name ? "var(--lm-coral)" : "var(--lm-text-ghost)",
+              }
+        }
         title="Name this asset — reference it later as @name"
       >
         <AtSign className="h-3 w-3" />
@@ -3562,6 +3816,7 @@ function AssetNameEditor({
     <input
       autoFocus
       value={draft}
+      onClick={(e) => e.stopPropagation()}
       onChange={(e) => setDraft(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -3571,10 +3826,11 @@ function AssetNameEditor({
           e.preventDefault();
           setDraft(null);
         }
+        e.stopPropagation();
       }}
       onBlur={commit}
       placeholder="e.g. cassandra"
-      className="w-[150px] rounded-lg border px-2 py-1 text-[12px] outline-none"
+      className="w-[140px] rounded-lg border px-2 py-1 text-[12px] outline-none"
       style={{
         backgroundColor: "var(--lm-surface-2)",
         borderColor: "var(--lm-coral)",
@@ -3582,6 +3838,93 @@ function AssetNameEditor({
       }}
       aria-label="Asset name"
     />
+  );
+}
+
+/* ── Free-form tag editor: chips with hover ×, plus an add input ── */
+function TagEditor({
+  tags,
+  onAdd,
+  onRemove,
+}: {
+  tags: string[];
+  onAdd: (tag: string) => void;
+  onRemove: (tag: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const visible = tags.filter((tag) => tag !== "approved");
+
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {visible.map((tag) => (
+        <span
+          key={tag}
+          className="group/tag flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+          style={{
+            borderColor: "var(--lm-border)",
+            color: "var(--lm-text-tertiary)",
+          }}
+        >
+          {tag}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(tag);
+            }}
+            className="hidden group-hover/tag:inline-flex"
+            style={{ color: "var(--lm-text-ghost)" }}
+            aria-label={`Remove tag ${tag}`}
+            title={`Remove tag ${tag}`}
+          >
+            <X className="h-2.5 w-2.5" strokeWidth={3} />
+          </button>
+        </span>
+      ))}
+      {draft === null ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setDraft("");
+          }}
+          className="flex items-center gap-0.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
+          style={{ color: "var(--lm-text-ghost)" }}
+          title="Add a tag — shown on the project tiles"
+        >
+          <Plus className="h-3 w-3" />
+          tag
+        </button>
+      ) : (
+        <input
+          autoFocus
+          value={draft}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const next = draft.trim();
+              if (next) onAdd(next);
+              setDraft(null);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setDraft(null);
+            }
+            e.stopPropagation();
+          }}
+          onBlur={() => setDraft(null)}
+          placeholder="tag…"
+          className="w-[110px] rounded-lg border px-2 py-1 text-[12px] outline-none"
+          style={{
+            backgroundColor: "var(--lm-surface-2)",
+            borderColor: "var(--lm-coral)",
+            color: "var(--lm-text-primary)",
+          }}
+          aria-label="New tag"
+        />
+      )}
+    </span>
   );
 }
 
@@ -3899,6 +4242,8 @@ function FocusScrollFeed({
   onRemove,
   onDelete,
   onRename,
+  onSetTag,
+  onPin,
   showCollectionLabel,
 }: {
   assets: ReviewAsset[];
@@ -3913,6 +4258,10 @@ function FocusScrollFeed({
   onDelete?: (asset: ReviewAsset) => void;
   /** Rename the asset (its @name handle). */
   onRename?: (asset: ReviewAsset, name: string) => void;
+  /** Add/remove a free-form tag. */
+  onSetTag?: (asset: ReviewAsset, tag: string, present: boolean) => void;
+  /** Pin/unpin the asset. */
+  onPin?: (asset: ReviewAsset) => void;
   showCollectionLabel: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -3992,6 +4341,37 @@ function FocusScrollFeed({
                   name={asset.name}
                   onSave={(next) => onRename(asset, next)}
                 />
+              )}
+              {onSetTag && (
+                <TagEditor
+                  tags={asset.tagNames}
+                  onAdd={(tag) => onSetTag(asset, tag, true)}
+                  onRemove={(tag) => onSetTag(asset, tag, false)}
+                />
+              )}
+              {onPin && (
+                <button
+                  type="button"
+                  onClick={() => onPin(asset)}
+                  className="flex items-center rounded-lg border p-1.5"
+                  style={{
+                    backgroundColor: asset.pinnedAt
+                      ? "var(--lm-coral)"
+                      : "rgba(0,0,0,0.62)",
+                    color: asset.pinnedAt ? "#000" : "#fff",
+                    borderColor: asset.pinnedAt
+                      ? "var(--lm-coral)"
+                      : "rgba(255,255,255,0.25)",
+                  }}
+                  aria-pressed={Boolean(asset.pinnedAt)}
+                  title={asset.pinnedAt ? "Unpin" : "Pin to the top"}
+                >
+                  <Pin
+                    className="h-3 w-3"
+                    fill={asset.pinnedAt ? "currentColor" : "none"}
+                    strokeWidth={2.5}
+                  />
+                </button>
               )}
               {showCollectionLabel && (
                 <span
