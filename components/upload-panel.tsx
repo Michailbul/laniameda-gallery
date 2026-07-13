@@ -16,9 +16,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useUploadFile } from "@convex-dev/r2/react";
 import { requestJson } from "@/lib/app-api";
-import { parseTagNames } from "@/lib/ingest";
+import { buildIngestKey, parseTagNames } from "@/lib/ingest";
 import { buildUploadFormData } from "@/lib/upload-form";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
+import {
+  LARGE_IMAGE_BYTES,
+  appendImageUploadFields,
+  uploadImageToR2,
+} from "@/lib/image-ingest";
 import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
 
@@ -365,16 +370,24 @@ export function UploadPanel({
       const isVideoUpload = Boolean(
         candidateFile && candidateFile.type.startsWith("video/"),
       );
+      // Convex Node action args cap at 5 MiB, and small images travel as
+      // base64 INSIDE the action call — large ones must go browser → R2
+      // like videos do, or ingest rejects them.
+      const isLargeImageUpload = Boolean(
+        candidateFile &&
+          candidateFile.type.startsWith("image/") &&
+          candidateFile.size > LARGE_IMAGE_BYTES,
+      );
 
-      // Videos go to Cloudflare R2 directly from the browser; images
-      // keep using the existing Convex storage path.
+      // Videos (and large images) go to Cloudflare R2 directly from the
+      // browser; small images keep the inline ingest path.
       const formData = buildUploadFormData({
         promptText,
         allowPromptOnly: isPromptOnlyDraft && saveAsTextOnlyPrompt,
         url: urlInput,
         folderId: resolvedFolderId,
         tags,
-        file: isVideoUpload ? null : candidateFile,
+        file: isVideoUpload || isLargeImageUpload ? null : candidateFile,
         modelName: resolvedModelName,
         pillar: resolvedPillar,
         generationType: resolvedGenerationType,
@@ -412,6 +425,20 @@ export function UploadPanel({
         );
         formData.append("posterWidth", String(upload.poster.width));
         formData.append("posterHeight", String(upload.poster.height));
+      } else if (isLargeImageUpload && candidateFile) {
+        setStatus({ type: "info", message: "Uploading image to R2..." });
+        const upload = await uploadImageToR2(candidateFile, {
+          upload: uploadVideo,
+        });
+        appendImageUploadFields(formData, upload);
+        // file was omitted from the form, so re-key on the file name to keep
+        // repeat submissions idempotent.
+        const key = buildIngestKey({
+          promptText: promptText || undefined,
+          url: urlInput?.trim() || undefined,
+          fileName: candidateFile.name,
+        });
+        if (key) formData.set("ingestKey", key);
       }
 
       const response = await fetch("/api/ingest", {

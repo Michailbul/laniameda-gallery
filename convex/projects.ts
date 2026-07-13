@@ -53,7 +53,7 @@ const projectSummaryValidator = v.object({
   ),
 });
 
-export type ProjectSection = "characters" | "locations" | "beats";
+export type ProjectSection = "characters" | "locations" | "stills" | "beats";
 
 export type ProjectCollectionLink = {
   folderId: Id<"folders">;

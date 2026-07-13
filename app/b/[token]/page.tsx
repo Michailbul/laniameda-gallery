@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "@/app/tokens.css";
-import { DirectionBoard } from "@/components/board/direction-board";
+import { ReviewModal } from "@/components/gallery/review-modal";
 
 export const metadata: Metadata = {
   title: "Direction board — Laniameda",
@@ -14,5 +14,7 @@ export default async function BoardPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  return <DirectionBoard token={token} />;
+  // The shared board IS the workspace review view, rendered read-only from the
+  // share token — no auth, no admin controls, no collections picker.
+  return <ReviewModal viewerToken={token} leftOffset="0px" />;
 }

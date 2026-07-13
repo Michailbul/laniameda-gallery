@@ -22,6 +22,7 @@ import {
   FileDown,
   FolderPlus,
   Heart,
+  Image as ImageIcon,
   LayoutGrid,
   Link2,
   MapPin,
@@ -42,6 +43,11 @@ import { buildUploadFormData } from "@/lib/upload-form";
 import { buildIngestKey } from "@/lib/ingest";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
 import {
+  LARGE_IMAGE_BYTES,
+  appendImageUploadFields,
+  uploadImageToR2,
+} from "@/lib/image-ingest";
+import {
   StackHoverPreviewOverlay,
   useStackHoverPreview,
 } from "@/components/gallery/stack-hover-preview";
@@ -59,11 +65,16 @@ const byPriority = (a: ReviewAsset, b: ReviewAsset) =>
   (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) ||
   (b.orderPriority ?? 0) - (a.orderPriority ?? 0);
 
-// R2's public domain has no CORS headers, so downloads stream through the
-// owner-gated same-origin proxy with an attachment header.
-const triggerAssetDownload = (assetId: string) => {
+// R2's public domain has no CORS headers, so downloads stream through a
+// same-origin proxy with an attachment header. Owners hit the auth-gated asset
+// route; public board viewers hit the token-gated board proxy (pass `token`).
+const triggerAssetDownload = (assetId: string, token?: string) => {
   const anchor = document.createElement("a");
-  anchor.href = `/api/assets/${encodeURIComponent(assetId)}/download`;
+  anchor.href = token
+    ? `/api/board/download?token=${encodeURIComponent(
+        token,
+      )}&assetId=${encodeURIComponent(assetId)}`
+    : `/api/assets/${encodeURIComponent(assetId)}/download`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -71,21 +82,40 @@ const triggerAssetDownload = (assetId: string) => {
 
 type CollectionOption = { id: string; name: string; count?: number };
 
-/** The project's layers. Beats lead — the packaged pitch view. Characters
- * and Locations are asset pools where selections become named stacks. */
-type ProjectSection = "characters" | "locations" | "beats";
+/** The project's layers. Beats lead — the packaged pitch view. Characters,
+ * Locations, and Stills are asset pools where selections become named
+ * stacks. */
+type ProjectSection = "characters" | "locations" | "stills" | "beats";
 type ReviewTab = ProjectSection;
+
+/** The pool modes — every tab except Beats. */
+type PoolSection = Exclude<ProjectSection, "beats">;
+
+const POOL_LABELS: Record<PoolSection, string> = {
+  characters: "Characters",
+  locations: "Locations",
+  stills: "Stills",
+};
+
+/** The role tag a pool section stamps on its assets. */
+const POOL_TAGS: Record<PoolSection, string> = {
+  characters: "character",
+  locations: "location",
+  stills: "still",
+};
 
 const SECTION_TABS: { key: ProjectSection; label: string }[] = [
   { key: "beats", label: "Beats" },
   { key: "characters", label: "Characters" },
   { key: "locations", label: "Locations" },
+  { key: "stills", label: "Stills" },
 ];
 
 const TAB_LABELS: Record<ReviewTab, string> = {
   beats: "Beats",
   characters: "Characters",
   locations: "Locations",
+  stills: "Stills",
 };
 
 /** Which bucket a staged beat file sorts into. Videos are fixed; images
@@ -117,6 +147,73 @@ const likeTitle = (entry: AssetLikes | undefined): string => {
   const anonymous = entry.count - entry.names.length;
   return `Liked by ${entry.names.join(", ")}${anonymous > 0 ? ` +${anonymous}` : ""}`;
 };
+
+/**
+ * A ♥ badge over media. For the owner it's a read-only count (with a
+ * "Liked by …" tooltip); pass `onToggle` (public viewer mode) to make it an
+ * interactive like button that fills when this viewer liked it.
+ */
+function LikeControl({
+  count,
+  likes,
+  likedByMe,
+  onToggle,
+  className = "",
+}: {
+  count: number;
+  likes?: AssetLikes;
+  likedByMe?: boolean;
+  onToggle?: () => void;
+  className?: string;
+}) {
+  const interactive = Boolean(onToggle);
+  // Owner view: nothing to show until someone likes. Viewer view: always show
+  // the heart so they can like.
+  if (!interactive && count <= 0) return null;
+  const filled = interactive ? Boolean(likedByMe) : true;
+  const shared = {
+    className: `flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+      interactive ? "active:scale-95" : ""
+    } ${className}`,
+    style: {
+      backgroundColor: filled ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
+      color: filled ? "#000" : "#fff",
+      borderColor: filled
+        ? "var(--lm-coral)"
+        : "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+    } as React.CSSProperties,
+    title: interactive
+      ? likedByMe
+        ? "Liked — click to remove"
+        : "Like"
+      : likeTitle(likes),
+  };
+  const inner = (
+    <>
+      <Heart
+        className="h-3 w-3"
+        fill={filled ? "currentColor" : "none"}
+        strokeWidth={2.5}
+      />
+      {count > 0 ? count : ""}
+    </>
+  );
+  return interactive ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle?.();
+      }}
+      aria-pressed={Boolean(likedByMe)}
+      {...shared}
+    >
+      {inner}
+    </button>
+  ) : (
+    <span {...shared}>{inner}</span>
+  );
+}
 
 type ReviewModalProps = {
   ownerUserId?: string;
@@ -218,7 +315,6 @@ export function ReviewModal({
       key = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
       window.localStorage.setItem("lm-board-viewer-key", key);
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewerKey(key);
   }, [readOnly]);
 
@@ -442,20 +538,22 @@ export function ReviewModal({
     [project, effectiveTab],
   );
 
-  // Per-project asset POOLS for the Characters / Locations modes: auto-
-  // created "<Project> — Characters/Locations" collections that hold the
-  // loose assets. Named stacks are every OTHER collection in that section.
+  // Per-project asset POOLS for the Characters / Locations / Stills modes:
+  // auto-created "<Project> — Characters/Locations/Stills" collections that
+  // hold the loose assets. Named stacks are every OTHER collection in that
+  // section.
   const pools = useMemo(() => {
     const projectName = project?.project.name;
-    const find = (label: string, section: ProjectSection) =>
+    const find = (section: PoolSection) =>
       (project?.collections ?? []).find(
         (c) =>
-          c.name === `${projectName} — ${label}` &&
+          c.name === `${projectName} — ${POOL_LABELS[section]}` &&
           tabOf(c.section) === section,
       );
     return {
-      characters: find("Characters", "characters"),
-      locations: find("Locations", "locations"),
+      characters: find("characters"),
+      locations: find("locations"),
+      stills: find("stills"),
     };
   }, [project]);
 
@@ -543,14 +641,10 @@ export function ReviewModal({
     [effectiveTab, tabCollections, toDirectionCard],
   );
 
-  // Characters / Locations mode: named stacks (every section collection
-  // except the pool) + the loose pool assets not yet in any stack.
+  // Pool modes: named stacks (every section collection except the pool) +
+  // the loose pool assets not yet in any stack.
   const poolCollection =
-    effectiveTab === "characters"
-      ? pools.characters
-      : effectiveTab === "locations"
-        ? pools.locations
-        : undefined;
+    effectiveTab === "beats" ? undefined : pools[effectiveTab];
   const stackCards = useMemo<DirectionCardData[]>(
     () =>
       effectiveTab === "beats"
@@ -784,14 +878,35 @@ export function ReviewModal({
       for (const file of media) {
         try {
           const isVideo = file.type.startsWith("video/");
-          // Mirrors the upload panel: images travel in the ingest request;
-          // videos upload browser→R2 with a client-extracted poster, and the
+          // Convex Node action args cap at 5 MiB and small images travel as
+          // base64 INSIDE the action call — large ones must go browser → R2
+          // (like videos) or ingest rejects them with "arguments size is too
+          // large".
+          const isLargeImage =
+            !isVideo &&
+            file.type.startsWith("image/") &&
+            file.size > LARGE_IMAGE_BYTES;
+          // Mirrors the upload panel: small images travel in the ingest
+          // request; videos (and large images) upload browser→R2, and the
           // ingest request only carries the r2Key + poster + metadata.
           const formData = buildUploadFormData({
             promptText,
             folderId: targetFolderId,
-            file: isVideo ? null : file,
+            file: isVideo || isLargeImage ? null : file,
           });
+          if (isLargeImage) {
+            const upload = await uploadImageToR2(file, {
+              upload: uploadVideo,
+            });
+            appendImageUploadFields(formData, upload);
+            // file was omitted from the form, so re-key on the file name to
+            // keep re-drops idempotent (matches the small-image key shape).
+            const key = buildIngestKey({
+              promptText: promptText || undefined,
+              fileName: file.name,
+            });
+            if (key) formData.set("ingestKey", key);
+          }
           if (isVideo) {
             const upload = await uploadVideoToR2(file, { uploadVideo });
             formData.append("r2Key", upload.r2Key);
@@ -875,14 +990,10 @@ export function ReviewModal({
 
   // Ensure the section's pool collection exists on this project; returns its
   // folder id. Reattaches a detached same-named folder instead of erroring.
-  const ensurePool = async (
-    section: "characters" | "locations",
-  ): Promise<string> => {
-    const existing =
-      section === "characters" ? pools.characters : pools.locations;
+  const ensurePool = async (section: PoolSection): Promise<string> => {
+    const existing = pools[section];
     if (existing) return existing.folderId as string;
-    const label = section === "characters" ? "Characters" : "Locations";
-    const name = `${project?.project.name ?? "Project"} — ${label}`;
+    const name = `${project?.project.name ?? "Project"} — ${POOL_LABELS[section]}`;
     const detached = allCollections.find((c) => c.name === name);
     const folderId = detached
       ? detached.id
@@ -897,15 +1008,11 @@ export function ReviewModal({
     return folderId;
   };
 
-  // Characters / Locations mode: uploads land straight in the pool, tagged
-  // with their role.
-  const uploadToPool = async (
-    media: File[],
-    section: "characters" | "locations",
-  ) => {
+  // Pool modes: uploads land straight in the pool, tagged with their role.
+  const uploadToPool = async (media: File[], section: PoolSection) => {
     const poolId = await ensurePool(section);
     const uploaded = await uploadFilesToDirection(media, poolId, "", true);
-    const tag = section === "characters" ? "character" : "location";
+    const tag = POOL_TAGS[section];
     for (const { assetId, isVideo } of uploaded) {
       if (!assetId || isVideo) continue;
       void addAssetTagsMutation({
@@ -1033,13 +1140,15 @@ export function ReviewModal({
       setBeatFocusId(null);
       // Resolve each pool once per save — `pools` is stale inside this
       // closure after the first ensurePool creates one.
-      const poolIds: Partial<Record<"characters" | "locations", string>> = {};
+      const poolIds: Partial<Record<PoolSection, string>> = {};
       const fileToPool = async (assetId: string, bucket: BeatBucket) => {
-        if (bucket !== "character" && bucket !== "location") return;
+        if (bucket === "video") return;
         const section =
           bucket === "character"
             ? ("characters" as const)
-            : ("locations" as const);
+            : bucket === "location"
+              ? ("locations" as const)
+              : ("stills" as const);
         try {
           poolIds[section] = poolIds[section] ?? (await ensurePool(section));
           await addAssetFolders({
@@ -1289,13 +1398,10 @@ export function ReviewModal({
     [ownerUserId, renameAssetMutation],
   );
 
-  // File an unsorted project file into the Characters/Locations pool: pool
-  // membership + role tag replace its unsorted memberships (a move). Plain
-  // closure (not memoized) because ensurePool is re-created each render.
-  const fileUnsortedTo = async (
-    asset: ReviewAsset,
-    section: "characters" | "locations",
-  ) => {
+  // File an unsorted project file into a section pool: pool membership +
+  // role tag replace its unsorted memberships (a move). Plain closure (not
+  // memoized) because ensurePool is re-created each render.
+  const fileUnsortedTo = async (asset: ReviewAsset, section: PoolSection) => {
     const poolId = await ensurePool(section);
     const next = [
       ...new Set([
@@ -1311,7 +1417,7 @@ export function ReviewModal({
     void addAssetTagsMutation({
       ownerUserId,
       assetId: asset.id as Id<"assets">,
-      tagNames: [section === "characters" ? "character" : "location"],
+      tagNames: [POOL_TAGS[section]],
     }).catch(() => {});
   };
 
@@ -1415,7 +1521,7 @@ export function ReviewModal({
         else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
         else if (openDirectionId) setOpenDirectionId(null);
-        else onClose();
+        else onClose?.();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
         goFocus(-1);
@@ -1434,9 +1540,13 @@ export function ReviewModal({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, stepBeatFocus, onClose]);
 
-  if (!projectId) return null;
+  // Owner mode with no open project → render nothing. Viewer mode is driven by
+  // the token instead, so it stays mounted.
+  if (!readOnly && !projectId) return null;
 
   const isLoading = project === undefined;
+  // Viewer mode: a null payload means the share link is revoked/unknown.
+  const notFound = readOnly && project === null;
   const projectName = project?.project.name ?? "Project";
   const hasCollections = (project?.collections.length ?? 0) > 0;
 
@@ -1474,24 +1584,24 @@ export function ReviewModal({
       aria-modal="true"
       aria-label={`Review: ${projectName}`}
       onDragEnter={(event) => {
-        if (!dragHasFiles(event)) return;
+        if (readOnly || !dragHasFiles(event)) return;
         event.preventDefault();
         dragDepthRef.current += 1;
         setDragFilesOver(true);
       }}
       onDragOver={(event) => {
-        if (!dragHasFiles(event)) return;
+        if (readOnly || !dragHasFiles(event)) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
       }}
       onDragLeave={(event) => {
-        if (!dragHasFiles(event)) return;
+        if (readOnly || !dragHasFiles(event)) return;
         event.preventDefault();
         dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
         if (dragDepthRef.current === 0) setDragFilesOver(false);
       }}
       onDrop={(event) => {
-        if (!dragHasFiles(event)) return;
+        if (readOnly || !dragHasFiles(event)) return;
         event.preventDefault();
         dragDepthRef.current = 0;
         setDragFilesOver(false);
@@ -1527,7 +1637,7 @@ export function ReviewModal({
             className="text-[10px] font-mono font-bold uppercase tracking-[0.16em]"
             style={{ color: "var(--lm-coral)" }}
           >
-            Review
+            {readOnly ? "● Laniameda" : "Review"}
           </span>
           <span
             className="truncate text-[15px] font-semibold"
@@ -1604,75 +1714,83 @@ export function ReviewModal({
               Liked {totalLikes}
             </button>
           )}
-          {hasCollections &&
-            !inFocus &&
-            (Boolean(openDirection) ||
-              effectiveTab !== "beats" ||
-              unsortedAssets.length > 0) && (
+          {!readOnly && (
+            <>
+              {hasCollections &&
+                !inFocus &&
+                (Boolean(openDirection) ||
+                  effectiveTab !== "beats" ||
+                  unsortedAssets.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    selectMode ? exitSelect() : setSelectMode(true)
+                  }
+                  className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+                  style={{
+                    borderColor: selectMode
+                      ? "var(--lm-coral)"
+                      : "var(--lm-border-strong)",
+                    backgroundColor: selectMode
+                      ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
+                      : "transparent",
+                    color: selectMode
+                      ? "var(--lm-coral)"
+                      : "var(--lm-text-secondary)",
+                  }}
+                  aria-pressed={selectMode}
+                  title="Select multiple assets to remove or delete"
+                >
+                  <SquareCheck className="h-3.5 w-3.5" />
+                  Select
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPickerOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                style={{
+                  borderColor: "var(--lm-border-strong)",
+                  color: "var(--lm-text-secondary)",
+                }}
+                title="Add or remove collections"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+                Collections
+              </button>
+              <button
+                type="button"
+                onClick={() => setShareOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                style={{
+                  borderColor: shareState?.enabled
+                    ? "var(--lm-coral)"
+                    : "var(--lm-border-strong)",
+                  color: shareState?.enabled
+                    ? "var(--lm-coral)"
+                    : "var(--lm-text-secondary)",
+                }}
+                title="Share a read-only direction board link"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Share
+              </button>
+            </>
+          )}
+          {onClose && (
             <button
               type="button"
-              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border transition-opacity hover:opacity-80"
               style={{
-                borderColor: selectMode
-                  ? "var(--lm-coral)"
-                  : "var(--lm-border-strong)",
-                backgroundColor: selectMode
-                  ? "color-mix(in srgb, var(--lm-coral) 16%, transparent)"
-                  : "transparent",
-                color: selectMode
-                  ? "var(--lm-coral)"
-                  : "var(--lm-text-secondary)",
+                borderColor: "var(--lm-border-strong)",
+                color: "var(--lm-text-secondary)",
               }}
-              aria-pressed={selectMode}
-              title="Select multiple assets to remove or delete"
+              aria-label="Close review"
             >
-              <SquareCheck className="h-3.5 w-3.5" />
-              Select
+              <X className="h-4 w-4" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setPickerOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-secondary)",
-            }}
-            title="Add or remove collections"
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-            Collections
-          </button>
-          <button
-            type="button"
-            onClick={() => setShareOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-            style={{
-              borderColor: shareState?.enabled
-                ? "var(--lm-coral)"
-                : "var(--lm-border-strong)",
-              color: shareState?.enabled
-                ? "var(--lm-coral)"
-                : "var(--lm-text-secondary)",
-            }}
-            title="Share a read-only direction board link"
-          >
-            <Link2 className="h-3.5 w-3.5" />
-            Share
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-secondary)",
-            }}
-            aria-label="Close review"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
       </header>
 
@@ -1772,16 +1890,18 @@ export function ReviewModal({
               >
                 {openDirection.name}
               </span>
-              <button
-                type="button"
-                onClick={() => setRenameDraft(openDirection.name)}
-                className="flex h-6 w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
-                style={{ color: "var(--lm-text-ghost)" }}
-                aria-label="Rename direction"
-                title="Rename this direction"
-              >
-                <Pencil className="h-3 w-3" />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => setRenameDraft(openDirection.name)}
+                  className="flex h-6 w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                  aria-label="Rename direction"
+                  title="Rename this direction"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
             </>
           )}
           <span
@@ -1792,9 +1912,19 @@ export function ReviewModal({
             {openDirection.count === 1 ? "option" : "options"}
           </span>
           <a
-            href={`/api/projects/direction-pdf?projectId=${encodeURIComponent(
-              projectId ?? "",
-            )}&folderId=${encodeURIComponent(openDirection.folderId as string)}`}
+            href={
+              readOnly
+                ? `/api/board/direction-pdf?token=${encodeURIComponent(
+                    viewerToken ?? "",
+                  )}&folderId=${encodeURIComponent(
+                    openDirection.folderId as string,
+                  )}`
+                : `/api/projects/direction-pdf?projectId=${encodeURIComponent(
+                    projectId ?? "",
+                  )}&folderId=${encodeURIComponent(
+                    openDirection.folderId as string,
+                  )}`
+            }
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
@@ -1807,38 +1937,49 @@ export function ReviewModal({
             <FileDown className="h-3.5 w-3.5" />
             PDF
           </a>
-          {openDirectionLikes && openDirectionLikes.count > 0 && (
-            <span
-              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-              style={{
-                backgroundColor:
-                  "color-mix(in srgb, var(--lm-coral) 14%, transparent)",
-                color: "var(--lm-coral)",
-                borderColor:
-                  "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-              }}
-              title={likeTitle(openDirectionLikes)}
-            >
-              <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
-              {openDirectionLikes.count}
+          <LikeControl
+            count={openDirectionLikes?.count ?? 0}
+            likes={openDirectionLikes}
+            likedByMe={viewerLikedFolders.has(openDirection.folderId as string)}
+            onToggle={
+              readOnly
+                ? () => toggleDirectionLike(openDirection.folderId as string)
+                : undefined
+            }
+          />
+          {!readOnly && (
+            <span className="ml-auto">
+              <ArmedDeleteButton
+                label="Delete"
+                variant="chrome"
+                title="Delete this direction — its assets stay in the gallery"
+                onConfirm={() =>
+                  deleteDirectionById(openDirection.folderId as string)
+                }
+              />
             </span>
           )}
-          <span className="ml-auto">
-            <ArmedDeleteButton
-              label="Delete"
-              variant="chrome"
-              title="Delete this direction — its assets stay in the gallery"
-              onConfirm={() =>
-                deleteDirectionById(openDirection.folderId as string)
-              }
-            />
-          </span>
         </div>
       )}
 
       {/* ── Body ── */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {isLoading ? (
+        {notFound ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <p
+              className="text-[15px] font-semibold"
+              style={{ color: "var(--lm-text-primary)" }}
+            >
+              This link isn’t active
+            </p>
+            <p
+              className="text-[13px]"
+              style={{ color: "var(--lm-text-tertiary)" }}
+            >
+              The board may have been unshared. Ask the sender for a fresh link.
+            </p>
+          </div>
+        ) : isLoading ? (
           <div
             className="flex h-full items-center justify-center text-[13px]"
             style={{ color: "var(--lm-text-tertiary)" }}
@@ -2277,6 +2418,12 @@ export function ReviewModal({
             }
             onPin={(asset) => toggleAssetPin(asset)}
             showCollectionLabel={false}
+            readOnly={readOnly}
+            downloadToken={viewerToken}
+            viewerLikedAssets={viewerLikedAssets}
+            onToggleLike={
+              readOnly ? (asset) => toggleAssetLike(asset.id) : undefined
+            }
           />
         ) : openDirection && selectMode ? (
           /* ── Drilled direction in select mode: flat grid to multi-pick ── */
@@ -2344,39 +2491,45 @@ export function ReviewModal({
 
                   {/* Focused element actions */}
                   <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
-                    <AssetNameEditor
-                      name={beatFocus.name}
-                      onSave={(next) => renameAsset(beatFocus.id, next)}
-                    />
-                    <TagEditor
-                      tags={beatFocus.tagNames}
-                      onAdd={(tag) => setAssetTag(beatFocus.id, tag, true)}
-                      onRemove={(tag) => setAssetTag(beatFocus.id, tag, false)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => toggleAssetPin(beatFocus)}
-                      className="flex items-center rounded-lg border p-2"
-                      style={{
-                        backgroundColor: beatFocus.pinnedAt
-                          ? "var(--lm-coral)"
-                          : "transparent",
-                        color: beatFocus.pinnedAt
-                          ? "#000"
-                          : "var(--lm-text-secondary)",
-                        borderColor: beatFocus.pinnedAt
-                          ? "var(--lm-coral)"
-                          : "var(--lm-border-strong)",
-                      }}
-                      aria-pressed={Boolean(beatFocus.pinnedAt)}
-                      title={beatFocus.pinnedAt ? "Unpin" : "Pin to the top"}
-                    >
-                      <Pin
-                        className="h-3.5 w-3.5"
-                        fill={beatFocus.pinnedAt ? "currentColor" : "none"}
-                        strokeWidth={2.5}
-                      />
-                    </button>
+                    {!readOnly && (
+                      <>
+                        <AssetNameEditor
+                          name={beatFocus.name}
+                          onSave={(next) => renameAsset(beatFocus.id, next)}
+                        />
+                        <TagEditor
+                          tags={beatFocus.tagNames}
+                          onAdd={(tag) => setAssetTag(beatFocus.id, tag, true)}
+                          onRemove={(tag) =>
+                            setAssetTag(beatFocus.id, tag, false)
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleAssetPin(beatFocus)}
+                          className="flex items-center rounded-lg border p-2"
+                          style={{
+                            backgroundColor: beatFocus.pinnedAt
+                              ? "var(--lm-coral)"
+                              : "transparent",
+                            color: beatFocus.pinnedAt
+                              ? "#000"
+                              : "var(--lm-text-secondary)",
+                            borderColor: beatFocus.pinnedAt
+                              ? "var(--lm-coral)"
+                              : "var(--lm-border-strong)",
+                          }}
+                          aria-pressed={Boolean(beatFocus.pinnedAt)}
+                          title={beatFocus.pinnedAt ? "Unpin" : "Pin to the top"}
+                        >
+                          <Pin
+                            className="h-3.5 w-3.5"
+                            fill={beatFocus.pinnedAt ? "currentColor" : "none"}
+                            strokeWidth={2.5}
+                          />
+                        </button>
+                      </>
+                    )}
                     <span
                       className="text-[11px] font-mono"
                       style={{ color: "var(--lm-text-tertiary)" }}
@@ -2388,32 +2541,20 @@ export function ReviewModal({
                       )}
                       /{beatElements.length}
                     </span>
-                    {(() => {
-                      const focusLikes = likesByAsset.get(beatFocus.id);
-                      return focusLikes && focusLikes.count > 0 ? (
-                        <span
-                          className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-                          style={{
-                            backgroundColor: "rgba(0,0,0,0.62)",
-                            color: "var(--lm-coral)",
-                            borderColor:
-                              "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-                          }}
-                          title={likeTitle(focusLikes)}
-                        >
-                          <Heart
-                            className="h-3 w-3"
-                            fill="currentColor"
-                            strokeWidth={2.5}
-                          />
-                          {focusLikes.count}
-                        </span>
-                      ) : null;
-                    })()}
+                    <LikeControl
+                      count={likesByAsset.get(beatFocus.id)?.count ?? 0}
+                      likes={likesByAsset.get(beatFocus.id)}
+                      likedByMe={viewerLikedAssets.has(beatFocus.id)}
+                      onToggle={
+                        readOnly ? () => toggleAssetLike(beatFocus.id) : undefined
+                      }
+                    />
                     <span className="ml-auto flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => triggerAssetDownload(beatFocus.id)}
+                        onClick={() =>
+                          triggerAssetDownload(beatFocus.id, viewerToken)
+                        }
                         className="flex items-center rounded-lg border p-2"
                         style={{
                           borderColor: "var(--lm-border-strong)",
@@ -2424,87 +2565,101 @@ export function ReviewModal({
                       >
                         <Download className="h-3.5 w-3.5" strokeWidth={2.5} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => moveAsset(beatFocus.id, "top")}
-                        className="flex items-center rounded-lg border p-2"
-                        style={{
-                          borderColor: "var(--lm-border-strong)",
-                          color: "var(--lm-text-secondary)",
-                        }}
-                        aria-label="Move to top"
-                        title="Move to top"
-                      >
-                        <ChevronsUp className="h-3.5 w-3.5" strokeWidth={2.5} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveAsset(beatFocus.id, "bottom")}
-                        className="flex items-center rounded-lg border p-2"
-                        style={{
-                          borderColor: "var(--lm-border-strong)",
-                          color: "var(--lm-text-secondary)",
-                        }}
-                        aria-label="Move to bottom"
-                        title="Move to bottom"
-                      >
-                        <ChevronsDown
-                          className="h-3.5 w-3.5"
-                          strokeWidth={2.5}
-                        />
-                      </button>
-                      {(beatFocus.kind === "video" || !drilledIsBeat) && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setMaster(
-                              openDirection.folderId as string,
-                              openDirectionMasterId === beatFocus.id
-                                ? null
-                                : beatFocus.id,
-                            )
-                          }
-                          className="flex items-center rounded-lg border p-2 transition-all active:scale-95"
-                          style={{
-                            backgroundColor:
-                              openDirectionMasterId === beatFocus.id
-                                ? "var(--lm-ink)"
-                                : "transparent",
-                            color:
-                              openDirectionMasterId === beatFocus.id
-                                ? "var(--lm-paper)"
-                                : "var(--lm-text-secondary)",
-                            borderColor:
-                              openDirectionMasterId === beatFocus.id
-                                ? "var(--lm-ink)"
-                                : "var(--lm-border-strong)",
-                          }}
-                          aria-pressed={openDirectionMasterId === beatFocus.id}
-                          title="Master — shown on the card's thumbnail"
-                        >
-                          <Crown className="h-3.5 w-3.5" strokeWidth={2.5} />
-                        </button>
+                      {!readOnly && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => moveAsset(beatFocus.id, "top")}
+                            className="flex items-center rounded-lg border p-2"
+                            style={{
+                              borderColor: "var(--lm-border-strong)",
+                              color: "var(--lm-text-secondary)",
+                            }}
+                            aria-label="Move to top"
+                            title="Move to top"
+                          >
+                            <ChevronsUp
+                              className="h-3.5 w-3.5"
+                              strokeWidth={2.5}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveAsset(beatFocus.id, "bottom")}
+                            className="flex items-center rounded-lg border p-2"
+                            style={{
+                              borderColor: "var(--lm-border-strong)",
+                              color: "var(--lm-text-secondary)",
+                            }}
+                            aria-label="Move to bottom"
+                            title="Move to bottom"
+                          >
+                            <ChevronsDown
+                              className="h-3.5 w-3.5"
+                              strokeWidth={2.5}
+                            />
+                          </button>
+                          {(beatFocus.kind === "video" || !drilledIsBeat) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMaster(
+                                  openDirection.folderId as string,
+                                  openDirectionMasterId === beatFocus.id
+                                    ? null
+                                    : beatFocus.id,
+                                )
+                              }
+                              className="flex items-center rounded-lg border p-2 transition-all active:scale-95"
+                              style={{
+                                backgroundColor:
+                                  openDirectionMasterId === beatFocus.id
+                                    ? "var(--lm-ink)"
+                                    : "transparent",
+                                color:
+                                  openDirectionMasterId === beatFocus.id
+                                    ? "var(--lm-paper)"
+                                    : "var(--lm-text-secondary)",
+                                borderColor:
+                                  openDirectionMasterId === beatFocus.id
+                                    ? "var(--lm-ink)"
+                                    : "var(--lm-border-strong)",
+                              }}
+                              aria-pressed={
+                                openDirectionMasterId === beatFocus.id
+                              }
+                              title="Master — shown on the card's thumbnail"
+                            >
+                              <Crown
+                                className="h-3.5 w-3.5"
+                                strokeWidth={2.5}
+                              />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeFromDirection(beatFocus)}
+                            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                            style={{
+                              borderColor: "var(--lm-border-strong)",
+                              color: "var(--lm-text-secondary)",
+                            }}
+                            title="Remove from this beat (stays in the gallery)"
+                          >
+                            <X className="h-3.5 w-3.5" strokeWidth={3} />
+                            Remove
+                          </button>
+                          <ArmedDeleteButton
+                            label="Delete"
+                            size="lg"
+                            variant="chrome"
+                            title="Permanently delete from the gallery"
+                            onConfirm={() =>
+                              void deleteAssetsByIds([beatFocus.id])
+                            }
+                          />
+                        </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => removeFromDirection(beatFocus)}
-                        className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-                        style={{
-                          borderColor: "var(--lm-border-strong)",
-                          color: "var(--lm-text-secondary)",
-                        }}
-                        title="Remove from this beat (stays in the gallery)"
-                      >
-                        <X className="h-3.5 w-3.5" strokeWidth={3} />
-                        Remove
-                      </button>
-                      <ArmedDeleteButton
-                        label="Delete"
-                        size="lg"
-                        variant="chrome"
-                        title="Permanently delete from the gallery"
-                        onConfirm={() => void deleteAssetsByIds([beatFocus.id])}
-                      />
                     </span>
                   </div>
                 </>
@@ -2513,13 +2668,16 @@ export function ReviewModal({
                   className="mt-10 text-center text-[13px]"
                   style={{ color: "var(--lm-text-tertiary)" }}
                 >
-                  Empty — drop files anywhere to add options.
+                  {readOnly
+                    ? "Nothing here yet."
+                    : "Empty — drop files anywhere to add options."}
                 </p>
               )}
               <div className="max-h-[22vh] shrink-0 overflow-y-auto">
                 <DirectionTextBlock
                   description={openDirection.description}
                   onSave={saveDirectionText}
+                  readOnly={readOnly}
                 />
               </div>
             </div>
@@ -2546,7 +2704,9 @@ export function ReviewModal({
                   className="text-[12px]"
                   style={{ color: "var(--lm-text-ghost)" }}
                 >
-                  Drop files anywhere — they land here.
+                  {readOnly
+                    ? "Nothing here yet."
+                    : "Drop files anywhere — they land here."}
                 </p>
               ) : (
                 <div className="columns-2" style={{ columnGap: "10px" }}>
@@ -2619,26 +2779,28 @@ export function ReviewModal({
         ) : effectiveTab === "beats" ? (
           /* ── Beats mode: stacked beat cards + New beat ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-8">
-            <div className="mx-auto mb-2 flex max-w-[1500px] justify-end">
-              <button
-                type="button"
-                onClick={() =>
-                  setComposer({
-                    name: "",
-                    files: [],
-                    buckets: [],
-                    linked: [],
-                    prompt: "",
-                  })
-                }
-                className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
-                style={{ color: "var(--lm-text-ghost)" }}
-                title="Create a beat — or just drop files anywhere"
-              >
-                <Plus className="h-3 w-3" />
-                New beat
-              </button>
-            </div>
+            {!readOnly && (
+              <div className="mx-auto mb-2 flex max-w-[1500px] justify-end">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setComposer({
+                      name: "",
+                      files: [],
+                      buckets: [],
+                      linked: [],
+                      prompt: "",
+                    })
+                  }
+                  className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                  title="Create a beat — or just drop files anywhere"
+                >
+                  <Plus className="h-3 w-3" />
+                  New beat
+                </button>
+              </div>
+            )}
             <div
               className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
               style={{ columnGap: "16px" }}
@@ -2653,6 +2815,13 @@ export function ReviewModal({
                   }}
                   onDelete={() => deleteDirectionById(direction.id)}
                   onPin={() => toggleDirectionPin(direction)}
+                  readOnly={readOnly}
+                  likedByMe={viewerLikedFolders.has(direction.id)}
+                  onToggleLike={
+                    readOnly
+                      ? () => toggleDirectionLike(direction.id)
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -2692,10 +2861,21 @@ export function ReviewModal({
                           ? () => void fileUnsortedTo(asset, "locations")
                           : undefined
                       }
+                      onFileStill={
+                        asset.kind !== "video"
+                          ? () => void fileUnsortedTo(asset, "stills")
+                          : undefined
+                      }
                       onMakeBeat={() => startBeatFromAssets([asset])}
                       selectable={selectMode}
                       selected={selectedIds.has(asset.id)}
                       onToggleSelect={() => toggleSelect(asset.id)}
+                      readOnly={readOnly}
+                      downloadToken={viewerToken}
+                      likedByMe={viewerLikedAssets.has(asset.id)}
+                      onToggleLike={
+                        readOnly ? () => toggleAssetLike(asset.id) : undefined
+                      }
                     />
                   ))}
                 </div>
@@ -2705,18 +2885,20 @@ export function ReviewModal({
         ) : (
           /* ── Characters / Locations mode: stacks + assets, one masonry ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
-            <div className="mx-auto mb-2 flex max-w-[1500px] justify-end">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
-                style={{ color: "var(--lm-text-ghost)" }}
-                title="Upload images — or drop them anywhere. Select several assets to group them into a stack."
-              >
-                <Plus className="h-3 w-3" />
-                Add
-              </button>
-            </div>
+            {!readOnly && (
+              <div className="mx-auto mb-2 flex max-w-[1500px] justify-end">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                  title="Upload images — or drop them anywhere. Select several assets to group them into a stack."
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              </div>
+            )}
             <div
               className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
               style={{ columnGap: "14px" }}
@@ -2732,6 +2914,13 @@ export function ReviewModal({
                     }}
                     onDelete={() => deleteDirectionById(item.card.id)}
                     onPin={() => toggleDirectionPin(item.card)}
+                    readOnly={readOnly}
+                    likedByMe={viewerLikedFolders.has(item.card.id)}
+                    onToggleLike={
+                      readOnly
+                        ? () => toggleDirectionLike(item.card.id)
+                        : undefined
+                    }
                   />
                 ) : (
                   <ReviewTile
@@ -2748,6 +2937,14 @@ export function ReviewModal({
                     selectable={selectMode}
                     selected={selectedIds.has(item.asset.id)}
                     onToggleSelect={() => toggleSelect(item.asset.id)}
+                    readOnly={readOnly}
+                    downloadToken={viewerToken}
+                    likedByMe={viewerLikedAssets.has(item.asset.id)}
+                    onToggleLike={
+                      readOnly
+                        ? () => toggleAssetLike(item.asset.id)
+                        : undefined
+                    }
                   />
                 ),
               )}
@@ -2989,6 +3186,9 @@ function DirectionCard({
   onDelete,
   onPin,
   active = false,
+  readOnly,
+  likedByMe,
+  onToggleLike,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
@@ -2998,7 +3198,16 @@ function DirectionCard({
   onPin?: () => void;
   /** Highlight state — e.g. the stack currently expanded in place. */
   active?: boolean;
+  /** Public viewer mode — hide pin/delete, keep the interactive ♥. */
+  readOnly?: boolean;
+  /** This viewer already liked the whole beat (interactive-like fill). */
+  likedByMe?: boolean;
+  /** Present → the beat ♥ toggles this viewer's whole-direction like. */
+  onToggleLike?: () => void;
 }) {
+  if (readOnly) {
+    onDelete = onPin = undefined;
+  }
   const cover = direction.cover;
   const beatVideos = direction.beatVideos;
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -3190,24 +3399,11 @@ function DirectionCard({
 
           {/* Likes + take counter */}
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
-            {direction.likes > 0 && (
-              <span
-                className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-                style={{
-                  backgroundColor: "rgba(0,0,0,0.62)",
-                  color: "var(--lm-coral)",
-                  border:
-                    "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-                }}
-              >
-                <Heart
-                  className="h-3 w-3"
-                  fill="currentColor"
-                  strokeWidth={2.5}
-                />
-                {direction.likes}
-              </span>
-            )}
+            <LikeControl
+              count={direction.likes}
+              likedByMe={likedByMe}
+              onToggle={onToggleLike}
+            />
             <span
               className="rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
               style={{
@@ -3456,6 +3652,7 @@ function ReviewTile({
   onDelete,
   onFileCharacter,
   onFileLocation,
+  onFileStill,
   onMakeBeat,
   onMoveTop,
   onMoveBottom,
@@ -3464,12 +3661,24 @@ function ReviewTile({
   selectable,
   selected,
   onToggleSelect,
+  readOnly,
+  downloadToken,
+  likedByMe,
+  onToggleLike,
 }: {
   asset: ReviewAsset;
   /** Viewer likes from the shared board. */
   likes?: AssetLikes;
   onOpen: () => void;
   showCollectionLabel: boolean;
+  /** Public viewer mode — hide every admin control, keep view/like/download. */
+  readOnly?: boolean;
+  /** Share token → download through the public board proxy instead of auth. */
+  downloadToken?: string;
+  /** This viewer already liked the asset (interactive-like fill). */
+  likedByMe?: boolean;
+  /** Present → the ♥ is an interactive like toggle (viewer mode). */
+  onToggleLike?: () => void;
   /** Only defined inside a drilled direction, where "master" is unambiguous. */
   isMaster?: boolean;
   onMaster?: () => void;
@@ -3481,6 +3690,7 @@ function ReviewTile({
    * pool (a move — it leaves the unsorted section). */
   onFileCharacter?: () => void;
   onFileLocation?: () => void;
+  onFileStill?: () => void;
   /** Start a new beat from this asset (videos in Unsorted). */
   onMakeBeat?: () => void;
   /** Manual ordering: float to the top / sink to the bottom. */
@@ -3495,6 +3705,24 @@ function ReviewTile({
   selected?: boolean;
   onToggleSelect?: () => void;
 }) {
+  // Read-only viewer: strip every admin affordance. The remaining surface is
+  // view + interactive ♥ + download.
+  if (readOnly) {
+    isMaster = false;
+    onMaster =
+      onRemove =
+      onDelete =
+      onFileCharacter =
+      onFileLocation =
+      onFileStill =
+      onMakeBeat =
+      onMoveTop =
+      onMoveBottom =
+      onPin =
+        undefined;
+    onRename = undefined;
+    selectable = false;
+  }
   return (
     <div
       className="group relative mb-3.5 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
@@ -3565,21 +3793,12 @@ function ReviewTile({
             />
           </button>
         )}
-        {likes && likes.count > 0 && (
-          <span
-            className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-            style={{
-              backgroundColor: "rgba(0,0,0,0.62)",
-              color: "var(--lm-coral)",
-              borderColor:
-                "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-            }}
-            title={likeTitle(likes)}
-          >
-            <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
-            {likes.count}
-          </span>
-        )}
+        <LikeControl
+          count={likes?.count ?? 0}
+          likes={likes}
+          likedByMe={likedByMe}
+          onToggle={onToggleLike}
+        />
       </div>
 
       {/* Master (direction thumbnail) toggle */}
@@ -3626,12 +3845,13 @@ function ReviewTile({
       {!selectable && (onRename || asset.tagNames.length > 0) && (
         <div
           className={`absolute bottom-2.5 left-2.5 z-10 flex max-w-[85%] flex-col items-start gap-1 ${
-            onFileCharacter || onFileLocation || onMakeBeat
+            onFileCharacter || onFileLocation || onFileStill || onMakeBeat
               ? "transition-opacity group-hover:opacity-0"
               : ""
           }`}
         >
-          {onRename && !(onFileCharacter || onFileLocation || onMakeBeat) && (
+          {onRename &&
+            !(onFileCharacter || onFileLocation || onFileStill || onMakeBeat) && (
             <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
               <AssetNameEditor overlay name={asset.name} onSave={onRename} />
             </span>
@@ -3659,7 +3879,8 @@ function ReviewTile({
       )}
 
       {/* File an unsorted asset into a pool / start a beat from it (hover) */}
-      {(onFileCharacter || onFileLocation || onMakeBeat) && !selectable && (
+      {(onFileCharacter || onFileLocation || onFileStill || onMakeBeat) &&
+        !selectable && (
         <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           {onMakeBeat && (
             <button
@@ -3718,6 +3939,25 @@ function ReviewTile({
               Loc
             </button>
           )}
+          {onFileStill && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFileStill();
+              }}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="File into this project's Stills"
+            >
+              <ImageIcon className="h-3 w-3" strokeWidth={2.5} />
+              Still
+            </button>
+          )}
         </div>
       )}
 
@@ -3728,7 +3968,7 @@ function ReviewTile({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              triggerAssetDownload(asset.id);
+              triggerAssetDownload(asset.id, downloadToken);
             }}
             className="flex items-center rounded-lg border p-1.5"
             style={{
@@ -4204,11 +4444,28 @@ function ArmedDeleteButton({
 function DirectionTextBlock({
   description,
   onSave,
+  readOnly,
 }: {
   description?: string;
   onSave: (text: string) => void;
+  /** Public viewer mode — show the text, hide the edit affordance. */
+  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+
+  // Viewer: text only, nothing to edit. Nothing to render if there's no text.
+  if (readOnly) {
+    return description ? (
+      <div className="mt-4 max-w-[900px]">
+        <p
+          className="whitespace-pre-wrap text-[13px] leading-relaxed"
+          style={{ color: "var(--lm-text-secondary)" }}
+        >
+          {description}
+        </p>
+      </div>
+    ) : null;
+  }
 
   if (draft === null) {
     return (
@@ -4296,6 +4553,10 @@ function FocusScrollFeed({
   onSetTag,
   onPin,
   showCollectionLabel,
+  readOnly,
+  downloadToken,
+  viewerLikedAssets,
+  onToggleLike,
 }: {
   assets: ReviewAsset[];
   focusId: string;
@@ -4314,7 +4575,19 @@ function FocusScrollFeed({
   /** Pin/unpin the asset. */
   onPin?: (asset: ReviewAsset) => void;
   showCollectionLabel: boolean;
+  /** Public viewer mode — hide every admin control, keep view/like/download. */
+  readOnly?: boolean;
+  /** Share token → download through the public board proxy. */
+  downloadToken?: string;
+  /** Asset ids this viewer already liked (interactive-like fill). */
+  viewerLikedAssets?: Set<string>;
+  /** Present → the ♥ toggles this viewer's like on the focused asset. */
+  onToggleLike?: (asset: ReviewAsset) => void;
 }) {
+  if (readOnly) {
+    onMaster = onRemove = onDelete = onSetTag = onPin = undefined;
+    onRename = undefined;
+  }
   const containerRef = useRef<HTMLDivElement | null>(null);
   const didInitialScrollRef = useRef(false);
 
@@ -4432,30 +4705,17 @@ function FocusScrollFeed({
                   {asset.collectionName}
                 </span>
               )}
-              {likes && likes.count > 0 && (
-                <span
-                  className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-                  style={{
-                    backgroundColor: "rgba(0,0,0,0.62)",
-                    color: "var(--lm-coral)",
-                    borderColor:
-                      "color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-                  }}
-                  title={likeTitle(likes)}
-                >
-                  <Heart
-                    className="h-3 w-3"
-                    fill="currentColor"
-                    strokeWidth={2.5}
-                  />
-                  {likes.count}
-                </span>
-              )}
+              <LikeControl
+                count={likes?.count ?? 0}
+                likes={likes}
+                likedByMe={viewerLikedAssets?.has(asset.id)}
+                onToggle={onToggleLike ? () => onToggleLike(asset) : undefined}
+              />
 
               <span className="ml-auto flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => triggerAssetDownload(asset.id)}
+                  onClick={() => triggerAssetDownload(asset.id, downloadToken)}
                   className="flex items-center rounded-lg border p-2"
                   style={{
                     backgroundColor: "rgba(0,0,0,0.62)",

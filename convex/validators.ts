@@ -296,6 +296,7 @@ export const agentTokenScopeValidator = v.union(
 export const projectSectionValidator = v.union(
   v.literal("characters"),
   v.literal("locations"),
+  v.literal("stills"),
   v.literal("beats"),
 );
 export const optionalProjectSectionValidator = v.optional(

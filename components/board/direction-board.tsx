@@ -52,7 +52,7 @@ const byCuration = (
 
 /** The board's layers. Each layer holds "directions" — collections of similar
  * options thumbed by their master (cover) asset. */
-type BoardSection = "characters" | "locations" | "beats";
+type BoardSection = "characters" | "locations" | "stills" | "beats";
 
 const SECTION_ORDER: { key: BoardSection; label: string; blurb: string }[] = [
   {
@@ -70,6 +70,11 @@ const SECTION_ORDER: { key: BoardSection; label: string; blurb: string }[] = [
     key: "locations",
     label: "Locations",
     blurb: "Where it happens. One stack = one direction.",
+  },
+  {
+    key: "stills",
+    label: "Stills",
+    blurb: "Style frames and key stills. One stack = one direction.",
   },
 ];
 
@@ -428,6 +433,7 @@ export function DirectionBoard({ token }: { token: string }) {
     const buckets: Record<BoardSection | "unsorted", BoardDirection[]> = {
       characters: [],
       locations: [],
+      stills: [],
       beats: [],
       unsorted: [],
     };
@@ -437,6 +443,7 @@ export function DirectionBoard({ token }: { token: string }) {
     return {
       characters: sortDirections(buckets.characters),
       locations: sortDirections(buckets.locations),
+      stills: sortDirections(buckets.stills),
       beats: sortDirections(buckets.beats),
       unsorted: sortDirections(buckets.unsorted),
     };

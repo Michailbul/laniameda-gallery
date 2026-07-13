@@ -1231,7 +1231,7 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          limit: 120,
+          limit: 2000,
         }
       : "skip",
   );
@@ -1247,7 +1247,7 @@ export function GalleryDashboard({
             : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
-          limit: 120,
+          limit: 2000,
         }
       : "skip",
   );
@@ -1264,7 +1264,7 @@ export function GalleryDashboard({
           folderId: effectiveSelectedFolderId
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
-          limit: 120,
+          limit: 2000,
         }
       : "skip",
   );

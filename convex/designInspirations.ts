@@ -532,7 +532,7 @@ export const listDesignInspirations = query({
     }
 
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const limit = Math.min(args.limit ?? 100, 200);
+    const limit = Math.min(args.limit ?? 100, 2000);
     const search = args.search?.trim().toLowerCase();
     const tagId = args.tagId;
     const inspirationType = args.inspirationType;
@@ -632,8 +632,8 @@ export const listDesignGalleryEntries = query({
     }
 
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const limit = Math.min(args.limit ?? 50, 200);
-    const takeLimit = Math.max(limit * 4, 100);
+    const limit = Math.min(args.limit ?? 50, 2000);
+    const takeLimit = Math.min(Math.max(limit * 4, 100), 2000);
     const search = args.search?.trim().toLowerCase();
     const sourceDomain = args.sourceDomain?.trim().toLowerCase();
     const tagIds = dedupeIds(args.tagIds ?? []);
