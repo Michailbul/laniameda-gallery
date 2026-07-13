@@ -7,7 +7,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  ArrowDownToLine,
   ArrowLeft,
+  ArrowUpToLine,
   AtSign,
   Check,
   Clapperboard,
@@ -47,6 +49,11 @@ import {
 const SHARP_THUMB_MIN_WIDTH = 800;
 const thumbIsSharp = (asset: { thumbWidth?: number }) =>
   (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
+
+// Stable manual-order comparator: move-to-top/bottom weights first, the
+// list's natural order (newest-first) as the tiebreak.
+const byPriority = (a: ReviewAsset, b: ReviewAsset) =>
+  (b.orderPriority ?? 0) - (a.orderPriority ?? 0);
 
 type CollectionOption = { id: string; name: string; count?: number };
 
@@ -115,6 +122,8 @@ type ReviewAsset = {
   id: string;
   /** User-given handle, referenced as @name when composing beats. */
   name?: string;
+  /** Manual sort weight — higher floats first, unset = 0. */
+  orderPriority?: number;
   url?: string;
   thumbUrl?: string;
   thumbWidth?: number;
@@ -176,6 +185,7 @@ export function ReviewModal({
   );
 
   const renameAssetMutation = useMutation(api.assets.renameAsset);
+  const setAssetPriorityMutation = useMutation(api.assets.setAssetPriority);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
   const addAssetFolders = useMutation(api.assets.addAssetFolders);
   const addAssetTagsMutation = useMutation(api.assets.addAssetTags);
@@ -213,6 +223,8 @@ export function ReviewModal({
   const [beatFocusId, setBeatFocusId] = useState<string | null>(null);
   // Name draft for "create a stack from the selection" (characters/locations).
   const [stackName, setStackName] = useState("");
+  // Stack expanded in place inside the Characters/Locations mode, or null.
+  const [expandedStackId, setExpandedStackId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   // Inline rename of the drilled direction (null = not renaming).
@@ -309,6 +321,7 @@ export function ReviewModal({
     ): ReviewAsset => ({
       id: asset._id as string,
       name: asset.name,
+      orderPriority: asset.orderPriority,
       url: asset.url ?? asset.thumbUrl,
       thumbUrl: asset.thumbUrl ?? asset.url,
       thumbWidth: asset.thumbWidth,
@@ -454,6 +467,26 @@ export function ReviewModal({
             .map(toDirectionCard),
     [effectiveTab, tabCollections, poolCollection, toDirectionCard],
   );
+  // The stack expanded in place (Characters/Locations mode), if any.
+  const expandedStack = useMemo<ProjectCollection | null>(
+    () =>
+      (expandedStackId &&
+        tabCollections.find(
+          (c) => (c.folderId as string) === expandedStackId,
+        )) ||
+      null,
+    [expandedStackId, tabCollections],
+  );
+  const expandedStackAssets = useMemo<ReviewAsset[]>(
+    () =>
+      expandedStack
+        ? expandedStack.assets
+            .map((a) => toReviewAsset(a, expandedStack))
+            .sort(byPriority)
+        : [],
+    [expandedStack, toReviewAsset],
+  );
+
   const looseAssets = useMemo<ReviewAsset[]>(() => {
     if (effectiveTab === "beats") return [];
     const stackIds = new Set(
@@ -475,7 +508,7 @@ export function ReviewModal({
         out.push(asset);
       }
     }
-    return out;
+    return out.sort(byPriority);
   }, [effectiveTab, tabCollections, poolCollection, toReviewAsset]);
 
   // Files dropped into the project from the gallery (e.g. the Inbox from
@@ -503,13 +536,15 @@ export function ReviewModal({
         out.push(toReviewAsset(raw, collection));
       }
     }
-    return out;
+    return out.sort(byPriority);
   }, [unsortedCollections, toReviewAsset]);
 
   const drilledAssets = useMemo<ReviewAsset[]>(
     () =>
       openDirection
-        ? openDirection.assets.map((a) => toReviewAsset(a, openDirection))
+        ? openDirection.assets
+            .map((a) => toReviewAsset(a, openDirection))
+            .sort(byPriority)
         : [],
     [openDirection, toReviewAsset],
   );
@@ -559,7 +594,9 @@ export function ReviewModal({
           : a.tagNames.includes("location")
             ? 3
             : 4;
-    return [...visibleAssets].sort((a, b) => rank(a) - rank(b));
+    return [...visibleAssets].sort(
+      (a, b) => rank(a) - rank(b) || byPriority(a, b),
+    );
   }, [openDirection, visibleAssets, drilledBeat]);
   // Focused element in the beat viewer: explicit pick, else the master.
   const beatFocus =
@@ -568,10 +605,19 @@ export function ReviewModal({
     beatElements[0] ??
     null;
 
+  // The full-res feed walks whichever list the focused asset came from —
+  // the expanded stack panel or the mode's own scope.
+  const feedAssets = useMemo<ReviewAsset[]>(
+    () =>
+      focusId && expandedStackAssets.some((a) => a.id === focusId)
+        ? expandedStackAssets
+        : visibleAssets,
+    [focusId, expandedStackAssets, visibleAssets],
+  );
   const focusIndex = focusId
-    ? visibleAssets.findIndex((a) => a.id === focusId)
+    ? feedAssets.findIndex((a) => a.id === focusId)
     : -1;
-  const focusAsset = focusIndex >= 0 ? visibleAssets[focusIndex] : null;
+  const focusAsset = focusIndex >= 0 ? feedAssets[focusIndex] : null;
   // Drives the header/chip layout. Derived (not focusId) so a focus that fell
   // out of the visible set — e.g. after a filter change — cleanly reverts to
   // the grid without a state-syncing effect.
@@ -1127,6 +1173,18 @@ export function ReviewModal({
     }).catch(() => {});
   };
 
+  // Move an asset to the top/bottom of the workspace views.
+  const moveAsset = useCallback(
+    (assetId: string, position: "top" | "bottom") => {
+      void setAssetPriorityMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        position,
+      }).catch(() => {});
+    },
+    [ownerUserId, setAssetPriorityMutation],
+  );
+
   // Save the drilled direction's text (its description).
   const saveDirectionText = useCallback(
     (text: string) => {
@@ -1144,15 +1202,15 @@ export function ReviewModal({
   const goFocus = useCallback((delta: number) => {
     setFocusId((current) => {
       if (!current) return current;
-      const idx = visibleAssets.findIndex((a) => a.id === current);
+      const idx = feedAssets.findIndex((a) => a.id === current);
       if (idx < 0) return current;
       const nextIdx = Math.min(
-        visibleAssets.length - 1,
+        feedAssets.length - 1,
         Math.max(0, idx + delta),
       );
-      return visibleAssets[nextIdx]?.id ?? current;
+      return feedAssets[nextIdx]?.id ?? current;
     });
-  }, [visibleAssets]);
+  }, [feedAssets]);
 
   // Keyboard: Esc backs out (focus → grid → close); arrows navigate in focus.
   useEffect(() => {
@@ -1177,6 +1235,7 @@ export function ReviewModal({
         else if (composerOpen) setComposer(null);
         else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
+        else if (expandedStackId) setExpandedStackId(null);
         else if (openDirectionId) setOpenDirectionId(null);
         else onClose();
       } else if (focusId && e.key === "ArrowLeft") {
@@ -1189,7 +1248,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, expandedStackId, openDirectionId, goFocus, onClose]);
 
   if (!projectId) return null;
 
@@ -1275,6 +1334,7 @@ export function ReviewModal({
                 setActiveTab(key);
                 setOpenDirectionId(null);
                 setBeatFocusId(null);
+                setExpandedStackId(null);
               }}
             />
           </div>
@@ -1461,6 +1521,7 @@ export function ReviewModal({
               setActiveTab(key);
               setOpenDirectionId(null);
               setBeatFocusId(null);
+              setExpandedStackId(null);
             }}
           />
         </div>
@@ -2012,7 +2073,7 @@ export function ReviewModal({
           </div>
         ) : focusAsset ? (
           <FocusScrollFeed
-            assets={visibleAssets}
+            assets={feedAssets}
             focusId={focusAsset.id}
             onFocusChange={setFocusId}
             likesByAsset={likesByAsset}
@@ -2109,6 +2170,35 @@ export function ReviewModal({
                       ) : null;
                     })()}
                     <span className="ml-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moveAsset(beatFocus.id, "top")}
+                        className="flex items-center rounded-lg border p-2"
+                        style={{
+                          borderColor: "var(--lm-border-strong)",
+                          color: "var(--lm-text-secondary)",
+                        }}
+                        aria-label="Move to top"
+                        title="Move to top"
+                      >
+                        <ArrowUpToLine className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveAsset(beatFocus.id, "bottom")}
+                        className="flex items-center rounded-lg border p-2"
+                        style={{
+                          borderColor: "var(--lm-border-strong)",
+                          color: "var(--lm-text-secondary)",
+                        }}
+                        aria-label="Move to bottom"
+                        title="Move to bottom"
+                      >
+                        <ArrowDownToLine
+                          className="h-3.5 w-3.5"
+                          strokeWidth={2.5}
+                        />
+                      </button>
                       {beatFocus.kind === "video" && (
                         <button
                           type="button"
@@ -2278,6 +2368,8 @@ export function ReviewModal({
                     likes={likesByAsset.get(asset.id)}
                     onOpen={() => setFocusId(asset.id)}
                     showCollectionLabel={false}
+                    onMoveTop={() => moveAsset(asset.id, "top")}
+                    onMoveBottom={() => moveAsset(asset.id, "bottom")}
                     isMaster={openDirectionMasterId === asset.id}
                     onMaster={() =>
                       setMaster(
@@ -2298,13 +2390,9 @@ export function ReviewModal({
         ) : effectiveTab === "beats" ? (
           /* ── Beats mode: stacked beat cards + New beat ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-8">
-            <div
-              className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
-              style={{ columnGap: "16px" }}
-            >
-              <AddCard
-                label="New beat"
-                hint="Upload assets, sort them, name it"
+            <div className="mx-auto mb-2 flex max-w-[1500px] justify-end">
+              <button
+                type="button"
                 onClick={() =>
                   setComposer({
                     name: "",
@@ -2314,7 +2402,18 @@ export function ReviewModal({
                     prompt: "",
                   })
                 }
-              />
+                className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
+                style={{ color: "var(--lm-text-ghost)" }}
+                title="Create a beat — or just drop files anywhere"
+              >
+                <Plus className="h-3 w-3" />
+                New beat
+              </button>
+            </div>
+            <div
+              className="mx-auto max-w-[1500px] columns-1 sm:columns-2 xl:columns-3"
+              style={{ columnGap: "16px" }}
+            >
               {beatCards.map((direction) => (
                 <DirectionCard
                   key={direction.id}
@@ -2342,8 +2441,8 @@ export function ReviewModal({
                   </span>
                 </p>
                 <div
-                  className="columns-2 sm:columns-3 xl:columns-5"
-                  style={{ columnGap: "12px" }}
+                  className="columns-1 sm:columns-2 xl:columns-3"
+                  style={{ columnGap: "14px" }}
                 >
                   {visibleAssets.map((asset) => (
                     <ReviewTile
@@ -2352,6 +2451,8 @@ export function ReviewModal({
                       likes={likesByAsset.get(asset.id)}
                       onOpen={() => setFocusId(asset.id)}
                       showCollectionLabel={false}
+                      onMoveTop={() => moveAsset(asset.id, "top")}
+                      onMoveBottom={() => moveAsset(asset.id, "bottom")}
                       onDelete={() => void deleteAssetsByIds([asset.id])}
                       onFileCharacter={
                         asset.kind !== "video"
@@ -2383,20 +2484,90 @@ export function ReviewModal({
                   style={{ color: "var(--lm-coral)" }}
                 >
                   Stacks
+                  <span
+                    className="ml-2 normal-case tracking-normal"
+                    style={{ color: "var(--lm-text-ghost)" }}
+                  >
+                    — click one to expand it in place
+                  </span>
                 </p>
                 <div
-                  className="columns-2 sm:columns-3 xl:columns-5"
+                  className="columns-2 sm:columns-3 xl:columns-4"
                   style={{ columnGap: "12px" }}
                 >
                   {stackCards.map((direction) => (
                     <DirectionCard
                       key={direction.id}
                       direction={direction}
-                      onOpen={() => setOpenDirectionId(direction.id)}
+                      active={expandedStackId === direction.id}
+                      onOpen={() =>
+                        setExpandedStackId((current) =>
+                          current === direction.id ? null : direction.id,
+                        )
+                      }
                       onDelete={() => deleteDirectionById(direction.id)}
                     />
                   ))}
                 </div>
+
+                {/* The clicked stack, expanded in place */}
+                {expandedStack && (
+                  <div className="mt-1 pb-2">
+                    <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
+                      <p
+                        className="text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
+                        style={{ color: "var(--lm-coral)" }}
+                      >
+                        {expandedStack.name}
+                      </p>
+                      <span
+                        className="text-[11px]"
+                        style={{ color: "var(--lm-text-tertiary)" }}
+                      >
+                        {expandedStackAssets.length}{" "}
+                        {expandedStackAssets.length === 1
+                          ? "option"
+                          : "options"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedStackId(null)}
+                        className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-70"
+                        style={{ color: "var(--lm-text-ghost)" }}
+                        title="Collapse (Esc)"
+                      >
+                        <X className="h-3 w-3" strokeWidth={3} />
+                        Collapse
+                      </button>
+                    </div>
+                    <div
+                      className="columns-1 sm:columns-2 xl:columns-3"
+                      style={{ columnGap: "14px" }}
+                    >
+                      {expandedStackAssets.map((asset) => (
+                        <ReviewTile
+                          key={asset.id}
+                          asset={asset}
+                          likes={likesByAsset.get(asset.id)}
+                          onOpen={() => setFocusId(asset.id)}
+                          showCollectionLabel={false}
+                          onRemove={() => {
+                            void setAssetFolders({
+                              ownerUserId,
+                              assetId: asset.id as Id<"assets">,
+                              folderIds: asset.folderIds.filter(
+                                (id) => id !== expandedStackId,
+                              ) as Id<"folders">[],
+                            });
+                          }}
+                          onDelete={() => void deleteAssetsByIds([asset.id])}
+                          onMoveTop={() => moveAsset(asset.id, "top")}
+                          onMoveBottom={() => moveAsset(asset.id, "bottom")}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <p
@@ -2407,20 +2578,21 @@ export function ReviewModal({
               <span className="ml-2 normal-case tracking-normal">
                 — Select several to group them into a stack
               </span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="ml-3 inline-flex items-center gap-1 align-middle text-[10px] font-mono font-bold uppercase tracking-wider transition-colors hover:text-[var(--lm-coral)]"
+                style={{ color: "var(--lm-text-ghost)" }}
+                title="Upload images — or drop them anywhere"
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </button>
             </p>
             <div
-              className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
+              className="columns-1 sm:columns-2 xl:columns-3"
               style={{ columnGap: "14px" }}
             >
-              <AddCard
-                label={
-                  effectiveTab === "characters"
-                    ? "Add characters"
-                    : "Add locations"
-                }
-                hint="Upload images — or drop them anywhere"
-                onClick={() => fileInputRef.current?.click()}
-              />
               {visibleAssets.map((asset) => (
                 <ReviewTile
                   key={asset.id}
@@ -2429,6 +2601,8 @@ export function ReviewModal({
                   onOpen={() => setFocusId(asset.id)}
                   showCollectionLabel={false}
                   onDelete={() => void deleteAssetsByIds([asset.id])}
+                  onMoveTop={() => moveAsset(asset.id, "top")}
+                  onMoveBottom={() => moveAsset(asset.id, "bottom")}
                   selectable={selectMode}
                   selected={selectedIds.has(asset.id)}
                   onToggleSelect={() => toggleSelect(asset.id)}
@@ -2669,11 +2843,14 @@ function DirectionCard({
   direction,
   onOpen,
   onDelete,
+  active = false,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
   /** Deletes the whole direction (assets stay in the gallery). */
   onDelete?: () => void;
+  /** Highlight state — e.g. the stack currently expanded in place. */
+  active?: boolean;
 }) {
   const cover = direction.cover;
   const beatVideos = direction.beatVideos;
@@ -2753,7 +2930,9 @@ function DirectionCard({
         <div
           className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
           style={{
-            border: "2px solid var(--lm-border-strong)",
+            border: active
+              ? "2px solid var(--lm-coral)"
+              : "2px solid var(--lm-border-strong)",
             backgroundColor: "#000",
             boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
           }}
@@ -2956,7 +3135,9 @@ function DirectionCard({
       <div
         className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
         style={{
-          border: "2px solid var(--lm-border-strong)",
+          border: active
+            ? "2px solid var(--lm-coral)"
+            : "2px solid var(--lm-border-strong)",
           backgroundColor: "var(--lm-surface-1)",
           boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
         }}
@@ -3063,6 +3244,8 @@ function ReviewTile({
   onFileCharacter,
   onFileLocation,
   onMakeBeat,
+  onMoveTop,
+  onMoveBottom,
   selectable,
   selected,
   onToggleSelect,
@@ -3085,6 +3268,9 @@ function ReviewTile({
   onFileLocation?: () => void;
   /** Start a new beat from this asset (videos in Unsorted). */
   onMakeBeat?: () => void;
+  /** Manual ordering: float to the top / sink to the bottom. */
+  onMoveTop?: () => void;
+  onMoveBottom?: () => void;
   /** Multiselect: clicks toggle selection instead of opening the feed. */
   selectable?: boolean;
   selected?: boolean;
@@ -3264,9 +3450,47 @@ function ReviewTile({
         </div>
       )}
 
-      {/* Remove (membership) + Delete (permanent), bottom-right on hover */}
-      {(onRemove || onDelete) && !selectable && (
+      {/* Order / Remove / Delete, bottom-right on hover */}
+      {(onRemove || onDelete || onMoveTop || onMoveBottom) && !selectable && (
         <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {onMoveTop && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveTop();
+              }}
+              className="flex items-center rounded-lg border p-1.5"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              aria-label="Move to top"
+              title="Move to top"
+            >
+              <ArrowUpToLine className="h-3 w-3" strokeWidth={2.5} />
+            </button>
+          )}
+          {onMoveBottom && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveBottom();
+              }}
+              className="flex items-center rounded-lg border p-1.5"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              aria-label="Move to bottom"
+              title="Move to bottom"
+            >
+              <ArrowDownToLine className="h-3 w-3" strokeWidth={2.5} />
+            </button>
+          )}
           {onRemove && (
             <button
               type="button"
@@ -3513,38 +3737,6 @@ function ModeToggle({
         );
       })}
     </div>
-  );
-}
-
-/* ── Dashed add-card: the mode's primary create action, in the masonry ── */
-function AddCard({
-  label,
-  hint,
-  onClick,
-}: {
-  label: string;
-  hint: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mb-5 flex w-full break-inside-avoid flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-12 transition-colors hover:border-[var(--lm-coral)] hover:text-[var(--lm-coral)]"
-      style={{
-        borderColor: "var(--lm-border-strong)",
-        color: "var(--lm-text-tertiary)",
-      }}
-    >
-      <Plus className="h-6 w-6" />
-      <span className="text-[13px] font-semibold">{label}</span>
-      <span
-        className="text-[10px] font-mono uppercase tracking-wider"
-        style={{ color: "var(--lm-text-ghost)" }}
-      >
-        {hint}
-      </span>
-    </button>
   );
 }
 

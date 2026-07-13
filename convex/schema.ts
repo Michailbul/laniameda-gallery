@@ -227,6 +227,9 @@ export default defineSchema({
     ownerUserId: v.optional(v.string()),
     // User-given handle, referenced as @name when composing beats.
     name: v.optional(v.string()),
+    // Manual sort weight (higher floats first). Set via move-to-top/bottom
+    // in the project workspace; unset = neutral (0).
+    orderPriority: v.optional(v.number()),
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
     thumbStorageId: v.optional(v.id("_storage")),
