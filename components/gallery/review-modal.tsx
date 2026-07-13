@@ -66,6 +66,19 @@ const thumbIsSharp = (asset: { thumbWidth?: number }) =>
 const TILE_SIZE_MIN = 240;
 const TILE_SIZE_MAX = 720;
 
+// Aspect ratio for a card/asset in the pinned shelf (natural width at a
+// fixed shelf height, so a lone pinned item never leaves a grid hole).
+const cardAspect = (card: DirectionCardData): string => {
+  const media = card.beatVideos[0] ?? card.cover;
+  return media?.width && media?.height
+    ? `${media.width} / ${media.height}`
+    : card.beatVideos.length > 0
+      ? "16 / 9"
+      : "4 / 5";
+};
+const assetAspect = (asset: ReviewAsset): string =>
+  asset.width && asset.height ? `${asset.width} / ${asset.height}` : "1 / 1";
+
 // Stable manual-order comparator: pinned floats above everything (latest
 // pin first), then move-to-top/bottom weights, then the list's natural
 // order (newest-first) as the tiebreak.
@@ -2951,19 +2964,28 @@ export function ReviewModal({
               const rest = beatCards.filter((d) => !d.pinned);
               return (
                 <>
-                  {/* Pinned beats read left→right in a grid row, not down
-                      the masonry's first column */}
+                  {/* Pinned beats ride a horizontal shelf above the
+                      masonry — fixed height, natural widths, no grid holes */}
                   {pinned.length > 0 && (
                     <div
-                      className="mx-auto max-w-[1500px]"
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: `repeat(auto-fill, minmax(min(${tileSize}px, 100%), 1fr))`,
-                        gap: "0 16px",
-                        alignItems: "start",
-                      }}
+                      className="mx-auto mb-4 flex max-w-[1500px] gap-4 overflow-x-auto border-b pb-4"
+                      style={{ borderColor: "var(--lm-border)" }}
                     >
-                      {pinned.map(renderBeat)}
+                      {pinned.map((direction) => (
+                        <div
+                          key={`pin-${direction.id}`}
+                          className="shrink-0"
+                          style={{
+                            height: Math.max(
+                              200,
+                              Math.min(360, Math.round(tileSize * 0.62)),
+                            ),
+                            aspectRatio: cardAspect(direction),
+                          }}
+                        >
+                          {renderBeat(direction)}
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div
@@ -3122,19 +3144,31 @@ export function ReviewModal({
               const rest = modeItems.filter((item) => !isPinned(item));
               return (
                 <>
-                  {/* Pinned items read left→right in a grid row, not down
-                      the masonry's first column */}
+                  {/* Pinned items ride a horizontal shelf above the
+                      masonry — fixed height, natural widths, no grid holes */}
                   {pinned.length > 0 && (
                     <div
-                      className="mx-auto max-w-[1500px]"
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: `repeat(auto-fill, minmax(min(${tileSize}px, 100%), 1fr))`,
-                        gap: "0 14px",
-                        alignItems: "start",
-                      }}
+                      className="mx-auto mb-4 flex max-w-[1500px] gap-3.5 overflow-x-auto border-b pb-4"
+                      style={{ borderColor: "var(--lm-border)" }}
                     >
-                      {pinned.map(renderItem)}
+                      {pinned.map((item) => (
+                        <div
+                          key={`pin-${item.kind === "stack" ? item.card.id : item.asset.id}`}
+                          className="shrink-0"
+                          style={{
+                            height: Math.max(
+                              200,
+                              Math.min(360, Math.round(tileSize * 0.62)),
+                            ),
+                            aspectRatio:
+                              item.kind === "stack"
+                                ? cardAspect(item.card)
+                                : assetAspect(item.asset),
+                          }}
+                        >
+                          {renderItem(item)}
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div
