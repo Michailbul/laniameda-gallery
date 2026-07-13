@@ -13,7 +13,6 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  Check,
   ChevronRight,
   Download,
   FileDown,
@@ -197,7 +196,6 @@ export function DirectionBoard({ token }: { token: string }) {
   const [view, setView] = useState<BoardView>({ type: "overview" });
   const [sort, setSort] = useState<DirectionSort>("curated");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [approvedOnly, setApprovedOnly] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
 
@@ -396,11 +394,6 @@ export function DirectionBoard({ token }: { token: string }) {
     return out;
   }, [view.type, openDirection, collections, toBoardAsset]);
 
-  const approvedCount = useMemo(
-    () => assets.filter((asset) => asset.approved).length,
-    [assets],
-  );
-
   // Tag chips for the expanded views, ranked by frequency in scope. The
   // selection only applies while the tag exists in scope.
   const tagCounts = useMemo(() => {
@@ -424,10 +417,9 @@ export function DirectionBoard({ token }: { token: string }) {
       assets.filter(
         (asset) =>
           (typeFilter === "all" || asset.kind === typeFilter) &&
-          (!approvedOnly || asset.approved) &&
           (!activeTag || asset.tags.includes(activeTag)),
       ),
-    [assets, typeFilter, approvedOnly, activeTag],
+    [assets, typeFilter, activeTag],
   );
 
   // The opened beat's hero video (video master, first-video fallback) —
@@ -893,27 +885,6 @@ export function DirectionBoard({ token }: { token: string }) {
                     </button>
                   );
                 })}
-                {approvedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setApprovedOnly((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
-                    style={{
-                      borderColor: approvedOnly
-                        ? "var(--lm-coral)"
-                        : "var(--lm-border-strong)",
-                      backgroundColor: approvedOnly
-                        ? "var(--lm-coral)"
-                        : "transparent",
-                      color: approvedOnly ? "#000" : "var(--lm-text-tertiary)",
-                    }}
-                    aria-pressed={approvedOnly}
-                    title="Show only approved"
-                  >
-                    <Check className="h-3 w-3" strokeWidth={3} />
-                    Approved {approvedCount}
-                  </button>
-                )}
                 <span
                   className="ml-auto text-[11px] font-mono"
                   style={{ color: "var(--lm-text-ghost)" }}
@@ -1842,9 +1813,7 @@ function BoardTile({
       className="group cursor-pointer overflow-hidden rounded-xl"
       style={{
         ...style,
-        border: asset.approved
-          ? "2px solid var(--lm-coral)"
-          : "1px solid var(--lm-border)",
+        border: "1px solid var(--lm-border)",
         backgroundColor: "var(--lm-surface-1)",
       }}
       role="listitem"
@@ -1872,15 +1841,6 @@ function BoardTile({
           />
         </div>
 
-        {asset.approved && (
-          <span
-            className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full"
-            style={{ backgroundColor: "var(--lm-coral)" }}
-            title="Approved"
-          >
-            <Check className="h-3 w-3" strokeWidth={3} color="#000" />
-          </span>
-        )}
 
         {showCollectionLabel && (
           <span
@@ -2027,15 +1987,6 @@ function Lightbox({
               >
                 {asset.collectionName}
               </span>
-              {asset.approved && (
-                <span
-                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider"
-                  style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
-                >
-                  <Check className="h-3 w-3" strokeWidth={3} />
-                  Approved
-                </span>
-              )}
               <span className="ml-auto flex items-center gap-2">
                 <LikeButton
                   likeCount={asset.likeCount}

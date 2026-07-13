@@ -42,8 +42,6 @@ import {
   useStackHoverPreview,
 } from "@/components/gallery/stack-hover-preview";
 
-const APPROVED_TAG = "approved";
-
 // Thumbs/posters narrower than this look soft at tile sizes — serve the
 // original image, or let the <video> paint a native-res first frame.
 const SHARP_THUMB_MIN_WIDTH = 800;
@@ -126,7 +124,6 @@ type ReviewAsset = {
   height?: number;
   promptText?: string;
   modelName?: string;
-  approvedByTag: boolean;
   collectionId: string;
   collectionName: string;
   /** All collections this asset belongs to (for membership removal). */
@@ -178,7 +175,6 @@ export function ReviewModal({
       : "skip",
   );
 
-  const setApproved = useMutation(api.assets.setAssetApproved);
   const renameAssetMutation = useMutation(api.assets.renameAsset);
   const setAssetFolders = useMutation(api.assets.setAssetFolders);
   const addAssetFolders = useMutation(api.assets.addAssetFolders);
@@ -211,7 +207,6 @@ export function ReviewModal({
   // Direction currently drilled into (a member collection id), or null when
   // browsing a mode.
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
-  const [approvedOnly, setApprovedOnly] = useState(false);
   const [likedOnly, setLikedOnly] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
   // Focused element inside a drilled beat's preview viewer.
@@ -258,11 +253,6 @@ export function ReviewModal({
     total: number;
     error?: string;
   } | null>(null);
-  // Optimistic approve overrides so toggling feels instant before the query
-  // re-emits with updated tagNames.
-  const [approveOverride, setApproveOverride] = useState<Record<string, boolean>>(
-    {},
-  );
   // Optimistic master (cover) override per collection id; null = cleared.
   const [coverOverride, setCoverOverride] = useState<
     Record<string, string | null>
@@ -328,7 +318,6 @@ export function ReviewModal({
       height: asset.height,
       promptText: asset.promptText,
       modelName: asset.modelName,
-      approvedByTag: (asset.tagNames ?? []).includes(APPROVED_TAG),
       collectionId: collection.folderId as string,
       collectionName: collection.name,
       folderIds: (asset.folderIds ?? []).map((id) => id as string),
@@ -545,19 +534,10 @@ export function ReviewModal({
     return looseAssets;
   }, [openDirection, drilledAssets, effectiveTab, unsortedAssets, looseAssets]);
 
-  const isApproved = useCallback(
-    (asset: ReviewAsset) =>
-      asset.id in approveOverride
-        ? approveOverride[asset.id]
-        : asset.approvedByTag,
-    [approveOverride],
-  );
-
   const passesFilters = useCallback(
     (asset: ReviewAsset) =>
-      (!approvedOnly || isApproved(asset)) &&
-      (!likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0),
-    [approvedOnly, likedOnly, isApproved, likesByAsset],
+      !likedOnly || (likesByAsset.get(asset.id)?.count ?? 0) > 0,
+    [likedOnly, likesByAsset],
   );
 
   const visibleAssets = useMemo(
@@ -588,11 +568,6 @@ export function ReviewModal({
     beatElements[0] ??
     null;
 
-  const approvedCount = useMemo(
-    () => assets.filter(isApproved).length,
-    [assets, isApproved],
-  );
-
   const focusIndex = focusId
     ? visibleAssets.findIndex((a) => a.id === focusId)
     : -1;
@@ -601,22 +576,6 @@ export function ReviewModal({
   // out of the visible set — e.g. after a filter change — cleanly reverts to
   // the grid without a state-syncing effect.
   const inFocus = Boolean(focusAsset);
-
-  const toggleApprove = useCallback(
-    (asset: ReviewAsset) => {
-      const next = !isApproved(asset);
-      setApproveOverride((prev) => ({ ...prev, [asset.id]: next }));
-      void setApproved({
-        ownerUserId,
-        assetId: asset.id as Id<"assets">,
-        approved: next,
-      }).catch(() => {
-        // Roll back on failure.
-        setApproveOverride((prev) => ({ ...prev, [asset.id]: !next }));
-      });
-    },
-    [isApproved, ownerUserId, setApproved],
-  );
 
   // ── File uploads into a direction ──
   // A dropped/typed text becomes the prompt for every file in the pack; the
@@ -1226,14 +1185,11 @@ export function ReviewModal({
       } else if (focusId && e.key === "ArrowRight") {
         e.preventDefault();
         goFocus(1);
-      } else if (focusId && (e.key === " " || e.key === "Enter")) {
-        e.preventDefault();
-        if (focusAsset) toggleApprove(focusAsset);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, toggleApprove, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, onClose]);
 
   if (!projectId) return null;
 
@@ -1302,9 +1258,27 @@ export function ReviewModal({
     >
       {/* ── Header ── */}
       <header
-        className="flex items-center gap-3 px-4 py-3 md:px-6"
+        className="relative flex items-center gap-3 px-4 py-3 md:px-6"
         style={{ borderBottom: "1px solid var(--lm-border-strong)" }}
       >
+        {/* Centered mode toggle (top of the page) */}
+        {!inFocus && !composerOpen && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 hidden -translate-y-1/2 justify-center lg:flex">
+            <ModeToggle
+              tabs={SECTION_TABS.map(({ key, label }) => ({
+                key,
+                label,
+                count: modeCount(key),
+              }))}
+              active={effectiveTab}
+              onPick={(key) => {
+                setActiveTab(key);
+                setOpenDirectionId(null);
+                setBeatFocusId(null);
+              }}
+            />
+          </div>
+        )}
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             className="text-[10px] font-mono font-bold uppercase tracking-[0.16em]"
@@ -1323,7 +1297,7 @@ export function ReviewModal({
             style={{ color: "var(--lm-text-tertiary)" }}
           >
             {openDirection
-              ? `${visibleAssets.length} shown · ${approvedCount} approved`
+              ? `${visibleAssets.length} shown`
               : effectiveTab === "beats"
                 ? `${beatCards.length} ${beatCards.length === 1 ? "beat" : "beats"}`
                 : `${modeCount(effectiveTab)} assets · ${stackCards.length} ${
@@ -1387,23 +1361,6 @@ export function ReviewModal({
               Liked {totalLikes}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setApprovedOnly((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-colors"
-            style={{
-              borderColor: approvedOnly
-                ? "var(--lm-coral)"
-                : "var(--lm-border-strong)",
-              backgroundColor: approvedOnly ? "var(--lm-coral)" : "transparent",
-              color: approvedOnly ? "#000" : "var(--lm-text-secondary)",
-            }}
-            aria-pressed={approvedOnly}
-            title="Show only approved"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Approved
-          </button>
           {hasCollections &&
             !inFocus &&
             (Boolean(openDirection) ||
@@ -1490,46 +1447,22 @@ export function ReviewModal({
         }}
       />
 
-      {/* ── Centered mode toggle: Beats / Characters / Locations ── */}
+      {/* Mode toggle for small screens (the header hosts it on md+) */}
       {!inFocus && !composerOpen && (
-        <div className="flex items-center justify-center px-4 py-3">
-          <div
-            className="flex items-center gap-1 rounded-full border p-1"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              backgroundColor: "var(--lm-surface-1)",
+        <div className="flex items-center justify-center px-4 py-2.5 lg:hidden">
+          <ModeToggle
+            tabs={SECTION_TABS.map(({ key, label }) => ({
+              key,
+              label,
+              count: modeCount(key),
+            }))}
+            active={effectiveTab}
+            onPick={(key) => {
+              setActiveTab(key);
+              setOpenDirectionId(null);
+              setBeatFocusId(null);
             }}
-            role="tablist"
-            aria-label="Project layers"
-          >
-            {SECTION_TABS.map(({ key, label }) => {
-              const active = effectiveTab === key;
-              const count = modeCount(key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    setActiveTab(key);
-                    setOpenDirectionId(null);
-                    setBeatFocusId(null);
-                  }}
-                  className="rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
-                  style={{
-                    backgroundColor: active ? "var(--lm-coral)" : "transparent",
-                    color: active ? "#000" : "var(--lm-text-secondary)",
-                  }}
-                >
-                  {label}
-                  {count > 0 && (
-                    <span style={{ opacity: 0.6 }}> {count}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          />
         </div>
       )}
 
@@ -2082,8 +2015,6 @@ export function ReviewModal({
             assets={visibleAssets}
             focusId={focusAsset.id}
             onFocusChange={setFocusId}
-            isApproved={isApproved}
-            onToggleApprove={toggleApprove}
             likesByAsset={likesByAsset}
             masterId={openDirection ? openDirectionMasterId : null}
             onMaster={
@@ -2213,26 +2144,6 @@ export function ReviewModal({
                       )}
                       <button
                         type="button"
-                        onClick={() => toggleApprove(beatFocus)}
-                        className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
-                        style={{
-                          backgroundColor: isApproved(beatFocus)
-                            ? "var(--lm-coral)"
-                            : "transparent",
-                          color: isApproved(beatFocus)
-                            ? "#000"
-                            : "var(--lm-text-secondary)",
-                          borderColor: isApproved(beatFocus)
-                            ? "var(--lm-coral)"
-                            : "var(--lm-border-strong)",
-                        }}
-                        aria-pressed={isApproved(beatFocus)}
-                      >
-                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                        {isApproved(beatFocus) ? "Approved" : "Approve"}
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => removeFromDirection(beatFocus)}
                         className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
                         style={{
@@ -2353,9 +2264,7 @@ export function ReviewModal({
                 className="mt-10 text-center text-[13px]"
                 style={{ color: "var(--lm-text-tertiary)" }}
               >
-                {approvedOnly
-                  ? "Nothing approved in this stack yet."
-                  : "Empty stack — drop images anywhere to fill it."}
+                Empty stack — drop images anywhere to fill it.
               </p>
             ) : (
               <div
@@ -2366,10 +2275,8 @@ export function ReviewModal({
                   <ReviewTile
                     key={asset.id}
                     asset={asset}
-                    approved={isApproved(asset)}
                     likes={likesByAsset.get(asset.id)}
                     onOpen={() => setFocusId(asset.id)}
-                    onApprove={() => toggleApprove(asset)}
                     showCollectionLabel={false}
                     isMaster={openDirectionMasterId === asset.id}
                     onMaster={() =>
@@ -2442,10 +2349,8 @@ export function ReviewModal({
                     <ReviewTile
                       key={asset.id}
                       asset={asset}
-                      approved={isApproved(asset)}
                       likes={likesByAsset.get(asset.id)}
                       onOpen={() => setFocusId(asset.id)}
-                      onApprove={() => toggleApprove(asset)}
                       showCollectionLabel={false}
                       onDelete={() => void deleteAssetsByIds([asset.id])}
                       onFileCharacter={
@@ -2520,10 +2425,8 @@ export function ReviewModal({
                 <ReviewTile
                   key={asset.id}
                   asset={asset}
-                  approved={isApproved(asset)}
                   likes={likesByAsset.get(asset.id)}
                   onOpen={() => setFocusId(asset.id)}
-                  onApprove={() => toggleApprove(asset)}
                   showCollectionLabel={false}
                   onDelete={() => void deleteAssetsByIds([asset.id])}
                   selectable={selectMode}
@@ -3150,10 +3053,8 @@ function DirectionCard({
 /* ── Large masonry tile ── */
 function ReviewTile({
   asset,
-  approved,
   likes,
   onOpen,
-  onApprove,
   showCollectionLabel,
   isMaster,
   onMaster,
@@ -3167,11 +3068,9 @@ function ReviewTile({
   onToggleSelect,
 }: {
   asset: ReviewAsset;
-  approved: boolean;
   /** Viewer likes from the shared board. */
   likes?: AssetLikes;
   onOpen: () => void;
-  onApprove: () => void;
   showCollectionLabel: boolean;
   /** Only defined inside a drilled direction, where "master" is unambiguous. */
   isMaster?: boolean;
@@ -3197,9 +3096,7 @@ function ReviewTile({
       style={{
         border: selected
           ? "2px solid #fff"
-          : approved
-            ? "2px solid var(--lm-coral)"
-            : "1px solid var(--lm-border-subtle)",
+          : "1px solid var(--lm-border-subtle)",
         backgroundColor: "var(--lm-surface-1)",
       }}
       onClick={selectable ? onToggleSelect : onOpen}
@@ -3248,30 +3145,6 @@ function ReviewTile({
             <Heart className="h-3 w-3" fill="currentColor" strokeWidth={2.5} />
             {likes.count}
           </span>
-        )}
-        {!selectable && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onApprove();
-          }}
-          className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
-            approved
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
-          }`}
-          style={{
-            backgroundColor: approved ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
-            color: approved ? "#000" : "#fff",
-            borderColor: approved ? "var(--lm-coral)" : "rgba(255,255,255,0.25)",
-          }}
-          aria-pressed={approved}
-          title={approved ? "Approved — click to remove" : "Approve"}
-        >
-          <Check className="h-3 w-3" strokeWidth={3} />
-          {approved ? "Approved" : "Approve"}
-        </button>
         )}
       </div>
 
@@ -3597,6 +3470,52 @@ function AtNameSelector({
   );
 }
 
+/* ── Centered segmented mode toggle: Beats / Characters / Locations ── */
+function ModeToggle({
+  tabs,
+  active,
+  onPick,
+}: {
+  tabs: { key: ReviewTab; label: string; count: number }[];
+  active: ReviewTab;
+  onPick: (key: ReviewTab) => void;
+}) {
+  return (
+    <div
+      className="pointer-events-auto flex items-center gap-1 overflow-hidden border p-1"
+      style={{
+        borderRadius: 9999,
+        borderColor: "var(--lm-border-strong)",
+        backgroundColor: "var(--lm-surface-1)",
+      }}
+      role="tablist"
+      aria-label="Project layers"
+    >
+      {tabs.map(({ key, label, count }) => {
+        const isActive = active === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onPick(key)}
+            className="px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            style={{
+              borderRadius: 9999,
+              backgroundColor: isActive ? "var(--lm-coral)" : "transparent",
+              color: isActive ? "#000" : "var(--lm-text-secondary)",
+            }}
+          >
+            {label}
+            {count > 0 && <span style={{ opacity: 0.6 }}> {count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── Dashed add-card: the mode's primary create action, in the masonry ── */
 function AddCard({
   label,
@@ -3782,8 +3701,6 @@ function FocusScrollFeed({
   assets,
   focusId,
   onFocusChange,
-  isApproved,
-  onToggleApprove,
   likesByAsset,
   masterId,
   onMaster,
@@ -3795,8 +3712,6 @@ function FocusScrollFeed({
   assets: ReviewAsset[];
   focusId: string;
   onFocusChange: (id: string) => void;
-  isApproved: (asset: ReviewAsset) => boolean;
-  onToggleApprove: (asset: ReviewAsset) => void;
   likesByAsset: Map<string, AssetLikes>;
   /** Current master id when drilled into a direction, else null. */
   masterId: string | null;
@@ -3860,7 +3775,6 @@ function FocusScrollFeed({
       className="h-full snap-y snap-mandatory overflow-y-auto"
     >
       {assets.map((asset, index) => {
-        const approved = isApproved(asset);
         const likes = likesByAsset.get(asset.id);
         const isMaster = masterId !== null && masterId === asset.id;
         return (
@@ -3941,25 +3855,6 @@ function FocusScrollFeed({
                     Master
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => onToggleApprove(asset)}
-                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-all active:scale-95"
-                  style={{
-                    backgroundColor: approved
-                      ? "var(--lm-coral)"
-                      : "rgba(0,0,0,0.62)",
-                    color: approved ? "#000" : "#fff",
-                    borderColor: approved
-                      ? "var(--lm-coral)"
-                      : "rgba(255,255,255,0.25)",
-                  }}
-                  aria-pressed={approved}
-                  title="Approve (Space)"
-                >
-                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                  {approved ? "Approved" : "Approve"}
-                </button>
                 {onRemove && (
                   <button
                     type="button"
