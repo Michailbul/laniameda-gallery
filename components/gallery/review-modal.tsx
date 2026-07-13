@@ -42,6 +42,11 @@ import { buildUploadFormData } from "@/lib/upload-form";
 import { buildIngestKey } from "@/lib/ingest";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
 import {
+  hasAssetDragPayload,
+  readAssetDragPayload,
+  writeAssetDragPayload,
+} from "@/lib/asset-drag";
+import {
   LARGE_IMAGE_BYTES,
   appendImageUploadFields,
   uploadImageToR2,
@@ -366,9 +371,10 @@ export function ReviewModal({
       ? { ownerUserId, projectId: projectId as Id<"folders"> }
       : "skip",
   );
-  // Named assets across the gallery, for the beat composer's @name selector.
-  const namedAssets = useQuery(
-    api.assets.listNamedAssets,
+  // Reference options for the @ selector — named assets by @name plus the
+  // newest assets by file name, so ANY asset can be pulled into a beat.
+  const assetOptions = useQuery(
+    api.assets.listAssetOptions,
     !readOnly && projectId ? { ownerUserId } : "skip",
   );
 
@@ -911,6 +917,40 @@ export function ReviewModal({
     toReviewAsset,
     visibleAssets,
   ]);
+  // The @ namespace: BEATS first (handle = the beat's name, thumb = its
+  // master — derived live, so renaming the beat renames the handle), then
+  // every asset (named ones by @name, the rest by file name).
+  const atOptions = useMemo<NamedAssetOption[]>(() => {
+    const beatRefs: NamedAssetOption[] = [];
+    for (const collection of project?.collections ?? []) {
+      if (tabOf(collection.section) !== "beats") continue;
+      const coverId = collection.coverAssetId as string | undefined;
+      const master =
+        collection.assets.find((a) => (a._id as string) === coverId) ??
+        collection.assets.find((a) => a.kind === "video") ??
+        collection.assets[0];
+      if (!master) continue;
+      beatRefs.push({
+        assetId: master._id as string,
+        name: collection.name,
+        kind: master.kind as "image" | "video",
+        thumbUrl: master.thumbUrl ?? undefined,
+        tagNames: ["beat"],
+      });
+    }
+    const taken = new Set(beatRefs.map((option) => option.assetId));
+    const rest: NamedAssetOption[] = (assetOptions ?? [])
+      .filter((option) => !taken.has(option.assetId as string))
+      .map((option) => ({
+        assetId: option.assetId as string,
+        name: option.name ?? option.fileName ?? "untitled",
+        kind: option.kind,
+        thumbUrl: option.thumbUrl,
+        tagNames: option.tagNames,
+      }));
+    return [...beatRefs, ...rest];
+  }, [project, assetOptions]);
+
   const focusItem = focusId
     ? (feedItems.find((item) => item.id === focusId) ?? null)
     : null;
@@ -2259,7 +2299,7 @@ export function ReviewModal({
                   </span>
                 </div>
                 <AtNameSelector
-                  options={(namedAssets ?? []).filter(
+                  options={atOptions.filter(
                     (option) =>
                       !composer.linked.some(
                         (ref) => ref.assetId === (option.assetId as string),
@@ -2746,6 +2786,25 @@ export function ReviewModal({
               className="w-full shrink-0 px-4 pb-10 pt-2 lg:w-[340px] lg:overflow-y-auto lg:border-l xl:w-[400px]"
               style={{ borderColor: "var(--lm-border)" }}
             >
+              {!readOnly && (
+                <div className="mb-2.5">
+                  <AtNameSelector
+                    compact
+                    placeholder="@name — add any asset or beat…"
+                    options={atOptions.filter(
+                      (option) =>
+                        !visibleAssets.some((a) => a.id === option.assetId),
+                    )}
+                    onPick={(option) =>
+                      void addAssetFolders({
+                        ownerUserId,
+                        assetId: option.assetId as Id<"assets">,
+                        folderIds: [openDirection.folderId],
+                      }).catch(() => {})
+                    }
+                  />
+                </div>
+              )}
               <p
                 className="mb-2.5 text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
                 style={{ color: "var(--lm-text-ghost)" }}
@@ -2972,6 +3031,15 @@ export function ReviewModal({
                     }}
                     onDelete={() => deleteDirectionById(item.card.id)}
                     onPin={() => toggleDirectionPin(item.card)}
+                    onDropAssets={(assetIds) => {
+                      for (const assetId of assetIds) {
+                        void addAssetFolders({
+                          ownerUserId,
+                          assetId: assetId as Id<"assets">,
+                          folderIds: [item.card.id as Id<"folders">],
+                        }).catch(() => {});
+                      }
+                    }}
                     readOnly={readOnly}
                     likedByMe={viewerLikedFolders.has(item.card.id)}
                     onToggleLike={
@@ -2987,6 +3055,18 @@ export function ReviewModal({
                     likes={likesByAsset.get(item.asset.id)}
                     onOpen={() => setFocusId(item.asset.id)}
                     showCollectionLabel={false}
+                    draggableId={item.asset.id}
+                    stackOptions={stackCards.map((card) => ({
+                      id: card.id,
+                      name: card.name,
+                    }))}
+                    onAddToStack={(stackId) =>
+                      void addAssetFolders({
+                        ownerUserId,
+                        assetId: item.asset.id as Id<"assets">,
+                        folderIds: [stackId as Id<"folders">],
+                      }).catch(() => {})
+                    }
                     onDelete={() => void deleteAssetsByIds([item.asset.id])}
                     onMoveTop={() => moveAsset(item.asset.id, "top")}
                     onPin={() => toggleAssetPin(item.asset)}
@@ -3247,6 +3327,7 @@ function DirectionCard({
   readOnly,
   likedByMe,
   onToggleLike,
+  onDropAssets,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
@@ -3262,14 +3343,40 @@ function DirectionCard({
   likedByMe?: boolean;
   /** Present → the beat ♥ toggles this viewer's whole-direction like. */
   onToggleLike?: () => void;
+  /** Present → the card accepts dragged asset tiles (adds them here). */
+  onDropAssets?: (assetIds: string[]) => void;
 }) {
   if (readOnly) {
     onDelete = onPin = undefined;
+    onDropAssets = undefined;
   }
   const cover = direction.cover;
   const beatVideos = direction.beatVideos;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoIndex, setVideoIndex] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
+  const highlight = active || dragOver;
+  // Drop handlers (spread on both card variants' roots).
+  const dropProps = onDropAssets
+    ? {
+        onDragOver: (e: React.DragEvent) => {
+          if (!hasAssetDragPayload(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+          setDragOver(true);
+        },
+        onDragLeave: () => setDragOver(false),
+        onDrop: (e: React.DragEvent) => {
+          setDragOver(false);
+          const assetIds = readAssetDragPayload(e.dataTransfer);
+          if (assetIds.length === 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDropAssets(assetIds);
+        },
+      }
+    : {};
   const activeVideo =
     beatVideos.length > 0
       ? beatVideos[Math.min(videoIndex, beatVideos.length - 1)]!
@@ -3308,6 +3415,7 @@ function DirectionCard({
               ? `${activeVideo.width} / ${activeVideo.height}`
               : "16 / 9",
         }}
+        {...dropProps}
         onClick={onOpen}
         onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
         onMouseLeave={() => videoRef.current?.pause()}
@@ -3344,7 +3452,7 @@ function DirectionCard({
         <div
           className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
           style={{
-            border: active
+            border: highlight
               ? "2px solid var(--lm-coral)"
               : "2px solid var(--lm-border-strong)",
             backgroundColor: "#000",
@@ -3533,6 +3641,7 @@ function DirectionCard({
             ? `${cover.width} / ${cover.height}`
             : "4 / 5",
       }}
+      {...dropProps}
       onClick={onOpen}
       onMouseEnter={preview.start}
       onMouseLeave={preview.stop}
@@ -3569,7 +3678,7 @@ function DirectionCard({
       <div
         className="absolute inset-0 z-[3] overflow-hidden rounded-xl transition-transform duration-200 ease-out group-hover:-translate-y-[3px]"
         style={{
-          border: active
+          border: highlight
             ? "2px solid var(--lm-coral)"
             : "2px solid var(--lm-border-strong)",
           backgroundColor: "var(--lm-surface-1)",
@@ -3704,6 +3813,9 @@ function ReviewTile({
   likes,
   onOpen,
   showCollectionLabel,
+  draggableId,
+  stackOptions,
+  onAddToStack,
   isMaster,
   onMaster,
   onRemove,
@@ -3729,6 +3841,12 @@ function ReviewTile({
   likes?: AssetLikes;
   onOpen: () => void;
   showCollectionLabel: boolean;
+  /** Set → the tile is draggable, carrying this asset id (drop on a stack
+   * card to add it there). */
+  draggableId?: string;
+  /** Existing stacks of the mode, for the "add to a stack" hover menu. */
+  stackOptions?: { id: string; name: string }[];
+  onAddToStack?: (stackId: string) => void;
   /** Public viewer mode — hide every admin control, keep view/like/download. */
   readOnly?: boolean;
   /** Share token → download through the public board proxy instead of auth. */
@@ -3779,8 +3897,12 @@ function ReviewTile({
       onPin =
         undefined;
     onRename = undefined;
+    onAddToStack = undefined;
+    draggableId = undefined;
+    stackOptions = undefined;
     selectable = false;
   }
+  const [stackMenuOpen, setStackMenuOpen] = useState(false);
   return (
     <div
       className="group relative mb-3.5 block break-inside-avoid cursor-pointer overflow-hidden rounded-xl"
@@ -3792,6 +3914,12 @@ function ReviewTile({
       }}
       onClick={selectable ? onToggleSelect : onOpen}
       aria-selected={selectable ? Boolean(selected) : undefined}
+      draggable={Boolean(draggableId) && !selectable}
+      onDragStart={
+        draggableId && !selectable
+          ? (e) => writeAssetDragPayload(e.dataTransfer, [draggableId])
+          : undefined
+      }
     >
       <div
         className="relative w-full"
@@ -4019,9 +4147,64 @@ function ReviewTile({
         </div>
       )}
 
-      {/* Download / Order / Remove / Delete, bottom-right on hover */}
+      {/* Add-to-stack / Download / Order / Remove / Delete, bottom-right */}
       {!selectable && (
         <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {stackOptions && stackOptions.length > 0 && onAddToStack && (
+            <span className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStackMenuOpen((open) => !open);
+                }}
+                className="flex items-center rounded-lg border p-1.5"
+                style={{
+                  backgroundColor: stackMenuOpen
+                    ? "var(--lm-coral)"
+                    : "rgba(0,0,0,0.62)",
+                  color: stackMenuOpen ? "#000" : "#fff",
+                  borderColor: stackMenuOpen
+                    ? "var(--lm-coral)"
+                    : "rgba(255,255,255,0.25)",
+                }}
+                aria-expanded={stackMenuOpen}
+                aria-label="Add to a stack"
+                title="Add to a stack — or drag the tile onto one"
+              >
+                <FolderPlus className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+              {stackMenuOpen && (
+                <span
+                  className="absolute bottom-full right-0 z-30 mb-1 flex max-h-44 w-44 flex-col overflow-y-auto rounded-lg border"
+                  style={{
+                    backgroundColor: "var(--lm-surface-1)",
+                    borderColor: "var(--lm-border-strong)",
+                    boxShadow: "var(--shadow-lg)",
+                  }}
+                  onMouseLeave={() => setStackMenuOpen(false)}
+                  role="menu"
+                >
+                  {stackOptions.map((stack) => (
+                    <button
+                      key={stack.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStackMenuOpen(false);
+                        onAddToStack(stack.id);
+                      }}
+                      className="truncate px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--lm-surface-2)]"
+                      style={{ color: "var(--lm-text-primary)" }}
+                      role="menuitem"
+                    >
+                      {stack.name}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </span>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -4289,9 +4472,14 @@ type NamedAssetOption = {
 function AtNameSelector({
   options,
   onPick,
+  compact = false,
+  placeholder,
 }: {
   options: NamedAssetOption[];
   onPick: (option: NamedAssetOption) => void;
+  /** Tight spacing for chrome placements (e.g. the drilled-view rail). */
+  compact?: boolean;
+  placeholder?: string;
 }) {
   const [query, setQuery] = useState("");
   const needle = query.replace(/^@/, "").trim().toLowerCase();
@@ -4302,7 +4490,7 @@ function AtNameSelector({
     : [];
 
   return (
-    <div className="relative mt-3 max-w-[420px]">
+    <div className={`relative max-w-[420px] ${compact ? "" : "mt-3"}`}>
       <input
         type="text"
         value={query}
@@ -4317,7 +4505,7 @@ function AtNameSelector({
           }
           e.stopPropagation();
         }}
-        placeholder="@name — pull in an existing asset…"
+        placeholder={placeholder ?? "@name — pull in an existing asset…"}
         className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none transition-colors focus:border-[var(--lm-coral)]"
         style={{
           backgroundColor: "var(--lm-surface-2)",
@@ -4352,11 +4540,11 @@ function AtNameSelector({
                 <img
                   src={option.thumbUrl}
                   alt=""
-                  className="h-8 w-8 shrink-0 rounded-md object-cover"
+                  className="h-12 w-12 shrink-0 rounded-md object-cover"
                 />
               ) : (
                 <span
-                  className="h-8 w-8 shrink-0 rounded-md"
+                  className="h-12 w-12 shrink-0 rounded-md"
                   style={{ backgroundColor: "var(--lm-surface-2)" }}
                 />
               )}
@@ -4370,13 +4558,15 @@ function AtNameSelector({
                 className="shrink-0 text-[9px] font-mono font-bold uppercase tracking-wider"
                 style={{ color: "var(--lm-text-ghost)" }}
               >
-                {option.kind === "video"
-                  ? "video"
-                  : option.tagNames.includes("character")
-                    ? "character"
-                    : option.tagNames.includes("location")
-                      ? "location"
-                      : "image"}
+                {option.tagNames.includes("beat")
+                  ? "beat"
+                  : option.kind === "video"
+                    ? "video"
+                    : option.tagNames.includes("character")
+                      ? "character"
+                      : option.tagNames.includes("location")
+                        ? "location"
+                        : "image"}
               </span>
             </button>
           ))}

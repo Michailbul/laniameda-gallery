@@ -2131,6 +2131,80 @@ export const listNamedAssets = query({
   },
 });
 
+// Reference options for the @ selector: every named asset PLUS the newest
+// assets across the gallery, so ANY asset can be pulled into a beat — named
+// ones by @name, the rest by file name. The client filters as the user types.
+export const listAssetOptions = query({
+  args: {
+    ownerUserId: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      assetId: v.id("assets"),
+      name: v.optional(v.string()),
+      fileName: v.optional(v.string()),
+      kind: v.union(v.literal("image"), v.literal("video")),
+      thumbUrl: v.optional(v.string()),
+      tagNames: v.array(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const rows: Doc<"assets">[] = [];
+    for (const ownerCandidate of ownerUserIds) {
+      const named = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_name", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gt("name", ""),
+        )
+        .take(300);
+      const recent = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_createdAt", (q) =>
+          q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+        )
+        .order("desc")
+        .take(600);
+      rows.push(...named, ...recent);
+    }
+    const seen = new Set<string>();
+    const deduped = rows.filter((asset) => {
+      if (seen.has(asset._id)) return false;
+      seen.add(asset._id);
+      return true;
+    });
+
+    const tagNameById = new Map<Id<"tags">, string | null>();
+    const resolveTagNames = async (tagIds: Id<"tags">[]) => {
+      const names: string[] = [];
+      for (const tagId of tagIds) {
+        if (!tagNameById.has(tagId)) {
+          const tag = await ctx.db.get(tagId);
+          tagNameById.set(tagId, tag?.name ?? null);
+        }
+        const name = tagNameById.get(tagId);
+        if (name) names.push(name);
+      }
+      return names;
+    };
+
+    return await Promise.all(
+      deduped.map(async (asset) => ({
+        assetId: asset._id,
+        name: asset.name,
+        fileName: asset.fileName,
+        kind: asset.kind,
+        thumbUrl: (await resolveAssetThumbUrl(ctx, asset)) ?? undefined,
+        tagNames: await resolveTagNames(asset.tagIds),
+      })),
+    );
+  },
+});
+
 // The global tag used to mark an asset "approved" in the review workflow.
 export const APPROVED_TAG_NAME = "approved";
 
