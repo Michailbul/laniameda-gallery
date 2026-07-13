@@ -2151,12 +2151,13 @@ export function ReviewModal({
             showCollectionLabel={false}
           />
         ) : openDirection && drilledIsBeat ? (
-          /* ── Beat detail: focused full-res viewer + element strip ── */
-          <div className="h-full overflow-y-auto px-4 pb-8 pt-2 md:px-8">
-            <div className="mx-auto flex w-full max-w-[1400px] flex-col">
+          /* ── Beat detail: native-res preview left, references right ── */
+          <div className="flex h-full min-h-0 flex-col lg:flex-row">
+            {/* Preview */}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-5 pt-2 md:px-8">
               {beatFocus ? (
                 <>
-                  <div className="flex items-center justify-center">
+                  <div className="flex min-h-0 flex-1 items-center justify-center py-1">
                     {beatFocus.kind === "video" ? (
                       <video
                         key={beatFocus.id}
@@ -2169,12 +2170,13 @@ export function ReviewModal({
                         controls
                         playsInline
                         preload="metadata"
-                        className="w-full rounded-xl"
+                        className="max-h-full max-w-full"
                         style={{
-                          maxHeight: "58vh",
-                          backgroundColor: "#000",
-                          border: "1px solid var(--lm-border)",
-                          objectFit: "contain",
+                          // Both dims auto + max constraints = scale down to
+                          // fit while keeping the INTRINSIC ratio (stored
+                          // dims can lie — legacy 320px poster pass).
+                          height: "auto",
+                          width: "auto",
                         }}
                       />
                     ) : (
@@ -2182,14 +2184,14 @@ export function ReviewModal({
                         key={beatFocus.id}
                         src={beatFocus.url ?? beatFocus.thumbUrl}
                         alt={beatFocus.promptText ?? openDirection.name}
-                        className="max-w-full rounded-xl object-contain"
-                        style={{ maxHeight: "58vh" }}
+                        className="max-h-full max-w-full object-contain"
+                        style={{ height: "auto", width: "auto" }}
                       />
                     )}
                   </div>
 
                   {/* Focused element actions */}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
                     <AssetNameEditor
                       name={beatFocus.name}
                       onSave={(next) => renameAsset(beatFocus.id, next)}
@@ -2337,80 +2339,10 @@ export function ReviewModal({
                         size="lg"
                         variant="chrome"
                         title="Permanently delete from the gallery"
-                        onConfirm={() =>
-                          void deleteAssetsByIds([beatFocus.id])
-                        }
+                        onConfirm={() => void deleteAssetsByIds([beatFocus.id])}
                       />
                     </span>
                   </div>
-
-                  {/* Element strip: scroll through the beat's assets */}
-                  {beatElements.length > 1 && (
-                    <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-                      {beatElements.map((el) => {
-                        const active = el.id === beatFocus.id;
-                        const role =
-                          el.kind === "video"
-                            ? "video"
-                            : el.tagNames.includes("character")
-                              ? "C"
-                              : el.tagNames.includes("location")
-                                ? "L"
-                                : null;
-                        return (
-                          <button
-                            key={el.id}
-                            type="button"
-                            onClick={() => setBeatFocusId(el.id)}
-                            className="relative h-20 shrink-0 overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
-                            style={{
-                              border: active
-                                ? "2px solid var(--lm-coral)"
-                                : "1px solid var(--lm-border)",
-                              aspectRatio:
-                                el.width && el.height
-                                  ? `${el.width} / ${el.height}`
-                                  : "1 / 1",
-                            }}
-                            aria-pressed={active}
-                            title={
-                              el.kind === "video" ? "Video take" : undefined
-                            }
-                          >
-                            <img
-                              src={el.thumbUrl ?? el.url}
-                              alt=""
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                            {el.kind === "video" && (
-                              <span
-                                className="pointer-events-none absolute left-1/2 top-1/2 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
-                                style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-                              >
-                                <Play
-                                  className="ml-0.5 h-3 w-3"
-                                  fill="#fff"
-                                  color="#fff"
-                                />
-                              </span>
-                            )}
-                            {role && role !== "video" && (
-                              <span
-                                className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded text-[8px] font-mono font-bold"
-                                style={{
-                                  backgroundColor: "rgba(0,0,0,0.62)",
-                                  color: "#fff",
-                                }}
-                              >
-                                {role}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </>
               ) : (
                 <p
@@ -2421,10 +2353,115 @@ export function ReviewModal({
                   this beat.
                 </p>
               )}
-              <DirectionTextBlock
-                description={openDirection.description}
-                onSave={saveDirectionText}
-              />
+              <div className="max-h-[22vh] shrink-0 overflow-y-auto">
+                <DirectionTextBlock
+                  description={openDirection.description}
+                  onSave={saveDirectionText}
+                />
+              </div>
+            </div>
+
+            {/* References */}
+            <div
+              className="w-full shrink-0 overflow-y-auto px-4 pb-10 pt-2 lg:w-[340px] lg:border-l xl:w-[400px]"
+              style={{ borderColor: "var(--lm-border)" }}
+            >
+              <p
+                className="mb-2.5 text-[10px] font-mono font-bold uppercase tracking-[0.18em]"
+                style={{ color: "var(--lm-text-ghost)" }}
+              >
+                References
+                <span
+                  className="ml-2"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  {beatElements.length}
+                </span>
+              </p>
+              {beatElements.length === 0 ? (
+                <p
+                  className="text-[12px]"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                >
+                  Drop images and video anywhere — they land in this beat.
+                </p>
+              ) : (
+                <div className="columns-2" style={{ columnGap: "10px" }}>
+                  {beatElements.map((el) => {
+                    const active = el.id === beatFocus?.id;
+                    const role =
+                      el.kind === "video"
+                        ? null
+                        : el.tagNames.includes("character")
+                          ? "C"
+                          : el.tagNames.includes("location")
+                            ? "L"
+                            : null;
+                    return (
+                      <button
+                        key={el.id}
+                        type="button"
+                        onClick={() => setBeatFocusId(el.id)}
+                        className="relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-md text-left transition-opacity hover:opacity-90"
+                        style={{
+                          aspectRatio:
+                            el.width && el.height
+                              ? `${el.width} / ${el.height}`
+                              : "1 / 1",
+                          outline: active
+                            ? "2px solid var(--lm-coral)"
+                            : "none",
+                          outlineOffset: "-2px",
+                          opacity: active ? 1 : 0.92,
+                        }}
+                        aria-pressed={active}
+                        title={el.name ? `@${el.name}` : undefined}
+                      >
+                        <img
+                          src={el.thumbUrl ?? el.url}
+                          alt={el.name ?? ""}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                        {el.kind === "video" && (
+                          <span
+                            className="pointer-events-none absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
+                            style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+                          >
+                            <Play
+                              className="ml-0.5 h-3.5 w-3.5"
+                              fill="#fff"
+                              color="#fff"
+                            />
+                          </span>
+                        )}
+                        {role && (
+                          <span
+                            className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded text-[8px] font-mono font-bold"
+                            style={{
+                              backgroundColor: "rgba(0,0,0,0.62)",
+                              color: "#fff",
+                            }}
+                          >
+                            {role}
+                          </span>
+                        )}
+                        {el.name && (
+                          <span
+                            className="absolute bottom-1 left-1 max-w-[90%] truncate rounded px-1.5 py-0.5 text-[8px] font-mono font-bold tracking-wider"
+                            style={{
+                              backgroundColor: "rgba(0,0,0,0.62)",
+                              color: "var(--lm-coral)",
+                            }}
+                          >
+                            @{el.name}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         ) : openDirection ? (
