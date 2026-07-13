@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type Infer } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { collectAssetsForFolder } from "./assets";
@@ -234,53 +234,166 @@ export const listProjects = query({
   },
 });
 
+// The full project "review" payload — the workspace view model. The shared
+// public board (directionBoard.getBoardWorkspace) returns this SAME shape so
+// the review UI renders identically for owner and anonymous viewer.
+export const projectViewValidator = v.object({
+  project: v.object({
+    _id: v.id("folders"),
+    name: v.string(),
+    brief: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  }),
+  collections: v.array(
+    v.object({
+      folderId: v.id("folders"),
+      name: v.string(),
+      description: v.optional(v.string()),
+      section: optionalProjectSectionValidator,
+      coverAssetId: v.optional(v.id("assets")),
+      pinnedAt: v.optional(v.number()),
+      beatCharacterFolderIds: v.array(v.id("folders")),
+      beatLocationFolderIds: v.array(v.id("folders")),
+      count: v.number(),
+      assets: v.array(galleryAssetResultValidator),
+    }),
+  ),
+  // Authless viewer likes from the shared board, per asset.
+  assetLikes: v.array(
+    v.object({
+      assetId: v.id("assets"),
+      count: v.number(),
+      names: v.array(v.string()),
+    }),
+  ),
+  // …and per direction (beat cards on the board take whole-beat likes).
+  collectionLikes: v.array(
+    v.object({
+      folderId: v.id("folders"),
+      count: v.number(),
+      names: v.array(v.string()),
+    }),
+  ),
+});
+
+export type ProjectView = Infer<typeof projectViewValidator>;
+
+/**
+ * Build the review payload for a project folder. Shared by the owner query
+ * (getProject) and the token-gated public board (directionBoard). Pure read —
+ * the caller is responsible for auth (owner) or token resolution (public).
+ */
+export const buildProjectView = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folder: Doc<"folders">,
+): Promise<ProjectView> => {
+  const collectionLinks = await collectProjectCollectionLinks(
+    ctx,
+    ownerUserIds,
+    folder._id,
+  );
+
+  const collections = await Promise.all(
+    collectionLinks.map(
+      async ({
+        folderId,
+        section,
+        beatCharacterFolderIds,
+        beatLocationFolderIds,
+      }) => {
+        const collectionFolder = await ctx.db.get(folderId);
+        const members = await collectAssetsForFolder(
+          ctx,
+          ownerUserIds,
+          folderId,
+          PROJECT_COLLECTION_ASSET_LIMIT,
+        );
+        const assets = await hydrateGalleryAssetResults(ctx, members);
+        return {
+          folderId,
+          name: collectionFolder?.name ?? "Untitled collection",
+          description: collectionFolder?.description,
+          section,
+          coverAssetId: collectionFolder?.coverAssetId,
+          pinnedAt: collectionFolder?.pinnedAt,
+          beatCharacterFolderIds,
+          beatLocationFolderIds,
+          count: assets.length,
+          assets,
+        };
+      },
+    ),
+  );
+
+  // Viewer likes from the shared board, grouped per asset and per whole
+  // direction, with the names viewers chose to leave (anonymous likes count
+  // but add no name).
+  const reactions = await ctx.db
+    .query("boardReactions")
+    .withIndex("by_project", (q) => q.eq("projectId", folder._id))
+    .collect();
+  const likesByAsset = new Map<
+    Id<"assets">,
+    { count: number; names: Set<string> }
+  >();
+  const likesByFolder = new Map<
+    Id<"folders">,
+    { count: number; names: Set<string> }
+  >();
+  for (const reaction of reactions) {
+    if (reaction.assetId) {
+      const entry = likesByAsset.get(reaction.assetId) ?? {
+        count: 0,
+        names: new Set<string>(),
+      };
+      entry.count += 1;
+      if (reaction.viewerName) entry.names.add(reaction.viewerName);
+      likesByAsset.set(reaction.assetId, entry);
+    } else if (reaction.folderId) {
+      const entry = likesByFolder.get(reaction.folderId) ?? {
+        count: 0,
+        names: new Set<string>(),
+      };
+      entry.count += 1;
+      if (reaction.viewerName) entry.names.add(reaction.viewerName);
+      likesByFolder.set(reaction.folderId, entry);
+    }
+  }
+  const assetLikes = [...likesByAsset.entries()].map(([assetId, entry]) => ({
+    assetId,
+    count: entry.count,
+    names: [...entry.names],
+  }));
+  const collectionLikes = [...likesByFolder.entries()].map(
+    ([folderId, entry]) => ({
+      folderId,
+      count: entry.count,
+      names: [...entry.names],
+    }),
+  );
+
+  return {
+    project: {
+      _id: folder._id,
+      name: folder.name,
+      brief: folder.description,
+      createdAt: folder.createdAt,
+      updatedAt: folder.updatedAt,
+    },
+    collections,
+    assetLikes,
+    collectionLikes,
+  };
+};
+
 export const getProject = query({
   args: {
     ownerUserId: v.string(),
     projectId: v.id("folders"),
   },
-  returns: v.union(
-    v.null(),
-    v.object({
-      project: v.object({
-        _id: v.id("folders"),
-        name: v.string(),
-        brief: v.optional(v.string()),
-        createdAt: v.optional(v.number()),
-        updatedAt: v.optional(v.number()),
-      }),
-      collections: v.array(
-        v.object({
-          folderId: v.id("folders"),
-          name: v.string(),
-          description: v.optional(v.string()),
-          section: optionalProjectSectionValidator,
-          coverAssetId: v.optional(v.id("assets")),
-          pinnedAt: v.optional(v.number()),
-          beatCharacterFolderIds: v.array(v.id("folders")),
-          beatLocationFolderIds: v.array(v.id("folders")),
-          count: v.number(),
-          assets: v.array(galleryAssetResultValidator),
-        }),
-      ),
-      // Authless viewer likes from the shared board, per asset.
-      assetLikes: v.array(
-        v.object({
-          assetId: v.id("assets"),
-          count: v.number(),
-          names: v.array(v.string()),
-        }),
-      ),
-      // …and per direction (beat cards on the board take whole-beat likes).
-      collectionLikes: v.array(
-        v.object({
-          folderId: v.id("folders"),
-          count: v.number(),
-          names: v.array(v.string()),
-        }),
-      ),
-    }),
-  ),
+  returns: v.union(v.null(), projectViewValidator),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -296,105 +409,7 @@ export const getProject = query({
     }
 
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const collectionLinks = await collectProjectCollectionLinks(
-      ctx,
-      ownerUserIds,
-      folder._id,
-    );
-
-    const collections = await Promise.all(
-      collectionLinks.map(
-        async ({
-          folderId,
-          section,
-          beatCharacterFolderIds,
-          beatLocationFolderIds,
-        }) => {
-          const collectionFolder = await ctx.db.get(folderId);
-          const members = await collectAssetsForFolder(
-            ctx,
-            ownerUserIds,
-            folderId,
-            PROJECT_COLLECTION_ASSET_LIMIT,
-          );
-          const assets = await hydrateGalleryAssetResults(ctx, members);
-          return {
-            folderId,
-            name: collectionFolder?.name ?? "Untitled collection",
-            description: collectionFolder?.description,
-            section,
-            coverAssetId: collectionFolder?.coverAssetId,
-            pinnedAt: collectionFolder?.pinnedAt,
-            beatCharacterFolderIds,
-            beatLocationFolderIds,
-            count: assets.length,
-            assets,
-          };
-        },
-      ),
-    );
-
-    // Viewer likes from the shared board, grouped per asset and per whole
-    // direction, with the names viewers chose to leave (anonymous likes count
-    // but add no name).
-    const reactions = await ctx.db
-      .query("boardReactions")
-      .withIndex("by_project", (q) => q.eq("projectId", folder._id))
-      .collect();
-    const likesByAsset = new Map<
-      Id<"assets">,
-      { count: number; names: Set<string> }
-    >();
-    const likesByFolder = new Map<
-      Id<"folders">,
-      { count: number; names: Set<string> }
-    >();
-    for (const reaction of reactions) {
-      if (reaction.assetId) {
-        const entry = likesByAsset.get(reaction.assetId) ?? {
-          count: 0,
-          names: new Set<string>(),
-        };
-        entry.count += 1;
-        if (reaction.viewerName) entry.names.add(reaction.viewerName);
-        likesByAsset.set(reaction.assetId, entry);
-      } else if (reaction.folderId) {
-        const entry = likesByFolder.get(reaction.folderId) ?? {
-          count: 0,
-          names: new Set<string>(),
-        };
-        entry.count += 1;
-        if (reaction.viewerName) entry.names.add(reaction.viewerName);
-        likesByFolder.set(reaction.folderId, entry);
-      }
-    }
-    const assetLikes = [...likesByAsset.entries()].map(
-      ([assetId, entry]) => ({
-        assetId,
-        count: entry.count,
-        names: [...entry.names],
-      }),
-    );
-    const collectionLikes = [...likesByFolder.entries()].map(
-      ([folderId, entry]) => ({
-        folderId,
-        count: entry.count,
-        names: [...entry.names],
-      }),
-    );
-
-    return {
-      project: {
-        _id: folder._id,
-        name: folder.name,
-        brief: folder.description,
-        createdAt: folder.createdAt,
-        updatedAt: folder.updatedAt,
-      },
-      collections,
-      assetLikes,
-      collectionLikes,
-    };
+    return await buildProjectView(ctx, ownerUserIds, folder);
   },
 });
 

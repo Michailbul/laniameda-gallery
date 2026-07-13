@@ -4,8 +4,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { APPROVED_TAG_NAME, collectAssetsForFolder } from "./assets";
 import {
+  buildProjectView,
   collectProjectCollectionIds,
   collectProjectCollectionLinks,
+  projectViewValidator,
 } from "./projects";
 import { normalizeTagName } from "./helpers";
 import { optionalProjectSectionValidator } from "./validators";
@@ -45,6 +47,10 @@ const boardAssetValidator = v.object({
   likedByMe: v.boolean(),
   // Tag names, so viewers can filter the expanded views by metadata.
   tags: v.array(v.string()),
+  // Owner curation: the board renders in the same pinned-first / manual
+  // order as the workspace, and the signed-in admin can adjust it in place.
+  pinnedAt: v.optional(v.number()),
+  orderPriority: v.optional(v.number()),
 });
 
 const boardValidator = v.object({
@@ -64,6 +70,8 @@ const boardValidator = v.object({
       // Whole-direction likes (the Like button on a beat).
       likeCount: v.number(),
       likedByMe: v.boolean(),
+      // Owner curation: pinned directions float first.
+      pinnedAt: v.optional(v.number()),
       count: v.number(),
       assets: v.array(boardAssetValidator),
     }),
@@ -161,12 +169,21 @@ export const disableShare = mutation({
   },
 });
 
-// Resolve a share token to its project folder, or null.
+// Extract the raw share token from a URL segment. Links carry a readable
+// project-name prefix (e.g. "cyberpunk-alley-a1b2c3…"); the token itself is
+// hex-only with no hyphens, so it's always the trailing dash-delimited part.
+const extractShareToken = (segment: string): string => {
+  const trimmed = segment.trim();
+  const dash = trimmed.lastIndexOf("-");
+  return dash === -1 ? trimmed : trimmed.slice(dash + 1);
+};
+
+// Resolve a share token (or slug-prefixed link) to its project folder, or null.
 const resolveSharedProject = async (
   ctx: QueryCtx | MutationCtx,
   rawToken: string,
 ): Promise<Doc<"folders"> | null> => {
-  const token = rawToken.trim();
+  const token = extractShareToken(rawToken);
   if (!token) return null;
   const folder = await ctx.db
     .query("folders")
@@ -177,6 +194,92 @@ const resolveSharedProject = async (
   }
   return folder;
 };
+
+// Asset fields that must never reach an anonymous viewer. The public board
+// shows the SAME workspace view (thumbs, names, tags, likes, dims) but not the
+// owner's prompts, model names, storage keys, or identity.
+const stripSensitiveAssetFields = <T extends Record<string, unknown>>(
+  asset: T,
+): T => ({
+  ...asset,
+  ownerUserId: undefined,
+  promptId: undefined,
+  promptText: undefined,
+  modelName: undefined,
+  sourceUrl: undefined,
+  curatedByUserId: undefined,
+  curatedAt: undefined,
+  pillar: undefined,
+  designInspirationId: undefined,
+  assetPackId: undefined,
+  packSlotIndex: undefined,
+  cinemaMetadata: undefined,
+  description: undefined,
+  storageId: undefined,
+  thumbStorageId: undefined,
+  r2Key: undefined,
+  r2Bucket: undefined,
+  thumbR2Key: undefined,
+  thumbR2Bucket: undefined,
+});
+
+// The public board payload IS the workspace view, plus this viewer's own like
+// state (so the ♥ toggles reflect what THIS browser liked).
+const boardWorkspaceValidator = v.object({
+  ...projectViewValidator.fields,
+  viewerLikedAssetIds: v.array(v.id("assets")),
+  viewerLikedFolderIds: v.array(v.id("folders")),
+});
+
+/**
+ * PUBLIC: the full workspace review payload for a shared project, token-gated.
+ * Returns the SAME shape as projects.getProject so the review UI renders
+ * identically for anonymous viewers — minus the owner's private asset metadata
+ * — plus the calling browser's own like state. Null for unknown/revoked tokens.
+ */
+export const getBoardWorkspace = query({
+  args: {
+    token: v.string(),
+    viewerKey: v.optional(v.string()),
+  },
+  returns: v.union(v.null(), boardWorkspaceValidator),
+  handler: async (ctx, args) => {
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder || !folder.ownerUserId) return null;
+
+    const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId);
+    const view = await buildProjectView(ctx, ownerUserIds, folder);
+
+    const collections = view.collections.map((collection) => ({
+      ...collection,
+      assets: collection.assets.map(stripSensitiveAssetFields),
+    }));
+
+    // This viewer's own likes (asset + whole-direction), so the hearts fill in.
+    const viewerKey = args.viewerKey?.trim();
+    const viewerLikedAssetIds: Id<"assets">[] = [];
+    const viewerLikedFolderIds: Id<"folders">[] = [];
+    if (viewerKey) {
+      const mine = await ctx.db
+        .query("boardReactions")
+        .withIndex("by_project_viewer", (q) =>
+          q.eq("projectId", folder._id).eq("viewerKey", viewerKey),
+        )
+        .collect();
+      for (const reaction of mine) {
+        if (reaction.assetId) viewerLikedAssetIds.push(reaction.assetId);
+        else if (reaction.folderId) viewerLikedFolderIds.push(reaction.folderId);
+      }
+    }
+
+    return {
+      ...view,
+      collections,
+      viewerLikedAssetIds,
+      viewerLikedFolderIds,
+    };
+  },
+});
 
 // Does this asset belong to one of the shared project's member collections?
 const assetInSharedProject = async (
@@ -352,16 +455,8 @@ export const getBoardAssetDownload = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const token = args.token.trim();
-    if (!token) return null;
-
-    const folder = await ctx.db
-      .query("folders")
-      .withIndex("by_shareToken", (q) => q.eq("shareToken", token))
-      .unique();
-    if (!folder || folder.kind !== "project" || !folder.ownerUserId) {
-      return null;
-    }
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder || !folder.ownerUserId) return null;
 
     const asset = await ctx.db.get(args.assetId);
     if (!asset) return null;
@@ -487,13 +582,8 @@ export const getBoardDirection = query({
   },
   returns: directionPayloadValidator,
   handler: async (ctx, args) => {
-    const token = args.token.trim();
-    if (!token) return null;
-    const folder = await ctx.db
-      .query("folders")
-      .withIndex("by_shareToken", (q) => q.eq("shareToken", token))
-      .unique();
-    if (!folder || folder.kind !== "project") return null;
+    const folder = await resolveSharedProject(ctx, args.token);
+    if (!folder) return null;
     return await resolveDirectionPayload(ctx, folder, args.folderId);
   },
 });
@@ -632,6 +722,8 @@ export const getBoard = query({
               likeCount: likeCountByAsset.get(asset._id) ?? 0,
               likedByMe: likedByViewer.has(asset._id),
               tags: await resolveTagNames(asset.tagIds),
+              pinnedAt: asset.pinnedAt,
+              orderPriority: asset.orderPriority,
               createdAt: asset.createdAt,
             };
           }),
@@ -646,6 +738,7 @@ export const getBoard = query({
           beatLocationFolderIds,
           likeCount: likeCountByFolder.get(folderId) ?? 0,
           likedByMe: likedFoldersByViewer.has(folderId),
+          pinnedAt: collectionFolder?.pinnedAt,
           count: assets.length,
           assets,
         };

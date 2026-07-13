@@ -14,10 +14,13 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
   Download,
   FileDown,
   Heart,
   LayoutGrid,
+  Pin,
   Play,
   Plus,
   X,
@@ -37,6 +40,15 @@ type TypeFilter = "all" | "image" | "video";
 const SHARP_THUMB_MIN_WIDTH = 800;
 const thumbIsSharp = (asset: { thumbWidth?: number }) =>
   (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
+
+// Owner curation order, mirroring the workspace: pinned floats first (latest
+// pin wins), then the move-to-top/bottom weights, then server order.
+const byCuration = (
+  a: { pinnedAt?: number; orderPriority?: number },
+  b: { pinnedAt?: number; orderPriority?: number },
+) =>
+  (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) ||
+  (b.orderPriority ?? 0) - (a.orderPriority ?? 0);
 
 /** The board's layers. Each layer holds "directions" — collections of similar
  * options thumbed by their master (cover) asset. */
@@ -86,6 +98,10 @@ type BoardAsset = {
   likedByMe: boolean;
   /** Tag names, for the metadata filter chips. */
   tags: string[];
+  /** Owner curation weights — drive the board order; editable by the
+   * signed-in admin. */
+  pinnedAt?: number;
+  orderPriority?: number;
   collectionId: string;
   collectionName: string;
 };
@@ -115,6 +131,8 @@ type BoardDirection = {
   /** Whole-direction likes (the Like button on a beat). */
   likeCount: number;
   likedByMe: boolean;
+  /** Owner curation — pinned directions float first. */
+  pinnedAt?: number;
 };
 
 /**
@@ -151,6 +169,63 @@ export function DirectionBoard({ token }: { token: string }) {
   const setViewerNameMutation = useMutation(
     api.directionBoard.setBoardViewerName,
   );
+
+  // The signed-in owner viewing their own shared board gets the workspace
+  // curation controls (pin + move to top/bottom) in place. Anonymous
+  // reviewers never see them; the mutations are owner-scoped server-side.
+  const [adminOwnerId, setAdminOwnerId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/auth/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const ownerUserId = data?.user?.ownerUserId;
+        if (!cancelled && typeof ownerUserId === "string" && ownerUserId) {
+          setAdminOwnerId(ownerUserId);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const setAssetPriorityMutation = useMutation(api.assets.setAssetPriority);
+  const setAssetPinnedMutation = useMutation(api.assets.setAssetPinned);
+  const setFolderPinnedMutation = useMutation(api.folders.setFolderPinned);
+  const adminMoveAsset = useCallback(
+    (assetId: string, position: "top" | "bottom") => {
+      if (!adminOwnerId) return;
+      void setAssetPriorityMutation({
+        ownerUserId: adminOwnerId,
+        assetId: assetId as Id<"assets">,
+        position,
+      }).catch(() => {});
+    },
+    [adminOwnerId, setAssetPriorityMutation],
+  );
+  const adminToggleAssetPin = useCallback(
+    (asset: { id: string; pinnedAt?: number }) => {
+      if (!adminOwnerId) return;
+      void setAssetPinnedMutation({
+        ownerUserId: adminOwnerId,
+        assetId: asset.id as Id<"assets">,
+        pinned: !asset.pinnedAt,
+      }).catch(() => {});
+    },
+    [adminOwnerId, setAssetPinnedMutation],
+  );
+  const adminToggleDirectionPin = useCallback(
+    (direction: { id: string; pinnedAt?: number }) => {
+      if (!adminOwnerId) return;
+      void setFolderPinnedMutation({
+        ownerUserId: adminOwnerId,
+        folderId: direction.id as Id<"folders">,
+        pinned: !direction.pinnedAt,
+      }).catch(() => {});
+    },
+    [adminOwnerId, setFolderPinnedMutation],
+  );
+  const isAdmin = Boolean(adminOwnerId);
 
   const toggleLike = useCallback(
     (assetId: string) => {
@@ -236,6 +311,8 @@ export function DirectionBoard({ token }: { token: string }) {
       likeCount: asset.likeCount,
       likedByMe: asset.likedByMe,
       tags: asset.tags,
+      pinnedAt: asset.pinnedAt,
+      orderPriority: asset.orderPriority,
       collectionId: collection.id as string,
       collectionName: collection.name,
     }),
@@ -327,6 +404,7 @@ export function DirectionBoard({ token }: { token: string }) {
         ),
         likeCount: collection.likeCount,
         likedByMe: collection.likedByMe,
+        pinnedAt: collection.pinnedAt,
       };
     },
     [resolveCover, toBoardAsset, pairRefs],
@@ -340,7 +418,7 @@ export function DirectionBoard({ token }: { token: string }) {
       if (sort === "options") {
         return [...list].sort((a, b) => b.count - a.count);
       }
-      return list;
+      return [...list].sort(byCuration);
     },
     [sort],
   );
@@ -391,7 +469,7 @@ export function DirectionBoard({ token }: { token: string }) {
         out.push(toBoardAsset(asset, collection));
       }
     }
-    return out;
+    return out.sort(byCuration);
   }, [view.type, openDirection, collections, toBoardAsset]);
 
   // Tag chips for the expanded views, ranked by frequency in scope. The
@@ -974,6 +1052,7 @@ export function DirectionBoard({ token }: { token: string }) {
                     isBeats={key === "beats"}
                     onOpen={openDirectionById}
                     onToggleDirectionLike={toggleDirectionLike}
+                    onAdminPin={isAdmin ? adminToggleDirectionPin : undefined}
                   />
                 </section>
               ))}
@@ -994,6 +1073,7 @@ export function DirectionBoard({ token }: { token: string }) {
                     isBeats={false}
                     onOpen={openDirectionById}
                     onToggleDirectionLike={toggleDirectionLike}
+                    onAdminPin={isAdmin ? adminToggleDirectionPin : undefined}
                   />
                 </section>
               )}
@@ -1037,6 +1117,7 @@ export function DirectionBoard({ token }: { token: string }) {
               {openBeatHero && openDirection && (
                 <BeatHero
                   asset={openBeatHero}
+                  token={token}
                   description={openDirection.description}
                   likeCount={openDirection.likeCount}
                   likedByMe={openDirection.likedByMe}
@@ -1088,6 +1169,14 @@ export function DirectionBoard({ token }: { token: string }) {
                         showCollectionLabel={view.type === "all"}
                         onOpen={() => setFocusId(asset.id)}
                         onToggleLike={() => toggleLike(asset.id)}
+                        onAdminMove={
+                          isAdmin
+                            ? (position) => adminMoveAsset(asset.id, position)
+                            : undefined
+                        }
+                        onAdminPin={
+                          isAdmin ? () => adminToggleAssetPin(asset) : undefined
+                        }
                       />
                     );
                   })}
@@ -1107,6 +1196,8 @@ export function DirectionBoard({ token }: { token: string }) {
           onFocusChange={setFocusId}
           onClose={() => setFocusId(null)}
           onToggleLike={toggleLike}
+          onAdminMove={isAdmin ? adminMoveAsset : undefined}
+          onAdminPin={isAdmin ? adminToggleAssetPin : undefined}
         />
       )}
     </div>
@@ -1158,6 +1249,7 @@ function SectionHeader({
  * text, and the character / location stacks it uses. */
 function BeatHero({
   asset,
+  token,
   description,
   likeCount,
   likedByMe,
@@ -1168,6 +1260,7 @@ function BeatHero({
   onOpenFull,
 }: {
   asset: BoardAsset;
+  token: string;
   description?: string;
   likeCount: number;
   likedByMe: boolean;
@@ -1213,19 +1306,22 @@ function BeatHero({
         >
           Like this beat if it works for you.
         </span>
-        <button
-          type="button"
-          onClick={onOpenFull}
-          className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-          style={{
-            borderColor: "var(--lm-border-strong)",
-            color: "var(--lm-text-secondary)",
-          }}
-          title="Open the shot in the full-screen viewer"
-        >
-          <Play className="h-3.5 w-3.5" />
-          Full view
-        </button>
+        <span className="ml-auto flex items-center gap-2">
+          <DownloadButton token={token} assetId={asset.id} />
+          <button
+            type="button"
+            onClick={onOpenFull}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+            style={{
+              borderColor: "var(--lm-border-strong)",
+              color: "var(--lm-text-secondary)",
+            }}
+            title="Open the shot in the full-screen viewer"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Full view
+          </button>
+        </span>
       </div>
 
       {description && (
@@ -1296,12 +1392,15 @@ function DirectionGrid({
   isBeats,
   onOpen,
   onToggleDirectionLike,
+  onAdminPin,
 }: {
   directions: BoardDirection[];
   gridWidth: number;
   isBeats: boolean;
   onOpen: (id: string) => void;
   onToggleDirectionLike: (id: string) => void;
+  /** Admin-only: pin/unpin a direction so it floats first. */
+  onAdminPin?: (direction: BoardDirection) => void;
 }) {
   const cardLayout = useMemo(() => {
     // Beats are the pitch — big shots at the video's aspect ratio. Stacks
@@ -1348,6 +1447,7 @@ function DirectionGrid({
             onOpen={() => onOpen(direction.id)}
             onOpenDirection={onOpen}
             onToggleLike={() => onToggleDirectionLike(direction.id)}
+            onAdminPin={onAdminPin ? () => onAdminPin(direction) : undefined}
           />
         );
       })}
@@ -1411,6 +1511,41 @@ function LikeButton({
   );
 }
 
+/** Admin-only pin toggle on board tiles/cards — mirrors the workspace pin. */
+function AdminPinButton({
+  pinnedAt,
+  onToggle,
+}: {
+  pinnedAt?: number;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
+        pinnedAt ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      }`}
+      style={{
+        backgroundColor: pinnedAt ? "var(--lm-coral)" : "rgba(0,0,0,0.62)",
+        color: pinnedAt ? "#000" : "#fff",
+        borderColor: pinnedAt ? "var(--lm-coral)" : "rgba(255,255,255,0.25)",
+      }}
+      aria-pressed={Boolean(pinnedAt)}
+      title={pinnedAt ? "Unpin" : "Pin to the top"}
+    >
+      <Pin
+        className="h-3 w-3"
+        fill={pinnedAt ? "currentColor" : "none"}
+        strokeWidth={2.5}
+      />
+    </button>
+  );
+}
+
 function DownloadButton({
   token,
   assetId,
@@ -1453,6 +1588,7 @@ function DirectionCardTile({
   onOpen,
   onOpenDirection,
   onToggleLike,
+  onAdminPin,
 }: {
   direction: BoardDirection;
   /** Beat cards carry the character + location chips and a whole-beat like. */
@@ -1462,6 +1598,8 @@ function DirectionCardTile({
   onOpen: () => void;
   onOpenDirection?: (id: string) => void;
   onToggleLike?: () => void;
+  /** Admin-only pin toggle. */
+  onAdminPin?: () => void;
 }) {
   const cover = direction.cover;
   const beat = isBeat ? direction.beat : null;
@@ -1511,22 +1649,30 @@ function DirectionCardTile({
           <Play className="ml-0.5 h-5 w-5" fill="#fff" color="#fff" />
         </span>
 
-        {/* Whole-beat like — always visible once liked, hover otherwise */}
-        {onToggleLike && (
-          <div
-            className={`absolute right-2 top-2 z-10 transition-opacity ${
-              direction.likedByMe || direction.likeCount > 0
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100"
-            }`}
-          >
-            <LikeButton
-              likeCount={direction.likeCount}
-              likedByMe={direction.likedByMe}
-              onToggle={onToggleLike}
+        {/* Whole-beat like (+ admin pin) — visible once set, hover otherwise */}
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+          {onAdminPin && (
+            <AdminPinButton
+              pinnedAt={direction.pinnedAt}
+              onToggle={onAdminPin}
             />
-          </div>
-        )}
+          )}
+          {onToggleLike && (
+            <div
+              className={`transition-opacity ${
+                direction.likedByMe || direction.likeCount > 0
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+            >
+              <LikeButton
+                likeCount={direction.likeCount}
+                likedByMe={direction.likedByMe}
+                onToggle={onToggleLike}
+              />
+            </div>
+          )}
+        </div>
 
         {/* The character + location stacks this beat uses */}
         {pairs.length > 0 && (
@@ -1683,20 +1829,28 @@ function DirectionCardTile({
           engaged={preview.engaged}
         />
 
-        {/* Option count badge — turns into a n/N counter while previewing */}
-        <span
-          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.62)",
-            color: "var(--lm-coral)",
-            border:
-              "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
-          }}
-        >
-          {preview.engaged
-            ? `${(preview.index % direction.previews.length) + 1}/${direction.previews.length}`
-            : direction.count}
-        </span>
+        {/* Option count badge (+ admin pin) — n/N counter while previewing */}
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+          {onAdminPin && (
+            <AdminPinButton
+              pinnedAt={direction.pinnedAt}
+              onToggle={onAdminPin}
+            />
+          )}
+          <span
+            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+            style={{
+              backgroundColor: "rgba(0,0,0,0.62)",
+              color: "var(--lm-coral)",
+              border:
+                "1px solid color-mix(in srgb, var(--lm-coral) 42%, transparent)",
+            }}
+          >
+            {preview.engaged
+              ? `${(preview.index % direction.previews.length) + 1}/${direction.previews.length}`
+              : direction.count}
+          </span>
+        </div>
 
         {/* Beat pairing chips — the character + location this beat combines */}
         {isBeat && pairs.length > 0 && (
@@ -1799,6 +1953,8 @@ function BoardTile({
   showCollectionLabel,
   onOpen,
   onToggleLike,
+  onAdminMove,
+  onAdminPin,
 }: {
   asset: BoardAsset;
   token: string;
@@ -1807,6 +1963,9 @@ function BoardTile({
   showCollectionLabel: boolean;
   onOpen: () => void;
   onToggleLike: () => void;
+  /** Admin-only curation: reorder + pin in place on the shared board. */
+  onAdminMove?: (position: "top" | "bottom") => void;
+  onAdminPin?: () => void;
 }) {
   return (
     <div
@@ -1822,8 +1981,51 @@ function BoardTile({
       <div className="relative h-full w-full">
         <Media asset={asset} variant="tile" eager={eager} />
 
-        <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
-          <DownloadButton token={token} assetId={asset.id} />
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+          {onAdminPin && (
+            <AdminPinButton pinnedAt={asset.pinnedAt} onToggle={onAdminPin} />
+          )}
+          {onAdminMove && (
+            <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdminMove("top");
+                }}
+                className="flex items-center rounded-lg border p-1.5"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  color: "#fff",
+                  borderColor: "rgba(255,255,255,0.25)",
+                }}
+                aria-label="Move to top"
+                title="Move to top"
+              >
+                <ChevronsUp className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdminMove("bottom");
+                }}
+                className="flex items-center rounded-lg border p-1.5"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.62)",
+                  color: "#fff",
+                  borderColor: "rgba(255,255,255,0.25)",
+                }}
+                aria-label="Move to bottom"
+                title="Move to bottom"
+              >
+                <ChevronsDown className="h-3 w-3" strokeWidth={2.5} />
+              </button>
+            </span>
+          )}
+          <span className="opacity-0 transition-opacity group-hover:opacity-100">
+            <DownloadButton token={token} assetId={asset.id} />
+          </span>
         </div>
 
         {/* Like — always visible once liked, hover otherwise */}
@@ -1864,6 +2066,8 @@ function Lightbox({
   onFocusChange,
   onClose,
   onToggleLike,
+  onAdminMove,
+  onAdminPin,
 }: {
   assets: BoardAsset[];
   focusId: string;
@@ -1871,6 +2075,9 @@ function Lightbox({
   onFocusChange: (id: string) => void;
   onClose: () => void;
   onToggleLike: (assetId: string) => void;
+  /** Admin-only curation: reorder + pin from the full-screen viewer. */
+  onAdminMove?: (assetId: string, position: "top" | "bottom") => void;
+  onAdminPin?: (asset: BoardAsset) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const didInitialScrollRef = useRef(false);
@@ -1988,6 +2195,44 @@ function Lightbox({
                 {asset.collectionName}
               </span>
               <span className="ml-auto flex items-center gap-2">
+                {onAdminPin && (
+                  <AdminPinButton
+                    pinnedAt={asset.pinnedAt}
+                    onToggle={() => onAdminPin(asset)}
+                  />
+                )}
+                {onAdminMove && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onAdminMove(asset.id, "top")}
+                      className="flex items-center rounded-lg border p-2"
+                      style={{
+                        backgroundColor: "rgba(0,0,0,0.62)",
+                        color: "#fff",
+                        borderColor: "rgba(255,255,255,0.25)",
+                      }}
+                      aria-label="Move to top"
+                      title="Move to top"
+                    >
+                      <ChevronsUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAdminMove(asset.id, "bottom")}
+                      className="flex items-center rounded-lg border p-2"
+                      style={{
+                        backgroundColor: "rgba(0,0,0,0.62)",
+                        color: "#fff",
+                        borderColor: "rgba(255,255,255,0.25)",
+                      }}
+                      aria-label="Move to bottom"
+                      title="Move to bottom"
+                    >
+                      <ChevronsDown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    </button>
+                  </>
+                )}
                 <LikeButton
                   likeCount={asset.likeCount}
                   likedByMe={asset.likedByMe}

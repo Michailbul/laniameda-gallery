@@ -1310,7 +1310,7 @@ export const listGalleryAssets = query({
     }
 
     const onlyLiked = args.onlyLiked === true;
-    const limit = Math.min(args.limit ?? 100, 200);
+    const limit = Math.min(args.limit ?? 100, 2000);
     const hasPostQueryFilters = Boolean(
       (args.tagIds && args.tagIds.length > 0) ||
         (args.folderId && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
@@ -1322,7 +1322,7 @@ export const listGalleryAssets = query({
         (onlyLiked && args.folderId) ||
         args.search,
     );
-    const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 600) : limit;
+    const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 2000) : limit;
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
@@ -1541,8 +1541,8 @@ export const listPublicGalleryAssets = query({
   },
   returns: v.array(galleryAssetResultValidator),
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? 100, 200);
-    const queryTake = Math.min(limit * 3, 600);
+    const limit = Math.min(args.limit ?? 100, 2000);
+    const queryTake = Math.min(limit * 3, 2000);
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
     const search = args.search?.trim().toLowerCase();
@@ -1976,7 +1976,12 @@ export const setAssetPriority = mutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
-    position: v.union(v.literal("top"), v.literal("bottom")),
+    // "clear" undoes a move — back to the natural (newest-first) slot.
+    position: v.union(
+      v.literal("top"),
+      v.literal("bottom"),
+      v.literal("clear"),
+    ),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -1992,7 +1997,12 @@ export const setAssetPriority = mutation({
       throw new ConvexError("Asset does not belong to this user.");
     }
     await ctx.db.patch(asset._id, {
-      orderPriority: args.position === "top" ? Date.now() : -Date.now(),
+      orderPriority:
+        args.position === "clear"
+          ? undefined
+          : args.position === "top"
+            ? Date.now()
+            : -Date.now(),
     });
     return null;
   },
@@ -2023,6 +2033,42 @@ export const setAssetPinned = mutation({
       pinnedAt: args.pinned ? Date.now() : undefined,
     });
     return null;
+  },
+});
+
+// Owner-side twin of directionBoard.getBoardAssetDownload: resolve one asset's
+// bytes URL for the /api/assets/[assetId]/download proxy (R2's public domain
+// has no CORS headers, so downloads stream same-origin with an attachment
+// header). The route validates the session before calling this.
+export const getAssetDownload = query({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      url: v.string(),
+      fileName: v.optional(v.string()),
+      contentType: v.optional(v.string()),
+      kind: v.union(v.literal("image"), v.literal("video")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) return null;
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || !canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      return null;
+    }
+    const url = await resolveAssetUrl(ctx, asset);
+    if (!url) return null;
+    return {
+      url,
+      fileName: asset.fileName,
+      contentType: asset.contentType,
+      kind: asset.kind,
+    };
   },
 });
 
