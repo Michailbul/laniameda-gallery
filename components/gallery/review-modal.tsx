@@ -46,6 +46,7 @@ import {
   readAssetDragPayload,
   writeAssetDragPayload,
 } from "@/lib/asset-drag";
+import { DEFAULT_GAP_PX, layoutJustified } from "@/lib/masonry-layout";
 import {
   LARGE_IMAGE_BYTES,
   appendImageUploadFields,
@@ -65,19 +66,6 @@ const thumbIsSharp = (asset: { thumbWidth?: number }) =>
 // Masonry tile-size slider bounds (CSS column-width, px).
 const TILE_SIZE_MIN = 240;
 const TILE_SIZE_MAX = 720;
-
-// Aspect ratio for a card/asset in the pinned shelf (natural width at a
-// fixed shelf height, so a lone pinned item never leaves a grid hole).
-const cardAspect = (card: DirectionCardData): string => {
-  const media = card.beatVideos[0] ?? card.cover;
-  return media?.width && media?.height
-    ? `${media.width} / ${media.height}`
-    : card.beatVideos.length > 0
-      ? "16 / 9"
-      : "4 / 5";
-};
-const assetAspect = (asset: ReviewAsset): string =>
-  asset.width && asset.height ? `${asset.width} / ${asset.height}` : "1 / 1";
 
 // Stable manual-order comparator: pinned floats above everything (latest
 // pin first), then move-to-top/bottom weights, then the list's natural
@@ -819,6 +807,52 @@ export function ReviewModal({
     );
     return weighted.map((entry) => entry.item);
   }, [effectiveTab, openDirection, stackCards, visibleAssets]);
+
+  // Pool grid: justified rows (Flickr/Google-Photos model) — row-major, so
+  // pinned items lead horizontally, every row packs edge-to-edge, and mixed
+  // aspect ratios can't produce holes. Width comes from a ResizeObserver on
+  // the grid wrapper (callback ref: the element mounts per mode).
+  const [poolWidth, setPoolWidth] = useState(0);
+  const poolObserverRef = useRef<ResizeObserver | null>(null);
+  const poolGridRef = useCallback((el: HTMLDivElement | null) => {
+    poolObserverRef.current?.disconnect();
+    poolObserverRef.current = null;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      setPoolWidth(Math.round(width));
+    });
+    observer.observe(el);
+    poolObserverRef.current = observer;
+  }, []);
+  const poolLayout = useMemo(() => {
+    const targetRowHeight = Math.max(
+      200,
+      Math.min(440, Math.round(tileSize * 0.62)),
+    );
+    return layoutJustified(
+      modeItems.map((item) => {
+        if (item.kind === "stack") {
+          const media = item.card.beatVideos[0] ?? item.card.cover;
+          // Dim-less covers: match the deck's own 4:5 fallback so the cell
+          // and the card agree on height.
+          return {
+            width: media?.width ?? 4,
+            height: media?.height ?? 5,
+            kind: media?.kind ?? "image",
+            contentType: media?.contentType,
+          };
+        }
+        return {
+          width: item.asset.width,
+          height: item.asset.height,
+          kind: item.asset.kind,
+          contentType: item.asset.contentType,
+        };
+      }),
+      { containerWidth: poolWidth, gap: DEFAULT_GAP_PX, targetRowHeight },
+    );
+  }, [modeItems, poolWidth, tileSize]);
 
   // A drilled beat's elements in presentation order: videos (master first),
   // then characters, locations, and stills. Drives the preview strip.
@@ -3111,48 +3145,35 @@ export function ReviewModal({
                     }
                   />
                 );
-              const isPinned = (item: (typeof modeItems)[number]) =>
-                item.kind === "stack"
-                  ? Boolean(item.card.pinnedAt)
-                  : Boolean(item.asset.pinnedAt);
-              const pinned = modeItems.filter(isPinned);
-              const rest = modeItems.filter((item) => !isPinned(item));
               return (
-                <>
-                  {/* Pinned items ride a horizontal shelf above the
-                      masonry — fixed height, natural widths, no grid holes */}
-                  {pinned.length > 0 && (
-                    <div
-                      className="mx-auto mb-4 flex max-w-[1500px] gap-3.5 overflow-x-auto border-b pb-4"
-                      style={{ borderColor: "var(--lm-border)" }}
-                    >
-                      {pinned.map((item) => (
+                <div ref={poolGridRef} className="mx-auto max-w-[1500px]">
+                  <div
+                    className="relative"
+                    style={{ height: poolLayout.totalHeight }}
+                  >
+                    {poolLayout.tiles.map((tile, index) => {
+                      const item = modeItems[index]!;
+                      return (
                         <div
-                          key={`pin-${item.kind === "stack" ? item.card.id : item.asset.id}`}
-                          className="shrink-0"
+                          key={
+                            item.kind === "stack"
+                              ? `stack-${item.card.id}`
+                              : item.asset.id
+                          }
                           style={{
-                            height: Math.max(
-                              200,
-                              Math.min(360, Math.round(tileSize * 0.62)),
-                            ),
-                            aspectRatio:
-                              item.kind === "stack"
-                                ? cardAspect(item.card)
-                                : assetAspect(item.asset),
+                            position: "absolute",
+                            top: tile.top,
+                            left: tile.left,
+                            width: tile.width,
+                            height: tile.height,
                           }}
                         >
                           {renderItem(item)}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  <div
-                    className="mx-auto max-w-[1500px]"
-                    style={{ columns: `${tileSize}px`, columnGap: "14px" }}
-                  >
-                    {rest.map(renderItem)}
+                      );
+                    })}
                   </div>
-                </>
+                </div>
               );
             })()}
           </div>
