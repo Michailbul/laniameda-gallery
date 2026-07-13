@@ -2698,43 +2698,6 @@ export function ReviewModal({
                               strokeWidth={2.5}
                             />
                           </button>
-                          {(beatFocus.kind === "video" || !drilledIsBeat) && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setMaster(
-                                  openDirection.folderId as string,
-                                  openDirectionMasterId === beatFocus.id
-                                    ? null
-                                    : beatFocus.id,
-                                )
-                              }
-                              className="flex items-center rounded-lg border p-2 transition-all active:scale-95"
-                              style={{
-                                backgroundColor:
-                                  openDirectionMasterId === beatFocus.id
-                                    ? "var(--lm-ink)"
-                                    : "transparent",
-                                color:
-                                  openDirectionMasterId === beatFocus.id
-                                    ? "var(--lm-paper)"
-                                    : "var(--lm-text-secondary)",
-                                borderColor:
-                                  openDirectionMasterId === beatFocus.id
-                                    ? "var(--lm-ink)"
-                                    : "var(--lm-border-strong)",
-                              }}
-                              aria-pressed={
-                                openDirectionMasterId === beatFocus.id
-                              }
-                              title="Master — shown on the card's thumbnail"
-                            >
-                              <Crown
-                                className="h-3.5 w-3.5"
-                                strokeWidth={2.5}
-                              />
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={() => removeFromDirection(beatFocus)}
@@ -2843,7 +2806,7 @@ export function ReviewModal({
                         key={el.id}
                         type="button"
                         onClick={() => setBeatFocusId(el.id)}
-                        className="relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-md text-left transition-opacity hover:opacity-90"
+                        className="group/thumb relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-md text-left transition-opacity hover:opacity-90"
                         style={{
                           aspectRatio:
                             el.width && el.height
@@ -2864,6 +2827,51 @@ export function ReviewModal({
                           className="h-full w-full object-cover"
                           loading="lazy"
                         />
+                        {/* Promote to master straight from the thumbnail */}
+                        {!readOnly &&
+                          (openDirectionMasterId === el.id ? (
+                            <span
+                              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md"
+                              style={{
+                                backgroundColor: "var(--lm-coral)",
+                                color: "#000",
+                              }}
+                              title="Master — shown on the card's thumbnail"
+                            >
+                              <Crown className="h-3 w-3" strokeWidth={2.5} />
+                            </span>
+                          ) : (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMaster(
+                                  openDirection.folderId as string,
+                                  el.id,
+                                );
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setMaster(
+                                    openDirection.folderId as string,
+                                    el.id,
+                                  );
+                                }
+                              }}
+                              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md opacity-0 transition-opacity group-hover/thumb:opacity-100"
+                              style={{
+                                backgroundColor: "rgba(0,0,0,0.62)",
+                                color: "#fff",
+                              }}
+                              title="Promote — make this the master"
+                              aria-label="Promote to master"
+                            >
+                              <Crown className="h-3 w-3" strokeWidth={2.5} />
+                            </span>
+                          ))}
                         {el.kind === "video" && (
                           <span
                             className="pointer-events-none absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
@@ -2919,11 +2927,8 @@ export function ReviewModal({
                 </button>
               </div>
             )}
-            <div
-              className="mx-auto max-w-[1500px]"
-              style={{ columns: `${tileSize}px`, columnGap: "16px" }}
-            >
-              {beatCards.map((direction) => (
+            {(() => {
+              const renderBeat = (direction: DirectionCardData) => (
                 <DirectionCard
                   key={direction.id}
                   direction={direction}
@@ -2941,8 +2946,35 @@ export function ReviewModal({
                       : undefined
                   }
                 />
-              ))}
-            </div>
+              );
+              const pinned = beatCards.filter((d) => d.pinned);
+              const rest = beatCards.filter((d) => !d.pinned);
+              return (
+                <>
+                  {/* Pinned beats read left→right in a grid row, not down
+                      the masonry's first column */}
+                  {pinned.length > 0 && (
+                    <div
+                      className="mx-auto max-w-[1500px]"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(auto-fill, minmax(min(${tileSize}px, 100%), 1fr))`,
+                        gap: "0 16px",
+                        alignItems: "start",
+                      }}
+                    >
+                      {pinned.map(renderBeat)}
+                    </div>
+                  )}
+                  <div
+                    className="mx-auto max-w-[1500px]"
+                    style={{ columns: `${tileSize}px`, columnGap: "16px" }}
+                  >
+                    {rest.map(renderBeat)}
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Unsorted project files (added from the gallery) */}
             {visibleAssets.length > 0 && (
@@ -3016,11 +3048,8 @@ export function ReviewModal({
                 </button>
               </div>
             )}
-            <div
-              className="mx-auto max-w-[1500px]"
-              style={{ columns: `${tileSize}px`, columnGap: "14px" }}
-            >
-              {modeItems.map((item) =>
+            {(() => {
+              const renderItem = (item: (typeof modeItems)[number]) =>
                 item.kind === "stack" ? (
                   <DirectionCard
                     key={`stack-${item.card.id}`}
@@ -3084,9 +3113,39 @@ export function ReviewModal({
                         : undefined
                     }
                   />
-                ),
-              )}
-            </div>
+                );
+              const isPinned = (item: (typeof modeItems)[number]) =>
+                item.kind === "stack"
+                  ? Boolean(item.card.pinnedAt)
+                  : Boolean(item.asset.pinnedAt);
+              const pinned = modeItems.filter(isPinned);
+              const rest = modeItems.filter((item) => !isPinned(item));
+              return (
+                <>
+                  {/* Pinned items read left→right in a grid row, not down
+                      the masonry's first column */}
+                  {pinned.length > 0 && (
+                    <div
+                      className="mx-auto max-w-[1500px]"
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(auto-fill, minmax(min(${tileSize}px, 100%), 1fr))`,
+                        gap: "0 14px",
+                        alignItems: "start",
+                      }}
+                    >
+                      {pinned.map(renderItem)}
+                    </div>
+                  )}
+                  <div
+                    className="mx-auto max-w-[1500px]"
+                    style={{ columns: `${tileSize}px`, columnGap: "14px" }}
+                  >
+                    {rest.map(renderItem)}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -4588,12 +4647,7 @@ function ModeToggle({
 }) {
   return (
     <div
-      className="pointer-events-auto flex items-center gap-1 overflow-hidden border p-1"
-      style={{
-        borderRadius: 9999,
-        borderColor: "var(--lm-border-strong)",
-        backgroundColor: "var(--lm-surface-1)",
-      }}
+      className="pointer-events-auto flex items-center gap-5 md:gap-7"
       role="tablist"
       aria-label="Project layers"
     >
@@ -4606,15 +4660,43 @@ function ModeToggle({
             role="tab"
             aria-selected={isActive}
             onClick={() => onPick(key)}
-            className="px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            className="group/tab flex items-center gap-1.5 text-[13px] transition-colors duration-150"
             style={{
-              borderRadius: 9999,
-              backgroundColor: isActive ? "var(--lm-coral)" : "transparent",
-              color: isActive ? "#000" : "var(--lm-text-secondary)",
+              color: isActive
+                ? "var(--lm-text-primary)"
+                : "var(--lm-text-tertiary)",
+              fontWeight: isActive ? 600 : 500,
             }}
           >
-            {label}
-            {count > 0 && <span style={{ opacity: 0.6 }}> {count}</span>}
+            {/* Brand dot marks the active layer */}
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 rounded-full transition-all duration-200 ease-out"
+              style={{
+                backgroundColor: isActive
+                  ? "var(--lm-coral)"
+                  : "transparent",
+                boxShadow: isActive
+                  ? "0 0 8px color-mix(in srgb, var(--lm-coral) 60%, transparent)"
+                  : "none",
+                transform: isActive ? "scale(1)" : "scale(0.4)",
+              }}
+            />
+            <span className="transition-colors duration-150 group-hover/tab:text-[var(--lm-text-secondary)]">
+              {label}
+            </span>
+            {count > 0 && (
+              <span
+                className="text-[11px] tabular-nums transition-colors duration-150"
+                style={{
+                  color: isActive
+                    ? "var(--lm-coral)"
+                    : "var(--lm-text-ghost)",
+                }}
+              >
+                {count}
+              </span>
+            )}
           </button>
         );
       })}
