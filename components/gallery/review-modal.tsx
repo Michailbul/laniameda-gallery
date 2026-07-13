@@ -138,6 +138,12 @@ type LinkedRef = {
   retainedFolderIds?: string[];
 };
 
+/** One entry of the full-res preview feed. Pool modes interleave stacks
+ * with the loose assets, in masonry order; a stack renders as a carousel. */
+type FeedItem =
+  | { kind: "asset"; id: string; asset: ReviewAsset }
+  | { kind: "stack"; id: string; card: DirectionCardData; assets: ReviewAsset[] };
+
 type AssetLikes = { count: number; names: string[] };
 
 // Tooltip text for a like badge: viewer names when they left one, plus an
@@ -867,16 +873,52 @@ export function ReviewModal({
     // Re-bind whenever the pane can (un)mount: drill-in, select mode, focus.
   }, [openDirectionId, selectMode, focusId]);
 
-  // The full-res feed walks the current scope (drilled direction or mode).
-  const feedAssets = visibleAssets;
-  const focusIndex = focusId
-    ? feedAssets.findIndex((a) => a.id === focusId)
-    : -1;
-  const focusAsset = focusIndex >= 0 ? feedAssets[focusIndex] : null;
+  // The full-res preview feed. Pool modes walk the merged masonry — stacks
+  // become carousel entries between the loose assets; everywhere else it's
+  // the flat asset scope.
+  const feedItems = useMemo<FeedItem[]>(() => {
+    if (!openDirection && effectiveTab !== "beats") {
+      const collectionById = new Map(
+        tabCollections.map((c) => [c.folderId as string, c]),
+      );
+      return modeItems.map((item): FeedItem => {
+        if (item.kind === "asset") {
+          return { kind: "asset", id: item.asset.id, asset: item.asset };
+        }
+        const collection = collectionById.get(item.card.id);
+        return {
+          kind: "stack",
+          id: item.card.id,
+          card: item.card,
+          assets: collection
+            ? collection.assets
+                .map((a) => toReviewAsset(a, collection))
+                .sort(byPriority)
+            : [],
+        };
+      });
+    }
+    return visibleAssets.map((asset) => ({
+      kind: "asset" as const,
+      id: asset.id,
+      asset,
+    }));
+  }, [
+    openDirection,
+    effectiveTab,
+    modeItems,
+    tabCollections,
+    toReviewAsset,
+    visibleAssets,
+  ]);
+  const focusItem = focusId
+    ? (feedItems.find((item) => item.id === focusId) ?? null)
+    : null;
+  const focusAsset = focusItem?.kind === "asset" ? focusItem.asset : null;
   // Drives the header/chip layout. Derived (not focusId) so a focus that fell
   // out of the visible set — e.g. after a filter change — cleanly reverts to
   // the grid without a state-syncing effect.
-  const inFocus = Boolean(focusAsset);
+  const inFocus = Boolean(focusItem);
 
   // ── File uploads into a direction ──
   // A dropped/typed text becomes the prompt for every file in the pack; the
@@ -1506,15 +1548,15 @@ export function ReviewModal({
   const goFocus = useCallback((delta: number) => {
     setFocusId((current) => {
       if (!current) return current;
-      const idx = feedAssets.findIndex((a) => a.id === current);
+      const idx = feedItems.findIndex((item) => item.id === current);
       if (idx < 0) return current;
       const nextIdx = Math.min(
-        feedAssets.length - 1,
+        feedItems.length - 1,
         Math.max(0, idx + delta),
       );
-      return feedAssets[nextIdx]?.id ?? current;
+      return feedItems[nextIdx]?.id ?? current;
     });
-  }, [feedAssets]);
+  }, [feedItems]);
 
   // Keyboard: Esc backs out (focus → grid → close); arrows navigate in focus.
   useEffect(() => {
@@ -2407,10 +2449,10 @@ export function ReviewModal({
               </div>
             </div>
           </div>
-        ) : focusAsset ? (
+        ) : focusItem ? (
           <FocusScrollFeed
-            assets={feedAssets}
-            focusId={focusAsset.id}
+            items={feedItems}
+            focusId={focusItem.id}
             onFocusChange={setFocusId}
             likesByAsset={likesByAsset}
             masterId={openDirection ? openDirectionMasterId : null}
@@ -2437,6 +2479,11 @@ export function ReviewModal({
             onToggleLike={
               readOnly ? (asset) => toggleAssetLike(asset.id) : undefined
             }
+            onOpenStack={(folderId) => {
+              setOpenDirectionId(folderId);
+              setBeatFocusId(null);
+              setFocusId(null);
+            }}
           />
         ) : openDirection && selectMode ? (
           /* ── Drilled direction in select mode: flat grid to multi-pick ── */
@@ -2460,14 +2507,14 @@ export function ReviewModal({
           </div>
         ) : openDirection ? (
           /* ── Direction detail: native-res preview left, elements right ── */
-          <div className="flex h-full min-h-0 flex-col lg:flex-row">
+          <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
             {/* Preview */}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-5 pt-2 md:px-8">
+            <div className="flex min-w-0 shrink-0 flex-col px-4 pb-5 pt-2 md:px-8 lg:min-h-0 lg:flex-1 lg:shrink">
               {beatFocus ? (
                 <>
                   <div
                     ref={previewPaneRef}
-                    className="flex min-h-0 flex-1 items-center justify-center py-1"
+                    className="flex h-[56vh] shrink-0 items-center justify-center py-1 lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink"
                   >
                     {beatFocus.kind === "video" ? (
                       <video
@@ -2696,7 +2743,7 @@ export function ReviewModal({
 
             {/* References */}
             <div
-              className="w-full shrink-0 overflow-y-auto px-4 pb-10 pt-2 lg:w-[340px] lg:border-l xl:w-[400px]"
+              className="w-full shrink-0 px-4 pb-10 pt-2 lg:w-[340px] lg:overflow-y-auto lg:border-l xl:w-[400px]"
               style={{ borderColor: "var(--lm-border)" }}
             >
               <p
@@ -4552,7 +4599,7 @@ function DirectionTextBlock({
 
 /* ── Focus feed: full-resolution scroll-through viewer (MJ-style) ── */
 function FocusScrollFeed({
-  assets,
+  items,
   focusId,
   onFocusChange,
   likesByAsset,
@@ -4568,8 +4615,9 @@ function FocusScrollFeed({
   downloadToken,
   viewerLikedAssets,
   onToggleLike,
+  onOpenStack,
 }: {
-  assets: ReviewAsset[];
+  items: FeedItem[];
   focusId: string;
   onFocusChange: (id: string) => void;
   likesByAsset: Map<string, AssetLikes>;
@@ -4594,13 +4642,25 @@ function FocusScrollFeed({
   viewerLikedAssets?: Set<string>;
   /** Present → the ♥ toggles this viewer's like on the focused asset. */
   onToggleLike?: (asset: ReviewAsset) => void;
+  /** Drill into a stack from its carousel entry. */
+  onOpenStack?: (folderId: string) => void;
 }) {
   if (readOnly) {
     onMaster = onRemove = onDelete = onSetTag = onPin = undefined;
     onRename = undefined;
   }
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
   const didInitialScrollRef = useRef(false);
+
+  // Keep the film strip's active thumb in view as focus moves.
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || !focusId) return;
+    rail
+      .querySelector(`[data-rail-id="${CSS.escape(focusId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [focusId]);
 
   // Keep the viewport on the focused item when focus changes via keyboard;
   // scroll-driven focus changes are already visible so this no-ops.
@@ -4643,14 +4703,32 @@ function FocusScrollFeed({
       observer.observe(section);
     }
     return () => observer.disconnect();
-  }, [assets, onFocusChange]);
+  }, [items, onFocusChange]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full snap-y snap-mandatory overflow-y-auto"
-    >
-      {assets.map((asset, index) => {
+    <div className="flex h-full min-h-0">
+      <div
+        ref={containerRef}
+        className="h-full min-w-0 flex-1 snap-y snap-mandatory overflow-y-auto"
+      >
+      {items.map((item, index) => {
+        if (item.kind === "stack") {
+          return (
+            <section
+              key={item.id}
+              data-focus-id={item.id}
+              className="flex h-full snap-start flex-col items-center justify-center gap-3 px-4 py-4 md:px-10"
+            >
+              <StackFeedSection
+                card={item.card}
+                assets={item.assets}
+                position={`${index + 1}/${items.length}`}
+                onOpen={onOpenStack ? () => onOpenStack(item.id) : undefined}
+              />
+            </section>
+          );
+        }
+        const asset = item.asset;
         const likes = likesByAsset.get(asset.id);
         const isMaster = masterId !== null && masterId === asset.id;
         return (
@@ -4669,7 +4747,7 @@ function FocusScrollFeed({
                 className="text-[11px] font-mono"
                 style={{ color: "rgba(255,255,255,0.6)" }}
               >
-                {index + 1}/{assets.length}
+                {index + 1}/{items.length}
               </span>
               {onRename && (
                 <AssetNameEditor
@@ -4792,7 +4870,169 @@ function FocusScrollFeed({
           </section>
         );
       })}
+      </div>
+
+      {/* Film strip — thumbnail navigation along the right edge */}
+      <div
+        ref={railRef}
+        className="hidden w-16 shrink-0 overflow-y-auto border-l px-1.5 py-2 sm:block md:w-20"
+        style={{ borderColor: "var(--lm-border)" }}
+        aria-label="Feed navigation"
+      >
+        {items.map((item) => {
+          const active = item.id === focusId;
+          const thumbSrc =
+            item.kind === "asset"
+              ? (item.asset.thumbUrl ?? item.asset.url)
+              : (item.card.previews[0] ??
+                item.card.cover?.thumbUrl ??
+                item.card.cover?.url);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              data-rail-id={item.id}
+              onClick={() => onFocusChange(item.id)}
+              className="relative mb-1.5 block w-full overflow-hidden rounded-md transition-opacity hover:opacity-100"
+              style={{
+                aspectRatio: "1 / 1",
+                outline: active ? "2px solid var(--lm-coral)" : "none",
+                outlineOffset: "-2px",
+                opacity: active ? 1 : 0.6,
+              }}
+              aria-current={active || undefined}
+              title={item.kind === "stack" ? item.card.name : undefined}
+            >
+              {thumbSrc ? (
+                <img
+                  src={thumbSrc}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <span
+                  className="block h-full w-full"
+                  style={{ backgroundColor: "var(--lm-surface-2)" }}
+                />
+              )}
+              {item.kind === "asset" && item.asset.kind === "video" && (
+                <span
+                  className="pointer-events-none absolute left-1/2 top-1/2 flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
+                  style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+                >
+                  <Play className="ml-px h-2 w-2" fill="#fff" color="#fff" />
+                </span>
+              )}
+              {item.kind === "stack" && (
+                <span
+                  className="absolute bottom-0.5 right-0.5 rounded px-1 text-[8px] font-mono font-bold"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.62)",
+                    color: "var(--lm-coral)",
+                  }}
+                >
+                  {item.card.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+/* ── Stack carousel inside the preview feed ── */
+function StackFeedSection({
+  card,
+  assets,
+  position,
+  onOpen,
+}: {
+  card: DirectionCardData;
+  assets: ReviewAsset[];
+  /** "n/N" position of this entry inside the feed. */
+  position: string;
+  onOpen?: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const count = assets.length;
+  const current = count > 0 ? assets[Math.min(index, count - 1)]! : null;
+  const cycle = (delta: number) =>
+    setIndex((i) => (count > 0 ? (i + delta + count) % count : 0));
+
+  return (
+    <>
+      <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+        {current ? (
+          <Media asset={current} variant="hero" />
+        ) : (
+          <p className="text-[13px]" style={{ color: "var(--lm-text-tertiary)" }}>
+            Empty stack
+          </p>
+        )}
+        {count > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => cycle(-1)}
+              className="absolute left-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "rgba(0,0,0,0.55)", color: "#fff" }}
+              aria-label="Previous option"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => cycle(1)}
+              className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "rgba(0,0,0,0.55)", color: "#fff" }}
+              aria-label="Next option"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="flex w-full max-w-[1100px] flex-wrap items-center gap-2 pb-1">
+        <span
+          className="text-[10px] font-mono font-bold uppercase tracking-[0.16em]"
+          style={{ color: "var(--lm-coral)" }}
+        >
+          {card.name}
+        </span>
+        <span
+          className="text-[11px] font-mono"
+          style={{ color: "rgba(255,255,255,0.6)" }}
+        >
+          {count > 0 ? `${Math.min(index, count - 1) + 1}/${count}` : "0/0"}
+        </span>
+        <span
+          className="ml-auto flex items-center gap-2 text-[11px] font-mono"
+          style={{ color: "rgba(255,255,255,0.4)" }}
+        >
+          {position}
+          {onOpen && (
+            <button
+              type="button"
+              onClick={onOpen}
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+              style={{
+                backgroundColor: "rgba(0,0,0,0.62)",
+                color: "#fff",
+                borderColor: "rgba(255,255,255,0.25)",
+              }}
+              title="Open this stack"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Open
+            </button>
+          )}
+        </span>
+      </div>
+    </>
   );
 }
 
