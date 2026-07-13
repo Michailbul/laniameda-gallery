@@ -1911,32 +1911,36 @@ export function ReviewModal({
             {openDirection.count}{" "}
             {openDirection.count === 1 ? "option" : "options"}
           </span>
-          <a
-            href={
-              readOnly
-                ? `/api/board/direction-pdf?token=${encodeURIComponent(
-                    viewerToken ?? "",
-                  )}&folderId=${encodeURIComponent(
-                    openDirection.folderId as string,
-                  )}`
-                : `/api/projects/direction-pdf?projectId=${encodeURIComponent(
-                    projectId ?? "",
-                  )}&folderId=${encodeURIComponent(
-                    openDirection.folderId as string,
-                  )}`
-            }
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
-            style={{
-              borderColor: "var(--lm-border-strong)",
-              color: "var(--lm-text-secondary)",
-            }}
-            title="Package this direction as a PDF (images embedded, videos as links)"
-          >
-            <FileDown className="h-3.5 w-3.5" />
-            PDF
-          </a>
+          {/* PDF export stays on beats only — the expanded stack view keeps
+              its chrome minimal. */}
+          {drilledIsBeat && (
+            <a
+              href={
+                readOnly
+                  ? `/api/board/direction-pdf?token=${encodeURIComponent(
+                      viewerToken ?? "",
+                    )}&folderId=${encodeURIComponent(
+                      openDirection.folderId as string,
+                    )}`
+                  : `/api/projects/direction-pdf?projectId=${encodeURIComponent(
+                      projectId ?? "",
+                    )}&folderId=${encodeURIComponent(
+                      openDirection.folderId as string,
+                    )}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+              style={{
+                borderColor: "var(--lm-border-strong)",
+                color: "var(--lm-text-secondary)",
+              }}
+              title="Package this direction as a PDF (images embedded, videos as links)"
+            >
+              <FileDown className="h-3.5 w-3.5" />
+              PDF
+            </a>
+          )}
           <LikeControl
             count={openDirectionLikes?.count ?? 0}
             likes={openDirectionLikes}
