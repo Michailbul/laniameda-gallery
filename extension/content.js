@@ -36,17 +36,39 @@
   const shotdeckAdapter = globalThis.SaveToGalleryShotdeck;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
+  // After the unpacked extension is reloaded at chrome://extensions, every tab
+  // that was already open keeps a DEAD copy of this content script. Its chrome.*
+  // calls throw "Extension context invalidated" and there is no way to revive
+  // them — the page must be reloaded. `chrome.runtime.id` becomes undefined the
+  // moment the context dies, so it is the cheapest reliable liveness probe.
+  function isExtensionContextValid() {
+    try {
+      return Boolean(globalThis.chrome?.runtime?.id);
+    } catch {
+      return false;
+    }
+  }
+
+  function isContextInvalidatedError(err) {
+    return /context invalidated|Extension context|message port closed|receiving end does not exist/i.test(
+      String(err?.message || ""),
+    );
+  }
+
   function getExtensionRuntime() {
+    if (!isExtensionContextValid()) return null;
     const runtime = globalThis.chrome?.runtime;
     return runtime && typeof runtime.sendMessage === "function" ? runtime : null;
   }
 
   function getExtensionStorageSync() {
+    if (!isExtensionContextValid()) return null;
     const storage = globalThis.chrome?.storage?.sync;
     return storage && typeof storage.get === "function" ? storage : null;
   }
 
   function getExtensionStorageLocal() {
+    if (!isExtensionContextValid()) return null;
     const storage = globalThis.chrome?.storage?.local;
     return storage && typeof storage.get === "function" ? storage : null;
   }
@@ -60,12 +82,50 @@
     return err;
   }
 
+  // The orphaned script can no longer talk to the extension, but it can still
+  // touch the DOM — so tell the user exactly what to do (reload) instead of
+  // silently showing broken/absent save UI. Idempotent; stops the scan so the
+  // dead context stops spamming errors on every feed mutation.
+  let extensionReloadBannerShown = false;
+  function notifyExtensionReloadNeeded() {
+    if (extensionReloadBannerShown) return;
+    extensionReloadBannerShown = true;
+
+    try {
+      midjourneyObserver?.disconnect?.();
+      midjourneyObserver = null;
+    } catch {
+      /* observer may not exist yet */
+    }
+    clearTimeout(midjourneyScanTimer);
+
+    if (document.querySelector(".stg-reload-banner")) return;
+    const banner = document.createElement("div");
+    banner.className = "stg-reload-banner";
+    banner.innerHTML =
+      `<span>Save&nbsp;to&nbsp;Gallery was updated — reload this page to keep saving.</span>` +
+      `<button type="button" class="stg-reload-banner__btn">Reload</button>`;
+    banner
+      .querySelector(".stg-reload-banner__btn")
+      ?.addEventListener("click", () => location.reload());
+    (document.body || document.documentElement).appendChild(banner);
+  }
+
   async function sendRuntimeMessage(message) {
     const runtime = getExtensionRuntime();
     if (!runtime) {
+      notifyExtensionReloadNeeded();
       throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
     }
-    return runtime.sendMessage(message);
+    try {
+      return await runtime.sendMessage(message);
+    } catch (err) {
+      if (isContextInvalidatedError(err)) {
+        notifyExtensionReloadNeeded();
+        throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
+      }
+      throw err;
+    }
   }
 
   async function getStorageSync(keys) {
@@ -3221,6 +3281,10 @@
   }
 
   function scanMidjourneyMediaTargets() {
+    if (!isExtensionContextValid()) {
+      notifyExtensionReloadNeeded();
+      return;
+    }
     if (!configLoaded || !extensionEnabled || !isPersistentSaveSite()) return;
     if (suppressMidjourneySaveUiForViewer()) return;
 

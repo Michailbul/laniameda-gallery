@@ -28,13 +28,24 @@ const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 500;
 
 // Return only what the extension picker needs — not ownerUserId/timestamps.
-type FolderRow = { _id: string; name?: string; description?: string };
+// `kind` marks storybooks / projects / directions, which are folders too but
+// must NOT appear as plain collections in the picker (matches the gallery
+// sidebar, which lists only kind-less folders as collections). Any truthy kind
+// ⇒ not a plain collection. undefined kind ⇒ plain collection.
+type FolderRow = {
+  _id: string;
+  name?: string;
+  description?: string;
+  kind?: string;
+};
 const toFolderDto = (folders: unknown) =>
-  (Array.isArray(folders) ? (folders as FolderRow[]) : []).map((folder) => ({
-    _id: folder._id,
-    name: folder.name ?? "",
-    description: folder.description,
-  }));
+  (Array.isArray(folders) ? (folders as FolderRow[]) : [])
+    .filter((folder) => !folder.kind)
+    .map((folder) => ({
+      _id: folder._id,
+      name: folder.name ?? "",
+      description: folder.description,
+    }));
 
 export async function GET(request: Request) {
   try {
