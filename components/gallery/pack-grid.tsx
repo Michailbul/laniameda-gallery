@@ -159,6 +159,7 @@ const PackCard = memo(function PackCard({
                     transition: "transform 600ms ease",
                     transform: hovered && activeSlide === i ? "scale(1.03)" : "scale(1)",
                   }}
+                  unoptimized
                 />
               </div>
             ))}
@@ -973,6 +974,7 @@ const PackAssetCard = memo(function PackAssetCard({
             transform: hovered || isSelected ? "scale(1.03)" : "scale(1)",
           }}
           onLoad={() => setLoaded(true)}
+          unoptimized
         />
 
         {/* Slot / focus badge — top left */}
