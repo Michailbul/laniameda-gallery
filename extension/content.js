@@ -1832,10 +1832,19 @@
       (bodyText.includes("Vary") && bodyText.includes("Remix") && bodyText.includes("Use"));
   }
 
+  function hasNonExtensionDialogOpen() {
+    // The notes panel is our own role="dialog" — treating it as the MJ
+    // lightbox makes the scan suppress (and wipe) the UI it just injected,
+    // which oscillates into flicker on /imagine.
+    return Array.from(
+      document.querySelectorAll('[aria-modal="true"], [role="dialog"]'),
+    ).some((node) => !isExtensionUiNode(node));
+  }
+
   function isMidjourneyFullSizeViewerOpen() {
     if (!isMidjourneyPage() || !isMidjourneyCreateExperiencePage()) return false;
     if (isMidjourneyJobPage()) return true;
-    if (document.querySelector('[aria-modal="true"], [role="dialog"]')) return true;
+    if (hasNonExtensionDialogOpen()) return true;
     if (hasVisibleMidjourneyCreateDetailPanel()) return true;
     if (!hasVisibleMidjourneyViewerCloseControl()) return false;
     return hasLargeVisibleMidjourneyMedia();
