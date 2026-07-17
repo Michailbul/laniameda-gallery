@@ -7,7 +7,7 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
-import { readImageDimensions } from "./imageDimensions";
+import { readImageDimensions, readVideoDimensions } from "./imageDimensions";
 import {
   assetRoleValidator,
   designCaptureKindValidator,
@@ -501,6 +501,15 @@ const processMediaInput = async (
         width = parsed.width;
         height = parsed.height;
       }
+    }
+  } else if (normalizedContentType.startsWith("video/")) {
+    // No ffprobe on Convex; parse the MP4/MOV box tree for real dimensions so
+    // portrait videos don't fall back to the landscape 16:9 default and render
+    // wrong in the masonry.
+    const parsed = readVideoDimensions(new Uint8Array(fileBuffer));
+    if (parsed) {
+      width = parsed.width;
+      height = parsed.height;
     }
   }
 

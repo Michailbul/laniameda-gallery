@@ -86,6 +86,34 @@ export function resolveLayoutAspect(input: LayoutInput): number {
 
 /* ── Justified rows layout ── */
 
+/**
+ * Aspect below which a tile counts as "portrait" (3:4 and taller). 4:5 (0.8)
+ * is only mildly vertical and reads fine at the normal row height, so it sits
+ * just outside the band.
+ */
+export const PORTRAIT_ASPECT_THRESHOLD = 0.8;
+
+/**
+ * Aspect below which a tile counts as "tall portrait" (2:3 and taller — 9:16
+ * reels live here at 0.5625). These get the stronger row boost.
+ */
+export const TALL_PORTRAIT_ASPECT_THRESHOLD = 0.7;
+
+/**
+ * Default row-height multiplier for rows containing a portrait. At a shared
+ * row height a portrait tile is a narrow sliver (width = aspect × height);
+ * boosting the whole row makes it grow in BOTH dimensions while the row still
+ * justifies edge-to-edge with no holes.
+ */
+export const DEFAULT_PORTRAIT_ROW_BOOST = 1.7;
+
+/**
+ * Default row-height multiplier for rows containing a TALL portrait (9:16 and
+ * friends) — these are format statements, not thumbnails, so they get roughly
+ * double-row presence.
+ */
+export const DEFAULT_TALL_PORTRAIT_ROW_BOOST = 2.4;
+
 export type JustifiedOptions = {
   /** Content-box width available to the grid, in px (no padding). */
   containerWidth: number;
@@ -100,7 +128,7 @@ export type JustifiedOptions = {
   /**
    * Ceiling for a justified row's height. Guards the sparse cases (a lone
    * ultra-wide item, or a short final row) from ballooning. Defaults to
-   * 1.6 × targetRowHeight.
+   * 1.6 × targetRowHeight. Scaled by the portrait boost for portrait rows.
    */
   maxRowHeight?: number;
   /**
@@ -109,6 +137,18 @@ export type JustifiedOptions = {
    * container. Otherwise it is left-aligned at target height. Defaults to 0.7.
    */
   lastRowFillFraction?: number;
+  /**
+   * Row-height multiplier applied to rows containing a tile with aspect below
+   * PORTRAIT_ASPECT_THRESHOLD, so portraits render at a usable size instead of
+   * as slivers. Pass 1 to disable. Defaults to DEFAULT_PORTRAIT_ROW_BOOST.
+   */
+  portraitRowBoost?: number;
+  /**
+   * Stronger multiplier for rows containing a TALL portrait (aspect below
+   * TALL_PORTRAIT_ASPECT_THRESHOLD — 9:16 reels). Pass 1 to disable. Defaults
+   * to DEFAULT_TALL_PORTRAIT_ROW_BOOST.
+   */
+  tallPortraitRowBoost?: number;
 };
 
 export type JustifiedTile = {
@@ -141,8 +181,16 @@ export function layoutJustified(
   options: JustifiedOptions,
 ): JustifiedLayout {
   const { containerWidth, gap, targetRowHeight } = options;
-  const maxRowHeight = options.maxRowHeight ?? targetRowHeight * 1.6;
+  const maxRowHeightBase = options.maxRowHeight ?? targetRowHeight * 1.6;
   const lastRowFillFraction = options.lastRowFillFraction ?? 0.7;
+  const portraitRowBoost = Math.max(
+    1,
+    options.portraitRowBoost ?? DEFAULT_PORTRAIT_ROW_BOOST,
+  );
+  const tallPortraitRowBoost = Math.max(
+    portraitRowBoost,
+    options.tallPortraitRowBoost ?? DEFAULT_TALL_PORTRAIT_ROW_BOOST,
+  );
 
   if (
     containerWidth <= 0 ||
@@ -155,25 +203,48 @@ export function layoutJustified(
   const aspects = inputs.map((input) => clampAspect(resolveLayoutAspect(input)));
   const tiles: JustifiedTile[] = new Array(inputs.length);
 
+  // Per-range helpers: rows holding a portrait target a taller height (see
+  // portraitRowBoost / tallPortraitRowBoost) so the portrait isn't squeezed
+  // into a sliver at the shared row height. The strongest member wins.
+  const rangeAspectSum = (start: number, endExclusive: number) => {
+    let sum = 0;
+    for (let i = start; i < endExclusive; i += 1) sum += aspects[i]!;
+    return sum;
+  };
+  const rangeBoost = (start: number, endExclusive: number) => {
+    let boost = 1;
+    for (let i = start; i < endExclusive; i += 1) {
+      const aspect = aspects[i]!;
+      if (aspect < TALL_PORTRAIT_ASPECT_THRESHOLD) return tallPortraitRowBoost;
+      if (aspect < PORTRAIT_ASPECT_THRESHOLD) boost = portraitRowBoost;
+    }
+    return boost;
+  };
+  const rangeTarget = (start: number, endExclusive: number) =>
+    targetRowHeight * rangeBoost(start, endExclusive);
+
   let top = 0;
   let rowIndex = 0;
   let rowStart = 0;
-  let aspectSum = 0;
 
   const flushRow = (endExclusive: number, isLastRow: boolean) => {
     const count = endExclusive - rowStart;
     if (count <= 0) return;
     const gapsWidth = gap * (count - 1);
     const available = containerWidth - gapsWidth;
+    const aspectSum = rangeAspectSum(rowStart, endExclusive);
+    const boost = rangeBoost(rowStart, endExclusive);
+    const rowTarget = targetRowHeight * boost;
+    const rowMaxHeight = maxRowHeightBase * boost;
 
     // A row justifies (fills the full width) when it's an interior row, or the
     // final row is already nearly full. Otherwise the final row keeps target
     // height and left-aligns, leaving trailing space rather than blowing up.
-    const naturalWidth = aspectSum * targetRowHeight + gapsWidth;
+    const naturalWidth = aspectSum * rowTarget + gapsWidth;
     const justify = !isLastRow || naturalWidth >= containerWidth * lastRowFillFraction;
 
-    let height = justify ? available / aspectSum : targetRowHeight;
-    height = Math.min(height, maxRowHeight);
+    let height = justify ? available / aspectSum : rowTarget;
+    height = Math.min(height, rowMaxHeight);
     height = Math.max(1, Math.round(height));
 
     let left = 0;
@@ -193,17 +264,42 @@ export function layoutJustified(
     top += height + gap;
     rowIndex += 1;
     rowStart = endExclusive;
-    aspectSum = 0;
   };
 
-  for (let i = 0; i < inputs.length; i += 1) {
-    aspectSum += aspects[i]!;
+  let i = 0;
+  while (i < inputs.length) {
     const count = i - rowStart + 1;
     const gapsWidth = gap * (count - 1);
-    const naturalWidth = aspectSum * targetRowHeight + gapsWidth;
+    const aspectSum = rangeAspectSum(rowStart, i + 1);
+    const target = rangeTarget(rowStart, i + 1);
+    const naturalWidth = aspectSum * target + gapsWidth;
     if (naturalWidth >= containerWidth) {
+      // The row overflows once item i joins. Break either AFTER i (row is a
+      // touch shorter than target) or BEFORE i (row is a touch taller) —
+      // whichever justified height lands closer to that row's own target.
+      // Without this, a boosted portrait row always crams to the overflow
+      // side and loses most of its boost.
+      if (count > 1) {
+        const prevSum = rangeAspectSum(rowStart, i);
+        const prevTarget = rangeTarget(rowStart, i);
+        const prevMax = maxRowHeightBase * rangeBoost(rowStart, i);
+        const prevGaps = gap * (count - 2);
+        const heightBefore = (containerWidth - prevGaps) / prevSum;
+        const heightAfter = (containerWidth - gapsWidth) / aspectSum;
+        // Compare as RATIOS to each row's own target (a row 1.5× too tall is
+        // as bad as one 1.5× too short) — a linear diff systematically prefers
+        // the crammed side and erases the portrait boost.
+        const breakBefore =
+          heightBefore <= prevMax &&
+          heightBefore / prevTarget <= target / heightAfter;
+        if (breakBefore) {
+          flushRow(i, false);
+          continue; // re-evaluate item i as the start of the next row
+        }
+      }
       flushRow(i + 1, false);
     }
+    i += 1;
   }
   if (rowStart < inputs.length) {
     flushRow(inputs.length, true);

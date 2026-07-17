@@ -83,6 +83,8 @@ interface MasonryGridProps {
   selectable?: boolean;
   selectedAssetIds?: Set<string>;
   onToggleAssetSelect?: (imageId: string) => void;
+  /** Replace the entire selection set — used by shift+drag box-select. */
+  onReplaceSelection?: (imageIds: string[]) => void;
   likeable?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
   draggableAssets?: boolean;
@@ -149,6 +151,13 @@ interface MasonryGridProps {
   onImageLoad?: (imageId: string) => void;
   loading?: boolean;
   showPublicBadge?: boolean;
+  /**
+   * Called when the scroll frontier nears the end of the images already in
+   * hand — the hook for cursor pagination to fetch the next page. Fired
+   * repeatedly while the frontier stays exposed; the owner must no-op while a
+   * page is in flight or exhausted.
+   */
+  onEndReached?: () => void;
 }
 
 const BATCH_SIZE = 18;
@@ -247,6 +256,7 @@ export function MasonryGrid({
   selectable = false,
   selectedAssetIds,
   onToggleAssetSelect,
+  onReplaceSelection,
   likeable = false,
   onToggleLike,
   draggableAssets = false,
@@ -260,6 +270,7 @@ export function MasonryGrid({
   onAddAssetToProject,
   onStorybookOpen,
   showPublicBadge = false,
+  onEndReached,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -285,6 +296,24 @@ export function MasonryGrid({
   }, [images.length]);
 
   const [gridRef, contentWidth] = useContentWidth();
+
+  // ── Shift+drag box (marquee) selection ──
+  // The layout is absolutely positioned, so each tile carries exact
+  // top/left/width/height in the container's coordinate space — intersection
+  // testing against a drag rectangle is direct.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [marquee, setMarquee] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  // Live drag state kept in a ref so pointer handlers don't need re-binding.
+  const marqueeRef = useRef<{ x0: number; y0: number; base: Set<string>; moved: boolean } | null>(
+    null,
+  );
+  // Set after a real drag so the trailing click doesn't also toggle a card.
+  const didMarqueeRef = useRef(false);
 
   // Justified layout for the FULL list so tile positions are stable as batches
   // mount, then mount whole rows up to (and including) the row that holds the
@@ -336,14 +365,19 @@ export function MasonryGrid({
   // the sentinel's position on scroll/resize: anything above
   // `viewport bottom + margin` means the user is at or past the frontier.
   useEffect(() => {
-    if (!hasMore) return;
+    if (!hasMore && !onEndReached) return;
     let ticking = false;
     const check = () => {
       ticking = false;
       const sentinel = sentinelRef.current;
       if (!sentinel) return;
       const top = sentinel.getBoundingClientRect().top;
-      if (top < window.innerHeight + LOAD_MORE_MARGIN_PX) loadMore();
+      if (top < window.innerHeight + LOAD_MORE_MARGIN_PX) {
+        // Mount more of what we already have first; once everything in hand
+        // is mounted, ask the owner for the next page of data.
+        if (hasMore) loadMore();
+        else onEndReached?.();
+      }
     };
     const schedule = () => {
       if (ticking) return;
@@ -362,12 +396,82 @@ export function MasonryGrid({
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
     };
-  }, [hasMore, mountedHeight, loadMore]);
+  }, [hasMore, mountedHeight, loadMore, onEndReached]);
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns
     ? "columns-1 sm:columns-2 md:columns-2 lg:columns-3 2xl:columns-3"
     : "columns-2 sm:columns-2 md:columns-3 lg:columns-4 2xl:columns-5";
+
+  const marqueeEnabled = selectable && Boolean(onReplaceSelection);
+
+  const beginMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Reserve shift+primary-drag for box-select; a plain drag still drags cards.
+    if (!marqueeEnabled || !event.shiftKey || event.button !== 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x0 = event.clientX - rect.left;
+    const y0 = event.clientY - rect.top;
+    marqueeRef.current = {
+      x0,
+      y0,
+      base: new Set(selectedAssetIds ?? []),
+      moved: false,
+    };
+    setMarquee({ left: x0, top: y0, width: 0, height: 0 });
+    try {
+      el.setPointerCapture(event.pointerId);
+    } catch {
+      /* capture is best-effort */
+    }
+    event.preventDefault();
+  };
+
+  const updateMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = marqueeRef.current;
+    const el = containerRef.current;
+    if (!state || !el) return;
+    const rect = el.getBoundingClientRect();
+    const x1 = Math.max(0, Math.min(event.clientX - rect.left, el.clientWidth));
+    const y1 = Math.max(0, event.clientY - rect.top);
+    const left = Math.min(state.x0, x1);
+    const top = Math.min(state.y0, y1);
+    const width = Math.abs(x1 - state.x0);
+    const height = Math.abs(y1 - state.y0);
+    if (width > 3 || height > 3) state.moved = true;
+    setMarquee({ left, top, width, height });
+
+    const right = left + width;
+    const bottom = top + height;
+    const hit = new Set(state.base);
+    for (const { image, tile } of mounted) {
+      if (!tile) continue;
+      const isAsset =
+        image.galleryItemType === "asset" || image.galleryItemType === undefined;
+      if (!isAsset) continue;
+      const intersects =
+        tile.left < right &&
+        tile.left + tile.width > left &&
+        tile.top < bottom &&
+        tile.top + tile.height > top;
+      if (intersects) hit.add(image.id);
+    }
+    onReplaceSelection?.(Array.from(hit));
+  };
+
+  const endMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = marqueeRef.current;
+    if (!state) return;
+    if (state.moved) didMarqueeRef.current = true;
+    marqueeRef.current = null;
+    setMarquee(null);
+    try {
+      containerRef.current?.releasePointerCapture(event.pointerId);
+    } catch {
+      /* release is best-effort */
+    }
+  };
 
   if (loading) {
     return <SkeletonGrid columnClasses={skeletonColumnClasses} />;
@@ -376,11 +480,39 @@ export function MasonryGrid({
   return (
     <div style={{ padding: `${PADDING_PX}px` }}>
       <div
-        ref={gridRef}
+        ref={(node) => {
+          gridRef(node);
+          containerRef.current = node;
+        }}
+        onPointerDown={marqueeEnabled ? beginMarquee : undefined}
+        onPointerMove={marqueeEnabled ? updateMarquee : undefined}
+        onPointerUp={marqueeEnabled ? endMarquee : undefined}
+        onPointerCancel={marqueeEnabled ? endMarquee : undefined}
+        // Shift is reserved for box-select — never start a native card drag.
+        onDragStartCapture={
+          marqueeEnabled
+            ? (event) => {
+                if (event.shiftKey) event.preventDefault();
+              }
+            : undefined
+        }
+        // Swallow the click that ends a real drag so it doesn't toggle a card.
+        onClickCapture={
+          marqueeEnabled
+            ? (event) => {
+                if (didMarqueeRef.current) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  didMarqueeRef.current = false;
+                }
+              }
+            : undefined
+        }
         style={{
           position: "relative",
           width: "100%",
           height: mountedHeight !== undefined ? `${mountedHeight}px` : undefined,
+          userSelect: marquee ? "none" : undefined,
         }}
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
@@ -397,8 +529,11 @@ export function MasonryGrid({
                 left: `${tile.left}px`,
                 width: `${tile.width}px`,
                 height: `${tile.height}px`,
+                // Tiles are size containers so card chrome (hover toolbar)
+                // can compact itself on narrow tiles via @container queries.
+                containerType: "inline-size",
               }
-            : { position: "relative", width: "100%" };
+            : { position: "relative", width: "100%", containerType: "inline-size" };
 
           if (image.galleryItemType === "storybook" && onStorybookOpen) {
             return (
@@ -452,6 +587,7 @@ export function MasonryGrid({
                     image.galleryItemType === undefined)
                 }
                 selected={Boolean(selectedAssetIds?.has(image.id))}
+                selectionActive={Boolean(selectedAssetIds && selectedAssetIds.size > 0)}
                 onToggleSelect={onToggleAssetSelect}
                 likeable={
                   likeable &&
@@ -480,7 +616,7 @@ export function MasonryGrid({
             </div>
           );
         })}
-        {hasMore && (
+        {(hasMore || onEndReached) && (
           <div
             ref={sentinelRef}
             className="h-px"
@@ -489,6 +625,23 @@ export function MasonryGrid({
                 ? { position: "absolute", left: 0, right: 0, top: `${mountedHeight}px` }
                 : { position: "relative" }
             }
+            aria-hidden
+          />
+        )}
+        {marquee && (marquee.width > 2 || marquee.height > 2) && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${marquee.left}px`,
+              top: `${marquee.top}px`,
+              width: `${marquee.width}px`,
+              height: `${marquee.height}px`,
+              background: "color-mix(in srgb, var(--lm-coral) 16%, transparent)",
+              border: "1px solid var(--lm-coral)",
+              borderRadius: "4px",
+              pointerEvents: "none",
+              zIndex: 40,
+            }}
             aria-hidden
           />
         )}

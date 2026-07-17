@@ -7,6 +7,7 @@ import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Trash2, 
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
+import { hasMeaningfulPrompt } from "@/lib/prompt";
 import {
   CardCollectionButton,
   type CollectionOption,
@@ -119,6 +120,9 @@ interface ImageCardProps {
   onDelete?: (imageId: string) => void;
   selectable?: boolean;
   selected?: boolean;
+  /** True when a multi-selection is in progress — a plain card click then
+      toggles selection instead of opening the detail panel. */
+  selectionActive?: boolean;
   onToggleSelect?: (imageId: string) => void;
   likeable?: boolean;
   liked?: boolean;
@@ -164,6 +168,7 @@ export const ImageCard = memo(function ImageCard({
   onDelete,
   selectable = false,
   selected = false,
+  selectionActive = false,
   onToggleSelect,
   likeable = false,
   liked = false,
@@ -385,6 +390,23 @@ export const ImageCard = memo(function ImageCard({
       previewImages,
     });
 
+  // A click on the card body opens the detail panel — UNLESS a multi-selection
+  // is underway (or the user holds a modifier), in which case it toggles this
+  // card's selection so any part of the card is a select target.
+  const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (
+      selectable &&
+      onToggleSelect &&
+      (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleSelect(image.id);
+      return;
+    }
+    selectImage();
+  };
+
   // Focus dimming: selected stays full, others dim when there is a selection
   const dimmed = hasSelection && !isSelected;
 
@@ -479,7 +501,9 @@ export const ImageCard = memo(function ImageCard({
 
   useEffect(() => cancelPromptClose, [cancelPromptClose]);
 
-  const hasPrompt = Boolean(activePreview.prompt?.trim());
+  // Only surface the PROMPT button when a real prompt exists — placeholder
+  // fallbacks ("Untitled prompt", a bare file name) don't count.
+  const hasPrompt = hasMeaningfulPrompt(activePreview.prompt);
 
   const handleIdCopy = useCallback(
     async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -640,7 +664,7 @@ export const ImageCard = memo(function ImageCard({
         animationDelay: shouldAnimateEntrance ? entranceDelay : undefined,
         animationFillMode: shouldAnimateEntrance ? "backwards" : undefined,
       }}
-      onClick={selectImage}
+      onClick={handleCardClick}
       onMouseEnter={() => {
         if (previewImages.length > 1) {
           setPreviewCycling(true);
@@ -780,105 +804,102 @@ export const ImageCard = memo(function ImageCard({
         )}
       </div>
 
-      {/* Video play mark — icon-only so video cards are identifiable without a text tag. */}
+      {/* Video play mark — a quiet glass chip. It identifies video cards at
+          rest and fades away on hover, when the video itself starts playing. */}
       {isVideo && (
         <div
-          className="pointer-events-none absolute bottom-2 right-2 z-20 grid h-9 w-9 place-items-center rounded-full backdrop-blur-md transition-transform duration-200 group-hover:scale-105"
+          className="pointer-events-none absolute bottom-2 right-2 z-20 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-0"
           style={{
-            background:
-              "linear-gradient(135deg, var(--image-card-badge-bg), var(--image-card-badge-bg-soft))",
-            color: "var(--primary-foreground)",
+            background: "var(--image-card-badge-bg)",
+            color: "var(--image-card-badge-text)",
             border:
-              "1px solid color-mix(in srgb, var(--primary-foreground) 62%, transparent)",
-            boxShadow:
-              "0 10px 24px color-mix(in srgb, var(--text-primary) 32%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--primary-foreground) 14%, transparent)",
+              "1px solid color-mix(in srgb, var(--image-card-badge-text) 25%, transparent)",
           }}
         >
-          <Play className="ml-0.5 h-4 w-4" fill="currentColor" />
+          <Play className="ml-px h-2.5 w-2.5" fill="currentColor" />
         </div>
       )}
 
-      {selectable && (
+      {/* Top-left action cluster — flex keeps the gaps uniform no matter which
+          buttons are present. pointer-events-none on the wrapper leaves the
+          gaps between buttons click-through to the card underneath. */}
+      <div className="card-toolbar pointer-events-none absolute left-2 top-2 z-30 flex items-center gap-1.5">
+        {selectable && (
+          <button
+            type="button"
+            onClick={handleToggleSelect}
+            className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border ${
+              selected
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            }`}
+            data-active={selected ? "dark" : undefined}
+            aria-label={selected ? "Deselect asset" : "Select asset"}
+            aria-pressed={selected}
+            title={selected ? "Deselect" : "Select"}
+          >
+            {selected ? (
+              <Check className="h-4 w-4" strokeWidth={3} />
+            ) : (
+              <span
+                className="block h-3.5 w-3.5"
+                style={{
+                  border: "1.5px solid currentColor",
+                  borderRadius: "4px",
+                }}
+              />
+            )}
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={handleToggleSelect}
-          className={`card-icon-btn absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-lg border ${
-            selected
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          }`}
-          data-active={selected ? "dark" : undefined}
-          aria-label={selected ? "Deselect asset" : "Select asset"}
-          aria-pressed={selected}
-          title={selected ? "Deselect" : "Select"}
+          onClick={(event) => {
+            void handleIdCopy(event);
+          }}
+          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          aria-label={`Copy ${galleryItemType} ID`}
+          title={`Copy ${galleryItemType} ID`}
         >
-          {selected ? (
-            <Check className="h-4 w-4" strokeWidth={3} />
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+
+        {/* One-click download — appears on hover. Images save as JPG. */}
+        <button
+          type="button"
+          onClick={(event) => {
+            void handleDownload(event);
+          }}
+          disabled={downloading}
+          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed"
+          aria-label={isVideo ? "Download file" : "Download as JPG"}
+          title={isVideo ? "Download file" : "Download as JPG"}
+        >
+          {downloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <span
-              className="block h-3.5 w-3.5"
-              style={{
-                border: "1.5px solid currentColor",
-                borderRadius: "4px",
-              }}
-            />
+            <Download className="h-3.5 w-3.5" />
           )}
         </button>
-      )}
 
-      <button
-        type="button"
-        onClick={(event) => {
-          void handleIdCopy(event);
-        }}
-        className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
-          selectable ? "left-12" : "left-2"
-        }`}
-        aria-label={`Copy ${galleryItemType} ID`}
-        title={`Copy ${galleryItemType} ID`}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-
-      {/* One-click download — appears on hover. Images save as JPG. */}
-      <button
-        type="button"
-        onClick={(event) => {
-          void handleDownload(event);
-        }}
-        disabled={downloading}
-        className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed ${
-          selectable ? "left-[5.5rem]" : "left-12"
-        }`}
-        aria-label={isVideo ? "Download file" : "Download as JPG"}
-        title={isVideo ? "Download file" : "Download as JPG"}
-      >
-        {downloading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Download className="h-3.5 w-3.5" />
+        {/* Move/copy to collection — hover control with a floating menu. */}
+        {collections && onMoveToCollection && onCopyToCollection && (
+          <CardCollectionButton
+            imageId={image.id}
+            currentFolderIds={
+              image.folderIds ?? (image.folderId ? [image.folderId] : [])
+            }
+            collections={collections}
+            onMove={onMoveToCollection}
+            onCopy={onCopyToCollection}
+            onRemove={onRemoveFromCollection}
+            onCreate={onCreateCollection}
+            projects={projects}
+            onAddToProject={onAddToProject}
+            positionClassName="pointer-events-auto z-20"
+          />
         )}
-      </button>
-
-      {/* Move/copy to collection — hover control with a floating menu. */}
-      {collections && onMoveToCollection && onCopyToCollection && (
-        <CardCollectionButton
-          imageId={image.id}
-          currentFolderIds={
-            image.folderIds ?? (image.folderId ? [image.folderId] : [])
-          }
-          collections={collections}
-          onMove={onMoveToCollection}
-          onCopy={onCopyToCollection}
-          onRemove={onRemoveFromCollection}
-          onCreate={onCreateCollection}
-          projects={projects}
-          onAddToProject={onAddToProject}
-          positionClassName={`absolute top-2 z-20 ${
-            selectable ? "left-32" : "left-[5.5rem]"
-          }`}
-        />
-      )}
+      </div>
 
       {/* Pack badge — top-right */}
       {image.packMemberCount !== undefined && image.packMemberCount > 1 && (
@@ -1035,58 +1056,64 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {likeable && (
-        <button
-          type="button"
-          onClick={handleToggleLike}
-          className={`card-icon-btn absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-full border ${
-            liked
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          }`}
-          data-active={liked ? "light" : undefined}
-          aria-label={liked ? "Unlike asset" : "Like asset"}
-          aria-pressed={liked}
-          title={liked ? "Liked — click to unlike" : "Like"}
-        >
-          <Heart
-            className="h-4 w-4"
-            strokeWidth={2.25}
-            fill={liked ? "currentColor" : "none"}
-          />
-        </button>
-      )}
-
-      {canDelete && (
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className={`card-icon-btn absolute top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
-            deleting
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          } ${likeable ? "right-12" : "right-2"}`}
-          style={{
-            borderColor: deleting
-              ? "var(--image-card-delete-border-disabled)"
-              : "var(--image-card-delete-border)",
-            backgroundColor: deleting
-              ? "var(--image-card-delete-bg-disabled)"
-              : "var(--image-card-delete-bg)",
-            color: deleting
-              ? "var(--image-card-delete-text-disabled)"
-              : "var(--image-card-delete-text)",
-            boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
-          }}
-          aria-label={deleting ? "Deleting image" : "Delete image"}
-        >
-          {deleting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
+      {/* Top-right action cluster — destructive/like actions kept apart from
+          the left cluster; flex keeps delete and like evenly spaced. */}
+      {(canDelete || likeable) && (
+        <div className="card-toolbar pointer-events-none absolute right-2 top-2 z-30 flex items-center gap-1.5">
+          {canDelete && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
+                deleting
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              style={{
+                borderColor: deleting
+                  ? "var(--image-card-delete-border-disabled)"
+                  : "var(--image-card-delete-border)",
+                backgroundColor: deleting
+                  ? "var(--image-card-delete-bg-disabled)"
+                  : "var(--image-card-delete-bg)",
+                color: deleting
+                  ? "var(--image-card-delete-text-disabled)"
+                  : "var(--image-card-delete-text)",
+                boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
+              }}
+              aria-label={deleting ? "Deleting image" : "Delete image"}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+            </button>
           )}
-        </button>
+
+          {likeable && (
+            <button
+              type="button"
+              onClick={handleToggleLike}
+              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border ${
+                liked
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-active={liked ? "light" : undefined}
+              aria-label={liked ? "Unlike asset" : "Like asset"}
+              aria-pressed={liked}
+              title={liked ? "Liked — click to unlike" : "Like"}
+            >
+              <Heart
+                className="h-4 w-4"
+                strokeWidth={2.25}
+                fill={liked ? "currentColor" : "none"}
+              />
+            </button>
+          )}
+        </div>
       )}
     </motion.div>
   );

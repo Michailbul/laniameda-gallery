@@ -9,11 +9,13 @@ import {
   ChevronRight,
   Film,
   FolderOpen,
+  Globe,
   Home,
   Layers,
   Pencil,
   Plus,
   Search,
+  Star,
   Trash2,
   LayoutGrid,
 } from "lucide-react";
@@ -42,6 +44,8 @@ interface Folder {
   _id: string;
   name: string;
   count?: number;
+  /** Set when this collection is nested inside another (one level deep). */
+  parentFolderId?: string;
 }
 
 interface GallerySidebarProps {
@@ -86,6 +90,21 @@ interface GallerySidebarProps {
   onRenameFolder?: (folderId: string, name: string) => Promise<void> | void;
   /** Deletes the folder; its assets stay in the gallery. */
   onDeleteFolder?: (folderId: string) => Promise<void> | void;
+  /** Folder ids currently published to the public "My Taste" showcase. */
+  showcasedFolderIds?: Set<string>;
+  /** Toggle a collection / storybook onto or off the public showcase. */
+  onToggleShowcase?: (folderId: string, next: boolean) => void;
+  /** Folder ids featured (hero treatment) on the public showcase home. */
+  featuredFolderIds?: Set<string>;
+  /** Toggle featured; featuring an unpublished set also publishes it. */
+  onToggleFeatured?: (folderId: string, next: boolean) => void;
+  /** Create a sub-collection inside a root collection. */
+  onCreateSubCollection?: (
+    parentFolderId: string,
+    name: string,
+  ) => Promise<string | null>;
+  /** Opens the public showcase as a visitor sees it (owner preview). */
+  onPreviewShowcase?: () => void;
 }
 
 interface ProjectEntry extends Folder {
@@ -124,6 +143,12 @@ export function GallerySidebar({
   onAssetsDropOnDirection,
   onRenameFolder,
   onDeleteFolder,
+  showcasedFolderIds,
+  onToggleShowcase,
+  featuredFolderIds,
+  onToggleFeatured,
+  onCreateSubCollection,
+  onPreviewShowcase,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -151,6 +176,44 @@ export function GallerySidebar({
   const [creatingProject, setCreatingProject] = useState(false);
   const [projectDraft, setProjectDraft] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
+
+  // Inline sub-collection create: which root collection is being added to.
+  const [subCreateFor, setSubCreateFor] = useState<string | null>(null);
+  const [subDraft, setSubDraft] = useState("");
+  const [subBusy, setSubBusy] = useState(false);
+
+  const submitSubDraft = async () => {
+    const name = subDraft.trim();
+    if (!name || !onCreateSubCollection || !subCreateFor || subBusy) return;
+    setSubBusy(true);
+    try {
+      const folderId = await onCreateSubCollection(subCreateFor, name);
+      if (folderId) {
+        setSubCreateFor(null);
+        setSubDraft("");
+      }
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  // Collections arrive flat; group sub-collections under their parent. A
+  // child whose parent isn't in the list (filtered out) renders at root.
+  const { rootFolders, childrenByParent } = useMemo(() => {
+    const ids = new Set(folders.map((folder) => folder._id));
+    const roots: Folder[] = [];
+    const children = new Map<string, Folder[]>();
+    for (const folder of folders) {
+      if (folder.parentFolderId && ids.has(folder.parentFolderId)) {
+        const list = children.get(folder.parentFolderId) ?? [];
+        list.push(folder);
+        children.set(folder.parentFolderId, list);
+      } else {
+        roots.push(folder);
+      }
+    }
+    return { rootFolders: roots, childrenByParent: children };
+  }, [folders]);
 
   const submitProjectDraft = async () => {
     const name = projectDraft.trim();
@@ -322,6 +385,16 @@ export function GallerySidebar({
             onClick={onSeedanceClick}
           />
         )}
+        {onPreviewShowcase && (
+          <NavItem
+            icon={Globe}
+            label="Taste profile"
+            href="#"
+            active={false}
+            collapsed={collapsed}
+            onClick={onPreviewShowcase}
+          />
+        )}
       </div>
 
       {/* Scrollable content */}
@@ -419,6 +492,18 @@ export function GallerySidebar({
                       onDelete={
                         onDeleteFolder
                           ? () => onDeleteFolder(storybook._id)
+                          : undefined
+                      }
+                      showcased={showcasedFolderIds?.has(storybook._id)}
+                      onToggleShowcase={
+                        onToggleShowcase
+                          ? (next) => onToggleShowcase(storybook._id, next)
+                          : undefined
+                      }
+                      featured={featuredFolderIds?.has(storybook._id)}
+                      onToggleFeatured={
+                        onToggleFeatured
+                          ? (next) => onToggleFeatured(storybook._id, next)
                           : undefined
                       }
                     />
@@ -565,34 +650,119 @@ export function GallerySidebar({
                   }
                   onClick={() => onFolderSelect(null)}
                 />
-                {folders.map((folder) => (
-                  <FilterRow
-                    key={folder._id}
-                    label={folder.name}
-                    count={folder.count}
-                    active={selectedFolderId === folder._id}
-                    onClick={() =>
-                      onFolderSelect(
-                        selectedFolderId === folder._id ? null : folder._id,
-                      )
-                    }
-                    onDropAssets={
-                      onAssetsDropOnFolder
-                        ? (assetIds) =>
-                            onAssetsDropOnFolder(folder._id, assetIds)
-                        : undefined
-                    }
-                    onRename={
-                      onRenameFolder
-                        ? (name) => onRenameFolder(folder._id, name)
-                        : undefined
-                    }
-                    onDelete={
-                      onDeleteFolder
-                        ? () => onDeleteFolder(folder._id)
-                        : undefined
-                    }
-                  />
+                {rootFolders.map((folder) => (
+                  <div key={folder._id}>
+                    <FilterRow
+                      label={folder.name}
+                      count={folder.count}
+                      active={selectedFolderId === folder._id}
+                      onClick={() =>
+                        onFolderSelect(
+                          selectedFolderId === folder._id ? null : folder._id,
+                        )
+                      }
+                      onDropAssets={
+                        onAssetsDropOnFolder
+                          ? (assetIds) =>
+                              onAssetsDropOnFolder(folder._id, assetIds)
+                          : undefined
+                      }
+                      onRename={
+                        onRenameFolder
+                          ? (name) => onRenameFolder(folder._id, name)
+                          : undefined
+                      }
+                      onDelete={
+                        onDeleteFolder
+                          ? () => onDeleteFolder(folder._id)
+                          : undefined
+                      }
+                      showcased={showcasedFolderIds?.has(folder._id)}
+                      onToggleShowcase={
+                        onToggleShowcase
+                          ? (next) => onToggleShowcase(folder._id, next)
+                          : undefined
+                      }
+                      featured={featuredFolderIds?.has(folder._id)}
+                      onToggleFeatured={
+                        onToggleFeatured
+                          ? (next) => onToggleFeatured(folder._id, next)
+                          : undefined
+                      }
+                      onAddSub={
+                        onCreateSubCollection
+                          ? () => {
+                              setSubCreateFor((prev) =>
+                                prev === folder._id ? null : folder._id,
+                              );
+                              setSubDraft("");
+                            }
+                          : undefined
+                      }
+                    />
+                    {subCreateFor === folder._id && (
+                      <div className="pb-2.5 pl-9 pr-4">
+                        <input
+                          autoFocus
+                          value={subDraft}
+                          disabled={subBusy}
+                          onChange={(event) => setSubDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              void submitSubDraft();
+                            }
+                            if (event.key === "Escape") {
+                              setSubCreateFor(null);
+                              setSubDraft("");
+                            }
+                          }}
+                          placeholder={`Inside ${folder.name}`}
+                          className="w-full bg-transparent pb-1 outline-none"
+                          style={{
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.10em",
+                            color: "var(--lm-sidebar-text)",
+                            borderBottom: "1px solid var(--lm-coral)",
+                            caretColor: "var(--lm-coral)",
+                            opacity: subBusy ? 0.5 : 1,
+                          }}
+                          aria-label={`New sub-collection inside ${folder.name}`}
+                        />
+                      </div>
+                    )}
+                    {(childrenByParent.get(folder._id) ?? []).map((child) => (
+                      <FilterRow
+                        key={child._id}
+                        indent
+                        label={child.name}
+                        count={child.count}
+                        active={selectedFolderId === child._id}
+                        onClick={() =>
+                          onFolderSelect(
+                            selectedFolderId === child._id ? null : child._id,
+                          )
+                        }
+                        onDropAssets={
+                          onAssetsDropOnFolder
+                            ? (assetIds) =>
+                                onAssetsDropOnFolder(child._id, assetIds)
+                            : undefined
+                        }
+                        onRename={
+                          onRenameFolder
+                            ? (name) => onRenameFolder(child._id, name)
+                            : undefined
+                        }
+                        onDelete={
+                          onDeleteFolder
+                            ? () => onDeleteFolder(child._id)
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
@@ -1267,6 +1437,12 @@ function FilterRow({
   onDropAssets,
   onRename,
   onDelete,
+  showcased = false,
+  onToggleShowcase,
+  featured = false,
+  onToggleFeatured,
+  onAddSub,
+  indent = false,
 }: {
   icon?: React.ElementType;
   label: string;
@@ -1278,12 +1454,26 @@ function FilterRow({
   /** When set, the row shows hover manage controls. */
   onRename?: (name: string) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
+  /** True when this row is published to the public showcase. */
+  showcased?: boolean;
+  /** When set, the row shows a public/showcase toggle. */
+  onToggleShowcase?: (next: boolean) => void;
+  /** True when this row is featured (hero) on the showcase home. */
+  featured?: boolean;
+  /** When set, the row shows a feature toggle (implies publishing). */
+  onToggleFeatured?: (next: boolean) => void;
+  /** When set, the row shows an add-sub-collection control. */
+  onAddSub?: () => void;
+  /** Renders as a nested sub-collection row. */
+  indent?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   // Two-step delete: first click arms, second executes; leaving disarms.
   const [deleteArmed, setDeleteArmed] = useState(false);
-  const manageable = Boolean(onRename || onDelete);
+  const manageable = Boolean(
+    onRename || onDelete || onToggleShowcase || onToggleFeatured || onAddSub,
+  );
 
   const commitRename = () => {
     const name = (renameDraft ?? "").trim();
@@ -1321,15 +1511,16 @@ function FilterRow({
             }
           : undefined
       }
-      style={
-        dragOver
+      style={{
+        ...(indent ? { paddingLeft: "34px" } : {}),
+        ...(dragOver
           ? {
               backgroundColor: "rgba(255, 122, 100, 0.14)",
               boxShadow: "inset 0 0 0 2px var(--lm-coral)",
               borderRadius: "8px",
             }
-          : undefined
-      }
+          : {}),
+      }}
     >
       {Icon ? (
         <Icon
@@ -1384,6 +1575,20 @@ function FilterRow({
           {label}
         </span>
       )}
+      {featured && renameDraft === null && (
+        <Star
+          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
+          aria-label="Featured on showcase"
+        />
+      )}
+      {showcased && !featured && renameDraft === null && (
+        <Globe
+          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          style={{ color: "var(--lm-coral)" }}
+          aria-label="Public on showcase"
+        />
+      )}
       {count !== undefined && renameDraft === null && (
         <span
           className={manageable ? "group-hover:hidden" : undefined}
@@ -1401,6 +1606,75 @@ function FilterRow({
       )}
       {manageable && renameDraft === null && (
         <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+          {onAddSub && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddSub();
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{ color: "var(--lm-sidebar-text-ghost)" }}
+              aria-label={`New sub-collection inside ${label}`}
+              title="New sub-collection"
+            >
+              <Plus className="h-2.5 w-2.5" />
+            </span>
+          )}
+          {onToggleFeatured && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFeatured(!featured);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{
+                color: featured
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+              }}
+              aria-label={
+                featured ? `Unfeature ${label}` : `Feature ${label} on showcase`
+              }
+              title={
+                featured
+                  ? "Featured on your showcase — click to unfeature"
+                  : "Feature on your showcase home (publishes it too)"
+              }
+            >
+              <Star
+                className="h-2.5 w-2.5"
+                style={featured ? { fill: "var(--lm-coral)" } : undefined}
+              />
+            </span>
+          )}
+          {onToggleShowcase && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleShowcase(!showcased);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{
+                color: showcased
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+              }}
+              aria-label={showcased ? `Unpublish ${label}` : `Publish ${label} to showcase`}
+              title={
+                showcased
+                  ? "Public on your showcase — click to unpublish"
+                  : "Publish to your public showcase"
+              }
+            >
+              <Globe className="h-2.5 w-2.5" />
+            </span>
+          )}
           {onRename && (
             <span
               role="button"

@@ -12,6 +12,7 @@ import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
+import { canonicalFolderName } from "./folderHelpers";
 import {
   optionalProjectSectionValidator,
   projectSectionValidator,
@@ -327,6 +328,28 @@ export const buildProjectView = async (
     ),
   );
 
+  // An asset is presented ONCE: unsectioned collections (the Inbox / staging
+  // pool) hide anything that's already filed into a sectioned collection
+  // (beat / characters / locations / stills). Without this, an inbox leftover
+  // renders both in its beat stack AND in the unsorted list.
+  const filedAssetIds = new Set<string>();
+  for (const collection of collections) {
+    if (collection.section === undefined) continue;
+    for (const asset of collection.assets) {
+      filedAssetIds.add(asset._id);
+    }
+  }
+  for (const collection of collections) {
+    if (collection.section !== undefined) continue;
+    const unfiled = collection.assets.filter(
+      (asset) => !filedAssetIds.has(asset._id),
+    );
+    if (unfiled.length !== collection.assets.length) {
+      collection.assets = unfiled;
+      collection.count = unfiled.length;
+    }
+  }
+
   // Viewer likes from the shared board, grouped per asset and per whole
   // direction, with the names viewers chose to leave (anonymous likes count
   // but add no name).
@@ -433,6 +456,218 @@ const requireOwnedFolder = async (
   }
   return folder;
 };
+
+/**
+ * File loose assets into a project. Membership semantics: an asset is "in" a
+ * project when it belongs to ANY of the project's member collections — so
+ * assets already present (e.g. living inside a beat) are SKIPPED, not
+ * double-filed. Only genuinely new assets land in the project's "— Inbox"
+ * direction, ready to be sorted into beats from the workspace.
+ */
+export const addAssetsToProject = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    assetIds: v.array(v.id("assets")),
+  },
+  returns: v.object({
+    added: v.number(),
+    skipped: v.number(),
+    inboxFolderId: v.union(v.id("folders"), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const project = await requireOwnedFolder(
+      ctx,
+      ownerUserId,
+      args.projectId,
+      "project",
+    );
+
+    const memberLinks = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const memberFolderIds = new Set(memberLinks.map((link) => link.folderId));
+
+    // Partition: already-in-project vs genuinely new.
+    const toAdd: Id<"assets">[] = [];
+    let skipped = 0;
+    for (const assetId of Array.from(new Set(args.assetIds))) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) continue;
+      if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+        throw new ConvexError("Asset does not belong to this user.");
+      }
+      let inProject = Boolean(
+        asset.folderId && memberFolderIds.has(asset.folderId),
+      );
+      if (!inProject) {
+        const links = await ctx.db
+          .query("assetFolders")
+          .withIndex("by_asset", (q) => q.eq("assetId", assetId))
+          .collect();
+        inProject = links.some((link) => memberFolderIds.has(link.folderId));
+      }
+      if (inProject) {
+        skipped += 1;
+      } else {
+        toAdd.push(assetId);
+      }
+    }
+
+    if (toAdd.length === 0) {
+      return { added: 0, skipped, inboxFolderId: null };
+    }
+
+    // Ensure the project's Inbox direction exists and is a member.
+    const inboxName = `${project.name} — Inbox`;
+    const normalizedInboxName = canonicalFolderName(inboxName);
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    let inbox = null;
+    for (const ownerCandidate of ownerUserIds) {
+      inbox = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q
+            .eq("ownerUserId", ownerCandidate)
+            .eq("normalizedName", normalizedInboxName),
+        )
+        .unique();
+      if (inbox) break;
+    }
+    const now = Date.now();
+    const inboxFolderId = inbox
+      ? inbox._id
+      : await ctx.db.insert("folders", {
+          ownerUserId,
+          name: inboxName,
+          normalizedName: normalizedInboxName,
+          kind: "direction",
+          createdAt: now,
+          updatedAt: now,
+        });
+    if (!memberFolderIds.has(inboxFolderId)) {
+      const existingLink = await ctx.db
+        .query("projectCollections")
+        .withIndex("by_project_folder", (q) =>
+          q.eq("projectId", args.projectId).eq("folderId", inboxFolderId),
+        )
+        .unique();
+      if (!existingLink) {
+        await ctx.db.insert("projectCollections", {
+          ownerUserId,
+          projectId: args.projectId,
+          folderId: inboxFolderId,
+          createdAt: now,
+        });
+      }
+    }
+
+    for (const assetId of toAdd) {
+      const existing = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset_folder", (q) =>
+          q.eq("assetId", assetId).eq("folderId", inboxFolderId),
+        )
+        .unique();
+      if (!existing) {
+        await ctx.db.insert("assetFolders", {
+          ownerUserId,
+          assetId,
+          folderId: inboxFolderId,
+          createdAt: now,
+        });
+      }
+    }
+
+    return { added: toAdd.length, skipped, inboxFolderId };
+  },
+});
+
+/**
+ * File an asset into one of a project's member collections (drop on a beat /
+ * stack). MOVE semantics relative to the project's staging pool: the asset is
+ * linked to the target and its links to the project's UNSECTIONED member
+ * collections (the Inbox) are removed — filing drains staging instead of
+ * duplicating. Memberships outside this project are untouched.
+ */
+export const fileAssetIntoProjectCollection = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    assetId: v.id("assets"),
+    folderId: v.id("folders"),
+  },
+  returns: v.object({ filed: v.boolean(), drained: v.number() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    const memberLinks = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const target = memberLinks.find((link) => link.folderId === args.folderId);
+    if (!target) {
+      throw new ConvexError("Target collection is not part of this project.");
+    }
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_asset_folder", (q) =>
+        q.eq("assetId", args.assetId).eq("folderId", args.folderId),
+      )
+      .unique();
+    if (!existing) {
+      await ctx.db.insert("assetFolders", {
+        ownerUserId,
+        assetId: args.assetId,
+        folderId: args.folderId,
+        createdAt: now,
+      });
+    }
+
+    // Drain the staging pool: unsectioned member collections lose this asset.
+    let drained = 0;
+    const unsortedFolderIds = memberLinks
+      .filter(
+        (link) => link.section === undefined && link.folderId !== args.folderId,
+      )
+      .map((link) => link.folderId);
+    for (const unsortedFolderId of unsortedFolderIds) {
+      const link = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset_folder", (q) =>
+          q.eq("assetId", args.assetId).eq("folderId", unsortedFolderId),
+        )
+        .unique();
+      if (link) {
+        await ctx.db.delete(link._id);
+        drained += 1;
+      }
+      if (asset.folderId === unsortedFolderId) {
+        await ctx.db.patch(args.assetId, { folderId: undefined });
+      }
+    }
+
+    return { filed: !existing, drained };
+  },
+});
 
 export const addCollectionToProject = mutation({
   args: {

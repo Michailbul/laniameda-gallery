@@ -16,6 +16,7 @@ const ascii = (bytes: Uint8Array, start: number, end: number) => {
 const u16be = (b: Uint8Array, o: number) => (b[o]! << 8) | b[o + 1]!;
 const u32be = (b: Uint8Array, o: number) =>
   ((b[o]! << 24) | (b[o + 1]! << 16) | (b[o + 2]! << 8) | b[o + 3]!) >>> 0;
+const i32be = (b: Uint8Array, o: number) => u32be(b, o) | 0;
 const u16le = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8);
 const u24le = (b: Uint8Array, o: number) =>
   b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16);
@@ -132,6 +133,177 @@ function readIsoBmff(b: Uint8Array): PixelDimensions | null {
       }
     }
   }
+  return best;
+}
+
+type IsoBox = {
+  type: string;
+  /** First byte after this box's header (size + fourCC [+ largesize]). */
+  contentStart: number;
+  /** One byte past the end of the whole box. */
+  end: number;
+};
+
+/**
+ * Iterate the direct child boxes of an ISO-BMFF region [start, end).
+ * Each box is `[u32 size]["type"][payload]`; size 1 signals a 64-bit
+ * largesize, size 0 means "to the end of the region". Stops on any malformed
+ * length rather than reading out of bounds.
+ */
+function* iterIsoBoxes(
+  b: Uint8Array,
+  start: number,
+  end: number,
+): Generator<IsoBox> {
+  let o = start;
+  while (o + 8 <= end) {
+    let size = u32be(b, o);
+    const type = ascii(b, o + 4, o + 8);
+    let contentStart = o + 8;
+    if (size === 1) {
+      // 64-bit largesize follows the fourCC. JS numbers hold this exactly for
+      // any real media file; the high word is effectively always 0 here.
+      if (o + 16 > end) break;
+      size = u32be(b, o + 8) * 0x100000000 + u32be(b, o + 12);
+      contentStart = o + 16;
+    } else if (size === 0) {
+      size = end - o;
+    }
+    const boxEnd = o + size;
+    if (size < contentStart - o || boxEnd > end) break;
+    yield { type, contentStart, end: boxEnd };
+    o = boxEnd;
+  }
+}
+
+/**
+ * Parse a Track Header box (`tkhd`) for its display width/height. The box is a
+ * FullBox whose trailing `width`/`height` are 16.16 fixed-point presentation
+ * dimensions, preceded by a 3x3 display matrix. When the matrix encodes a
+ * 90°/270° rotation (a≈d≈0, |b|≈|c|≈1) the presentation is rotated, so the
+ * displayed width/height are swapped — this is how portrait phone/AI videos
+ * with landscape-coded frames read as portrait.
+ */
+function readTkhd(
+  b: Uint8Array,
+  contentStart: number,
+  end: number,
+): PixelDimensions | null {
+  if (contentStart + 4 > end) return null;
+  const version = b[contentStart]!;
+  // version(1) + flags(3), then time/id/duration fields sized by version.
+  let p = contentStart + 4 + (version === 1 ? 32 : 20);
+  // reserved[2] (8) + layer/alternate_group (4) + volume/reserved (4).
+  p += 16;
+  const matrixStart = p;
+  p += 36; // 9 x 32-bit matrix entries.
+  if (p + 8 > end) return null;
+
+  let width = u32be(b, p) / 65536;
+  let height = u32be(b, p + 4) / 65536;
+
+  // Matrix layout: [a b u][c d v][x y w]; a,b,c,d are 16.16 fixed-point.
+  const a = i32be(b, matrixStart) / 65536;
+  const bb = i32be(b, matrixStart + 4) / 65536;
+  const c = i32be(b, matrixStart + 12) / 65536;
+  const d = i32be(b, matrixStart + 16) / 65536;
+  const rotated =
+    Math.abs(a) < 0.01 &&
+    Math.abs(d) < 0.01 &&
+    Math.abs(bb) > 0.99 &&
+    Math.abs(c) > 0.99;
+  if (rotated) [width, height] = [height, width];
+
+  return valid(Math.round(width), Math.round(height));
+}
+
+/**
+ * Fallback to a track's coded dimensions from its first visual sample entry:
+ * `mdia > minf > stbl > stsd > <codec box>`. Used when `tkhd` carries no usable
+ * presentation size. A VisualSampleEntry stores width/height as u16 at a fixed
+ * offset (16 bytes into the box body, after the 8-byte SampleEntry preamble).
+ */
+function readTrackCodedDimensions(
+  b: Uint8Array,
+  trakContentStart: number,
+  trakEnd: number,
+): PixelDimensions | null {
+  const descend = (
+    start: number,
+    boxEnd: number,
+    type: string,
+  ): IsoBox | null => {
+    for (const box of iterIsoBoxes(b, start, boxEnd)) {
+      if (box.type === type) return box;
+    }
+    return null;
+  };
+
+  const mdia = descend(trakContentStart, trakEnd, "mdia");
+  if (!mdia) return null;
+  const minf = descend(mdia.contentStart, mdia.end, "minf");
+  if (!minf) return null;
+  const stbl = descend(minf.contentStart, minf.end, "stbl");
+  if (!stbl) return null;
+  const stsd = descend(stbl.contentStart, stbl.end, "stsd");
+  if (!stsd) return null;
+
+  // stsd is a FullBox: version(1) + flags(3) + entry_count(4), then the entries.
+  for (const entry of iterIsoBoxes(b, stsd.contentStart + 8, stsd.end)) {
+    // VisualSampleEntry: SampleEntry(8) + predefined/reserved(16), then w/h.
+    const wOff = entry.contentStart + 24;
+    if (wOff + 4 > entry.end) continue;
+    const dims = valid(u16be(b, wOff), u16be(b, wOff + 2));
+    if (dims) return dims;
+  }
+  return null;
+}
+
+/**
+ * Best-effort intrinsic dimensions from raw MP4/MOV (ISO-BMFF) video bytes.
+ * Walks `moov > trak > tkhd` for each track and returns the largest-area track
+ * (audio tracks carry zero-sized `tkhd` dimensions and are skipped), falling
+ * back to the coded sample dimensions when a track's `tkhd` size is unusable.
+ * Returns null when nothing parses, so callers can fall back.
+ */
+export function readVideoDimensions(
+  bytes: Uint8Array,
+): PixelDimensions | null {
+  if (bytes.length < 16) return null;
+
+  let best: PixelDimensions | null = null;
+  let bestArea = 0;
+  const consider = (dims: PixelDimensions | null) => {
+    if (!dims) return;
+    const area = dims.width * dims.height;
+    if (area > bestArea) {
+      bestArea = area;
+      best = dims;
+    }
+  };
+
+  for (const top of iterIsoBoxes(bytes, 0, bytes.length)) {
+    if (top.type !== "moov") continue;
+    for (const trak of iterIsoBoxes(bytes, top.contentStart, top.end)) {
+      if (trak.type !== "trak") continue;
+      let trackDims: PixelDimensions | null = null;
+      for (const child of iterIsoBoxes(bytes, trak.contentStart, trak.end)) {
+        if (child.type === "tkhd") {
+          trackDims = readTkhd(bytes, child.contentStart, child.end);
+          break;
+        }
+      }
+      if (!trackDims) {
+        trackDims = readTrackCodedDimensions(
+          bytes,
+          trak.contentStart,
+          trak.end,
+        );
+      }
+      consider(trackDims);
+    }
+  }
+
   return best;
 }
 

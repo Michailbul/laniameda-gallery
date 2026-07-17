@@ -3,9 +3,14 @@
 import "@/app/tokens.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Download, Eye, EyeOff, FolderInput, Loader2, Plus, Search as SearchIcon, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, FolderInput, FolderPlus, Layers, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
 import { CoralToastProvider } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
@@ -20,6 +25,11 @@ import {
 import { CanvasMode } from "./canvas-mode";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { PackGrid, PackDetailView } from "./pack-grid";
+import { CollectionsGrid } from "./collections-grid";
+import {
+  BrowseBreadcrumb,
+  type BreadcrumbSegment,
+} from "./browse-breadcrumb";
 import { GalleryDetailPanel } from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
@@ -217,6 +227,11 @@ export function GalleryDashboard({
     setViewModeRaw(mode);
     if (mode !== "packs") setSelectedPackId(null);
   }, []);
+  // Browsing a project's pool in the main grid (breadcrumb: PROJECTS / name).
+  const [browseProject, setBrowseProject] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
 
@@ -406,11 +421,15 @@ export function GalleryDashboard({
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
-  const addCollectionToProjectMutation = useMutation(
-    api.projects.addCollectionToProject,
+  const addAssetsToProjectMutation = useMutation(
+    api.projects.addAssetsToProject,
   );
   const updateFolderMutation = useMutation(api.folders.updateFolder);
   const deleteFolderMutation = useMutation(api.folders.deleteFolder);
+  const setFolderShowcasedMutation = useMutation(
+    api.folders.setFolderShowcased,
+  );
+  const setFolderFeaturedMutation = useMutation(api.folders.setFolderFeatured);
   const deleteWorkflowMutation = useMutation(api.workflows.deleteWorkflow);
   // Ids of workflow grid entries, so delete can route to the right backend.
   // A ref (synced below where workflow entries are computed) because
@@ -653,6 +672,13 @@ export function GalleryDashboard({
     });
   }, []);
 
+  // Replace the whole selection set — used by shift+drag box-select in the grid.
+  const replaceAssetSelection = useCallback((ids: string[]) => {
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    setSelectedAssetIds(new Set(ids));
+  }, []);
+
   const clearAssetSelection = useCallback(() => {
     setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
     setBulkCurationError(undefined);
@@ -661,7 +687,7 @@ export function GalleryDashboard({
   }, []);
 
   const runBulkCuration = useCallback(
-    async (isPublic: boolean, overrideIds?: string[]) => {
+    async (isPublic: boolean, overrideIds?: string[], isFeatured?: boolean) => {
       if (bulkCurationLoading || !canCuratePublic) return;
       const ids = overrideIds ?? Array.from(selectedAssetIds);
       if (ids.length === 0) return;
@@ -673,7 +699,11 @@ export function GalleryDashboard({
         const response = await fetch("/api/admin/assets/bulk-curation", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ assetIds: ids, isPublic }),
+          body: JSON.stringify({
+            assetIds: ids,
+            isPublic,
+            ...(isFeatured !== undefined ? { isFeatured } : {}),
+          }),
         });
         const payload = (await response.json().catch(() => null)) as {
           error?: string;
@@ -688,7 +718,12 @@ export function GalleryDashboard({
         }
 
         const { updatedCount, skippedCount } = payload.result;
-        const verb = isPublic ? "made public" : "made private";
+        const verb =
+          isFeatured === true
+            ? "featured on the taste profile"
+            : isPublic
+              ? "made public"
+              : "made private";
         const skippedSuffix =
           skippedCount > 0 ? ` (${skippedCount} skipped)` : "";
         setBulkCurationStatus(
@@ -1056,6 +1091,116 @@ export function GalleryDashboard({
     [foldersWithCounts],
   );
 
+  // Collections browse view: preview summaries fetched only while the view is
+  // open, merged with the live counts the dashboard already subscribes to.
+  const collectionSummaries = useQuery(
+    api.folders.listCollectionSummaries,
+    viewMode === "collections" && galleryScope === "mine" && canAccessMyGallery
+      ? { ownerUserId }
+      : "skip",
+  );
+  const collectionCards = useMemo(
+    () =>
+      (collectionSummaries ?? []).map((summary) => ({
+        ...summary,
+        count: folderCountById.get(summary._id) ?? 0,
+      })),
+    [collectionSummaries, folderCountById],
+  );
+  const openCollectionFromCard = useCallback(
+    (folderId: string) => {
+      setOpenProjectId(null);
+      setBrowseProject(null);
+      setSelectedFolderId(folderId);
+      setViewMode("grid");
+    },
+    [setViewMode],
+  );
+  const openProjectFromCard = useCallback(
+    (projectId: string, name: string) => {
+      setOpenProjectId(null);
+      setSelectedFolderId(null);
+      setBrowseProject({ id: projectId, name });
+      setViewMode("grid");
+    },
+    [setViewMode],
+  );
+
+  // Which folders (collections + storybooks) are published to the public
+  // showcase. Derived from the folders query so it covers every folder kind.
+  const showcasedFolderIds = useMemo(
+    () =>
+      new Set(
+        (folders ?? [])
+          .filter((folder) => folder.showcased)
+          .map((folder) => folder._id),
+      ),
+    [folders],
+  );
+  const toggleFolderShowcase = useCallback(
+    (folderId: string, next: boolean) => {
+      if (!ownerUserId) return;
+      void setFolderShowcasedMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+        showcased: next,
+      });
+    },
+    [ownerUserId, setFolderShowcasedMutation],
+  );
+
+  // Featured = hero treatment on the public home. Featuring an unpublished
+  // set publishes it too (backend enforces featured ⇒ showcased).
+  const featuredFolderIds = useMemo(
+    () =>
+      new Set(
+        (folders ?? [])
+          .filter((folder) => folder.showcaseFeatured)
+          .map((folder) => folder._id),
+      ),
+    [folders],
+  );
+  const toggleFolderFeatured = useCallback(
+    (folderId: string, next: boolean) => {
+      if (!ownerUserId) return;
+      void setFolderFeaturedMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+        featured: next,
+      });
+    },
+    [ownerUserId, setFolderFeaturedMutation],
+  );
+
+  const createSubCollection = useCallback(
+    async (parentFolderId: string, name: string): Promise<string | null> => {
+      if (!canAccessMyGallery) {
+        setFolderError("Sign in to create folders.");
+        return null;
+      }
+      const trimmedName = name.trim();
+      if (!trimmedName) return null;
+
+      setFolderError(undefined);
+      try {
+        const result = await createFolderMutation({
+          ownerUserId,
+          name: trimmedName,
+          parentFolderId: parentFolderId as Id<"folders">,
+        });
+        return result.folderId;
+      } catch (error) {
+        setFolderError(
+          error instanceof Error
+            ? error.message
+            : "Failed to create sub-collection.",
+        );
+        return null;
+      }
+    },
+    [canAccessMyGallery, createFolderMutation, ownerUserId],
+  );
+
   const storybooks = useQuery(
     api.storybooks.listStorybooks,
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
@@ -1218,9 +1363,110 @@ export function GalleryDashboard({
     return ids.size > 0 ? Array.from(ids) : undefined;
   }, [selectedTags, sourceIdsByTagKey]);
 
+  // Cursor pagination serves the default browse (newest, no folder): pages of
+  // 60 stream in as the grid's scroll frontier nears the end of what's loaded,
+  // so the whole gallery is never read in one query — and reactive re-runs
+  // only re-read the page that changed. Folder views and the
+  // featured/popular/largest sorts need the full set in hand (they join or
+  // globally re-order), so they keep the one-shot query, now capped at 600.
+  // Breadcrumb above the grid while browsing inside a set. Roots return to
+  // the collections (landing) view.
+  const breadcrumbSegments = useMemo<BreadcrumbSegment[]>(() => {
+    if (galleryScope !== "mine" || viewMode !== "grid") return [];
+    if (browseProject) {
+      return [
+        {
+          label: "Projects",
+          onClick: () => {
+            setBrowseProject(null);
+            setViewMode("collections");
+          },
+        },
+        { label: browseProject.name },
+      ];
+    }
+    if (effectiveSelectedFolderId) {
+      const folder = foldersWithCounts.find(
+        (entry) => entry._id === effectiveSelectedFolderId,
+      );
+      if (!folder) return [];
+      const segments: BreadcrumbSegment[] = [
+        {
+          label: "Collections",
+          onClick: () => {
+            setSelectedFolderId(null);
+            setViewMode("collections");
+          },
+        },
+      ];
+      const parent = folder.parentFolderId
+        ? foldersWithCounts.find((entry) => entry._id === folder.parentFolderId)
+        : undefined;
+      if (parent) {
+        segments.push({
+          label: parent.name,
+          onClick: () => setSelectedFolderId(parent._id),
+        });
+      }
+      segments.push({ label: folder.name });
+      return segments;
+    }
+    return [];
+  }, [
+    browseProject,
+    effectiveSelectedFolderId,
+    foldersWithCounts,
+    galleryScope,
+    setViewMode,
+    viewMode,
+  ]);
+
+  const paginationActive =
+    sortOrder === "newest" &&
+    !effectiveSelectedFolderId &&
+    !browseProject &&
+    selectedPillar !== "designs";
+
+  const minePagedAssets = usePaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    paginationActive && galleryScope === "mine" && canAccessMyGallery
+      ? {
+          ownerUserId,
+          tagIds: selectedTagIds,
+          pillar: selectedPillar ?? undefined,
+          modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
+          onlyLiked: likedOnly || undefined,
+        }
+      : "skip",
+    { initialNumItems: 60 },
+  );
+  const publicPagedAssets = usePaginatedQuery(
+    api.assets.listPublicGalleryAssetsPage,
+    paginationActive && galleryScope === "public"
+      ? {
+          tagIds: selectedTagIds,
+          pillar: selectedPillar ?? undefined,
+          modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
+        }
+      : "skip",
+    { initialNumItems: 60 },
+  );
+  const activePagedAssets =
+    galleryScope === "mine" ? minePagedAssets : publicPagedAssets;
+  // The grid calls this repeatedly while its frontier is exposed; loadMore is
+  // a no-op unless a next page is actually available.
+  const loadNextGalleryPage = useCallback(() => {
+    if (!paginationActive) return;
+    if (activePagedAssets.status === "CanLoadMore") {
+      activePagedAssets.loadMore(60);
+    }
+  }, [paginationActive, activePagedAssets]);
+
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
-    galleryScope === "mine" && canAccessMyGallery
+    !paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
           tagIds: selectedTagIds,
@@ -1228,17 +1474,20 @@ export function GalleryDashboard({
           folderId: effectiveSelectedFolderId
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
+          projectId: browseProject
+            ? (browseProject.id as Id<"folders">)
+            : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          limit: 2000,
+          limit: 600,
         }
       : "skip",
   );
 
   const publicGalleryAssets = useQuery(
     api.assets.listPublicGalleryAssets,
-    galleryScope === "public"
+    !paginationActive && galleryScope === "public"
       ? {
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
@@ -1247,7 +1496,7 @@ export function GalleryDashboard({
             : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
-          limit: 2000,
+          limit: 600,
         }
       : "skip",
   );
@@ -1270,8 +1519,9 @@ export function GalleryDashboard({
   );
   const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
 
-  const galleryAssets =
-    galleryScope === "mine"
+  const galleryAssets = paginationActive
+    ? activePagedAssets.results
+    : galleryScope === "mine"
       ? mineGalleryAssets
       : publicGalleryAssets;
   const baseGalleryAssets = useMemo(
@@ -1396,6 +1646,7 @@ export function GalleryDashboard({
     setSelectedTags([]);
     setSelectedPillar(null);
     setSelectedFolderId(null);
+    setBrowseProject(null);
     setSelectedModelName(null);
     setWorkflowsOnly(false);
     setMediaKind(null);
@@ -1635,6 +1886,7 @@ export function GalleryDashboard({
     galleryScope === "mine" &&
     viewMode === "grid" &&
     !effectiveSelectedFolderId &&
+    !browseProject &&
     !selectedPillar &&
     !selectedModelName &&
     !mediaKind &&
@@ -1836,6 +2088,76 @@ export function GalleryDashboard({
     [moveAssetsToFolder, selectedAssetIds],
   );
 
+  // ── Bulk "Add to" picker: file the selection into a collection or project
+  // (ADD semantics — existing memberships are kept), or create the target on
+  // the spot. Successful adds clear the selection so the next sorting batch
+  // can be picked immediately. (Handlers referencing
+  // handleAssetsDropOnProject live below its declaration.)
+  const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
+  const [bulkAddDraft, setBulkAddDraft] = useState("");
+  const [bulkAddBusy, setBulkAddBusy] = useState(false);
+
+  const finishBulkAdd = useCallback(() => {
+    setBulkAddMenuOpen(false);
+    setBulkAddDraft("");
+    setSelectedAssetIds(new Set());
+  }, []);
+
+  const addSelectedToFolder = useCallback(
+    async (folderId: string, folderNameOverride?: string) => {
+      const ids = Array.from(selectedAssetIds);
+      if (ids.length === 0 || bulkAddBusy) return;
+      setBulkAddBusy(true);
+      try {
+        await Promise.all(
+          ids.map((assetId) =>
+            addAssetFoldersMutation({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: [folderId as Id<"folders">],
+            }),
+          ),
+        );
+        setMoveStatus({
+          text: `Added ${ids.length} to ${folderNameOverride ?? folderNameById.get(folderId) ?? "collection"}`,
+        });
+        finishBulkAdd();
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Add failed.",
+          error: true,
+        });
+      } finally {
+        setBulkAddBusy(false);
+      }
+    },
+    [
+      addAssetFoldersMutation,
+      bulkAddBusy,
+      finishBulkAdd,
+      folderNameById,
+      ownerUserId,
+      selectedAssetIds,
+    ],
+  );
+
+  // Collections grouped for the picker: roots first, sub-collections nested.
+  const bulkAddCollectionTree = useMemo(() => {
+    const ids = new Set(collectionFoldersWithCounts.map((f) => f._id));
+    const roots: typeof collectionFoldersWithCounts = [];
+    const childrenByParent = new Map<string, typeof collectionFoldersWithCounts>();
+    for (const folder of collectionFoldersWithCounts) {
+      if (folder.parentFolderId && ids.has(folder.parentFolderId)) {
+        const list = childrenByParent.get(folder.parentFolderId) ?? [];
+        list.push(folder);
+        childrenByParent.set(folder.parentFolderId, list);
+      } else {
+        roots.push(folder);
+      }
+    }
+    return { roots, childrenByParent };
+  }, [collectionFoldersWithCounts]);
+
   // Per-card collection controls (gallery grid): move replaces membership,
   // add keeps existing collections, remove drops a single membership.
   const moveAssetToFolder = useCallback(
@@ -2033,32 +2355,34 @@ export function GalleryDashboard({
   // (created + attached on first drop, idempotent) so a drop never needs a
   // target choice mid-drag; sort into proper directions later.
   const handleAssetsDropOnProject = useCallback(
-    async (projectId: string, assetIds: string[]) => {
+    // projectNameOverride covers just-created projects that aren't in the
+    // reactive `projects` list yet (used by the bulk "Add to" picker).
+    async (projectId: string, assetIds: string[], projectNameOverride?: string) => {
       if (assetIds.length === 0) return;
       const project = (projects ?? []).find((p) => p._id === projectId);
-      const projectName = project?.name ?? "Project";
+      const projectName = projectNameOverride ?? project?.name ?? "Project";
       try {
-        const inbox = await createFolderMutation({
-          ownerUserId,
-          name: `${projectName} — Inbox`,
-          kind: "direction",
-        });
-        await addCollectionToProjectMutation({
+        // Server-side: skips assets already inside ANY of the project's
+        // member collections (e.g. already living in a beat); only genuinely
+        // new assets land in the project's Inbox.
+        const result = await addAssetsToProjectMutation({
           ownerUserId,
           projectId: projectId as Id<"folders">,
-          folderId: inbox.folderId,
+          assetIds: assetIds as Id<"assets">[],
         });
-        await Promise.all(
-          assetIds.map((assetId) =>
-            addAssetFoldersMutation({
-              ownerUserId,
-              assetId: assetId as Id<"assets">,
-              folderIds: [inbox.folderId],
-            }),
-          ),
-        );
+        const parts: string[] = [];
+        if (result.added > 0) {
+          parts.push(
+            `Added ${result.added} to ${projectName} — Inbox`,
+          );
+        }
+        if (result.skipped > 0) {
+          parts.push(
+            `${result.skipped} already in ${projectName}`,
+          );
+        }
         setMoveStatus({
-          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${projectName} — Inbox`,
+          text: parts.join(" · ") || `Nothing to add to ${projectName}`,
         });
       } catch (error) {
         setMoveStatus({
@@ -2071,11 +2395,59 @@ export function GalleryDashboard({
       }
     },
     [
-      addAssetFoldersMutation,
-      addCollectionToProjectMutation,
-      createFolderMutation,
+      addAssetsToProjectMutation,
       ownerUserId,
       projects,
+    ],
+  );
+
+  const addSelectedToProject = useCallback(
+    async (projectId: string, projectNameOverride?: string) => {
+      const ids = Array.from(selectedAssetIds);
+      if (ids.length === 0 || bulkAddBusy) return;
+      setBulkAddBusy(true);
+      try {
+        await handleAssetsDropOnProject(projectId, ids, projectNameOverride);
+        finishBulkAdd();
+      } finally {
+        setBulkAddBusy(false);
+      }
+    },
+    [bulkAddBusy, finishBulkAdd, handleAssetsDropOnProject, selectedAssetIds],
+  );
+
+  const createTargetAndAddSelected = useCallback(
+    async (kind: "collection" | "project") => {
+      const name = bulkAddDraft.trim();
+      if (!name || bulkAddBusy) return;
+      try {
+        const result = await createFolderMutation({
+          ownerUserId,
+          name,
+          kind: kind === "project" ? "project" : undefined,
+        });
+        if (kind === "project") {
+          await addSelectedToProject(result.folderId, name);
+        } else {
+          await addSelectedToFolder(result.folderId, name);
+        }
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : `Failed to create ${kind}.`,
+          error: true,
+        });
+      }
+    },
+    [
+      addSelectedToFolder,
+      addSelectedToProject,
+      bulkAddBusy,
+      bulkAddDraft,
+      createFolderMutation,
+      ownerUserId,
     ],
   );
 
@@ -2549,16 +2921,20 @@ export function GalleryDashboard({
   const isLoading =
     isDesignsPillar && galleryScope === "mine"
       ? canAccessMyGallery && mineDesignEntries === undefined
-      : galleryScope === "mine"
-        ? canAccessMyGallery &&
-          mineGalleryAssets === undefined
-        : publicGalleryAssets === undefined;
+      : paginationActive
+        ? (galleryScope === "public" || canAccessMyGallery) &&
+          activePagedAssets.status === "LoadingFirstPage"
+        : galleryScope === "mine"
+          ? canAccessMyGallery &&
+            mineGalleryAssets === undefined
+          : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
     selectedPillar !== null ||
     workflowsOnly ||
     likedOnly ||
     effectiveSelectedFolderId !== null ||
+    browseProject !== null ||
     selectedModelName !== null ||
     assetSearchQuery.trim().length > 0 ||
     semanticMode?.kind === "similar";
@@ -2831,6 +3207,7 @@ export function GalleryDashboard({
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={(folderId) => {
             setOpenProjectId(null);
+            setBrowseProject(null);
             setSelectedFolderId(folderId);
           }}
           onAssetsDropOnFolder={
@@ -2898,6 +3275,22 @@ export function GalleryDashboard({
           }
           onDeleteFolder={
             canManageFoldersInCurrentView ? handleDeleteFolder : undefined
+          }
+          showcasedFolderIds={showcasedFolderIds}
+          onToggleShowcase={
+            canManageFoldersInCurrentView ? toggleFolderShowcase : undefined
+          }
+          featuredFolderIds={featuredFolderIds}
+          onToggleFeatured={
+            canManageFoldersInCurrentView ? toggleFolderFeatured : undefined
+          }
+          onCreateSubCollection={
+            canManageFoldersInCurrentView ? createSubCollection : undefined
+          }
+          onPreviewShowcase={
+            canManageFoldersInCurrentView
+              ? () => window.open("/?preview=1", "_blank")
+              : undefined
           }
         />
       </div>
@@ -3074,6 +3467,9 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
             >
+              {!storybooksView && breadcrumbSegments.length > 0 && (
+                <BrowseBreadcrumb segments={breadcrumbSegments} />
+              )}
               {storybooksView ? (
                 storybookEntries.length > 0 ? (
                   <MasonryGrid
@@ -3095,6 +3491,36 @@ export function GalleryDashboard({
                       }}
                     >
                       No storybooks yet. Create one from the sidebar.
+                    </p>
+                  </div>
+                )
+              ) : viewMode === "collections" ? (
+                galleryScope === "mine" && canAccessMyGallery ? (
+                  <CollectionsGrid
+                    collections={collectionCards}
+                    onOpenCollection={openCollectionFromCard}
+                    projects={(projects ?? []).map((project) => ({
+                      _id: project._id,
+                      name: project.name,
+                      count: project.assetCount,
+                      previewAssets: project.previewAssets,
+                    }))}
+                    onOpenProject={openProjectFromCard}
+                    loading={collectionSummaries === undefined}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
+                    <p
+                      style={{
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.12em",
+                        color: "var(--lm-text-tertiary)",
+                      }}
+                    >
+                      SWITCH TO MY GALLERY TO BROWSE COLLECTIONS.
                     </p>
                   </div>
                 )
@@ -3182,6 +3608,7 @@ export function GalleryDashboard({
                     selectable={canCuratePublic || canManageFoldersInCurrentView}
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
+                    onReplaceSelection={replaceAssetSelection}
                     likeable={canManageFoldersInCurrentView}
                     onToggleLike={(imageId, nextLiked) => {
                       void toggleAssetLike(imageId, nextLiked);
@@ -3221,6 +3648,9 @@ export function GalleryDashboard({
                     }
                     onStorybookOpen={setOpenStorybookId}
                     showPublicBadge={galleryScope === "mine"}
+                    onEndReached={
+                      paginationActive ? loadNextGalleryPage : undefined
+                    }
                   />
                 )
               ) : isNoMatches ? (
@@ -3608,7 +4038,271 @@ export function GalleryDashboard({
                   <button
                     type="button"
                     onClick={() => {
+                      setBulkAddMenuOpen((open) => !open);
+                      setBulkMoveMenuOpen(false);
+                    }}
+                    disabled={bulkCurationLoading || bulkAddBusy}
+                    className="lm-btn-ghost inline-flex items-center gap-1.5"
+                    style={{
+                      border: "2px solid var(--lm-border-strong)",
+                      borderRadius: "10px",
+                      padding: "6px 12px",
+                      fontSize: "11px",
+                      opacity: bulkCurationLoading || bulkAddBusy ? 0.55 : 1,
+                      cursor:
+                        bulkCurationLoading || bulkAddBusy
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={bulkAddMenuOpen}
+                    aria-label="Add selected assets to a collection or project"
+                    title="Add to collection or project (keeps existing collections)"
+                  >
+                    {bulkAddBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-3.5 w-3.5" />
+                    )}
+                    ADD TO
+                  </button>
+                  {bulkAddMenuOpen && (
+                    <div
+                      role="menu"
+                      className="absolute bottom-full left-0 mb-2 flex max-h-80 w-64 flex-col py-1"
+                      style={{
+                        backgroundColor: "var(--lm-surface-1)",
+                        border: "2px solid var(--lm-ink)",
+                        borderRadius: "12px",
+                        boxShadow: "var(--shadow-lg)",
+                        zIndex: 60,
+                      }}
+                    >
+                      {/* Create-new row */}
+                      <div
+                        className="flex flex-col gap-1.5 px-3 pb-2 pt-1.5"
+                        style={{
+                          borderBottom: "1px solid var(--lm-border-subtle)",
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={bulkAddDraft}
+                          disabled={bulkAddBusy}
+                          onChange={(event) => setBulkAddDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              void createTargetAndAddSelected("collection");
+                            }
+                            if (event.key === "Escape") {
+                              setBulkAddMenuOpen(false);
+                            }
+                          }}
+                          placeholder="New collection or project…"
+                          className="w-full bg-transparent pb-1 outline-none"
+                          style={{
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: "var(--lm-text-primary)",
+                            borderBottom: "1px solid var(--lm-coral)",
+                            caretColor: "var(--lm-coral)",
+                            opacity: bulkAddBusy ? 0.5 : 1,
+                          }}
+                          aria-label="Name for a new collection or project"
+                        />
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void createTargetAndAddSelected("collection");
+                            }}
+                            disabled={bulkAddBusy || !bulkAddDraft.trim()}
+                            className="inline-flex items-center gap-1 px-2 py-1"
+                            style={{
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "10px",
+                              fontWeight: 800,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              color: bulkAddDraft.trim()
+                                ? "var(--lm-coral)"
+                                : "var(--lm-text-ghost)",
+                              backgroundColor: "transparent",
+                              cursor:
+                                bulkAddBusy || !bulkAddDraft.trim()
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            <Plus className="h-3 w-3" /> Collection
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void createTargetAndAddSelected("project");
+                            }}
+                            disabled={bulkAddBusy || !bulkAddDraft.trim()}
+                            className="inline-flex items-center gap-1 px-2 py-1"
+                            style={{
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "10px",
+                              fontWeight: 800,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              color: bulkAddDraft.trim()
+                                ? "var(--lm-coral)"
+                                : "var(--lm-text-ghost)",
+                              backgroundColor: "transparent",
+                              cursor:
+                                bulkAddBusy || !bulkAddDraft.trim()
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            <Plus className="h-3 w-3" /> Project
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="overflow-y-auto">
+                        {/* Collections (roots + nested sub-collections) */}
+                        {bulkAddCollectionTree.roots.length > 0 && (
+                          <p
+                            className="px-3 pb-1 pt-2"
+                            style={{
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "9px",
+                              fontWeight: 800,
+                              letterSpacing: "0.16em",
+                              textTransform: "uppercase",
+                              color: "var(--lm-text-ghost)",
+                              margin: 0,
+                            }}
+                          >
+                            Collections
+                          </p>
+                        )}
+                        {bulkAddCollectionTree.roots.map((folder) => (
+                          <div key={folder._id}>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={bulkAddBusy}
+                              onClick={() => {
+                                void addSelectedToFolder(folder._id);
+                              }}
+                              className="interactive-ghost flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
+                              style={{
+                                fontFamily: "var(--lm-font)",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                color: "var(--lm-text-primary)",
+                                backgroundColor: "transparent",
+                                cursor: bulkAddBusy ? "wait" : "pointer",
+                              }}
+                            >
+                              <span className="truncate">{folder.name}</span>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  color: "var(--lm-text-tertiary)",
+                                }}
+                              >
+                                {folder.count}
+                              </span>
+                            </button>
+                            {(bulkAddCollectionTree.childrenByParent.get(folder._id) ?? []).map(
+                              (child) => (
+                                <button
+                                  key={child._id}
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={bulkAddBusy}
+                                  onClick={() => {
+                                    void addSelectedToFolder(child._id);
+                                  }}
+                                  className="interactive-ghost flex w-full items-center justify-between gap-2 py-1.5 pl-7 pr-3 text-left"
+                                  style={{
+                                    fontFamily: "var(--lm-font)",
+                                    fontSize: "12px",
+                                    fontWeight: 500,
+                                    color: "var(--lm-text-secondary)",
+                                    backgroundColor: "transparent",
+                                    cursor: bulkAddBusy ? "wait" : "pointer",
+                                  }}
+                                >
+                                  <span className="truncate">{child.name}</span>
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      color: "var(--lm-text-tertiary)",
+                                    }}
+                                  >
+                                    {child.count}
+                                  </span>
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Projects */}
+                        {(projects ?? []).length > 0 && (
+                          <p
+                            className="px-3 pb-1 pt-2"
+                            style={{
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "9px",
+                              fontWeight: 800,
+                              letterSpacing: "0.16em",
+                              textTransform: "uppercase",
+                              color: "var(--lm-text-ghost)",
+                              margin: 0,
+                              borderTop: "1px solid var(--lm-border-subtle)",
+                            }}
+                          >
+                            Projects
+                          </p>
+                        )}
+                        {(projects ?? []).map((project) => (
+                          <button
+                            key={project._id}
+                            type="button"
+                            role="menuitem"
+                            disabled={bulkAddBusy}
+                            onClick={() => {
+                              void addSelectedToProject(project._id);
+                            }}
+                            className="interactive-ghost flex w-full items-center gap-2 px-3 py-1.5 text-left"
+                            style={{
+                              fontFamily: "var(--lm-font)",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              color: "var(--lm-text-primary)",
+                              backgroundColor: "transparent",
+                              cursor: bulkAddBusy ? "wait" : "pointer",
+                            }}
+                          >
+                            <Layers
+                              className="h-3 w-3 flex-shrink-0"
+                              style={{ color: "var(--lm-text-ghost)" }}
+                            />
+                            <span className="truncate">{project.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {canManageFoldersInCurrentView && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
                       setBulkMoveMenuOpen((open) => !open);
+                      setBulkAddMenuOpen(false);
                     }}
                     disabled={
                       bulkCurationLoading ||
@@ -3693,6 +4387,30 @@ export function GalleryDashboard({
               )}
               {canCuratePublic && (
               <>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkCuration(true, undefined, true);
+                }}
+                disabled={bulkCurationLoading}
+                className="lm-btn-brutal inline-flex items-center gap-1.5"
+                style={{
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  fontSize: "11px",
+                  opacity: bulkCurationLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                }}
+                aria-label="Feature selected assets on the public taste profile"
+                title="Feature on the taste profile (also makes them public)"
+              >
+                {bulkCurationLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Star className="h-3.5 w-3.5" />
+                )}
+                FEATURE
+              </button>
               <button
                 type="button"
                 onClick={() => {

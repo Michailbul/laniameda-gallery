@@ -347,6 +347,9 @@ export function ReviewModal({
   );
   const project = readOnly ? viewerBoard : ownerProject;
 
+  const fileAssetIntoProjectCollectionMutation = useMutation(
+    api.projects.fileAssetIntoProjectCollection,
+  );
   const renameAssetMutation = useMutation(api.assets.renameAsset);
   const setAssetPriorityMutation = useMutation(api.assets.setAssetPriority);
   const setAssetPinnedMutation = useMutation(api.assets.setAssetPinned);
@@ -2996,6 +2999,20 @@ export function ReviewModal({
                   }}
                   onDelete={() => deleteDirectionById(direction.id)}
                   onPin={() => toggleDirectionPin(direction)}
+                  onDropAssets={(assetIds) => {
+                    for (const assetId of assetIds) {
+                      if (!projectId) break;
+                      void fileAssetIntoProjectCollectionMutation({
+                        ownerUserId,
+                        projectId: projectId as Id<"folders">,
+                        assetId: assetId as Id<"assets">,
+                        folderId: direction.id as Id<"folders">,
+                      }).catch(() => {});
+                    }
+                  }}
+                  onUploadFiles={(files) => {
+                    void uploadFilesToDirection(files, direction.id, "", false);
+                  }}
                   readOnly={readOnly}
                   likedByMe={viewerLikedFolders.has(direction.id)}
                   onToggleLike={
@@ -3092,13 +3109,20 @@ export function ReviewModal({
                     onDelete={() => deleteDirectionById(item.card.id)}
                     onPin={() => toggleDirectionPin(item.card)}
                     onDropAssets={(assetIds) => {
+                      // Filing drains the project's staging pool (Inbox) so
+                      // the asset is presented once, in its new home.
                       for (const assetId of assetIds) {
-                        void addAssetFolders({
+                        if (!projectId) break;
+                        void fileAssetIntoProjectCollectionMutation({
                           ownerUserId,
+                          projectId: projectId as Id<"folders">,
                           assetId: assetId as Id<"assets">,
-                          folderIds: [item.card.id as Id<"folders">],
+                          folderId: item.card.id as Id<"folders">,
                         }).catch(() => {});
                       }
+                    }}
+                    onUploadFiles={(files) => {
+                      void uploadFilesToDirection(files, item.card.id, "", false);
                     }}
                     readOnly={readOnly}
                     likedByMe={viewerLikedFolders.has(item.card.id)}
@@ -3417,6 +3441,7 @@ function DirectionCard({
   likedByMe,
   onToggleLike,
   onDropAssets,
+  onUploadFiles,
 }: {
   direction: DirectionCardData;
   onOpen: () => void;
@@ -3434,16 +3459,57 @@ function DirectionCard({
   onToggleLike?: () => void;
   /** Present → the card accepts dragged asset tiles (adds them here). */
   onDropAssets?: (assetIds: string[]) => void;
+  /** Present → the card shows an upload control (files go straight in). */
+  onUploadFiles?: (files: File[]) => void;
 }) {
   if (readOnly) {
     onDelete = onPin = undefined;
     onDropAssets = undefined;
+    onUploadFiles = undefined;
   }
   const cover = direction.cover;
   const beatVideos = direction.beatVideos;
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [videoIndex, setVideoIndex] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const uploadControl = onUploadFiles ? (
+    <>
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []).filter(
+            (file) =>
+              file.type.startsWith("image/") || file.type.startsWith("video/"),
+          );
+          e.target.value = "";
+          if (files.length > 0) onUploadFiles?.(files);
+        }}
+      />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          uploadInputRef.current?.click();
+        }}
+        className="flex items-center rounded-lg border p-1.5 opacity-0 transition-opacity group-hover:opacity-100"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.62)",
+          color: "#fff",
+          borderColor: "rgba(255,255,255,0.25)",
+        }}
+        aria-label={`Upload files into ${direction.name}`}
+        title="Upload files into this stack"
+      >
+        <Upload className="h-3 w-3" strokeWidth={2.5} />
+      </button>
+    </>
+  ) : null;
   const highlight = active || dragOver;
   // Drop handlers (spread on both card variants' roots).
   const dropProps = onDropAssets
@@ -3641,6 +3707,7 @@ function DirectionCard({
                 />
               </button>
             )}
+            {uploadControl}
             {onDelete && (
               <span className="opacity-0 transition-opacity group-hover:opacity-100">
                 <ArmedDeleteButton
@@ -3827,6 +3894,7 @@ function DirectionCard({
                 />
               </button>
             )}
+            {uploadControl}
             {onDelete && (
               <span className="opacity-0 transition-opacity group-hover:opacity-100">
                 <ArmedDeleteButton

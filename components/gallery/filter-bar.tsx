@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
+  FolderOpen,
   Grid3X3,
   Heart,
   Image as ImageIcon,
@@ -17,7 +18,7 @@ export type MediaKind = "image" | "video";
 
 export type SortOrder = "featured" | "newest" | "popular" | "largest";
 export type GalleryScope = "mine" | "public";
-export type ViewMode = "grid" | "canvas" | "packs";
+export type ViewMode = "grid" | "collections" | "canvas" | "packs";
 export type Pillar = string;
 export type PillarOption = {
   label: string;
@@ -565,6 +566,33 @@ function ViewModeToggle({
         aria-label="Grid view"
       >
         <Grid3X3 className="h-3.5 w-3.5" />
+      </button>
+      <div
+        style={{
+          width: "1px",
+          alignSelf: "stretch",
+          backgroundColor: "var(--lm-border-strong)",
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => onViewModeChange("collections")}
+        className="flex items-center justify-center transition-colors"
+        style={{
+          padding: buttonPadding,
+          background:
+            viewMode === "collections"
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+              : "transparent",
+          color:
+            viewMode === "collections"
+              ? "#fff"
+              : "var(--lm-text-ghost)",
+        }}
+        aria-label="Collections view"
+        title="Browse by collection"
+      >
+        <FolderOpen className="h-3.5 w-3.5" />
       </button>
       <div
         style={{

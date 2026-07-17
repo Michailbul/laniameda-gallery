@@ -7,7 +7,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { makeFunctionReference } from "convex/server";
+import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   reconcileAssetPackMembership,
@@ -1289,12 +1289,42 @@ const galleryAssetFacetsValidator = v.object({
   modelCounts: v.array(v.object({ name: v.string(), count: v.number() })),
 });
 
+// A project's browseable asset pool: the union of all its member collections'
+// members (projects never hold assets directly). Capped per collection AND in
+// total by `limit`; the caller dedupes.
+const collectAssetsForProject = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  projectId: Id<"folders">,
+  limit: number,
+) => {
+  const links = await ctx.db
+    .query("projectCollections")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const assets: Doc<"assets">[] = [];
+  for (const link of links) {
+    if (assets.length >= limit) break;
+    assets.push(
+      ...(await collectAssetsForFolder(
+        ctx,
+        ownerUserIds,
+        link.folderId,
+        limit - assets.length,
+      )),
+    );
+  }
+  return assets;
+};
+
 export const listGalleryAssets = query({
   args: {
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
+    // Browse a project's whole pool (union of its member collections).
+    projectId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -1311,15 +1341,16 @@ export const listGalleryAssets = query({
 
     const onlyLiked = args.onlyLiked === true;
     const limit = Math.min(args.limit ?? 100, 2000);
+    const scopedToSet = args.projectId ?? args.folderId;
     const hasPostQueryFilters = Boolean(
       (args.tagIds && args.tagIds.length > 0) ||
-        (args.folderId && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
-        (args.modelName && (args.pillar || args.folderId || args.assetRole || args.kind)) ||
-        (args.pillar && (args.folderId || args.modelName || args.kind)) ||
-        (args.assetRole && (args.folderId || args.modelName || args.kind)) ||
+        (scopedToSet && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
+        (args.modelName && (args.pillar || scopedToSet || args.assetRole || args.kind)) ||
+        (args.pillar && (scopedToSet || args.modelName || args.kind)) ||
+        (args.assetRole && (scopedToSet || args.modelName || args.kind)) ||
         // `onlyLiked` post-filters whenever it isn't served by its own index
-        // (i.e. when combined with a folder query), so widen the take then too.
-        (onlyLiked && args.folderId) ||
+        // (i.e. when combined with a set query), so widen the take then too.
+        (onlyLiked && scopedToSet) ||
         args.search,
     );
     const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 2000) : limit;
@@ -1331,7 +1362,9 @@ export const listGalleryAssets = query({
     const pillar = args.pillar;
     const assetRole = args.assetRole;
     const kind = args.kind;
-    const ownerScopedAssets = args.folderId
+    const ownerScopedAssets = args.projectId
+      ? await collectAssetsForProject(ctx, ownerUserIds, args.projectId, queryTake)
+      : args.folderId
       ? await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
       : (
           await Promise.all(
@@ -1631,6 +1664,215 @@ export const listPublicGalleryAssets = query({
     }
 
     return await hydrateGalleryAssetResults(ctx, selectedAssets);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Cursor-paginated gallery feeds (infinite scroll).
+//
+// These replace the capped listGalleryAssets/listPublicGalleryAssets calls for
+// the default browse path: instead of one query re-reading the whole gallery
+// on every load AND every reactive re-run, the client subscribes to small
+// pages and only the page containing a change re-reads. Multi-value filters
+// post-filter the page (pages may come back short — the client keeps calling
+// loadMore while its scroll frontier is exposed, so short pages self-heal).
+//
+// The mine-scope cursor wraps Convex's cursor with an owner-candidate index
+// (legacy ids may exist under both "123" and "telegram:123"): candidates are
+// paginated sequentially and the wrapper hops to the next candidate when one
+// is exhausted. splitCursor/pageStatus are intentionally not returned — the
+// wrapped cursor would corrupt a client-driven split.
+// ---------------------------------------------------------------------------
+
+const galleryPageValidator = v.object({
+  page: v.array(galleryAssetResultValidator),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+});
+
+type WrappedCursor = { o: number; c: string | null };
+
+const parseWrappedCursor = (raw: string | null): WrappedCursor => {
+  if (!raw) return { o: 0, c: null };
+  try {
+    const parsed = JSON.parse(raw) as Partial<WrappedCursor>;
+    return {
+      o: typeof parsed.o === "number" && parsed.o >= 0 ? parsed.o : 0,
+      c: typeof parsed.c === "string" ? parsed.c : null,
+    };
+  } catch {
+    return { o: 0, c: null };
+  }
+};
+
+export const listGalleryAssetsPage = query({
+  args: {
+    ownerUserId: v.string(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    modelName: v.optional(v.string()),
+    pillar: pillarValidator,
+    assetRole: assetRoleValidator,
+    onlyLiked: v.optional(v.boolean()),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: galleryPageValidator,
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const candidates = resolveUserIdCandidates(ownerUserId);
+    const cursor = parseWrappedCursor(args.paginationOpts.cursor);
+    const ownerIndex = Math.min(cursor.o, candidates.length - 1);
+    const ownerCandidate = candidates[ownerIndex];
+
+    const onlyLiked = args.onlyLiked === true;
+    const modelNameFilter = args.modelName?.trim() || null;
+    const pillar = args.pillar;
+    const assetRole = args.assetRole;
+    const kind = args.kind;
+    const tagFilter =
+      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+
+    // Same index priority as listGalleryAssets; leftover filters post-filter.
+    const indexed = onlyLiked
+      ? ctx.db
+          .query("assets")
+          .withIndex("by_owner_isLiked_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("isLiked", true).gte("createdAt", 0),
+          )
+      : modelNameFilter
+        ? ctx.db
+            .query("assets")
+            .withIndex("by_owner_modelName_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
+            )
+        : pillar && assetRole
+          ? ctx.db
+              .query("assets")
+              .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
+              )
+          : pillar
+            ? ctx.db
+                .query("assets")
+                .withIndex("by_owner_pillar_createdAt", (q) =>
+                  q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
+                )
+            : assetRole
+              ? ctx.db
+                  .query("assets")
+                  .withIndex("by_owner_assetRole_createdAt", (q) =>
+                    q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
+                  )
+              : kind
+                ? ctx.db
+                    .query("assets")
+                    .withIndex("by_owner_kind_createdAt", (q) =>
+                      q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
+                    )
+                : ctx.db
+                    .query("assets")
+                    .withIndex("by_owner_createdAt", (q) =>
+                      q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+                    );
+
+    const result = await indexed.order("desc").paginate({
+      numItems: args.paginationOpts.numItems,
+      cursor: cursor.c,
+    });
+
+    const filtered = result.page.filter((asset) => {
+      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+        return false;
+      }
+      if (modelNameFilter && asset.modelName !== modelNameFilter) {
+        return false;
+      }
+      if (assetRole && asset.assetRole !== assetRole) {
+        return false;
+      }
+      if (kind && asset.kind !== kind) {
+        return false;
+      }
+      if (onlyLiked && asset.isLiked !== true) {
+        return false;
+      }
+      return true;
+    });
+
+    const isLastCandidate = ownerIndex >= candidates.length - 1;
+    return {
+      page: await hydrateGalleryAssetResults(ctx, filtered),
+      isDone: result.isDone && isLastCandidate,
+      continueCursor:
+        result.isDone && !isLastCandidate
+          ? JSON.stringify({ o: ownerIndex + 1, c: null })
+          : JSON.stringify({ o: ownerIndex, c: result.continueCursor }),
+    };
+  },
+});
+
+export const listPublicGalleryAssetsPage = query({
+  args: {
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    tagIds: v.optional(v.array(v.id("tags"))),
+    modelName: v.optional(v.string()),
+    pillar: pillarValidator,
+    assetRole: assetRoleValidator,
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: galleryPageValidator,
+  handler: async (ctx, args) => {
+    const tagFilter =
+      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const modelNameFilter = args.modelName?.trim() || null;
+    const pillar = args.pillar;
+    const assetRole = args.assetRole;
+    const kind = args.kind;
+
+    const indexed = pillar
+      ? ctx.db
+          .query("assets")
+          .withIndex("by_isPublic_pillar_createdAt", (q) =>
+            q.eq("isPublic", true).eq("pillar", pillar).gte("createdAt", 0),
+          )
+      : kind
+        ? ctx.db
+            .query("assets")
+            .withIndex("by_isPublic_kind_createdAt", (q) =>
+              q.eq("isPublic", true).eq("kind", kind).gte("createdAt", 0),
+            )
+        : ctx.db
+            .query("assets")
+            .withIndex("by_isPublic_createdAt", (q) =>
+              q.eq("isPublic", true).gte("createdAt", 0),
+            );
+
+    const result = await indexed.order("desc").paginate(args.paginationOpts);
+
+    const filtered = result.page.filter((asset) => {
+      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+        return false;
+      }
+      if (modelNameFilter && asset.modelName !== modelNameFilter) {
+        return false;
+      }
+      if (assetRole && asset.assetRole !== assetRole) {
+        return false;
+      }
+      if (kind && asset.kind !== kind) {
+        return false;
+      }
+      return true;
+    });
+
+    return {
+      page: await hydrateGalleryAssetResults(ctx, filtered),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });
 
@@ -2713,6 +2955,16 @@ export const internalDeleteAsset = internalMutation({
       await ctx.db.delete(link._id);
     }
 
+    // Collection/beat memberships die with the asset — orphaned links would
+    // ghost-occupy folder slots and inflate counts.
+    const folderLinks = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_asset", (q) => q.eq("assetId", args.id))
+      .collect();
+    for (const link of folderLinks) {
+      await ctx.db.delete(link._id);
+    }
+
     const storageIds = dedupeIds(
       [asset.storageId, asset.thumbStorageId].filter(
         (id): id is Id<"_storage"> => Boolean(id),
@@ -2778,6 +3030,34 @@ export const deleteAsset = mutation({
   },
 });
 
+// One-off GC: assetFolders rows whose asset no longer exists (from deletes
+// that predate the folder-link cleanup in internalDeleteAsset). Run via CLI:
+//   bunx convex run assets:cleanupOrphanedAssetFolderLinks '{"dryRun":true}'
+export const cleanupOrphanedAssetFolderLinks = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  returns: v.object({
+    scanned: v.number(),
+    orphaned: v.number(),
+    deleted: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const links = await ctx.db.query("assetFolders").collect();
+    let orphaned = 0;
+    let deleted = 0;
+    for (const link of links) {
+      const asset = await ctx.db.get(link.assetId);
+      if (!asset) {
+        orphaned += 1;
+        if (args.dryRun !== true) {
+          await ctx.db.delete(link._id);
+          deleted += 1;
+        }
+      }
+    }
+    return { scanned: links.length, orphaned, deleted };
+  },
+});
+
 export const bulkDeleteAssets = internalMutation({
   args: { ids: v.array(v.id("assets")) },
   returns: v.number(),
@@ -2790,6 +3070,13 @@ export const bulkDeleteAssets = internalMutation({
         .withIndex("by_asset", (q) => q.eq("assetId", id))
         .collect();
       for (const link of links) {
+        await ctx.db.delete(link._id);
+      }
+      const folderLinks = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset", (q) => q.eq("assetId", id))
+        .collect();
+      for (const link of folderLinks) {
         await ctx.db.delete(link._id);
       }
       const lineageRows = [

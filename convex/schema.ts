@@ -111,6 +111,22 @@ export default defineSchema({
     // Unguessable token that makes a project's direction board publicly
     // viewable at /b/<token>. Unset = sharing off.
     shareToken: v.optional(v.string()),
+    // Parent collection for nesting (e.g. "Dear Annette" > "Characters").
+    // Only plain collections nest, and only one level deep: a folder with a
+    // parent can't be a parent itself. Undefined = root-level.
+    parentFolderId: v.optional(v.id("folders")),
+    // "My Taste" public showcase flag. When true, a plain collection or a
+    // storybook is surfaced (as a whole set) on the public showcase home and
+    // becomes browsable by anonymous visitors. Projects are NEVER showcased —
+    // they stay private and are shared only via shareToken. Undefined = off.
+    // Sub-collections are never showcased directly; they ride along as
+    // chapters of their showcased parent.
+    showcased: v.optional(v.boolean()),
+    // Featured on the public home: showcased sets with this flag get the
+    // large hero treatment above the regular stacks. Implies showcased.
+    showcaseFeatured: v.optional(v.boolean()),
+    // Manual ordering of showcased items on the public home (lower = earlier).
+    showcaseOrder: v.optional(v.number()),
     // MASTER option: the asset used as this collection's thumbnail when it is
     // browsed as a "direction" (a set of similar options). Falls back to the
     // first asset when unset or dangling.
@@ -123,7 +139,9 @@ export default defineSchema({
     .index("by_name", ["name"])
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
-    .index("by_shareToken", ["shareToken"]),
+    .index("by_shareToken", ["shareToken"])
+    .index("by_showcased", ["showcased"])
+    .index("by_parent", ["parentFolderId"]),
 
   // Which collections belong to a project (folder kind:"project"). A project
   // aggregates the assets of all its member collections for review. Many-to-

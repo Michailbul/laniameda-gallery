@@ -14,8 +14,9 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Laniameda — AI UGC Workspace",
-  description: "Curate prompts and reference media in one visual workspace.",
+  title: "Misha Buloy — Taste Profile · Laniameda",
+  description:
+    "An AI creator's taste profile: story sets, stills, and locations, generated and filed by hand.",
 };
 
 export default function RootLayout({

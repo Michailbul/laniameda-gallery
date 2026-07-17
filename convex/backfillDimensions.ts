@@ -6,6 +6,10 @@
  * Run from the CLI (re-run with the returned cursor until `isDone`):
  *   bunx convex run backfillDimensions:backfillImageDimensions '{}'
  *   bunx convex run backfillDimensions:backfillImageDimensions '{"cursor":"<continueCursor>"}'
+ *
+ * Videos (parsed from the MP4/MOV box tree) share the same pattern:
+ *   bunx convex run backfillDimensions:backfillVideoDimensions '{}'
+ *   bunx convex run backfillDimensions:backfillVideoDimensions '{"cursor":"<continueCursor>"}'
  */
 import { v } from "convex/values";
 import {
@@ -15,18 +19,25 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { resolveAssetUrl } from "./r2_url";
-import { readImageDimensions } from "./imageDimensions";
+import { readImageDimensions, readVideoDimensions } from "./imageDimensions";
+
+const missingDimensions = (asset: { width?: number; height?: number }) =>
+  typeof asset.width !== "number" ||
+  typeof asset.height !== "number" ||
+  asset.width <= 0 ||
+  asset.height <= 0;
 
 const needsDimensions = (asset: {
   kind: "image" | "video";
   width?: number;
   height?: number;
-}) =>
-  asset.kind === "image" &&
-  (typeof asset.width !== "number" ||
-    typeof asset.height !== "number" ||
-    asset.width <= 0 ||
-    asset.height <= 0);
+}) => asset.kind === "image" && missingDimensions(asset);
+
+const needsVideoDimensions = (asset: {
+  kind: "image" | "video";
+  width?: number;
+  height?: number;
+}) => asset.kind === "video" && missingDimensions(asset);
 
 export const listAssetsMissingDimensions = internalQuery({
   args: {
@@ -149,6 +160,148 @@ export const backfillImageDimensions = action({
           if (!res.ok) throw new Error(`fetch ${res.status}`);
           const bytes = new Uint8Array(await res.arrayBuffer());
           const dims = readImageDimensions(bytes);
+          if (!dims) {
+            const magic = Array.from(bytes.slice(0, 4))
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
+            recordFailure(item.assetId, item.url, `unparsed magic=${magic}`);
+            continue;
+          }
+          await ctx.runMutation(
+            internal.backfillDimensions.setAssetDimensions,
+            { assetId: item.assetId, width: dims.width, height: dims.height },
+          );
+          updated += 1;
+        } catch (error) {
+          recordFailure(
+            item.assetId,
+            item.url,
+            error instanceof Error ? error.message : "error",
+          );
+        }
+      }
+
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+      if (isDone) break;
+    }
+
+    return {
+      scanned,
+      updated,
+      failed,
+      isDone,
+      continueCursor: isDone ? null : cursor,
+      failures,
+    };
+  },
+});
+
+export const listVideosMissingDimensions = internalQuery({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    batchSize: v.number(),
+  },
+  returns: v.object({
+    items: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        url: v.optional(v.string()),
+      }),
+    ),
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("assets")
+      .withIndex("by_createdAt")
+      .order("desc")
+      .paginate({ cursor: args.cursor, numItems: args.batchSize });
+
+    const items = await Promise.all(
+      page.page
+        .filter((asset) => needsVideoDimensions(asset))
+        .map(async (asset) => ({
+          assetId: asset._id,
+          url: await resolveAssetUrl(ctx, asset),
+        })),
+    );
+
+    return {
+      items,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+export const backfillVideoDimensions = action({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    batchSize: v.optional(v.number()),
+    maxBatches: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    updated: v.number(),
+    failed: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.union(v.string(), v.null()),
+    failures: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        url: v.optional(v.string()),
+        reason: v.string(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const batchSize = Math.min(Math.max(args.batchSize ?? 50, 1), 200);
+    // Bound work per invocation so a single run stays well inside action limits;
+    // re-run with the returned cursor to continue.
+    const maxBatches = Math.min(Math.max(args.maxBatches ?? 10, 1), 40);
+
+    let cursor: string | null = args.cursor ?? null;
+    let scanned = 0;
+    let updated = 0;
+    let failed = 0;
+    let isDone = false;
+    const failures: Array<{
+      assetId: import("./_generated/dataModel").Id<"assets">;
+      url?: string;
+      reason: string;
+    }> = [];
+    const recordFailure = (
+      assetId: import("./_generated/dataModel").Id<"assets">,
+      url: string | undefined,
+      reason: string,
+    ) => {
+      failed += 1;
+      if (failures.length < 25) failures.push({ assetId, url, reason });
+    };
+
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+      const page: {
+        items: Array<{ assetId: import("./_generated/dataModel").Id<"assets">; url?: string }>;
+        continueCursor: string;
+        isDone: boolean;
+      } = await ctx.runQuery(
+        internal.backfillDimensions.listVideosMissingDimensions,
+        { cursor, batchSize },
+      );
+
+      for (const item of page.items) {
+        scanned += 1;
+        if (!item.url) {
+          recordFailure(item.assetId, item.url, "no-url");
+          continue;
+        }
+        try {
+          const res = await fetch(item.url);
+          if (!res.ok) throw new Error(`fetch ${res.status}`);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          const dims = readVideoDimensions(bytes);
           if (!dims) {
             const magic = Array.from(bytes.slice(0, 4))
               .map((b) => b.toString(16).padStart(2, "0"))

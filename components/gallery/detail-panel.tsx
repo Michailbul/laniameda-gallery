@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { downloadImage } from "@/lib/download-image";
+import { meaningfulPrompt } from "@/lib/prompt";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -399,6 +400,9 @@ export function GalleryDetailPanel({
   }, [toastFn]);
 
   const activePrompt = currentSlide.prompt ?? image.prompt;
+  // The clean prompt for display/copy — undefined for placeholder fallbacks
+  // ("Untitled prompt", a bare file name) so the prompt UI stays hidden.
+  const promptForDisplay = meaningfulPrompt(activePrompt);
   const currentAssetId = currentSlide.id ?? image.id;
   const canEditCurrentAsset = Boolean(
     canEditAsset &&
@@ -1058,18 +1062,20 @@ export function GalleryDetailPanel({
                     borderRadius: "8px",
                   }}
                 >
-                  <CopyMenuItem
-                    icon={isDesignView ? LinkIcon : Copy}
-                    label={isDesignView ? "Copy source URL" : "Copy prompt"}
-                    primary
-                    onClick={() =>
-                      void handleCopy(
-                        isDesignView
-                          ? designView?.sourceUrl
-                          : undefined,
-                      )
-                    }
-                  />
+                  {(isDesignView || promptForDisplay) && (
+                    <CopyMenuItem
+                      icon={isDesignView ? LinkIcon : Copy}
+                      label={isDesignView ? "Copy source URL" : "Copy prompt"}
+                      primary
+                      onClick={() =>
+                        void handleCopy(
+                          isDesignView
+                            ? designView?.sourceUrl
+                            : undefined,
+                        )
+                      }
+                    />
+                  )}
                   <div
                     className="mx-2 my-0.5"
                     style={{
@@ -1296,23 +1302,26 @@ export function GalleryDetailPanel({
                 </>
               ) : (
                 <>
-                  {/* Prompt */}
-                  <div className="pb-2">
-                    <SectionLabel>Prompt</SectionLabel>
-                    <p
-                      className="mt-1.5"
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 400,
-                        lineHeight: 1.55,
-                        color: "var(--lm-text-secondary)",
-                        fontFamily: "var(--lm-font)",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {activePrompt}
-                    </p>
-                  </div>
+                  {/* Prompt — only when a real prompt exists (placeholder
+                      fallbacks like "Untitled prompt" are suppressed). */}
+                  {promptForDisplay && (
+                    <div className="pb-2">
+                      <SectionLabel>Prompt</SectionLabel>
+                      <p
+                        className="mt-1.5"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 400,
+                          lineHeight: 1.55,
+                          color: "var(--lm-text-secondary)",
+                          fontFamily: "var(--lm-font)",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {promptForDisplay}
+                      </p>
+                    </div>
+                  )}
                   {image.description && (
                     <div
                       className="pb-2 pt-2.5"
@@ -1463,7 +1472,7 @@ export function GalleryDetailPanel({
                       <LinkIcon className="h-3 w-3" />
                       COPY SOURCE URL
                     </button>
-                  ) : (
+                  ) : promptForDisplay ? (
                     <button
                       type="button"
                       onClick={() => void handleCopy()}
@@ -1475,7 +1484,7 @@ export function GalleryDetailPanel({
                       <Copy className="h-3 w-3" />
                       COPY PROMPT
                     </button>
-                  )}
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void handleCopyPackage()}

@@ -206,7 +206,7 @@ describe("layoutJustified", () => {
     }
   });
 
-  test("interior rows never exceed the target row height", () => {
+  test("interior rows stay near the target row height", () => {
     const inputs: LayoutInput[] = Array.from({ length: 40 }, (_, i) => ({
       width: [1080, 1920, 1024][i % 3],
       height: [1350, 1080, 1024][i % 3],
@@ -214,10 +214,13 @@ describe("layoutJustified", () => {
     }));
     const layout = layoutJustified(inputs, opts({ targetRowHeight: 260 }));
     const rows = rowsOf(layout.tiles);
-    // Every row except the last is closed by overflow, so its justified height
-    // is <= target. Allow +1px for integer rounding.
+    // Rows break at whichever side of the overflow lands closer to target, so
+    // an interior row may sit slightly above target — but never beyond the
+    // max-row-height cap (1.6 × target by default), and never at a cramped
+    // fraction of it either. (No true portraits here, so no boost applies.)
     rows.slice(0, -1).forEach((row) => {
-      expect(row[0]!.height).toBeLessThanOrEqual(261);
+      expect(row[0]!.height).toBeLessThanOrEqual(Math.ceil(260 * 1.6));
+      expect(row[0]!.height).toBeGreaterThanOrEqual(Math.floor(260 * 0.5));
     });
   });
 
@@ -256,5 +259,74 @@ describe("layoutJustified", () => {
       opts({ targetRowHeight: 240, maxRowHeight: 300 }),
     );
     expect(layout.tiles[0]!.height).toBeLessThanOrEqual(300);
+  });
+
+  test("rows containing a 9:16 portrait render much taller than landscape rows", () => {
+    // Alternate blocks: enough 16:9 to make pure-landscape rows, then a 9:16.
+    const landscape = { width: 1920, height: 1080, kind: "image" as const };
+    const portrait = { width: 1080, height: 1920, kind: "image" as const };
+    const inputs: LayoutInput[] = [
+      landscape, landscape, landscape, landscape, landscape, landscape,
+      portrait, landscape, landscape,
+      landscape, landscape, landscape, landscape, landscape, landscape,
+    ];
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    const portraitTile = layout.tiles[6]!;
+    const portraitRowHeight = portraitTile.height;
+    const landscapeRowHeights = rows
+      .slice(0, -1)
+      .filter((row) => !row.some((t) => t === portraitTile))
+      .map((row) => row[0]!.height);
+    // Landscape rows close at or under the plain target…
+    landscapeRowHeights.forEach((h) => expect(h).toBeLessThanOrEqual(241));
+    // …while the portrait's row runs meaningfully taller (boosted target).
+    expect(portraitRowHeight).toBeGreaterThan(300);
+    // And the portrait itself is no longer a sliver.
+    expect(portraitTile.width).toBeGreaterThan(170);
+  });
+
+  test("portraitRowBoost: 1 restores the old uniform behavior", () => {
+    const inputs: LayoutInput[] = [
+      { width: 1920, height: 1080, kind: "image" },
+      { width: 1080, height: 1920, kind: "image" },
+      { width: 1920, height: 1080, kind: "image" },
+      { width: 1920, height: 1080, kind: "image" },
+      { width: 1920, height: 1080, kind: "image" },
+      { width: 1920, height: 1080, kind: "image" },
+    ];
+    const boosted = layoutJustified(inputs, opts());
+    const flat = layoutJustified(
+      inputs,
+      opts({ portraitRowBoost: 1, tallPortraitRowBoost: 1 }),
+    );
+    expect(boosted.tiles[1]!.width).toBeGreaterThan(flat.tiles[1]!.width);
+    // Flat layout keeps interior rows near the plain target: never beyond the
+    // 1.6× max-row cap (the ratio-based break may sit slightly above target).
+    const flatRows = rowsOf(flat.tiles);
+    flatRows.slice(0, -1).forEach((row) => {
+      expect(row[0]!.height).toBeLessThanOrEqual(Math.ceil(240 * 1.6));
+    });
+  });
+
+  test("boosted portrait rows still justify edge-to-edge with no holes", () => {
+    const inputs: LayoutInput[] = Array.from({ length: 24 }, (_, i) => ({
+      width: i % 3 === 0 ? 1080 : 1920,
+      height: i % 3 === 0 ? 1920 : 1080,
+      kind: "image" as const,
+    }));
+    const layout = layoutJustified(inputs, opts());
+    const rows = rowsOf(layout.tiles);
+    rows.slice(0, -1).forEach((row) => {
+      const sorted = [...row].sort((a, b) => a.left - b.left);
+      expect(sorted[0]!.left).toBe(0);
+      const last = sorted[sorted.length - 1]!;
+      expect(last.left + last.width).toBe(1200);
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i]!.left).toBe(
+          sorted[i - 1]!.left + sorted[i - 1]!.width + 12,
+        );
+      }
+    });
   });
 });
