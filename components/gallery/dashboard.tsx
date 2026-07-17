@@ -232,6 +232,19 @@ export function GalleryDashboard({
     id: string;
     name: string;
   } | null>(null);
+  // Grid tile size (0.4–1, 1 = full size), persisted across sessions.
+  const [gridZoom, setGridZoomRaw] = useState(1);
+  useEffect(() => {
+    const stored = Number(localStorage.getItem("laniameda-grid-zoom"));
+    if (Number.isFinite(stored) && stored >= 0.4 && stored <= 1) {
+      setGridZoomRaw(stored);
+    }
+  }, []);
+  const setGridZoom = useCallback((zoom: number) => {
+    const clamped = Math.min(1, Math.max(0.4, zoom));
+    setGridZoomRaw(clamped);
+    localStorage.setItem("laniameda-grid-zoom", String(clamped));
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
 
@@ -3331,6 +3344,8 @@ export function GalleryDashboard({
                 onSortOrderChange={setSortOrder}
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
+                gridZoom={gridZoom}
+                onGridZoomChange={setGridZoom}
               />
             )}
 
@@ -3651,6 +3666,7 @@ export function GalleryDashboard({
                     onEndReached={
                       paginationActive ? loadNextGalleryPage : undefined
                     }
+                    zoom={gridZoom}
                   />
                 )
               ) : isNoMatches ? (

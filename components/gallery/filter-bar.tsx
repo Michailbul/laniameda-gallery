@@ -52,6 +52,9 @@ interface GalleryFilterBarProps {
   onSortOrderChange: (order: SortOrder) => void;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
+  /** Grid tile size, 0.4–1 (1 = full size). Slider hidden when omitted. */
+  gridZoom?: number;
+  onGridZoomChange?: (zoom: number) => void;
 }
 
 const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
@@ -80,6 +83,8 @@ export function GalleryFilterBar({
   onSortOrderChange,
   viewMode,
   onViewModeChange,
+  gridZoom,
+  onGridZoomChange,
 }: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -224,6 +229,9 @@ export function GalleryFilterBar({
                 sortOrder={sortOrder}
                 onSortOrderChange={onSortOrderChange}
               />
+              {onGridZoomChange && viewMode === "grid" ? (
+                <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
+              ) : null}
               {onViewModeChange ? (
                 <ViewModeToggle
                   viewMode={viewMode}
@@ -257,6 +265,9 @@ export function GalleryFilterBar({
             }}
           />
           <SortPills sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+          {onGridZoomChange && viewMode === "grid" ? (
+            <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
+          ) : null}
           {onViewModeChange ? (
             <>
               <div
@@ -524,6 +535,44 @@ function SortPills({
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Tile-size control: drag left for a denser grid, right for full size. The
+// range maps straight onto the justified layout's target row height.
+function ZoomSlider({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (zoom: number) => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      title="Tile size"
+      style={{ flexShrink: 0 }}
+    >
+      <Grid3X3
+        className="h-3 w-3"
+        style={{ color: "var(--lm-text-ghost)" }}
+        aria-hidden
+      />
+      <input
+        type="range"
+        min={0.4}
+        max={1}
+        step={0.05}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-label="Asset tile size"
+        style={{
+          width: "84px",
+          accentColor: "var(--lm-coral)",
+          cursor: "pointer",
+        }}
+      />
     </div>
   );
 }

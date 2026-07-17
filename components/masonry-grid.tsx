@@ -158,6 +158,11 @@ interface MasonryGridProps {
    * page is in flight or exhausted.
    */
   onEndReached?: () => void;
+  /**
+   * Tile size factor, 0.4–1. Scales the justified layout's target row height
+   * so the whole grid zooms; 1 (the default) is the current full size.
+   */
+  zoom?: number;
 }
 
 const BATCH_SIZE = 18;
@@ -271,6 +276,7 @@ export function MasonryGrid({
   onStorybookOpen,
   showPublicBadge = false,
   onEndReached,
+  zoom = 1,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -330,9 +336,11 @@ export function MasonryGrid({
       };
     }
     // targetRowHeight ≈ the width one column would be, so squares land at about
-    // one column wide and the density matches the old grid.
+    // one column wide and the density matches the old grid. The zoom factor
+    // scales it directly — smaller rows, more tiles per row, whole grid zooms.
+    const effectiveZoom = Math.min(1, Math.max(0.4, zoom));
     const targetRowHeight =
-      (contentWidth - gap * (columnCount - 1)) / columnCount;
+      ((contentWidth - gap * (columnCount - 1)) / columnCount) * effectiveZoom;
     const { tiles } = layoutJustified(images.map(resolveGridLayoutInput), {
       containerWidth: contentWidth,
       gap,
@@ -356,7 +364,7 @@ export function MasonryGrid({
       if (tile) mountedHeight = Math.max(mountedHeight, tile.top + tile.height);
     }
     return { mounted, mountedHeight, hasMore: cutoff < images.length };
-  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount]);
+  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom]);
 
   // Load-more driver. The container height is only as tall as MOUNTED content,
   // so the sentinel sits just under the last mounted row. On a fast scroll or
