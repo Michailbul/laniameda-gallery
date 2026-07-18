@@ -1547,13 +1547,20 @@
     badge.className = "stg-badge";
   }
 
-  function clearInjectedUi() {
+  function clearInjectedUi(options = {}) {
+    // The viewer save widget survives viewer-mode clears — removing and
+    // re-injecting it every scan tick reads as flicker.
+    const keep = options.exceptWidget && options.exceptWidget.isConnected
+      ? options.exceptWidget
+      : null;
+
     hideBadge();
     hideMjGridBadge();
 
     for (const node of document.querySelectorAll(
       ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer",
     )) {
+      if (keep && (node === keep || keep.contains(node))) continue;
       node.remove();
     }
 
@@ -1566,10 +1573,12 @@
     }
 
     for (const target of document.querySelectorAll(`[${MJ_MEDIA_BADGE_ATTR}]`)) {
+      if (keep && keep.__stgTarget === target) continue;
       target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
     }
 
     for (const host of document.querySelectorAll("[data-stg-mj-host-prepared]")) {
+      if (keep && host.contains(keep)) continue;
       if (host.dataset.stgMjHostPositioned === "1") {
         host.style.position = "";
       }
@@ -1768,6 +1777,8 @@
   let midjourneyScanTimer = null;
   let midjourneyLikedNavControl = null;
   let midjourneyLikedOnlyEnabled = false;
+  let midjourneyViewerSaveWidget = null;
+  let midjourneyViewerEnsureAt = 0;
 
   function isMidjourneyTeachPage() {
     return location.pathname.includes("/personalize/") &&
@@ -1812,16 +1823,45 @@
       .some((control) => isLikelyCloseControl(control) && isVisibleElement(control));
   }
 
+  function getMidjourneyViewerMedia() {
+    let best = null;
+    let bestArea = 0;
+    let bestNaturalArea = 0;
+    for (const target of document.querySelectorAll(MJ_MEDIA_SELECTOR)) {
+      if (target.closest?.(EXTENSION_UI_SELECTOR)) continue;
+      if (!isVisibleElement(target)) continue;
+      const rect = target.getBoundingClientRect();
+      // The viewer media can be portrait (tall + narrow) or landscape (wide +
+      // short), so neither edge alone is a reliable signal — a viewport-area
+      // share catches both, with the strict edge rule kept as a fallback.
+      const areaShare = (rect.width * rect.height) /
+        Math.max(1, window.innerWidth * window.innerHeight);
+      const isLarge = rect.width >= 200 &&
+        rect.height >= 200 &&
+        rect.bottom > 80 &&
+        rect.top < window.innerHeight - 80 &&
+        (areaShare >= 0.1 ||
+          (rect.width >= window.innerWidth * 0.34 &&
+            rect.height >= window.innerHeight * 0.24));
+      if (!isLarge) continue;
+      const mediaUrl = getMidjourneyMediaUrl(target);
+      if (!/cdn\.midjourney\.com|mj\.run/i.test(mediaUrl)) continue;
+      const area = rect.width * rect.height;
+      // MJ stacks a low-res preview under the full-res image at the same
+      // rendered size — tie-break on natural resolution to save the full-res.
+      const naturalArea = (target.naturalWidth || 0) * (target.naturalHeight || 0);
+      if (area > bestArea + 1 ||
+          (area > bestArea - 1 && naturalArea > bestNaturalArea)) {
+        best = target;
+        bestArea = Math.max(area, bestArea);
+        bestNaturalArea = naturalArea;
+      }
+    }
+    return best;
+  }
+
   function hasLargeVisibleMidjourneyMedia() {
-    return Array.from(document.querySelectorAll(MJ_MEDIA_SELECTOR))
-      .some((target) => {
-        if (!isVisibleElement(target)) return false;
-        const rect = target.getBoundingClientRect();
-        return rect.width >= window.innerWidth * 0.34 &&
-          rect.height >= window.innerHeight * 0.24 &&
-          rect.bottom > 80 &&
-          rect.top < window.innerHeight - 80;
-      });
+    return Boolean(getMidjourneyViewerMedia());
   }
 
   function hasVisibleMidjourneyCreateDetailPanel() {
@@ -1850,10 +1890,155 @@
     return hasLargeVisibleMidjourneyMedia();
   }
 
+  // When the full-size viewer is open (job pages, /imagine lightbox), the grid
+  // quick-save widgets are cleared — but the viewer's own media gets a single
+  // save widget so generations can be saved from /jobs/<id> directly.
   function suppressMidjourneySaveUiForViewer() {
-    if (!isMidjourneyFullSizeViewerOpen()) return false;
-    clearInjectedUi();
+    if (!isMidjourneyFullSizeViewerOpen()) {
+      removeMidjourneyViewerSaveWidget();
+      return false;
+    }
+    clearInjectedUi({ exceptWidget: midjourneyViewerSaveWidget });
+    // Suppress runs from mouseover handlers too — throttle the DOM-wide
+    // viewer-media scan so mouse movement doesn't thrash layout.
+    const now = Date.now();
+    if (now - midjourneyViewerEnsureAt >= 150) {
+      midjourneyViewerEnsureAt = now;
+      ensureMidjourneyViewerSaveWidget();
+    }
     return true;
+  }
+
+  function isMidjourneyWidgetInteracting(widget) {
+    if (!widget) return false;
+    return widget.classList.contains("stg-mj-quick-save--menu-open") ||
+      (widget.isConnected && widget.matches(":hover"));
+  }
+
+  // ── "Already in gallery" status (viewer widget) ──
+
+  // url → Promise<boolean>. Confirmed lookups (saved or not) stay cached for
+  // the page lifetime; transport failures are evicted so a later tick retries.
+  const gallerySavedStatusCache = new Map();
+
+  function checkImageSavedInGallery(imageUrl) {
+    const url = String(imageUrl || "").trim();
+    if (!url) return Promise.resolve(false);
+
+    const cached = gallerySavedStatusCache.get(url);
+    if (cached) return cached;
+
+    const pending = sendRuntimeMessage({ action: "checkAssetStatus", imageUrls: [url] })
+      .then((response) => {
+        if (!response?.ok) {
+          gallerySavedStatusCache.delete(url);
+          return false;
+        }
+        const status = Array.isArray(response.statuses)
+          ? response.statuses.find((entry) => entry?.url === url)
+          : null;
+        return Boolean(status?.saved);
+      })
+      .catch(() => {
+        gallerySavedStatusCache.delete(url);
+        return false;
+      });
+    gallerySavedStatusCache.set(url, pending);
+    return pending;
+  }
+
+  function markImageSavedInGallery(imageUrl) {
+    const url = String(imageUrl || "").trim();
+    if (!url) return;
+    gallerySavedStatusCache.set(url, Promise.resolve(true));
+  }
+
+  function syncGallerySavedVisual(widget) {
+    if (widget.dataset.stgInGallery !== "1") return;
+    const button = widget.querySelector(".stg-mj-save-main");
+    if (!button) return;
+    if (
+      button.classList.contains("stg-badge--saving") ||
+      button.classList.contains("stg-badge--saved") ||
+      button.classList.contains("stg-badge--error")
+    ) {
+      return;
+    }
+    button.innerHTML = `${CHECK_ICON}<span>In gallery</span>`;
+    button.classList.add("stg-badge--saved");
+    button.title = "Already in your gallery — click to save again";
+  }
+
+  async function applyGallerySavedState(widget, target, imageUrl) {
+    const saved = await checkImageSavedInGallery(imageUrl);
+    if (!saved) return;
+    // The viewer media may have swapped while the lookup was in flight.
+    if (!widget.isConnected || widget.__stgTarget !== target) return;
+    if (widget.dataset.stgGalleryUrl !== imageUrl) return;
+    widget.dataset.stgInGallery = "1";
+    syncGallerySavedVisual(widget);
+  }
+
+  function refreshViewerGallerySavedState(widget, target) {
+    const imageUrl = resolveAbsoluteUrl(getMidjourneyMediaUrl(target));
+    if (!imageUrl) return;
+
+    if (widget.dataset.stgGalleryUrl !== imageUrl) {
+      // Index navigation swaps the media URL on the same node — clear the
+      // stale state and re-check for the image now on screen.
+      widget.dataset.stgGalleryUrl = imageUrl;
+      delete widget.dataset.stgInGallery;
+      const button = widget.querySelector(".stg-mj-save-main");
+      if (
+        button &&
+        button.classList.contains("stg-badge--saved") &&
+        !button.classList.contains("stg-badge--saving")
+      ) {
+        resetMidjourneySaveButton(button);
+      }
+      void applyGallerySavedState(widget, target, imageUrl);
+      return;
+    }
+
+    syncGallerySavedVisual(widget);
+  }
+
+  function removeMidjourneyViewerSaveWidget() {
+    const widget = midjourneyViewerSaveWidget;
+    if (!widget) return;
+    midjourneyViewerSaveWidget = null;
+    widget.__stgTarget?.removeAttribute?.(MJ_MEDIA_BADGE_ATTR);
+    widget.remove();
+  }
+
+  function ensureMidjourneyViewerSaveWidget() {
+    if (!configLoaded || !extensionEnabled) return;
+
+    const media = getMidjourneyViewerMedia();
+    const widget = midjourneyViewerSaveWidget;
+
+    if (widget && (!media || widget.__stgTarget !== media)) {
+      // MJ swaps the viewer media node during index navigation — never yank
+      // the widget out from under the cursor or an open menu.
+      if (isMidjourneyWidgetInteracting(widget)) return;
+      removeMidjourneyViewerSaveWidget();
+    }
+
+    if (!media) return;
+
+    if (midjourneyViewerSaveWidget) {
+      positionMidjourneyWidget(midjourneyViewerSaveWidget, media);
+      refreshViewerGallerySavedState(midjourneyViewerSaveWidget, media);
+      return;
+    }
+
+    const next = createMidjourneyMediaWidget(media);
+    next.classList.add("stg-mj-quick-save--viewer");
+    midjourneyViewerSaveWidget = next;
+    media.setAttribute(MJ_MEDIA_BADGE_ATTR, "1");
+    document.body.appendChild(next);
+    positionMidjourneyWidget(next, media);
+    refreshViewerGallerySavedState(next, media);
   }
 
   function getMidjourneyTagNames() {
@@ -2841,11 +3026,14 @@
     }
 
     if (widget.style.display !== "flex") widget.style.display = "flex";
-    const isCentered = isMidjourneyImaginePage();
+    // The single viewer widget sits on the full-size media — always visible,
+    // corner-anchored, so the save action is discoverable on /jobs pages.
+    const isViewerWidget = widget.classList.contains("stg-mj-quick-save--viewer");
+    const isCentered = !isViewerWidget && isMidjourneyImaginePage();
     // Hover-reveal keeps dense grids and workspaces uncluttered — the widget
     // only shows while its host media is hovered.
-    const hoverReveal =
-      isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage();
+    const hoverReveal = !isViewerWidget &&
+      (isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage());
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
@@ -2882,6 +3070,7 @@
 
   function resetMidjourneySaveButton(button) {
     button.innerHTML = `${SAVE_ICON}<span>Save</span>`;
+    button.title = "Save to default collection";
     button.classList.remove("stg-badge--saving", "stg-badge--saved", "stg-badge--error");
   }
 
@@ -2920,6 +3109,14 @@
       sourceUrl: saveContext.sourceUrl,
       topRight: true,
     });
+
+    if (button.classList.contains("stg-badge--saved")) {
+      markImageSavedInGallery(saveContext.imageUrl);
+      const widget = button.closest(".stg-mj-quick-save");
+      if (widget && widget.dataset.stgGalleryUrl === saveContext.imageUrl) {
+        widget.dataset.stgInGallery = "1";
+      }
+    }
   }
 
   function updateMidjourneyMenuSelection(menu, folderIds) {

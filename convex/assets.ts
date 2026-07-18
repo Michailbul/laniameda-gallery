@@ -2066,6 +2066,82 @@ export const hasAssetForIngestKey = query({
   },
 });
 
+// "Already saved?" check for the extension: exact ingestKey hits plus bounded
+// ingestKey prefix scans. Midjourney serves one generation under several CDN
+// URL variants (grid webp vs full-res jpeg), so exact keys alone would miss
+// earlier saves of the same image. Prefixes are length-gated so a short or
+// empty prefix can never turn into a broad index scan.
+const INGEST_MATCH_MAX_ENTRIES = 16;
+const INGEST_MATCH_MIN_PREFIX_LENGTH = 30;
+
+export const checkAssetIngestMatches = query({
+  args: {
+    ownerUserId: v.string(),
+    keys: v.array(v.string()),
+    prefixes: v.array(v.string()),
+  },
+  returns: v.object({
+    matchedKeys: v.array(v.string()),
+    matchedPrefixes: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const keys = [
+      ...new Set(args.keys.map((key) => key.trim()).filter(Boolean)),
+    ].slice(0, INGEST_MATCH_MAX_ENTRIES);
+    const prefixes = [
+      ...new Set(
+        args.prefixes
+          .map((prefix) => prefix.trim())
+          .filter((prefix) => prefix.length >= INGEST_MATCH_MIN_PREFIX_LENGTH),
+      ),
+    ].slice(0, INGEST_MATCH_MAX_ENTRIES);
+
+    const ownerCandidates = resolveUserIdCandidates(ownerUserId);
+    const matchedKeys: string[] = [];
+    const matchedPrefixes: string[] = [];
+
+    for (const key of keys) {
+      for (const ownerCandidate of ownerCandidates) {
+        const existing = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_ingestKey", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("ingestKey", key),
+          )
+          .first();
+        if (existing) {
+          matchedKeys.push(key);
+          break;
+        }
+      }
+    }
+
+    for (const prefix of prefixes) {
+      for (const ownerCandidate of ownerCandidates) {
+        const existing = await ctx.db
+          .query("assets")
+          .withIndex("by_owner_ingestKey", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .gte("ingestKey", prefix)
+              .lt("ingestKey", `${prefix}\uffff`),
+          )
+          .first();
+        if (existing) {
+          matchedPrefixes.push(prefix);
+          break;
+        }
+      }
+    }
+
+    return { matchedKeys, matchedPrefixes };
+  },
+});
+
 export const countAssets = query({
   args: {
     ownerUserId: v.optional(v.string()),

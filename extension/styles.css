@@ -197,6 +197,11 @@
   pointer-events: auto;
 }
 
+/* Single save widget on the full-size viewer media (/jobs pages, lightbox). */
+.stg-mj-quick-save--viewer {
+  z-index: 60;
+}
+
 .stg-mj-quick-save--hover-reveal {
   opacity: 0;
   pointer-events: none;

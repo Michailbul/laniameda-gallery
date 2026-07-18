@@ -4,6 +4,7 @@ const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
+const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
@@ -416,6 +417,54 @@ async function bookmarkPage(payload) {
 }
 
 
+// Read-only "already saved?" lookup — powers the In-gallery state on the
+// Midjourney viewer save widget.
+async function checkAssetStatus(payload) {
+  const imageUrls = Array.isArray(payload.imageUrls)
+    ? payload.imageUrls
+        .filter((url) => typeof url === "string" && url.trim())
+        .slice(0, 8)
+    : [];
+  if (imageUrls.length === 0) {
+    return { ok: false, error: "imageUrls is required." };
+  }
+
+  const config = await getConfig();
+  const statusUrl = normalizeRouteUrl(config.apiUrl, ASSET_STATUS_ROUTE_PATH);
+
+  let response;
+  try {
+    response = await fetch(statusUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageUrls }),
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}`, apiUrl: statusUrl };
+  }
+
+  let rawText = "";
+  let data = null;
+  try {
+    rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    // body wasn't JSON
+  }
+
+  if (!response.ok) {
+    const detail = data?.error || rawText.slice(0, 500) || "(empty body)";
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
+      apiUrl: statusUrl,
+      status: response.status,
+    };
+  }
+
+  return { ok: true, statuses: Array.isArray(data?.statuses) ? data.statuses : [] };
+}
+
 // ── Collections (stored as `folders` rows) ──
 
 async function getFolders() {
@@ -544,6 +593,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.action === "fetchImageBytes") {
     fetchImageBytes({ imageUrl: message.imageUrl })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "checkAssetStatus") {
+    checkAssetStatus({ imageUrls: message.imageUrls })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
