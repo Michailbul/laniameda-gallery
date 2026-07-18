@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
 import { StorybookCard } from "@/components/gallery/storybook-card";
+import { BeatStackCard } from "@/components/gallery/beat-stack-card";
 import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import {
@@ -32,7 +33,7 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -55,12 +56,14 @@ interface GalleryImage {
   isLiked?: boolean;
   packMemberCount?: number;
   storybookCount?: number;
+  /** Beat entries: every member thumb (cover first) for the hover peek fan. */
+  peekThumbs?: string[];
   stepCount?: number;
   cinemaMetadata?: CinemaMetadataLite | null;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -114,11 +117,13 @@ interface MasonryGridProps {
   ) => Promise<void> | void;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
+  /** Opens a beat (direction folder) for entries with galleryItemType "beat". */
+  onBeatOpen?: (beatFolderId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -138,7 +143,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -274,6 +279,7 @@ export function MasonryGrid({
   projects,
   onAddAssetToProject,
   onStorybookOpen,
+  onBeatOpen,
   showPublicBadge = false,
   onEndReached,
   zoom = 1,
@@ -543,6 +549,25 @@ export function MasonryGrid({
               }
             : { position: "relative", width: "100%", containerType: "inline-size" };
 
+          if (image.galleryItemType === "beat" && onBeatOpen) {
+            return (
+              <div key={image.id} style={tileStyle}>
+                <BeatStackCard
+                  beat={{
+                    id: image.id,
+                    beatFolderId: image.galleryItemId ?? image.id,
+                    name: image.prompt,
+                    count: image.storybookCount ?? image.previewImages.length,
+                    coverSrc: image.src !== "/placeholder.svg" ? image.src : undefined,
+                    coverKind: image.kind,
+                    peekThumbs: image.peekThumbs ?? [],
+                  }}
+                  eager={originalIndex < EAGER_IMAGE_COUNT}
+                  onOpen={onBeatOpen}
+                />
+              </div>
+            );
+          }
           if (image.galleryItemType === "storybook" && onStorybookOpen) {
             return (
               <div key={image.id} style={tileStyle}>

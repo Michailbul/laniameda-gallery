@@ -37,7 +37,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -65,7 +65,7 @@ interface ImageCardProps {
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
       src: string;
       fullSrc: string;
       prompt: string;
@@ -80,7 +80,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -100,7 +100,7 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
         src: string;
         fullSrc: string;
         prompt: string;

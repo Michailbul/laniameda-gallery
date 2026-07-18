@@ -1291,12 +1291,15 @@ const galleryAssetFacetsValidator = v.object({
 
 // A project's browseable asset pool: the union of all its member collections'
 // members (projects never hold assets directly). Capped per collection AND in
-// total by `limit`; the caller dedupes.
+// total by `limit`; the caller dedupes. `excludeBeats` drops member
+// collections filed under the "beats" section — the main gallery renders
+// those as stack cards instead, so their members must not double as tiles.
 const collectAssetsForProject = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   projectId: Id<"folders">,
   limit: number,
+  excludeBeats = false,
 ) => {
   const links = await ctx.db
     .query("projectCollections")
@@ -1304,6 +1307,7 @@ const collectAssetsForProject = async (
     .collect();
   const assets: Doc<"assets">[] = [];
   for (const link of links) {
+    if (excludeBeats && link.section === "beats") continue;
     if (assets.length >= limit) break;
     assets.push(
       ...(await collectAssetsForFolder(
@@ -1325,6 +1329,9 @@ export const listGalleryAssets = query({
     folderId: v.optional(v.id("folders")),
     // Browse a project's whole pool (union of its member collections).
     projectId: v.optional(v.id("folders")),
+    // With projectId: skip members of "beats"-section collections — the
+    // caller shows those as beat stack cards, not flat tiles.
+    excludeBeatAssets: v.optional(v.boolean()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -1363,7 +1370,13 @@ export const listGalleryAssets = query({
     const assetRole = args.assetRole;
     const kind = args.kind;
     const ownerScopedAssets = args.projectId
-      ? await collectAssetsForProject(ctx, ownerUserIds, args.projectId, queryTake)
+      ? await collectAssetsForProject(
+          ctx,
+          ownerUserIds,
+          args.projectId,
+          queryTake,
+          args.excludeBeatAssets === true,
+        )
       : args.folderId
       ? await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
       : (

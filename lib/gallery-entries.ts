@@ -52,7 +52,7 @@ export type GalleryAssetRecord = {
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -66,7 +66,7 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -94,8 +94,10 @@ export type GalleryEntry = {
   isFeatured?: boolean;
   isLiked?: boolean;
   packMemberCount?: number;
-  /** Member count for storybook entries (galleryItemType "storybook"). */
+  /** Member count for stack entries (galleryItemType "storybook" / "beat"). */
   storybookCount?: number;
+  /** Beat entries: every member thumb (cover first) for the hover peek fan. */
+  peekThumbs?: string[];
   size?: number;
   totalSize?: number;
   cinemaMetadata?: CinemaMetadata | null;

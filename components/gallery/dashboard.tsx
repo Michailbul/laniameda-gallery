@@ -66,7 +66,7 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
   stepCount?: number;
   thumbSrc: string;
   fullSrc: string;
@@ -1448,6 +1448,23 @@ export function GalleryDashboard({
     }
   }, [paginationActive, activePagedAssets]);
 
+  // Beat stack cards join the project browse grid only in its default state —
+  // any asset-targeting filter flips to flat assets (and keeps beat members
+  // in the flat set, so a VIDEO filter still surfaces a beat's videos).
+  const showBeatStacks =
+    Boolean(browseProject) &&
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !effectiveSelectedFolderId &&
+    !selectedPillar &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly &&
+    !workflowsOnly &&
+    selectedTags.length === 0 &&
+    !semanticMode &&
+    !assetSearchQuery.trim();
+
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
     !paginationActive && galleryScope === "mine" && canAccessMyGallery
@@ -1461,10 +1478,25 @@ export function GalleryDashboard({
           projectId: browseProject
             ? (browseProject.id as Id<"folders">)
             : undefined,
+          // Beats render as stack cards (below) — keep their members out of
+          // the flat tiles so nothing shows twice.
+          excludeBeatAssets: showBeatStacks ? true : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
           limit: 600,
+        }
+      : "skip",
+  );
+
+  // The browsed project's beats as stack cards for the grid (cover tile +
+  // hover peek fan). Same underlying assets as the review workspace.
+  const projectBeatStacks = useQuery(
+    api.projects.listProjectBeatStacks,
+    browseProject && showBeatStacks && canAccessMyGallery
+      ? {
+          ownerUserId,
+          projectId: browseProject.id as Id<"folders">,
         }
       : "skip",
   );
@@ -1923,9 +1955,38 @@ export function GalleryDashboard({
     });
   }, [storybooks]);
 
+  // The browsed project's beats as stack entries — same underlying assets as
+  // the review workspace, presented as one card each.
+  const beatEntries = useMemo<GalleryEntry[]>(() => {
+    if (!projectBeatStacks || projectBeatStacks.length === 0) return [];
+    return projectBeatStacks.map((beat) => {
+      const cover = beat.cover;
+      const coverSrc = cover?.thumbUrl ?? cover?.url;
+      return {
+        id: `beat:${beat.folderId}`,
+        galleryItemId: beat.folderId as string,
+        galleryItemType: "beat" as const,
+        src: coverSrc ?? "/placeholder.svg",
+        fullSrc: cover?.url ?? coverSrc ?? "/placeholder.svg",
+        prompt: beat.name,
+        author: "Beat",
+        likes: 0,
+        width: cover?.thumbWidth ?? cover?.width,
+        height: cover?.thumbHeight ?? cover?.height,
+        kind: cover?.kind,
+        contentType: cover?.contentType,
+        createdAt: beat.createdAt,
+        storybookCount: beat.count,
+        peekThumbs: beat.peekThumbs,
+        previewImages: [],
+      };
+    });
+  }, [projectBeatStacks]);
+
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
     const stacks = showStorybookStacks ? storybookEntries : [];
+    const beats = showBeatStacks ? beatEntries : [];
     // When filtering by media kind (image/video) or liked-only, keep workflows
     // out of the grid — those filters target likeable assets, not workflows.
     const mixed =
@@ -1936,8 +1997,10 @@ export function GalleryDashboard({
           : [...workflowEntries, ...baseImages].sort(
               (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
             );
-    // Storybooks lead the grid — they're narrative shelves, not dated assets.
-    return stacks.length > 0 ? [...stacks, ...mixed] : mixed;
+    // Stacks lead the grid — they're shelves, not dated assets. In project
+    // browse that's the beats; in the default state, storybooks.
+    const leading = [...stacks, ...beats];
+    return leading.length > 0 ? [...leading, ...mixed] : mixed;
   }, [
     workflowsOnly,
     mediaKind,
@@ -1946,6 +2009,8 @@ export function GalleryDashboard({
     baseImages,
     showStorybookStacks,
     storybookEntries,
+    showBeatStacks,
+    beatEntries,
   ]);
 
   const publishAllAssetIds = useMemo(() => {
@@ -3652,6 +3717,13 @@ export function GalleryDashboard({
                         : undefined
                     }
                     onStorybookOpen={setOpenStorybookId}
+                    // A beat click steps into the project workspace — the
+                    // separate review view over the same linked assets.
+                    onBeatOpen={
+                      browseProject
+                        ? () => setOpenProjectId(browseProject.id)
+                        : undefined
+                    }
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       paginationActive ? loadNextGalleryPage : undefined

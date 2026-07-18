@@ -235,6 +235,103 @@ export const listProjects = query({
   },
 });
 
+// A project's beats presented as STACK cards in the main gallery grid: cover
+// tile + fanned peek thumbs on hover. The flat grid excludes these members
+// (assets:listGalleryAssets excludeBeatAssets) so nothing shows twice.
+const beatStackValidator = v.object({
+  folderId: v.id("folders"),
+  name: v.string(),
+  count: v.number(),
+  cover: v.optional(projectPreviewValidator),
+  // Thumb urls of everything inside (cover first, capped) for the hover fan.
+  peekThumbs: v.array(v.string()),
+  createdAt: v.optional(v.number()),
+});
+
+const BEAT_PEEK_LIMIT = 8;
+
+export const listProjectBeatStacks = query({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+  },
+  returns: v.array(beatStackValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const links = await collectProjectCollectionLinks(
+      ctx,
+      ownerUserIds,
+      args.projectId,
+    );
+    const beatLinks = links.filter((link) => link.section === "beats");
+
+    const stacks = [];
+    for (const link of beatLinks) {
+      const folder = await ctx.db.get(link.folderId);
+      if (!folder) continue;
+      const members = await collectAssetsForFolder(
+        ctx,
+        ownerUserIds,
+        link.folderId,
+        PROJECT_COLLECTION_ASSET_LIMIT,
+      );
+      // The direction's MASTER asset fronts the stack; first member otherwise.
+      const coverAsset =
+        (folder.coverAssetId &&
+          members.find((asset) => asset._id === folder.coverAssetId)) ||
+        members[0];
+      const ordered = coverAsset
+        ? [coverAsset, ...members.filter((asset) => asset !== coverAsset)]
+        : members;
+
+      const peekThumbs = (
+        await Promise.all(
+          ordered.slice(0, BEAT_PEEK_LIMIT).map(async (asset) => {
+            const [thumbUrl, url] = await Promise.all([
+              resolveAssetThumbUrl(ctx, asset),
+              resolveAssetUrl(ctx, asset),
+            ]);
+            return thumbUrl ?? url;
+          }),
+        )
+      ).filter((src): src is string => Boolean(src));
+
+      let cover;
+      if (coverAsset) {
+        const [url, thumbUrl] = await Promise.all([
+          resolveAssetUrl(ctx, coverAsset),
+          resolveAssetThumbUrl(ctx, coverAsset),
+        ]);
+        cover = {
+          assetId: coverAsset._id,
+          kind: coverAsset.kind,
+          contentType: coverAsset.contentType,
+          url: url ?? undefined,
+          thumbUrl: thumbUrl ?? undefined,
+          width: coverAsset.width,
+          height: coverAsset.height,
+          thumbWidth: coverAsset.thumbWidth,
+          thumbHeight: coverAsset.thumbHeight,
+        };
+      }
+
+      stacks.push({
+        folderId: link.folderId,
+        name: folder.name,
+        count: members.length,
+        cover,
+        peekThumbs,
+        createdAt: folder.createdAt,
+      });
+    }
+    return stacks;
+  },
+});
+
 // The full project "review" payload — the workspace view model. The shared
 // public board (directionBoard.getBoardWorkspace) returns this SAME shape so
 // the review UI renders identically for owner and anonymous viewer.

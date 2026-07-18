@@ -47,7 +47,7 @@ interface GalleryDetailPanelProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
