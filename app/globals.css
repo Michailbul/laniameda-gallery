@@ -1451,3 +1451,39 @@
     width: 10px;
   }
 }
+
+/* ── Beat card hover peek deck ──
+   On card hover the beat's contents fan out as small stacked cards along the
+   bottom edge; hovering one scales it up in place. Pure CSS — no modal, the
+   grid never navigates. Rotation lives on the slot so the hover transform
+   can cleanly replace it. */
+.lm-beat-peek-slot {
+  position: relative;
+  z-index: 0;
+  margin-left: -12px;
+  transition: transform 160ms ease;
+  transform-origin: bottom center;
+}
+.lm-beat-peek-slot:first-child {
+  margin-left: 0;
+}
+.lm-beat-peek-slot:nth-child(odd) {
+  transform: rotate(-2.5deg);
+}
+.lm-beat-peek-slot:nth-child(even) {
+  transform: rotate(2.5deg) translateY(-2px);
+}
+.lm-beat-peek-slot:hover {
+  z-index: 60;
+  transform: rotate(0deg) scale(2.3) translateY(-6%);
+}
+.lm-beat-peek-thumb {
+  display: block;
+  width: 44px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 244, 234, 0.4);
+  background: var(--surface-2, #1f1e1c);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
+}

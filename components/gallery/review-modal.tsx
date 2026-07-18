@@ -291,6 +291,9 @@ type DirectionCardData = {
   backs: string[];
   /** Thumb urls (master first) for the hover-to-preview rotation. */
   previews: string[];
+  /** Thumb urls of EVERYTHING inside (images + videos, cover first) for the
+   * hover peek deck — small stacked cards along the card's bottom edge. */
+  peekThumbs: string[];
   /** Kind breakdown for the card footer. */
   videos: number;
   images: number;
@@ -645,6 +648,14 @@ export function ReviewModal({
         .slice(0, 8)
         .map((a) => a.thumbUrl ?? a.url)
         .filter((src): src is string => Boolean(src));
+      const peekThumbs = (
+        coverAsset
+          ? [coverAsset, ...reviewAssets.filter((a) => a !== coverAsset)]
+          : reviewAssets
+      )
+        .slice(0, 8)
+        .map((a) => a.thumbUrl ?? a.url)
+        .filter((src): src is string => Boolean(src));
       return {
         id: collection.folderId as string,
         name: collection.name,
@@ -654,6 +665,7 @@ export function ReviewModal({
         cover: imageCover,
         backs,
         previews,
+        peekThumbs,
         videos: videos.length,
         images: images.length,
         likes:
@@ -3473,6 +3485,28 @@ function DirectionCard({
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [videoIndex, setVideoIndex] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  // Hover peek deck: the beat's contents fan out as small stacked cards along
+  // the bottom edge; hovering one scales it up in place (no modal, no
+  // navigation — everything stays on this screen).
+  const peekStrip =
+    direction.peekThumbs.length > 1 ? (
+      <div
+        className="lm-beat-peek pointer-events-none absolute inset-x-2 bottom-2 z-20 flex items-end justify-center opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+        aria-hidden
+      >
+        {direction.peekThumbs.map((src, i) => (
+          <div key={`${src}-${i}`} className="lm-beat-peek-slot">
+            <img
+              src={src}
+              alt=""
+              loading="lazy"
+              className="lm-beat-peek-thumb"
+            />
+          </div>
+        ))}
+      </div>
+    ) : null;
+
   const uploadControl = onUploadFiles ? (
     <>
       <input
@@ -3719,6 +3753,8 @@ function DirectionCard({
             )}
           </div>
 
+          {peekStrip}
+
           {/* Likes + take counter */}
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
             <LikeControl
@@ -3905,6 +3941,8 @@ function DirectionCard({
               </span>
             )}
           </div>
+
+          {peekStrip}
 
         {/* Option count badge — turns into a n/N counter while previewing */}
         <span
