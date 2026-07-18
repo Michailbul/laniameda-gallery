@@ -32,6 +32,7 @@ import type * as imageDimensions from "../imageDimensions.js";
 import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as membershipAudit from "../membershipAudit.js";
+import type * as menuFilters from "../menuFilters.js";
 import type * as mergeDuplicateTags from "../mergeDuplicateTags.js";
 import type * as notifications from "../notifications.js";
 import type * as projects from "../projects.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   ingest: typeof ingest;
   ingest_failures: typeof ingest_failures;
   membershipAudit: typeof membershipAudit;
+  menuFilters: typeof menuFilters;
   mergeDuplicateTags: typeof mergeDuplicateTags;
   notifications: typeof notifications;
   projects: typeof projects;

@@ -51,7 +51,6 @@ import {
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
-  isHiddenFilterTag,
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
@@ -1052,13 +1051,18 @@ export function GalleryDashboard({
 
   // Image navigation
   const tags = useQuery(api.tags.listTags, {});
-  const tagAssetCounts = useQuery(
-    api.assets.tagAssetCounts,
-    galleryScope === "mine" && canAccessMyGallery
-      ? { ownerUserId }
-      : galleryScope === "public"
-        ? { isPublic: true }
-        : "skip",
+  // Curated filter pills (admin-managed) — the only tag UI on the main menu.
+  // Counts come from the backend using the same predicates the grid filter
+  // applies, so pill numbers always match what a click shows.
+  const menuFilters = useQuery(
+    api.menuFilters.listMenuFilters,
+    ownerUserId
+      ? galleryScope === "public"
+        ? { ownerUserId, isPublic: true }
+        : canAccessMyGallery
+          ? { ownerUserId }
+          : "skip"
+      : "skip",
   );
   const folders = useQuery(
     api.folders.listFolders,
@@ -1290,91 +1294,30 @@ export function GalleryDashboard({
     );
   }, [tags]);
 
-  const assetCountByTagId = useMemo(() => {
-    const map = new Map<Id<"tags">, number>();
-    for (const entry of tagAssetCounts ?? []) {
-      map.set(entry.tagId, entry.count);
+  // Collection-kind pills only make sense where the folder filter works —
+  // the owner's vault. Public scope shows the tag-kind pills only.
+  const menuFilterEntries = useMemo(() => {
+    const entries = menuFilters ?? [];
+    if (galleryScope === "public") {
+      return entries.filter((entry) => entry.kind === "tag");
     }
-    return map;
-  }, [tagAssetCounts]);
+    return entries;
+  }, [menuFilters, galleryScope]);
 
-  const dedupedTags = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        _id: string;
-        name: string;
-        usageCount: number;
-        sourceIds: Id<"tags">[];
-        sourceIdSet: Set<Id<"tags">>;
-        bestCount: number;
-      }
-    >();
-
-    for (const tag of tags ?? []) {
-      // Source/plumbing tags and duplicates of other filters stay on assets
-      // but never surface as filter chips.
-      if (isHiddenFilterTag(tag.name)) continue;
-      const key = canonicalTagKey(tag.name) || tag._id;
-      const count = assetCountByTagId.get(tag._id) ?? 0;
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, {
-          _id: key,
-          name: tag.name || "untitled",
-          usageCount: count,
-          sourceIds: [tag._id],
-          sourceIdSet: new Set([tag._id]),
-          bestCount: count,
-        });
-        continue;
-      }
-
-      existing.usageCount += count;
-      if (!existing.sourceIdSet.has(tag._id)) {
-        existing.sourceIdSet.add(tag._id);
-        existing.sourceIds.push(tag._id);
-      }
-      if (count > existing.bestCount) {
-        existing.bestCount = count;
-        existing.name = tag.name;
-      }
-    }
-
-    return Array.from(groups.values())
-      .filter((tag) => tag.usageCount > 0)
-      .map(
-        ({
-          sourceIdSet: _sourceIdSet,
-          bestCount: _bestCount,
-          ...tag
-        }) => tag,
-      )
-      .sort((a, b) => {
-        const usageDiff = b.usageCount - a.usageCount;
-        if (usageDiff !== 0) return usageDiff;
-        return a.name.localeCompare(b.name);
-      });
-  }, [tags, assetCountByTagId]);
-
-  const sourceIdsByTagKey = useMemo(() => {
-    const map = new Map<string, Id<"tags">[]>();
-    for (const tag of dedupedTags) {
-      map.set(tag._id, tag.sourceIds);
-    }
-    return map;
-  }, [dedupedTags]);
-
+  // selectedTags holds the ids of selected tag-kind menu filters; the grid
+  // filter is the union of their resolved tagIds.
   const selectedTagIds = useMemo(() => {
     if (selectedTags.length === 0) return undefined;
+    const selectedSet = new Set(selectedTags);
     const ids = new Set<Id<"tags">>();
-    for (const key of selectedTags) {
-      for (const id of sourceIdsByTagKey.get(key) ?? []) {
+    for (const entry of menuFilterEntries) {
+      if (entry.kind !== "tag" || !selectedSet.has(entry._id)) continue;
+      for (const id of entry.tagIds) {
         ids.add(id);
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [selectedTags, sourceIdsByTagKey]);
+  }, [selectedTags, menuFilterEntries]);
 
   // Cursor pagination serves the default browse (newest, no folder): pages of
   // 60 stream in as the grid's scroll frontier nears the end of what's loaded,
@@ -1434,10 +1377,16 @@ export function GalleryDashboard({
     viewMode,
   ]);
 
+  // Tag filters also take the one-shot path: the page query post-filters each
+  // 60-item page, so a sparse tag can hand the grid an empty first page (it
+  // reads as "no matches") even when hundreds match. The one-shot query
+  // returns the full filtered set, keeping the grid consistent with the menu
+  // pill counts.
   const paginationActive =
     sortOrder === "newest" &&
     !effectiveSelectedFolderId &&
     !browseProject &&
+    !selectedTagIds &&
     selectedPillar !== "designs";
 
   const minePagedAssets = usePaginatedQuery(
@@ -1654,6 +1603,13 @@ export function GalleryDashboard({
     );
   };
 
+  // Collection-kind menu pill: behaves like picking the collection in the
+  // sidebar — single-select folder filter, click again to clear.
+  const handleMenuCollectionToggle = useCallback((folderId: string) => {
+    setBrowseProject(null);
+    setSelectedFolderId((current) => (current === folderId ? null : folderId));
+  }, []);
+
   const handleClearAll = () => setSelectedTags([]);
   const handleClearFilters = () => {
     setSelectedTags([]);
@@ -1693,7 +1649,6 @@ export function GalleryDashboard({
     setSemanticLoading(false);
   }, []);
 
-  const allTags = dedupedTags;
   const lexicalFilteredAssets = useMemo(() => {
     const search = assetSearchQuery.trim().toLowerCase();
     let result = baseGalleryAssets;
@@ -3329,10 +3284,16 @@ export function GalleryDashboard({
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
                 onGalleryScopeChange={setGalleryScope}
-                tags={allTags}
+                menuFilters={menuFilterEntries}
                 selectedTags={selectedTags}
                 onTagToggle={handleTagToggle}
+                selectedFolderId={effectiveSelectedFolderId}
+                onCollectionToggle={handleMenuCollectionToggle}
                 onClearAllTags={handleClearAll}
+                canManageMenuFilters={
+                  galleryScope === "mine" && canAccessMyGallery
+                }
+                ownerUserId={ownerUserId}
                 workflowsOnly={workflowsOnly}
                 onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
                 likedOnly={likedOnly}

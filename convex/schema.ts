@@ -169,6 +169,24 @@ export default defineSchema({
     .index("by_project_folder", ["projectId", "folderId"])
     .index("by_owner_project", ["ownerUserId", "projectId"])
     .index("by_folder", ["folderId"]),
+  // Curated filter pills on the main gallery menu. The owner manages these
+  // from the filter bar's admin panel — the raw tag cloud never surfaces
+  // directly. An entry maps to either a set of tag names ("tag" kind, matched
+  // canonically against the tags table at read time so duplicate tag docs
+  // collapse) or a collection ("collection" kind: clicking filters the grid
+  // to that folder's members).
+  menuFilters: defineTable({
+    ownerUserId: v.string(),
+    label: v.string(),
+    kind: v.union(v.literal("tag"), v.literal("collection")),
+    // "tag" kind: names resolved via canonicalTagKey against tags.name.
+    tagNames: v.optional(v.array(v.string())),
+    // "collection" kind: the folder whose membership this pill filters to.
+    folderId: v.optional(v.id("folders")),
+    sortOrder: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner_sortOrder", ["ownerUserId", "sortOrder"]),
   // Authless reactions from shared-board viewers (beta: the share token is
   // the only capability; no viewer accounts). viewerKey is a random client id
   // persisted in the viewer's localStorage so likes toggle per browser;

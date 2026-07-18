@@ -8,11 +8,12 @@ import {
   Image as ImageIcon,
   Layers,
   Package,
-  Search,
+  SlidersHorizontal,
   Video,
   Workflow,
   X,
 } from "lucide-react";
+import { MenuFilterAdmin } from "./menu-filter-admin";
 
 export type MediaKind = "image" | "video";
 
@@ -27,20 +28,30 @@ export type PillarOption = {
   description?: string;
 };
 
-interface TagItem {
+// A curated menu pill (admin-managed on the backend). "tag" pills toggle the
+// tag filter; "collection" pills toggle the folder filter to their collection.
+export interface MenuFilterItem {
   _id: string;
-  name: string;
-  usageCount?: number;
+  label: string;
+  kind: "tag" | "collection";
+  tagNames?: string[];
+  folderId?: string;
+  count: number;
 }
 
 interface GalleryFilterBarProps {
   galleryScope: GalleryScope;
   canAccessMyGallery: boolean;
   onGalleryScopeChange: (scope: GalleryScope) => void;
-  tags: TagItem[];
+  menuFilters: MenuFilterItem[];
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
+  selectedFolderId?: string | null;
+  onCollectionToggle: (folderId: string) => void;
   onClearAllTags: () => void;
+  /** Owner may open the manage panel and edit the menu (mine scope only). */
+  canManageMenuFilters?: boolean;
+  ownerUserId: string;
   workflowsOnly: boolean;
   onWorkflowsOnlyChange: (next: boolean) => void;
   likedOnly?: boolean;
@@ -68,10 +79,14 @@ export function GalleryFilterBar({
   galleryScope,
   canAccessMyGallery,
   onGalleryScopeChange,
-  tags,
+  menuFilters,
   selectedTags,
   onTagToggle,
+  selectedFolderId,
+  onCollectionToggle,
   onClearAllTags,
+  canManageMenuFilters = false,
+  ownerUserId,
   workflowsOnly,
   onWorkflowsOnlyChange,
   likedOnly = false,
@@ -87,53 +102,10 @@ export function GalleryFilterBar({
   onGridZoomChange,
 }: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [adminOpen, setAdminOpen] = useState(false);
   const tagScrollRef = useRef<HTMLDivElement>(null);
 
-  const orderedTags = useMemo(() => {
-    const selected: TagItem[] = [];
-    const unselected: TagItem[] = [];
-
-    for (const tag of [...tags].sort((a, b) => {
-      const usageDiff = (b.usageCount ?? 0) - (a.usageCount ?? 0);
-      if (usageDiff !== 0) return usageDiff;
-      return a.name.localeCompare(b.name);
-    })) {
-      if (selectedTagSet.has(tag._id)) {
-        selected.push(tag);
-      } else {
-        unselected.push(tag);
-      }
-    }
-
-    return [...selected, ...unselected];
-  }, [tags, selectedTagSet]);
-
-  const filteredTags = useMemo(() => {
-    if (!searchQuery.trim()) return orderedTags;
-    const needle = searchQuery.trim().toLowerCase();
-    return orderedTags.filter((tag) =>
-      tag.name.toLowerCase().includes(needle),
-    );
-  }, [orderedTags, searchQuery]);
-
-  const openSearch = () => {
-    setSearchOpen(true);
-    setTimeout(() => searchInputRef.current?.focus(), 50);
-  };
-
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setSearchQuery("");
-  };
-
-  const hasTags = orderedTags.length > 0;
-  const hasFilteredTags = filteredTags.length > 0;
-  const tagSummaryLabel = searchQuery.trim()
-    ? `${filteredTags.length} of ${orderedTags.length} tags`
-    : `${orderedTags.length} tags`;
+  const showMenuRow = menuFilters.length > 0 || canManageMenuFilters;
 
   return (
     <div
@@ -288,7 +260,7 @@ export function GalleryFilterBar({
           ) : null}
         </div>
 
-        {hasTags ? (
+        {showMenuRow ? (
           <>
             <div
               style={{
@@ -298,88 +270,28 @@ export function GalleryFilterBar({
               }}
             />
             <div className="flex items-center gap-2 px-3 py-2">
-              {/* Inline tag search + clear */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {searchOpen ? (
-                  <div
-                    className="lm-search-input flex items-center gap-1.5 px-2.5"
-                    style={{
-                      minHeight: "30px",
-                      border: "2px solid var(--lm-ink)",
-                      borderRadius: "999px",
-                      backgroundColor: "var(--lm-surface-1)",
-                    }}
-                  >
-                    <Search className="h-3 w-3 shrink-0" style={{ color: "var(--lm-text-ghost)" }} />
-                    <input
-                      ref={searchInputRef}
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="FILTER..."
-                      className="min-w-0 bg-transparent py-0.5 outline-none"
-                      style={{
-                        fontFamily: "var(--lm-font)",
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--lm-text-primary)",
-                        width: "80px",
-                      }}
-                      aria-label="Search tags"
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") closeSearch();
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={closeSearch}
-                      className="flex items-center justify-center"
-                      style={{ color: "var(--lm-text-ghost)" }}
-                      aria-label="Close tag search"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={openSearch}
-                    className="flex items-center justify-center shrink-0 transition-colors"
-                    style={{
-                      width: "30px",
-                      height: "30px",
-                      border: "2px solid var(--lm-border-strong)",
-                      borderRadius: "999px",
-                      color: "var(--lm-text-ghost)",
-                    }}
-                    aria-label="Search tags"
-                  >
-                    <Search className="h-3 w-3" />
-                  </button>
-                )}
-                {selectedTags.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={onClearAllTags}
-                    className="flex items-center gap-1 px-2.5 py-1 transition-colors"
-                    style={{
-                      background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
-                      color: "#fff",
-                      fontSize: "9px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.12em",
-                      borderRadius: "999px",
-                      fontFamily: "var(--lm-font)",
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5" />
-                    Clear {selectedTags.length}
-                  </button>
-                ) : null}
-              </div>
+              {selectedTags.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={onClearAllTags}
+                  className="flex shrink-0 items-center gap-1 px-2.5 py-1 transition-colors"
+                  style={{
+                    background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+                    color: "#fff",
+                    fontSize: "9px",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    borderRadius: "999px",
+                    fontFamily: "var(--lm-font)",
+                  }}
+                >
+                  <X className="h-2.5 w-2.5" />
+                  Clear {selectedTags.length}
+                </button>
+              ) : null}
 
-              {/* Scrollable tag pills */}
+              {/* Curated menu pills */}
               <div
                 ref={tagScrollRef}
                 className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1"
@@ -402,14 +314,27 @@ export function GalleryFilterBar({
                   element.scrollLeft += event.deltaY;
                 }}
               >
-                {hasFilteredTags ? (
-                  filteredTags.map((tag) => {
-                    const isActive = selectedTagSet.has(tag._id);
+                {menuFilters.length > 0 ? (
+                  menuFilters.map((entry) => {
+                    const isActive =
+                      entry.kind === "tag"
+                        ? selectedTagSet.has(entry._id)
+                        : entry.folderId != null &&
+                          entry.folderId === selectedFolderId;
                     return (
                       <button
-                        key={tag._id}
+                        key={entry._id}
                         type="button"
-                        onClick={() => onTagToggle(tag._id)}
+                        onClick={() =>
+                          entry.kind === "tag"
+                            ? onTagToggle(entry._id)
+                            : entry.folderId && onCollectionToggle(entry.folderId)
+                        }
+                        title={
+                          entry.kind === "collection"
+                            ? `Show the ${entry.label} collection`
+                            : undefined
+                        }
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -439,8 +364,11 @@ export function GalleryFilterBar({
                           flexShrink: 0,
                         }}
                       >
-                        {tag.name}
-                        {tag.usageCount != null && tag.usageCount > 0 ? (
+                        {entry.kind === "collection" ? (
+                          <FolderOpen className="h-2.5 w-2.5" aria-hidden />
+                        ) : null}
+                        {entry.label}
+                        {entry.count > 0 ? (
                           <span
                             style={{
                               opacity: 0.5,
@@ -448,7 +376,7 @@ export function GalleryFilterBar({
                               fontWeight: 800,
                             }}
                           >
-                            {tag.usageCount}
+                            {entry.count}
                           </span>
                         ) : null}
                       </button>
@@ -466,26 +394,46 @@ export function GalleryFilterBar({
                       letterSpacing: "0.14em",
                     }}
                   >
-                    No tags match this search
+                    No menu filters yet — add one
                   </div>
                 )}
               </div>
 
-              {/* Tag count */}
-              <div
-                className="shrink-0"
-                style={{
-                  color: "var(--lm-text-ghost)",
-                  fontFamily: "var(--lm-font)",
-                  fontSize: "9px",
-                  fontWeight: 700,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {tagSummaryLabel}
-              </div>
+              {canManageMenuFilters ? (
+                <button
+                  type="button"
+                  onClick={() => setAdminOpen((open) => !open)}
+                  className="flex shrink-0 items-center gap-1 px-2.5 py-1 transition-colors"
+                  style={{
+                    border: adminOpen
+                      ? "2px solid var(--lm-ink)"
+                      : "2px solid var(--lm-border-strong)",
+                    borderRadius: "999px",
+                    color: adminOpen
+                      ? "var(--lm-text-primary)"
+                      : "var(--lm-text-ghost)",
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    background: adminOpen ? "var(--lm-surface-1)" : "transparent",
+                  }}
+                  aria-expanded={adminOpen}
+                  aria-label="Manage menu filters"
+                >
+                  <SlidersHorizontal className="h-3 w-3" />
+                  Edit
+                </button>
+              ) : null}
             </div>
+            {canManageMenuFilters && adminOpen ? (
+              <MenuFilterAdmin
+                ownerUserId={ownerUserId}
+                menuFilters={menuFilters}
+                onClose={() => setAdminOpen(false)}
+              />
+            ) : null}
           </>
         ) : null}
       </div>
