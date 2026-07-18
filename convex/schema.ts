@@ -127,6 +127,11 @@ export default defineSchema({
     showcaseFeatured: v.optional(v.boolean()),
     // Manual ordering of showcased items on the public home (lower = earlier).
     showcaseOrder: v.optional(v.number()),
+    // THE taste collection: at most one plain collection per owner carries
+    // this. When set, the public showcase home's inspiration grid shows
+    // exactly this collection's members (whole set, like showcased folders)
+    // instead of auto-pulling individually-public assets.
+    tasteCollection: v.optional(v.boolean()),
     // MASTER option: the asset used as this collection's thumbnail when it is
     // browsed as a "direction" (a set of similar options). Falls back to the
     // first asset when unset or dangling.
@@ -141,6 +146,7 @@ export default defineSchema({
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_shareToken", ["shareToken"])
     .index("by_showcased", ["showcased"])
+    .index("by_tasteCollection", ["tasteCollection"])
     .index("by_parent", ["parentFolderId"]),
 
   // Which collections belong to a project (folder kind:"project"). A project

@@ -154,8 +154,11 @@ const collectSetMembers = async (
  *   featured    — showcased sets flagged showcaseFeatured (hero treatment)
  *   storybooks  — remaining showcased storybooks (stack cards)
  *   collections — remaining showcased collections (stack cards)
- *   inspiration — individually public assets NOT already inside a showcased
- *                 set: the "random / unsorted" tail of the page.
+ *   inspiration — when a taste collection exists (folders.tasteCollection),
+ *                 exactly its members, newest first: the owner curates the
+ *                 grid by filing assets into that one collection. Without
+ *                 one, the legacy tail: individually public assets NOT
+ *                 already inside a showcased set.
  * Returns empty arrays (never null) so the page renders a clean empty state
  * before anything is published.
  */
@@ -168,7 +171,16 @@ export const getShowcaseHome = query({
     inspiration: v.array(galleryAssetResultValidator),
   }),
   handler: async (ctx) => {
-    // --- Showcased sets: root-level collections + storybooks. ---
+    const tasteFolder =
+      (
+        await ctx.db
+          .query("folders")
+          .withIndex("by_tasteCollection", (q) => q.eq("tasteCollection", true))
+          .collect()
+      ).find((f) => f.kind === undefined) ?? null;
+
+    // --- Showcased sets: root-level collections + storybooks. The taste
+    // collection never doubles as a stack — it IS the inspiration grid. ---
     const showcasedFolders = (
       await ctx.db
         .query("folders")
@@ -177,7 +189,8 @@ export const getShowcaseHome = query({
     ).filter(
       (f) =>
         f.parentFolderId === undefined &&
-        (f.kind === undefined || f.kind === "storybook"),
+        (f.kind === undefined || f.kind === "storybook") &&
+        f._id !== tasteFolder?._id,
     );
 
     const showcasedAssetIds = new Set<string>();
@@ -225,23 +238,35 @@ export const getShowcaseHome = query({
       )
       .map((s) => s.summary);
 
-    // --- Inspiration: public assets not already inside a showcased set. ---
-    const publicAssets = await ctx.db
-      .query("assets")
-      .withIndex("by_isPublic_createdAt", (q) =>
-        q.eq("isPublic", true).gte("createdAt", 0),
-      )
-      .order("desc")
-      .take(SELECTED_WORKS_LIMIT);
-    const unsorted = publicAssets
-      .filter((a) => !showcasedAssetIds.has(a._id))
-      .sort((a, b) => {
-        const af = a.isFeatured ? 1 : 0;
-        const bf = b.isFeatured ? 1 : 0;
-        if (af !== bf) return bf - af;
-        return (b.createdAt ?? 0) - (a.createdAt ?? 0);
-      });
-    const inspiration = await hydrateGalleryAssetResults(ctx, unsorted);
+    // --- Inspiration ---
+    let inspiration;
+    if (tasteFolder) {
+      // Exclusively the taste collection's members (whole set, same exposure
+      // rule as showcased folders), newest first.
+      const { all } = await collectSetMembers(ctx, tasteFolder);
+      inspiration = await hydrateGalleryAssetResults(
+        ctx,
+        [...all].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
+      );
+    } else {
+      // Legacy tail: public assets not already inside a showcased set.
+      const publicAssets = await ctx.db
+        .query("assets")
+        .withIndex("by_isPublic_createdAt", (q) =>
+          q.eq("isPublic", true).gte("createdAt", 0),
+        )
+        .order("desc")
+        .take(SELECTED_WORKS_LIMIT);
+      const unsorted = publicAssets
+        .filter((a) => !showcasedAssetIds.has(a._id))
+        .sort((a, b) => {
+          const af = a.isFeatured ? 1 : 0;
+          const bf = b.isFeatured ? 1 : 0;
+          if (af !== bf) return bf - af;
+          return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+        });
+      inspiration = await hydrateGalleryAssetResults(ctx, unsorted);
+    }
 
     return { featured, collections, storybooks, inspiration };
   },

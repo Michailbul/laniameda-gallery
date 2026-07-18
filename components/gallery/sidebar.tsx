@@ -15,6 +15,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Star,
   Trash2,
   LayoutGrid,
@@ -103,6 +104,12 @@ interface GallerySidebarProps {
     parentFolderId: string,
     name: string,
   ) => Promise<string | null>;
+  /** Create a root collection from the COLLECTIONS section header. */
+  onCreateCollection?: (name: string) => Promise<string | null>;
+  /** THE taste collection — its members are the showcase inspiration grid. */
+  tasteFolderId?: string | null;
+  /** Toggle a plain collection as the taste collection (one at a time). */
+  onToggleTaste?: (folderId: string, next: boolean) => void;
   /** Opens the public showcase as a visitor sees it (owner preview). */
   onPreviewShowcase?: () => void;
 }
@@ -148,6 +155,9 @@ export function GallerySidebar({
   featuredFolderIds,
   onToggleFeatured,
   onCreateSubCollection,
+  onCreateCollection,
+  tasteFolderId,
+  onToggleTaste,
   onPreviewShowcase,
 }: GallerySidebarProps) {
   const pathname = usePathname();
@@ -176,6 +186,27 @@ export function GallerySidebar({
   const [creatingProject, setCreatingProject] = useState(false);
   const [projectDraft, setProjectDraft] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
+
+  // Inline root-collection create (COLLECTIONS header "+").
+  const [creatingCollection, setCreatingCollection] = useState(false);
+  const [collectionDraft, setCollectionDraft] = useState("");
+  const [collectionBusy, setCollectionBusy] = useState(false);
+
+  const submitCollectionDraft = async () => {
+    const name = collectionDraft.trim();
+    if (!name || !onCreateCollection || collectionBusy) return;
+    setCollectionBusy(true);
+    try {
+      const folderId = await onCreateCollection(name);
+      if (folderId) {
+        setCreatingCollection(false);
+        setCollectionDraft("");
+        onFolderSelect?.(folderId);
+      }
+    } finally {
+      setCollectionBusy(false);
+    }
+  };
 
   // Inline sub-collection create: which root collection is being added to.
   const [subCreateFor, setSubCreateFor] = useState<string | null>(null);
@@ -611,7 +642,8 @@ export function GallerySidebar({
             {/* Folders — dashboard.tsx controls which folders are passed in
                 per scope (all owned collections for "mine", a curated
                 public-facing allowlist for "public"), so no scope gate here. */}
-            {folders.length > 0 && onFolderSelect && (
+            {(folders.length > 0 || Boolean(onCreateCollection)) &&
+              onFolderSelect && (
               <div style={{ borderBottom: "1px solid var(--lm-sidebar-divider)" }}>
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span
@@ -625,22 +657,72 @@ export function GallerySidebar({
                   >
                     COLLECTIONS
                   </span>
-                  {selectedFolderId && (
-                    <button
-                      type="button"
-                      onClick={() => onFolderSelect(null)}
-                      style={{
-                        fontSize: "8px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--lm-coral)",
-                      }}
-                    >
-                      CLEAR
-                    </button>
-                  )}
+                  <span className="flex items-center gap-2">
+                    {selectedFolderId && (
+                      <button
+                        type="button"
+                        onClick={() => onFolderSelect(null)}
+                        style={{
+                          fontSize: "8px",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.12em",
+                          color: "var(--lm-coral)",
+                        }}
+                      >
+                        CLEAR
+                      </button>
+                    )}
+                    {onCreateCollection && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreatingCollection((prev) => !prev);
+                          setCollectionDraft("");
+                        }}
+                        aria-label="New collection"
+                        title="New collection"
+                        style={{ color: "var(--lm-coral)" }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
                 </div>
+                {creatingCollection && (
+                  <div className="px-4 pb-2.5">
+                    <input
+                      autoFocus
+                      value={collectionDraft}
+                      disabled={collectionBusy}
+                      onChange={(event) =>
+                        setCollectionDraft(event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void submitCollectionDraft();
+                        }
+                        if (event.key === "Escape") {
+                          setCreatingCollection(false);
+                          setCollectionDraft("");
+                        }
+                      }}
+                      placeholder="Collection name"
+                      className="w-full bg-transparent pb-1 outline-none"
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.10em",
+                        color: "var(--lm-sidebar-text)",
+                        borderBottom: "1px solid var(--lm-coral)",
+                        caretColor: "var(--lm-coral)",
+                        opacity: collectionBusy ? 0.5 : 1,
+                      }}
+                      aria-label="New collection name"
+                    />
+                  </div>
+                )}
                 <FilterRow
                   icon={FolderOpen}
                   label="All collections"
@@ -687,6 +769,12 @@ export function GallerySidebar({
                       onToggleFeatured={
                         onToggleFeatured
                           ? (next) => onToggleFeatured(folder._id, next)
+                          : undefined
+                      }
+                      taste={tasteFolderId === folder._id}
+                      onToggleTaste={
+                        onToggleTaste
+                          ? (next) => onToggleTaste(folder._id, next)
                           : undefined
                       }
                       onAddSub={
@@ -1441,6 +1529,8 @@ function FilterRow({
   onToggleShowcase,
   featured = false,
   onToggleFeatured,
+  taste = false,
+  onToggleTaste,
   onAddSub,
   indent = false,
 }: {
@@ -1462,6 +1552,10 @@ function FilterRow({
   featured?: boolean;
   /** When set, the row shows a feature toggle (implies publishing). */
   onToggleFeatured?: (next: boolean) => void;
+  /** True when this row is THE taste collection (showcase inspiration grid). */
+  taste?: boolean;
+  /** When set, the row shows a taste-collection toggle. */
+  onToggleTaste?: (next: boolean) => void;
   /** When set, the row shows an add-sub-collection control. */
   onAddSub?: () => void;
   /** Renders as a nested sub-collection row. */
@@ -1472,7 +1566,12 @@ function FilterRow({
   // Two-step delete: first click arms, second executes; leaving disarms.
   const [deleteArmed, setDeleteArmed] = useState(false);
   const manageable = Boolean(
-    onRename || onDelete || onToggleShowcase || onToggleFeatured || onAddSub,
+    onRename ||
+      onDelete ||
+      onToggleShowcase ||
+      onToggleFeatured ||
+      onToggleTaste ||
+      onAddSub,
   );
 
   const commitRename = () => {
@@ -1575,6 +1674,13 @@ function FilterRow({
           {label}
         </span>
       )}
+      {taste && renameDraft === null && (
+        <Sparkles
+          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
+          aria-label="Taste collection — feeds the showcase inspiration grid"
+        />
+      )}
       {featured && renameDraft === null && (
         <Star
           className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
@@ -1620,6 +1726,37 @@ function FilterRow({
               title="New sub-collection"
             >
               <Plus className="h-2.5 w-2.5" />
+            </span>
+          )}
+          {onToggleTaste && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleTaste(!taste);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{
+                color: taste
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+              }}
+              aria-label={
+                taste
+                  ? `Unset ${label} as taste collection`
+                  : `Make ${label} the taste collection`
+              }
+              title={
+                taste
+                  ? "This is your taste collection — the showcase inspiration grid. Click to unset."
+                  : "Make this THE taste collection: exactly its contents fill the showcase inspiration grid."
+              }
+            >
+              <Sparkles
+                className="h-2.5 w-2.5"
+                style={taste ? { fill: "var(--lm-coral)" } : undefined}
+              />
             </span>
           )}
           {onToggleFeatured && (

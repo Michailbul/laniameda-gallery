@@ -40,6 +40,7 @@ const folderReturnValidator = v.object({
   showcased: v.optional(v.boolean()),
   showcaseFeatured: v.optional(v.boolean()),
   showcaseOrder: v.optional(v.number()),
+  tasteCollection: v.optional(v.boolean()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -370,6 +371,56 @@ export const setFolderFeatured = mutation({
     await ctx.db.patch(args.folderId, {
       showcased: args.featured ? true : folder.showcased,
       showcaseFeatured: args.featured ? true : undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+// Mark a plain collection as THE taste collection: its members are exactly
+// what the public showcase home's inspiration grid shows. At most one per
+// owner — setting it clears the flag from any other folder.
+export const setTasteCollection = mutation({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    taste: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const folder = await ctx.db.get(args.folderId);
+    if (!folder) {
+      throw new ConvexError("Folder not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
+      throw new ConvexError("Folder does not belong to this user.");
+    }
+    if (folder.kind !== undefined) {
+      throw new ConvexError(
+        "Only a plain collection can be the taste collection.",
+      );
+    }
+    if (args.taste) {
+      const current = await ctx.db
+        .query("folders")
+        .withIndex("by_tasteCollection", (q) => q.eq("tasteCollection", true))
+        .collect();
+      for (const other of current) {
+        if (other._id === args.folderId) continue;
+        if (!canActorAccessOwnerUserId(ownerUserId, other.ownerUserId)) continue;
+        await ctx.db.patch(other._id, {
+          tasteCollection: undefined,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    await ctx.db.patch(args.folderId, {
+      // Store the flag only when on, keeping the index free of stale rows.
+      tasteCollection: args.taste ? true : undefined,
       updatedAt: Date.now(),
     });
     return null;

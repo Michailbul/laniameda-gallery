@@ -442,6 +442,9 @@ export function GalleryDashboard({
     api.folders.setFolderShowcased,
   );
   const setFolderFeaturedMutation = useMutation(api.folders.setFolderFeatured);
+  const setTasteCollectionMutation = useMutation(
+    api.folders.setTasteCollection,
+  );
   const deleteWorkflowMutation = useMutation(api.workflows.deleteWorkflow);
   // Ids of workflow grid entries, so delete can route to the right backend.
   // A ref (synced below where workflow entries are computed) because
@@ -1187,6 +1190,25 @@ export function GalleryDashboard({
       });
     },
     [ownerUserId, setFolderFeaturedMutation],
+  );
+
+  // THE taste collection — the one plain collection whose members are the
+  // public showcase's inspiration grid. At most one; backend enforces it.
+  const tasteFolderId = useMemo(
+    () =>
+      (folders ?? []).find((folder) => folder.tasteCollection)?._id ?? null,
+    [folders],
+  );
+  const toggleFolderTaste = useCallback(
+    (folderId: string, next: boolean) => {
+      if (!ownerUserId) return;
+      void setTasteCollectionMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+        taste: next,
+      });
+    },
+    [ownerUserId, setTasteCollectionMutation],
   );
 
   const createSubCollection = useCallback(
@@ -3254,6 +3276,13 @@ export function GalleryDashboard({
           }
           onCreateSubCollection={
             canManageFoldersInCurrentView ? createSubCollection : undefined
+          }
+          onCreateCollection={
+            canManageFoldersInCurrentView ? createFolder : undefined
+          }
+          tasteFolderId={tasteFolderId}
+          onToggleTaste={
+            canManageFoldersInCurrentView ? toggleFolderTaste : undefined
           }
           onPreviewShowcase={
             canManageFoldersInCurrentView
