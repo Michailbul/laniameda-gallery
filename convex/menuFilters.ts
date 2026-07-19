@@ -105,9 +105,11 @@ const resolveTagIdsForNames = (
     .map((tag) => tag._id);
 };
 
-// Distinct asset ids reachable through a folder: the assetFolders join table
-// plus the legacy folderId alias on assets (same reachability rule the
-// gallery's folder filter uses).
+// Distinct asset ids reachable through a folder, read from the assetFolders
+// join rows ONLY (tiny docs — never the fat asset documents). The gallery's
+// folder filter also honors the legacy assets.folderId alias, but membership
+// upkeep (membershipAudit, the folder mutations, delete cleanup) guarantees
+// every alias has a matching link row, so links alone give the same set.
 const collectFolderMemberAssetIds = async (
   ctx: QueryCtx,
   folderId: Id<"folders">,
@@ -122,16 +124,32 @@ const collectFolderMemberAssetIds = async (
   for (const link of links) {
     memberIds.add(link.assetId);
   }
-  const primaryAssets = await ctx.db
-    .query("assets")
-    .withIndex("by_folder_createdAt", (q) =>
-      q.eq("folderId", folderId).gte("createdAt", 0),
-    )
-    .collect();
-  for (const asset of primaryAssets) {
-    memberIds.add(asset._id);
-  }
   return memberIds;
+};
+
+// Distinct asset ids carrying any of the given tags, read from the assetTags
+// join rows ONLY. Tags (and their links) are not owner-scoped tables; in this
+// single-owner vault every link points at the owner's assets, so the count
+// matches the owner-scoped grid exactly. If the app ever grows real
+// multi-tenancy these counts become upper bounds and should move to an
+// owner-scoped index — the grid itself stays correct either way.
+const collectTaggedAssetIds = async (
+  ctx: QueryCtx,
+  tagIds: Id<"tags">[],
+) => {
+  const assetIds = new Set<Id<"assets">>();
+  for (const tagId of tagIds) {
+    const links = await ctx.db
+      .query("assetTags")
+      .withIndex("by_tag_createdAt", (q) =>
+        q.eq("tagId", tagId).gte("createdAt", 0),
+      )
+      .collect();
+    for (const link of links) {
+      assetIds.add(link.assetId);
+    }
+  }
+  return assetIds;
 };
 
 export const listMenuFilters = query({
@@ -152,46 +170,41 @@ export const listMenuFilters = query({
       .withIndex("by_normalized", (q) => q.gte("normalized", ""))
       .collect();
 
-    // The in-scope asset set, read once and shared by every entry's count.
-    const scopeAssets: Array<{ _id: Id<"assets">; tagIds: Id<"tags">[] }> = [];
-    const seenAssetIds = new Set<string>();
-    if (args.isPublic) {
-      const rows = await ctx.db
-        .query("assets")
-        .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
-        .collect();
-      for (const asset of rows) {
-        if (seenAssetIds.has(asset._id)) continue;
-        seenAssetIds.add(asset._id);
-        scopeAssets.push(asset);
+    // Counting never touches the fat asset documents in the owner ("mine")
+    // scope — every count comes from the small assetTags / assetFolders join
+    // rows. That keeps this query's read bandwidth roughly two orders of
+    // magnitude below the previous full-vault scan AND stops it re-running
+    // on unrelated asset edits (only tag / membership changes invalidate it
+    // now). The public scope still reads assets, but only the isPublic slice
+    // via its index.
+    const publicAssetIds = args.isPublic
+      ? new Set(
+          (
+            await ctx.db
+              .query("assets")
+              .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
+              .collect()
+          ).map((asset) => asset._id),
+        )
+      : null;
+
+    const countInScope = (assetIds: Set<Id<"assets">>) => {
+      if (!publicAssetIds) return assetIds.size;
+      let count = 0;
+      for (const assetId of assetIds) {
+        if (publicAssetIds.has(assetId)) count += 1;
       }
-    } else {
-      for (const ownerCandidate of resolveUserIdCandidates(ownerUserId)) {
-        const rows = await ctx.db
-          .query("assets")
-          .withIndex("by_owner_createdAt", (q) =>
-            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-          )
-          .collect();
-        for (const asset of rows) {
-          if (seenAssetIds.has(asset._id)) continue;
-          seenAssetIds.add(asset._id);
-          scopeAssets.push(asset);
-        }
-      }
-    }
+      return count;
+    };
 
     const results = [];
     for (const entry of entries) {
       if (entry.kind === "tag") {
         const tagIds = resolveTagIdsForNames(allTags, entry.tagNames);
-        const tagIdSet = new Set(tagIds);
-        let count = 0;
-        if (tagIdSet.size > 0) {
-          for (const asset of scopeAssets) {
-            if (asset.tagIds.some((tagId) => tagIdSet.has(tagId))) count += 1;
-          }
-        }
+        const count =
+          tagIds.length === 0
+            ? 0
+            : countInScope(await collectTaggedAssetIds(ctx, tagIds));
         results.push({
           _id: entry._id,
           label: entry.label,
@@ -205,13 +218,9 @@ export const listMenuFilters = query({
         continue;
       }
 
-      let count = 0;
-      if (entry.folderId) {
-        const memberIds = await collectFolderMemberAssetIds(ctx, entry.folderId);
-        for (const asset of scopeAssets) {
-          if (memberIds.has(asset._id)) count += 1;
-        }
-      }
+      const count = entry.folderId
+        ? countInScope(await collectFolderMemberAssetIds(ctx, entry.folderId))
+        : 0;
       results.push({
         _id: entry._id,
         label: entry.label,

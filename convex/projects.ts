@@ -175,26 +175,42 @@ export const listProjects = query({
           }),
         );
 
-        // Union assets across member collections (deduped) for the stack
-        // count + preview thumbs.
+        // Union member ids across collections from the assetFolders join
+        // rows only (tiny docs — membership upkeep guarantees the legacy
+        // assets.folderId alias always has a matching link, so links alone
+        // are the full set). Fat asset documents are read just for the few
+        // preview thumbs, not for the count.
         const seenAssets = new Set<string>();
-        const memberAssets: Doc<"assets">[] = [];
+        const orderedMemberIds: Id<"assets">[] = [];
         for (const folderId of collectionIds) {
-          const members = await collectAssetsForFolder(
-            ctx,
-            ownerUserIds,
-            folderId,
-            PROJECT_COLLECTION_ASSET_LIMIT,
-          );
-          for (const asset of members) {
-            if (seenAssets.has(asset._id)) continue;
-            seenAssets.add(asset._id);
-            memberAssets.push(asset);
+          for (const ownerCandidate of ownerUserIds) {
+            const links = await ctx.db
+              .query("assetFolders")
+              .withIndex("by_owner_folder_createdAt", (q) =>
+                q
+                  .eq("ownerUserId", ownerCandidate)
+                  .eq("folderId", folderId)
+                  .gte("createdAt", 0),
+              )
+              .order("desc")
+              .take(PROJECT_COLLECTION_ASSET_LIMIT);
+            for (const link of links) {
+              if (seenAssets.has(link.assetId)) continue;
+              seenAssets.add(link.assetId);
+              orderedMemberIds.push(link.assetId);
+            }
           }
         }
+        const previewDocs = (
+          await Promise.all(
+            orderedMemberIds
+              .slice(0, STACK_PREVIEW_LIMIT)
+              .map(async (assetId) => await ctx.db.get(assetId)),
+          )
+        ).filter((asset): asset is Doc<"assets"> => asset !== null);
 
         const previews = await Promise.all(
-          memberAssets.slice(0, STACK_PREVIEW_LIMIT).map(async (asset) => {
+          previewDocs.map(async (asset) => {
             const [url, thumbUrl] = await Promise.all([
               resolveAssetUrl(ctx, asset),
               resolveAssetThumbUrl(ctx, asset),
@@ -218,7 +234,7 @@ export const listProjects = query({
           name: folder.name,
           brief: folder.description,
           collectionCount: collectionIds.length,
-          assetCount: memberAssets.length,
+          assetCount: seenAssets.size,
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt,
           previewAssets: previews,
