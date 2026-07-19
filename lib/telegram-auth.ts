@@ -168,3 +168,31 @@ export async function clearSessionCookie(): Promise<void> {
   const jar = await cookies();
   jar.delete(SESSION_COOKIE);
 }
+
+// Re-issue the session cookie once a day so an active user's 30-day window
+// keeps rolling forward instead of expiring mid-use. Only callable from
+// contexts where cookies are writable (route handlers, server actions).
+const SESSION_RENEW_AFTER = 60 * 60 * 24; // 1 day
+
+export async function renewSessionCookieIfStale(): Promise<void> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
+  if (!token) return;
+
+  try {
+    const { payload } = await jwtVerify(token, getSessionSecret());
+    const issuedAt = typeof payload.iat === "number" ? payload.iat : 0;
+    const ageSeconds = Math.floor(Date.now() / 1000) - issuedAt;
+    if (ageSeconds < SESSION_RENEW_AFTER) return;
+
+    await createSessionCookie({
+      telegramId: payload.telegramId as string,
+      firstName: payload.firstName as string,
+      lastName: payload.lastName as string | undefined,
+      username: payload.username as string | undefined,
+      photoUrl: payload.photoUrl as string | undefined,
+    });
+  } catch {
+    // Invalid or expired token — nothing to renew.
+  }
+}

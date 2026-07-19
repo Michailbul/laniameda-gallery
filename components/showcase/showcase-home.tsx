@@ -22,6 +22,13 @@ const INTRO = {
   handle: "@misha.buloy",
 };
 
+// Way back into the vault for a signed-out owner — the gallery's login button
+// only renders inside the authed sidebar, so the public home must carry one.
+const OWNER_LOGIN_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim().replace(/^@+/, "");
+const OWNER_LOGIN_LINK = OWNER_LOGIN_BOT
+  ? `https://t.me/${OWNER_LOGIN_BOT}?start=login`
+  : null;
+
 type OpenSet = { folderId: Id<"folders">; kind: "collection" | "storybook" };
 type SetsView = "stacks" | "expanded";
 
@@ -225,7 +232,17 @@ export function ShowcaseHome({ previewAuthed = false }: { previewAuthed?: boolea
         }}
       >
         <span>● LANIAMEDA</span>
-        <span>{INTRO.handle}</span>
+        <span style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          {!previewAuthed && OWNER_LOGIN_LINK && (
+            <a
+              href={OWNER_LOGIN_LINK}
+              style={{ color: "var(--lm-text-ghost)", textDecoration: "none" }}
+            >
+              Owner sign-in
+            </a>
+          )}
+          <span>{INTRO.handle}</span>
+        </span>
       </footer>
 
       {lightboxIndex !== null && (
