@@ -108,7 +108,7 @@ type BuildGalleryEntriesArgs = {
   assets: GalleryAssetRecord[];
   hiddenAssetIds?: Set<string>;
   loadedAssetIds?: Set<string>;
-  sortOrder: "newest" | "featured" | "popular" | "largest" | "shuffle";
+  sortOrder: "newest" | "featured" | "shuffle";
   /** Deals the "shuffle" arrangement; same seed = same order, so the grid
    * stays put across re-renders until the user asks for a new deal. */
   shuffleSeed?: number;
@@ -321,23 +321,6 @@ export const buildGalleryEntries = ({
       }
       return (right.createdAt ?? 0) - (left.createdAt ?? 0);
     });
-    return entries;
-  }
-
-  if (sortOrder === "popular") {
-    entries.sort(
-      (left, right) =>
-        (right.tagNames?.length ?? 0) - (left.tagNames?.length ?? 0),
-    );
-    return entries;
-  }
-
-  if (sortOrder === "largest") {
-    entries.sort(
-      (left, right) =>
-        (right.totalSize ?? right.size ?? 0) -
-        (left.totalSize ?? left.size ?? 0),
-    );
     return entries;
   }
 

@@ -6,7 +6,6 @@ import {
   Grid3X3,
   Heart,
   Image as ImageIcon,
-  Layers,
   Package,
   SlidersHorizontal,
   Video,
@@ -17,14 +16,9 @@ import { MenuFilterAdmin } from "./menu-filter-admin";
 
 export type MediaKind = "image" | "video";
 
-export type SortOrder =
-  | "featured"
-  | "newest"
-  | "popular"
-  | "largest"
-  | "shuffle";
+export type SortOrder = "featured" | "newest" | "shuffle";
 export type GalleryScope = "mine" | "public";
-export type ViewMode = "grid" | "collections" | "canvas" | "packs";
+export type ViewMode = "grid" | "collections" | "packs";
 export type Pillar = string;
 export type PillarOption = {
   label: string;
@@ -76,8 +70,6 @@ interface GalleryFilterBarProps {
 const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
   { label: "FEATURED", value: "featured" },
   { label: "NEWEST", value: "newest" },
-  { label: "POPULAR", value: "popular" },
-  { label: "LARGEST", value: "largest" },
   // Re-clicking SHUFFLE deals a new arrangement (dashboard bumps the seed).
   { label: "SHUFFLE", value: "shuffle" },
 ];
@@ -607,32 +599,6 @@ function ViewModeToggle({
       />
       <button
         type="button"
-        onClick={() => onViewModeChange("canvas")}
-        className="flex items-center justify-center transition-colors"
-        style={{
-          padding: buttonPadding,
-          background:
-            viewMode === "canvas"
-              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
-              : "transparent",
-          color:
-            viewMode === "canvas"
-              ? "#fff"
-              : "var(--lm-text-ghost)",
-        }}
-        aria-label="Canvas view"
-      >
-        <Layers className="h-3.5 w-3.5" />
-      </button>
-      <div
-        style={{
-          width: "1px",
-          alignSelf: "stretch",
-          backgroundColor: "var(--lm-border-strong)",
-        }}
-      />
-      <button
-        type="button"
         onClick={() => onViewModeChange("packs")}
         className="flex items-center justify-center transition-colors"
         style={{
@@ -762,29 +728,31 @@ function ContentTypePills({
       : []),
   ];
 
+  // Flat text pills, same visual language as the sort row: no boxes or
+  // borders at rest, gradient pill when active. Icons dropped — the labels
+  // carry it.
   return (
     <div className="flex items-center gap-1">
-      {items.map(({ key, label, icon: Icon, active, onClick }) => (
+      {items.map(({ key, label, active, onClick }) => (
         <button
           key={key}
           type="button"
           onClick={onClick}
-          className="flex items-center gap-1 transition-all"
+          className="transition-all"
           style={{
             padding: "4px 10px",
             borderRadius: "12px",
             background: active
-              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
               : "transparent",
             color: active ? "#fff" : "var(--lm-text-ghost)",
             fontSize: "9px",
-            fontWeight: active ? 900 : 600,
+            fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: "0.14em",
             border: active
-              ? "2px solid transparent"
-              : "2px solid var(--lm-border-strong)",
-            boxShadow: active ? "0 0 12px rgba(255, 122, 100, 0.35)" : "none",
+              ? "2px solid var(--gradient-1)"
+              : "2px solid transparent",
             cursor: "pointer",
             fontFamily: "var(--lm-font)",
             whiteSpace: "nowrap",
@@ -792,7 +760,6 @@ function ContentTypePills({
           }}
           title={active ? `Showing ${label.toLowerCase()} only` : `Show ${label.toLowerCase()} only`}
         >
-          <Icon className="h-3 w-3" />
           {label}
         </button>
       ))}

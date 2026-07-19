@@ -22,7 +22,6 @@ import {
   type SortOrder,
   type ViewMode,
 } from "./filter-bar";
-import { CanvasMode } from "./canvas-mode";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { PackGrid, PackDetailView } from "./pack-grid";
 import { CollectionsGrid } from "./collections-grid";
@@ -3524,8 +3523,7 @@ export function GalleryDashboard({
       >
         <div className="flex min-h-0 flex-1">
           <div
-            className={`min-h-0 min-w-0 flex-1 ${viewMode === "canvas" ? "" : "overflow-y-auto overscroll-contain"}`}
-
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
             style={{}}
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
@@ -3692,7 +3690,7 @@ export function GalleryDashboard({
 
             <main
               id="gallery-main-content"
-              className={`relative min-w-0 ${viewMode === "canvas" ? "min-h-0 flex-1 overflow-hidden" : ""}`}
+              className="relative min-w-0"
             >
               {!storybooksView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb segments={breadcrumbSegments} />
@@ -3814,16 +3812,7 @@ export function GalleryDashboard({
                   onImageLoad={markImageLoaded}
                 />
               ) : hasImages ? (
-                viewMode === "canvas" ? (
-                  <CanvasMode
-                    images={images}
-                    selectedImage={selectedImage}
-                    onImageSelect={handleImageSelect}
-                    loading={isLoading}
-                    ownerUserId={ownerUserId}
-                    syncEnabled={canAccessMyGallery}
-                  />
-                ) : (
+                (
                   <MasonryGrid
                     images={images}
                     compactColumns={Boolean(selectedImage)}
