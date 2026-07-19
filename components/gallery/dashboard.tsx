@@ -439,6 +439,7 @@ export function GalleryDashboard({
     api.assets.addAssetFolders,
   );
   const setAssetLikedMutation = useMutation(api.assets.setAssetLiked);
+  const setAssetTagStateMutation = useMutation(api.assets.setAssetTagState);
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
@@ -3813,6 +3814,19 @@ export function GalleryDashboard({
                       canManageFoldersInCurrentView
                         ? (imageId, projectId) =>
                             handleAssetsDropOnProject(projectId, [imageId])
+                        : undefined
+                    }
+                    // Owner-only: tag chips on card hover, click to remove.
+                    onRemoveAssetTag={
+                      canManageFoldersInCurrentView
+                        ? (imageId, tagName) => {
+                            void setAssetTagStateMutation({
+                              ownerUserId,
+                              assetId: imageId as Id<"assets">,
+                              tagName,
+                              present: false,
+                            });
+                          }
                         : undefined
                     }
                     onStorybookOpen={setOpenStorybookId}

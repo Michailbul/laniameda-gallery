@@ -115,6 +115,8 @@ interface MasonryGridProps {
     imageId: string,
     projectId: string,
   ) => Promise<void> | void;
+  /** Owner-only: card hover surfaces tag chips; clicking one removes it. */
+  onRemoveAssetTag?: (imageId: string, tagName: string) => void;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a beat (direction folder) for entries with galleryItemType "beat". */
@@ -278,6 +280,7 @@ export function MasonryGrid({
   onCreateCollection,
   projects,
   onAddAssetToProject,
+  onRemoveAssetTag,
   onStorybookOpen,
   onBeatOpen,
   showPublicBadge = false,
@@ -644,6 +647,7 @@ export function MasonryGrid({
                 }
                 projects={isAssetCard ? projects : undefined}
                 onAddToProject={isAssetCard ? onAddAssetToProject : undefined}
+                onRemoveTag={isAssetCard ? onRemoveAssetTag : undefined}
                 showPublicBadge={showPublicBadge}
               />
             </div>

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Trash2, Workflow as WorkflowIcon } from "lucide-react";
+import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
@@ -136,6 +136,9 @@ interface ImageCardProps {
   /** Projects the asset can be sent to via the collection menu (→ Inbox). */
   projects?: CollectionOption[];
   onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
+  /** Owner-only: hover surfaces the asset's tags as chips; clicking one
+      removes that tag from the asset. */
+  onRemoveTag?: (imageId: string, tagName: string) => void;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -181,6 +184,7 @@ export const ImageCard = memo(function ImageCard({
   onCreateCollection,
   projects,
   onAddToProject,
+  onRemoveTag,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -948,6 +952,36 @@ export const ImageCard = memo(function ImageCard({
               Public
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tag chips — owner-only, bottom-right on hover. Clicking a chip
+          removes that tag from the asset (the reactive query refreshes the
+          row). The play chip fades out on hover, so the corner is free. */}
+      {!isCinema && onRemoveTag && (image.tagNames?.length ?? 0) > 0 && (
+        <div className="pointer-events-none absolute bottom-2 right-2 z-30 flex max-w-[72%] flex-wrap justify-end gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100">
+          {image.tagNames!.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemoveTag(image.id, tag);
+              }}
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase tracking-wider"
+              style={{
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--image-card-badge-text)",
+                border: "1px solid var(--image-card-badge-border)",
+                cursor: "pointer",
+              }}
+              title={`Remove tag "${tag}"`}
+              aria-label={`Remove tag ${tag} from this asset`}
+            >
+              {tag}
+              <X className="h-2 w-2" style={{ color: "var(--coral)" }} />
+            </button>
+          ))}
         </div>
       )}
 
