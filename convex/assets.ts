@@ -1827,6 +1827,62 @@ export const listGalleryAssetsPage = query({
   },
 });
 
+// Cursor-paginated members of ONE collection, newest link first ("recently
+// added" order). Backs the folder-scoped infinite scroll exactly like
+// listGalleryAssetsPage backs the unfiltered grid: the wrapper cursor walks
+// the owner id candidates, the inner cursor pages the assetFolders links
+// index — so a collection of any size streams fully, no 600 cap. Membership
+// upkeep mirrors the legacy assets.folderId alias into links, so links alone
+// are the complete member set.
+export const listFolderAssetsPage = query({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: galleryPageValidator,
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const candidates = resolveUserIdCandidates(ownerUserId);
+    const cursor = parseWrappedCursor(args.paginationOpts.cursor);
+    const ownerIndex = Math.min(cursor.o, candidates.length - 1);
+    const ownerCandidate = candidates[ownerIndex];
+
+    const result = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q
+          .eq("ownerUserId", ownerCandidate)
+          .eq("folderId", args.folderId)
+          .gte("createdAt", 0),
+      )
+      .order("desc")
+      .paginate({
+        numItems: args.paginationOpts.numItems,
+        cursor: cursor.c,
+      });
+
+    const assets = (
+      await Promise.all(
+        result.page.map(async (link) => await ctx.db.get(link.assetId)),
+      )
+    ).filter((asset): asset is Doc<"assets"> => asset !== null);
+
+    const isLastCandidate = ownerIndex >= candidates.length - 1;
+    return {
+      page: await hydrateGalleryAssetResults(ctx, assets),
+      isDone: result.isDone && isLastCandidate,
+      continueCursor:
+        result.isDone && !isLastCandidate
+          ? JSON.stringify({ o: ownerIndex + 1, c: null })
+          : JSON.stringify({ o: ownerIndex, c: result.continueCursor }),
+    };
+  },
+});
+
 export const listPublicGalleryAssetsPage = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),

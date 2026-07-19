@@ -244,6 +244,17 @@ export function GalleryDashboard({
     }
     setSortOrder(order);
   }, []);
+
+  // The route's static metadata titles the page for its public face (the
+  // taste profile / link previews). When the owner's vault mounts, re-title
+  // the tab so it reads as the gallery, not the showcase.
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Main Gallery · Laniameda";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
   const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -1446,6 +1457,22 @@ export function GalleryDashboard({
     !selectedTagIds &&
     selectedPillar !== "designs";
 
+  // Collection browsing gets its own cursor pagination over the membership
+  // links, so a collection of ANY size streams fully (no 600-item cap).
+  // Combining the folder with another asset filter falls back to the capped
+  // one-shot query, same as before.
+  const folderPaginationActive =
+    galleryScope === "mine" &&
+    canAccessMyGallery &&
+    Boolean(effectiveSelectedFolderId) &&
+    !browseProject &&
+    sortOrder === "newest" &&
+    !selectedTagIds &&
+    !selectedPillar &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly;
+
   const minePagedAssets = usePaginatedQuery(
     api.assets.listGalleryAssetsPage,
     paginationActive && galleryScope === "mine" && canAccessMyGallery
@@ -1472,16 +1499,30 @@ export function GalleryDashboard({
       : "skip",
     { initialNumItems: 60 },
   );
-  const activePagedAssets =
-    galleryScope === "mine" ? minePagedAssets : publicPagedAssets;
+  const folderPagedAssets = usePaginatedQuery(
+    api.assets.listFolderAssetsPage,
+    folderPaginationActive && effectiveSelectedFolderId
+      ? {
+          ownerUserId,
+          folderId: effectiveSelectedFolderId as Id<"folders">,
+        }
+      : "skip",
+    { initialNumItems: 60 },
+  );
+  const activePagedAssets = folderPaginationActive
+    ? folderPagedAssets
+    : galleryScope === "mine"
+      ? minePagedAssets
+      : publicPagedAssets;
+  const anyPaginationActive = paginationActive || folderPaginationActive;
   // The grid calls this repeatedly while its frontier is exposed; loadMore is
   // a no-op unless a next page is actually available.
   const loadNextGalleryPage = useCallback(() => {
-    if (!paginationActive) return;
+    if (!anyPaginationActive) return;
     if (activePagedAssets.status === "CanLoadMore") {
       activePagedAssets.loadMore(60);
     }
-  }, [paginationActive, activePagedAssets]);
+  }, [anyPaginationActive, activePagedAssets]);
 
   // Beat stack cards join the project browse grid only in its default state —
   // any asset-targeting filter flips to flat assets (and keeps beat members
@@ -1519,7 +1560,10 @@ export function GalleryDashboard({
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
-    !paginationActive && galleryScope === "mine" && canAccessMyGallery
+    !paginationActive &&
+      !folderPaginationActive &&
+      galleryScope === "mine" &&
+      canAccessMyGallery
       ? {
           ownerUserId,
           tagIds: selectedTagIds,
@@ -1598,7 +1642,7 @@ export function GalleryDashboard({
   );
   const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
 
-  const galleryAssets = paginationActive
+  const galleryAssets = anyPaginationActive
     ? activePagedAssets.results
     : galleryScope === "mine"
       ? mineGalleryAssets
@@ -3082,7 +3126,7 @@ export function GalleryDashboard({
   const isLoading =
     isDesignsPillar && galleryScope === "mine"
       ? canAccessMyGallery && mineDesignEntries === undefined
-      : paginationActive
+      : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
           activePagedAssets.status === "LoadingFirstPage"
         : galleryScope === "mine"
@@ -3866,7 +3910,7 @@ export function GalleryDashboard({
                     }}
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
-                      paginationActive ? loadNextGalleryPage : undefined
+                      anyPaginationActive ? loadNextGalleryPage : undefined
                     }
                     zoom={gridZoom}
                   />
