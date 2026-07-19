@@ -2039,6 +2039,23 @@ export function GalleryDashboard({
     beatEntries,
   ]);
 
+  // Every selectable (plain asset) entry currently in the grid — the target
+  // set for the bulk toolbar's SELECT ALL.
+  const allVisibleAssetIds = useMemo(
+    () =>
+      images
+        .filter(
+          (image) =>
+            image.galleryItemType === "asset" ||
+            image.galleryItemType === undefined,
+        )
+        .map((image) => image.id),
+    [images],
+  );
+  const selectAllVisibleAssets = useCallback(() => {
+    setSelectedAssetIds(new Set(allVisibleAssetIds));
+  }, [allVisibleAssetIds]);
+
   const publishAllAssetIds = useMemo(() => {
     return images
       .filter(
@@ -4113,6 +4130,29 @@ export function GalleryDashboard({
               >
                 {selectedAssetIds.size} selected
               </span>
+              {selectedAssetIds.size < allVisibleAssetIds.length && (
+                <button
+                  type="button"
+                  onClick={selectAllVisibleAssets}
+                  disabled={bulkCurationLoading || bulkActionLoading}
+                  className="lm-btn-ghost inline-flex items-center gap-1.5"
+                  style={{
+                    border: "2px solid var(--lm-border-strong)",
+                    borderRadius: "10px",
+                    padding: "6px 12px",
+                    fontSize: "11px",
+                    opacity:
+                      bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                    cursor:
+                      bulkCurationLoading || bulkActionLoading
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                  aria-label={`Select all ${allVisibleAssetIds.length} visible assets`}
+                >
+                  SELECT ALL ({allVisibleAssetIds.length})
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
