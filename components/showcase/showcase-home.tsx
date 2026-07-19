@@ -9,7 +9,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { ShowcaseSetModal } from "./showcase-set-modal";
 import { SetContent } from "./set-content";
-import { assetThumb } from "./types";
+import { assetThumb, assetRatio } from "./types";
 import type { ShowcaseAsset, ShowcaseSetSummary } from "./types";
 
 // Editable studio intro. Phase 1 keeps it inline; a proper editable profile
@@ -414,6 +414,9 @@ function WorkTile({
         cursor: "zoom-in",
       }}
     >
+      {/* aspectRatio reserves the tile's height before media loads, so the
+          masonry columns never reflow mid-scroll. Grid videos stay poster-only
+          (preload none) — the lightbox is where playback happens. */}
       {asset.kind === "video" ? (
         <video
           src={asset.url}
@@ -421,14 +424,26 @@ function WorkTile({
           muted
           loop
           playsInline
-          style={{ width: "100%", display: "block" }}
+          preload={asset.thumbUrl ? "none" : "metadata"}
+          style={{
+            width: "100%",
+            display: "block",
+            aspectRatio: String(assetRatio(asset)),
+            objectFit: "cover",
+          }}
         />
       ) : (
         <img
           src={src}
           alt={asset.description ?? asset.fileName ?? "Work"}
           loading="lazy"
-          style={{ width: "100%", display: "block" }}
+          decoding="async"
+          style={{
+            width: "100%",
+            display: "block",
+            aspectRatio: String(assetRatio(asset)),
+            objectFit: "cover",
+          }}
         />
       )}
     </button>
@@ -658,6 +673,7 @@ function StackCard({
                 muted
                 loop
                 playsInline
+                preload={cover.thumbUrl ? "none" : "metadata"}
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : (

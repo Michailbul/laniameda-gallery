@@ -232,6 +232,7 @@ function SetTile({
           muted
           loop
           playsInline
+          preload={asset.thumbUrl ? "none" : "metadata"}
           style={{
             width: "100%",
             display: "block",
@@ -244,7 +245,13 @@ function SetTile({
           src={src}
           alt={asset.description ?? asset.fileName ?? "Work"}
           loading="lazy"
-          style={{ width: "100%", display: "block" }}
+          decoding="async"
+          style={{
+            width: "100%",
+            display: "block",
+            aspectRatio: String(assetRatio(asset)),
+            objectFit: "cover",
+          }}
         />
       )}
     </button>
