@@ -1,4 +1,10 @@
-import { action } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
@@ -71,7 +77,29 @@ const getDefaultLimit = () => {
   return parsed;
 };
 
-const embedQuery = async (query: string) => {
+const sha256Hex = async (value: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const normalizeQueryForCache = (query: string) =>
+  query.trim().toLowerCase().replace(/\s+/g, " ");
+
+// Gemini's RPM quota for the embedding model is small; a burst of searches
+// (or a running backfill) trips 429s. Retry short transient failures before
+// giving up so a single throttled request doesn't surface to visitors.
+const RETRYABLE_EMBED_STATUSES = new Set([429, 500, 503]);
+const EMBED_RETRY_DELAYS_MS = [1000, 2500];
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const embedQueryOnce = async (query: string) => {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${getSemanticEmbeddingModel()}:embedContent`,
     {
@@ -91,9 +119,11 @@ const embedQuery = async (query: string) => {
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "");
-    throw new Error(
+    const error = new Error(
       `Gemini search embedding request failed (${response.status}): ${bodyText || "unknown error"}`,
     );
+    (error as Error & { status?: number }).status = response.status;
+    throw error;
   }
 
   const payload = (await response.json()) as {
@@ -110,6 +140,94 @@ const embedQuery = async (query: string) => {
   }
 
   return values;
+};
+
+const embedQuery = async (query: string) => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await embedQueryOnce(query);
+    } catch (error) {
+      const status = (error as Error & { status?: number }).status;
+      if (
+        status !== undefined &&
+        RETRYABLE_EMBED_STATUSES.has(status) &&
+        attempt < EMBED_RETRY_DELAYS_MS.length
+      ) {
+        await sleep(EMBED_RETRY_DELAYS_MS[attempt]!);
+        continue;
+      }
+      if (status === 429) {
+        throw new ConvexError(
+          "Search is briefly rate-limited. Try again in a minute.",
+        );
+      }
+      throw error;
+    }
+  }
+};
+
+export const getCachedQueryEmbedding = internalQuery({
+  args: { queryHash: v.string() },
+  returns: v.union(v.null(), v.array(v.float64())),
+  handler: async (ctx, args) => {
+    const cached = await ctx.db
+      .query("semanticQueryEmbeddings")
+      .withIndex("by_queryHash", (q) => q.eq("queryHash", args.queryHash))
+      .first();
+    return cached?.embedding ?? null;
+  },
+});
+
+export const cacheQueryEmbedding = internalMutation({
+  args: {
+    queryHash: v.string(),
+    embeddingModel: v.string(),
+    embeddingDimensions: v.number(),
+    embedding: v.array(v.float64()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("semanticQueryEmbeddings")
+      .withIndex("by_queryHash", (q) => q.eq("queryHash", args.queryHash))
+      .first();
+    if (existing) {
+      return null;
+    }
+    await ctx.db.insert("semanticQueryEmbeddings", {
+      queryHash: args.queryHash,
+      embeddingModel: args.embeddingModel,
+      embeddingDimensions: args.embeddingDimensions,
+      embedding: args.embedding,
+      createdAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+const getQueryEmbedding = async (ctx: ActionCtx, query: string) => {
+  const model = getSemanticEmbeddingModel();
+  const dimensions = getSemanticEmbeddingDimensions();
+  const queryHash = await sha256Hex(
+    `${model}:${dimensions}:${normalizeQueryForCache(query)}`,
+  );
+
+  const cached = await ctx.runQuery(
+    internal.semanticSearch.getCachedQueryEmbedding,
+    { queryHash },
+  );
+  if (cached) {
+    return cached;
+  }
+
+  const embedding = await embedQuery(query);
+  await ctx.runMutation(internal.semanticSearch.cacheQueryEmbedding, {
+    queryHash,
+    embeddingModel: model,
+    embeddingDimensions: dimensions,
+    embedding,
+  });
+  return embedding;
 };
 
 // Drop results whose score is below this fraction of the top score.
@@ -158,7 +276,7 @@ export const searchAssets = action({
     }
 
     const limit = Math.min(Math.max(args.limit ?? getDefaultLimit(), 1), 100);
-    const vector = await embedQuery(query);
+    const vector = await getQueryEmbedding(ctx, query);
     const vectorResults = await ctx.vectorSearch("semanticDocuments", "by_embedding", {
       vector,
       limit: Math.min(limit * 6, 256),

@@ -547,6 +547,16 @@ export default defineSchema({
         "publicScopePillarKey",
       ],
     }),
+  // Cache of query-text embeddings so repeat searches (especially from the
+  // public showcase) never re-hit the Gemini embedding endpoint, whose RPM
+  // quota is small enough that live per-search calls 429 under light bursts.
+  semanticQueryEmbeddings: defineTable({
+    queryHash: v.string(),
+    embeddingModel: v.string(),
+    embeddingDimensions: v.number(),
+    embedding: v.array(v.float64()),
+    createdAt: v.number(),
+  }).index("by_queryHash", ["queryHash"]),
   semantic_index_failures: defineTable({
     ownerUserId: v.optional(v.string()),
     sourceType: semanticSourceTypeValidator,

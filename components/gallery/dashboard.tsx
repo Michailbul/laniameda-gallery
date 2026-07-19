@@ -10,6 +10,7 @@ import {
   useQuery,
 } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { ConvexError } from "convex/values";
 import { Download, Eye, EyeOff, FolderInput, FolderPlus, Layers, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
@@ -536,9 +537,11 @@ export function GalleryDashboard({
   }, [selectedImage?.id]);
 
   useEffect(() => {
+    // 600ms: every settled query costs a live Gemini embed call (unless
+    // cached), and the embed RPM quota is small — don't fire mid-typing.
     const handle = window.setTimeout(() => {
       setDebouncedAssetSearchQuery(assetSearchQuery.trim());
-    }, 400);
+    }, 600);
 
     return () => window.clearTimeout(handle);
   }, [assetSearchQuery]);
@@ -1725,9 +1728,9 @@ export function GalleryDashboard({
         setSemanticMode(null);
         setSemanticResults(null);
         setSemanticError(
-          error instanceof Error
-            ? error.message
-            : "Semantic search failed.",
+          error instanceof ConvexError && typeof error.data === "string"
+            ? error.data
+            : "Search is unavailable right now. Try again shortly.",
         );
       });
   }, [
