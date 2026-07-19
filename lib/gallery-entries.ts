@@ -108,7 +108,32 @@ type BuildGalleryEntriesArgs = {
   assets: GalleryAssetRecord[];
   hiddenAssetIds?: Set<string>;
   loadedAssetIds?: Set<string>;
-  sortOrder: "newest" | "featured" | "popular" | "largest";
+  sortOrder: "newest" | "featured" | "popular" | "largest" | "shuffle";
+  /** Deals the "shuffle" arrangement; same seed = same order, so the grid
+   * stays put across re-renders until the user asks for a new deal. */
+  shuffleSeed?: number;
+};
+
+// Small deterministic PRNG (mulberry32) for the seeded shuffle.
+const mulberry32 = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const seededShuffle = <T,>(items: T[], seed: number): T[] => {
+  const random = mulberry32(seed);
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  }
+  return shuffled;
 };
 
 const FALLBACK_SRC = "/placeholder.svg";
@@ -253,6 +278,7 @@ export const buildGalleryEntries = ({
   hiddenAssetIds,
   loadedAssetIds,
   sortOrder,
+  shuffleSeed,
 }: BuildGalleryEntriesArgs): GalleryEntry[] => {
   const visibleAssets = assets.filter(
     (asset) => !hiddenAssetIds?.has(asset._id),
@@ -313,6 +339,10 @@ export const buildGalleryEntries = ({
         (left.totalSize ?? left.size ?? 0),
     );
     return entries;
+  }
+
+  if (sortOrder === "shuffle") {
+    return seededShuffle(entries, shuffleSeed ?? 1);
   }
 
   entries.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));

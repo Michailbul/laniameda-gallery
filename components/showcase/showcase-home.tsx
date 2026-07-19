@@ -758,9 +758,9 @@ function PreviewBanner() {
         padding: "8px 16px",
       }}
     >
-      Preview — this is what visitors see ·{" "}
+      Featured collection of my taste and my world ·{" "}
       <Link href="/" style={{ color: "#1a1008", textDecoration: "underline" }}>
-        Back to vault
+        Back to the Main Gallery
       </Link>
     </div>
   );

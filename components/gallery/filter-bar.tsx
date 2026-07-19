@@ -17,7 +17,12 @@ import { MenuFilterAdmin } from "./menu-filter-admin";
 
 export type MediaKind = "image" | "video";
 
-export type SortOrder = "featured" | "newest" | "popular" | "largest";
+export type SortOrder =
+  | "featured"
+  | "newest"
+  | "popular"
+  | "largest"
+  | "shuffle";
 export type GalleryScope = "mine" | "public";
 export type ViewMode = "grid" | "collections" | "canvas" | "packs";
 export type Pillar = string;
@@ -73,6 +78,8 @@ const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
   { label: "NEWEST", value: "newest" },
   { label: "POPULAR", value: "popular" },
   { label: "LARGEST", value: "largest" },
+  // Re-clicking SHUFFLE deals a new arrangement (dashboard bumps the seed).
+  { label: "SHUFFLE", value: "shuffle" },
 ];
 
 export function GalleryFilterBar({

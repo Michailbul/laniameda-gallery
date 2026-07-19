@@ -221,6 +221,15 @@ export function GalleryDashboard({
     string | null
   >(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  // Each SHUFFLE click (including re-clicks while active) deals a new seed;
+  // between deals the arrangement is stable across re-renders.
+  const [shuffleSeed, setShuffleSeed] = useState(1);
+  const changeSortOrder = useCallback((order: SortOrder) => {
+    if (order === "shuffle") {
+      setShuffleSeed((seed) => (seed + 1) % 0xffffffff);
+    }
+    setSortOrder(order);
+  }, []);
   const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -1146,6 +1155,7 @@ export function GalleryDashboard({
     [setViewMode],
   );
 
+
   // Which folders (collections + storybooks) are published to the public
   // showcase. Derived from the folders query so it covers every folder kind.
   const showcasedFolderIds = useMemo(
@@ -1248,6 +1258,16 @@ export function GalleryDashboard({
   const projects = useQuery(
     api.projects.listProjects,
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
+  );
+
+  // Sidebar project rows behave like collections: clicking one expands the
+  // project's whole pool in the main gallery grid.
+  const browseProjectById = useCallback(
+    (projectId: string) => {
+      const project = (projects ?? []).find((p) => p._id === projectId);
+      openProjectFromCard(projectId, project?.name ?? "Project");
+    },
+    [projects, openProjectFromCard],
   );
 
   // Curated, public-facing subset of collections (see PUBLIC_COLLECTIONS in
@@ -1823,11 +1843,13 @@ export function GalleryDashboard({
       hiddenAssetIds,
       loadedAssetIds: loadedImageIdsRef.current,
       sortOrder,
+      shuffleSeed,
     });
   }, [
     displayGalleryAssets,
     hiddenAssetIds,
     sortOrder,
+    shuffleSeed,
     isDesignsPillar,
     mineDesignEntries,
   ]);
@@ -1994,9 +2016,12 @@ export function GalleryDashboard({
         ? baseImages
         : workflowEntries.length === 0
           ? baseImages
-          : [...workflowEntries, ...baseImages].sort(
-              (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
-            );
+          : sortOrder === "shuffle"
+            ? // Don't re-sort by date — that would undo the shuffle deal.
+              [...workflowEntries, ...baseImages]
+            : [...workflowEntries, ...baseImages].sort(
+                (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
+              );
     // Stacks lead the grid — they're shelves, not dated assets. In project
     // browse that's the beats; in the default state, storybooks.
     const leading = [...stacks, ...beats];
@@ -2005,6 +2030,7 @@ export function GalleryDashboard({
     workflowsOnly,
     mediaKind,
     likedOnly,
+    sortOrder,
     workflowEntries,
     baseImages,
     showStorybookStacks,
@@ -3312,6 +3338,9 @@ export function GalleryDashboard({
           onProjectOpen={
             canManageFoldersInCurrentView ? setOpenProjectId : undefined
           }
+          onProjectBrowse={
+            canManageFoldersInCurrentView ? browseProjectById : undefined
+          }
           onCreateProject={
             canManageFoldersInCurrentView ? createProject : undefined
           }
@@ -3396,7 +3425,7 @@ export function GalleryDashboard({
                 mediaKind={mediaKind}
                 onMediaKindChange={handleMediaKindChange}
                 sortOrder={sortOrder}
-                onSortOrderChange={setSortOrder}
+                onSortOrderChange={changeSortOrder}
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 gridZoom={gridZoom}

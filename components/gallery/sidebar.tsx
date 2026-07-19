@@ -12,6 +12,7 @@ import {
   Globe,
   Home,
   Layers,
+  Maximize2,
   Pencil,
   Plus,
   Search,
@@ -82,6 +83,10 @@ interface GallerySidebarProps {
   /** The project whose review workspace is currently open, if any. */
   activeProjectId?: string | null;
   onProjectOpen?: (projectId: string) => void;
+  /** Expands the project's assets in the main gallery grid (breadcrumb view).
+   * When set, it's the row's primary click; the review workspace moves to a
+   * hover control. */
+  onProjectBrowse?: (projectId: string) => void;
   onCreateProject?: (name: string) => Promise<string | null>;
   /** Dropping assets on a project files them into its Inbox direction. */
   onAssetsDropOnProject?: (projectId: string, assetIds: string[]) => void;
@@ -145,6 +150,7 @@ export function GallerySidebar({
   projects = [],
   activeProjectId,
   onProjectOpen,
+  onProjectBrowse,
   onCreateProject,
   onAssetsDropOnProject,
   onAssetsDropOnDirection,
@@ -542,8 +548,10 @@ export function GallerySidebar({
                 </div>
               )}
 
-            {/* Projects — review workspaces that group collections. Rows open
-                the fullscreen review modal; they never act as grid filters. */}
+            {/* Projects — every project doubles as a collection: clicking a
+                row expands its whole asset pool in the main gallery grid
+                (breadcrumb view). The review workspace stays a separate view,
+                opened from the row's hover control. */}
             {onProjectOpen &&
               (projects.length > 0 || Boolean(onCreateProject)) && (
                 <div
@@ -617,6 +625,11 @@ export function GallerySidebar({
                       project={project}
                       active={project._id === activeProjectId}
                       onOpen={() => onProjectOpen(project._id)}
+                      onBrowse={
+                        onProjectBrowse
+                          ? () => onProjectBrowse(project._id)
+                          : undefined
+                      }
                       onDropAssets={
                         onAssetsDropOnProject
                           ? (assetIds) =>
@@ -1207,6 +1220,7 @@ function ProjectRow({
   project,
   active = false,
   onOpen,
+  onBrowse,
   onDropAssets,
   onDropAssetsOnDirection,
   onRename,
@@ -1216,6 +1230,9 @@ function ProjectRow({
   /** True while this project's review workspace is open. */
   active?: boolean;
   onOpen: () => void;
+  /** Expand the project's assets in the main gallery grid. When set it's the
+   * row's primary click and onOpen moves to a hover control. */
+  onBrowse?: () => void;
   onDropAssets?: (assetIds: string[]) => void;
   onDropAssetsOnDirection?: (directionId: string, assetIds: string[]) => void;
   onRename?: (name: string) => Promise<void> | void;
@@ -1239,7 +1256,7 @@ function ProjectRow({
     <div>
       <button
         type="button"
-        onClick={renameDraft !== null ? undefined : onOpen}
+        onClick={renameDraft !== null ? undefined : (onBrowse ?? onOpen)}
         className="group lm-glass-filter-row cursor-pointer"
         data-active={active ? "true" : "false"}
         onPointerLeave={() => setDeleteArmed(false)}
@@ -1277,8 +1294,12 @@ function ProjectRow({
         }
         title={
           droppable
-            ? "Open review — drop assets to file them into this project's Inbox"
-            : "Open review"
+            ? onBrowse
+              ? "Browse the project's assets in the gallery — drop assets to file them into this project's Inbox"
+              : "Open review — drop assets to file them into this project's Inbox"
+            : onBrowse
+              ? "Browse the project's assets in the gallery"
+              : "Open review"
         }
       >
         <Layers
@@ -1333,7 +1354,9 @@ function ProjectRow({
         {project.count !== undefined && renameDraft === null && (
           <span
             className={
-              onRename || onDelete ? "group-hover:hidden" : undefined
+              onBrowse || onRename || onDelete
+                ? "group-hover:hidden"
+                : undefined
             }
             style={{
               fontSize: "9px",
@@ -1344,8 +1367,24 @@ function ProjectRow({
             {project.count}
           </span>
         )}
-        {(onRename || onDelete) && renameDraft === null && (
+        {(onBrowse || onRename || onDelete) && renameDraft === null && (
           <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+            {onBrowse && (
+              <span
+                role="button"
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen();
+                }}
+                className="flex h-4 w-4 items-center justify-center"
+                style={{ color: "var(--lm-sidebar-text-ghost)" }}
+                aria-label={`Open ${project.name} review workspace`}
+                title="Open review workspace"
+              >
+                <Maximize2 className="h-2.5 w-2.5" />
+              </span>
+            )}
             {onRename && (
               <span
                 role="button"
