@@ -12,7 +12,7 @@ import {
 import type { FunctionReturnType } from "convex/server";
 import { Download, Eye, EyeOff, FolderInput, FolderPlus, Layers, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
-import { CoralToastProvider } from "@/components/ui/coral-toast";
+import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
 import {
@@ -179,6 +179,20 @@ const buildAssetSearchHaystack = (
     .join(" ")
     .toLowerCase();
 };
+
+// Fires a coral toast whenever a grid delete fails. Lives inside the
+// CoralToastProvider (the dashboard's own scope is above it), renders nothing.
+function DeleteErrorToast({ error }: { error?: string }) {
+  const { toast } = useCoralToast();
+  const lastErrorRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      toast("Delete failed", error, "warning", 7000);
+    }
+    lastErrorRef.current = error;
+  }, [error, toast]);
+  return null;
+}
 
 export function GalleryDashboard({
   user,
@@ -3211,6 +3225,10 @@ export function GalleryDashboard({
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
       contentRight="0"
     >
+    {/* Grid deletes have no inline error surface (the card just returns),
+        so failures fire a toast — otherwise a failed delete looks like a
+        silent no-op. */}
+    <DeleteErrorToast error={deleteAssetError} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
