@@ -36,6 +36,36 @@
   const shotdeckAdapter = globalThis.SaveToGalleryShotdeck;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
 
+  // Every injection stamps itself as the page's active instance. When the
+  // extension is reloaded, the background worker re-injects a FRESH copy into
+  // open tabs (background.js reinjectContentScripts) — the stamp lets the
+  // orphaned copy detect the takeover and retire silently instead of showing
+  // the "reload this page" banner.
+  const INSTANCE_ID = `stg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  document.documentElement.dataset.stgActiveInstance = INSTANCE_ID;
+
+  function isRetiredInstance() {
+    return document.documentElement.dataset.stgActiveInstance !== INSTANCE_ID;
+  }
+
+  let instanceRetired = false;
+  function retireInstance() {
+    if (instanceRetired) return;
+    instanceRetired = true;
+    extensionEnabled = false;
+    configLoaded = true;
+    try {
+      midjourneyObserver?.disconnect?.();
+      midjourneyObserver = null;
+    } catch {
+      /* observer may not exist yet */
+    }
+    clearTimeout(midjourneyScanTimer);
+    // Only the banner is ours to remove — any other stg- UI in the DOM now
+    // belongs to the successor instance and must be left alone.
+    removeExtensionReloadBanner();
+  }
+
   // After the unpacked extension is reloaded at chrome://extensions, every tab
   // that was already open keeps a DEAD copy of this content script. Its chrome.*
   // calls throw "Extension context invalidated" and there is no way to revive
@@ -82,12 +112,25 @@
     return err;
   }
 
+  function removeExtensionReloadBanner() {
+    for (const node of document.querySelectorAll(".stg-reload-banner")) {
+      node.remove();
+    }
+  }
+
   // The orphaned script can no longer talk to the extension, but it can still
-  // touch the DOM — so tell the user exactly what to do (reload) instead of
-  // silently showing broken/absent save UI. Idempotent; stops the scan so the
-  // dead context stops spamming errors on every feed mutation.
+  // touch the DOM. Normally the reloaded extension re-injects a fresh script
+  // copy that takes over (so this stays invisible); the banner is the fallback
+  // for pages the background worker could not re-inject into — and it is a
+  // hint, not a modal: dismissible and auto-hiding. Idempotent; stops the scan
+  // so the dead context stops spamming errors on every feed mutation.
+  const RELOAD_BANNER_AUTO_HIDE_MS = 12000;
   let extensionReloadBannerShown = false;
   function notifyExtensionReloadNeeded() {
+    if (isRetiredInstance()) {
+      retireInstance();
+      return;
+    }
     if (extensionReloadBannerShown) return;
     extensionReloadBannerShown = true;
 
@@ -104,11 +147,21 @@
     banner.className = "stg-reload-banner";
     banner.innerHTML =
       `<span>Save&nbsp;to&nbsp;Gallery was updated — reload this page to keep saving.</span>` +
-      `<button type="button" class="stg-reload-banner__btn">Reload</button>`;
+      `<button type="button" class="stg-reload-banner__btn">Reload</button>` +
+      `<button type="button" class="stg-reload-banner__dismiss" aria-label="Dismiss">×</button>`;
     banner
       .querySelector(".stg-reload-banner__btn")
       ?.addEventListener("click", () => location.reload());
+    banner
+      .querySelector(".stg-reload-banner__dismiss")
+      ?.addEventListener("click", () => banner.remove());
     (document.body || document.documentElement).appendChild(banner);
+
+    setTimeout(() => {
+      if (!banner.isConnected) return;
+      banner.classList.add("stg-reload-banner--hide");
+      setTimeout(() => banner.remove(), 400);
+    }, RELOAD_BANNER_AUTO_HIDE_MS);
   }
 
   async function sendRuntimeMessage(message) {
@@ -1548,6 +1601,10 @@
   }
 
   function clearInjectedUi(options = {}) {
+    // A retired instance must never clear the DOM — the stg- UI present now
+    // belongs to the successor script injected by the reloaded extension.
+    if (instanceRetired) return;
+
     // The viewer save widget survives viewer-mode clears — removing and
     // re-injecting it every scan tick reads as flicker.
     const keep = options.exceptWidget && options.exceptWidget.isConnected
@@ -1600,6 +1657,12 @@
   }
 
   function syncSiteStateFromStorage(onComplete) {
+    // Every hover/scan path funnels through here — a retired copy goes inert.
+    if (isRetiredInstance()) {
+      retireInstance();
+      onComplete?.(false);
+      return;
+    }
     // Built-in exclusions win — the extension never runs on our own app.
     if (isHostDisabled(BUILTIN_DISABLED_HOSTS, currentHost)) {
       setExtensionEnabled(false);
@@ -1894,6 +1957,12 @@
   // quick-save widgets are cleared — but the viewer's own media gets a single
   // save widget so generations can be saved from /jobs/<id> directly.
   function suppressMidjourneySaveUiForViewer() {
+    // Retired copies must not touch the DOM — the successor owns it now.
+    // Returning true stops every caller (scan, hover, position updates).
+    if (isRetiredInstance()) {
+      retireInstance();
+      return true;
+    }
     if (!isMidjourneyFullSizeViewerOpen()) {
       removeMidjourneyViewerSaveWidget();
       return false;
@@ -3487,6 +3556,10 @@
   }
 
   function scanMidjourneyMediaTargets() {
+    if (isRetiredInstance()) {
+      retireInstance();
+      return;
+    }
     if (!isExtensionContextValid()) {
       notifyExtensionReloadNeeded();
       return;
@@ -3725,6 +3798,18 @@
       setExtensionEnabled(!isHostDisabled(disabledHosts, currentHost));
       configLoaded = true;
     });
+  }
+
+  // Take over from any previous copy of this script (extension reloaded while
+  // the page stayed open): its banner and widgets hold dead runtime references,
+  // so sweep them before building fresh UI. No-op on a normal page load.
+  removeExtensionReloadBanner();
+  clearInjectedUi();
+  // A pre-takeover predecessor (≤0.4.8) may raise its banner AFTER our first
+  // sweep — it only detects the dead context on its next scan tick. Sweep a
+  // few more times; it never re-creates the banner once shown.
+  for (const delay of [1500, 4000, 9000]) {
+    setTimeout(removeExtensionReloadBanner, delay);
   }
 
   syncSiteStateFromStorage();

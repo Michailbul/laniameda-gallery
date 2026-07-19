@@ -283,6 +283,49 @@ async function handleImageContextMenuClick(info, tab) {
   }
 }
 
+// Keep in sync with manifest.json content_scripts.
+const CONTENT_SCRIPT_JS_FILES = [
+  "image-qualification.js",
+  "midjourney-adapter.js",
+  "krea-adapter.js",
+  "pinterest-adapter.js",
+  "shotdeck-adapter.js",
+  "content.js",
+];
+const CONTENT_SCRIPT_CSS_FILES = ["styles.css"];
+
+// After a reload/update, tabs that were already open hold a DEAD copy of the
+// content script — saving from them fails until the page is refreshed.
+// Re-inject a fresh copy so saving keeps working without a page reload; the
+// new copy stamps itself as the active instance and the orphaned one retires
+// (see content.js INSTANCE_ID/retireInstance).
+async function reinjectContentScripts() {
+  if (!chrome.scripting?.executeScript || !chrome.tabs?.query) return;
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
+  } catch {
+    return;
+  }
+
+  await Promise.allSettled(
+    tabs.map(async (tab) => {
+      if (typeof tab.id !== "number") return;
+      // Restricted pages (web store, error pages) reject injection — skip them
+      // silently; those tabs fall back to the content script's reload banner.
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: CONTENT_SCRIPT_CSS_FILES,
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: CONTENT_SCRIPT_JS_FILES,
+      });
+    }),
+  );
+}
+
 function installContextMenus() {
   if (!chrome.contextMenus) return;
   chrome.contextMenus.removeAll(() => {
@@ -624,7 +667,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 installContextMenus();
-chrome.runtime.onInstalled.addListener(installContextMenus);
+chrome.runtime.onInstalled.addListener(() => {
+  installContextMenus();
+  void reinjectContentScripts();
+});
 chrome.runtime.onStartup.addListener(installContextMenus);
 chrome.contextMenus.onShown?.addListener(updateContextMenuVisibility);
 chrome.contextMenus.onClicked.addListener((info, tab) => {
