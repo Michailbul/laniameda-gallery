@@ -1485,6 +1485,23 @@ export function GalleryDashboard({
     !semanticMode &&
     !assetSearchQuery.trim();
 
+  // Same treatment when browsing a plain collection that fully contains
+  // beats (e.g. a collection mirroring a project's pool): those beats lead
+  // the grid as stacks and their members collapse out of the flat tiles.
+  const showCollectionBeatStacks =
+    Boolean(effectiveSelectedFolderId) &&
+    !browseProject &&
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !selectedPillar &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly &&
+    !workflowsOnly &&
+    selectedTags.length === 0 &&
+    !semanticMode &&
+    !assetSearchQuery.trim();
+
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
     !paginationActive && galleryScope === "mine" && canAccessMyGallery
@@ -1517,6 +1534,17 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           projectId: browseProject.id as Id<"folders">,
+        }
+      : "skip",
+  );
+
+  // Beats fully contained in the browsed collection (stack cards).
+  const collectionBeatStacks = useQuery(
+    api.projects.listCollectionBeatStacks,
+    effectiveSelectedFolderId && showCollectionBeatStacks && canAccessMyGallery
+      ? {
+          ownerUserId,
+          folderId: effectiveSelectedFolderId as Id<"folders">,
         }
       : "skip",
   );
@@ -1977,11 +2005,14 @@ export function GalleryDashboard({
     });
   }, [storybooks]);
 
-  // The browsed project's beats as stack entries — same underlying assets as
-  // the review workspace, presented as one card each.
+  // The browsed project's (or collection's) beats as stack entries — same
+  // underlying assets as the review workspace, presented as one card each.
+  const activeBeatStacks = browseProject
+    ? projectBeatStacks
+    : collectionBeatStacks;
   const beatEntries = useMemo<GalleryEntry[]>(() => {
-    if (!projectBeatStacks || projectBeatStacks.length === 0) return [];
-    return projectBeatStacks.map((beat) => {
+    if (!activeBeatStacks || activeBeatStacks.length === 0) return [];
+    return activeBeatStacks.map((beat) => {
       const cover = beat.cover;
       const coverSrc = cover?.thumbUrl ?? cover?.url;
       return {
@@ -2003,23 +2034,38 @@ export function GalleryDashboard({
         previewImages: [],
       };
     });
-  }, [projectBeatStacks]);
+  }, [activeBeatStacks]);
+
+  // In collection browse the flat query can't exclude beat members server-
+  // side (that path is project-scoped), so collapse them out here.
+  const collectionBeatMemberIds = useMemo(() => {
+    if (!showCollectionBeatStacks || !collectionBeatStacks) return null;
+    const ids = new Set<string>();
+    for (const beat of collectionBeatStacks) {
+      for (const assetId of beat.memberAssetIds) ids.add(assetId);
+    }
+    return ids.size > 0 ? ids : null;
+  }, [showCollectionBeatStacks, collectionBeatStacks]);
 
   const images = useMemo(() => {
     if (workflowsOnly) return workflowEntries;
     const stacks = showStorybookStacks ? storybookEntries : [];
-    const beats = showBeatStacks ? beatEntries : [];
+    const beats =
+      showBeatStacks || showCollectionBeatStacks ? beatEntries : [];
     // When filtering by media kind (image/video) or liked-only, keep workflows
     // out of the grid — those filters target likeable assets, not workflows.
+    const flatImages = collectionBeatMemberIds
+      ? baseImages.filter((image) => !collectionBeatMemberIds.has(image.id))
+      : baseImages;
     const mixed =
       mediaKind || likedOnly
-        ? baseImages
+        ? flatImages
         : workflowEntries.length === 0
-          ? baseImages
+          ? flatImages
           : sortOrder === "shuffle"
             ? // Don't re-sort by date — that would undo the shuffle deal.
-              [...workflowEntries, ...baseImages]
-            : [...workflowEntries, ...baseImages].sort(
+              [...workflowEntries, ...flatImages]
+            : [...workflowEntries, ...flatImages].sort(
                 (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
               );
     // Stacks lead the grid — they're shelves, not dated assets. In project
@@ -2036,6 +2082,8 @@ export function GalleryDashboard({
     showStorybookStacks,
     storybookEntries,
     showBeatStacks,
+    showCollectionBeatStacks,
+    collectionBeatMemberIds,
     beatEntries,
   ]);
 
@@ -3615,6 +3663,11 @@ export function GalleryDashboard({
                   <CollectionsGrid
                     collections={collectionCards}
                     onOpenCollection={openCollectionFromCard}
+                    onRenameCollection={
+                      canManageFoldersInCurrentView
+                        ? handleRenameFolder
+                        : undefined
+                    }
                     projects={(projects ?? []).map((project) => ({
                       _id: project._id,
                       name: project.name,
@@ -3764,12 +3817,21 @@ export function GalleryDashboard({
                     }
                     onStorybookOpen={setOpenStorybookId}
                     // A beat click steps into the project workspace — the
-                    // separate review view over the same linked assets.
-                    onBeatOpen={
-                      browseProject
-                        ? () => setOpenProjectId(browseProject.id)
-                        : undefined
-                    }
+                    // separate review view over the same linked assets. In
+                    // collection browse the beat's owning project is looked
+                    // up from the project summaries.
+                    onBeatOpen={(beatFolderId) => {
+                      const projectId =
+                        browseProject?.id ??
+                        (projects ?? []).find((project) =>
+                          project.collections.some(
+                            (collection) =>
+                              collection.folderId === beatFolderId &&
+                              collection.section === "beats",
+                          ),
+                        )?._id;
+                      if (projectId) setOpenProjectId(projectId);
+                    }}
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       paginationActive ? loadNextGalleryPage : undefined

@@ -1,8 +1,8 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useMemo } from "react";
-import { FolderOpen, Layers } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FolderOpen, Layers, Pencil } from "lucide-react";
 
 // A collection card's data: summary from folders.listCollectionSummaries
 // merged with the dashboard's live folderAssetCounts.
@@ -37,6 +37,8 @@ interface CollectionsGridProps {
   collections: CollectionCardData[];
   /** Opens a collection: filters the asset grid to it. */
   onOpenCollection: (folderId: string) => void;
+  /** When set, cards grow a hover pencil for inline renaming. */
+  onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
   /** Projects lead the browse view; opening one expands its whole pool. */
   projects?: ProjectCardData[];
   onOpenProject?: (projectId: string, name: string) => void;
@@ -52,6 +54,7 @@ interface CollectionsGridProps {
 export function CollectionsGrid({
   collections,
   onOpenCollection,
+  onRenameCollection,
   projects = [],
   onOpenProject,
   loading = false,
@@ -163,6 +166,11 @@ export function CollectionsGrid({
                 collection={collection}
                 childCollections={childrenByParent.get(collection._id) ?? []}
                 onOpen={onOpenCollection}
+                onRename={
+                  onRenameCollection
+                    ? (name) => onRenameCollection(collection._id, name)
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -315,14 +323,24 @@ function CollectionCard({
   collection,
   childCollections,
   onOpen,
+  onRename,
 }: {
   collection: CollectionCardData;
   childCollections: CollectionCardData[];
   onOpen: (folderId: string) => void;
+  onRename?: (name: string) => Promise<void> | void;
 }) {
   const [cover, ...rest] = collection.previewAssets;
   const coverSrc = cover ? (cover.thumbUrl ?? cover.url) : undefined;
   const layers = rest.slice(0, 2);
+  // Inline rename: pencil (hover) swaps the title for an input.
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const commitRename = () => {
+    const name = (renameDraft ?? "").trim();
+    setRenameDraft(null);
+    if (!name || name === collection.name || !onRename) return;
+    void onRename(name);
+  };
 
   return (
     <div className="group/collection">
@@ -401,19 +419,69 @@ function CollectionCard({
           </div>
         </div>
         <div className="px-0.5 pt-3">
-          <h3
-            style={{
-              fontFamily: "var(--lm-font)",
-              fontSize: "13px",
-              fontWeight: 800,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--lm-text-primary)",
-              margin: 0,
-            }}
-          >
-            {collection.name}
-          </h3>
+          {renameDraft !== null ? (
+            <input
+              autoFocus
+              value={renameDraft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenameDraft(null);
+                }
+              }}
+              onBlur={commitRename}
+              className="w-full bg-transparent outline-none"
+              style={{
+                fontFamily: "var(--lm-font)",
+                fontSize: "13px",
+                fontWeight: 800,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--lm-text-primary)",
+                borderBottom: "1px solid var(--lm-coral)",
+                caretColor: "var(--lm-coral)",
+              }}
+              aria-label={`Rename ${collection.name}`}
+            />
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <h3
+                style={{
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "13px",
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--lm-text-primary)",
+                  margin: 0,
+                }}
+              >
+                {collection.name}
+              </h3>
+              {onRename && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenameDraft(collection.name);
+                  }}
+                  className="flex h-4 w-4 items-center justify-center opacity-0 transition-opacity group-hover/collection:opacity-100"
+                  style={{ color: "var(--lm-text-ghost)" }}
+                  aria-label={`Rename ${collection.name}`}
+                  title="Rename collection"
+                >
+                  <Pencil className="h-3 w-3" />
+                </span>
+              )}
+            </span>
+          )}
           {collection.description && (
             <p
               className="mt-1 line-clamp-2"

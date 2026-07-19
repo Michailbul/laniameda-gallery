@@ -261,10 +261,79 @@ const beatStackValidator = v.object({
   cover: v.optional(projectPreviewValidator),
   // Thumb urls of everything inside (cover first, capped) for the hover fan.
   peekThumbs: v.array(v.string()),
+  // Every member asset id — the client collapses these out of the flat grid
+  // when the beat renders as a stack card.
+  memberAssetIds: v.array(v.id("assets")),
   createdAt: v.optional(v.number()),
 });
 
 const BEAT_PEEK_LIMIT = 8;
+
+// One beat (direction folder) as a grid stack card: MASTER-first cover,
+// capped peek thumbs, full member id list. Null when the folder is gone.
+const buildBeatStack = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  beatFolderId: Id<"folders">,
+) => {
+  const folder = await ctx.db.get(beatFolderId);
+  if (!folder) return null;
+  const members = await collectAssetsForFolder(
+    ctx,
+    ownerUserIds,
+    beatFolderId,
+    PROJECT_COLLECTION_ASSET_LIMIT,
+  );
+  // The direction's MASTER asset fronts the stack; first member otherwise.
+  const coverAsset =
+    (folder.coverAssetId &&
+      members.find((asset) => asset._id === folder.coverAssetId)) ||
+    members[0];
+  const ordered = coverAsset
+    ? [coverAsset, ...members.filter((asset) => asset !== coverAsset)]
+    : members;
+
+  const peekThumbs = (
+    await Promise.all(
+      ordered.slice(0, BEAT_PEEK_LIMIT).map(async (asset) => {
+        const [thumbUrl, url] = await Promise.all([
+          resolveAssetThumbUrl(ctx, asset),
+          resolveAssetUrl(ctx, asset),
+        ]);
+        return thumbUrl ?? url;
+      }),
+    )
+  ).filter((src): src is string => Boolean(src));
+
+  let cover;
+  if (coverAsset) {
+    const [url, thumbUrl] = await Promise.all([
+      resolveAssetUrl(ctx, coverAsset),
+      resolveAssetThumbUrl(ctx, coverAsset),
+    ]);
+    cover = {
+      assetId: coverAsset._id,
+      kind: coverAsset.kind,
+      contentType: coverAsset.contentType,
+      url: url ?? undefined,
+      thumbUrl: thumbUrl ?? undefined,
+      width: coverAsset.width,
+      height: coverAsset.height,
+      thumbWidth: coverAsset.thumbWidth,
+      thumbHeight: coverAsset.thumbHeight,
+    };
+  }
+
+  return {
+    folderId: beatFolderId,
+    name: folder.name,
+    count: members.length,
+    cover,
+    peekThumbs,
+    memberAssetIds: members.map((asset) => asset._id),
+    createdAt: folder.createdAt,
+  };
+};
 
 export const listProjectBeatStacks = query({
   args: {
@@ -287,62 +356,96 @@ export const listProjectBeatStacks = query({
 
     const stacks = [];
     for (const link of beatLinks) {
-      const folder = await ctx.db.get(link.folderId);
-      if (!folder) continue;
-      const members = await collectAssetsForFolder(
+      const stack = await buildBeatStack(ctx, ownerUserIds, link.folderId);
+      if (stack) stacks.push(stack);
+    }
+    return stacks;
+  },
+});
+
+// Beats that live INSIDE a plain collection: every beat (any project's
+// "beats"-section direction) whose members are all members of the collection.
+// Lets a collection that mirrors a project's pool — e.g. "Cassandra
+// Collection" — browse with the same stack cards as the project itself.
+export const listCollectionBeatStacks = query({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+  },
+  returns: v.array(beatStackValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+
+    // The collection's member set, from the tiny join rows.
+    const collectionMemberIds = new Set<string>();
+    for (const ownerCandidate of ownerUserIds) {
+      const links = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q
+            .eq("ownerUserId", ownerCandidate)
+            .eq("folderId", args.folderId)
+            .gte("createdAt", 0),
+        )
+        .collect();
+      for (const link of links) {
+        collectionMemberIds.add(link.assetId);
+      }
+    }
+    if (collectionMemberIds.size === 0) return [];
+
+    // Every beat across the owner's projects, deduped.
+    const projects = await collectOwnerProjectFolders(ctx, ownerUserIds);
+    const beatFolderIds: Id<"folders">[] = [];
+    const seenBeats = new Set<string>();
+    for (const project of projects) {
+      const links = await collectProjectCollectionLinks(
         ctx,
         ownerUserIds,
-        link.folderId,
-        PROJECT_COLLECTION_ASSET_LIMIT,
+        project._id,
       );
-      // The direction's MASTER asset fronts the stack; first member otherwise.
-      const coverAsset =
-        (folder.coverAssetId &&
-          members.find((asset) => asset._id === folder.coverAssetId)) ||
-        members[0];
-      const ordered = coverAsset
-        ? [coverAsset, ...members.filter((asset) => asset !== coverAsset)]
-        : members;
-
-      const peekThumbs = (
-        await Promise.all(
-          ordered.slice(0, BEAT_PEEK_LIMIT).map(async (asset) => {
-            const [thumbUrl, url] = await Promise.all([
-              resolveAssetThumbUrl(ctx, asset),
-              resolveAssetUrl(ctx, asset),
-            ]);
-            return thumbUrl ?? url;
-          }),
-        )
-      ).filter((src): src is string => Boolean(src));
-
-      let cover;
-      if (coverAsset) {
-        const [url, thumbUrl] = await Promise.all([
-          resolveAssetUrl(ctx, coverAsset),
-          resolveAssetThumbUrl(ctx, coverAsset),
-        ]);
-        cover = {
-          assetId: coverAsset._id,
-          kind: coverAsset.kind,
-          contentType: coverAsset.contentType,
-          url: url ?? undefined,
-          thumbUrl: thumbUrl ?? undefined,
-          width: coverAsset.width,
-          height: coverAsset.height,
-          thumbWidth: coverAsset.thumbWidth,
-          thumbHeight: coverAsset.thumbHeight,
-        };
+      for (const link of links) {
+        if (link.section !== "beats" || seenBeats.has(link.folderId)) continue;
+        seenBeats.add(link.folderId);
+        beatFolderIds.push(link.folderId);
       }
+    }
 
-      stacks.push({
-        folderId: link.folderId,
-        name: folder.name,
-        count: members.length,
-        cover,
-        peekThumbs,
-        createdAt: folder.createdAt,
-      });
+    const stacks = [];
+    for (const beatFolderId of beatFolderIds) {
+      if (beatFolderId === args.folderId) continue;
+      // Membership check on link rows only — cheap enough to run per beat.
+      const memberIds = new Set<string>();
+      for (const ownerCandidate of ownerUserIds) {
+        const links = await ctx.db
+          .query("assetFolders")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .eq("folderId", beatFolderId)
+              .gte("createdAt", 0),
+          )
+          .collect();
+        for (const link of links) {
+          memberIds.add(link.assetId);
+        }
+      }
+      if (memberIds.size === 0) continue;
+      let contained = true;
+      for (const assetId of memberIds) {
+        if (!collectionMemberIds.has(assetId)) {
+          contained = false;
+          break;
+        }
+      }
+      if (!contained) continue;
+
+      const stack = await buildBeatStack(ctx, ownerUserIds, beatFolderId);
+      if (stack) stacks.push(stack);
     }
     return stacks;
   },
