@@ -44,11 +44,23 @@
   const INSTANCE_ID = `stg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   document.documentElement.dataset.stgActiveInstance = INSTANCE_ID;
 
-  function isRetiredInstance() {
-    return document.documentElement.dataset.stgActiveInstance !== INSTANCE_ID;
-  }
-
   let instanceRetired = false;
+
+  function isRetiredInstance() {
+    // Retirement is sticky — a retired copy must never resurrect itself by
+    // re-stamping the marker (it would kill the live successor).
+    if (instanceRetired) return true;
+    const active = document.documentElement.dataset.stgActiveInstance;
+    if (active === INSTANCE_ID) return false;
+    if (!active) {
+      // The page wiped the <html> attribute (framework attribute
+      // reconciliation). Absence never means takeover — re-stamp and stay
+      // active. A real successor writes its own id, which we'd see above.
+      document.documentElement.dataset.stgActiveInstance = INSTANCE_ID;
+      return false;
+    }
+    return true;
+  }
   function retireInstance() {
     if (instanceRetired) return;
     instanceRetired = true;
@@ -1842,6 +1854,7 @@
   let midjourneyLikedOnlyEnabled = false;
   let midjourneyViewerSaveWidget = null;
   let midjourneyViewerEnsureAt = 0;
+  let midjourneyViewerMediaRetries = 0;
 
   function isMidjourneyTeachPage() {
     return location.pathname.includes("/personalize/") &&
@@ -2073,6 +2086,7 @@
   }
 
   function removeMidjourneyViewerSaveWidget() {
+    midjourneyViewerMediaRetries = 0;
     const widget = midjourneyViewerSaveWidget;
     if (!widget) return;
     midjourneyViewerSaveWidget = null;
@@ -2086,14 +2100,33 @@
     const media = getMidjourneyViewerMedia();
     const widget = midjourneyViewerSaveWidget;
 
-    if (widget && (!media || widget.__stgTarget !== media)) {
+    if (!media) {
+      // MJ transitions blink the media (opacity 0 / bare src mid-swap) with
+      // no follow-up mutation once the transition settles — removing the
+      // widget here would leave the page permanently widget-less. Keep a
+      // widget whose target is still attached, drop a truly orphaned one,
+      // and retry the scan a few times until the media re-qualifies.
+      if (
+        widget &&
+        !widget.__stgTarget?.isConnected &&
+        !isMidjourneyWidgetInteracting(widget)
+      ) {
+        removeMidjourneyViewerSaveWidget();
+      }
+      if (midjourneyViewerMediaRetries < 8) {
+        midjourneyViewerMediaRetries += 1;
+        scheduleMidjourneyMediaScan(400);
+      }
+      return;
+    }
+    midjourneyViewerMediaRetries = 0;
+
+    if (widget && widget.__stgTarget !== media) {
       // MJ swaps the viewer media node during index navigation — never yank
       // the widget out from under the cursor or an open menu.
       if (isMidjourneyWidgetInteracting(widget)) return;
       removeMidjourneyViewerSaveWidget();
     }
-
-    if (!media) return;
 
     if (midjourneyViewerSaveWidget) {
       positionMidjourneyWidget(midjourneyViewerSaveWidget, media);
