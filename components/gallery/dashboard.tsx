@@ -194,6 +194,28 @@ function DeleteErrorToast({ error }: { error?: string }) {
   return null;
 }
 
+export type DashboardNotice = {
+  title: string;
+  message?: string;
+  type: "success" | "warning";
+  // Monotonic key so identical back-to-back notices still fire.
+  at: number;
+};
+
+// Same bridge pattern as DeleteErrorToast for arbitrary one-shot notices
+// (e.g. collection publish results).
+function NoticeToast({ notice }: { notice?: DashboardNotice }) {
+  const { toast } = useCoralToast();
+  const lastAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (notice && notice.at !== lastAtRef.current) {
+      toast(notice.title, notice.message, notice.type, 6000);
+      lastAtRef.current = notice.at;
+    }
+  }, [notice, toast]);
+  return null;
+}
+
 export function GalleryDashboard({
   user,
   onSignOut,
@@ -1298,12 +1320,11 @@ export function GalleryDashboard({
     [projects, openProjectFromCard],
   );
 
-  // Curated, public-facing subset of collections (see PUBLIC_COLLECTIONS in
-  // convex/assets.ts). Counts are pre-scoped to public assets only.
-  const publicCollections = useQuery(
-    api.assets.listPublicCollections,
-    galleryScope === "public" ? {} : "skip",
-  );
+  // Public-facing collections, derived from the data: any collection with at
+  // least one public asset, counted over public assets only. Queried in both
+  // scopes — the public tab lists them, the mine tab uses them to mark which
+  // collections are currently published.
+  const publicCollections = useQuery(api.assets.listPublicCollections, {});
   const publicFoldersWithCounts = useMemo(
     () =>
       (publicCollections ?? []).map((entry) => ({
@@ -1317,6 +1338,59 @@ export function GalleryDashboard({
     galleryScope === "public"
       ? publicFoldersWithCounts
       : collectionFoldersWithCounts;
+
+  // Collections with at least one public asset — marks mine-scope rows and
+  // decides whether the row's publish toggle reads as "publish" or "unpublish".
+  const publishedFolderIds = useMemo(
+    () =>
+      new Set((publicCollections ?? []).map((entry) => String(entry.folderId))),
+    [publicCollections],
+  );
+
+  const [folderPublishNotice, setFolderPublishNotice] = useState<
+    DashboardNotice | undefined
+  >(undefined);
+  const [folderPublishLoading, setFolderPublishLoading] = useState(false);
+  const toggleFolderPublic = useCallback(
+    async (folderId: string, next: boolean) => {
+      if (folderPublishLoading) return;
+      setFolderPublishLoading(true);
+      try {
+        const response = await fetch(`/api/admin/folders/${folderId}/curation`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ isPublic: next }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          result?: { updatedCount: number; memberCount: number };
+        } | null;
+        if (!response.ok || !payload?.result) {
+          throw new Error(payload?.error || "Failed to update collection visibility.");
+        }
+        const { updatedCount } = payload.result;
+        setFolderPublishNotice({
+          title: next ? "Collection published" : "Collection unpublished",
+          message: `${updatedCount} asset${updatedCount === 1 ? "" : "s"} made ${next ? "public" : "private"}.`,
+          type: "success",
+          at: Date.now(),
+        });
+      } catch (error) {
+        setFolderPublishNotice({
+          title: next ? "Publish failed" : "Unpublish failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to update collection visibility.",
+          type: "warning",
+          at: Date.now(),
+        });
+      } finally {
+        setFolderPublishLoading(false);
+      }
+    },
+    [folderPublishLoading],
+  );
 
   const knownFolderIds = useMemo(() => {
     if (galleryScope === "public") {
@@ -3275,6 +3349,7 @@ export function GalleryDashboard({
         so failures fire a toast — otherwise a failed delete looks like a
         silent no-op. */}
     <DeleteErrorToast error={deleteAssetError} />
+    <NoticeToast notice={folderPublishNotice} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar={selectedPillar ?? "creators"}
@@ -3507,6 +3582,12 @@ export function GalleryDashboard({
           tasteFolderId={tasteFolderId}
           onToggleTaste={
             canManageFoldersInCurrentView ? toggleFolderTaste : undefined
+          }
+          publicFolderIds={publishedFolderIds}
+          onToggleFolderPublic={
+            canManageFoldersInCurrentView && canCuratePublic
+              ? toggleFolderPublic
+              : undefined
           }
           onPreviewShowcase={
             canManageFoldersInCurrentView

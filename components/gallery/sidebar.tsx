@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  Eye,
   Film,
   FolderOpen,
   Globe,
@@ -117,6 +118,10 @@ interface GallerySidebarProps {
   onToggleTaste?: (folderId: string, next: boolean) => void;
   /** Opens the public showcase as a visitor sees it (owner preview). */
   onPreviewShowcase?: () => void;
+  /** Folder ids with at least one asset in the public gallery. */
+  publicFolderIds?: Set<string>;
+  /** Publish/unpublish every asset of a collection to the public gallery. */
+  onToggleFolderPublic?: (folderId: string, next: boolean) => void;
 }
 
 interface ProjectEntry extends Folder {
@@ -165,6 +170,8 @@ export function GallerySidebar({
   tasteFolderId,
   onToggleTaste,
   onPreviewShowcase,
+  publicFolderIds,
+  onToggleFolderPublic,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -790,6 +797,12 @@ export function GallerySidebar({
                           ? (next) => onToggleTaste(folder._id, next)
                           : undefined
                       }
+                      published={publicFolderIds?.has(folder._id)}
+                      onTogglePublish={
+                        onToggleFolderPublic
+                          ? (next) => onToggleFolderPublic(folder._id, next)
+                          : undefined
+                      }
                       onAddSub={
                         onCreateSubCollection
                           ? () => {
@@ -859,6 +872,12 @@ export function GallerySidebar({
                         onDelete={
                           onDeleteFolder
                             ? () => onDeleteFolder(child._id)
+                            : undefined
+                        }
+                        published={publicFolderIds?.has(child._id)}
+                        onTogglePublish={
+                          onToggleFolderPublic
+                            ? (next) => onToggleFolderPublic(child._id, next)
                             : undefined
                         }
                       />
@@ -1570,6 +1589,8 @@ function FilterRow({
   onToggleFeatured,
   taste = false,
   onToggleTaste,
+  published = false,
+  onTogglePublish,
   onAddSub,
   indent = false,
 }: {
@@ -1595,6 +1616,10 @@ function FilterRow({
   taste?: boolean;
   /** When set, the row shows a taste-collection toggle. */
   onToggleTaste?: (next: boolean) => void;
+  /** True when at least one of this collection's assets is in the public gallery. */
+  published?: boolean;
+  /** When set, the row shows a publish-to-public-gallery toggle. */
+  onTogglePublish?: (next: boolean) => void;
   /** When set, the row shows an add-sub-collection control. */
   onAddSub?: () => void;
   /** Renders as a nested sub-collection row. */
@@ -1610,6 +1635,7 @@ function FilterRow({
       onToggleShowcase ||
       onToggleFeatured ||
       onToggleTaste ||
+      onTogglePublish ||
       onAddSub,
   );
 
@@ -1734,6 +1760,13 @@ function FilterRow({
           aria-label="Public on showcase"
         />
       )}
+      {published && renameDraft === null && (
+        <Eye
+          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          style={{ color: "var(--lm-coral)" }}
+          aria-label="Has assets in the public gallery"
+        />
+      )}
       {count !== undefined && renameDraft === null && (
         <span
           className={manageable ? "group-hover:hidden" : undefined}
@@ -1798,6 +1831,34 @@ function FilterRow({
               />
             </span>
           )}
+          {onTogglePublish && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePublish(!published);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{
+                color: published
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+              }}
+              aria-label={
+                published
+                  ? `Remove ${label} from the public gallery`
+                  : `Publish ${label} to the public gallery`
+              }
+              title={
+                published
+                  ? "In the public gallery. Click to make every asset in this collection private."
+                  : "Publish: make every asset in this collection visible in the public gallery."
+              }
+            >
+              <Eye className="h-2.5 w-2.5" />
+            </span>
+          )}
           {onToggleFeatured && (
             <span
               role="button"
@@ -1841,11 +1902,15 @@ function FilterRow({
                   ? "var(--lm-coral)"
                   : "var(--lm-sidebar-text-ghost)",
               }}
-              aria-label={showcased ? `Unpublish ${label}` : `Publish ${label} to showcase`}
+              aria-label={
+                showcased
+                  ? `Remove ${label} from the taste profile`
+                  : `Publish ${label} to the taste profile`
+              }
               title={
                 showcased
-                  ? "Public on your showcase — click to unpublish"
-                  : "Publish to your public showcase"
+                  ? "On your taste profile (showcase page) — click to remove"
+                  : "Show as a stack on your taste profile (showcase page)"
               }
             >
               <Globe className="h-2.5 w-2.5" />

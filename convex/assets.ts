@@ -2096,6 +2096,85 @@ export const bulkSetAssetCuration = mutation({
   },
 });
 
+// Folder-level curation: publish or unpublish a whole collection's members in
+// one call, so the owner never has to bulk-select assets by hand. Membership
+// comes from assetFolders links plus the legacy folderId alias; assets already
+// in the target state are skipped (no writes, no reindex churn).
+const FOLDER_CURATION_MAX = 2000;
+
+export const bulkSetFolderCuration = mutation({
+  args: {
+    folderId: v.id("folders"),
+    actorUserId: v.string(),
+    isPublic: v.boolean(),
+    adminSecret: v.string(),
+  },
+  returns: v.object({
+    folderId: v.id("folders"),
+    memberCount: v.number(),
+    updatedCount: v.number(),
+    isPublic: v.boolean(),
+    curatedAt: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.CURATION_ADMIN_SECRET;
+    if (!expectedSecret || args.adminSecret !== expectedSecret) {
+      throw new ConvexError("Unauthorized curator request.");
+    }
+
+    const actorUserId = args.actorUserId.trim();
+    if (!actorUserId) {
+      throw new ConvexError("actorUserId is required.");
+    }
+
+    const allowedUserIds = getCuratorUserIdsFromEnv();
+    if (allowedUserIds.length === 0) {
+      throw new ConvexError("Curator user list is not configured.");
+    }
+    if (!canActorAccessByUserId(actorUserId, allowedUserIds)) {
+      throw new ConvexError("Forbidden curator.");
+    }
+
+    const folder = await ctx.db.get(args.folderId);
+    if (!folder) {
+      throw new ConvexError("Folder not found.");
+    }
+
+    const memberAssetIds = await collectAssetIdsForFolder(
+      ctx,
+      args.folderId,
+      FOLDER_CURATION_MAX,
+    );
+
+    const curatedAt = Date.now();
+    const nextIsPublic = args.isPublic;
+    let updatedCount = 0;
+
+    for (const assetId of memberAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset || Boolean(asset.isPublic) === nextIsPublic) {
+        continue;
+      }
+      await ctx.db.patch(assetId, {
+        isPublic: nextIsPublic,
+        isFeatured: Boolean(asset.isFeatured && nextIsPublic),
+        curatedByUserId: actorUserId,
+        curatedAt,
+      });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+      updatedCount += 1;
+    }
+
+    return {
+      folderId: args.folderId,
+      memberCount: memberAssetIds.size,
+      updatedCount,
+      isPublic: nextIsPublic,
+      curatedAt,
+    };
+  },
+});
+
 export const hasAssetForIngestKey = query({
   args: {
     ownerUserId: v.string(),
@@ -2900,15 +2979,11 @@ export const folderAssetCounts = query({
   },
 });
 
-// Curated collections exposed on the Public gallery scope. Deliberately a
-// fixed allowlist (not "all folders") — most collections (e.g. personal
-// names) are private-only; only these are meant to be public-facing filters.
-// Update this list, not the folders table, to change what's public.
-const PUBLIC_COLLECTIONS: Array<{ folderId: Id<"folders">; label: string }> = [
-  { folderId: "j973rvc637sgek1c146nx3r3q188ydv8" as Id<"folders">, label: "Characters" },
-  { folderId: "j975g6k8cg4kf7vhnv69w3tbqx88yzpf" as Id<"folders">, label: "Locations" },
-];
-
+// Collections exposed on the Public gallery scope — derived, not allowlisted:
+// any plain collection with at least one public member appears, counted over
+// its public assets only. Publishing assets (individually or via
+// bulkSetFolderCuration) is the single lever that makes a collection
+// public-facing; unpublishing the last asset drops it again.
 export const listPublicCollections = query({
   args: {},
   returns: v.array(
@@ -2919,41 +2994,34 @@ export const listPublicCollections = query({
     }),
   ),
   handler: async (ctx) => {
-    const results: Array<{ folderId: Id<"folders">; label: string; count: number }> = [];
+    const publicAssets = await ctx.db
+      .query("assets")
+      .withIndex("by_isPublic_createdAt", (q) =>
+        q.eq("isPublic", true).gte("createdAt", 0),
+      )
+      .collect();
 
-    for (const collection of PUBLIC_COLLECTIONS) {
-      const assetIds = new Set<Id<"assets">>();
-
-      const primaryRows = await ctx.db
-        .query("assets")
-        .withIndex("by_folder_createdAt", (q) =>
-          q.eq("folderId", collection.folderId).gte("createdAt", 0),
-        )
-        .collect();
-      for (const asset of primaryRows) {
-        if (asset.isPublic) assetIds.add(asset._id);
-      }
-
+    const countByFolder = new Map<Id<"folders">, number>();
+    for (const asset of publicAssets) {
       const links = await ctx.db
         .query("assetFolders")
-        .withIndex("by_folder_createdAt", (q) =>
-          q.eq("folderId", collection.folderId).gte("createdAt", 0),
-        )
+        .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
         .collect();
-      for (const link of links) {
-        if (assetIds.has(link.assetId)) continue;
-        const asset = await ctx.db.get(link.assetId);
-        if (asset?.isPublic) assetIds.add(link.assetId);
+      const folderIds = new Set(links.map((link) => link.folderId));
+      if (asset.folderId) folderIds.add(asset.folderId);
+      for (const folderId of folderIds) {
+        countByFolder.set(folderId, (countByFolder.get(folderId) ?? 0) + 1);
       }
-
-      results.push({
-        folderId: collection.folderId,
-        label: collection.label,
-        count: assetIds.size,
-      });
     }
 
-    return results;
+    const results: Array<{ folderId: Id<"folders">; label: string; count: number }> = [];
+    for (const [folderId, count] of countByFolder) {
+      const folder = await ctx.db.get(folderId);
+      if (!folder || folder.kind !== undefined) continue;
+      results.push({ folderId, label: folder.name, count });
+    }
+
+    return results.sort((a, b) => a.label.localeCompare(b.label));
   },
 });
 
