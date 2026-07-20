@@ -197,9 +197,12 @@
   pointer-events: auto;
 }
 
-/* Single save widget on the full-size viewer media (/jobs pages, lightbox). */
+/* Single save widget on the full-size viewer media (/jobs pages, lightbox).
+   Fixed to the viewport and mounted on <body> — never inside MJ's React DOM,
+   so page re-renders can't remove it. */
 .stg-mj-quick-save--viewer {
-  z-index: 60;
+  position: fixed;
+  z-index: 2147483000;
 }
 
 .stg-mj-quick-save--hover-reveal {

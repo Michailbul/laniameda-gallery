@@ -3093,7 +3093,73 @@
     host.dataset.stgMjHostPrepared = "1";
   }
 
+  // The viewer widget NEVER lives inside MJ's React-managed DOM — any
+  // re-render there can silently remove it, and recovery then depends on
+  // another mutation firing. Fixed-position on document.body is untouchable.
+  function positionMidjourneyViewerWidget(widget, target) {
+    if (!widget || !target || !document.contains(target)) return;
+
+    const interacting =
+      widget.classList.contains("stg-mj-quick-save--menu-open") ||
+      (widget.isConnected && widget.matches(":hover"));
+    if (interacting) return;
+
+    if (widget.parentElement !== document.body) {
+      document.body.appendChild(widget);
+    }
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return; // keep last placement
+
+    const width = widget.offsetWidth || 110;
+    const height = widget.offsetHeight || 36;
+    const gap = 12;
+    const candidates = [
+      { left: rect.right - width - gap, top: rect.top + gap },
+      { left: rect.left + gap, top: rect.top + gap },
+      { left: rect.right - width - gap, top: rect.bottom - height - gap },
+      { left: rect.right - width, top: rect.top - height - SAVE_CONTROL_GAP },
+    ];
+    const pageControlRects = getNearbyPageControlRects(target);
+    const inViewport = (c) =>
+      c.left >= 4 && c.top >= 4 &&
+      c.left + width <= window.innerWidth - 4 &&
+      c.top + height <= window.innerHeight - 4;
+    const clearOfControls = (c) =>
+      pageControlRects.every((controlRect) => !rectsOverlap(
+        { left: c.left, top: c.top, right: c.left + width, bottom: c.top + height },
+        controlRect,
+        PAGE_CONTROL_CLEARANCE,
+      ));
+
+    const chosen =
+      candidates.find((c) => inViewport(c) && clearOfControls(c)) ||
+      candidates.find(inViewport);
+    if (!chosen) {
+      // Nothing fits THIS tick (media mid-transition) — keep the previous
+      // placement rather than blinking; hide only if never placed.
+      if (!widget.dataset.stgPlacement && widget.style.display !== "none") {
+        widget.style.display = "none";
+      }
+      return;
+    }
+
+    if (widget.style.display !== "flex") widget.style.display = "flex";
+    const nextLeft = `${Math.round(chosen.left)}px`;
+    const nextTop = `${Math.round(chosen.top)}px`;
+    if (widget.style.left !== nextLeft) widget.style.left = nextLeft;
+    if (widget.style.top !== nextTop) widget.style.top = nextTop;
+    if (widget.dataset.stgPlacement !== "viewer-fixed") {
+      widget.dataset.stgPlacement = "viewer-fixed";
+    }
+  }
+
   function positionMidjourneyWidget(widget, target) {
+    if (widget.classList.contains("stg-mj-quick-save--viewer")) {
+      positionMidjourneyViewerWidget(widget, target);
+      return;
+    }
+
     if (!target || !document.contains(target)) {
       widget.remove();
       return;
@@ -3128,14 +3194,11 @@
     }
 
     if (widget.style.display !== "flex") widget.style.display = "flex";
-    // The single viewer widget sits on the full-size media — always visible,
-    // corner-anchored, so the save action is discoverable on /jobs pages.
-    const isViewerWidget = widget.classList.contains("stg-mj-quick-save--viewer");
-    const isCentered = !isViewerWidget && isMidjourneyImaginePage();
+    const isCentered = isMidjourneyImaginePage();
     // Hover-reveal keeps dense grids and workspaces uncluttered — the widget
     // only shows while its host media is hovered.
-    const hoverReveal = !isViewerWidget &&
-      (isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage());
+    const hoverReveal =
+      isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
@@ -3669,6 +3732,28 @@
     window.addEventListener("resize", updateMidjourneyWidgetPositions, {
       passive: true,
     });
+    // Scroll doesn't bubble, but the capture phase sees inner-container
+    // scrolls too — the fixed-position viewer widget must track its media.
+    window.addEventListener("scroll", () => {
+      const widget = midjourneyViewerSaveWidget;
+      if (widget?.isConnected && widget.__stgTarget?.isConnected) {
+        positionMidjourneyViewerWidget(widget, widget.__stgTarget);
+      }
+    }, { passive: true, capture: true });
+    // Watchdog: mutations are the normal scan trigger, but a page can settle
+    // AFTER whatever removed or starved the widget. Cheap ticks guarantee the
+    // viewer save control returns within ~1.5s no matter what killed it.
+    setInterval(() => {
+      if (!configLoaded || !extensionEnabled || instanceRetired) return;
+      if (!isMidjourneyPage() || !isMidjourneyFullSizeViewerOpen()) return;
+      const widget = midjourneyViewerSaveWidget;
+      if (!widget || !widget.isConnected || !widget.__stgTarget?.isConnected) {
+        midjourneyViewerMediaRetries = 0;
+        scheduleMidjourneyMediaScan(0);
+      } else {
+        positionMidjourneyViewerWidget(widget, widget.__stgTarget);
+      }
+    }, 1500);
     scheduleMidjourneyMediaScan(0);
   }
 
