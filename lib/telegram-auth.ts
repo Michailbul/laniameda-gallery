@@ -1,6 +1,12 @@
 import { createHmac, createHash, timingSafeEqual } from "crypto";
-import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import {
+  SESSION_COOKIE,
+  sessionCookieOptions,
+  shouldRenew,
+  signSession,
+  verifySession,
+} from "@/lib/session-jwt";
 
 export interface TelegramUser {
   telegramId: string;
@@ -54,9 +60,6 @@ export interface TelegramWidgetData {
   hash: string;
 }
 
-const SESSION_COOKIE = "tg_session";
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-
 const TELEGRAM_HASH_HEX = /^[a-f0-9]{64}$/i;
 
 const isString = (value: unknown): value is string =>
@@ -76,14 +79,6 @@ const normalizeInteger = (value: unknown): number | null => {
   }
   return null;
 };
-
-function getSessionSecret(): Uint8Array {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error("SESSION_SECRET must be at least 32 characters.");
-  }
-  return new TextEncoder().encode(secret);
-}
 
 /** Verify the Telegram Login Widget hash per https://core.telegram.org/widgets/login#checking-authorization */
 export function verifyTelegramAuth(
@@ -129,20 +124,9 @@ export function isAuthDateFresh(
 }
 
 export async function createSessionCookie(user: TelegramUser): Promise<void> {
-  const token = await new SignJWT({ ...user })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_MAX_AGE}s`)
-    .sign(getSessionSecret());
-
+  const token = await signSession(user);
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE,
-    path: "/",
-  });
+  jar.set(SESSION_COOKIE, token, sessionCookieOptions());
 }
 
 export async function getSessionUser(): Promise<TelegramUser | null> {
@@ -150,18 +134,16 @@ export async function getSessionUser(): Promise<TelegramUser | null> {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  try {
-    const { payload } = await jwtVerify(token, getSessionSecret());
-    return {
-      telegramId: payload.telegramId as string,
-      firstName: payload.firstName as string,
-      lastName: payload.lastName as string | undefined,
-      username: payload.username as string | undefined,
-      photoUrl: payload.photoUrl as string | undefined,
-    };
-  } catch {
-    return null;
-  }
+  const payload = await verifySession(token);
+  if (!payload) return null;
+
+  return {
+    telegramId: payload.telegramId,
+    firstName: payload.firstName,
+    lastName: payload.lastName,
+    username: payload.username,
+    photoUrl: payload.photoUrl,
+  };
 }
 
 export async function clearSessionCookie(): Promise<void> {
@@ -169,30 +151,23 @@ export async function clearSessionCookie(): Promise<void> {
   jar.delete(SESSION_COOKIE);
 }
 
-// Re-issue the session cookie once a day so an active user's 30-day window
-// keeps rolling forward instead of expiring mid-use. Only callable from
-// contexts where cookies are writable (route handlers, server actions).
-const SESSION_RENEW_AFTER = 60 * 60 * 24; // 1 day
-
+// Re-issue the session cookie once its token crosses the renew threshold so an
+// active user's window keeps rolling forward instead of expiring mid-use. Only
+// callable from contexts where cookies are writable (route handlers, server
+// actions). Edge navigations are handled separately by middleware.ts.
 export async function renewSessionCookieIfStale(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return;
 
-  try {
-    const { payload } = await jwtVerify(token, getSessionSecret());
-    const issuedAt = typeof payload.iat === "number" ? payload.iat : 0;
-    const ageSeconds = Math.floor(Date.now() / 1000) - issuedAt;
-    if (ageSeconds < SESSION_RENEW_AFTER) return;
+  const payload = await verifySession(token);
+  if (!payload || !shouldRenew(payload.iat)) return;
 
-    await createSessionCookie({
-      telegramId: payload.telegramId as string,
-      firstName: payload.firstName as string,
-      lastName: payload.lastName as string | undefined,
-      username: payload.username as string | undefined,
-      photoUrl: payload.photoUrl as string | undefined,
-    });
-  } catch {
-    // Invalid or expired token — nothing to renew.
-  }
+  await createSessionCookie({
+    telegramId: payload.telegramId,
+    firstName: payload.firstName,
+    lastName: payload.lastName,
+    username: payload.username,
+    photoUrl: payload.photoUrl,
+  });
 }
