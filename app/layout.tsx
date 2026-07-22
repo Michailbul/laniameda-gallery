@@ -14,9 +14,9 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Misha Buloy — Taste Profile · Laniameda",
+  title: "Laniameda Gallery",
   description:
-    "An AI creator's taste profile: story sets, stills, and locations, generated and filed by hand.",
+    "An AI creator's working vault: story sets, stills, and locations, generated and filed by hand.",
 };
 
 export default function RootLayout({

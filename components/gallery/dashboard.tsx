@@ -13,6 +13,7 @@ import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Download, Eye, EyeOff, FolderInput, FolderPlus, Layers, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
+import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
@@ -3591,7 +3592,7 @@ export function GalleryDashboard({
           }
           onPreviewShowcase={
             canManageFoldersInCurrentView
-              ? () => window.open("/?preview=1", "_blank")
+              ? () => window.open(TASTE_PROFILE_PATH, "_blank")
               : undefined
           }
         />
