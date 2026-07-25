@@ -3591,9 +3591,7 @@ export function GalleryDashboard({
               : undefined
           }
           onPreviewShowcase={
-            canManageFoldersInCurrentView
-              ? () => window.open(TASTE_PROFILE_PATH, "_blank")
-              : undefined
+            () => window.open(TASTE_PROFILE_PATH, "_blank")
           }
         />
       </div>
@@ -4912,9 +4910,11 @@ export function GalleryDashboard({
         onClose={closeUploadModal}
         availableTags={availableUploadTags}
         folders={folders ?? []}
+        projects={projects ?? []}
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }
+        canPromoteToPublic={canCuratePublic}
         initialFiles={uploadInitialFiles}
       />
 

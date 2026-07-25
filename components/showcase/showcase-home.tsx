@@ -112,6 +112,41 @@ export function ShowcaseHome({ previewAuthed = false }: { previewAuthed?: boolea
         >
           {INTRO.blurb}
         </p>
+        <div
+          style={{
+            marginTop: 42,
+            maxWidth: 560,
+            paddingTop: 18,
+            borderTop: "1px solid var(--lm-line)",
+          }}
+        >
+          <p
+            style={{
+              fontFamily: "var(--lm-font)",
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--lm-coral)",
+              margin: 0,
+            }}
+          >
+            About me
+          </p>
+          <p
+            style={{
+              fontFamily: "var(--lm-font)",
+              fontSize: "clamp(15px, 2vw, 18px)",
+              lineHeight: 1.55,
+              color: "var(--lm-text-primary)",
+              margin: "12px 0 0",
+            }}
+          >
+            I like to explore worlds where things that conventional wisdom
+            keeps apart can exist together: worlds full of anger and evil, yet
+            also filled with romanticism, Renaissance beauty, and love.
+          </p>
+        </div>
         <p
           style={{
             fontFamily: "var(--lm-font)",
