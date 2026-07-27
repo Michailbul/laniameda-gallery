@@ -1995,6 +1995,9 @@ export function GalleryDashboard({
   }, []);
 
   const handleClearAll = () => setSelectedTags([]);
+  // Clears EVERYTHING hasFilters counts — including the search/semantic mode.
+  // (The empty state's "clear all filters" used to leave the search active,
+  // so the button appeared broken on zero-result searches.)
   const handleClearFilters = () => {
     setSelectedTags([]);
     setSelectedPillar(null);
@@ -2004,6 +2007,12 @@ export function GalleryDashboard({
     setWorkflowsOnly(false);
     setMediaKind(null);
     setLikedOnly(false);
+    setAssetSearchQuery("");
+    setDebouncedAssetSearchQuery("");
+    setSemanticMode(null);
+    setSemanticResults(null);
+    setSemanticError(undefined);
+    setSemanticLoading(false);
   };
   // Content-type filter: Image/Video (asset kind) and Workflows are mutually
   // exclusive — picking one clears the others.
@@ -2534,13 +2543,29 @@ export function GalleryDashboard({
       setBulkCurationError(undefined);
       setBulkCurationStatus(undefined);
       try {
+        // Move relocates the asset among PLAIN collections only. Storybook
+        // and beat/direction memberships are orthogonal overlays and survive
+        // a move — replacing the full set here used to silently strip them.
+        const plainCollectionIds = new Set(
+          collectionFoldersWithCounts.map((folder) => String(folder._id)),
+        );
+        const imageById = new Map(images.map((image) => [image.id, image]));
         let moved = 0;
         for (const assetId of assetIds) {
-          // Move = set the asset's collections to just the destination.
+          const image = imageById.get(assetId);
+          const currentFolderIds: string[] =
+            image && "folderIds" in image && Array.isArray(image.folderIds)
+              ? image.folderIds
+              : image && "folderId" in image && image.folderId
+                ? [image.folderId]
+                : [];
+          const keptFolderIds = currentFolderIds.filter(
+            (id) => !plainCollectionIds.has(id) && id !== folderId,
+          );
           await setAssetFoldersMutation({
             ownerUserId,
             assetId: assetId as Id<"assets">,
-            folderIds: [folderId as Id<"folders">],
+            folderIds: [folderId, ...keptFolderIds] as Id<"folders">[],
           });
           moved += 1;
         }
@@ -2565,7 +2590,9 @@ export function GalleryDashboard({
     },
     [
       bulkActionLoading,
+      collectionFoldersWithCounts,
       folderNameById,
+      images,
       ownerUserId,
       setAssetFoldersMutation,
     ],
@@ -2823,11 +2850,37 @@ export function GalleryDashboard({
     [images, selectedAssetIds],
   );
 
+  // Dropping on a collection ADDS membership, exactly like storybooks and
+  // directions below — every drop target in the sidebar behaves the same.
+  // Moving (which removes other collection memberships) is only ever the
+  // explicit Move action in the card menu, never a drag.
   const handleAssetsDropOnFolder = useCallback(
-    (folderId: string, assetIds: string[]) => {
-      void moveAssetsToFolder(folderId, assetIds);
+    async (folderId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      try {
+        await Promise.all(
+          assetIds.map((assetId) =>
+            addAssetFoldersMutation({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: [folderId as Id<"folders">],
+            }),
+          ),
+        );
+        setMoveStatus({
+          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(folderId) ?? "collection"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : "Failed to add to collection.",
+          error: true,
+        });
+      }
     },
-    [moveAssetsToFolder],
+    [addAssetFoldersMutation, folderNameById, ownerUserId],
   );
 
   // Dropping on a storybook ADDS membership (keeps existing collections) —

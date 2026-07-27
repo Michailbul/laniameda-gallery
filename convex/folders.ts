@@ -1,4 +1,5 @@
 import {
+  internalMutation,
   mutation,
   query,
   type MutationCtx,
@@ -141,22 +142,27 @@ export const createFolder = mutation({
       }
     }
     if (existing) {
+      // Upsert never converts kinds: turning a collection into a project (or
+      // any other flavor) in place would silently re-interpret its whole
+      // membership. Same name + different kind = a real conflict.
+      if ((existing.kind ?? undefined) !== (args.kind ?? undefined)) {
+        throw new ConvexError(
+          `"${name}" already exists as a different kind of collection.`,
+        );
+      }
       const nextDescription = hasDescription
         ? description
         : existing.description;
-      const nextKind = args.kind ?? existing.kind;
       if (
         existing.name !== name ||
         existing.description !== nextDescription ||
-        existing.normalizedName !== normalizedName ||
-        existing.kind !== nextKind
+        existing.normalizedName !== normalizedName
       ) {
         const now = Date.now();
         await ctx.db.patch(existing._id, {
           name,
           description: nextDescription,
           normalizedName,
-          kind: nextKind,
           createdAt: existing.createdAt ?? now,
           updatedAt: now,
         });
@@ -997,5 +1003,33 @@ export const setFolderCover = mutation({
       updatedAt: Date.now(),
     });
     return { coverAssetId: asset._id };
+  },
+});
+
+// Maintenance: folders created before `normalizedName` existed are invisible
+// to every by_owner_normalizedName listing (undefined sorts before ""). Run
+// once via CLI after deploy, safe to re-run:
+//   bunx convex run folders:backfillNormalizedNames '{"dryRun":false}'
+export const backfillNormalizedNames = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  returns: v.object({
+    scanned: v.number(),
+    missing: v.number(),
+    patched: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const folders = await ctx.db.query("folders").collect();
+    let missing = 0;
+    let patched = 0;
+    for (const folder of folders) {
+      if (folder.normalizedName !== undefined) continue;
+      missing += 1;
+      if (args.dryRun === true) continue;
+      await ctx.db.patch(folder._id, {
+        normalizedName: scopedNormalizedName(folder.name, folder.parentFolderId),
+      });
+      patched += 1;
+    }
+    return { scanned: folders.length, missing, patched };
   },
 });

@@ -302,3 +302,52 @@ export const projectSectionValidator = v.union(
 export const optionalProjectSectionValidator = v.optional(
   projectSectionValidator,
 );
+
+// Full raw asset document shape (schema.assets + system fields). Keep in sync
+// with convex/schema.ts. Return validators that hand back raw asset docs MUST
+// use this — hand-copied subsets have already rejected renamed/pinned assets
+// at the validation layer because they omitted newer columns.
+export const assetDocValidator = v.object({
+  _id: v.id("assets"),
+  _creationTime: v.number(),
+  ownerUserId: v.optional(v.string()),
+  name: v.optional(v.string()),
+  orderPriority: v.optional(v.number()),
+  pinnedAt: v.optional(v.number()),
+  kind: v.union(v.literal("image"), v.literal("video")),
+  storageId: v.optional(v.id("_storage")),
+  thumbStorageId: v.optional(v.id("_storage")),
+  r2Key: v.optional(v.string()),
+  r2Bucket: v.optional(v.string()),
+  thumbR2Key: v.optional(v.string()),
+  thumbR2Bucket: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+  fileName: v.optional(v.string()),
+  description: v.optional(v.string()),
+  contentType: v.optional(v.string()),
+  size: v.optional(v.number()),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  thumbSize: v.optional(v.number()),
+  thumbWidth: v.optional(v.number()),
+  thumbHeight: v.optional(v.number()),
+  promptId: v.optional(v.id("prompts")),
+  designInspirationId: v.optional(v.id("designInspirations")),
+  tagIds: v.array(v.id("tags")),
+  folderId: v.optional(v.id("folders")),
+  ingestKey: v.optional(v.string()),
+  modelName: v.optional(v.string()),
+  isPublic: v.optional(v.boolean()),
+  isFeatured: v.optional(v.boolean()),
+  isLiked: v.optional(v.boolean()),
+  curatedByUserId: v.optional(v.string()),
+  curatedAt: v.optional(v.number()),
+  pillar: optionalPillarValidator,
+  generationType: generationTypeValidator,
+  assetRole: assetRoleValidator,
+  ingestSource: ingestSourceValidator,
+  assetPackId: v.optional(v.id("assetPacks")),
+  packSlotIndex: v.optional(v.number()),
+  cinemaMetadata: cinemaMetadataValidator,
+  createdAt: v.number(),
+});

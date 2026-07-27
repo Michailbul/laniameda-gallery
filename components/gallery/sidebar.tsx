@@ -1290,7 +1290,7 @@ function ProjectRow({
             ? (event) => {
                 if (!hasAssetDragPayload(event.dataTransfer)) return;
                 event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
+                event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
                 setDragOver(true);
                 if (directions.length > 0) setExpanded(true);
               }
@@ -1531,7 +1531,7 @@ function DirectionDropRow({
           ? (event) => {
               if (!hasAssetDragPayload(event.dataTransfer)) return;
               event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
+              event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
               setDragOver(true);
             }
           : undefined
@@ -1664,7 +1664,7 @@ function FilterRow({
           ? (event) => {
               if (!hasAssetDragPayload(event.dataTransfer)) return;
               event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
+              event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
               setDragOver(true);
             }
           : undefined

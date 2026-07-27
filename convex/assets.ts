@@ -28,6 +28,7 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import {
+  assetDocValidator,
   assetRoleValidator,
   cinemaMetadataValidator,
   generationTypeValidator,
@@ -308,6 +309,48 @@ const replaceAssetFolderLinks = async (
   };
 };
 
+// Move the asset's PRIMARY collection without touching its other memberships
+// (beats, storybooks, extra collections). Replaces the old primary's link with
+// the new one; undefined clears the primary and only that membership. This is
+// the single-folder edit semantic — replaceAssetFolderLinks stays reserved for
+// the explicit multi-select (setAssetFolders), which intentionally replaces
+// the full set.
+const setPrimaryAssetFolder = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  asset: Doc<"assets">,
+  nextFolderId: Id<"folders"> | undefined,
+) => {
+  await ensureFolderOwnership(ctx, ownerUserId, nextFolderId);
+
+  const previousPrimary = asset.folderId;
+  if (previousPrimary && previousPrimary !== nextFolderId) {
+    const links = await getAssetFolderLinks(ctx, asset._id);
+    for (const link of links) {
+      if (link.folderId === previousPrimary) {
+        await ctx.db.delete(link._id);
+      }
+    }
+  }
+
+  if (nextFolderId) {
+    await addAssetFolderLink(ctx, ownerUserId, asset._id, nextFolderId);
+  }
+
+  if (asset.folderId !== nextFolderId) {
+    await ctx.db.patch(asset._id, { folderId: nextFolderId });
+  }
+
+  const remainingLinks = await getAssetFolderLinks(ctx, asset._id);
+  return {
+    folderId: nextFolderId,
+    folderIds: dedupeFolderIds([
+      nextFolderId,
+      ...remainingLinks.map((link) => link.folderId),
+    ]),
+  };
+};
+
 export const collectAssetsForFolder = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
@@ -520,12 +563,11 @@ export const setAssetFolder = mutation({
       throw new ConvexError("Asset does not belong to this user.");
     }
 
-    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
-    const result = await replaceAssetFolderLinks(
+    const result = await setPrimaryAssetFolder(
       ctx,
       ownerUserId,
       asset,
-      args.folderId ? [args.folderId] : [],
+      args.folderId,
     );
 
     return {
@@ -749,7 +791,6 @@ export const updateAssetMetadata = mutation({
       throw new ConvexError("Asset does not belong to this user.");
     }
 
-    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
     if (args.promptId) {
       const prompt = await ctx.db.get(args.promptId);
       if (!prompt) {
@@ -764,7 +805,6 @@ export const updateAssetMetadata = mutation({
     const previousPromptId = asset.promptId;
     await ctx.db.patch(args.assetId, {
       tagIds,
-      folderId: args.folderId,
       promptId: args.promptId,
       sourceUrl: args.sourceUrl,
       fileName: args.fileName,
@@ -776,9 +816,9 @@ export const updateAssetMetadata = mutation({
       assetRole: args.assetRole,
       ingestSource: args.ingestSource,
     });
-    if (args.folderId) {
-      await addAssetFolderLink(ctx, ownerUserId, args.assetId, args.folderId);
-    }
+    // Primary-collection move keeps the asset's other memberships intact
+    // (previously this replaced/cleared the alias while links drifted).
+    await setPrimaryAssetFolder(ctx, ownerUserId, asset, args.folderId);
 
     await bumpTagUsage(ctx, asset.tagIds, -1);
     await bumpTagUsage(ctx, tagIds, 1);
@@ -976,12 +1016,9 @@ export const adminUpdateAsset = mutation({
         : asset.ingestSource,
     });
     if (hasOwn(args, "folderId")) {
-      await replaceAssetFolderLinks(
-        ctx,
-        ownerUserId,
-        { ...asset, folderId: nextFolderId },
-        nextFolderId ? [nextFolderId] : [],
-      );
+      // `asset` still carries the pre-patch folderId, which is exactly the
+      // previous primary this helper needs to swap out.
+      await setPrimaryAssetFolder(ctx, ownerUserId, asset, nextFolderId);
     }
 
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
@@ -1041,49 +1078,7 @@ export const getAsset = query({
     id: v.id("assets"),
     ownerUserId: v.optional(v.string()),
   },
-  returns: v.union(
-    v.null(),
-    v.object({
-      _id: v.id("assets"),
-      _creationTime: v.number(),
-      ownerUserId: v.optional(v.string()),
-      kind: v.union(v.literal("image"), v.literal("video")),
-      storageId: v.optional(v.id("_storage")),
-      thumbStorageId: v.optional(v.id("_storage")),
-      r2Key: v.optional(v.string()),
-      r2Bucket: v.optional(v.string()),
-      thumbR2Key: v.optional(v.string()),
-      thumbR2Bucket: v.optional(v.string()),
-      sourceUrl: v.optional(v.string()),
-      fileName: v.optional(v.string()),
-      description: v.optional(v.string()),
-      contentType: v.optional(v.string()),
-      size: v.optional(v.number()),
-      width: v.optional(v.number()),
-      height: v.optional(v.number()),
-      thumbSize: v.optional(v.number()),
-      thumbWidth: v.optional(v.number()),
-      thumbHeight: v.optional(v.number()),
-      promptId: v.optional(v.id("prompts")),
-      designInspirationId: v.optional(v.id("designInspirations")),
-      tagIds: v.array(v.id("tags")),
-      folderId: v.optional(v.id("folders")),
-      ingestKey: v.optional(v.string()),
-      modelName: v.optional(v.string()),
-      isPublic: v.optional(v.boolean()),
-      isFeatured: v.optional(v.boolean()),
-      isLiked: v.optional(v.boolean()),
-      curatedByUserId: v.optional(v.string()),
-      curatedAt: v.optional(v.number()),
-      pillar: pillarValidator,
-      generationType: generationTypeValidator,
-      assetRole: assetRoleValidator,
-      ingestSource: ingestSourceValidator,
-      assetPackId: v.optional(v.id("assetPacks")),
-      packSlotIndex: v.optional(v.number()),
-      createdAt: v.number(),
-    }),
-  ),
+  returns: v.union(v.null(), assetDocValidator),
   handler: async (ctx, args) => {
     const asset = await ctx.db.get(args.id);
     if (!asset) {
@@ -1148,48 +1143,7 @@ export const listAssets = query({
     promptId: v.optional(v.id("prompts")),
     limit: v.optional(v.number()),
   },
-  returns: v.array(
-    v.object({
-      _id: v.id("assets"),
-      _creationTime: v.number(),
-      ownerUserId: v.optional(v.string()),
-      kind: v.union(v.literal("image"), v.literal("video")),
-      storageId: v.optional(v.id("_storage")),
-      thumbStorageId: v.optional(v.id("_storage")),
-      r2Key: v.optional(v.string()),
-      r2Bucket: v.optional(v.string()),
-      thumbR2Key: v.optional(v.string()),
-      thumbR2Bucket: v.optional(v.string()),
-      sourceUrl: v.optional(v.string()),
-      fileName: v.optional(v.string()),
-      description: v.optional(v.string()),
-      contentType: v.optional(v.string()),
-      size: v.optional(v.number()),
-      width: v.optional(v.number()),
-      height: v.optional(v.number()),
-      thumbSize: v.optional(v.number()),
-      thumbWidth: v.optional(v.number()),
-      thumbHeight: v.optional(v.number()),
-      promptId: v.optional(v.id("prompts")),
-      designInspirationId: v.optional(v.id("designInspirations")),
-      tagIds: v.array(v.id("tags")),
-      folderId: v.optional(v.id("folders")),
-      ingestKey: v.optional(v.string()),
-      modelName: v.optional(v.string()),
-      isPublic: v.optional(v.boolean()),
-      isFeatured: v.optional(v.boolean()),
-      isLiked: v.optional(v.boolean()),
-      curatedByUserId: v.optional(v.string()),
-      curatedAt: v.optional(v.number()),
-      pillar: pillarValidator,
-      generationType: generationTypeValidator,
-      assetRole: assetRoleValidator,
-      ingestSource: ingestSourceValidator,
-      assetPackId: v.optional(v.id("assetPacks")),
-      packSlotIndex: v.optional(v.number()),
-      createdAt: v.number(),
-    }),
-  ),
+  returns: v.array(assetDocValidator),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -3146,6 +3100,71 @@ export const replaceAssetMedia = mutation({
   },
 });
 
+// The one true asset delete: row, tag links + usage, folder/beat links,
+// lineage, blobs (Convex + R2), pack reconciliation, semantic reindex.
+// EVERY delete path (single, bulk, wipe) must go through this — the bulk
+// paths used to re-implement it and silently skipped tag usage, pack
+// reconciliation and the semantic cleanup.
+const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
+  const links = await ctx.db
+    .query("assetTags")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  for (const link of links) {
+    await ctx.db.delete(link._id);
+  }
+
+  // Collection/beat memberships die with the asset — orphaned links would
+  // ghost-occupy folder slots and inflate counts.
+  const folderLinks = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  for (const link of folderLinks) {
+    await ctx.db.delete(link._id);
+  }
+
+  const storageIds = dedupeIds(
+    [asset.storageId, asset.thumbStorageId].filter(
+      (id): id is Id<"_storage"> => Boolean(id),
+    ),
+  );
+  for (const storageId of storageIds) {
+    await ctx.storage.delete(storageId);
+  }
+
+  if (asset.r2Key) {
+    await r2.deleteObject(ctx, asset.r2Key);
+  }
+  if (asset.thumbR2Key) {
+    await r2.deleteObject(ctx, asset.thumbR2Key);
+  }
+
+  const lineageRows = [
+    ...(await ctx.db
+      .query("generationLineage")
+      .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", asset._id))
+      .collect()),
+    ...(await ctx.db
+      .query("generationLineage")
+      .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", asset._id))
+      .collect()),
+  ];
+  for (const row of lineageRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const packId = asset.assetPackId;
+  await ctx.db.delete(asset._id);
+  if (packId) {
+    await reconcileAssetPackMembership(ctx, packId);
+  }
+  await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
+  await ctx.scheduler.runAfter(0, reindexAssetAction, {
+    assetId: asset._id,
+  });
+};
+
 // Internal-only delete. Performs the actual storage + DB cleanup. Callers
 // (public `deleteAsset`, ingest rollback paths, etc.) are responsible for
 // authorization before invoking this.
@@ -3159,65 +3178,7 @@ export const internalDeleteAsset = internalMutation({
     if (!asset) {
       throw new ConvexError("Asset not found.");
     }
-
-    const links = await ctx.db
-      .query("assetTags")
-      .withIndex("by_asset", (q) => q.eq("assetId", args.id))
-      .collect();
-    for (const link of links) {
-      await ctx.db.delete(link._id);
-    }
-
-    // Collection/beat memberships die with the asset — orphaned links would
-    // ghost-occupy folder slots and inflate counts.
-    const folderLinks = await ctx.db
-      .query("assetFolders")
-      .withIndex("by_asset", (q) => q.eq("assetId", args.id))
-      .collect();
-    for (const link of folderLinks) {
-      await ctx.db.delete(link._id);
-    }
-
-    const storageIds = dedupeIds(
-      [asset.storageId, asset.thumbStorageId].filter(
-        (id): id is Id<"_storage"> => Boolean(id),
-      ),
-    );
-    for (const storageId of storageIds) {
-      await ctx.storage.delete(storageId);
-    }
-
-    if (asset.r2Key) {
-      await r2.deleteObject(ctx, asset.r2Key);
-    }
-    if (asset.thumbR2Key) {
-      await r2.deleteObject(ctx, asset.thumbR2Key);
-    }
-
-    const lineageRows = [
-      ...(await ctx.db
-        .query("generationLineage")
-        .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", args.id))
-        .collect()),
-      ...(await ctx.db
-        .query("generationLineage")
-        .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", args.id))
-        .collect()),
-    ];
-    for (const row of lineageRows) {
-      await ctx.db.delete(row._id);
-    }
-
-    const packId = asset.assetPackId;
-    await ctx.db.delete(args.id);
-    if (packId) {
-      await reconcileAssetPackMembership(ctx, packId);
-    }
-    await bumpTagUsage(ctx, dedupeIds(asset.tagIds), -1);
-    await ctx.scheduler.runAfter(0, reindexAssetAction, {
-      assetId: args.id,
-    });
-
+    await deleteAssetCascade(ctx, asset);
     return null;
   },
 });
@@ -3278,53 +3239,10 @@ export const bulkDeleteAssets = internalMutation({
     let count = 0;
     for (const id of args.ids) {
       const asset = await ctx.db.get(id);
-      const links = await ctx.db
-        .query("assetTags")
-        .withIndex("by_asset", (q) => q.eq("assetId", id))
-        .collect();
-      for (const link of links) {
-        await ctx.db.delete(link._id);
+      if (!asset) {
+        continue;
       }
-      const folderLinks = await ctx.db
-        .query("assetFolders")
-        .withIndex("by_asset", (q) => q.eq("assetId", id))
-        .collect();
-      for (const link of folderLinks) {
-        await ctx.db.delete(link._id);
-      }
-      const lineageRows = [
-        ...(await ctx.db
-          .query("generationLineage")
-          .withIndex("by_targetAsset", (q) => q.eq("targetAssetId", id))
-          .collect()),
-        ...(await ctx.db
-          .query("generationLineage")
-          .withIndex("by_sourceAsset", (q) => q.eq("sourceAssetId", id))
-          .collect()),
-      ];
-      for (const row of lineageRows) {
-        await ctx.db.delete(row._id);
-      }
-      // Free the underlying bytes alongside the row. The single-asset
-      // deleteAsset mutation already does this; bulk was previously
-      // orphaning Convex blobs and would have orphaned R2 objects too.
-      if (asset) {
-        const storageIds = dedupeIds(
-          [asset.storageId, asset.thumbStorageId].filter(
-            (storageId): storageId is Id<"_storage"> => Boolean(storageId),
-          ),
-        );
-        for (const storageId of storageIds) {
-          await ctx.storage.delete(storageId);
-        }
-        if (asset.r2Key) {
-          await r2.deleteObject(ctx, asset.r2Key);
-        }
-        if (asset.thumbR2Key) {
-          await r2.deleteObject(ctx, asset.thumbR2Key);
-        }
-      }
-      await ctx.db.delete(id);
+      await deleteAssetCascade(ctx, asset);
       count++;
     }
     return count;
@@ -3347,49 +3265,20 @@ export const wipeAllAssets = internalMutation({
     const assets = await ctx.db.query("assets").collect();
     const assetTagLinks = await ctx.db.query("assetTags").collect();
 
-    const tagUsageToSubtract = new Map<Id<"tags">, number>();
-    for (const asset of assets) {
-      for (const tagId of asset.tagIds) {
-        tagUsageToSubtract.set(tagId, (tagUsageToSubtract.get(tagId) ?? 0) + 1);
-      }
-    }
-
+    const tagIds = new Set<Id<"tags">>();
     const uniqueStorageIds = new Set<Id<"_storage">>();
     const uniqueR2Keys = new Set<string>();
     for (const asset of assets) {
+      for (const tagId of asset.tagIds) tagIds.add(tagId);
       if (asset.storageId) uniqueStorageIds.add(asset.storageId);
       if (asset.thumbStorageId) uniqueStorageIds.add(asset.thumbStorageId);
       if (asset.r2Key) uniqueR2Keys.add(asset.r2Key);
       if (asset.thumbR2Key) uniqueR2Keys.add(asset.thumbR2Key);
     }
 
-    let storageObjectsDeleted = 0;
-
     if (!dryRun) {
-      for (const link of assetTagLinks) {
-        await ctx.db.delete(link._id);
-      }
-
-      for (const storageId of uniqueStorageIds) {
-        await ctx.storage.delete(storageId);
-        storageObjectsDeleted += 1;
-      }
-
-      for (const r2Key of uniqueR2Keys) {
-        await r2.deleteObject(ctx, r2Key);
-        storageObjectsDeleted += 1;
-      }
-
       for (const asset of assets) {
-        await ctx.db.delete(asset._id);
-      }
-
-      for (const [tagId, decrementBy] of tagUsageToSubtract) {
-        const tag = await ctx.db.get(tagId);
-        if (!tag) continue;
-        await ctx.db.patch(tagId, {
-          usageCount: Math.max(0, tag.usageCount - decrementBy),
-        });
+        await deleteAssetCascade(ctx, asset);
       }
     }
 
@@ -3397,8 +3286,8 @@ export const wipeAllAssets = internalMutation({
       dryRun,
       assetsDeleted: assets.length,
       assetTagLinksDeleted: assetTagLinks.length,
-      storageObjectsDeleted: dryRun ? uniqueStorageIds.size : storageObjectsDeleted,
-      tagsAdjusted: tagUsageToSubtract.size,
+      storageObjectsDeleted: uniqueStorageIds.size + uniqueR2Keys.size,
+      tagsAdjusted: tagIds.size,
     };
   },
 });
