@@ -805,6 +805,80 @@ export const addAssetsToProject = mutation({
 });
 
 /**
+ * Remove assets from every member collection of a project while preserving
+ * their memberships outside that project. This is the inverse of
+ * addAssetsToProject and is intentionally idempotent for checklist-style UI.
+ */
+export const removeAssetsFromProject = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    assetIds: v.array(v.id("assets")),
+  },
+  returns: v.object({
+    removed: v.number(),
+    skipped: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
+
+    const memberLinks = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const memberFolderIds = new Set(
+      memberLinks.map((link) => link.folderId),
+    );
+
+    let removed = 0;
+    let skipped = 0;
+    for (const assetId of Array.from(new Set(args.assetIds))) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        skipped += 1;
+        continue;
+      }
+      if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+        throw new ConvexError("Asset does not belong to this user.");
+      }
+
+      const assetFolderLinks = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset", (q) => q.eq("assetId", assetId))
+        .collect();
+      const projectLinks = assetFolderLinks.filter((link) =>
+        memberFolderIds.has(link.folderId),
+      );
+      const legacyProjectMembership = Boolean(
+        asset.folderId && memberFolderIds.has(asset.folderId),
+      );
+
+      if (projectLinks.length === 0 && !legacyProjectMembership) {
+        skipped += 1;
+        continue;
+      }
+
+      for (const link of projectLinks) {
+        await ctx.db.delete(link._id);
+      }
+      if (legacyProjectMembership) {
+        const nextPrimary = assetFolderLinks.find(
+          (link) => !memberFolderIds.has(link.folderId),
+        )?.folderId;
+        await ctx.db.patch(assetId, { folderId: nextPrimary });
+      }
+      removed += 1;
+    }
+
+    return { removed, skipped };
+  },
+});
+
+/**
  * File an asset into one of a project's member collections (drop on a beat /
  * stack). MOVE semantics relative to the project's staging pool: the asset is
  * linked to the target and its links to the project's UNSECTIONED member

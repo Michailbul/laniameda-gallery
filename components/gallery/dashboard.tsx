@@ -19,7 +19,7 @@ import {
 } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { Download, Eye, EyeOff, FolderInput, FolderPlus, Layers, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
+import { Check, Download, Eye, EyeOff, FolderPlus, Layers, Loader2, Minus, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
 import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
@@ -202,6 +202,61 @@ function DeleteErrorToast({ error }: { error?: string }) {
   }, [error, toast]);
   return null;
 }
+
+function BulkMembershipMark({
+  count,
+  total,
+}: {
+  count: number;
+  total: number;
+}) {
+  const checked = total > 0 && count === total;
+  const mixed = count > 0 && !checked;
+  return (
+    <span
+      className="flex flex-shrink-0 items-center gap-1.5"
+      aria-hidden="true"
+    >
+      <span
+        className="flex h-4 w-4 items-center justify-center"
+        style={{
+          border: `1.5px solid ${
+            checked || mixed ? "var(--lm-coral)" : "var(--lm-border-strong)"
+          }`,
+          borderRadius: "4px",
+          backgroundColor: checked ? "var(--lm-coral)" : "transparent",
+          color: checked ? "var(--lm-ink)" : "var(--lm-coral)",
+        }}
+      >
+        {checked ? (
+          <Check className="h-3 w-3" strokeWidth={3} />
+        ) : mixed ? (
+          <Minus className="h-3 w-3" strokeWidth={3} />
+        ) : null}
+      </span>
+      <span
+        style={{
+          minWidth: "2.5em",
+          fontSize: "9px",
+          fontVariantNumeric: "tabular-nums",
+          color: "var(--lm-text-tertiary)",
+          textAlign: "right",
+        }}
+      >
+        {count}/{total}
+      </span>
+    </span>
+  );
+}
+
+const bulkMembershipAriaState = (
+  count: number,
+  total: number,
+): boolean | "mixed" => {
+  if (total > 0 && count === total) return true;
+  if (count > 0) return "mixed";
+  return false;
+};
 
 export type DashboardNotice = {
   title: string;
@@ -459,9 +514,10 @@ export function GalleryDashboard({
   const [bulkCurationError, setBulkCurationError] = useState<string>();
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
-  const [bulkMoveMenuOpen, setBulkMoveMenuOpen] = useState(false);
-  // Feedback chip for collection moves (drag & drop or MOVE TO menu) — the
-  // bulk toolbar hides once the selection clears, so it can't host this.
+  const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
+  const [bulkAddDraft, setBulkAddDraft] = useState("");
+  const [bulkAddBusy, setBulkAddBusy] = useState(false);
+  // Feedback chip for collection/project membership changes and drag & drop.
   const [moveStatus, setMoveStatus] = useState<{
     text: string;
     error?: boolean;
@@ -519,6 +575,9 @@ export function GalleryDashboard({
   const addAssetsToProjectMutation = useMutation(
     api.projects.addAssetsToProject,
   );
+  const removeAssetsFromProjectMutation = useMutation(
+    api.projects.removeAssetsFromProject,
+  );
   const updateFolderMutation = useMutation(api.folders.updateFolder);
   const deleteFolderMutation = useMutation(api.folders.deleteFolder);
   const setFolderShowcasedMutation = useMutation(
@@ -573,7 +632,7 @@ export function GalleryDashboard({
     setSelectedAssetIds(new Set());
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
-    setBulkMoveMenuOpen(false);
+    setBulkAddMenuOpen(false);
     setLikedOnly(false);
   }, [galleryScope]);
 
@@ -783,7 +842,7 @@ export function GalleryDashboard({
     setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
-    setBulkMoveMenuOpen(false);
+    setBulkAddMenuOpen(false);
   }, []);
 
   const runBulkCuration = useCallback(
@@ -2472,7 +2531,6 @@ export function GalleryDashboard({
       if (assetIds.length === 0) return;
 
       setBulkActionLoading(true);
-      setBulkMoveMenuOpen(false);
       setBulkCurationError(undefined);
       setBulkCurationStatus(undefined);
       try {
@@ -2513,50 +2571,95 @@ export function GalleryDashboard({
     ],
   );
 
-  const moveSelectedToFolder = useCallback(
-    async (folderId: string) => {
-      await moveAssetsToFolder(folderId, Array.from(selectedAssetIds));
-    },
-    [moveAssetsToFolder, selectedAssetIds],
-  );
+  // The bulk picker is a membership checklist. Counts are scoped to the
+  // current selection: all = checked, some = mixed, none = unchecked.
+  const selectedAssetMemberships = useMemo(() => {
+    const imageById = new Map(images.map((image) => [image.id, image]));
+    return Array.from(selectedAssetIds).flatMap((assetId) => {
+      const image = imageById.get(assetId);
+      if (
+        !image ||
+        (image.galleryItemType !== "asset" &&
+          image.galleryItemType !== undefined)
+      ) {
+        return [];
+      }
+      const folderIds =
+        "folderIds" in image && Array.isArray(image.folderIds)
+          ? image.folderIds
+          : "folderId" in image && image.folderId
+            ? [image.folderId]
+            : [];
+      return [{ assetId, folderIds: Array.from(new Set(folderIds)) }];
+    });
+  }, [images, selectedAssetIds]);
 
-  // ── Bulk "Add to" picker: file the selection into a collection or project
-  // (ADD semantics — existing memberships are kept), or create the target on
-  // the spot. Successful adds clear the selection so the next sorting batch
-  // can be picked immediately. (Handlers referencing
-  // handleAssetsDropOnProject live below its declaration.)
-  const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
-  const [bulkAddDraft, setBulkAddDraft] = useState("");
-  const [bulkAddBusy, setBulkAddBusy] = useState(false);
+  const selectedFolderMembershipCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const asset of selectedAssetMemberships) {
+      for (const folderId of asset.folderIds) {
+        counts.set(folderId, (counts.get(folderId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [selectedAssetMemberships]);
 
-  const finishBulkAdd = useCallback(() => {
-    setBulkAddMenuOpen(false);
-    setBulkAddDraft("");
-    setSelectedAssetIds(new Set());
-  }, []);
-
-  const addSelectedToFolder = useCallback(
+  const toggleSelectedFolder = useCallback(
     async (folderId: string, folderNameOverride?: string) => {
-      const ids = Array.from(selectedAssetIds);
-      if (ids.length === 0 || bulkAddBusy) return;
+      if (selectedAssetMemberships.length === 0 || bulkAddBusy) return;
+      const membershipCount =
+        selectedFolderMembershipCounts.get(folderId) ?? 0;
+      const shouldRemove =
+        membershipCount === selectedAssetMemberships.length;
+      const targets = selectedAssetMemberships.filter((asset) =>
+        shouldRemove
+          ? asset.folderIds.includes(folderId)
+          : !asset.folderIds.includes(folderId),
+      );
+      if (targets.length === 0) return;
+
       setBulkAddBusy(true);
       try {
-        await Promise.all(
-          ids.map((assetId) =>
-            addAssetFoldersMutation({
-              ownerUserId,
-              assetId: assetId as Id<"assets">,
-              folderIds: [folderId as Id<"folders">],
-            }),
-          ),
-        );
+        if (shouldRemove) {
+          await Promise.all(
+            targets.map((asset) =>
+              setAssetFoldersMutation({
+                ownerUserId,
+                assetId: asset.assetId as Id<"assets">,
+                folderIds: asset.folderIds
+                  .filter((id) => id !== folderId)
+                  .map((id) => id as Id<"folders">),
+              }),
+            ),
+          );
+        } else {
+          await Promise.all(
+            targets.map((asset) =>
+              addAssetFoldersMutation({
+                ownerUserId,
+                assetId: asset.assetId as Id<"assets">,
+                folderIds: [folderId as Id<"folders">],
+              }),
+            ),
+          );
+        }
+        const targetName =
+          folderNameOverride ??
+          folderNameById.get(folderId) ??
+          "collection";
         setMoveStatus({
-          text: `Added ${ids.length} to ${folderNameOverride ?? folderNameById.get(folderId) ?? "collection"}`,
+          text: shouldRemove
+            ? `Removed ${targets.length} from ${targetName}`
+            : `Added ${targets.length} to ${targetName}`,
         });
-        finishBulkAdd();
       } catch (error) {
         setMoveStatus({
-          text: error instanceof Error ? error.message : "Add failed.",
+          text:
+            error instanceof Error
+              ? error.message
+              : shouldRemove
+                ? "Remove failed."
+                : "Add failed.",
           error: true,
         });
       } finally {
@@ -2566,10 +2669,11 @@ export function GalleryDashboard({
     [
       addAssetFoldersMutation,
       bulkAddBusy,
-      finishBulkAdd,
       folderNameById,
       ownerUserId,
-      selectedAssetIds,
+      selectedAssetMemberships,
+      selectedFolderMembershipCounts,
+      setAssetFoldersMutation,
     ],
   );
 
@@ -2788,6 +2892,20 @@ export function GalleryDashboard({
     [addAssetFoldersMutation, folderNameById, ownerUserId],
   );
 
+  const selectedProjectMembershipCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const project of projects ?? []) {
+      const memberFolderIds = new Set(
+        project.collections.map((collection) => String(collection.folderId)),
+      );
+      const count = selectedAssetMemberships.filter((asset) =>
+        asset.folderIds.some((folderId) => memberFolderIds.has(folderId)),
+      ).length;
+      counts.set(String(project._id), count);
+    }
+    return counts;
+  }, [projects, selectedAssetMemberships]);
+
   // Dropping on a project files assets into its "<Project> — Inbox" direction
   // (created + attached on first drop, idempotent) so a drop never needs a
   // target choice mid-drag; sort into proper directions later.
@@ -2838,19 +2956,80 @@ export function GalleryDashboard({
     ],
   );
 
-  const addSelectedToProject = useCallback(
+  const toggleSelectedProject = useCallback(
     async (projectId: string, projectNameOverride?: string) => {
-      const ids = Array.from(selectedAssetIds);
-      if (ids.length === 0 || bulkAddBusy) return;
+      if (selectedAssetMemberships.length === 0 || bulkAddBusy) return;
+      const project = (projects ?? []).find(
+        (entry) => String(entry._id) === projectId,
+      );
+      const memberFolderIds = new Set(
+        project?.collections.map((collection) =>
+          String(collection.folderId),
+        ) ?? [],
+      );
+      const projectMembers = selectedAssetMemberships.filter((asset) =>
+        asset.folderIds.some((folderId) => memberFolderIds.has(folderId)),
+      );
+      const shouldRemove =
+        projectMembers.length === selectedAssetMemberships.length &&
+        selectedAssetMemberships.length > 0;
+      const projectName =
+        projectNameOverride ?? project?.name ?? "project";
+
       setBulkAddBusy(true);
       try {
-        await handleAssetsDropOnProject(projectId, ids, projectNameOverride);
-        finishBulkAdd();
+        if (shouldRemove) {
+          const result = await removeAssetsFromProjectMutation({
+            ownerUserId,
+            projectId: projectId as Id<"folders">,
+            assetIds: selectedAssetMemberships.map(
+              (asset) => asset.assetId as Id<"assets">,
+            ),
+          });
+          setMoveStatus({
+            text: `Removed ${result.removed} from ${projectName}`,
+          });
+        } else {
+          const result = await addAssetsToProjectMutation({
+            ownerUserId,
+            projectId: projectId as Id<"folders">,
+            assetIds: selectedAssetMemberships.map(
+              (asset) => asset.assetId as Id<"assets">,
+            ),
+          });
+          const parts: string[] = [];
+          if (result.added > 0) {
+            parts.push(`Added ${result.added} to ${projectName}`);
+          }
+          if (result.skipped > 0) {
+            parts.push(`${result.skipped} already there`);
+          }
+          setMoveStatus({
+            text: parts.join(" · ") || `Nothing to add to ${projectName}`,
+          });
+        }
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : shouldRemove
+                ? "Remove from project failed."
+                : "Add to project failed.",
+          error: true,
+        });
       } finally {
         setBulkAddBusy(false);
       }
     },
-    [bulkAddBusy, finishBulkAdd, handleAssetsDropOnProject, selectedAssetIds],
+    [
+      addAssetsToProjectMutation,
+      bulkAddBusy,
+      ownerUserId,
+      projects,
+      removeAssetsFromProjectMutation,
+      selectedAssetMemberships,
+    ],
   );
 
   const createTargetAndAddSelected = useCallback(
@@ -2864,10 +3043,11 @@ export function GalleryDashboard({
           kind: kind === "project" ? "project" : undefined,
         });
         if (kind === "project") {
-          await addSelectedToProject(result.folderId, name);
+          await toggleSelectedProject(result.folderId, name);
         } else {
-          await addSelectedToFolder(result.folderId, name);
+          await toggleSelectedFolder(result.folderId, name);
         }
+        setBulkAddDraft("");
       } catch (error) {
         setMoveStatus({
           text:
@@ -2879,12 +3059,12 @@ export function GalleryDashboard({
       }
     },
     [
-      addSelectedToFolder,
-      addSelectedToProject,
       bulkAddBusy,
       bulkAddDraft,
       createFolderMutation,
       ownerUserId,
+      toggleSelectedFolder,
+      toggleSelectedProject,
     ],
   );
 
@@ -4579,7 +4759,6 @@ export function GalleryDashboard({
                     type="button"
                     onClick={() => {
                       setBulkAddMenuOpen((open) => !open);
-                      setBulkMoveMenuOpen(false);
                     }}
                     disabled={bulkCurationLoading || bulkAddBusy}
                     className="lm-btn-ghost inline-flex items-center gap-1.5"
@@ -4596,8 +4775,8 @@ export function GalleryDashboard({
                     }}
                     aria-haspopup="menu"
                     aria-expanded={bulkAddMenuOpen}
-                    aria-label="Add selected assets to a collection or project"
-                    title="Add to collection or project (keeps existing collections)"
+                    aria-label="Manage selected assets in collections and projects"
+                    title="Select or deselect collections and projects"
                   >
                     {bulkAddBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4609,7 +4788,7 @@ export function GalleryDashboard({
                   {bulkAddMenuOpen && (
                     <div
                       role="menu"
-                      className="absolute bottom-full left-0 mb-2 flex max-h-80 w-64 flex-col py-1"
+                      className="absolute bottom-full left-0 mb-2 flex max-h-96 w-72 flex-col py-1"
                       style={{
                         backgroundColor: "var(--lm-surface-1)",
                         border: "2px solid var(--lm-ink)",
@@ -4705,6 +4884,21 @@ export function GalleryDashboard({
                         </div>
                       </div>
 
+                      <p
+                        className="px-3 py-2"
+                        style={{
+                          borderBottom: "1px solid var(--lm-border-subtle)",
+                          fontFamily: "var(--lm-font)",
+                          fontSize: "10px",
+                          lineHeight: 1.4,
+                          color: "var(--lm-text-tertiary)",
+                          margin: 0,
+                        }}
+                      >
+                        Checked means all selected assets belong there. Click
+                        again to remove them.
+                      </p>
+
                       <div className="overflow-y-auto">
                         {/* Collections (roots + nested sub-collections) */}
                         {bulkAddCollectionTree.roots.length > 0 && (
@@ -4727,10 +4921,15 @@ export function GalleryDashboard({
                           <div key={folder._id}>
                             <button
                               type="button"
-                              role="menuitem"
+                              role="menuitemcheckbox"
+                              aria-checked={bulkMembershipAriaState(
+                                selectedFolderMembershipCounts.get(folder._id) ??
+                                  0,
+                                selectedAssetMemberships.length,
+                              )}
                               disabled={bulkAddBusy}
                               onClick={() => {
-                                void addSelectedToFolder(folder._id);
+                                void toggleSelectedFolder(folder._id);
                               }}
                               className="interactive-ghost flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
                               style={{
@@ -4743,24 +4942,30 @@ export function GalleryDashboard({
                               }}
                             >
                               <span className="truncate">{folder.name}</span>
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  color: "var(--lm-text-tertiary)",
-                                }}
-                              >
-                                {folder.count}
-                              </span>
+                              <BulkMembershipMark
+                                count={
+                                  selectedFolderMembershipCounts.get(
+                                    folder._id,
+                                  ) ?? 0
+                                }
+                                total={selectedAssetMemberships.length}
+                              />
                             </button>
                             {(bulkAddCollectionTree.childrenByParent.get(folder._id) ?? []).map(
                               (child) => (
                                 <button
                                   key={child._id}
                                   type="button"
-                                  role="menuitem"
+                                  role="menuitemcheckbox"
+                                  aria-checked={bulkMembershipAriaState(
+                                    selectedFolderMembershipCounts.get(
+                                      child._id,
+                                    ) ?? 0,
+                                    selectedAssetMemberships.length,
+                                  )}
                                   disabled={bulkAddBusy}
                                   onClick={() => {
-                                    void addSelectedToFolder(child._id);
+                                    void toggleSelectedFolder(child._id);
                                   }}
                                   className="interactive-ghost flex w-full items-center justify-between gap-2 py-1.5 pl-7 pr-3 text-left"
                                   style={{
@@ -4773,14 +4978,14 @@ export function GalleryDashboard({
                                   }}
                                 >
                                   <span className="truncate">{child.name}</span>
-                                  <span
-                                    style={{
-                                      fontSize: "10px",
-                                      color: "var(--lm-text-tertiary)",
-                                    }}
-                                  >
-                                    {child.count}
-                                  </span>
+                                  <BulkMembershipMark
+                                    count={
+                                      selectedFolderMembershipCounts.get(
+                                        child._id,
+                                      ) ?? 0
+                                    }
+                                    total={selectedAssetMemberships.length}
+                                  />
                                 </button>
                               ),
                             )}
@@ -4809,12 +5014,18 @@ export function GalleryDashboard({
                           <button
                             key={project._id}
                             type="button"
-                            role="menuitem"
+                            role="menuitemcheckbox"
+                            aria-checked={bulkMembershipAriaState(
+                              selectedProjectMembershipCounts.get(
+                                String(project._id),
+                              ) ?? 0,
+                              selectedAssetMemberships.length,
+                            )}
                             disabled={bulkAddBusy}
                             onClick={() => {
-                              void addSelectedToProject(project._id);
+                              void toggleSelectedProject(project._id);
                             }}
-                            className="interactive-ghost flex w-full items-center gap-2 px-3 py-1.5 text-left"
+                            className="interactive-ghost flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
                             style={{
                               fontFamily: "var(--lm-font)",
                               fontSize: "12px",
@@ -4824,103 +5035,24 @@ export function GalleryDashboard({
                               cursor: bulkAddBusy ? "wait" : "pointer",
                             }}
                           >
-                            <Layers
-                              className="h-3 w-3 flex-shrink-0"
-                              style={{ color: "var(--lm-text-ghost)" }}
+                            <span className="flex min-w-0 items-center gap-2">
+                              <Layers
+                                className="h-3 w-3 flex-shrink-0"
+                                style={{ color: "var(--lm-text-ghost)" }}
+                              />
+                              <span className="truncate">{project.name}</span>
+                            </span>
+                            <BulkMembershipMark
+                              count={
+                                selectedProjectMembershipCounts.get(
+                                  String(project._id),
+                                ) ?? 0
+                              }
+                              total={selectedAssetMemberships.length}
                             />
-                            <span className="truncate">{project.name}</span>
                           </button>
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {canManageFoldersInCurrentView && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBulkMoveMenuOpen((open) => !open);
-                      setBulkAddMenuOpen(false);
-                    }}
-                    disabled={
-                      bulkCurationLoading ||
-                      bulkActionLoading ||
-                      (folders ?? []).length === 0
-                    }
-                    className="lm-btn-ghost inline-flex items-center gap-1.5"
-                    style={{
-                      border: "2px solid var(--lm-border-strong)",
-                      borderRadius: "10px",
-                      padding: "6px 12px",
-                      fontSize: "11px",
-                      opacity:
-                        bulkCurationLoading ||
-                        bulkActionLoading ||
-                        (folders ?? []).length === 0
-                          ? 0.55
-                          : 1,
-                      cursor:
-                        bulkCurationLoading ||
-                        bulkActionLoading ||
-                        (folders ?? []).length === 0
-                          ? "not-allowed"
-                          : "pointer",
-                    }}
-                    aria-haspopup="menu"
-                    aria-expanded={bulkMoveMenuOpen}
-                    aria-label="Move selected assets to a collection"
-                    title={
-                      (folders ?? []).length === 0
-                        ? "Create a collection first"
-                        : "Move to collection"
-                    }
-                  >
-                    <FolderInput className="h-3.5 w-3.5" />
-                    MOVE TO
-                  </button>
-                  {bulkMoveMenuOpen && (folders ?? []).length > 0 && (
-                    <div
-                      role="menu"
-                      className="absolute bottom-full left-0 mb-2 max-h-64 w-56 overflow-y-auto py-1"
-                      style={{
-                        backgroundColor: "var(--lm-surface-1)",
-                        border: "2px solid var(--lm-ink)",
-                        borderRadius: "12px",
-                        boxShadow: "var(--shadow-lg)",
-                        zIndex: 60,
-                      }}
-                    >
-                      {foldersWithCounts.map((folder) => (
-                        <button
-                          key={folder._id}
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            void moveSelectedToFolder(folder._id);
-                          }}
-                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-                          style={{
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            color: "var(--lm-text-primary)",
-                            backgroundColor: "transparent",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <span className="truncate">{folder.name}</span>
-                          <span
-                            style={{
-                              fontSize: "10px",
-                              color: "var(--lm-text-tertiary)",
-                            }}
-                          >
-                            {folder.count}
-                          </span>
-                        </button>
-                      ))}
                     </div>
                   )}
                 </div>
