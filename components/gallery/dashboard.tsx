@@ -1,8 +1,16 @@
 "use client";
 
 import "@/app/tokens.css";
+import { compareCollectionPillarNames } from "@/lib/collection-pillars";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   useAction,
   useMutation,
@@ -67,7 +75,7 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
   stepCount?: number;
   thumbSrc: string;
   fullSrc: string;
@@ -247,7 +255,24 @@ export function GalleryDashboard({
     null,
   );
   const [openStorybookId, setOpenStorybookId] = useState<string | null>(null);
-  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [openProjectTarget, setOpenProjectTarget] = useState<{
+    projectId: string;
+    beatFolderId?: string;
+  } | null>(null);
+  const openProjectId = openProjectTarget?.projectId ?? null;
+  // Generic project navigation always opens the project overview. A beat
+  // click uses setOpenProjectTarget directly to retain its drill-down target.
+  const setOpenProjectId = useCallback(
+    (next: SetStateAction<string | null>) => {
+      setOpenProjectTarget((current) => {
+        const currentId = current?.projectId ?? null;
+        const nextId =
+          typeof next === "function" ? next(currentId) : next;
+        return nextId ? { projectId: nextId } : null;
+      });
+    },
+    [],
+  );
   // Top-level "Storybooks" tab: shows every storybook as a masonry of stack
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
@@ -909,7 +934,7 @@ export function GalleryDashboard({
         return null;
       }
     },
-    [canAccessMyGallery, createFolderMutation, ownerUserId],
+    [canAccessMyGallery, createFolderMutation, ownerUserId, setOpenProjectId],
   );
 
   const setAssetFolders = useCallback(
@@ -1170,6 +1195,25 @@ export function GalleryDashboard({
       ),
     [foldersWithCounts],
   );
+  const smartMenuFilterByFolderId = useMemo(() => {
+    const tagFilters = (menuFilters ?? []).filter(
+      (entry) => entry.kind === "tag",
+    );
+    const mappings = new Map<string, (typeof tagFilters)[number]>();
+    for (const folder of collectionFoldersWithCounts) {
+      const folderKey = canonicalTagKey(folder.name);
+      if (!folderKey) continue;
+      const matchingFilter = tagFilters.find((entry) =>
+        (entry.tagNames ?? []).some(
+          (tagName) => canonicalTagKey(tagName) === folderKey,
+        ),
+      );
+      if (matchingFilter) {
+        mappings.set(folder._id, matchingFilter);
+      }
+    }
+    return mappings;
+  }, [collectionFoldersWithCounts, menuFilters]);
 
   // Collections browse view: preview summaries fetched only while the view is
   // open, merged with the live counts the dashboard already subscribes to.
@@ -1183,9 +1227,12 @@ export function GalleryDashboard({
     () =>
       (collectionSummaries ?? []).map((summary) => ({
         ...summary,
-        count: folderCountById.get(summary._id) ?? 0,
+        count:
+          smartMenuFilterByFolderId.get(summary._id)?.count ??
+          folderCountById.get(summary._id) ??
+          0,
       })),
-    [collectionSummaries, folderCountById],
+    [collectionSummaries, folderCountById, smartMenuFilterByFolderId],
   );
   const openCollectionFromCard = useCallback(
     (folderId: string) => {
@@ -1194,7 +1241,7 @@ export function GalleryDashboard({
       setSelectedFolderId(folderId);
       setViewMode("grid");
     },
-    [setViewMode],
+    [setOpenProjectId, setViewMode],
   );
   const openProjectFromCard = useCallback(
     (projectId: string, name: string) => {
@@ -1203,7 +1250,7 @@ export function GalleryDashboard({
       setBrowseProject({ id: projectId, name });
       setViewMode("grid");
     },
-    [setViewMode],
+    [setOpenProjectId, setViewMode],
   );
 
 
@@ -1448,12 +1495,20 @@ export function GalleryDashboard({
     }
     return entries;
   }, [menuFilters, galleryScope]);
+  const activeSmartCollectionFilter = effectiveSelectedFolderId
+    ? smartMenuFilterByFolderId.get(effectiveSelectedFolderId)
+    : undefined;
 
   // selectedTags holds the ids of selected tag-kind menu filters; the grid
-  // filter is the union of their resolved tagIds.
+  // filter is the union of their resolved tagIds. A same-named collection
+  // backed by a curated tag filter is a smart collection: keep the folder
+  // selected for navigation, but use the exact tag predicate from the island.
   const selectedTagIds = useMemo(() => {
-    if (selectedTags.length === 0) return undefined;
     const selectedSet = new Set(selectedTags);
+    if (activeSmartCollectionFilter) {
+      selectedSet.add(activeSmartCollectionFilter._id);
+    }
+    if (selectedSet.size === 0) return undefined;
     const ids = new Set<Id<"tags">>();
     for (const entry of menuFilterEntries) {
       if (entry.kind !== "tag" || !selectedSet.has(entry._id)) continue;
@@ -1462,7 +1517,13 @@ export function GalleryDashboard({
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [selectedTags, menuFilterEntries]);
+  }, [activeSmartCollectionFilter, selectedTags, menuFilterEntries]);
+  const selectedTagsForFilterBar = useMemo(() => {
+    if (!activeSmartCollectionFilter) return selectedTags;
+    return Array.from(
+      new Set([...selectedTags, activeSmartCollectionFilter._id]),
+    );
+  }, [activeSmartCollectionFilter, selectedTags]);
 
   // Cursor pagination serves the default browse (newest, no folder): pages of
   // 60 stream in as the grid's scroll frontier nears the end of what's loaded,
@@ -1623,6 +1684,7 @@ export function GalleryDashboard({
   // the grid as stacks and their members collapse out of the flat tiles.
   const showCollectionBeatStacks =
     Boolean(effectiveSelectedFolderId) &&
+    !activeSmartCollectionFilter &&
     !browseProject &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
@@ -1635,6 +1697,8 @@ export function GalleryDashboard({
     !semanticMode &&
     !assetSearchQuery.trim();
 
+  const showChildCollectionStacks = showCollectionBeatStacks;
+
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
     !paginationActive &&
@@ -1645,7 +1709,8 @@ export function GalleryDashboard({
           ownerUserId,
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
-          folderId: effectiveSelectedFolderId
+          folderId:
+            effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           projectId: browseProject
@@ -1685,13 +1750,26 @@ export function GalleryDashboard({
       : "skip",
   );
 
+  const childCollectionStacks = useQuery(
+    api.folders.listChildCollectionEntries,
+    effectiveSelectedFolderId &&
+      showChildCollectionStacks &&
+      canAccessMyGallery
+      ? {
+          ownerUserId,
+          parentFolderId: effectiveSelectedFolderId as Id<"folders">,
+        }
+      : "skip",
+  );
+
   const publicGalleryAssets = useQuery(
     api.assets.listPublicGalleryAssets,
     !paginationActive && galleryScope === "public"
       ? {
           tagIds: selectedTagIds,
           pillar: selectedPillar ?? undefined,
-          folderId: effectiveSelectedFolderId
+          folderId:
+            effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           modelName: selectedModelName ?? undefined,
@@ -1710,7 +1788,8 @@ export function GalleryDashboard({
           ownerUserId,
           pillar: "designs",
           requireAsset: true,
-          folderId: effectiveSelectedFolderId
+          folderId:
+            effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           limit: 2000,
@@ -1770,7 +1849,9 @@ export function GalleryDashboard({
       query: debouncedAssetSearchQuery,
       pillar: selectedPillar ?? undefined,
       folderId:
-        galleryScope === "mine" && effectiveSelectedFolderId
+        galleryScope === "mine" &&
+        effectiveSelectedFolderId &&
+        !activeSmartCollectionFilter
           ? (effectiveSelectedFolderId as Id<"folders">)
           : undefined,
       modelName: selectedModelName ?? undefined,
@@ -1809,6 +1890,7 @@ export function GalleryDashboard({
         );
       });
   }, [
+    activeSmartCollectionFilter,
     debouncedAssetSearchQuery,
     effectiveSelectedFolderId,
     galleryScope,
@@ -1834,6 +1916,11 @@ export function GalleryDashboard({
   }, []);
 
   const handleTagToggle = (tag: string) => {
+    if (activeSmartCollectionFilter?._id === tag) {
+      setSelectedFolderId(null);
+      setSelectedTags((prev) => prev.filter((entry) => entry !== tag));
+      return;
+    }
     setSelectedTags((prev) =>
       prev.includes(tag)
         ? prev.filter((t) => t !== tag)
@@ -1907,6 +1994,7 @@ export function GalleryDashboard({
       if (
         galleryScope === "mine" &&
         effectiveSelectedFolderId &&
+        !activeSmartCollectionFilter &&
         !(asset.folderIds ?? (asset.folderId ? [asset.folderId] : []))
           .includes(effectiveSelectedFolderId)
       ) {
@@ -1930,6 +2018,7 @@ export function GalleryDashboard({
       return true;
     });
   }, [
+    activeSmartCollectionFilter,
     effectiveSelectedFolderId,
     galleryScope,
     mediaKind,
@@ -2141,6 +2230,57 @@ export function GalleryDashboard({
     });
   }, [storybooks]);
 
+  const childCollectionEntries = useMemo<GalleryEntry[]>(() => {
+    if (!childCollectionStacks || childCollectionStacks.length === 0) {
+      return [];
+    }
+    return childCollectionStacks.map((collection) => {
+      const previews = collection.previewAssets.map((preview) => ({
+        id: preview.assetId,
+        galleryItemId: preview.assetId,
+        galleryItemType: "asset" as const,
+        src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
+        fullSrc: preview.url ?? preview.thumbUrl ?? "/placeholder.svg",
+        prompt: collection.name,
+        width: preview.thumbWidth ?? preview.width,
+        height: preview.thumbHeight ?? preview.height,
+        kind: preview.kind,
+        contentType: preview.contentType,
+      }));
+      const cover = previews[0];
+      return {
+        id: `collection:${collection._id}`,
+        galleryItemId: collection._id as string,
+        galleryItemType: "collection" as const,
+        src: cover?.src ?? "/placeholder.svg",
+        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
+        prompt: collection.name,
+        author: "Collection",
+        likes: 0,
+        width: cover?.width,
+        height: cover?.height,
+        kind: cover?.kind,
+        contentType: cover?.contentType,
+        description: collection.description,
+        createdAt: collection.updatedAt ?? collection.createdAt,
+        storybookCount: collection.count,
+        previewImages: previews,
+      };
+    });
+  }, [childCollectionStacks]);
+
+  const childCollectionIds = useMemo(
+    () =>
+      showChildCollectionStacks
+        ? new Set<string>(
+            (childCollectionStacks ?? []).map((collection) =>
+              String(collection._id),
+            ),
+          )
+        : null,
+    [childCollectionStacks, showChildCollectionStacks],
+  );
+
   // The browsed project's (or collection's) beats as stack entries — same
   // underlying assets as the review workspace, presented as one card each.
   const activeBeatStacks = browseProject
@@ -2188,11 +2328,18 @@ export function GalleryDashboard({
     const stacks = showStorybookStacks ? storybookEntries : [];
     const beats =
       showBeatStacks || showCollectionBeatStacks ? beatEntries : [];
+    const childCollections = showChildCollectionStacks
+      ? childCollectionEntries
+      : [];
     // When filtering by media kind (image/video) or liked-only, keep workflows
     // out of the grid — those filters target likeable assets, not workflows.
-    const flatImages = collectionBeatMemberIds
-      ? baseImages.filter((image) => !collectionBeatMemberIds.has(image.id))
-      : baseImages;
+    const flatImages = baseImages.filter((image) => {
+      if (collectionBeatMemberIds?.has(image.id)) return false;
+      if (!childCollectionIds || !("folderIds" in image)) return true;
+      return !(image.folderIds ?? []).some((folderId) =>
+        childCollectionIds.has(folderId),
+      );
+    });
     const mixed =
       mediaKind || likedOnly
         ? flatImages
@@ -2206,7 +2353,7 @@ export function GalleryDashboard({
               );
     // Stacks lead the grid — they're shelves, not dated assets. In project
     // browse that's the beats; in the default state, storybooks.
-    const leading = [...stacks, ...beats];
+    const leading = [...stacks, ...childCollections, ...beats];
     return leading.length > 0 ? [...leading, ...mixed] : mixed;
   }, [
     workflowsOnly,
@@ -2219,8 +2366,11 @@ export function GalleryDashboard({
     storybookEntries,
     showBeatStacks,
     showCollectionBeatStacks,
+    showChildCollectionStacks,
     collectionBeatMemberIds,
+    childCollectionIds,
     beatEntries,
+    childCollectionEntries,
   ]);
 
   // Every selectable (plain asset) entry currently in the grid — the target
@@ -2436,6 +2586,11 @@ export function GalleryDashboard({
       } else {
         roots.push(folder);
       }
+    }
+    for (const children of childrenByParent.values()) {
+      children.sort((left, right) =>
+        compareCollectionPillarNames(left.name, right.name),
+      );
     }
     return { roots, childrenByParent };
   }, [collectionFoldersWithCounts]);
@@ -2784,7 +2939,7 @@ export function GalleryDashboard({
         });
       }
     },
-    [ownerUserId, deleteFolderMutation, folderNameById],
+    [ownerUserId, deleteFolderMutation, folderNameById, setOpenProjectId],
   );
 
   // Navigation helpers
@@ -2890,36 +3045,56 @@ export function GalleryDashboard({
     [handleImageSelect],
   );
 
-  // Storybook stacks live in the grid but open a modal, not the detail
-  // panel — prev/next navigation steps over them.
+  const isDetailPanelEntry = useCallback(
+    (entry: (typeof images)[number]) =>
+      entry.galleryItemType !== "storybook" &&
+      entry.galleryItemType !== "collection" &&
+      entry.galleryItemType !== "beat",
+    [],
+  );
+
+  // Stack entries open their own destination, not the detail panel, so
+  // prev/next navigation steps over them.
   const canGoPrev =
     currentImageIndex > 0 &&
     images
       .slice(0, currentImageIndex)
-      .some((entry) => entry.galleryItemType !== "storybook");
+      .some(isDetailPanelEntry);
   const canGoNext =
     currentImageIndex >= 0 &&
     images
       .slice(currentImageIndex + 1)
-      .some((entry) => entry.galleryItemType !== "storybook");
+      .some(isDetailPanelEntry);
 
   const goToPrev = useCallback(() => {
     if (!canGoPrev) return;
     for (let index = currentImageIndex - 1; index >= 0; index -= 1) {
-      if (images[index].galleryItemType === "storybook") continue;
+      if (!isDetailPanelEntry(images[index])) continue;
       selectImageByEntry(images[index]);
       return;
     }
-  }, [canGoPrev, currentImageIndex, images, selectImageByEntry]);
+  }, [
+    canGoPrev,
+    currentImageIndex,
+    images,
+    isDetailPanelEntry,
+    selectImageByEntry,
+  ]);
 
   const goToNext = useCallback(() => {
     if (!canGoNext) return;
     for (let index = currentImageIndex + 1; index < images.length; index += 1) {
-      if (images[index].galleryItemType === "storybook") continue;
+      if (!isDetailPanelEntry(images[index])) continue;
       selectImageByEntry(images[index]);
       return;
     }
-  }, [canGoNext, currentImageIndex, images, selectImageByEntry]);
+  }, [
+    canGoNext,
+    currentImageIndex,
+    images,
+    isDetailPanelEntry,
+    selectImageByEntry,
+  ]);
 
   const imagePosition =
     currentImageIndex >= 0
@@ -3201,7 +3376,9 @@ export function GalleryDashboard({
 
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
-    isDesignsPillar && galleryScope === "mine"
+    showChildCollectionStacks && childCollectionStacks === undefined
+      ? true
+      : isDesignsPillar && galleryScope === "mine"
       ? canAccessMyGallery && mineDesignEntries === undefined
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
@@ -3617,7 +3794,7 @@ export function GalleryDashboard({
                 canAccessMyGallery={canAccessMyGallery}
                 onGalleryScopeChange={setGalleryScope}
                 menuFilters={menuFilterEntries}
-                selectedTags={selectedTags}
+                selectedTags={selectedTagsForFilterBar}
                 onTagToggle={handleTagToggle}
                 selectedFolderId={effectiveSelectedFolderId}
                 onCollectionToggle={handleMenuCollectionToggle}
@@ -3964,6 +4141,10 @@ export function GalleryDashboard({
                         : undefined
                     }
                     onStorybookOpen={setOpenStorybookId}
+                    onCollectionOpen={(collectionId) => {
+                      setSelectedImage(null);
+                      setSelectedFolderId(collectionId);
+                    }}
                     // A beat click steps into the project workspace — the
                     // separate review view over the same linked assets. In
                     // collection browse the beat's owning project is looked
@@ -3978,7 +4159,9 @@ export function GalleryDashboard({
                               collection.section === "beats",
                           ),
                         )?._id;
-                      if (projectId) setOpenProjectId(projectId);
+                      if (projectId) {
+                        setOpenProjectTarget({ projectId, beatFolderId });
+                      }
                     }}
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
@@ -4960,6 +5143,7 @@ export function GalleryDashboard({
         key={openProjectId ?? "review-closed"}
         ownerUserId={ownerUserId}
         projectId={openProjectId}
+        initialDirectionId={openProjectTarget?.beatFolderId ?? null}
         allCollections={projectCollectionOptions}
         leftOffset={contentMarginLeft}
         onClose={() => setOpenProjectId(null)}

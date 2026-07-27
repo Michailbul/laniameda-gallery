@@ -1,10 +1,12 @@
 ---
 name: laniameda-gallery-ingest
 description: >-
-  Save prompts, images, tutorials, links, and references to the
-  laniameda-gallery Convex knowledge base. Use when an agent needs to ingest
-  prompts, files, URLs, or visual references into the gallery and must stay
-  aligned with the current repo ingest contract.
+  This skill should be used when the user asks to "add this to my gallery",
+  "save this in my gallery", "put this in the Love collection", "ingest this
+  prompt and video", or update/delete an existing gallery item. It resolves
+  the authenticated user's collections and saves prompts, files, URLs, and
+  visual references through the current gallery contract.
+version: 0.2.0
 ---
 
 # laniameda-gallery-ingest
@@ -12,6 +14,24 @@ description: >-
 Use this skill to ingest content into `laniameda.gallery` through the canonical backend contract in this repo.
 
 The skill now supports explicit `create`, `update`, and `delete` operations through the same script entrypoint.
+
+## Product language
+
+- Interpret **"my gallery"** as the authenticated user's whole gallery, not a collection or legacy pillar named `creators`.
+- Treat **collections** as the primary user-facing organization.
+- Treat tags as descriptive classification, not navigation destinations.
+- Leave the dormant `pillar` field unset on ordinary new saves. Use a specialized internal pillar only when its dedicated backend contract explicitly requires one, such as `cinema-inspiration`.
+
+## Collection-first workflow
+
+1. Call `list_collections` before saving whenever the user names a collection or asks to file content contextually.
+2. Match requested names case-insensitively against `name` and `normalizedName`.
+3. Reuse exact matches. Do not create a near-duplicate such as `love` when `LOVE` exists.
+4. Ask before creating a missing collection unless the user explicitly requested creation.
+5. Pass every requested collection ID in `folderIds` for asset saves. Preserve the user's order; the first ID becomes the primary/backward-compatible `folderId`.
+6. Verify the saved asset after ingest and confirm its collection names, not a legacy pillar label.
+
+When no collection is named, save uncategorized unless an obvious existing collection can be resolved with high confidence from the user's wording. Do not silently substitute a tag or pillar for a collection.
 
 ## Read first
 
@@ -49,13 +69,15 @@ Never send `ownerUserId` through MCP calls. The user-issued token selects the ow
 
 ### Collections
 
-Collections are owner-scoped groupings used to organize saved assets and prompts. In the backend and on every payload they are the `folders` table and the `folderId` field — "collection" is the product-facing name (used in the app UI and the browser extension's save picker).
+Collections are owner-scoped groupings stored in `folders`; "collection" is the product-facing term.
 
-- To file a save under a collection, pass `folderId` on `save_asset` / `save_prompt` (or in the ingest payload). Use the **raw** `folderId` returned by `list_collections` / `create_collection` — not a typed `folders:<id>` form (that prefixed style is only for `asset:<id>` / `pack:<id>` read tokens).
-- To create or reuse one, call `create_collection` (idempotent by normalized name) and use the returned `folderId`.
-- To clear an asset's collection on update, pass `folderId: null` to `update_gallery_item`.
-- A collection is optional; assets without one stay uncategorized.
-- Assets can now belong to multiple collections in the gallery UI. Ingest still accepts one `folderId`; the backend stores it as the primary collection and creates the matching collection membership.
+- Pass `folderIds` to `save_asset` for one or more collections.
+- Pass `folderIds` to `update_gallery_item` with `target: "asset"` to replace an asset's collection memberships. Pass `[]` to clear them.
+- Pass `folderId` to `save_prompt`; prompt-only records retain a single primary collection.
+- Use raw IDs returned by `list_collections` / `create_collection`, never `folders:<id>` typed tokens.
+- Create or reuse collections with `create_collection`, which is idempotent by normalized name.
+- Leave assets uncategorized when no collection is requested or confidently resolved.
+- Treat `folderId` as the primary/backward-compatible alias. Treat `folderIds` as the current asset collection contract.
 
 The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
 
@@ -109,29 +131,31 @@ When Michael sends a **screenshot of a prompt** or **image containing text/JSON*
 
 Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
 
-## Video prompts (Seedance 2.0 and other AI video models)
+## Video prompts
 
 Video generations ingest through the **same script and payload shape** as images. The only differences:
 
 - Use `imagePath` / `filePath` / `url` pointing at a video file (`.mp4`, `.mov`, `.webm`). The server detects `video/*` content-type automatically and stores the asset with `kind: "video"`.
 - Set `generationType: "video_gen"` and `promptType: "video_gen"`.
-- Default `modelName` to `"Seedance 2.0"` when not specified. Pair with `modelProvider: "other"` unless a listed provider applies.
+- Preserve the model name only when the user provides it or reliable source metadata identifies it. Do not infer Seedance 2.0 from prompt structure alone.
 - A poster/thumbnail is **not** generated automatically for videos. If you want a custom still for the gallery card, ingest the video first, then run the `update` op on the asset with an `imagePath` pointing at a still frame to replace the thumbnail.
 - The same prompt-only rule applies: **never save a video prompt without the video file unless the user explicitly approves** `allowPromptOnly: true`.
 
 Example:
 
-```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
+```json
+{
+  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
   "promptType": "video_gen",
   "generationType": "video_gen",
-  "modelName": "Seedance 2.0",
-  "modelProvider": "other",
-  "imagePath": "/path/to/output.mp4",
-  "ingestKey": "creators:neon-alley-dolly:v1",
+  "filePath": "/path/to/output.mp4",
+  "folderIds": ["<resolved-collection-id>"],
+  "ingestKey": "gallery:neon-alley-dolly:v1",
   "tagNames": ["video", "cinematic", "neon"]
-}'
+}
 ```
+
+Pass this payload to MCP `save_asset`. Use the legacy direct script only when a single `folderId` is sufficient.
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
@@ -183,7 +207,7 @@ Everything else in `cinemaMetadata` is optional. Use `ingestKey` for idempotency
 **Do NOT:**
 - ingest cinema frames through `agent_ingest:ingestFromAgentPayload` (will require a prompt, which doesn't make sense)
 - attach a prompt to a cinema asset — they are intentionally promptless
-- use cinema pillar for AI-generated images — those go to `creators` or `dump`
+- use the cinema-inspiration contract for AI-generated images — save those as ordinary gallery assets and organize them with collections/tags
 
 ## Multi-stage workflows (prompt lineage)
 
@@ -305,7 +329,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 
 - Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
 - **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
-- Organize saves with `folderId` (collections), not pillars. **Pillars are retired from the product** — do not set `pillar` on new saves. The schema column still exists but is dormant. (Cinema frames remain a dedicated backend mutation — see the Cinema Inspiration section — and `designs` bookmarks are handled by the design-save route; those are internal, not user-facing pillars.)
+- Organize asset saves with `folderIds` and prompt-only saves with `folderId`. **Pillars are retired from the product** — do not set `pillar` on ordinary new saves. The schema column remains for backward compatibility and specialized internal contracts.
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.

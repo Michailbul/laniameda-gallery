@@ -7,7 +7,12 @@ import {
   setAssetFolder,
   setAssetFolders,
 } from "../convex/assets";
-import { createFolder, deleteFolder, listFolders } from "../convex/folders";
+import {
+  createFolder,
+  deleteFolder,
+  listChildCollectionEntries,
+  listFolders,
+} from "../convex/folders";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
@@ -61,6 +66,89 @@ describe("folders backend", () => {
     expect(list.length).toBe(1);
     expect(list[0]?.name).toBe("Folder A");
     expect(list[0]?.ownerUserId).toBe("user-1");
+  });
+
+  test("lists child collections as visual entries with previews and counts", async () => {
+    const parent = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Orpheus",
+    });
+    const characters = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Characters",
+      parentFolderId: parent.folderId,
+    });
+    await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Locations",
+      parentFolderId: parent.folderId,
+    });
+    await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Inspirations",
+      parentFolderId: parent.folderId,
+    });
+    await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Scenes",
+      parentFolderId: parent.folderId,
+    });
+    await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-2",
+      name: "Other",
+    });
+
+    const first = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [],
+      folderId: characters.folderId,
+      sourceUrl: "https://example.com/orpheus.jpg",
+    });
+    const second = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [],
+      folderId: characters.folderId,
+      sourceUrl: "https://example.com/eurydice.jpg",
+    });
+
+    const entries = await listChildCollectionEntries._handler(
+      harness.ctx as never,
+      {
+        ownerUserId: "user-1",
+        parentFolderId: parent.folderId,
+      },
+    );
+
+    expect(entries.map((entry) => entry.name)).toEqual([
+      "Characters",
+      "Locations",
+      "Scenes",
+      "Inspirations",
+    ]);
+    expect(entries[0]?.count).toBe(2);
+    expect(
+      entries[0]?.previewAssets.map((preview) => preview.assetId).sort(),
+    ).toEqual([first.assetId, second.assetId].sort());
+    for (const entry of entries.slice(1)) {
+      expect(entry.count).toBe(0);
+      expect(entry.previewAssets).toEqual([]);
+    }
+  });
+
+  test("blocks child collection entries for another owner", async () => {
+    const parent = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Private project",
+    });
+
+    await expect(
+      listChildCollectionEntries._handler(harness.ctx as never, {
+        ownerUserId: "user-2",
+        parentFolderId: parent.folderId,
+      }),
+    ).rejects.toThrow("Parent collection does not belong to this user.");
   });
 
   test("rejects assigning another user's folder during asset create", async () => {

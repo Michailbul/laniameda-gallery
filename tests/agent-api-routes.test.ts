@@ -4,11 +4,16 @@ const state = {
   ownerUserId: "telegram:278674008",
   requiredScopes: [] as string[],
   actionCalls: [] as Array<{ payload: Record<string, unknown> }>,
+  actionResult: { ok: true } as Record<string, unknown>,
   queryCalls: [] as Array<{ payload: Record<string, unknown> }>,
   mutationCalls: [] as Array<{ payload: Record<string, unknown> }>,
 };
 
 const ingestRoutePath = new URL("../app/api/agent/ingest/route.ts", import.meta.url).pathname;
+const ingestUpdateRoutePath = new URL(
+  "../app/api/agent/ingest/update/route.ts",
+  import.meta.url,
+).pathname;
 const galleryRoutePath = new URL("../app/api/agent/gallery/route.ts", import.meta.url).pathname;
 const customizeRoutePath = new URL("../app/api/agent/customize/route.ts", import.meta.url).pathname;
 
@@ -39,7 +44,7 @@ mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
     action: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.actionCalls.push({ payload });
-      return { ok: true };
+      return state.actionResult;
     },
     query: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.queryCalls.push({ payload });
@@ -57,6 +62,7 @@ describe("agent API routes", () => {
     state.ownerUserId = "telegram:278674008";
     state.requiredScopes = [];
     state.actionCalls = [];
+    state.actionResult = { ok: true };
     state.queryCalls = [];
     state.mutationCalls = [];
   });
@@ -86,6 +92,69 @@ describe("agent API routes", () => {
       promptText: "cinematic portrait",
       allowPromptOnly: true,
       ingestSource: "agent",
+    });
+  });
+
+  test("agent ingest resolves multiple asset collections after create", async () => {
+    const { POST } = await import(ingestRoutePath);
+    state.actionResult = { assetId: "assets:1" };
+
+    const response = await POST(
+      new Request("http://localhost/api/agent/ingest", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          promptText: "cinematic romance",
+          url: "https://example.com/video.mp4",
+          folderIds: ["folders:love", "folders:cinematic", "folders:love"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls[0]?.payload).toMatchObject({
+      ownerUserId: "telegram:278674008",
+      folderId: "folders:love",
+    });
+    expect(state.actionCalls[0]?.payload.folderIds).toBeUndefined();
+    expect(state.mutationCalls[0]?.payload).toMatchObject({
+      ownerUserId: "telegram:278674008",
+      assetId: "assets:1",
+      folderIds: ["folders:love", "folders:cinematic"],
+    });
+  });
+
+  test("agent asset update replaces multiple collections", async () => {
+    const { POST } = await import(ingestUpdateRoutePath);
+    state.actionResult = { target: "asset", assetId: "assets:1" };
+
+    const response = await POST(
+      new Request("http://localhost/api/agent/ingest/update", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          target: "asset",
+          id: "assets:1",
+          folderIds: ["folders:love", "folders:cinematic"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls[0]?.payload).toEqual({
+      target: "asset",
+      id: "assets:1",
+      ownerUserId: "telegram:278674008",
+    });
+    expect(state.mutationCalls[0]?.payload).toMatchObject({
+      ownerUserId: "telegram:278674008",
+      folderIds: ["folders:love", "folders:cinematic"],
     });
   });
 

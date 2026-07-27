@@ -2,11 +2,18 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-05-02
+Last updated: 2026-07-27
 
 ---
 
 ## ✔ Shipped
+
+### 2026-07-27
+- Standardized nested collection pillars now render in the fixed order `Characters` → `Locations` → `Scenes` → `Inspirations`; categorized members collapse behind their stack cards in an unfiltered parent view
+- Dear Annete was visually audited and organized across the four child pillars (69 characters, 32 locations, 37 scenes, 81 inspirations), with Midjourney personalization/profile references routed to Inspirations
+- Browser extension v0.6 adds a collection-pillar picker and creates/reuses the matching nested pillar while preserving the parent collection membership
+- Nested plain collections now surface inside their parent as first-class visual gallery entries, with an owner-scoped indexed query, exact member counts, and preview stacks
+- ORPHEUS was migrated to `Characters` (10 images) and `Locations` (16 images) child collections while retaining all storybook and project-direction memberships
 
 ### 2026-05-26
 - Added multi-user agent token foundation: logged-in users can issue/revoke scoped gallery agent tokens, and agent calls derive `ownerUserId` server-side

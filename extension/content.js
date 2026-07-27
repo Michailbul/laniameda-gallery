@@ -18,6 +18,12 @@
     { value: "animation", label: "Animation" },
     { value: "live-action", label: "Live action" },
   ];
+  const COLLECTION_PILLAR_OPTIONS = [
+    { value: "characters", label: "Characters" },
+    { value: "locations", label: "Locations" },
+    { value: "scenes", label: "Scenes" },
+    { value: "inspirations", label: "Inspirations" },
+  ];
   // Hosts where the extension should NEVER run (our own app — packs/assets
   // aren't saveable via the extension overlay).
   const BUILTIN_DISABLED_HOSTS = [
@@ -32,6 +38,7 @@
   const imageQualification = globalThis.SaveToGalleryImageQualification;
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
   const kreaAdapter = globalThis.SaveToGalleryKrea;
+  const higgsfieldAdapter = globalThis.SaveToGalleryHiggsfield;
   const pinterestAdapter = globalThis.SaveToGalleryPinterest;
   const shotdeckAdapter = globalThis.SaveToGalleryShotdeck;
   const currentHost = location.hostname.toLowerCase().replace(/^www\./, "");
@@ -306,6 +313,14 @@
     );
   }
 
+  function isHiggsfieldPage() {
+    if (higgsfieldAdapter?.isHiggsfieldPage) {
+      return higgsfieldAdapter.isHiggsfieldPage(location.hostname);
+    }
+    const host = location.hostname.toLowerCase();
+    return host === "higgsfield.ai" || host.endsWith(".higgsfield.ai");
+  }
+
   function isShotdeckPage() {
     if (shotdeckAdapter?.isShotdeckPage) {
       return shotdeckAdapter.isShotdeckPage(location.hostname);
@@ -318,7 +333,11 @@
   // every qualified generation) instead of the generic hover badge.
   function isPersistentSaveSite() {
     return (
-      isMidjourneyPage() || isKreaPage() || isPinterestPage() || isShotdeckPage()
+      isMidjourneyPage() ||
+      isKreaPage() ||
+      isHiggsfieldPage() ||
+      isPinterestPage() ||
+      isShotdeckPage()
     );
   }
 
@@ -328,7 +347,9 @@
   const KREA_MEDIA_SELECTOR = 'img, video, [style*="background-image"]';
 
   function getSiteMediaSelector() {
-    return isMidjourneyPage() ? MJ_MEDIA_SELECTOR : KREA_MEDIA_SELECTOR;
+    if (isMidjourneyPage()) return MJ_MEDIA_SELECTOR;
+    if (isHiggsfieldPage()) return "video";
+    return KREA_MEDIA_SELECTOR;
   }
 
   function extractMidjourneyContext() {
@@ -899,8 +920,26 @@
       .map((folder) => ({
         id: String(folder?._id || folder?.id || "").trim(),
         name: String(folder?.name || "").trim(),
+        parentFolderId: String(folder?.parentFolderId || "").trim(),
       }))
       .filter((folder) => folder.id && folder.name);
+  }
+
+  function getRootFolders(folders) {
+    return folders.filter((folder) => !folder.parentFolderId);
+  }
+
+  function inferCollectionPillar(tagNames) {
+    const normalizedTags = new Set(
+      (Array.isArray(tagNames) ? tagNames : []).map((tag) =>
+        String(tag || "").trim().toLowerCase(),
+      ),
+    );
+    return normalizedTags.has("personalize") ||
+      normalizedTags.has("midjourney-teach") ||
+      normalizedTags.has("midjourney-profile")
+      ? "inspirations"
+      : "";
   }
 
   function normalizeFolderIdList(values) {
@@ -967,6 +1006,7 @@
       buttonLabel = "Add prompt",
       initialPrompt = "",
       allowEmptyPrompt = false,
+      initialCollectionPillar = "",
     } = options;
     const pop = document.createElement("div");
     pop.className = "stg-popover";
@@ -987,6 +1027,13 @@
         <button class="stg-popover__icon-btn stg-popover__new-collection-toggle" type="button" title="New collection">+</button>
       </div>
       <div class="stg-collection-grid" role="listbox" aria-label="Collections" aria-multiselectable="true"></div>
+      <span class="stg-popover__label">Pillar</span>
+      <div class="stg-pillar-grid" role="radiogroup" aria-label="Collection pillar">
+        ${COLLECTION_PILLAR_OPTIONS.map(
+          (option) =>
+            `<button class="stg-pillar-card" type="button" data-collection-pillar="${option.value}" aria-pressed="false">${option.label}</button>`,
+        ).join("")}
+      </div>
       <div class="stg-popover__row stg-popover__new-collection-row" hidden>
         <input class="stg-popover__input stg-popover__new-collection-input" type="text" placeholder="New collection name" />
         <button class="stg-popover__btn stg-popover__new-collection-create" type="button">Add</button>
@@ -999,6 +1046,7 @@
     const close = pop.querySelector(".stg-popover__close");
     const textarea = pop.querySelector(".stg-popover__textarea");
     const collectionGrid = pop.querySelector(".stg-collection-grid");
+    const pillarGrid = pop.querySelector(".stg-pillar-grid");
     const newCollToggle = pop.querySelector(".stg-popover__new-collection-toggle");
     const newCollRow = pop.querySelector(".stg-popover__new-collection-row");
     const newCollInput = pop.querySelector(".stg-popover__new-collection-input");
@@ -1041,6 +1089,32 @@
     let foldersReady = false;
     let rememberedFolderId = "";
     let selectedFolderIds = [];
+    let selectedCollectionPillar = initialCollectionPillar;
+
+    const setSelectedCollectionPillar = (value) => {
+      selectedCollectionPillar = COLLECTION_PILLAR_OPTIONS.some(
+        (option) => option.value === value,
+      )
+        ? value
+        : "";
+      for (const card of pillarGrid.querySelectorAll(".stg-pillar-card")) {
+        const selected =
+          card.dataset.collectionPillar === selectedCollectionPillar;
+        card.classList.toggle("stg-pillar-card--selected", selected);
+        card.setAttribute("aria-pressed", selected ? "true" : "false");
+      }
+    };
+    setSelectedCollectionPillar(initialCollectionPillar);
+    pillarGrid.addEventListener("click", (event) => {
+      const card = event.target?.closest?.(".stg-pillar-card");
+      if (!card) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const next = card.dataset.collectionPillar || "";
+      setSelectedCollectionPillar(
+        next === selectedCollectionPillar ? "" : next,
+      );
+    });
 
     const updateSubmitLabel = () => {
       if (selectedFolderIds.length > 1) {
@@ -1080,6 +1154,7 @@
         promptText: prompt,
         folderId: normalizedFolderId || undefined,
         folderIds: normalizedFolderIds,
+        collectionPillar: selectedCollectionPillar || undefined,
         styleTag: selectedStyleTag,
       });
       onClose();
@@ -1134,7 +1209,8 @@
 
     const renderCollectionCards = (folders, selectedId) => {
       collectionGrid.innerHTML = "";
-      const activeSelectedId = folders.some((folder) => folder.id === selectedId)
+      const rootFolders = getRootFolders(folders);
+      const activeSelectedId = rootFolders.some((folder) => folder.id === selectedId)
         ? selectedId
         : "";
       appendCollectionCard({
@@ -1143,7 +1219,7 @@
         label: "No collection",
         clear: true,
       });
-      for (const folder of folders) {
+      for (const folder of rootFolders) {
         appendCollectionCard({
           folderId: folder.id,
           eyebrow: folder.id === activeSelectedId ? "Default" : "Collection",
@@ -1374,12 +1450,15 @@
     promptText,
     folderId,
     folderIds,
+    collectionPillar,
     modelName,
     tagNames,
     fileData,
     imageWidth,
     imageHeight,
     sourceUrl,
+    mediaType,
+    inputImages,
     topRight = false,
   }) {
     badge.innerHTML = `<span>Saving…</span>`;
@@ -1399,10 +1478,13 @@
           modelName: modelName || undefined,
           folderId: folderId || undefined,
           folderIds: normalizeFolderIdList(folderIds),
+          collectionPillar: collectionPillar || undefined,
           tagNames: Array.isArray(tagNames) ? tagNames : undefined,
           file: fileData || undefined,
           imageWidth: imageWidth || undefined,
           imageHeight: imageHeight || undefined,
+          mediaType: mediaType || undefined,
+          inputImages: Array.isArray(inputImages) ? inputImages : undefined,
         });
       } catch (msgErr) {
         msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
@@ -1442,7 +1524,13 @@
     badge.classList.remove("stg-badge--visible");
 
     const popover = createPopover(
-      async ({ promptText, folderId, folderIds, styleTag }) => {
+      async ({
+        promptText,
+        folderId,
+        folderIds,
+        collectionPillar,
+        styleTag,
+      }) => {
         let fileData = saveContext.fileData;
         if (!fileData && typeof saveContext.resolveFileData === "function") {
           fileData = await saveContext.resolveFileData();
@@ -1453,12 +1541,15 @@
           promptText,
           folderId,
           folderIds,
+          collectionPillar,
           modelName: saveContext.modelName,
           tagNames: withStyleTag(saveContext.tagNames, styleTag),
           fileData,
           imageWidth: saveContext.imageWidth,
           imageHeight: saveContext.imageHeight,
           sourceUrl: saveContext.sourceUrl,
+          mediaType: saveContext.mediaType,
+          inputImages: saveContext.inputImages,
           topRight,
         });
       },
@@ -1480,6 +1571,7 @@
         buttonLabel: "Save",
         initialPrompt: saveContext.promptText || "",
         allowEmptyPrompt: true,
+        initialCollectionPillar: inferCollectionPillar(saveContext.tagNames),
       },
     );
 
@@ -1834,6 +1926,7 @@
       imageUrl,
       promptText: promptText || "",
       modelName: "Midjourney",
+      tagNames: getMidjourneyTagNames(),
       imageWidth,
       imageHeight,
       resolveFileData: async () => {
@@ -1859,6 +1952,10 @@
   function isMidjourneyTeachPage() {
     return location.pathname.includes("/personalize/") &&
       location.pathname.includes("/teach");
+  }
+
+  function isMidjourneyProfilePage() {
+    return /(^|\/)(profile|profiles)(\/|$)/i.test(location.pathname);
   }
 
   function isMidjourneyImaginePage() {
@@ -2146,6 +2243,7 @@
   function getMidjourneyTagNames() {
     const tags = ["midjourney"];
     if (location.pathname.includes("/explore")) tags.push("midjourney-explore");
+    if (isMidjourneyProfilePage()) tags.push("midjourney-profile");
     if (isMidjourneyTeachPage()) {
       tags.push("midjourney-teach", "personalize");
     }
@@ -2252,6 +2350,32 @@
     };
   }
 
+  // ── Higgsfield adapter glue ──
+
+  function isQualifiedHiggsfieldMediaTarget(target) {
+    if (!target || target.closest?.(EXTENSION_UI_SELECTOR)) return false;
+    if (!higgsfieldAdapter?.isQualifiedMediaElement) return false;
+    return higgsfieldAdapter.isQualifiedMediaElement(target, {
+      badgeAttr: MJ_MEDIA_BADGE_ATTR,
+    });
+  }
+
+  function getHiggsfieldSaveContext(target) {
+    if (!higgsfieldAdapter?.getSaveContext) return null;
+    const context = higgsfieldAdapter.getSaveContext(target, document);
+    if (!context?.imageUrl) return null;
+    return {
+      ...context,
+      imageUrl: resolveAbsoluteUrl(context.imageUrl),
+      inputImages: Array.isArray(context.inputImages)
+        ? context.inputImages.map((input) => ({
+            ...input,
+            url: resolveAbsoluteUrl(input.url),
+          }))
+        : [],
+    };
+  }
+
   // ── Pinterest adapter glue ──
 
   function isQualifiedPinterestMediaTarget(target) {
@@ -2317,6 +2441,7 @@
 
   function isQualifiedSiteMediaTarget(target) {
     if (isMidjourneyPage()) return isQualifiedMidjourneyMediaTarget(target);
+    if (isHiggsfieldPage()) return isQualifiedHiggsfieldMediaTarget(target);
     if (isPinterestPage()) return isQualifiedPinterestMediaTarget(target);
     if (isShotdeckPage()) return isQualifiedShotdeckMediaTarget(target);
     return isQualifiedKreaMediaTarget(target);
@@ -2324,6 +2449,7 @@
 
   function getSiteSaveContext(target) {
     if (isMidjourneyPage()) return getMidjourneySaveContext(target);
+    if (isHiggsfieldPage()) return getHiggsfieldSaveContext(target);
     if (isPinterestPage()) return getPinterestSaveContext(target);
     if (isShotdeckPage()) return getShotdeckSaveContext(target);
     return getKreaSaveContext(target);
@@ -3198,7 +3324,11 @@
     // Hover-reveal keeps dense grids and workspaces uncluttered — the widget
     // only shows while its host media is hovered.
     const hoverReveal =
-      isCentered || isKreaPage() || isPinterestPage() || isShotdeckPage();
+      isCentered ||
+      isKreaPage() ||
+      isHiggsfieldPage() ||
+      isPinterestPage() ||
+      isShotdeckPage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
@@ -3239,7 +3369,12 @@
     button.classList.remove("stg-badge--saving", "stg-badge--saved", "stg-badge--error");
   }
 
-  async function handleSaveMidjourneyMedia(target, button, folderIds) {
+  async function handleSaveMidjourneyMedia(
+    target,
+    button,
+    folderIds,
+    collectionPillar,
+  ) {
     if (button.classList.contains("stg-badge--saving")) return;
 
     const saveContext = getSiteSaveContext(target);
@@ -3253,11 +3388,29 @@
       const defaultFolderId = await getDefaultSaveFolderId();
       effectiveFolderIds = defaultFolderId ? [defaultFolderId] : [];
     }
+    const effectiveCollectionPillar =
+      collectionPillar || inferCollectionPillar(saveContext.tagNames);
 
-    const fileData = await captureImageBytesForSave(saveContext.imageUrl);
-    if (!fileData) {
+    // Higgsfield output videos are commonly many megabytes. Prefer the public
+    // CDN URL so the extension does not base64-expand the whole clip into one
+    // runtime/API message. blob:/data: media still requires an in-page capture.
+    const shouldCaptureOutputBytes =
+      saveContext.mediaType !== "video" ||
+      /^(blob:|data:)/i.test(saveContext.imageUrl);
+    const fileData = shouldCaptureOutputBytes
+      ? await captureImageBytesForSave(saveContext.imageUrl)
+      : undefined;
+    if (shouldCaptureOutputBytes && !fileData) {
       console.warn("[Save to Gallery] Midjourney media: failed to capture image bytes, falling back to URL");
     }
+
+    const inputImages = await Promise.all(
+      (saveContext.inputImages || []).slice(0, 6).map(async (input) => ({
+        url: input.url,
+        role: input.role,
+        file: await captureImageBytesForSave(input.url),
+      })),
+    );
 
     const styleTag = await readStyleTag();
     await submitImageSave({
@@ -3266,12 +3419,15 @@
       promptText: saveContext.promptText,
       folderId: effectiveFolderIds[0] || undefined,
       folderIds: effectiveFolderIds,
+      collectionPillar: effectiveCollectionPillar || undefined,
       modelName: saveContext.modelName,
       tagNames: withStyleTag(saveContext.tagNames, styleTag),
       fileData,
       imageWidth: saveContext.imageWidth,
       imageHeight: saveContext.imageHeight,
       sourceUrl: saveContext.sourceUrl,
+      mediaType: saveContext.mediaType,
+      inputImages,
       topRight: true,
     });
 
@@ -3345,6 +3501,7 @@
     createButton.disabled = true;
     createButton.textContent = "…";
     const previousSelectedFolderIds = getMidjourneyMenuSelection(menu);
+    const previousCollectionPillar = menu.dataset.collectionPillar || "";
     const res = await createFolderRemote(name);
     createButton.disabled = false;
     createButton.textContent = "Add";
@@ -3357,6 +3514,7 @@
     const newId = res.id || findFolderIdByName(res.folders, name);
     renderMidjourneyCollectionMenu(menu, res.folders, newId);
     updateMidjourneyMenuSelection(menu, [...previousSelectedFolderIds, newId]);
+    updateMidjourneyMenuPillar(menu, previousCollectionPillar);
     const nextInput = menu.querySelector(".stg-mj-menu__new-input");
     if (nextInput) nextInput.value = "";
   }
@@ -3383,8 +3541,23 @@
     }
   }
 
+  function updateMidjourneyMenuPillar(menu, pillar) {
+    const normalized = COLLECTION_PILLAR_OPTIONS.some(
+      (option) => option.value === pillar,
+    )
+      ? pillar
+      : "";
+    menu.dataset.collectionPillar = normalized;
+    for (const button of menu.querySelectorAll(".stg-mj-menu__pillar")) {
+      const active = button.dataset.collectionPillar === normalized;
+      button.classList.toggle("stg-mj-menu__pillar--active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
   function renderMidjourneyCollectionMenu(menu, folders, defaultFolderId) {
-    const activeDefaultFolderId = folders.some((folder) => folder.id === defaultFolderId)
+    const rootFolders = getRootFolders(folders);
+    const activeDefaultFolderId = rootFolders.some((folder) => folder.id === defaultFolderId)
       ? defaultFolderId
       : "";
     const rows = [
@@ -3395,7 +3568,7 @@
         label: "No collection",
         clear: true,
       },
-      ...folders.map((folder) => ({
+      ...rootFolders.map((folder) => ({
         id: folder.id,
         folderId: folder.id,
         eyebrow: folder.id === activeDefaultFolderId ? "Default" : "Collection",
@@ -3421,6 +3594,21 @@
       typeSection.appendChild(pill);
     }
     menu.appendChild(typeSection);
+
+    const pillarSection = document.createElement("div");
+    pillarSection.className = "stg-mj-menu__pillars";
+    pillarSection.setAttribute("role", "radiogroup");
+    pillarSection.setAttribute("aria-label", "Collection pillar");
+    for (const option of COLLECTION_PILLAR_OPTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "stg-mj-menu__pillar";
+      button.dataset.collectionPillar = option.value;
+      button.setAttribute("aria-pressed", "false");
+      button.textContent = option.label;
+      pillarSection.appendChild(button);
+    }
+    menu.appendChild(pillarSection);
 
     for (const row of rows) {
       const item = document.createElement("button");
@@ -3488,6 +3676,10 @@
     menu.appendChild(footer);
 
     updateMidjourneyMenuSelection(menu, activeDefaultFolderId ? [activeDefaultFolderId] : []);
+    updateMidjourneyMenuPillar(
+      menu,
+      inferCollectionPillar(getMidjourneyTagNames()),
+    );
   }
 
   async function openMidjourneyCollectionMenu(widget) {
@@ -3577,11 +3769,12 @@
     menu.addEventListener("pointerleave", scheduleClose);
     menu.addEventListener("click", (event) => {
       const typePill = event.target?.closest?.(".stg-mj-menu__type");
+      const pillarButton = event.target?.closest?.(".stg-mj-menu__pillar");
       const item = event.target?.closest?.(".stg-mj-menu__item");
       const createItem = event.target?.closest?.(".stg-mj-menu__item--create");
       const createButton = event.target?.closest?.(".stg-mj-menu__new-create");
       const saveItem = event.target?.closest?.(".stg-mj-menu__save");
-      if (!item && !saveItem && !createButton && !typePill) return;
+      if (!item && !saveItem && !createButton && !typePill && !pillarButton) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -3590,6 +3783,15 @@
         const nextStyleTag = typePill.dataset.styleTag || "";
         updateMidjourneyMenuStyleTag(menu, nextStyleTag);
         rememberStyleTag(nextStyleTag);
+        return;
+      }
+
+      if (pillarButton) {
+        const nextPillar = pillarButton.dataset.collectionPillar || "";
+        updateMidjourneyMenuPillar(
+          menu,
+          menu.dataset.collectionPillar === nextPillar ? "" : nextPillar,
+        );
         return;
       }
 
@@ -3620,9 +3822,15 @@
       }
 
       const selectedFolderIds = getMidjourneyMenuSelection(menu);
+      const collectionPillar = menu.dataset.collectionPillar || "";
       setStorageSync({ [LAST_FOLDER_ID_KEY]: selectedFolderIds[0] || "" });
       closeMidjourneyCollectionMenu(widget);
-      void handleSaveMidjourneyMedia(target, mainButton, selectedFolderIds)
+      void handleSaveMidjourneyMedia(
+        target,
+        mainButton,
+        selectedFolderIds,
+        collectionPillar,
+      )
         .finally(() => {
           if (!mainButton.classList.contains("stg-badge--error")) {
             setTimeout(() => resetMidjourneySaveButton(mainButton), 1800);

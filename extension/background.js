@@ -139,12 +139,15 @@ async function saveToGallery(payload) {
         sourceUrl: payload.sourceUrl,
         folderId,
         folderIds,
+        collectionPillar: payload.collectionPillar || undefined,
         promptText: payload.promptText || undefined,
         modelName: payload.modelName || undefined,
         tagNames: payload.tagNames || [],
         file: payload.file || undefined,
         imageWidth: payload.imageWidth || undefined,
         imageHeight: payload.imageHeight || undefined,
+        mediaType: payload.mediaType || undefined,
+        inputImages: Array.isArray(payload.inputImages) ? payload.inputImages : undefined,
       }),
     });
   } catch (err) {
@@ -288,6 +291,7 @@ const CONTENT_SCRIPT_JS_FILES = [
   "image-qualification.js",
   "midjourney-adapter.js",
   "krea-adapter.js",
+  "higgsfield-adapter.js",
   "pinterest-adapter.js",
   "shotdeck-adapter.js",
   "content.js",
@@ -599,10 +603,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       modelName: message.modelName,
       folderId: message.folderId,
       folderIds: message.folderIds,
+      collectionPillar: message.collectionPillar,
       tagNames: message.tagNames,
       file: message.file,
       imageWidth: message.imageWidth,
       imageHeight: message.imageHeight,
+      mediaType: message.mediaType,
+      inputImages: message.inputImages,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));

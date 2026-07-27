@@ -1,10 +1,33 @@
 # Ingest examples
 
-## 1) Direct script call with prompt + local image
+## 1) Preferred MCP save with resolved collections
+
+Resolve collection IDs first:
+
+```text
+list_collections()
+```
+
+Then save the asset to every requested collection:
+
+```json
+{
+  "filePath": "/path/to/image.jpg",
+  "promptText": "cinematic fashion portrait in tokyo rain",
+  "promptType": "image_gen",
+  "generationType": "image_gen",
+  "folderIds": ["<love-folder-id>", "<cinematic-folder-id>"],
+  "tagNames": ["fashion", "cinematic"],
+  "ingestKey": "gallery:tokyo-rain-portrait:v1"
+}
+```
+
+`folderIds[0]` becomes the primary/backward-compatible collection. All IDs become real collection memberships.
+
+## 1a) Legacy direct script call with prompt + local image
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
   "promptText": "cinematic fashion portrait in tokyo rain",
   "promptType": "image_gen",
   "generationType": "image_gen",
@@ -12,40 +35,41 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
   "modelProvider": "openai",
   "imagePath": "/path/to/image.jpg",
   "typedTags": [
-    { "name": "fashion", "category": "style", "pillar": "creators", "source": "agent" },
-    { "name": "cinematic", "category": "style", "pillar": "creators", "source": "agent" }
+    { "name": "fashion", "category": "style", "source": "agent" },
+    { "name": "cinematic", "category": "style", "source": "agent" }
   ]
 }'
 ```
+
+The legacy direct Convex script supports one `folderId`; prefer MCP for authenticated multi-collection asset saves.
 
 ## 1b) Explicit prompt-only save
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
   "promptText": "cinematic fashion portrait in tokyo rain",
   "allowPromptOnly": true,
   "promptType": "image_gen"
 }'
 ```
 
-## 1c) Video prompt save (Seedance 2.0)
+## 1c) Video prompt save
 
-```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "creators",
+```json
+{
   "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
   "promptType": "video_gen",
   "generationType": "video_gen",
-  "modelName": "Seedance 2.0",
-  "modelProvider": "other",
-  "imagePath": "/path/to/output.mp4",
-  "ingestKey": "creators:neon-alley-dolly:v1",
+  "filePath": "/path/to/output.mp4",
+  "folderIds": ["<cinematic-folder-id>"],
+  "ingestKey": "gallery:neon-alley-dolly:v1",
   "tagNames": ["video", "cinematic", "neon"]
-}'
+}
 ```
 
 Supported video formats: `.mp4`, `.mov`, `.webm`. The asset is stored with `kind: "video"` and renders inline in the gallery with a video player. To attach a custom thumbnail still, follow up with an `update` op on the asset pointing at an image frame.
+
+Omit `modelName` when the user or source metadata does not identify the model.
 
 ## 1d) Cinema Inspiration frame (no prompt — different mutation)
 
@@ -195,6 +219,8 @@ It returns:
 }
 ```
 
+The authenticated `/api/agent/ingest` and MCP `save_asset` layers additionally accept `folderIds`. They use the first ID as `folderId`, then create all requested `assetFolders` memberships.
+
 ## 6) Update a prompt by ingestKey
 
 ```bash
@@ -208,7 +234,21 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 }'
 ```
 
-## 7) Update an asset's metadata and clear its folder
+## 7) Update an asset's metadata and replace its collections
+
+Preferred MCP payload:
+
+```json
+{
+  "target": "asset",
+  "id": "asset-id",
+  "folderIds": ["<love-folder-id>", "<cinematic-folder-id>"]
+}
+```
+
+Pass `"folderIds": []` to clear all asset collections.
+
+Legacy direct-script single-folder update:
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{

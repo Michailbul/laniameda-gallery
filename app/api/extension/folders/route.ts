@@ -37,6 +37,7 @@ type FolderRow = {
   name?: string;
   description?: string;
   kind?: string;
+  parentFolderId?: string;
 };
 const toFolderDto = (folders: unknown) =>
   (Array.isArray(folders) ? (folders as FolderRow[]) : [])
@@ -45,6 +46,7 @@ const toFolderDto = (folders: unknown) =>
       _id: folder._id,
       name: folder.name ?? "",
       description: folder.description,
+      parentFolderId: folder.parentFolderId,
     }));
 
 export async function GET(request: Request) {

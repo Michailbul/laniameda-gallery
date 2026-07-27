@@ -112,6 +112,12 @@ videos, URLs, UI references, and design references. Classify the item with tags
 such as `design`, `ui`, `website`, `component`, or `reference`; do not use a
 separate design-specific tool.
 
+Collections are the user-facing organization layer. Resolve names with
+`list_collections`, then pass `folderIds` to `save_asset` or to
+`update_gallery_item` for an asset. The first ID is primary; all IDs become
+collection memberships. Ordinary saves should not invent or infer legacy
+pillars.
+
 The bundled stdio MCP server exposes:
 
 - `check_connection`
@@ -129,10 +135,10 @@ The bundled stdio MCP server exposes:
 - `upsert_tag`
 - `upsert_tags`
 - `archive_tag`
-- `list_folders`
-- `create_folder`
-- `update_folder`
-- `delete_folder`
+- `list_collections`
+- `create_collection`
+- `update_collection`
+- `delete_collection`
 
 Customization calls go through `POST /api/agent/customize`. Agents still never send
 `ownerUserId`; the token decides which user's page, pillars, tags, and folders are

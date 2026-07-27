@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { ImageCard } from "./image-card";
 import { StorybookCard } from "@/components/gallery/storybook-card";
 import { BeatStackCard } from "@/components/gallery/beat-stack-card";
+import { CollectionStackCard } from "@/components/gallery/collection-stack-card";
 import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import {
@@ -33,7 +34,7 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -63,7 +64,7 @@ interface GalleryImage {
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
     src: string;
     fullSrc: string;
     prompt: string;
@@ -121,11 +122,13 @@ interface MasonryGridProps {
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a beat (direction folder) for entries with galleryItemType "beat". */
   onBeatOpen?: (beatFolderId: string) => void;
+  /** Opens a nested collection entry. */
+  onCollectionOpen?: (collectionId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -145,7 +148,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
         src: string;
         fullSrc: string;
         prompt: string;
@@ -283,6 +286,7 @@ export function MasonryGrid({
   onRemoveAssetTag,
   onStorybookOpen,
   onBeatOpen,
+  onCollectionOpen,
   showPublicBadge = false,
   onEndReached,
   zoom = 1,
@@ -590,6 +594,29 @@ export function MasonryGrid({
                   }}
                   eager={originalIndex < EAGER_IMAGE_COUNT}
                   onOpen={onStorybookOpen}
+                />
+              </div>
+            );
+          }
+          if (image.galleryItemType === "collection" && onCollectionOpen) {
+            return (
+              <div key={image.id} style={tileStyle}>
+                <CollectionStackCard
+                  collection={{
+                    id: image.id,
+                    collectionId: image.galleryItemId ?? image.id,
+                    name: image.prompt,
+                    count: image.storybookCount ?? image.previewImages.length,
+                    previews: image.previewImages.map((preview) => ({
+                      id: preview.id,
+                      src: preview.src,
+                      width: preview.width,
+                      height: preview.height,
+                      kind: preview.kind,
+                    })),
+                  }}
+                  eager={originalIndex < EAGER_IMAGE_COUNT}
+                  onOpen={onCollectionOpen}
                 />
               </div>
             );

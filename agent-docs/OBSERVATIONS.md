@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-05-08
+Last updated: 2026-07-27
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -19,9 +19,12 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Tightening Convex enum validators against live tables can block deploys if older rows still carry legacy literal values; migrate the data first or keep the validator backward-compatible until cleanup lands.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
 - Folders are owner-scoped in backend APIs; always pass `ownerUserId` to `folders.listFolders` and validate folder ownership before writing `folderId` to assets/prompts.
+- Child collection cards should be read with `folders.listChildCollectionEntries`, which uses the `folders.by_parent` index and returns count + preview data without loading every collection in the vault.
 
 ## Gallery / UI
 
+- Standard collection child pillars are name-based and ordered as `Characters`, `Locations`, `Scenes`, `Inspirations`; use `compareCollectionPillarNames` instead of alphabetical sorting so Inspirations stays last.
+- In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
 - Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
@@ -42,6 +45,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Ingest
 
+- Extension saves can send `collectionPillar` with root `folderIds`; `/api/extension/save` idempotently creates/reuses that nested child collection and attaches the asset to both root and child. Midjourney profile/personalization saves default to `inspirations`.
+- Agent/MCP asset saves are collection-first: resolve requested names with `list_collections` and pass `folderIds` for multi-collection create/update. Do not translate "my gallery" into a legacy pillar such as `creators`.
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
 - `ingestKey` is not a patch key. Use `ingest:updateFromApi` or `ingest:deleteFromApi` for record changes after creation.
 - Agent ingest should use the local `laniameda-gallery` stdio MCP with `LANIAMEDA_GALLERY_AGENT_TOKEN`; direct `CONVEX_URL` + `KB_OWNER_USER_ID` skill calls are legacy and single-owner.

@@ -9,7 +9,13 @@ type UploadModalProps = {
   onClose: () => void;
 } & Pick<
   UploadPanelProps,
-  "availableTags" | "folders" | "ownerUserId" | "onDataChanged" | "initialFiles"
+  | "availableTags"
+  | "folders"
+  | "projects"
+  | "ownerUserId"
+  | "canPromoteToPublic"
+  | "onDataChanged"
+  | "initialFiles"
 >;
 
 export function UploadModal({
@@ -17,7 +23,9 @@ export function UploadModal({
   onClose,
   availableTags,
   folders,
+  projects,
   ownerUserId,
+  canPromoteToPublic,
   onDataChanged,
   initialFiles,
 }: UploadModalProps) {
@@ -67,20 +75,15 @@ export function UploadModal({
 
         {/* Header */}
         <div
-          className="flex shrink-0 items-center justify-between px-7 py-5"
+          className="flex shrink-0 items-center justify-between px-8 py-5"
           style={{ borderBottom: "1px solid var(--lm-border)" }}
         >
-          <div className="flex items-center gap-3.5">
-            <span
-              className="flex h-10 w-10 items-center justify-center rounded-[12px]"
-              style={{
-                background: "var(--lm-accent-dim)",
-                border: "1px solid var(--lm-border-strong)",
-                color: "var(--lm-coral)",
-              }}
-            >
-              <Upload className="h-[18px] w-[18px]" aria-hidden />
-            </span>
+          <div className="flex items-center gap-3">
+            <Upload
+              className="h-[18px] w-[18px]"
+              style={{ color: "var(--lm-coral)" }}
+              aria-hidden
+            />
             <div className="flex flex-col gap-0.5">
               <span
                 className="text-[10px] font-bold uppercase tracking-[0.22em]"
@@ -120,7 +123,9 @@ export function UploadModal({
           <UploadPanel
             availableTags={availableTags}
             folders={folders}
+            projects={projects}
             ownerUserId={ownerUserId}
+            canPromoteToPublic={canPromoteToPublic}
             onDataChanged={onDataChanged}
             initialFiles={initialFiles}
             className="h-full"

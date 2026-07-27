@@ -76,6 +76,7 @@ const normalizeFolders = (rawFolders) => {
     .map((folder) => ({
       id: String(folder?._id || folder?.id || "").trim(),
       name: String(folder?.name || "").trim(),
+      parentFolderId: String(folder?.parentFolderId || "").trim(),
     }))
     .filter((folder) => folder.id && folder.name);
 };
@@ -101,7 +102,7 @@ const renderDefaultCollectionOptions = (folders, selectedId) => {
   none.textContent = "No default collection";
   defaultCollectionEl.appendChild(none);
 
-  for (const folder of folders) {
+  for (const folder of folders.filter((entry) => !entry.parentFolderId)) {
     const option = document.createElement("option");
     option.value = folder.id;
     option.textContent = folder.name;
@@ -109,7 +110,8 @@ const renderDefaultCollectionOptions = (folders, selectedId) => {
   }
 
   defaultCollectionEl.value =
-    selectedId && folders.some((folder) => folder.id === selectedId)
+    selectedId &&
+    folders.some((folder) => !folder.parentFolderId && folder.id === selectedId)
       ? selectedId
       : "";
   defaultCollectionEl.disabled = false;

@@ -230,10 +230,13 @@ function LikeControl({
   );
 }
 
+
 type ReviewModalProps = {
   ownerUserId?: string;
   /** Folder id of the open project, or null when closed. */
   projectId?: string | null;
+  /** Member collection to drill into as soon as the project opens. */
+  initialDirectionId?: string | null;
   /** All of the owner's plain collections, for the "add collections" picker. */
   allCollections?: CollectionOption[];
   /**
@@ -315,6 +318,7 @@ type DirectionCardData = {
 export function ReviewModal({
   ownerUserId = "",
   projectId,
+  initialDirectionId,
   allCollections = [],
   viewerToken,
   leftOffset,
@@ -422,7 +426,9 @@ export function ReviewModal({
   const [activeTab, setActiveTab] = useState<ReviewTab>("beats");
   // Direction currently drilled into (a member collection id), or null when
   // browsing a mode.
-  const [openDirectionId, setOpenDirectionId] = useState<string | null>(null);
+  const [openDirectionId, setOpenDirectionId] = useState<string | null>(
+    initialDirectionId ?? null,
+  );
   const [likedOnly, setLikedOnly] = useState(false);
   // Masonry tile size (target CSS column width). Driven by the header
   // slider; the browser fits as many columns as the viewport allows, so the
@@ -5879,4 +5885,3 @@ function CollectionPicker({
     </div>
   );
 }
-

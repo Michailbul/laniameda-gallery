@@ -52,7 +52,7 @@ export type GalleryAssetRecord = {
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
   src: string;
   fullSrc: string;
   prompt: string;
@@ -66,7 +66,7 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
   src: string;
   fullSrc: string;
   prompt: string;

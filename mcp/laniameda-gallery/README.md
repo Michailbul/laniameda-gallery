@@ -102,5 +102,10 @@ The app API ignores caller-supplied ownership fields and injects the token owner
 
 Use `save_asset` for images, videos, URLs, UI references, design references, and
 other visual material. The MCP does not expose a separate design-reference save
-tool; use tags, an optional `assetRole`, and collections (`folderId`) to classify
+tool; use tags, an optional `assetRole`, and collections (`folderIds`) to classify
 and organize assets.
+
+Resolve collection names with `list_collections` before saving. Pass
+`folderIds` to `save_asset` for multi-collection membership; the first ID is
+retained as the primary/backward-compatible collection. Pass `folderIds` to
+`update_gallery_item` with `target: "asset"` to replace memberships.

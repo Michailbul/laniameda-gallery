@@ -5,7 +5,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   canonicalFolderName,
   normalizeFolderName,
@@ -15,7 +15,9 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import { collectAssetsForFolder } from "./assets";
+import { canonicalTagKey } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { compareCollectionPillarNames } from "../lib/collection-pillars";
 
 export const folderKindValidator = v.optional(
   v.union(
@@ -651,7 +653,128 @@ const collectionPreviewValidator = v.object({
   thumbUrl: v.optional(v.string()),
   width: v.optional(v.number()),
   height: v.optional(v.number()),
+  thumbWidth: v.optional(v.number()),
+  thumbHeight: v.optional(v.number()),
 });
+
+const collectionEntryValidator = v.object({
+  _id: v.id("folders"),
+  name: v.string(),
+  description: v.optional(v.string()),
+  parentFolderId: v.optional(v.id("folders")),
+  count: v.number(),
+  updatedAt: v.optional(v.number()),
+  createdAt: v.optional(v.number()),
+  previewAssets: v.array(collectionPreviewValidator),
+});
+
+const collectAssetsForTags = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  tagIds: Id<"tags">[],
+) => {
+  const ownerSet = new Set(ownerUserIds);
+  const assetsById = new Map<Id<"assets">, Doc<"assets">>();
+  for (const tagId of tagIds) {
+    const links = await ctx.db
+      .query("assetTags")
+      .withIndex("by_tag_createdAt", (q) =>
+        q.eq("tagId", tagId).gte("createdAt", 0),
+      )
+      .order("desc")
+      .take(COLLECTION_PREVIEW_SCAN);
+    const assets = await Promise.all(
+      links.map(async (link) => await ctx.db.get(link.assetId)),
+    );
+    for (const asset of assets) {
+      if (asset && asset.ownerUserId && ownerSet.has(asset.ownerUserId)) {
+        assetsById.set(asset._id, asset);
+      }
+    }
+  }
+  return Array.from(assetsById.values())
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, COLLECTION_PREVIEW_SCAN);
+};
+
+const buildCollectionPreviews = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folder: {
+    _id: Id<"folders">;
+    coverAssetId?: Id<"assets">;
+  },
+  smartTagIds: Id<"tags">[] = [],
+) => {
+  const members =
+    smartTagIds.length > 0
+      ? await collectAssetsForTags(ctx, ownerUserIds, smartTagIds)
+      : await collectAssetsForFolder(
+          ctx,
+          ownerUserIds,
+          folder._id,
+          COLLECTION_PREVIEW_SCAN,
+        );
+  if (folder.coverAssetId) {
+    const index = members.findIndex((asset) => asset._id === folder.coverAssetId);
+    if (index > 0) {
+      const [cover] = members.splice(index, 1);
+      members.unshift(cover);
+    }
+  }
+  return await Promise.all(
+    members.slice(0, COLLECTION_PREVIEW_LIMIT).map(async (asset) => {
+      const [url, thumbUrl] = await Promise.all([
+        resolveAssetUrl(ctx, asset),
+        resolveAssetThumbUrl(ctx, asset),
+      ]);
+      return {
+        assetId: asset._id,
+        kind: asset.kind,
+        contentType: asset.contentType,
+        url: url ?? undefined,
+        thumbUrl: thumbUrl ?? undefined,
+        width: asset.width,
+        height: asset.height,
+        thumbWidth: asset.thumbWidth,
+        thumbHeight: asset.thumbHeight,
+      };
+    }),
+  );
+};
+
+const countCollectionAssets = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folderId: Id<"folders">,
+) => {
+  const assetIds = new Set<Id<"assets">>();
+  for (const ownerCandidate of ownerUserIds) {
+    const [primaryAssets, links] = await Promise.all([
+      ctx.db
+        .query("assets")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q
+            .eq("ownerUserId", ownerCandidate)
+            .eq("folderId", folderId)
+            .gte("createdAt", 0),
+        )
+        .collect(),
+      ctx.db
+        .query("assetFolders")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q
+            .eq("ownerUserId", ownerCandidate)
+            .eq("folderId", folderId)
+            .gte("createdAt", 0),
+        )
+        .collect(),
+    ]);
+    for (const asset of primaryAssets) assetIds.add(asset._id);
+    for (const link of links) assetIds.add(link.assetId);
+  }
+  return assetIds.size;
+};
 
 /**
  * Card data for the gallery's "collections" browse view: every plain
@@ -694,39 +817,48 @@ export const listCollectionSummaries = query({
     const collections = dedupeById(folders).filter(
       (folder) => folder.kind === undefined,
     );
+    const menuFilters = [];
+    for (const ownerCandidate of ownerUserIds) {
+      menuFilters.push(
+        ...(await ctx.db
+          .query("menuFilters")
+          .withIndex("by_owner_sortOrder", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .gte("sortOrder", Number.MIN_SAFE_INTEGER),
+          )
+          .collect()),
+      );
+    }
+    const smartTagKeys = new Set(
+      menuFilters
+        .filter((entry) => entry.kind === "tag")
+        .flatMap((entry) => entry.tagNames ?? [])
+        .map(canonicalTagKey)
+        .filter((key) => key.length > 0),
+    );
+    const allTags = await ctx.db
+      .query("tags")
+      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
+      .collect();
+    const tagIdsByName = new Map<string, Id<"tags">[]>();
+    for (const tag of allTags) {
+      const key = canonicalTagKey(tag.name);
+      if (!key || !smartTagKeys.has(key)) continue;
+      const ids = tagIdsByName.get(key) ?? [];
+      ids.push(tag._id);
+      tagIdsByName.set(key, ids);
+    }
 
     return await Promise.all(
       collections.map(async (folder) => {
-        const members = await collectAssetsForFolder(
+        const smartTagIds =
+          tagIdsByName.get(canonicalTagKey(folder.name)) ?? [];
+        const previewAssets = await buildCollectionPreviews(
           ctx,
           ownerUserIds,
-          folder._id,
-          COLLECTION_PREVIEW_SCAN,
-        );
-        // The chosen cover fronts the preview stack when set and present.
-        if (folder.coverAssetId) {
-          const idx = members.findIndex((a) => a._id === folder.coverAssetId);
-          if (idx > 0) {
-            const [cover] = members.splice(idx, 1);
-            members.unshift(cover);
-          }
-        }
-        const previewAssets = await Promise.all(
-          members.slice(0, COLLECTION_PREVIEW_LIMIT).map(async (asset) => {
-            const [url, thumbUrl] = await Promise.all([
-              resolveAssetUrl(ctx, asset),
-              resolveAssetThumbUrl(ctx, asset),
-            ]);
-            return {
-              assetId: asset._id,
-              kind: asset.kind,
-              contentType: asset.contentType,
-              url: url ?? undefined,
-              thumbUrl: thumbUrl ?? undefined,
-              width: asset.width,
-              height: asset.height,
-            };
-          }),
+          folder,
+          smartTagIds,
         );
         return {
           _id: folder._id,
@@ -738,6 +870,71 @@ export const listCollectionSummaries = query({
           previewAssets,
         };
       }),
+    );
+  },
+});
+
+/**
+ * First-class collection entries shown inside a parent collection. This is
+ * deliberately parent-scoped (rather than reusing the all-collections query)
+ * so opening a collection reads only its immediate children via `by_parent`.
+ */
+export const listChildCollectionEntries = query({
+  args: {
+    ownerUserId: v.string(),
+    parentFolderId: v.id("folders"),
+  },
+  returns: v.array(collectionEntryValidator),
+  handler: async (ctx: QueryCtx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const parent = await ctx.db.get(args.parentFolderId);
+    if (!parent) {
+      throw new ConvexError("Parent collection not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, parent.ownerUserId)) {
+      throw new ConvexError("Parent collection does not belong to this user.");
+    }
+    if (parent.kind !== undefined) {
+      throw new ConvexError("Only plain collections can contain sub-collections.");
+    }
+
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const children = await ctx.db
+      .query("folders")
+      .withIndex("by_parent", (q) =>
+        q.eq("parentFolderId", args.parentFolderId),
+      )
+      .collect();
+    const accessibleChildren = children.filter(
+      (folder) =>
+        folder.kind === undefined &&
+        canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId),
+    );
+
+    return await Promise.all(
+      accessibleChildren
+        .sort((left, right) =>
+          compareCollectionPillarNames(left.name, right.name),
+        )
+        .map(async (folder) => {
+          const [count, previewAssets] = await Promise.all([
+            countCollectionAssets(ctx, ownerUserIds, folder._id),
+            buildCollectionPreviews(ctx, ownerUserIds, folder),
+          ]);
+          return {
+            _id: folder._id,
+            name: folder.name,
+            description: folder.description,
+            parentFolderId: folder.parentFolderId,
+            count,
+            updatedAt: folder.updatedAt,
+            createdAt: folder.createdAt,
+            previewAssets,
+          };
+        }),
     );
   },
 });

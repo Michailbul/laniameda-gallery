@@ -128,6 +128,12 @@ const commonIngestShape = {
       "Collection id to file this under — the raw folderId returned by list_collections or create_collection (NOT a folders:<id> prefixed form).",
     )
     .optional(),
+  folderIds: z
+    .array(z.string())
+    .describe(
+      "Collection ids for a multi-collection asset save. Resolve them with list_collections first; the first id becomes primary.",
+    )
+    .optional(),
   ingestKey: z.string().optional(),
   promptIngestKey: z.string().optional(),
   url: z.string().optional(),
@@ -240,6 +246,7 @@ server.registerTool(
       promptText: z.string().optional(),
       tagNames: z.array(z.string()).optional(),
       folderId: z.union([z.string(), z.null()]).optional(),
+      folderIds: z.array(z.string()).optional(),
       modelName: z.union([z.string(), z.null()]).optional(),
       filePath: z.string().optional(),
       fileBase64: z.string().optional(),

@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 import { useMemo, useState } from "react";
 import { FolderOpen, Layers, Pencil } from "lucide-react";
+import { compareCollectionPillarNames } from "@/lib/collection-pillars";
 
 // A collection card's data: summary from folders.listCollectionSummaries
 // merged with the dashboard's live folderAssetCounts.
@@ -74,7 +75,7 @@ export function CollectionsGrid({
     }
     rootList.sort((a, b) => a.name.localeCompare(b.name));
     for (const list of children.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name));
+      list.sort((a, b) => compareCollectionPillarNames(a.name, b.name));
     }
     return { roots: rootList, childrenByParent: children };
   }, [collections]);

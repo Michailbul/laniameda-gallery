@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { Globe } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useMutation } from "convex/react";
 import { useUploadFile } from "@convex-dev/r2/react";
 import { requestJson } from "@/lib/app-api";
 import { buildIngestKey, parseTagNames } from "@/lib/ingest";
@@ -26,6 +28,7 @@ import {
 } from "@/lib/image-ingest";
 import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export type FolderOption = {
   _id: string;
@@ -48,7 +51,11 @@ type StatusMessage = {
 export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
+  /** Projects (folders with kind:"project") the asset can be filed into. */
+  projects?: FolderOption[];
   ownerUserId?: string;
+  /** Whether this user may promote saves straight into the public gallery. */
+  canPromoteToPublic?: boolean;
   onDataChanged?: () => void;
   className?: string;
   /** Files to seed the form with (e.g. dropped onto the gallery). */
@@ -126,7 +133,9 @@ const ASSET_ROLE_OPTIONS = [
 export function UploadPanel({
   availableTags = [],
   folders = [],
+  projects = [],
   ownerUserId,
+  canPromoteToPublic = false,
   onDataChanged,
   className,
   initialFiles,
@@ -136,6 +145,8 @@ export function UploadPanel({
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [folderSelection, setFolderSelection] = useState(NO_FOLDER_VALUE);
+  const [projectSelection, setProjectSelection] = useState(NO_VALUE);
+  const [promoteToPublic, setPromoteToPublic] = useState(false);
   const [folderDraftName, setFolderDraftName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
@@ -156,7 +167,7 @@ export function UploadPanel({
   const dragCounterRef = useRef(0);
   const highlightRef = useRef<HTMLPreElement | null>(null);
 
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(true);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const canCreateFolders = Boolean(ownerUserId?.trim());
 
   const canSubmit = Boolean(
@@ -276,6 +287,8 @@ export function UploadPanel({
     setSelectedFiles([]);
     setSaveAsTextOnlyPrompt(false);
     setFolderSelection(NO_FOLDER_VALUE);
+    setProjectSelection(NO_VALUE);
+    setPromoteToPublic(false);
     setFolderDraftName("");
     setCreatingFolder(false);
     setModelNameSelection(NO_VALUE);
@@ -331,6 +344,7 @@ export function UploadPanel({
   };
 
   const uploadVideo = useUploadFile(api.r2);
+  const addAssetsToProject = useMutation(api.projects.addAssetsToProject);
 
   const handleSubmit = async () => {
     if (isUploading) return;
@@ -345,6 +359,10 @@ export function UploadPanel({
         folderSelection === NO_FOLDER_VALUE || !folderSelection
           ? undefined
           : folderSelection;
+      const resolvedProjectId =
+        projectSelection === NO_VALUE || !projectSelection
+          ? undefined
+          : projectSelection;
       const resolvedModelName =
         modelNameSelection === "__custom"
           ? modelNameCustom.trim() || undefined
@@ -454,8 +472,58 @@ export function UploadPanel({
         throw new Error(message);
       }
 
+      // Ingest is synchronous and returns the freshly-created asset id — chain
+      // project filing and public promotion off it. Both are best-effort: the
+      // asset is already saved, so a follow-up failure downgrades to a warning
+      // rather than losing the save.
+      const savedAssetId =
+        body && body.result && typeof body.result.assetId === "string"
+          ? (body.result.assetId as string)
+          : undefined;
+      const followupNotes: string[] = [];
+
+      if (savedAssetId && resolvedProjectId && ownerUserId?.trim()) {
+        try {
+          await addAssetsToProject({
+            ownerUserId,
+            projectId: resolvedProjectId as Id<"folders">,
+            assetIds: [savedAssetId as Id<"assets">],
+          });
+        } catch {
+          followupNotes.push("couldn’t file it into the project");
+        }
+      }
+
+      if (savedAssetId && promoteToPublic && canPromoteToPublic) {
+        try {
+          const curationRes = await fetch(
+            `/api/admin/assets/${savedAssetId}/curation`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ isPublic: true }),
+            },
+          );
+          if (!curationRes.ok) {
+            throw new Error("curation rejected");
+          }
+        } catch {
+          followupNotes.push("couldn’t promote it to the public gallery");
+        }
+      }
+
       clearForm();
-      setStatus({ type: "success", message: "Ingest queued. The gallery will update shortly." });
+      if (followupNotes.length > 0) {
+        setStatus({
+          type: "info",
+          message: `Saved to the vault, but ${followupNotes.join(" and ")}.`,
+        });
+      } else {
+        setStatus({
+          type: "success",
+          message: "Ingest queued. The gallery will update shortly.",
+        });
+      }
       onDataChanged?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -514,19 +582,18 @@ export function UploadPanel({
 
   const descriptionId = "upload-dropzone-description";
 
-  // ── Brand primitives (dark editorial · mono labels · coral focus) ──
+  // ── Boxless brand primitives — dark editorial, mono micro-labels, hairline
+  // dividers, underline fields, coral focus. No card panels or filled chrome.
   const mono = "[font-family:var(--lm-font)]";
-  const cardCls =
-    "rounded-[14px] border border-[var(--lm-border)] bg-[var(--lm-surface-1)]";
-  const labelCls = `${mono} text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--lm-text-tertiary)]`;
-  const fieldCls =
-    "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-2)] text-[14px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-ghost)] focus-visible:border-[var(--lm-coral)] focus-visible:ring-0 focus-visible:shadow-[0_0_0_3px_var(--lm-accent-dim)] transition-colors";
+  const labelCls = `${mono} text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--lm-text-tertiary)]`;
+  const underlineField =
+    "h-11 rounded-none border-0 border-b border-[var(--lm-border)] bg-transparent px-0 text-[14px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-ghost)] shadow-none focus-visible:border-[var(--lm-coral)] focus-visible:ring-0 transition-colors";
   const selectTriggerCls =
-    "h-11 w-full rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-2)] text-[14px] text-[var(--lm-text-primary)] focus:border-[var(--lm-coral)] focus:ring-0 transition-colors data-placeholder:text-[var(--lm-text-ghost)]";
+    "h-11 w-full rounded-none border-0 border-b border-[var(--lm-border)] bg-transparent px-0 text-[14px] text-[var(--lm-text-primary)] shadow-none focus:border-[var(--lm-coral)] focus:ring-0 transition-colors data-placeholder:text-[var(--lm-text-ghost)]";
   const selectContentCls =
-    "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-2)] text-[var(--lm-text-primary)] shadow-[0_18px_46px_rgba(0,0,0,0.55)]";
+    "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-1)] text-[var(--lm-text-primary)] shadow-[0_18px_46px_rgba(0,0,0,0.55)]";
   const selectItemCls =
-    "text-[14px] text-[var(--lm-text-secondary)] focus:bg-[var(--lm-surface-3)] focus:text-[var(--lm-text-primary)]";
+    "text-[14px] text-[var(--lm-text-secondary)] focus:bg-[var(--lm-surface-2)] focus:text-[var(--lm-text-primary)]";
 
   const FieldLabel = ({
     htmlFor,
@@ -545,13 +612,29 @@ export function UploadPanel({
     </div>
   );
 
+  // Section heading: mono label + a hairline rule that fills the row. This is
+  // the boxless replacement for the old bordered card headers.
+  const SectionRule = ({
+    children,
+    trailing,
+  }: {
+    children: React.ReactNode;
+    trailing?: React.ReactNode;
+  }) => (
+    <div className="flex items-center gap-3">
+      <span className={labelCls}>{children}</span>
+      <span className="h-px flex-1 bg-[var(--lm-border)]" aria-hidden />
+      {trailing}
+    </div>
+  );
+
   return (
     <div className={cn("flex h-full min-h-0 w-full flex-col", className)}>
       {status && (
         <div
           role="status"
           aria-live={status.type === "error" ? "assertive" : "polite"}
-          className={cn(mono, "mx-7 mt-4 rounded-[10px] px-4 py-2.5 text-[12px] font-semibold tracking-wide")}
+          className={cn(mono, "mx-8 mt-4 rounded-[10px] px-4 py-2.5 text-[12px] font-semibold tracking-wide")}
           style={{
             backgroundColor: statusStyles[status.type].bg,
             border: `1px solid ${statusStyles[status.type].border}`,
@@ -570,24 +653,27 @@ export function UploadPanel({
         className="flex min-h-0 flex-1 flex-col"
       >
         {/* Scrollable form body */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 py-6">
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.55fr_1fr] lg:items-start">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-8 py-7">
+          <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.55fr_1fr] lg:items-start">
             {/* ── Left: core content ── */}
-            <div className="flex flex-col gap-5">
-              {/* Prompt — hero */}
-              <div className={cn(cardCls, "relative flex flex-col overflow-hidden")}>
-                <div className="flex items-center justify-between px-4 pt-4">
-                  <span className={labelCls}>Prompt</span>
-                  <span className={cn(mono, "text-[10px] tabular-nums text-[var(--lm-text-ghost)]")}>
-                    {promptText.length} / 2000
-                  </span>
-                </div>
-                <div className="relative min-h-[300px] flex-1">
+            <div className="flex flex-col gap-9">
+              {/* Prompt */}
+              <section className="flex flex-col gap-3">
+                <SectionRule
+                  trailing={
+                    <span className={cn(mono, "text-[10px] tabular-nums text-[var(--lm-text-ghost)]")}>
+                      {promptText.length} / 2000
+                    </span>
+                  }
+                >
+                  Prompt
+                </SectionRule>
+                <div className="relative min-h-[260px] flex-1">
                   {promptHighlight && (
                     <pre
                       ref={highlightRef}
                       aria-hidden
-                      className="pointer-events-none absolute inset-0 overflow-auto px-4 pb-4 pt-3 font-display text-[18px] italic leading-relaxed text-[var(--lm-text-primary)]"
+                      className="pointer-events-none absolute inset-0 overflow-auto pb-4 pt-1 font-display text-[19px] italic leading-relaxed text-[var(--lm-text-primary)]"
                       dangerouslySetInnerHTML={{ __html: promptHighlight }}
                     />
                   )}
@@ -604,45 +690,42 @@ export function UploadPanel({
                     }}
                     maxLength={2000}
                     className={cn(
-                      "min-h-[300px] h-full w-full resize-y border-0 bg-transparent px-4 pb-4 pt-3 font-display text-[18px] italic leading-relaxed placeholder:text-[var(--lm-text-ghost)] focus-visible:ring-0",
+                      "min-h-[260px] h-full w-full resize-y rounded-none border-0 bg-transparent px-0 pb-4 pt-1 font-display text-[19px] italic leading-relaxed shadow-none placeholder:text-[var(--lm-text-ghost)] focus-visible:ring-0",
                       promptHighlight
                         ? "text-transparent caret-[var(--lm-coral)] selection:bg-[var(--lm-accent-dim)] selection:text-transparent"
                         : "text-[var(--lm-text-primary)]",
                     )}
                   />
                 </div>
-              </div>
 
-              {/* Text-only toggle */}
-              <label
-                htmlFor="save-as-text-only-prompt"
-                className={cn(
-                  cardCls,
-                  "flex cursor-pointer items-start gap-3 p-4 transition-colors hover:border-[var(--lm-border-strong)]",
-                )}
-              >
-                <Checkbox
-                  id="save-as-text-only-prompt"
-                  checked={saveAsTextOnlyPrompt}
-                  onCheckedChange={(checked) => setSaveAsTextOnlyPrompt(checked === true)}
-                  className="mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]"
-                />
-                <div className="space-y-1">
-                  <span className={cn(labelCls, "block")}>Save as text-only prompt</span>
-                  <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
-                    Required to ingest prompt text without any file or URL attached.
-                  </p>
-                  {isPromptOnlyDraft && !saveAsTextOnlyPrompt ? (
-                    <p className="text-[11px] font-medium text-[var(--lm-coral)]">
-                      No media attached — turn this on to save it intentionally as text-only.
+                {/* Text-only toggle — inline, boxless */}
+                <label
+                  htmlFor="save-as-text-only-prompt"
+                  className="flex cursor-pointer items-start gap-3 pt-1"
+                >
+                  <Checkbox
+                    id="save-as-text-only-prompt"
+                    checked={saveAsTextOnlyPrompt}
+                    onCheckedChange={(checked) => setSaveAsTextOnlyPrompt(checked === true)}
+                    className="mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]"
+                  />
+                  <div className="space-y-0.5">
+                    <span className={cn(labelCls, "block")}>Save as text-only prompt</span>
+                    <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
+                      Required to ingest prompt text without any file or URL attached.
                     </p>
-                  ) : null}
-                </div>
-              </label>
+                    {isPromptOnlyDraft && !saveAsTextOnlyPrompt ? (
+                      <p className="text-[11px] font-medium text-[var(--lm-coral)]">
+                        No media attached — turn this on to save it intentionally as text-only.
+                      </p>
+                    ) : null}
+                  </div>
+                </label>
+              </section>
 
-              {/* Media dropzone */}
-              <div className="flex flex-col gap-2">
-                <FieldLabel>Media</FieldLabel>
+              {/* Media */}
+              <section className="flex flex-col gap-3">
+                <SectionRule>Media</SectionRule>
                 <div
                   data-testid="upload-dropzone"
                   role="button"
@@ -665,9 +748,9 @@ export function UploadPanel({
                   onDragEnter={handleDragEnter}
                   onDragLeave={handleDragLeave}
                   className={cn(
-                    "group relative flex min-h-[150px] flex-col items-center justify-center gap-2 rounded-[14px] border-2 border-dashed border-[var(--lm-border-strong)] bg-[var(--lm-surface-1)] p-6 text-center transition-all duration-200 hover:border-[var(--lm-text-ghost)] hover:bg-[var(--lm-surface-2)]",
+                    "group relative flex min-h-[132px] flex-col items-center justify-center gap-2.5 rounded-[12px] border border-dashed border-[var(--lm-border)] bg-transparent p-6 text-center transition-colors duration-200 hover:border-[var(--lm-text-ghost)]",
                     isDragActive &&
-                      "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)] shadow-[0_0_0_3px_var(--lm-accent-dim)]",
+                      "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)]",
                   )}
                 >
                   {isUploading && (
@@ -677,11 +760,8 @@ export function UploadPanel({
                       </span>
                     </div>
                   )}
-                  <span
-                    className="flex h-12 w-12 items-center justify-center rounded-full text-[var(--lm-coral)] transition-transform duration-200 group-hover:scale-105"
-                    style={{ background: "var(--lm-accent-dim)" }}
-                  >
-                    <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                  <span className="text-[var(--lm-coral)] transition-transform duration-200 group-hover:scale-105">
+                    <svg className="h-7 w-7" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                   </span>
                   <p className={cn(mono, "text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--lm-text-primary)]")}>
                     Drop media here
@@ -705,88 +785,86 @@ export function UploadPanel({
                 <p id={descriptionId} className="text-[11px] text-[var(--lm-text-ghost)]">
                   JPEG, PNG, MP4, MOV — up to 50MB per file. Multi-file sends the first for now.
                 </p>
-              </div>
+              </section>
 
-              {/* URL */}
-              <div className="flex flex-col gap-2">
-                <FieldLabel htmlFor="prompt-url">Source URL</FieldLabel>
-                <Input
-                  id="prompt-url"
-                  placeholder="https://example.com/asset"
-                  value={urlInput}
-                  onChange={(event) => setUrlInput(event.target.value)}
-                  className={cn(fieldCls, "h-11")}
-                />
-                <p className="text-[11px] text-[var(--lm-text-ghost)]">Fetch media from an external URL you trust.</p>
-              </div>
+              {/* URL + Tags */}
+              <section className="flex flex-col gap-6">
+                <div className="flex flex-col gap-2.5">
+                  <FieldLabel htmlFor="prompt-url">Source URL</FieldLabel>
+                  <Input
+                    id="prompt-url"
+                    placeholder="https://example.com/asset"
+                    value={urlInput}
+                    onChange={(event) => setUrlInput(event.target.value)}
+                    className={underlineField}
+                  />
+                  <p className="text-[11px] text-[var(--lm-text-ghost)]">Fetch media from an external URL you trust.</p>
+                </div>
 
-              {/* Tags */}
-              <div className="flex flex-col gap-2">
-                <FieldLabel htmlFor="tag-input">Tags</FieldLabel>
-                <Input
-                  id="tag-input"
-                  placeholder="Type a tag, press Enter or comma to add"
-                  value={tagInput}
-                  onChange={(event) => setTagInput(event.target.value)}
-                  onKeyDown={handleTagKeyDown}
-                  className={cn(fieldCls, "h-11")}
-                />
+                <div className="flex flex-col gap-2.5">
+                  <FieldLabel htmlFor="tag-input">Tags</FieldLabel>
+                  <Input
+                    id="tag-input"
+                    placeholder="Type a tag, press Enter or comma to add"
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value)}
+                    onKeyDown={handleTagKeyDown}
+                    className={underlineField}
+                  />
 
-                {tags.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className={cn(
-                          mono,
-                          "inline-flex items-center gap-1.5 rounded-full border border-[var(--lm-coral)]/40 bg-[var(--lm-accent-dim)] px-3 py-1 text-[11px] font-semibold tracking-wide text-[var(--lm-coral)]",
-                        )}
-                      >
-                        {tag}
+                  {tags.length > 0 && (
+                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      {tags.map((tag) => (
                         <button
+                          key={tag}
                           type="button"
                           aria-label={`Remove ${tag}`}
-                          className="text-[var(--lm-coral)]/70 transition-colors hover:text-[var(--lm-coral)]"
                           onClick={() => setTags((previous) => previous.filter((value) => value !== tag))}
+                          className={cn(
+                            mono,
+                            "group inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-[var(--lm-coral)] transition-opacity hover:opacity-70",
+                          )}
                         >
-                          ×
+                          <span className="text-[var(--lm-text-ghost)]">#</span>
+                          {tag}
+                          <span className="text-[var(--lm-text-ghost)] transition-colors group-hover:text-[var(--lm-coral)]">×</span>
                         </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
 
-                {tagSuggestions.length > 0 && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
-                    {tagSuggestions.map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        className={cn(
-                          mono,
-                          "rounded-full border border-[var(--lm-border-strong)] px-3 py-1 text-[11px] font-medium text-[var(--lm-text-tertiary)] transition-colors hover:border-[var(--lm-coral)]/50 hover:bg-[var(--lm-surface-2)] hover:text-[var(--lm-text-primary)]",
-                        )}
-                        onClick={() => {
-                          addTags(suggestion);
-                          setTagInput("");
-                        }}
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  {tagSuggestions.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
+                      {tagSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          className={cn(
+                            mono,
+                            "text-[12px] font-medium text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline",
+                          )}
+                          onClick={() => {
+                            addTags(suggestion);
+                            setTagInput("");
+                          }}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
 
-            {/* ── Right: preview + advanced ── */}
-            <div className="flex flex-col gap-5">
+            {/* ── Right: preview + destination + details ── */}
+            <div className="flex flex-col gap-9">
               {/* Preview */}
               {previews.length > 0 && (
-                <div className={cn(cardCls, "flex flex-col gap-3 p-4 animate-fade-in-up")}>
-                  <FieldLabel>Preview</FieldLabel>
-                  <div className="relative overflow-hidden rounded-[10px] bg-[var(--lm-surface-0)]">
+                <section className="flex flex-col gap-3 animate-fade-in-up">
+                  <SectionRule>Preview</SectionRule>
+                  <div className="relative overflow-hidden rounded-[10px] bg-[var(--lm-surface-1)]">
                     {previews[activePreviewIndex]?.file.type.startsWith("image/") ? (
                       <Image
                         src={previews[activePreviewIndex].url}
@@ -794,7 +872,7 @@ export function UploadPanel({
                         width={800}
                         height={600}
                         unoptimized
-                        className="h-[260px] w-full object-cover"
+                        className="h-[240px] w-full object-cover"
                       />
                     ) : previews[activePreviewIndex]?.file.type.startsWith("video/") ? (
                       <video
@@ -802,10 +880,10 @@ export function UploadPanel({
                         controls
                         playsInline
                         preload="metadata"
-                        className="h-[260px] w-full bg-black object-contain"
+                        className="h-[240px] w-full bg-black object-contain"
                       />
                     ) : (
-                      <div className="flex h-[260px] w-full flex-col items-center justify-center gap-2">
+                      <div className="flex h-[240px] w-full flex-col items-center justify-center gap-2">
                         <span className="text-sm font-semibold text-[var(--lm-text-secondary)]">
                           {previews[activePreviewIndex].file.name}
                         </span>
@@ -826,7 +904,7 @@ export function UploadPanel({
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between px-0.5">
+                  <div className="flex items-center justify-between">
                     <span className={cn(mono, "max-w-[200px] truncate text-[11px] text-[var(--lm-text-tertiary)]")}>
                       {previews[activePreviewIndex].file.name}
                     </span>
@@ -834,47 +912,159 @@ export function UploadPanel({
                       {(previews[activePreviewIndex].file.size / (1024 * 1024)).toFixed(1)} MB
                     </span>
                   </div>
-                </div>
+                </section>
               )}
 
-              {/* Advanced settings */}
-              <div className={cn(cardCls, "overflow-hidden")}>
+              {/* Destination — collection · project · visibility */}
+              <section className="flex flex-col gap-6">
+                <SectionRule>Destination</SectionRule>
+
+                {/* Collection */}
+                <div className="flex flex-col gap-2.5">
+                  <FieldLabel
+                    htmlFor="folder-select"
+                    trailing={<span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>Optional</span>}
+                  >
+                    Collection
+                  </FieldLabel>
+                  <Select value={folderSelection} onValueChange={(value) => setFolderSelection(value)}>
+                    <SelectTrigger id="folder-select" className={selectTriggerCls}>
+                      <SelectValue placeholder="No collection (default)" />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentCls}>
+                      <SelectGroup>
+                        <SelectItem value={NO_FOLDER_VALUE} className={selectItemCls}>No collection (default)</SelectItem>
+                        {folders.map((folder) => (
+                          <SelectItem key={folder._id} value={folder._id} className={selectItemCls}>
+                            {folder.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {canCreateFolders && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <Input
+                        value={folderDraftName}
+                        onChange={(event) => setFolderDraftName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          void handleCreateFolder();
+                        }}
+                        placeholder="Create new collection"
+                        className={cn(underlineField, "h-10 flex-1")}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateFolder()}
+                        disabled={creatingFolder || folderDraftName.trim().length === 0}
+                        className={cn(
+                          mono,
+                          "h-10 shrink-0 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-secondary)] underline-offset-4 transition-colors hover:text-[var(--lm-coral)] hover:underline disabled:opacity-40 disabled:no-underline",
+                        )}
+                      >
+                        {creatingFolder ? "Saving…" : "Create"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Project */}
+                <div className="flex flex-col gap-2.5">
+                  <FieldLabel
+                    htmlFor="project-select"
+                    trailing={<span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>Optional</span>}
+                  >
+                    Project
+                  </FieldLabel>
+                  <Select
+                    value={projectSelection}
+                    onValueChange={(value) => setProjectSelection(value)}
+                    disabled={projects.length === 0}
+                  >
+                    <SelectTrigger id="project-select" className={cn(selectTriggerCls, projects.length === 0 && "opacity-50")}>
+                      <SelectValue placeholder={projects.length === 0 ? "No projects yet" : "No project"} />
+                    </SelectTrigger>
+                    <SelectContent className={selectContentCls}>
+                      <SelectGroup>
+                        <SelectItem value={NO_VALUE} className={selectItemCls}>No project</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project._id} value={project._id} className={selectItemCls}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-[var(--lm-text-ghost)]">
+                    Files the save into the project’s inbox for review.
+                  </p>
+                </div>
+
+                {/* Promote to public */}
+                {canPromoteToPublic && (
+                  <label
+                    htmlFor="promote-to-public"
+                    className="flex cursor-pointer items-start gap-3"
+                  >
+                    <Checkbox
+                      id="promote-to-public"
+                      checked={promoteToPublic}
+                      onCheckedChange={(checked) => setPromoteToPublic(checked === true)}
+                      className="mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]"
+                    />
+                    <div className="space-y-0.5">
+                      <span className={cn(labelCls, "flex items-center gap-1.5")}>
+                        <Globe className="h-3 w-3 text-[var(--lm-coral)]" aria-hidden />
+                        Promote to public gallery
+                      </span>
+                      <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
+                        Publishes this save to your public gallery the moment it lands.
+                      </p>
+                    </div>
+                  </label>
+                )}
+              </section>
+
+              {/* Details — taxonomy, collapsed by default */}
+              <section className="flex flex-col gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
-                  className="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-[var(--lm-surface-2)]"
+                  onClick={() => setIsDetailsOpen(!isDetailsOpen)}
+                  className="flex items-center gap-3 text-left"
                 >
-                  <div className="flex flex-col gap-1">
-                    <span className={labelCls}>Advanced settings</span>
-                    <span className="text-[11px] text-[var(--lm-text-ghost)]">Model · type · domain · collection</span>
-                  </div>
+                  <span className={labelCls}>Details</span>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
+                    width="14"
+                    height="14"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className={cn("text-[var(--lm-text-tertiary)] transition-transform duration-300", isAdvancedOpen && "rotate-90")}
+                    className={cn("shrink-0 text-[var(--lm-text-tertiary)] transition-transform duration-300", isDetailsOpen && "rotate-90")}
                   >
                     <path d="m9 18 6-6-6-6" />
                   </svg>
+                  <span className="h-px flex-1 bg-[var(--lm-border)]" aria-hidden />
+                  {!isDetailsOpen && (
+                    <span className="text-[10px] text-[var(--lm-text-ghost)]">Model · type · domain</span>
+                  )}
                 </button>
 
                 <div
                   className={cn(
                     "grid transition-all duration-300 ease-in-out",
-                    isAdvancedOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                    isDetailsOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
                   )}
                 >
                   <div className="overflow-hidden">
-                    <div className="mx-4 h-px bg-[var(--lm-border)]" />
-                    <div className="flex flex-col gap-4 p-4">
+                    <div className="flex flex-col gap-6 pt-3">
                       {/* Model */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="model-name-select">Model name</FieldLabel>
                         <Select value={modelNameSelection} onValueChange={(value) => setModelNameSelection(value)}>
                           <SelectTrigger id="model-name-select" className={selectTriggerCls}>
@@ -897,13 +1087,13 @@ export function UploadPanel({
                             placeholder="Enter custom model name"
                             value={modelNameCustom}
                             onChange={(event) => setModelNameCustom(event.target.value)}
-                            className={cn(fieldCls, "mt-1 h-11")}
+                            className={cn(underlineField, "mt-1")}
                           />
                         )}
                       </div>
 
                       {/* Generation Type */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="generation-type-select">Generation type</FieldLabel>
                         <Select value={generationType} onValueChange={(value) => setGenerationType(value)}>
                           <SelectTrigger id="generation-type-select" className={selectTriggerCls}>
@@ -923,7 +1113,7 @@ export function UploadPanel({
                       </div>
 
                       {/* Prompt Type */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="prompt-type-select">Prompt type</FieldLabel>
                         <Select value={promptType} onValueChange={(value) => setPromptType(value)}>
                           <SelectTrigger id="prompt-type-select" className={selectTriggerCls}>
@@ -943,7 +1133,7 @@ export function UploadPanel({
                       </div>
 
                       {/* Workflow Type */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="workflow-type-select">Workflow type</FieldLabel>
                         <Select value={workflowType} onValueChange={(value) => setWorkflowType(value)}>
                           <SelectTrigger id="workflow-type-select" className={selectTriggerCls}>
@@ -963,7 +1153,7 @@ export function UploadPanel({
                       </div>
 
                       {/* Asset Role */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="asset-role-select">Asset role</FieldLabel>
                         <Select value={assetRole} onValueChange={(value) => setAssetRole(value)}>
                           <SelectTrigger id="asset-role-select" className={selectTriggerCls}>
@@ -983,79 +1173,28 @@ export function UploadPanel({
                       </div>
 
                       {/* Domain */}
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         <FieldLabel htmlFor="domain-input">Domain</FieldLabel>
                         <Input
                           id="domain-input"
                           placeholder="e.g. fashion, architecture, gaming"
                           value={domainInput}
                           onChange={(event) => setDomainInput(event.target.value)}
-                          className={cn(fieldCls, "h-11")}
+                          className={underlineField}
                         />
-                      </div>
-
-                      {/* Collection */}
-                      <div className="flex flex-col gap-2">
-                        <FieldLabel
-                          htmlFor="folder-select"
-                          trailing={<span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>Optional</span>}
-                        >
-                          Collection
-                        </FieldLabel>
-                        <Select value={folderSelection} onValueChange={(value) => setFolderSelection(value)}>
-                          <SelectTrigger id="folder-select" className={selectTriggerCls}>
-                            <SelectValue placeholder="No collection (default)" />
-                          </SelectTrigger>
-                          <SelectContent className={selectContentCls}>
-                            <SelectGroup>
-                              <SelectItem value={NO_FOLDER_VALUE} className={selectItemCls}>No collection (default)</SelectItem>
-                              {folders.map((folder) => (
-                                <SelectItem key={folder._id} value={folder._id} className={selectItemCls}>
-                                  {folder.name}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        {canCreateFolders && (
-                          <div className="mt-1 flex items-center gap-2">
-                            <Input
-                              value={folderDraftName}
-                              onChange={(event) => setFolderDraftName(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter") return;
-                                event.preventDefault();
-                                void handleCreateFolder();
-                              }}
-                              placeholder="Create new collection"
-                              className={cn(fieldCls, "h-10 flex-1")}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void handleCreateFolder()}
-                              disabled={creatingFolder || folderDraftName.trim().length === 0}
-                              className={cn(
-                                mono,
-                                "h-10 shrink-0 rounded-[10px] border border-[var(--lm-border-strong)] px-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-coral)] hover:text-[var(--lm-coral)] disabled:opacity-40",
-                              )}
-                            >
-                              {creatingFolder ? "Saving…" : "Create"}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </section>
             </div>
           </div>
         </div>
 
         {/* Sticky action footer */}
         <div
-          className="flex shrink-0 items-center justify-between gap-3 px-7 py-4"
-          style={{ borderTop: "1px solid var(--lm-border)", backgroundColor: "var(--lm-surface-1)" }}
+          className="flex shrink-0 items-center justify-between gap-3 px-8 py-4"
+          style={{ borderTop: "1px solid var(--lm-border)", backgroundColor: "var(--lm-surface-0)" }}
         >
           <button
             type="button"
@@ -1063,7 +1202,7 @@ export function UploadPanel({
             onClick={clearForm}
             className={cn(
               mono,
-              "h-11 rounded-[10px] px-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-tertiary)] transition-colors hover:bg-[var(--lm-surface-2)] hover:text-[var(--lm-text-primary)] disabled:opacity-40",
+              "h-11 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline disabled:opacity-40 disabled:no-underline",
             )}
           >
             Clear form

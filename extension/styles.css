@@ -312,7 +312,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   width: 244px;
-  max-height: 260px;
+  max-height: 340px;
   overflow: auto;
   padding: 6px;
   background: rgba(250, 246, 241, 0.96);
@@ -334,6 +334,33 @@
   display: flex;
   gap: 4px;
   padding-bottom: 2px;
+}
+
+.stg-mj-menu__pillars {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.stg-mj-menu__pillar {
+  min-width: 0;
+  padding: 6px 4px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  color: #8a7768;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(26, 20, 16, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.stg-mj-menu__pillar:hover,
+.stg-mj-menu__pillar--active {
+  color: #166d68;
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.48);
 }
 
 .stg-mj-menu__type {
@@ -689,6 +716,34 @@
   margin: 0 0 8px;
   overflow: auto;
   padding: 1px;
+}
+
+.stg-pillar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.stg-pillar-card {
+  min-width: 0;
+  padding: 8px 7px;
+  color: #8a7768;
+  background: rgba(255, 255, 255, 0.66);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  text-align: center;
+  border: 1px solid rgba(26, 20, 16, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.stg-pillar-card:hover,
+.stg-pillar-card--selected {
+  color: #166d68;
+  background: rgba(235, 249, 247, 0.92);
+  border-color: rgba(46, 184, 180, 0.48);
 }
 
 .stg-collection-card {
