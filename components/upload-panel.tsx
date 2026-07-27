@@ -36,13 +36,6 @@ export type FolderOption = {
   description?: string | null;
 };
 
-export type PillarOption = {
-  value: string;
-  label: string;
-  color?: string;
-  description?: string;
-};
-
 type StatusMessage = {
   type: "success" | "error" | "info";
   message: string;
@@ -151,7 +144,6 @@ export function UploadPanel({
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
-  const [pillarSelection, setPillarSelection] = useState(NO_VALUE);
   const [generationType, setGenerationType] = useState(NO_VALUE);
   const [promptType, setPromptType] = useState(NO_VALUE);
   const [workflowType, setWorkflowType] = useState(NO_VALUE);
@@ -293,7 +285,6 @@ export function UploadPanel({
     setCreatingFolder(false);
     setModelNameSelection(NO_VALUE);
     setModelNameCustom("");
-    setPillarSelection(NO_VALUE);
     setGenerationType(NO_VALUE);
     setPromptType(NO_VALUE);
     setWorkflowType(NO_VALUE);
@@ -371,8 +362,6 @@ export function UploadPanel({
             : modelNameSelection;
       const resolvedGenerationType =
         generationType === NO_VALUE ? undefined : generationType;
-      const resolvedPillar =
-        pillarSelection === NO_VALUE ? undefined : pillarSelection;
       const resolvedPromptType =
         promptType === NO_VALUE ? undefined : promptType;
       const resolvedWorkflowType =
@@ -407,7 +396,6 @@ export function UploadPanel({
         tags,
         file: isVideoUpload || isLargeImageUpload ? null : candidateFile,
         modelName: resolvedModelName,
-        pillar: resolvedPillar,
         generationType: resolvedGenerationType,
         promptType: resolvedPromptType,
         workflowType: resolvedWorkflowType,

@@ -93,7 +93,7 @@ These are maintained by backend mutations; callers usually pass tag names, typed
 - `app/api/ingest/route.ts` maps session-authenticated browser calls to the same backend contract.
 - `app/api/ingest/update/route.ts` and `app/api/ingest/delete/route.ts` expose session-authenticated update/delete routes.
 - `app/api/agent/*` exposes token-authenticated MCP/agent routes; callers must not send or choose `ownerUserId`.
-- `app/api/agent/customize` exposes token-authenticated customization for user pillars, user tags, and folders.
+- `app/api/agent/customize` exposes token-authenticated customization for user tags and collections (folders). Pillar actions are retired and return `Unsupported action`.
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
 - Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
 - Backfill existing records: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.

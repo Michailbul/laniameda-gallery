@@ -19,13 +19,6 @@ export type MediaKind = "image" | "video";
 export type SortOrder = "featured" | "newest" | "shuffle";
 export type GalleryScope = "mine" | "public";
 export type ViewMode = "grid" | "collections" | "packs";
-export type Pillar = string;
-export type PillarOption = {
-  label: string;
-  value: string;
-  color?: string;
-  description?: string;
-};
 
 // A curated menu pill (admin-managed on the backend). "tag" pills toggle the
 // tag filter; "collection" pills toggle the folder filter to their collection.

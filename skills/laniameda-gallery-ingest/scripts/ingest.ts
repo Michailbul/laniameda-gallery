@@ -337,7 +337,7 @@ export function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<s
   const filePath = item.filePath ?? item.imagePath;
   const fileBase64 = item.fileBase64 ?? item.imageBase64;
   const url = item.url ?? item.imageUrl;
-  const pillar = item.pillar ?? (item.designInspiration ? "designs" : undefined);
+  const pillar = item.pillar ?? undefined;
   const hasPromptText = Boolean(item.promptText?.trim());
   const hasMediaInput = Boolean(filePath || fileBase64 || url);
   const isPromptOnlyCreate = hasPromptText && !hasMediaInput && !item.designInspiration;
@@ -509,10 +509,8 @@ export function buildWorkflowArgs(
   if (!title) {
     throw new Error("Workflow requires a `title`.");
   }
-  const pillar = item.pillar?.trim();
-  if (!pillar) {
-    throw new Error("Workflow requires a `pillar`.");
-  }
+  // Pillars are retired: forward one only if explicitly provided (dormant column).
+  const pillar = item.pillar?.trim() || undefined;
   if (!item.steps?.length) {
     throw new Error("Workflow requires at least one step.");
   }
@@ -563,7 +561,7 @@ export function buildWorkflowArgs(
   const args: Record<string, unknown> = {
     ownerUserId,
     title,
-    pillar,
+    ...(pillar ? { pillar } : {}),
     steps,
     ingestKey:
       item.ingestKey ??

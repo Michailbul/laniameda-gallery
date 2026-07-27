@@ -7,9 +7,9 @@ import {
   validateExtensionToken,
 } from "@/lib/server/extension-auth";
 import {
-  collectionPillarLabel,
-  normalizeCollectionPillar,
-} from "@/lib/collection-pillars";
+  collectionSectionLabel,
+  normalizeCollectionSection,
+} from "@/lib/collection-sections";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
@@ -113,7 +113,7 @@ async function resolveCollectionPillarFolders(
 ) {
   const pillar =
     typeof rawPillar === "string"
-      ? normalizeCollectionPillar(rawPillar)
+      ? normalizeCollectionSection(rawPillar)
       : null;
   if (!pillar || requestedFolderIds.length === 0) {
     return requestedFolderIds;
@@ -145,14 +145,14 @@ async function resolveCollectionPillarFolders(
     return requestedFolderIds;
   }
 
-  const label = collectionPillarLabel(pillar);
+  const label = collectionSectionLabel(pillar);
   const childFolderIds: string[] = [];
   for (const root of roots) {
     const existing = folders.find(
       (folder) =>
         !folder.kind &&
         folder.parentFolderId === root._id &&
-        normalizeCollectionPillar(folder.name) === pillar,
+        normalizeCollectionSection(folder.name) === pillar,
     );
     if (existing) {
       childFolderIds.push(existing._id);

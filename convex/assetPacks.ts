@@ -2,10 +2,7 @@ import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import {
-  reconcileAssetPackMembership,
-  syncPromptAssetPack,
-} from "./assetPackHelpers";
+import { syncPromptAssetPack } from "./assetPackHelpers";
 import { canActorAccessOwnerUserId } from "./authz";
 import {
   galleryAssetResultValidator,
@@ -164,65 +161,6 @@ export const addAssetToPack = mutation({
     await ctx.db.patch(args.packId, patch);
 
     return { packId: args.packId, assetId: args.assetId, slotIndex };
-  },
-});
-
-export const removeAssetFromPack = mutation({
-  args: {
-    assetId: v.id("assets"),
-  },
-  returns: v.object({
-    packId: v.optional(v.id("assetPacks")),
-    removed: v.boolean(),
-  }),
-  handler: async (ctx, args) => {
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset?.assetPackId) {
-      return {
-        packId: undefined,
-        removed: false,
-      };
-    }
-
-    const packId = asset.assetPackId;
-    await ctx.db.patch(args.assetId, {
-      assetPackId: undefined,
-      packSlotIndex: undefined,
-    });
-
-    const result = await reconcileAssetPackMembership(ctx, packId);
-    return {
-      packId,
-      removed: result.removed,
-    };
-  },
-});
-
-export const getAssetPack = query({
-  args: { packId: v.id("assetPacks") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      _id: v.id("assetPacks"),
-      _creationTime: v.number(),
-      ownerUserId: v.optional(v.string()),
-      title: v.string(),
-      description: v.optional(v.string()),
-      pillar: optionalPillarValidator,
-      tagIds: v.array(v.id("tags")),
-      ingestKey: v.optional(v.string()),
-      coverAssetId: v.optional(v.id("assets")),
-      modelName: v.optional(v.string()),
-      domain: v.optional(v.string()),
-      isPublic: v.optional(v.boolean()),
-      isFeatured: v.optional(v.boolean()),
-      itemCount: v.optional(v.number()),
-      createdAt: v.number(),
-      updatedAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.packId);
   },
 });
 
@@ -590,66 +528,6 @@ export const getAssetPackByIngestKey = query({
       .query("assetPacks")
       .withIndex("by_ingestKey", (q) => q.eq("ingestKey", args.ingestKey))
       .first();
-  },
-});
-
-export const updateAssetPack = mutation({
-  args: {
-    packId: v.id("assetPacks"),
-    title: v.optional(v.string()),
-    description: v.optional(v.string()),
-    coverAssetId: v.optional(v.id("assets")),
-    isPublic: v.optional(v.boolean()),
-    isFeatured: v.optional(v.boolean()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const { packId, ...rest } = args;
-    const patch = Object.fromEntries(
-      Object.entries(rest).filter(([, v]) => v !== undefined),
-    );
-    await ctx.db.patch(packId, { ...patch, updatedAt: Date.now() });
-    return null;
-  },
-});
-
-export const deleteAssetPack = mutation({
-  args: { packId: v.id("assetPacks") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const members = await ctx.db
-      .query("assets")
-      .withIndex("by_assetPack_packSlotIndex", (q) =>
-        q.eq("assetPackId", args.packId),
-      )
-      .collect();
-
-    for (const asset of members) {
-      await ctx.db.patch(asset._id, {
-        assetPackId: undefined,
-        packSlotIndex: undefined,
-      });
-    }
-
-    await ctx.db.delete(args.packId);
-    return null;
-  },
-});
-
-export const syncPromptPack = mutation({
-  args: {
-    ownerUserId: v.string(),
-    promptId: v.id("prompts"),
-  },
-  returns: v.object({
-    packId: v.optional(v.id("assetPacks")),
-    itemCount: v.number(),
-    createdPack: v.boolean(),
-    removedPackCount: v.number(),
-    updatedAssetCount: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    return await syncPromptAssetPack(ctx, args);
   },
 });
 

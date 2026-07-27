@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  countAssets,
+  checkAssetIngestMatches,
   createAsset,
   getAsset,
-  hasAssetForIngestKey,
   listAssets,
   setAssetFolder,
 } from "../convex/assets";
@@ -65,16 +64,15 @@ describe("owner authz canonicalization", () => {
     });
     expect(listed.some((row) => row._id === asset.assetId)).toBeTrue();
 
-    const hasIngestKey = await hasAssetForIngestKey._handler(harness.ctx as never, {
-      ownerUserId: owner,
-      ingestKey: "asset-owner-alias-key",
-    });
-    expect(hasIngestKey).toBeTrue();
-
-    const count = await countAssets._handler(harness.ctx as never, {
-      ownerUserId: owner,
-    });
-    expect(count).toBe(1);
+    const ingestMatches = await checkAssetIngestMatches._handler(
+      harness.ctx as never,
+      {
+        ownerUserId: owner,
+        keys: ["asset-owner-alias-key"],
+        prefixes: [],
+      },
+    );
+    expect(ingestMatches.matchedKeys).toContain("asset-owner-alias-key");
   });
 
   test("prompt ownership checks and reads accept owner aliases", async () => {

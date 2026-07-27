@@ -20,7 +20,7 @@ user's machine and calls the app API with that user's token:
 - Runtime env: `LANIAMEDA_GALLERY_API_URL` + `LANIAMEDA_GALLERY_AGENT_TOKEN`
 - Write route: `POST /api/agent/ingest`
 - Read/search route: `POST /api/agent/gallery`
-- Customization route: `POST /api/agent/customize` for user pillars, user tag catalogs, and folders
+- Customization route: `POST /api/agent/customize` for user tag catalogs and collections (folders). Pillars are retired — pillar actions are not supported.
 - Token management: logged-in users create/revoke tokens through `/api/agent/tokens`
 
 The app validates the bearer token, derives `ownerUserId`, and only then calls Convex. Agents must not receive `CONVEX_URL` or `KB_OWNER_USER_ID` for multi-user access.
@@ -63,7 +63,7 @@ Call Convex action directly:
   ingestKey?: string;
   promptIngestKey?: string;
   modelName?: string;
-  pillar?: string; // default or custom user pillar key
+  pillar?: string; // RETIRED taxonomy — leave unset on new saves (dormant column)
   generationType?: "image_gen" | "video_gen" | "ui_design" | "other";
   promptType?: "image_gen" | "video_gen" | "ui_design" | "cinematic" | "ugc_ad" | "other";
   domain?: string;

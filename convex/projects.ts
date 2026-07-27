@@ -15,7 +15,6 @@ import {
 import { canonicalFolderName, recountFolderMembers } from "./folderHelpers";
 import {
   optionalProjectSectionValidator,
-  projectSectionValidator,
 } from "./validators";
 
 // Preview thumbnails on a project stack card.
@@ -1000,92 +999,6 @@ export const addCollectionToProject = mutation({
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { added: true };
-  },
-});
-
-// Set which character / location directions a beat uses (all must be member
-// collections of the same project). Replaces both lists wholesale; writes go
-// to the array fields, clearing the legacy single-id pair.
-export const setBeatLinks = mutation({
-  args: {
-    ownerUserId: v.string(),
-    projectId: v.id("folders"),
-    folderId: v.id("folders"),
-    characterFolderIds: v.array(v.id("folders")),
-    locationFolderIds: v.array(v.id("folders")),
-  },
-  returns: v.object({ updated: v.boolean() }),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
-
-    const existing = await ctx.db
-      .query("projectCollections")
-      .withIndex("by_project_folder", (q) =>
-        q.eq("projectId", args.projectId).eq("folderId", args.folderId),
-      )
-      .unique();
-    if (!existing) {
-      throw new ConvexError("Collection is not part of this project.");
-    }
-
-    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const memberIds = new Set(
-      await collectProjectCollectionIds(ctx, ownerUserIds, args.projectId),
-    );
-    const characterFolderIds = [...new Set(args.characterFolderIds)];
-    const locationFolderIds = [...new Set(args.locationFolderIds)];
-    for (const linkedId of [...characterFolderIds, ...locationFolderIds]) {
-      if (!memberIds.has(linkedId) || linkedId === args.folderId) {
-        throw new ConvexError("Linked direction is not part of this project.");
-      }
-    }
-
-    await ctx.db.patch(existing._id, {
-      beatCharacterFolderIds: characterFolderIds,
-      beatLocationFolderIds: locationFolderIds,
-    });
-    await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
-    return { updated: true };
-  },
-});
-
-// File (or unfile) a member collection under one of the project's layers.
-// null clears the section back to "unsorted".
-export const setProjectCollectionSection = mutation({
-  args: {
-    ownerUserId: v.string(),
-    projectId: v.id("folders"),
-    folderId: v.id("folders"),
-    section: v.union(projectSectionValidator, v.null()),
-  },
-  returns: v.object({ updated: v.boolean() }),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
-
-    const existing = await ctx.db
-      .query("projectCollections")
-      .withIndex("by_project_folder", (q) =>
-        q.eq("projectId", args.projectId).eq("folderId", args.folderId),
-      )
-      .unique();
-    if (!existing) {
-      throw new ConvexError("Collection is not part of this project.");
-    }
-    const section = args.section ?? undefined;
-    if (existing.section === section) {
-      return { updated: false };
-    }
-    await ctx.db.patch(existing._id, { section });
-    await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
-    return { updated: true };
   },
 });
 

@@ -118,8 +118,7 @@ Search dock behavior: debounces 300ms, requires ≥3 chars, replaces grid with s
 
 | Route | Method | Purpose |
 |---|---|---|
-| `/api/semantic/search` | POST | Semantic search (query, scope, filters) |
-| `/api/semantic/similar` | POST | Find similar assets by assetId |
+<!-- The /api/semantic/* wrapper routes were removed 2026-07-27; the UI calls the Convex actions below directly via useAction. -->
 
 ## Environment Variables
 
@@ -141,8 +140,6 @@ SEMANTIC_SEARCH_LIMIT_DEFAULT=24                       # default
 | `convex/semanticIndex.ts` | Indexing logic, embedding calls, reindex actions, failure tracking |
 | `convex/semanticSearch.ts` | Search actions (searchAssets, findSimilarAssets) |
 | `convex/galleryAssetResults.ts` | Hydrates scored results with full asset metadata |
-| `app/api/semantic/search/route.ts` | Next.js API wrapper for search |
-| `app/api/semantic/similar/route.ts` | Next.js API wrapper for similar |
 | `tests/semantic-search.test.ts` | Vector search tests |
 
 ## Discovery Layers (full picture)

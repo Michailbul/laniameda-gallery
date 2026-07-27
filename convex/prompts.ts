@@ -418,46 +418,6 @@ export const listPrompts = query({
   },
 });
 
-export const searchPrompts = query({
-  args: { ownerUserId: v.string(), query: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(
-    v.object({
-      _id: v.id("prompts"),
-      _creationTime: v.number(),
-      ownerUserId: v.optional(v.string()),
-      text: v.string(),
-      tagIds: v.array(v.id("tags")),
-      folderId: v.optional(v.id("folders")),
-      ingestKey: v.optional(v.string()),
-      pillar: pillarValidator,
-      promptType: promptTypeValidator,
-      domain: v.optional(v.string()),
-      modelName: v.optional(v.string()),
-      modelProvider: modelProviderValidator,
-      workflowType: workflowTypeValidator,
-      promptSections: promptSectionsValidator,
-      promptProfile: promptProfileValidator,
-      createdAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-
-    const query = args.query.trim();
-    if (!query) return [];
-    const limit = Math.min(args.limit ?? 20, 50);
-    const rows = await ctx.db
-      .query("prompts")
-      .withSearchIndex("search_text", (q) => q.search("text", query))
-      .take(limit * 3);
-    const results = rows.filter((row) => canActorAccessOwnerUserId(ownerUserId, row.ownerUserId));
-    return results.slice(0, limit);
-  },
-});
-
 export const listPromptOnlyGalleryPrompts = query({
   args: {
     ownerUserId: v.string(),
@@ -612,62 +572,3 @@ export const deletePrompt = internalMutation({
   },
 });
 
-export const bulkDeletePrompts = internalMutation({
-  args: { ids: v.array(v.id("prompts")) },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    let count = 0;
-    for (const id of args.ids) {
-      const linkedAssets = await ctx.db
-        .query("assets")
-        .withIndex("by_prompt_createdAt", (q) =>
-          q.eq("promptId", id).gte("createdAt", 0),
-        )
-        .collect();
-      const linkedDesignInspirations = await ctx.db
-        .query("designInspirations")
-        .withIndex("by_promptId", (q) => q.eq("promptId", id))
-        .collect();
-      const links = await ctx.db
-        .query("promptTags")
-        .withIndex("by_prompt", (q) => q.eq("promptId", id))
-        .collect();
-      for (const link of links) {
-        await ctx.db.delete(link._id);
-      }
-      for (const designInspiration of linkedDesignInspirations) {
-        await ctx.db.patch(designInspiration._id, {
-          promptId: undefined,
-          updatedAt: Date.now(),
-        });
-      }
-      const lineageRows = [
-        ...(await ctx.db
-          .query("generationLineage")
-          .withIndex("by_targetPrompt", (q) => q.eq("targetPromptId", id))
-          .collect()),
-        ...(await ctx.db
-          .query("generationLineage")
-          .withIndex("by_sourcePrompt", (q) => q.eq("sourcePromptId", id))
-          .collect()),
-      ];
-      for (const row of lineageRows) {
-        await ctx.db.delete(row._id);
-      }
-      await ctx.db.delete(id);
-      await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: id });
-      for (const asset of linkedAssets) {
-        await ctx.scheduler.runAfter(0, reindexAssetAction, {
-          assetId: asset._id,
-        });
-      }
-      for (const designInspiration of linkedDesignInspirations) {
-        await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
-          designInspirationId: designInspiration._id,
-        });
-      }
-      count++;
-    }
-    return count;
-  },
-});

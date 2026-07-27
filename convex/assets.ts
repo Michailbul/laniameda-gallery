@@ -694,61 +694,6 @@ export const addAssetFolders = mutation({
   },
 });
 
-export const setAssetDesignInspiration = mutation({
-  args: {
-    ownerUserId: v.string(),
-    assetId: v.id("assets"),
-    designInspirationId: v.optional(v.id("designInspirations")),
-  },
-  returns: v.object({
-    assetId: v.id("assets"),
-    designInspirationId: v.optional(v.id("designInspirations")),
-  }),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset) {
-      throw new ConvexError("Asset not found.");
-    }
-    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
-      throw new ConvexError("Asset does not belong to this user.");
-    }
-
-    if (args.designInspirationId) {
-      const inspiration = await ctx.db.get(args.designInspirationId);
-      if (!inspiration) {
-        throw new ConvexError("Design inspiration not found.");
-      }
-      if (!canActorAccessOwnerUserId(ownerUserId, inspiration.ownerUserId)) {
-        throw new ConvexError("Design inspiration does not belong to this user.");
-      }
-    }
-
-    if (asset.designInspirationId === args.designInspirationId) {
-      return {
-        assetId: args.assetId,
-        designInspirationId: asset.designInspirationId,
-      };
-    }
-
-    await ctx.db.patch(args.assetId, {
-      designInspirationId: args.designInspirationId,
-    });
-    await ctx.scheduler.runAfter(0, reindexAssetAction, {
-      assetId: args.assetId,
-    });
-
-    return {
-      assetId: args.assetId,
-      designInspirationId: args.designInspirationId,
-    };
-  },
-});
-
 export const updateAssetMetadata = mutation({
   args: {
     ownerUserId: v.string(),
@@ -2119,45 +2064,6 @@ export const bulkSetFolderCuration = mutation({
   },
 });
 
-export const hasAssetForIngestKey = query({
-  args: {
-    ownerUserId: v.string(),
-    ingestKey: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-
-    const existing = await ctx.db
-      .query("assets")
-      .withIndex("by_owner_ingestKey", (q) =>
-        q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
-      )
-      .unique();
-    if (existing) {
-      return true;
-    }
-    const ownerCandidates = resolveUserIdCandidates(ownerUserId).filter(
-      (candidate) => candidate !== ownerUserId,
-    );
-    for (const ownerCandidate of ownerCandidates) {
-      const existingByCandidate = await ctx.db
-        .query("assets")
-        .withIndex("by_owner_ingestKey", (q) =>
-          q.eq("ownerUserId", ownerCandidate).eq("ingestKey", args.ingestKey),
-        )
-        .unique();
-      if (existingByCandidate) {
-        return true;
-      }
-    }
-    return false;
-  },
-});
-
 // "Already saved?" check for the extension: exact ingestKey hits plus bounded
 // ingestKey prefix scans. Midjourney serves one generation under several CDN
 // URL variants (grid webp vs full-res jpeg), so exact keys alone would miss
@@ -2231,32 +2137,6 @@ export const checkAssetIngestMatches = query({
     }
 
     return { matchedKeys, matchedPrefixes };
-  },
-});
-
-export const countAssets = query({
-  args: {
-    ownerUserId: v.optional(v.string()),
-  },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    if (args.ownerUserId) {
-      const ownerUserId = args.ownerUserId.trim();
-      if (!ownerUserId) {
-        throw new ConvexError("ownerUserId is required when provided.");
-      }
-      const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-      const rows = [];
-      for (const ownerCandidate of ownerUserIds) {
-        const rowsForOwner = await ctx.db
-          .query("assets")
-          .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0))
-          .collect();
-        rows.push(...rowsForOwner);
-      }
-      return dedupeAssetIds(rows).length;
-    }
-    return await ctx.db.query("assets").collect().then((rows) => rows.length);
   },
 });
 
@@ -2489,65 +2369,6 @@ export const getAssetDownload = query({
   },
 });
 
-// Every named asset of this owner, for the @name selector when composing a
-// beat. Names are hand-given and sparse, so the full list stays small; the
-// client filters as the user types.
-export const listNamedAssets = query({
-  args: {
-    ownerUserId: v.string(),
-  },
-  returns: v.array(
-    v.object({
-      assetId: v.id("assets"),
-      name: v.string(),
-      kind: v.union(v.literal("image"), v.literal("video")),
-      thumbUrl: v.optional(v.string()),
-      tagNames: v.array(v.string()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const named: Doc<"assets">[] = [];
-    for (const ownerCandidate of ownerUserIds) {
-      const rows = await ctx.db
-        .query("assets")
-        .withIndex("by_owner_name", (q) =>
-          q.eq("ownerUserId", ownerCandidate).gt("name", ""),
-        )
-        .take(300);
-      named.push(...rows);
-    }
-
-    const tagNameById = new Map<Id<"tags">, string | null>();
-    const resolveTagNames = async (tagIds: Id<"tags">[]) => {
-      const names: string[] = [];
-      for (const tagId of tagIds) {
-        if (!tagNameById.has(tagId)) {
-          const tag = await ctx.db.get(tagId);
-          tagNameById.set(tagId, tag?.name ?? null);
-        }
-        const name = tagNameById.get(tagId);
-        if (name) names.push(name);
-      }
-      return names;
-    };
-
-    return await Promise.all(
-      named.map(async (asset) => ({
-        assetId: asset._id,
-        name: asset.name!,
-        kind: asset.kind,
-        thumbUrl: (await resolveAssetThumbUrl(ctx, asset)) ?? undefined,
-        tagNames: await resolveTagNames(asset.tagIds),
-      })),
-    );
-  },
-});
-
 // Reference options for the @ selector: every named asset PLUS the newest
 // assets across the gallery, so ANY asset can be pulled into a beat — named
 // ones by @name, the rest by file name. The client filters as the user types.
@@ -2707,30 +2528,6 @@ const setTagPresenceOnAsset = async (
   return asset._id;
 };
 
-// Toggle the global "approved" tag on an asset. Boolean-flag ergonomics like
-// setAssetLiked, but stored as a regular tag so the existing tag filter shows
-// the approved shortlist (project view + "approved" filter).
-export const setAssetApproved = mutation({
-  args: {
-    ownerUserId: v.string(),
-    assetId: v.id("assets"),
-    approved: v.boolean(),
-  },
-  returns: v.object({
-    assetId: v.id("assets"),
-    approved: v.boolean(),
-  }),
-  handler: async (ctx, args) => {
-    const assetId = await setTagPresenceOnAsset(
-      ctx,
-      args,
-      APPROVED_TAG_NAME,
-      args.approved,
-    );
-    return { assetId, approved: args.approved };
-  },
-});
-
 // Toggle any global tag on an asset with the same boolean-flag ergonomics.
 // Powers the project workspace role chips (character / location), where a
 // tag IS the asset's role inside a direction.
@@ -2810,56 +2607,6 @@ export const listAssetsForStyleClassification = query({
           .filter((name): name is string => Boolean(name)),
       })),
     );
-  },
-});
-
-export const tagAssetCounts = query({
-  args: {
-    ownerUserId: v.optional(v.string()),
-    isPublic: v.optional(v.boolean()),
-  },
-  returns: v.array(v.object({ tagId: v.id("tags"), count: v.number() })),
-  handler: async (ctx, args) => {
-    let assets;
-    if (args.isPublic) {
-      assets = await ctx.db
-        .query("assets")
-        .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
-        .collect();
-    } else if (args.ownerUserId) {
-      const ownerUserId = args.ownerUserId.trim();
-      if (!ownerUserId) {
-        throw new ConvexError("ownerUserId is required when provided.");
-      }
-      const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-      const rows = [];
-      for (const ownerCandidate of ownerUserIds) {
-        const rowsForOwner = await ctx.db
-          .query("assets")
-          .withIndex("by_owner_createdAt", (q) =>
-            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-          )
-          .collect();
-        rows.push(...rowsForOwner);
-      }
-      assets = dedupeAssetIds(rows);
-    } else {
-      assets = await ctx.db.query("assets").collect();
-    }
-
-    const counts = new Map<Id<"tags">, number>();
-    for (const asset of assets) {
-      const seen = new Set<Id<"tags">>();
-      for (const tagId of asset.tagIds) {
-        if (seen.has(tagId)) continue;
-        seen.add(tagId);
-        counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
-      }
-    }
-    return Array.from(counts.entries()).map(([tagId, count]) => ({
-      tagId,
-      count,
-    }));
   },
 });
 

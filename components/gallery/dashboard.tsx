@@ -1,7 +1,7 @@
 "use client";
 
 import "@/app/tokens.css";
-import { compareCollectionPillarNames } from "@/lib/collection-pillars";
+import { compareCollectionSectionNames } from "@/lib/collection-sections";
 
 import {
   type SetStateAction,
@@ -28,7 +28,6 @@ import { GallerySidebar } from "./sidebar";
 import {
   GalleryFilterBar,
   type GalleryScope,
-  type Pillar,
   type SortOrder,
   type ViewMode,
 } from "./filter-bar";
@@ -44,7 +43,6 @@ import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
 import { ReviewModal } from "./review-modal";
 import { UploadModal } from "@/components/upload-modal";
-import { CinemaUploadModal } from "@/components/cinema-upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
 import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
@@ -301,8 +299,6 @@ export function GalleryDashboard({
   );
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedPillar, setSelectedPillar] =
-    useState<Pillar | null>(null);
   const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
   const [likedOnly, setLikedOnly] = useState<boolean>(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
@@ -401,21 +397,14 @@ export function GalleryDashboard({
   >(undefined);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
-  const [isCinemaUploadOpen, setCinemaUploadOpen] = useState(false);
   const [selectedCinemaAsset, setSelectedCinemaAsset] =
     useState<CinemaModalAsset | null>(null);
   const [isSeedanceOpen, setSeedanceOpen] = useState(false);
 
-  // Add button routes to the cinema upload flow when cinema-inspiration is selected;
-  // otherwise falls back to the generic upload modal.
   const openAddModal = useCallback(() => {
-    if (selectedPillar === "cinema-inspiration") {
-      setCinemaUploadOpen(true);
-    } else {
-      setUploadInitialFiles(undefined);
-      setUploadOpen(true);
-    }
-  }, [selectedPillar]);
+    setUploadInitialFiles(undefined);
+    setUploadOpen(true);
+  }, []);
 
   const closeUploadModal = useCallback(() => {
     setUploadOpen(false);
@@ -439,7 +428,6 @@ export function GalleryDashboard({
   const canAcceptShellDrop =
     canAccessMyGallery &&
     !isUploadOpen &&
-    !isCinemaUploadOpen &&
     !openProjectId &&
     !openStorybookId;
 
@@ -1651,8 +1639,7 @@ export function GalleryDashboard({
     sortOrder === "newest" &&
     !effectiveSelectedFolderId &&
     !browseProject &&
-    !selectedTagIds &&
-    selectedPillar !== "designs";
+    !selectedTagIds;
 
   // Collection browsing gets its own cursor pagination over the membership
   // links, so a collection of ANY size streams fully (no 600-item cap).
@@ -1665,7 +1652,6 @@ export function GalleryDashboard({
     !browseProject &&
     sortOrder === "newest" &&
     !selectedTagIds &&
-    !selectedPillar &&
     !selectedModelName &&
     !mediaKind &&
     !likedOnly;
@@ -1676,7 +1662,6 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
@@ -1689,7 +1674,6 @@ export function GalleryDashboard({
     paginationActive && galleryScope === "public"
       ? {
           tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
         }
@@ -1729,7 +1713,6 @@ export function GalleryDashboard({
     galleryScope === "mine" &&
     viewMode === "grid" &&
     !effectiveSelectedFolderId &&
-    !selectedPillar &&
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
@@ -1747,7 +1730,6 @@ export function GalleryDashboard({
     !browseProject &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
-    !selectedPillar &&
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
@@ -1767,7 +1749,6 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
           folderId:
             effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
@@ -1826,7 +1807,6 @@ export function GalleryDashboard({
     !paginationActive && galleryScope === "public"
       ? {
           tagIds: selectedTagIds,
-          pillar: selectedPillar ?? undefined,
           folderId:
             effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
@@ -1837,25 +1817,6 @@ export function GalleryDashboard({
         }
       : "skip",
   );
-
-  const mineDesignEntries = useQuery(
-    api.designInspirations.listDesignGalleryEntries,
-    galleryScope === "mine" &&
-      canAccessMyGallery &&
-      selectedPillar === "designs"
-      ? {
-          ownerUserId,
-          pillar: "designs",
-          requireAsset: true,
-          folderId:
-            effectiveSelectedFolderId && !activeSmartCollectionFilter
-            ? (effectiveSelectedFolderId as Id<"folders">)
-            : undefined,
-          limit: 2000,
-        }
-      : "skip",
-  );
-  const isDesignsPillar = selectedPillar === "designs" && !workflowsOnly;
 
   const galleryAssets = anyPaginationActive
     ? activePagedAssets.results
@@ -1906,7 +1867,6 @@ export function GalleryDashboard({
       ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
       scope: galleryScope,
       query: debouncedAssetSearchQuery,
-      pillar: selectedPillar ?? undefined,
       folderId:
         galleryScope === "mine" &&
         effectiveSelectedFolderId &&
@@ -1956,7 +1916,6 @@ export function GalleryDashboard({
     isSimilarMode,
     ownerUserId,
     selectedModelName,
-    selectedPillar,
     semanticSearchAction,
   ]);
 
@@ -2000,7 +1959,6 @@ export function GalleryDashboard({
   // so the button appeared broken on zero-result searches.)
   const handleClearFilters = () => {
     setSelectedTags([]);
-    setSelectedPillar(null);
     setSelectedFolderId(null);
     setBrowseProject(null);
     setSelectedModelName(null);
@@ -2074,9 +2032,6 @@ export function GalleryDashboard({
       if (mediaKind && asset.kind !== mediaKind) {
         return false;
       }
-      if (selectedPillar && asset.pillar !== selectedPillar) {
-        return false;
-      }
       if (
         selectedTagIds &&
         !asset.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
@@ -2091,7 +2046,6 @@ export function GalleryDashboard({
     galleryScope,
     mediaKind,
     selectedModelName,
-    selectedPillar,
     selectedTagIds,
     semanticResults,
   ]);
@@ -2102,62 +2056,6 @@ export function GalleryDashboard({
       : lexicalFilteredAssets;
 
   const baseImages = useMemo(() => {
-    // Design inspirations have their own data source
-    if (isDesignsPillar && mineDesignEntries) {
-      return mineDesignEntries
-        .filter((entry) => !hiddenAssetIds.has(entry._id) && entry.previewUrl)
-        .map((entry) => ({
-          id: entry._id,
-          galleryItemId: entry._id,
-          galleryItemType: "design" as const,
-          src: entry.previewThumbUrl ?? entry.previewUrl ?? "/placeholder.svg",
-          fullSrc: entry.previewUrl ?? "/placeholder.svg",
-          prompt: entry.title ?? entry.sourceTitle ?? entry.sourceDomain ?? "Design reference",
-          author: "Extension",
-          likes: 0,
-          width: entry.previewWidth ?? undefined,
-          height: entry.previewHeight ?? undefined,
-          modelName: undefined as string | undefined,
-          pillar: "designs" as string | undefined,
-          tagNames: entry.tagNames ?? [],
-          sourceUrl: entry.sourceUrl ?? undefined,
-          createdAt: entry.createdAt,
-          folderId: entry.folderId ?? undefined,
-          folderIds: entry.folderId ? [entry.folderId] : [],
-          isPublic: false,
-          isFeatured: false,
-          initiallyLoaded: loadedImageIdsRef.current.has(entry._id),
-          isDesignInspiration: true,
-          designTitle: entry.title ?? undefined,
-          designDescription: entry.description ?? undefined,
-          designInspirationId: entry._id,
-          sourceDomain: entry.sourceDomain ?? undefined,
-          captureKind: entry.captureKind ?? undefined,
-          saveIntent: entry.saveIntent ?? undefined,
-          inspirationType: entry.inspirationType ?? undefined,
-          userNote: entry.userNote ?? undefined,
-          previewImages: [
-            {
-              id: entry._id,
-              galleryItemId: entry._id,
-              galleryItemType: "design" as const,
-              src:
-                entry.previewThumbUrl ??
-                entry.previewUrl ??
-                "/placeholder.svg",
-              fullSrc: entry.previewUrl ?? "/placeholder.svg",
-              prompt:
-                entry.title ??
-                entry.sourceTitle ??
-                entry.sourceDomain ??
-                "Design reference",
-              width: entry.previewWidth ?? undefined,
-              height: entry.previewHeight ?? undefined,
-            },
-          ],
-        }));
-    }
-
     if (!displayGalleryAssets) return [];
     return buildGalleryEntries({
       assets: displayGalleryAssets,
@@ -2171,8 +2069,6 @@ export function GalleryDashboard({
     hiddenAssetIds,
     sortOrder,
     shuffleSeed,
-    isDesignsPillar,
-    mineDesignEntries,
   ]);
 
   // Workflows are an organizing layer — they mix into the grid as their own
@@ -2183,7 +2079,6 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           scope: galleryScope,
-          pillar: selectedPillar ?? undefined,
           limit: 40,
           previewLimit: 8,
         }
@@ -2252,7 +2147,6 @@ export function GalleryDashboard({
     viewMode === "grid" &&
     !effectiveSelectedFolderId &&
     !browseProject &&
-    !selectedPillar &&
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
@@ -2720,7 +2614,7 @@ export function GalleryDashboard({
     }
     for (const children of childrenByParent.values()) {
       children.sort((left, right) =>
-        compareCollectionPillarNames(left.name, right.name),
+        compareCollectionSectionNames(left.name, right.name),
       );
     }
     return { roots, childrenByParent };
@@ -3211,28 +3105,9 @@ export function GalleryDashboard({
         });
         return;
       }
-      // Enrich with design-specific fields from mineDesignEntries
-      if (isDesignsPillar && mineDesignEntries) {
-        const entry = mineDesignEntries.find((e) => e._id === img.id);
-        if (entry) {
-          setSelectedImage({
-            ...img,
-            isDesignInspiration: true,
-            designTitle: entry.title ?? undefined,
-            designDescription: entry.description ?? undefined,
-            designInspirationId: entry._id,
-            sourceDomain: entry.sourceDomain ?? undefined,
-            captureKind: entry.captureKind ?? undefined,
-            saveIntent: entry.saveIntent ?? undefined,
-            inspirationType: entry.inspirationType ?? undefined,
-            userNote: entry.userNote ?? undefined,
-          });
-          return;
-        }
-      }
       setSelectedImage(img);
     },
-    [isDesignsPillar, mineDesignEntries, images],
+    [images],
   );
 
   const selectImageByEntry = useCallback(
@@ -3611,8 +3486,6 @@ export function GalleryDashboard({
   const isLoading =
     showChildCollectionStacks && childCollectionStacks === undefined
       ? true
-      : isDesignsPillar && galleryScope === "mine"
-      ? canAccessMyGallery && mineDesignEntries === undefined
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
           activePagedAssets.status === "LoadingFirstPage"
@@ -3622,7 +3495,6 @@ export function GalleryDashboard({
           : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
-    selectedPillar !== null ||
     workflowsOnly ||
     likedOnly ||
     effectiveSelectedFolderId !== null ||
@@ -3763,7 +3635,7 @@ export function GalleryDashboard({
     <NoticeToast notice={folderPublishNotice} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
-      data-pillar={selectedPillar ?? "creators"}
+      data-pillar="creators"
       style={{ backgroundColor: "var(--lm-surface-0)" }}
       onDragEnter={handleShellDragEnter}
       onDragOver={handleShellDragOver}
@@ -3869,7 +3741,6 @@ export function GalleryDashboard({
       <div className="hidden md:block">
         <GallerySidebar
           modelTags={modelTags}
-          hideModelsSection={selectedPillar === "cinema-inspiration"}
           selectedModelName={selectedModelName}
           onModelSelect={(name) => {
             // Navigating anywhere else leaves the project workspace — the
@@ -4275,7 +4146,6 @@ export function GalleryDashboard({
                   ) : (
                     <PackGrid
                       ownerUserId={ownerUserId}
-                      selectedPillar={selectedPillar}
                       selectedTagIds={selectedTagIds}
                       selectedModelName={selectedModelName}
                       onPackSelect={setSelectedPackId}
@@ -4311,7 +4181,6 @@ export function GalleryDashboard({
                     images={images}
                     compactColumns={Boolean(selectedImage)}
                     selectedImageId={selectedImage?.id}
-                    gapPx={selectedPillar === "cinema-inspiration" ? 14 : undefined}
                     onImageSelect={handleImageSelect}
                     onImageLoad={markImageLoaded}
                     canDelete={canDeleteInCurrentView}
@@ -4456,14 +4325,6 @@ export function GalleryDashboard({
                     WHAT YOU ARE LOOKING FOR.
                   </p>
                   <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
-                    {selectedPillar && (
-                      <span
-                        className="lm-chip"
-                        style={{ borderRadius: "12px" }}
-                      >
-                        {selectedPillar}
-                      </span>
-                    )}
                     {effectiveSelectedFolderId && (
                       <span
                         className="lm-chip"
@@ -5290,12 +5151,6 @@ export function GalleryDashboard({
       <SeedanceIngestModal
         open={isSeedanceOpen}
         onClose={() => setSeedanceOpen(false)}
-      />
-
-      <CinemaUploadModal
-        open={isCinemaUploadOpen}
-        onClose={() => setCinemaUploadOpen(false)}
-        ownerUserId={ownerUserId}
       />
 
       <CinemaModal

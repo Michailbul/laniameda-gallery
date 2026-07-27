@@ -214,21 +214,6 @@ export default defineSchema({
     .index("by_project_viewer_asset", ["projectId", "viewerKey", "assetId"])
     .index("by_project_viewer_folder", ["projectId", "viewerKey", "folderId"])
     .index("by_project_viewer", ["projectId", "viewerKey"]),
-  userPillars: defineTable({
-    ownerUserId: v.string(),
-    key: v.string(),
-    label: v.string(),
-    description: v.optional(v.string()),
-    color: v.optional(v.string()),
-    icon: v.optional(v.string()),
-    sortOrder: v.number(),
-    isDefault: v.optional(v.boolean()),
-    archivedAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_owner_key", ["ownerUserId", "key"])
-    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"]),
   prompts: defineTable({
     ownerUserId: v.optional(v.string()),
     text: v.string(),
@@ -469,16 +454,6 @@ export default defineSchema({
     .index("by_targetAsset", ["targetAssetId"])
     .index("by_sourcePrompt", ["sourcePromptId"])
     .index("by_sourceAsset", ["sourceAssetId"]),
-  canvasPositions: defineTable({
-    assetId: v.id("assets"),
-    ownerUserId: v.string(),
-    x: v.number(),
-    y: v.number(),
-    zIndex: v.optional(v.number()),
-    updatedAt: v.number(),
-  })
-    .index("by_owner_asset", ["ownerUserId", "assetId"])
-    .index("by_owner", ["ownerUserId"]),
   ingest_failures: defineTable({
     source: v.union(v.literal("api")),
     ownerUserId: v.optional(v.string()),

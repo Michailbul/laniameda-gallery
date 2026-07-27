@@ -30,7 +30,7 @@ import {
   hasAssetDragPayload,
   readAssetDragPayload,
 } from "@/lib/asset-drag";
-import { compareCollectionPillarNames } from "@/lib/collection-pillars";
+import { compareCollectionSectionNames } from "@/lib/collection-sections";
 
 interface ModelTag {
   name: string;
@@ -259,7 +259,7 @@ export function GallerySidebar({
     }
     for (const childrenForParent of children.values()) {
       childrenForParent.sort((left, right) =>
-        compareCollectionPillarNames(left.name, right.name),
+        compareCollectionSectionNames(left.name, right.name),
       );
     }
     return { rootFolders: roots, childrenByParent: children };

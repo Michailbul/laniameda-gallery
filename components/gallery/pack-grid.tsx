@@ -8,7 +8,6 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
-import type { Pillar } from "./filter-bar";
 
 /* ── Types ── */
 
@@ -33,7 +32,6 @@ type PackWithCover = {
 
 type PackGridProps = {
   ownerUserId: string;
-  selectedPillar: Pillar | null;
   selectedTagIds?: Id<"tags">[];
   selectedModelName?: string | null;
   onPackSelect: (packId: string) => void;
@@ -1131,7 +1129,6 @@ function distributeColumns<T>(items: T[], numColumns: number): T[][] {
 
 export function PackGrid({
   ownerUserId,
-  selectedPillar,
   selectedTagIds,
   selectedModelName,
   onPackSelect,
@@ -1140,7 +1137,6 @@ export function PackGrid({
     api.assetPacks.listAssetPacksWithCovers,
     {
       ownerUserId,
-      pillar: selectedPillar ?? undefined,
       tagIds: selectedTagIds && selectedTagIds.length > 0 ? selectedTagIds : undefined,
       modelName: selectedModelName ?? undefined,
       limit: 60,

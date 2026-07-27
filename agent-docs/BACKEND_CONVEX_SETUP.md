@@ -38,13 +38,9 @@ Last updated: 2026-03-17
 | Route | Responsibility |
 |---|---|
 | `/api/auth/me` | Resolve current session to app user |
-| `/api/gallery/assets` | Gallery data for `mine` and `public` scopes |
 | `/api/folders` | Owner-scoped folder list/create |
 | `/api/assets/[assetId]` | Owner-scoped delete |
-| `/api/assets/[assetId]/folder` | Owner-scoped folder assignment |
 | `/api/canvas/positions` | Owner-scoped canvas sync |
-| `/api/semantic/search` | Semantic search wrapper |
-| `/api/semantic/similar` | Similar-assets wrapper |
 | `/api/ingest` | Server-side ingest entrypoint |
 | `/api/agent/tokens` | Session-backed agent token issue/list |
 | `/api/agent/ingest` | Token-backed agent ingest; derives owner server-side |

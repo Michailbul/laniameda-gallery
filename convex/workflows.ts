@@ -352,46 +352,6 @@ export const createWorkflow = mutation({
   },
 });
 
-export const updateWorkflow = mutation({
-  args: {
-    ownerUserId: v.string(),
-    id: v.id("workflows"),
-    title: v.optional(v.string()),
-    description: v.optional(v.string()),
-    agentInstructions: v.optional(v.string()),
-    pillar: optionalPillarValidator,
-    isPublic: v.optional(v.boolean()),
-    isFeatured: v.optional(v.boolean()),
-    coverAssetId: v.optional(v.id("assets")),
-  },
-  returns: v.id("workflows"),
-  handler: async (ctx, args) => {
-    const workflow = await ctx.db.get(args.id);
-    if (!workflow) {
-      throw new ConvexError("Workflow not found.");
-    }
-    if (!canActorAccessOwnerUserId(args.ownerUserId, workflow.ownerUserId)) {
-      throw new ConvexError("Workflow does not belong to this user.");
-    }
-
-    const patch: Partial<Omit<Doc<"workflows">, "_id" | "_creationTime">> = {
-      updatedAt: Date.now(),
-    };
-    if (args.title !== undefined) patch.title = args.title.trim();
-    if (args.description !== undefined) patch.description = args.description.trim() || undefined;
-    if (args.agentInstructions !== undefined) {
-      patch.agentInstructions = args.agentInstructions.trim() || undefined;
-    }
-    if (args.pillar !== undefined) patch.pillar = args.pillar;
-    if (args.isPublic !== undefined) patch.isPublic = args.isPublic;
-    if (args.isFeatured !== undefined) patch.isFeatured = args.isFeatured;
-    if (args.coverAssetId !== undefined) patch.coverAssetId = args.coverAssetId;
-
-    await ctx.db.patch(args.id, patch);
-    return args.id;
-  },
-});
-
 export const deleteWorkflow = mutation({
   args: { ownerUserId: v.string(), id: v.id("workflows") },
   returns: v.null(),

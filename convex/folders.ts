@@ -18,7 +18,7 @@ import {
 import { collectAssetsForFolder } from "./assets";
 import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
-import { compareCollectionPillarNames } from "../lib/collection-pillars";
+import { compareCollectionSectionNames } from "../lib/collection-sections";
 
 export const folderKindValidator = v.optional(
   v.union(
@@ -436,81 +436,6 @@ export const setTasteCollection = mutation({
   },
 });
 
-// Nest a collection under a parent (or lift it back to root with null).
-// One level only: the moved collection must not have children of its own.
-export const setFolderParent = mutation({
-  args: {
-    ownerUserId: v.string(),
-    folderId: v.id("folders"),
-    parentFolderId: v.union(v.id("folders"), v.null()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    const folder = await ctx.db.get(args.folderId);
-    if (!folder) {
-      throw new ConvexError("Folder not found.");
-    }
-    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
-      throw new ConvexError("Folder does not belong to this user.");
-    }
-    if (folder.kind !== undefined) {
-      throw new ConvexError("Only plain collections can be nested.");
-    }
-
-    const nextParentId =
-      args.parentFolderId === null ? undefined : args.parentFolderId;
-    if (nextParentId === folder.parentFolderId) return null;
-
-    if (nextParentId !== undefined) {
-      if (nextParentId === args.folderId) {
-        throw new ConvexError("A collection can't be nested inside itself.");
-      }
-      await assertValidParent(ctx, ownerUserId, nextParentId);
-      const children = await ctx.db
-        .query("folders")
-        .withIndex("by_parent", (q) => q.eq("parentFolderId", args.folderId))
-        .take(1);
-      if (children.length > 0) {
-        throw new ConvexError(
-          "This collection has sub-collections of its own — lift those out first.",
-        );
-      }
-    }
-
-    // Re-scope the canonical name to the new parent; refuse on collision.
-    const normalizedName = scopedNormalizedName(folder.name, nextParentId);
-    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    for (const ownerCandidate of ownerUserIds) {
-      const duplicate = await ctx.db
-        .query("folders")
-        .withIndex("by_owner_normalizedName", (q) =>
-          q.eq("ownerUserId", ownerCandidate).eq("normalizedName", normalizedName),
-        )
-        .unique();
-      if (duplicate && duplicate._id !== args.folderId) {
-        throw new ConvexError(
-          "A collection with this name already exists at that level.",
-        );
-      }
-    }
-
-    await ctx.db.patch(args.folderId, {
-      parentFolderId: nextParentId,
-      normalizedName,
-      // A nested collection is never independently showcased.
-      showcased: nextParentId !== undefined ? undefined : folder.showcased,
-      showcaseFeatured:
-        nextParentId !== undefined ? undefined : folder.showcaseFeatured,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
-});
-
 export const deleteFolder = mutation({
   args: {
     ownerUserId: v.string(),
@@ -892,7 +817,7 @@ export const listChildCollectionEntries = query({
     return await Promise.all(
       accessibleChildren
         .sort((left, right) =>
-          compareCollectionPillarNames(left.name, right.name),
+          compareCollectionSectionNames(left.name, right.name),
         )
         .map(async (folder) => {
           const [count, previewAssets] = await Promise.all([

@@ -11,9 +11,10 @@ test("destructive prompt mutations stay internal-only", () => {
   const source = read("convex/prompts.ts");
 
   expect(source).toContain("export const deletePrompt = internalMutation({");
-  expect(source).toContain("export const bulkDeletePrompts = internalMutation({");
 
   expect(source).not.toContain("export const deletePrompt = mutation({");
+  // bulkDeletePrompts was removed outright (dead code); it must not come back
+  // as a public mutation.
   expect(source).not.toContain("export const bulkDeletePrompts = mutation({");
 });
 

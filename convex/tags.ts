@@ -1,5 +1,5 @@
 import { internalMutation, mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { Id } from "./_generated/dataModel";
 import {
@@ -35,42 +35,6 @@ const findByName = (
     (canonical ? byCanonical.get(canonical) : undefined);
   return match ?? null;
 };
-
-export const getOrCreateTag = mutation({
-  args: { name: v.string() },
-  returns: v.id("tags"),
-  handler: async (ctx, args) => {
-    const normalized = normalizeTagName(args.name);
-    if (!normalized) {
-      throw new ConvexError("Tag name is required.");
-    }
-
-    const existing = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
-      .unique();
-    if (existing) return existing._id;
-
-    const canonical = canonicalTagKey(args.name);
-    if (canonical) {
-      const allTags = await ctx.db
-        .query("tags")
-        .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-        .collect();
-      const canonicalMatch = allTags.find(
-        (tag) => canonicalTagKey(tag.name) === canonical,
-      );
-      if (canonicalMatch) return canonicalMatch._id;
-    }
-
-    return await ctx.db.insert("tags", {
-      name: args.name.trim(),
-      normalized,
-      canonicalKey: canonicalTagKey(args.name),
-      usageCount: 0,
-    });
-  },
-});
 
 export const getOrCreateTags = mutation({
   args: { names: v.array(v.string()) },
@@ -118,64 +82,6 @@ export const getOrCreateTags = mutation({
     }
 
     return ids;
-  },
-});
-
-export const getOrCreateTagWithCategory = mutation({
-  args: {
-    name: v.string(),
-    category: tagCategoryValidator,
-    pillar: optionalPillarValidator,
-    source: tagSourceValidator,
-  },
-  returns: v.id("tags"),
-  handler: async (ctx, args) => {
-    const normalized = normalizeTagName(args.name);
-    if (!normalized) {
-      throw new ConvexError("Tag name is required.");
-    }
-
-    const existing = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
-      .unique();
-    let match = existing ?? null;
-
-    if (!match) {
-      const canonical = canonicalTagKey(args.name);
-      if (canonical) {
-        const allTags = await ctx.db
-          .query("tags")
-          .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-          .collect();
-        match = allTags.find((tag) => canonicalTagKey(tag.name) === canonical) ?? null;
-      }
-    }
-
-    if (match) {
-      const patch: {
-        category?: typeof args.category;
-        pillar?: typeof args.pillar;
-        source?: typeof args.source;
-      } = {};
-      if (args.category && !match.category) patch.category = args.category;
-      if (args.pillar && !match.pillar) patch.pillar = args.pillar;
-      if (args.source && !match.source) patch.source = args.source;
-      if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(match._id, patch);
-      }
-      return match._id;
-    }
-
-    return await ctx.db.insert("tags", {
-      name: args.name.trim(),
-      normalized,
-      canonicalKey: canonicalTagKey(args.name),
-      usageCount: 0,
-      category: args.category,
-      pillar: args.pillar,
-      source: args.source,
-    });
   },
 });
 
@@ -255,6 +161,7 @@ export const listTags = query({
       _creationTime: v.number(),
       name: v.string(),
       normalized: v.string(),
+      canonicalKey: v.optional(v.string()),
       usageCount: v.number(),
       category: tagCategoryValidator,
       pillar: optionalPillarValidator,
