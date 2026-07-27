@@ -69,6 +69,11 @@ class InMemoryQuery {
     return docs[0];
   }
 
+  async first() {
+    const docs = this.execute();
+    return docs.length > 0 ? docs[0] : null;
+  }
+
   private execute() {
     const docs = this.db.getTableDocs(this.table).filter((doc) => {
       for (const constraint of this.constraints) {

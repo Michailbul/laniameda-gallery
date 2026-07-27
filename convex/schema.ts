@@ -59,13 +59,19 @@ export default defineSchema({
   tags: defineTable({
     name: v.string(),
     normalized: v.string(),
+    // canonicalTagKey(name) — the key every lookup actually matches on.
+    // `normalized` uses a different (older) normalization, which forced
+    // full-table scans; index lookups go through this column instead.
+    // Backfill: tags:backfillCanonicalKeys.
+    canonicalKey: v.optional(v.string()),
     usageCount: v.number(),
     category: tagCategoryValidator,
     pillar: optionalPillarValidator,
     source: tagSourceValidator,
     aliases: v.optional(v.array(v.string())),
   })
-    .index("by_normalized", ["normalized"]),
+    .index("by_normalized", ["normalized"])
+    .index("by_canonicalKey", ["canonicalKey"]),
   userTags: defineTable({
     ownerUserId: v.string(),
     tagId: v.id("tags"),

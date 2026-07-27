@@ -16,7 +16,7 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import { collectAssetsForFolder } from "./assets";
-import { canonicalTagKey } from "./helpers";
+import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { compareCollectionPillarNames } from "../lib/collection-pillars";
 
@@ -823,18 +823,7 @@ export const listCollectionSummaries = query({
         .map(canonicalTagKey)
         .filter((key) => key.length > 0),
     );
-    const allTags = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-      .collect();
-    const tagIdsByName = new Map<string, Id<"tags">[]>();
-    for (const tag of allTags) {
-      const key = canonicalTagKey(tag.name);
-      if (!key || !smartTagKeys.has(key)) continue;
-      const ids = tagIdsByName.get(key) ?? [];
-      ids.push(tag._id);
-      tagIdsByName.set(key, ids);
-    }
+    const tagIdsByName = await findTagIdsByCanonicalKeys(ctx, smartTagKeys);
 
     return await Promise.all(
       collections.map(async (folder) => {

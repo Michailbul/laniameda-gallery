@@ -123,47 +123,49 @@ const resolveTagIdsForNames = async (
     return [] as Id<"tags">[];
   }
 
-  const allTags = await ctx.db
-    .query("tags")
-    .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-    .collect();
-  const byNormalized = new Map(allTags.map((tag) => [tag.normalized, tag]));
-  const byCanonical = new Map<string, Doc<"tags">>();
-  for (const tag of allTags) {
-    const canonical = canonicalTagKey(tag.name);
-    if (canonical) byCanonical.set(canonical, tag);
-  }
-
+  // Per-name indexed lookups (by_normalized, then by_canonicalKey) replace
+  // the old full tags-table scan on every ingest.
+  const resolvedByCanonical = new Map<string, Id<"tags">>();
   const tagIds: Id<"tags">[] = [];
   for (const name of cleanedNames) {
     const normalized = normalizeTagName(name);
     const canonical = canonicalTagKey(name);
+    const cached = canonical
+      ? resolvedByCanonical.get(canonical)
+      : undefined;
+    if (cached) {
+      tagIds.push(cached);
+      continue;
+    }
+
     const existing =
-      byNormalized.get(normalized) ||
-      (canonical ? byCanonical.get(canonical) : undefined);
+      (await ctx.db
+        .query("tags")
+        .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
+        .first()) ??
+      (canonical
+        ? await ctx.db
+            .query("tags")
+            .withIndex("by_canonicalKey", (q) =>
+              q.eq("canonicalKey", canonical),
+            )
+            .first()
+        : null);
     if (existing) {
       tagIds.push(existing._id);
+      if (canonical) resolvedByCanonical.set(canonical, existing._id);
       continue;
     }
 
     const tagId = await ctx.db.insert("tags", {
       name,
       normalized,
+      canonicalKey: canonicalTagKey(name),
       usageCount: 0,
       pillar,
       source: "user",
     });
-    const inserted = {
-      _id: tagId,
-      _creationTime: Date.now(),
-      name,
-      normalized,
-      usageCount: 0,
-      pillar,
-      source: "user" as const,
-    } as Doc<"tags">;
-    byNormalized.set(normalized, inserted);
-    if (canonical) byCanonical.set(canonical, inserted);
+    if (canonical) resolvedByCanonical.set(canonical, tagId);
     tagIds.push(tagId);
   }
 
@@ -2287,39 +2289,46 @@ export const addAssetTags = mutation({
       throw new ConvexError("Asset does not belong to this user.");
     }
 
-    const allTags = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-      .collect();
-    const byNormalized = new Map(allTags.map((tag) => [tag.normalized, tag]));
-    const byCanonical = new Map(
-      allTags
-        .map((tag) => [canonicalTagKey(tag.name), tag] as const)
-        .filter(([key]) => Boolean(key)),
-    );
-
+    // Per-name indexed lookups — this used to full-scan the tags table on
+    // every single-asset tag add.
+    const resolvedByCanonical = new Map<string, Id<"tags">>();
     const resolvedTagIds: Id<"tags">[] = [];
     const addedTagNames: string[] = [];
     for (const raw of args.tagNames) {
       const normalized = normalizeTagName(raw);
       if (!normalized) continue;
       const canonical = canonicalTagKey(raw);
+      const cached = canonical ? resolvedByCanonical.get(canonical) : undefined;
+      if (cached) {
+        resolvedTagIds.push(cached);
+        continue;
+      }
       const existing =
-        byNormalized.get(normalized) ??
-        (canonical ? byCanonical.get(canonical) : undefined);
+        (await ctx.db
+          .query("tags")
+          .withIndex("by_normalized", (q) => q.eq("normalized", normalized))
+          .first()) ??
+        (canonical
+          ? await ctx.db
+              .query("tags")
+              .withIndex("by_canonicalKey", (q) =>
+                q.eq("canonicalKey", canonical),
+              )
+              .first()
+          : null);
       if (existing) {
         resolvedTagIds.push(existing._id);
+        if (canonical) resolvedByCanonical.set(canonical, existing._id);
         continue;
       }
       const tagId = await ctx.db.insert("tags", {
         name: raw.trim(),
         normalized,
+        canonicalKey: canonicalTagKey(raw),
         usageCount: 0,
       });
       resolvedTagIds.push(tagId);
-      const inserted = { _id: tagId, name: raw.trim(), normalized, usageCount: 0 };
-      byNormalized.set(normalized, inserted as (typeof allTags)[number]);
-      if (canonical) byCanonical.set(canonical, inserted as (typeof allTags)[number]);
+      if (canonical) resolvedByCanonical.set(canonical, tagId);
     }
 
     const existingSet = new Set(asset.tagIds);
@@ -2651,6 +2660,7 @@ const setTagPresenceOnAsset = async (
       const tagId = await ctx.db.insert("tags", {
         name: tagName,
         normalized,
+        canonicalKey: canonicalTagKey(tagName),
         usageCount: 0,
       });
       tag = await ctx.db.get(tagId);

@@ -101,6 +101,7 @@ const getOrCreateTag = async (
   return await ctx.db.insert("tags", {
     name,
     normalized,
+    canonicalKey: canonicalTagKey(name),
     usageCount: 0,
     category: input.category,
     pillar: input.pillar,

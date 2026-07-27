@@ -1,7 +1,7 @@
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { canonicalTagKey } from "./helpers";
+import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
@@ -89,20 +89,19 @@ const listOwnerMenuFilters = async (ctx: QueryCtx, ownerUserId: string) => {
   );
 };
 
-// Every tags-table doc whose canonical name matches one of the entry's names.
+// Every tags-table doc whose canonical name matches one of the entry's names
+// (pre-resolved via the by_canonicalKey index).
 const resolveTagIdsForNames = (
-  allTags: Array<{ _id: Id<"tags">; name: string }>,
+  tagIdsByKey: Map<string, Id<"tags">[]>,
   tagNames: string[] | undefined,
 ) => {
-  const wanted = new Set(
-    (tagNames ?? [])
-      .map((name) => canonicalTagKey(name))
-      .filter((key) => key.length > 0),
-  );
-  if (wanted.size === 0) return [] as Id<"tags">[];
-  return allTags
-    .filter((tag) => wanted.has(canonicalTagKey(tag.name)))
-    .map((tag) => tag._id);
+  const ids: Id<"tags">[] = [];
+  for (const name of tagNames ?? []) {
+    const key = canonicalTagKey(name);
+    if (!key) continue;
+    ids.push(...(tagIdsByKey.get(key) ?? []));
+  }
+  return Array.from(new Set(ids));
 };
 
 // Distinct asset ids reachable through a folder, read from the assetFolders
@@ -165,10 +164,13 @@ export const listMenuFilters = query({
     const entries = await listOwnerMenuFilters(ctx, ownerUserId);
     if (entries.length === 0) return [];
 
-    const allTags = await ctx.db
-      .query("tags")
-      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
-      .collect();
+    // Indexed per-key tag lookups (only the keys the pills actually name).
+    const wantedKeys = entries
+      .filter((entry) => entry.kind === "tag")
+      .flatMap((entry) => entry.tagNames ?? [])
+      .map((name) => canonicalTagKey(name))
+      .filter((key) => key.length > 0);
+    const tagIdsByKey = await findTagIdsByCanonicalKeys(ctx, wantedKeys);
 
     // Counting never touches the fat asset documents in the owner ("mine")
     // scope — every count comes from the small assetTags / assetFolders join
@@ -200,7 +202,7 @@ export const listMenuFilters = query({
     const results = [];
     for (const entry of entries) {
       if (entry.kind === "tag") {
-        const tagIds = resolveTagIdsForNames(allTags, entry.tagNames);
+        const tagIds = resolveTagIdsForNames(tagIdsByKey, entry.tagNames);
         const count =
           tagIds.length === 0
             ? 0

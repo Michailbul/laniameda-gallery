@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { Id } from "./_generated/dataModel";
@@ -66,6 +66,7 @@ export const getOrCreateTag = mutation({
     return await ctx.db.insert("tags", {
       name: args.name.trim(),
       normalized,
+      canonicalKey: canonicalTagKey(args.name),
       usageCount: 0,
     });
   },
@@ -101,6 +102,7 @@ export const getOrCreateTags = mutation({
       const id = await ctx.db.insert("tags", {
         name: raw.trim(),
         normalized,
+        canonicalKey: canonicalTagKey(raw),
         usageCount: 0,
       });
       const insertedTag: TagDocLike = {
@@ -168,6 +170,7 @@ export const getOrCreateTagWithCategory = mutation({
     return await ctx.db.insert("tags", {
       name: args.name.trim(),
       normalized,
+      canonicalKey: canonicalTagKey(args.name),
       usageCount: 0,
       category: args.category,
       pillar: args.pillar,
@@ -219,6 +222,7 @@ export const getOrCreateTagsWithMetadata = mutation({
       const id = await ctx.db.insert("tags", {
         name: input.name.trim(),
         normalized,
+        canonicalKey: canonicalTagKey(input.name),
         usageCount: 0,
         category: input.category,
         pillar: input.pillar,
@@ -263,5 +267,23 @@ export const listTags = query({
       .query("tags")
       .withIndex("by_normalized", (q) => q.gte("normalized", ""))
       .collect();
+  },
+});
+
+// Backfill/repair for tags.canonicalKey (see schema comment). Safe to re-run:
+//   bunx convex run tags:backfillCanonicalKeys
+export const backfillCanonicalKeys = internalMutation({
+  args: {},
+  returns: v.object({ scanned: v.number(), patched: v.number() }),
+  handler: async (ctx) => {
+    const tags = await ctx.db.query("tags").collect();
+    let patched = 0;
+    for (const tag of tags) {
+      const canonicalKey = canonicalTagKey(tag.name);
+      if (tag.canonicalKey === canonicalKey) continue;
+      await ctx.db.patch(tag._id, { canonicalKey });
+      patched += 1;
+    }
+    return { scanned: tags.length, patched };
   },
 });
