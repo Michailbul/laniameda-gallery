@@ -208,6 +208,64 @@ function SetTile({
   onClick: () => void;
 }) {
   const src = assetThumb(asset);
+  const label = asset.description ?? asset.fileName ?? "Video";
+
+  if (asset.kind === "video") {
+    return (
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          marginBottom: 14,
+          breakInside: "avoid",
+          background: "var(--lm-surface-1)",
+          borderRadius: 4,
+          overflow: "hidden",
+        }}
+      >
+        <video
+          src={asset.url}
+          poster={asset.thumbUrl}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label={label}
+          style={{
+            width: "100%",
+            display: "block",
+            aspectRatio: String(assetRatio(asset)),
+            objectFit: "cover",
+            background: "#080706",
+          }}
+        />
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`Open ${label} in viewer`}
+          title="Open in viewer"
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            width: 34,
+            height: 34,
+            border: "1px solid rgba(255,255,255,0.22)",
+            borderRadius: 4,
+            background: "rgba(8,7,6,0.72)",
+            color: "#fff4ea",
+            cursor: "zoom-in",
+            fontFamily: "var(--lm-font)",
+            fontSize: 16,
+            lineHeight: 1,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          ↗
+        </button>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -225,35 +283,18 @@ function SetTile({
         cursor: "zoom-in",
       }}
     >
-      {asset.kind === "video" ? (
-        <video
-          src={asset.url}
-          poster={asset.thumbUrl}
-          muted
-          loop
-          playsInline
-          preload={asset.thumbUrl ? "none" : "metadata"}
-          style={{
-            width: "100%",
-            display: "block",
-            aspectRatio: String(assetRatio(asset)),
-            objectFit: "cover",
-          }}
-        />
-      ) : (
-        <img
-          src={src}
-          alt={asset.description ?? asset.fileName ?? "Work"}
-          loading="lazy"
-          decoding="async"
-          style={{
-            width: "100%",
-            display: "block",
-            aspectRatio: String(assetRatio(asset)),
-            objectFit: "cover",
-          }}
-        />
-      )}
+      <img
+        src={src}
+        alt={asset.description ?? asset.fileName ?? "Work"}
+        loading="lazy"
+        decoding="async"
+        style={{
+          width: "100%",
+          display: "block",
+          aspectRatio: String(assetRatio(asset)),
+          objectFit: "cover",
+        }}
+      />
     </button>
   );
 }

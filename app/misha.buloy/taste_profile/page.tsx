@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "@/app/tokens.css";
 import { TasteProfileClient } from "./taste-profile-client";
 
 // Public, shareable surface — its own link-preview identity, separate from the
