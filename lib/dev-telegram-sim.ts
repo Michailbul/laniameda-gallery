@@ -67,6 +67,10 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
 };
 
 export const isDevTelegramSimRequestAllowed = (request: Request) => {
+  // Never available in production, regardless of env flags (mirrors dev-login).
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
   if (!isDevTelegramSimEnabled()) {
     return false;
   }

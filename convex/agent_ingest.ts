@@ -568,6 +568,11 @@ export const ingestFromAgentPayload = action({
 
       if (selectedUrls.length > 0) {
         await ctx.runMutation(api.runs.appendRunEvent, {
+          serverSecret: (
+            process.env.RUNS_SERVER_SECRET ??
+            process.env.CURATION_ADMIN_SECRET ??
+            ""
+          ).trim(),
           runId: args.runId,
           type: "system",
           payload: {

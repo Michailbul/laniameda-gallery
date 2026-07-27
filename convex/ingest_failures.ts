@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -159,7 +159,9 @@ export const resolveIngestFailure = mutation({
   },
 });
 
-export const listIngestFailures = query({
+// Internal: failure payloads may contain raw ingest bodies. Read via CLI
+// (`convex run ingest_failures:listIngestFailures`), never from clients.
+export const listIngestFailures = internalQuery({
   args: {
     status: v.optional(ingestFailureStatusValidator),
     ownerUserId: v.optional(v.string()),

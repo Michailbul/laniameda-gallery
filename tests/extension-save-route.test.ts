@@ -53,6 +53,7 @@ describe("POST /api/extension/save", () => {
     state.actionCalls = [];
     state.mutationCalls = [];
     process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
+    process.env.EXTENSION_API_TOKEN = "test-extension-token";
   });
 
   test("updates prompt metadata without re-ingesting media", async () => {
@@ -61,7 +62,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           mode: "updatePrompt",
           imageUrl: "https://cdn.example.com/image.png",
@@ -96,7 +100,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
         }),
@@ -119,7 +126,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
           folderIds: ["folders:one"],
@@ -150,7 +160,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
           sourceUrl: "https://www.midjourney.com/personalize/7466790784553975846/teach",
@@ -178,7 +191,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
           sourceUrl: "https://www.midjourney.com/explore?tab=top",
@@ -203,7 +219,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
           sourceUrl: "https://www.midjourney.com/profile/example",
@@ -230,7 +249,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://cdn.example.com/image.png",
           folderIds: ["folders:one", " folders:two ", "folders:one"],
@@ -256,7 +278,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           imageUrl: "https://assets.higgsfield.ai/output/dance.mp4",
           sourceUrl: "https://higgsfield.ai/ai/video",
@@ -324,7 +349,10 @@ describe("POST /api/extension/save", () => {
     const response = await POST(
       new Request("http://localhost/api/extension/save", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
         body: JSON.stringify({
           mode: "updatePrompt",
           imageUrl: "https://cdn.example.com/image.png",

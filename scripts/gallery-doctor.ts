@@ -96,7 +96,7 @@ async function main() {
   const packDetails = (
     await Promise.all(
       packs.map((pack) =>
-        client.query(api.assetPacks.getAssetPackWithAssets, { packId: pack._id }),
+        client.query(api.assetPacks.getAssetPackWithAssets, { ownerUserId: OWNER_USER_ID, packId: pack._id }),
       ),
     )
   ).filter((pack): pack is NonNullable<typeof pack> => Boolean(pack));

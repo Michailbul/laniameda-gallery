@@ -4198,6 +4198,7 @@ export function GalleryDashboard({
                 galleryScope === "mine" && canAccessMyGallery ? (
                   selectedPackId ? (
                     <PackDetailView
+                      ownerUserId={ownerUserId}
                       packId={selectedPackId}
                       selectedAssetId={
                         selectedImage?.packId === selectedPackId

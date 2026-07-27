@@ -102,6 +102,7 @@ export const createAssetPack = mutation({
 
 export const addAssetToPack = mutation({
   args: {
+    ownerUserId: v.string(),
     packId: v.id("assetPacks"),
     assetId: v.id("assets"),
     packSlotIndex: v.optional(v.number()),
@@ -113,10 +114,25 @@ export const addAssetToPack = mutation({
     slotIndex: v.number(),
   }),
   handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
     const pack = await ctx.db.get(args.packId);
     if (!pack) {
       throw new ConvexError("Asset pack not found.");
     }
+    if (!canActorAccessOwnerUserId(ownerUserId, pack.ownerUserId)) {
+      throw new ConvexError("Asset pack does not belong to this user.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    const alreadyInPack = asset.assetPackId === args.packId;
 
     let slotIndex = args.packSlotIndex;
     if (slotIndex === undefined) {
@@ -138,9 +154,10 @@ export const addAssetToPack = mutation({
       packSlotIndex: slotIndex,
     });
 
-    // Update pack metadata
+    // Update pack metadata. Re-adding an existing member must not inflate the
+    // count — the patch above is idempotent, so the count stays idempotent too.
     const patch: Record<string, unknown> = {
-      itemCount: (pack.itemCount ?? 0) + 1,
+      itemCount: alreadyInPack ? pack.itemCount ?? 0 : (pack.itemCount ?? 0) + 1,
       updatedAt: Date.now(),
     };
     if (args.setCover) {
@@ -212,7 +229,9 @@ export const getAssetPack = query({
 });
 
 export const getAssetPackWithAssets = query({
-  args: { packId: v.id("assetPacks") },
+  // ownerUserId is optional only for rollout compatibility; without it the
+  // query behaves fail-closed and returns public packs only.
+  args: { ownerUserId: v.optional(v.string()), packId: v.id("assetPacks") },
   returns: v.union(
     v.null(),
     v.object({
@@ -284,6 +303,13 @@ export const getAssetPackWithAssets = query({
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.packId);
     if (!pack) return null;
+    // Public packs stay readable; private packs require the owner.
+    if (
+      pack.isPublic !== true &&
+      !canActorAccessOwnerUserId(args.ownerUserId ?? "", pack.ownerUserId)
+    ) {
+      return null;
+    }
 
     const assets = await ctx.db
       .query("assets")

@@ -18,7 +18,15 @@ export async function GET(request: Request) {
   const requestId = createRequestId();
   const enabled = isDevTelegramSimEnabled();
   const allowed = isDevTelegramSimRequestAllowed(request);
-  const bypassEnabled = parseBoolean(process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS, true);
+  const bypassEnabled = parseBoolean(process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS, false);
+
+  if (!allowed) {
+    // Do not leak env details to callers the simulator is closed to.
+    return NextResponse.json(
+      { error: "Dev Telegram simulator is disabled or not allowed for this host.", requestId },
+      { status: 403 },
+    );
+  }
 
   logger.info(
     {

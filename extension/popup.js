@@ -1,4 +1,5 @@
 const apiUrlInput = document.getElementById("apiUrl");
+const apiTokenInput = document.getElementById("apiToken");
 const saveBtn = document.getElementById("save");
 const statusEl = document.getElementById("status");
 const siteToggleBtn = document.getElementById("siteToggle");
@@ -186,11 +187,15 @@ const setBookmarkFormState = ({ tab }) => {
 const loadPopupState = async () => {
   const cfg = await chrome.storage.sync.get([
     "apiUrl",
+    "apiToken",
     DISABLED_HOSTS_KEY,
     DEFAULT_FOLDER_ID_KEY,
   ]);
 
   apiUrlInput.value = normalizeApiUrl(cfg.apiUrl);
+  if (apiTokenInput) {
+    apiTokenInput.value = typeof cfg.apiToken === "string" ? cfg.apiToken : "";
+  }
 
   const disabledHosts = Array.isArray(cfg[DISABLED_HOSTS_KEY])
     ? cfg[DISABLED_HOSTS_KEY].map((host) => String(host).toLowerCase())
@@ -218,9 +223,10 @@ const loadPopupState = async () => {
 
 saveBtn.addEventListener("click", () => {
   const apiUrl = normalizeApiUrl(apiUrlInput.value);
+  const apiToken = apiTokenInput ? apiTokenInput.value.trim() : "";
   const defaultFolderId = defaultCollectionEl?.value || "";
 
-  chrome.storage.sync.set({ apiUrl, [DEFAULT_FOLDER_ID_KEY]: defaultFolderId }, () => {
+  chrome.storage.sync.set({ apiUrl, apiToken, [DEFAULT_FOLDER_ID_KEY]: defaultFolderId }, () => {
     apiUrlInput.value = apiUrl;
     setStatus("Settings saved.");
     saveBtn.textContent = "Saved";

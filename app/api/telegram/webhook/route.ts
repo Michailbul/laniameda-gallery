@@ -102,13 +102,18 @@ async function sendLoginButton(
 }
 
 export async function POST(request: NextRequest) {
-  // Validate secret token header
+  // Validate secret token header. Fail closed: an unconfigured secret means
+  // the webhook is off, not open to forged updates.
   const secret = getWebhookSecret();
-  if (secret) {
-    const headerSecret = request.headers.get("x-telegram-bot-api-secret-token");
-    if (headerSecret !== secret) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+  if (!secret) {
+    return NextResponse.json(
+      { error: "Webhook secret is not configured." },
+      { status: 403 },
+    );
+  }
+  const headerSecret = request.headers.get("x-telegram-bot-api-secret-token");
+  if (headerSecret !== secret) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const botToken = getBotToken();

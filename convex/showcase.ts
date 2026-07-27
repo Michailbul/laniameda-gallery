@@ -23,6 +23,23 @@ import { resolveUserIdCandidates } from "./authz";
 // is the curation unit, so members are not additionally filtered by isPublic.
 // ---------------------------------------------------------------------------
 
+// The public showcase belongs to exactly one owner. Reads are scoped to it so
+// a second authenticated user flagging their own folders can never place
+// content on the public home. Unconfigured => the showcase renders empty.
+const showcaseOwnerCandidates = () => {
+  const owner = (
+    process.env.SHOWCASE_OWNER_USER_ID ??
+    process.env.KB_OWNER_USER_ID ??
+    ""
+  ).trim();
+  return owner ? resolveUserIdCandidates(owner) : [];
+};
+
+const isShowcaseOwner = (ownerUserId: string | undefined) => {
+  if (!ownerUserId?.trim()) return false;
+  return showcaseOwnerCandidates().includes(ownerUserId.trim());
+};
+
 // How many members feed a home card's preview stack.
 const CARD_PREVIEW_LIMIT = 4;
 // Ceiling on assets pulled into any single showcased set / the taste grid.
@@ -177,7 +194,8 @@ export const getShowcaseHome = query({
           .query("folders")
           .withIndex("by_tasteCollection", (q) => q.eq("tasteCollection", true))
           .collect()
-      ).find((f) => f.kind === undefined) ?? null;
+      ).find((f) => f.kind === undefined && isShowcaseOwner(f.ownerUserId)) ??
+      null;
 
     // --- Showcased sets: root-level collections + storybooks. The taste
     // collection never doubles as a stack — it IS the inspiration grid. ---
@@ -188,6 +206,7 @@ export const getShowcaseHome = query({
         .collect()
     ).filter(
       (f) =>
+        isShowcaseOwner(f.ownerUserId) &&
         f.parentFolderId === undefined &&
         (f.kind === undefined || f.kind === "storybook") &&
         f._id !== tasteFolder?._id,
@@ -258,7 +277,7 @@ export const getShowcaseHome = query({
         .order("desc")
         .take(SELECTED_WORKS_LIMIT);
       const unsorted = publicAssets
-        .filter((a) => !showcasedAssetIds.has(a._id))
+        .filter((a) => isShowcaseOwner(a.ownerUserId) && !showcasedAssetIds.has(a._id))
         .sort((a, b) => {
           const af = a.isFeatured ? 1 : 0;
           const bf = b.isFeatured ? 1 : 0;
@@ -305,6 +324,7 @@ const loadShowcaseSet = async (
 ) => {
   const folder = await ctx.db.get(folderId);
   if (!folder || folder.showcased !== true) return null;
+  if (!isShowcaseOwner(folder.ownerUserId)) return null;
   const folderKind = folder.kind === "storybook" ? "storybook" : "collection";
   if (folderKind !== expected) return null;
   // Guard: only plain collections and storybooks are ever public here.

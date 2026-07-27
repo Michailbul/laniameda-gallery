@@ -28,7 +28,10 @@ const postStatus = async (body: unknown) => {
   return POST(
     new Request("http://localhost/api/extension/asset-status", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
       body: JSON.stringify(body),
     }),
   );
@@ -44,6 +47,7 @@ describe("POST /api/extension/asset-status", () => {
     state.matchedKeys = [];
     state.matchedPrefixes = [];
     process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
+    process.env.EXTENSION_API_TOKEN = "test-extension-token";
   });
 
   test("rejects empty payloads", async () => {

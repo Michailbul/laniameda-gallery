@@ -29,7 +29,8 @@ export const resolveExtensionOwnerUserId = () => {
 export const validateExtensionToken = (request: Request) => {
   const expected = (process.env.EXTENSION_API_TOKEN ?? "").trim();
   if (!expected) {
-    return true;
+    // Fail closed: with no token configured the extension API is off, not open.
+    return false;
   }
 
   const received = readTokenFromRequest(request);

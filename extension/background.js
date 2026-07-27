@@ -45,12 +45,23 @@ function normalizeApiUrl(rawValue) {
   return normalizeRouteUrl(rawValue, SAVE_ROUTE_PATH);
 }
 
+// All gallery API requests authenticate with the extension token
+// (EXTENSION_API_TOKEN on the server). Set it in the popup settings.
+function apiHeaders(config) {
+  const headers = { "Content-Type": "application/json" };
+  if (config.apiToken) {
+    headers["X-Extension-Token"] = config.apiToken;
+  }
+  return headers;
+}
+
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["apiUrl", DEFAULT_FOLDER_ID_KEY, LAST_FOLDER_ID_KEY],
+      ["apiUrl", "apiToken", DEFAULT_FOLDER_ID_KEY, LAST_FOLDER_ID_KEY],
       (cfg) => resolve({
         apiUrl: normalizeApiUrl(cfg.apiUrl),
+        apiToken: String(cfg.apiToken || "").trim(),
         defaultFolderId: String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim(),
         lastFolderId: String(cfg[LAST_FOLDER_ID_KEY] || "").trim(),
       })
@@ -132,7 +143,7 @@ async function saveToGallery(payload) {
   try {
     response = await fetch(config.apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(config),
       body: JSON.stringify({
         mode: payload.mode || "save",
         imageUrl: payload.imageUrl,
@@ -430,7 +441,7 @@ async function bookmarkPage(payload) {
   try {
     response = await fetch(bookmarkUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(config),
       body: JSON.stringify(body),
     });
   } catch (err) {
@@ -483,7 +494,7 @@ async function checkAssetStatus(payload) {
   try {
     response = await fetch(statusUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(config),
       body: JSON.stringify({ imageUrls }),
     });
   } catch (err) {
@@ -522,7 +533,7 @@ async function getFolders() {
   try {
     response = await fetch(foldersUrl, {
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(config),
     });
   } catch (err) {
     return { ok: false, error: `Network error: ${err.message}`, apiUrl: foldersUrl };
@@ -558,7 +569,7 @@ async function createFolder(payload) {
   try {
     response = await fetch(foldersUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(config),
       body: JSON.stringify({
         name: payload.name,
         description: payload.description || undefined,

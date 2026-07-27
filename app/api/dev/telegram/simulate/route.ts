@@ -91,10 +91,8 @@ const parseSessionUserId = async () => {
 };
 
 const isAuthBypassEnabled = () => {
+  // Default OFF: the bypass must be requested explicitly.
   const value = (process.env.DEV_TELEGRAM_SIM_AUTH_BYPASS || "").trim().toLowerCase();
-  if (!value) {
-    return true;
-  }
   return value === "true" || value === "1" || value === "yes";
 };
 

@@ -3,6 +3,23 @@ import { mutation, query, MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { RUN_EVENT_PHASES as SHARED_RUN_EVENT_PHASES } from "../lib/run-phases";
 
+// The runs control plane is only ever driven by trusted server code (Next.js
+// API routes via lib/ai/convex-runs.ts). Convex functions are publicly
+// callable, so every entry point requires this shared secret.
+const assertRunsServerSecret = (serverSecret: string) => {
+  const expected = (
+    process.env.RUNS_SERVER_SECRET ??
+    process.env.CURATION_ADMIN_SECRET ??
+    ""
+  ).trim();
+  if (!expected) {
+    throw new ConvexError("RUNS_SERVER_SECRET is not configured.");
+  }
+  if (serverSecret !== expected) {
+    throw new ConvexError("Invalid runs server secret.");
+  }
+};
+
 type RunStatus =
   | "queued"
   | "claimed"
@@ -155,6 +172,7 @@ const insertStatusEvent = async (
 
 export const createRun = mutation({
   args: {
+    serverSecret: v.string(),
     userId: v.string(),
     intent: runIntentValidator,
     source: runSourceValidator,
@@ -178,6 +196,7 @@ export const createRun = mutation({
     ctx,
     args,
   ): Promise<{ runId: Id<"runs">; created: boolean; status: RunStatus }> => {
+    assertRunsServerSecret(args.serverSecret);
     const userId = args.userId.trim();
     if (!userId) {
       throw new ConvexError("userId is required.");
@@ -220,6 +239,7 @@ export const createRun = mutation({
 
 export const claimRun = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     workerId: v.string(),
   },
@@ -232,6 +252,7 @@ export const claimRun = mutation({
     ctx,
     args,
   ): Promise<{ runId: Id<"runs">; claimed: boolean; status: RunStatus }> => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -257,6 +278,7 @@ export const claimRun = mutation({
 
 export const setRunRunning = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     workerId: v.string(),
     sandboxId: v.optional(v.string()),
@@ -267,6 +289,7 @@ export const setRunRunning = mutation({
     status: runStatusValidator,
   }),
   handler: async (ctx, args): Promise<{ runId: Id<"runs">; status: RunStatus }> => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -297,6 +320,7 @@ export const setRunRunning = mutation({
 
 export const appendRunEvent = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     type: runEventTypeValidator,
     payload: v.optional(v.any()),
@@ -307,6 +331,7 @@ export const appendRunEvent = mutation({
     seq: v.number(),
   }),
   handler: async (ctx, args) => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -328,6 +353,7 @@ export const appendRunEvent = mutation({
 
 export const completeRun = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     workerId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
@@ -359,6 +385,7 @@ export const completeRun = mutation({
     ctx,
     args,
   ): Promise<{ runId: Id<"runs">; status: RunStatus; artifactIds: Id<"run_artifacts">[] }> => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -403,6 +430,7 @@ export const completeRun = mutation({
 
 export const failRun = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     workerId: v.optional(v.string()),
     error: v.string(),
@@ -413,6 +441,7 @@ export const failRun = mutation({
     status: runStatusValidator,
   }),
   handler: async (ctx, args): Promise<{ runId: Id<"runs">; status: RunStatus }> => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -451,6 +480,7 @@ export const failRun = mutation({
 
 export const cancelRun = mutation({
   args: {
+    serverSecret: v.string(),
     runId: v.id("runs"),
     userId: v.optional(v.string()),
     reason: v.optional(v.string()),
@@ -460,6 +490,7 @@ export const cancelRun = mutation({
     status: runStatusValidator,
   }),
   handler: async (ctx, args): Promise<{ runId: Id<"runs">; status: RunStatus }> => {
+    assertRunsServerSecret(args.serverSecret);
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found.");
@@ -483,41 +514,6 @@ export const cancelRun = mutation({
     });
 
     return { runId: args.runId, status: "canceled" };
-  },
-});
-
-export const resumeRun = mutation({
-  args: {
-    runId: v.id("runs"),
-    userId: v.optional(v.string()),
-  },
-  returns: v.object({
-    runId: v.id("runs"),
-    status: runStatusValidator,
-    sessionId: v.optional(v.string()),
-  }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ runId: Id<"runs">; status: RunStatus; sessionId?: string }> => {
-    const run = await ctx.db.get(args.runId);
-    if (!run) {
-      throw new ConvexError("Run not found.");
-    }
-    if (args.userId && run.userId !== args.userId) {
-      throw new ConvexError("Run does not belong to this user.");
-    }
-    if (run.status !== "waiting_input" && run.status !== "failed") {
-      return { runId: args.runId, status: run.status as RunStatus, sessionId: run.sessionId };
-    }
-
-    await ctx.db.patch(args.runId, {
-      status: "running",
-      updatedAt: Date.now(),
-    });
-    await insertStatusEvent(ctx, args.runId, "running", { resumed: true });
-
-    return { runId: args.runId, status: "running", sessionId: run.sessionId };
   },
 });
 
@@ -555,21 +551,5 @@ export const getRun = query({
       events,
       artifacts,
     };
-  },
-});
-
-export const listRunsByUser = query({
-  args: {
-    userId: v.string(),
-    limit: v.optional(v.number()),
-  },
-  returns: v.array(runValidator),
-  handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? 25, 100);
-    return await ctx.db
-      .query("runs")
-      .withIndex("by_user_createdAt", (q) => q.eq("userId", args.userId).gte("createdAt", 0))
-      .order("desc")
-      .take(limit);
   },
 });

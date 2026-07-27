@@ -451,6 +451,7 @@ function buildSlides(
 /* ── Pack Detail View (shown when a pack is selected) ── */
 
 type PackDetailViewProps = {
+  ownerUserId: string;
   packId: string;
   selectedAssetId?: string;
   compact?: boolean;
@@ -530,11 +531,11 @@ const resolveAssetDisplayDimensions = (asset: {
   return thumbnail ?? original ?? {};
 };
 
-function PackDetailView({ packId, selectedAssetId, compact, onBack, onAssetSelect }: PackDetailViewProps) {
+function PackDetailView({ ownerUserId, packId, selectedAssetId, compact, onBack, onAssetSelect }: PackDetailViewProps) {
   const hasSelection = Boolean(selectedAssetId);
   const packData = useQuery(
     api.assetPacks.getAssetPackWithAssets,
-    { packId: packId as Id<"assetPacks"> },
+    { ownerUserId, packId: packId as Id<"assetPacks"> },
   );
 
   if (packData === undefined) {
