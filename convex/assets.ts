@@ -14,7 +14,7 @@ import {
   syncPromptAssetPack,
 } from "./assetPackHelpers";
 import { bumpTagUsage, canonicalTagKey, dedupeIds, normalizeTagName } from "./helpers";
-import { ensureFolderOwnership } from "./folderHelpers";
+import { ensureFolderOwnership, recountFolderMembers } from "./folderHelpers";
 import { r2 } from "./r2";
 import {
   galleryAssetResultValidator,
@@ -267,6 +267,7 @@ const addAssetFolderLink = async (
     folderId,
     createdAt: Date.now(),
   });
+  await recountFolderMembers(ctx, [folderId]);
 };
 
 const replaceAssetFolderLinks = async (
@@ -283,11 +284,14 @@ const replaceAssetFolderLinks = async (
   const existingLinks = await getAssetFolderLinks(ctx, asset._id);
   const nextSet = new Set(nextFolderIds);
 
+  const removedFolderIds: Id<"folders">[] = [];
   for (const link of existingLinks) {
     if (!nextSet.has(link.folderId)) {
       await ctx.db.delete(link._id);
+      removedFolderIds.push(link.folderId);
     }
   }
+  await recountFolderMembers(ctx, removedFolderIds);
 
   const existingSet = new Set(existingLinks.map((link) => link.folderId));
   for (const folderId of nextFolderIds) {
@@ -331,6 +335,7 @@ const setPrimaryAssetFolder = async (
         await ctx.db.delete(link._id);
       }
     }
+    await recountFolderMembers(ctx, [previousPrimary]);
   }
 
   if (nextFolderId) {
@@ -351,24 +356,17 @@ const setPrimaryAssetFolder = async (
   };
 };
 
+// Membership reads are LINKS-ONLY: assetFolders is the single source of
+// truth (verified drift-free via membershipAudit:run before the switch).
+// assets.folderId survives purely as the "primary collection" pointer.
 export const collectAssetsForFolder = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,
   limit: number,
 ) => {
-  const primaryAssets = [];
   const linkedAssets = [];
   for (const ownerCandidate of ownerUserIds) {
-    const primaryRows = await ctx.db
-      .query("assets")
-      .withIndex("by_owner_folder_createdAt", (q) =>
-        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
-      )
-      .order("desc")
-      .take(limit);
-    primaryAssets.push(...primaryRows);
-
     const links = await ctx.db
       .query("assetFolders")
       .withIndex("by_owner_folder_createdAt", (q) =>
@@ -384,7 +382,7 @@ export const collectAssetsForFolder = async (
     }
   }
 
-  return dedupeAssetIds([...primaryAssets, ...linkedAssets])
+  return dedupeAssetIds(linkedAssets)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, limit);
 };
@@ -394,13 +392,6 @@ const collectAssetIdsForFolder = async (
   folderId: Id<"folders">,
   limit: number,
 ) => {
-  const primaryAssets = await ctx.db
-    .query("assets")
-    .withIndex("by_folder_createdAt", (q) =>
-      q.eq("folderId", folderId).gte("createdAt", 0),
-    )
-    .order("desc")
-    .take(limit);
   const links = await ctx.db
     .query("assetFolders")
     .withIndex("by_folder_createdAt", (q) =>
@@ -409,10 +400,7 @@ const collectAssetIdsForFolder = async (
     .order("desc")
     .take(limit);
 
-  return new Set<Id<"assets">>([
-    ...primaryAssets.map((asset) => asset._id),
-    ...links.map((link) => link.assetId),
-  ]);
+  return new Set<Id<"assets">>(links.map((link) => link.assetId));
 };
 
 export const createAsset = mutation({
@@ -2877,9 +2865,10 @@ export const folderAssetCounts = query({
     }
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
-    // Collection membership lives in two places: the asset's primary
-    // `folderId` and the `assetFolders` join table (multi-board). Count the
-    // distinct assets reachable through either, per folder.
+    // Membership source of truth is the assetFolders join; the count is the
+    // denormalized folders.memberCount, kept exact by recountFolderMembers.
+    // (This query used to re-collect every folder's assets + links on every
+    // asset write — O(folders × members) per subscription re-run.)
     const folders = [];
     for (const ownerCandidate of ownerUserIds) {
       const foldersForOwner = await ctx.db
@@ -2896,37 +2885,7 @@ export const folderAssetCounts = query({
     for (const folder of folders) {
       if (seenFolderIds.has(folder._id)) continue;
       seenFolderIds.add(folder._id);
-
-      const assetIds = new Set<Id<"assets">>();
-      for (const ownerCandidate of ownerUserIds) {
-        const primaryRows = await ctx.db
-          .query("assets")
-          .withIndex("by_owner_folder_createdAt", (q) =>
-            q
-              .eq("ownerUserId", ownerCandidate)
-              .eq("folderId", folder._id)
-              .gte("createdAt", 0),
-          )
-          .collect();
-        for (const asset of primaryRows) {
-          assetIds.add(asset._id);
-        }
-
-        const links = await ctx.db
-          .query("assetFolders")
-          .withIndex("by_owner_folder_createdAt", (q) =>
-            q
-              .eq("ownerUserId", ownerCandidate)
-              .eq("folderId", folder._id)
-              .gte("createdAt", 0),
-          )
-          .collect();
-        for (const link of links) {
-          assetIds.add(link.assetId);
-        }
-      }
-
-      results.push({ folderId: folder._id, count: assetIds.size });
+      results.push({ folderId: folder._id, count: folder.memberCount ?? 0 });
     }
 
     return results;
@@ -3123,6 +3082,10 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   for (const link of folderLinks) {
     await ctx.db.delete(link._id);
   }
+  await recountFolderMembers(
+    ctx,
+    folderLinks.map((link) => link.folderId),
+  );
 
   const storageIds = dedupeIds(
     [asset.storageId, asset.thumbStorageId].filter(
@@ -3218,16 +3181,19 @@ export const cleanupOrphanedAssetFolderLinks = internalMutation({
     const links = await ctx.db.query("assetFolders").collect();
     let orphaned = 0;
     let deleted = 0;
+    const affectedFolderIds: Id<"folders">[] = [];
     for (const link of links) {
       const asset = await ctx.db.get(link.assetId);
       if (!asset) {
         orphaned += 1;
         if (args.dryRun !== true) {
           await ctx.db.delete(link._id);
+          affectedFolderIds.push(link.folderId);
           deleted += 1;
         }
       }
     }
+    await recountFolderMembers(ctx, affectedFolderIds);
     return { scanned: links.length, orphaned, deleted };
   },
 });

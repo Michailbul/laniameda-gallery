@@ -12,7 +12,7 @@ import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
-import { canonicalFolderName } from "./folderHelpers";
+import { canonicalFolderName, recountFolderMembers } from "./folderHelpers";
 import {
   optionalProjectSectionValidator,
   projectSectionValidator,
@@ -63,16 +63,6 @@ export type ProjectCollectionLink = {
   beatLocationFolderIds: Id<"folders">[];
 };
 
-// Merge the legacy single-id beat pairing into the arrays shape (dedup,
-// legacy id first when both exist).
-const mergeBeatLinks = (
-  legacy: Id<"folders"> | undefined,
-  ids: Id<"folders">[] | undefined,
-): Id<"folders">[] => {
-  const merged = [...(legacy ? [legacy] : []), ...(ids ?? [])];
-  return [...new Set(merged)];
-};
-
 // Collect the member-collection links of a project, via the projectCollections
 // join, across the owner's id candidates. Deduped, order preserved by insert
 // time (createdAt asc) so the review view has a stable collection order.
@@ -95,14 +85,8 @@ export const collectProjectCollectionLinks = async (
     links.push({
       folderId: row.folderId,
       section: row.section,
-      beatCharacterFolderIds: mergeBeatLinks(
-        row.beatCharacterFolderId,
-        row.beatCharacterFolderIds,
-      ),
-      beatLocationFolderIds: mergeBeatLinks(
-        row.beatLocationFolderId,
-        row.beatLocationFolderIds,
-      ),
+      beatCharacterFolderIds: row.beatCharacterFolderIds ?? [],
+      beatLocationFolderIds: row.beatLocationFolderIds ?? [],
     });
   }
   return links;
@@ -164,22 +148,22 @@ export const listProjects = query({
           folder._id,
         );
         const collectionIds = collectionLinks.map((link) => link.folderId);
-        const memberCollections = await Promise.all(
-          collectionLinks.map(async ({ folderId, section }) => {
-            const collectionFolder = await ctx.db.get(folderId);
-            return {
-              folderId,
-              name: collectionFolder?.name ?? "Untitled collection",
-              section,
-            };
+        const memberFolderDocs = await Promise.all(
+          collectionLinks.map(({ folderId }) => ctx.db.get(folderId)),
+        );
+        const memberCollections = collectionLinks.map(
+          ({ folderId, section }, index) => ({
+            folderId,
+            name: memberFolderDocs[index]?.name ?? "Untitled collection",
+            section,
           }),
         );
 
-        // Union member ids across collections from the assetFolders join
-        // rows only (tiny docs — membership upkeep guarantees the legacy
-        // assets.folderId alias always has a matching link, so links alone
-        // are the full set). Fat asset documents are read just for the few
-        // preview thumbs, not for the count.
+        // Count = DEDUPED union across member collections (an asset can sit
+        // in several members — e.g. a recurring character set — and must not
+        // count twice; summing memberCounts visibly inflated project rows).
+        // Link rows are tiny and the walk is capped per collection, so this
+        // stays cheap; the expensive per-write recounts live elsewhere.
         const seenAssets = new Set<string>();
         const orderedMemberIds: Id<"assets">[] = [];
         for (const folderId of collectionIds) {
@@ -201,6 +185,7 @@ export const listProjects = query({
             }
           }
         }
+        const assetCount = seenAssets.size;
         const previewDocs = (
           await Promise.all(
             orderedMemberIds
@@ -234,7 +219,7 @@ export const listProjects = query({
           name: folder.name,
           brief: folder.description,
           collectionCount: collectionIds.length,
-          assetCount: seenAssets.size,
+          assetCount,
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt,
           previewAssets: previews,
@@ -800,6 +785,7 @@ export const addAssetsToProject = mutation({
       }
     }
 
+    await recountFolderMembers(ctx, [inboxFolderId]);
     return { added: toAdd.length, skipped, inboxFolderId };
   },
 });
@@ -836,6 +822,7 @@ export const removeAssetsFromProject = mutation({
 
     let removed = 0;
     let skipped = 0;
+    const touchedFolderIds = new Set<Id<"folders">>();
     for (const assetId of Array.from(new Set(args.assetIds))) {
       const asset = await ctx.db.get(assetId);
       if (!asset) {
@@ -864,6 +851,7 @@ export const removeAssetsFromProject = mutation({
 
       for (const link of projectLinks) {
         await ctx.db.delete(link._id);
+        touchedFolderIds.add(link.folderId);
       }
       if (legacyProjectMembership) {
         const nextPrimary = assetFolderLinks.find(
@@ -874,6 +862,7 @@ export const removeAssetsFromProject = mutation({
       removed += 1;
     }
 
+    await recountFolderMembers(ctx, touchedFolderIds);
     return { removed, skipped };
   },
 });
@@ -955,6 +944,7 @@ export const fileAssetIntoProjectCollection = mutation({
       }
     }
 
+    await recountFolderMembers(ctx, [args.folderId, ...unsortedFolderIds]);
     return { filed: !existing, drained };
   },
 });
@@ -1055,8 +1045,6 @@ export const setBeatLinks = mutation({
     }
 
     await ctx.db.patch(existing._id, {
-      beatCharacterFolderId: undefined,
-      beatLocationFolderId: undefined,
       beatCharacterFolderIds: characterFolderIds,
       beatLocationFolderIds: locationFolderIds,
     });

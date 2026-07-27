@@ -41,7 +41,6 @@ export default defineSchema({
   })
     .index("by_telegramId", ["telegramId"])
     .index("by_workosUserId", ["workosUserId"])
-    .index("by_email", ["email"])
     .index("by_ownerUserId", ["ownerUserId"]),
   agentTokens: defineTable({
     ownerUserId: v.string(),
@@ -56,8 +55,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
-    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
-    .index("by_owner_revokedAt_createdAt", ["ownerUserId", "revokedAt", "createdAt"]),
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   tags: defineTable({
     name: v.string(),
     normalized: v.string(),
@@ -67,9 +65,7 @@ export default defineSchema({
     source: tagSourceValidator,
     aliases: v.optional(v.array(v.string())),
   })
-    .index("by_normalized", ["normalized"])
-    .index("by_category_normalized", ["category", "normalized"])
-    .index("by_pillar_category_normalized", ["pillar", "category", "normalized"]),
+    .index("by_normalized", ["normalized"]),
   userTags: defineTable({
     ownerUserId: v.string(),
     tagId: v.id("tags"),
@@ -87,8 +83,7 @@ export default defineSchema({
   })
     .index("by_owner_normalizedLabel", ["ownerUserId", "normalizedLabel"])
     .index("by_owner_tagId", ["ownerUserId", "tagId"])
-    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"])
-    .index("by_owner_archivedAt_sortOrder", ["ownerUserId", "archivedAt", "sortOrder"]),
+    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"]),
   folders: defineTable({
     ownerUserId: v.optional(v.string()),
     name: v.string(),
@@ -138,12 +133,16 @@ export default defineSchema({
     coverAssetId: v.optional(v.id("assets")),
     // Pinned in the project workspace (beat/stack cards float first).
     pinnedAt: v.optional(v.number()),
+    // Denormalized count of assetFolders links pointing here. Maintained by
+    // recountFolderMembers (self-healing recount after membership writes) —
+    // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.
+    memberCount: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
-    .index("by_name", ["name"])
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_kind", ["ownerUserId", "kind"])
     .index("by_shareToken", ["shareToken"])
     .index("by_showcased", ["showcased"])
     .index("by_tasteCollection", ["tasteCollection"])
@@ -163,17 +162,12 @@ export default defineSchema({
     // For beat-layer rows only: which character / location directions this
     // beat uses (member collections of the same project); the beat
     // collection's own assets are the resulting media (videos/stills).
-    // The single-id fields are the legacy shape — reads merge them into the
-    // arrays; writes go to the arrays only.
-    beatCharacterFolderId: v.optional(v.id("folders")),
-    beatLocationFolderId: v.optional(v.id("folders")),
     beatCharacterFolderIds: v.optional(v.array(v.id("folders"))),
     beatLocationFolderIds: v.optional(v.array(v.id("folders"))),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
     .index("by_project_folder", ["projectId", "folderId"])
-    .index("by_owner_project", ["ownerUserId", "projectId"])
     .index("by_folder", ["folderId"]),
   // Curated filter pills on the main gallery menu. The owner manages these
   // from the filter bar's admin panel — the raw tag cloud never surfaces
@@ -228,8 +222,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_owner_key", ["ownerUserId", "key"])
-    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"])
-    .index("by_owner_archivedAt_sortOrder", ["ownerUserId", "archivedAt", "sortOrder"]),
+    .index("by_owner_sortOrder", ["ownerUserId", "sortOrder"]),
   prompts: defineTable({
     ownerUserId: v.optional(v.string()),
     text: v.string(),
@@ -254,7 +247,6 @@ export default defineSchema({
     .index("by_folder_createdAt", ["folderId", "createdAt"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
-    .index("by_owner_pillar_promptType_createdAt", ["ownerUserId", "pillar", "promptType", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
     .index("by_workflow_stepOrder", ["workflowId", "workflowStepOrder"])
     .index("by_createdAt", ["createdAt"])
@@ -415,13 +407,9 @@ export default defineSchema({
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_owner_inspirationType_createdAt", ["ownerUserId", "inspirationType", "createdAt"])
-    .index("by_owner_platform_createdAt", ["ownerUserId", "platform", "createdAt"])
     .index("by_owner_workflowType_createdAt", ["ownerUserId", "workflowType", "createdAt"])
-    .index("by_owner_captureKind_createdAt", ["ownerUserId", "captureKind", "createdAt"])
-    .index("by_owner_saveIntent_createdAt", ["ownerUserId", "saveIntent", "createdAt"])
     .index("by_owner_sourceFingerprint", ["ownerUserId", "sourceFingerprint"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
-    .index("by_owner_sourceDomain_createdAt", ["ownerUserId", "sourceDomain", "createdAt"])
     .searchIndex("search_text", { searchField: "searchText" }),
   designSaveTemplates: defineTable({
     ownerUserId: v.string(),
@@ -527,11 +515,9 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_source", ["sourceType", "sourceId"])
-    .index("by_owner_source", ["ownerUserId", "sourceType", "sourceId"])
     .index("by_asset", ["assetId"])
     .index("by_prompt", ["promptId"])
     .index("by_designInspiration", ["designInspirationId"])
-    .index("by_sourceType_updatedAt", ["sourceType", "sourceUpdatedAt"])
     .searchIndex("search_text", { searchField: "searchText" })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
@@ -634,7 +620,6 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
   })
     .index("by_user_createdAt", ["userId", "createdAt"])
-    .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_idempotencyKey", ["idempotencyKey"])
     .index("by_createdAt", ["createdAt"]),
   run_events: defineTable({

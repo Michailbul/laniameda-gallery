@@ -1,4 +1,5 @@
 import { internalMutation } from "./_generated/server";
+import { recountFolderMembers } from "./folderHelpers";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -33,6 +34,7 @@ export const run = internalMutation({
   handler: async (ctx, args) => {
     const dryRun = args.dryRun === true;
     const now = Date.now();
+    const touchedFolderIds = new Set<Id<"folders">>();
 
     // --- Invariants 1 + 2: the folderId alias. ---
     const assets = await ctx.db.query("assets").collect();
@@ -61,6 +63,7 @@ export const run = internalMutation({
             folderId: asset.folderId,
             createdAt: now,
           });
+          touchedFolderIds.add(asset.folderId);
         }
       }
     }
@@ -109,6 +112,7 @@ export const run = internalMutation({
           stagingDuplicatesDropped += 1;
           if (!dryRun) {
             await ctx.db.delete(link._id);
+            touchedFolderIds.add(stagingFolderId);
             const asset = await ctx.db.get(link.assetId);
             if (asset?.folderId === stagingFolderId) {
               await ctx.db.patch(link.assetId, { folderId: undefined });
@@ -118,6 +122,7 @@ export const run = internalMutation({
       }
     }
 
+    await recountFolderMembers(ctx, touchedFolderIds);
     return {
       assetsScanned: assets.length,
       danglingPrimaryCleared,

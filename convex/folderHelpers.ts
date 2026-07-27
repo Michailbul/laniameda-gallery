@@ -36,3 +36,32 @@ export const ensureFolderOwnership = async (
     );
   }
 };
+
+// Self-healing denormalized member count. Recounts a folder's assetFolders
+// links from the index and patches folders.memberCount when it changed. Call
+// after any mutation that inserts or deletes links for the folder — a full
+// recount per touched folder is cheap, exact, and immune to the ±1 drift
+// that killed hand-maintained counters.
+export const recountFolderMembers = async (
+  ctx: MutationCtx,
+  folderIds: Iterable<Id<"folders"> | undefined>,
+) => {
+  const unique = new Set<Id<"folders">>();
+  for (const folderId of folderIds) {
+    if (folderId) unique.add(folderId);
+  }
+  for (const folderId of unique) {
+    const folder = await ctx.db.get(folderId);
+    if (!folder) continue;
+    const links = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_folder_createdAt", (q) =>
+        q.eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .collect();
+    const memberCount = new Set(links.map((link) => link.assetId)).size;
+    if (folder.memberCount !== memberCount) {
+      await ctx.db.patch(folderId, { memberCount });
+    }
+  }
+};

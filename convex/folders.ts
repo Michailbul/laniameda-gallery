@@ -44,6 +44,7 @@ const folderReturnValidator = v.object({
   showcaseFeatured: v.optional(v.boolean()),
   showcaseOrder: v.optional(v.number()),
   tasteCollection: v.optional(v.boolean()),
+  memberCount: v.optional(v.number()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -749,37 +750,16 @@ const buildCollectionPreviews = async (
   );
 };
 
+// Reads the denormalized folders.memberCount (exact; maintained by
+// recountFolderMembers). The old implementation re-collected the folder's
+// assets and links on every call.
 const countCollectionAssets = async (
   ctx: QueryCtx,
-  ownerUserIds: string[],
+  _ownerUserIds: string[],
   folderId: Id<"folders">,
 ) => {
-  const assetIds = new Set<Id<"assets">>();
-  for (const ownerCandidate of ownerUserIds) {
-    const [primaryAssets, links] = await Promise.all([
-      ctx.db
-        .query("assets")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q
-            .eq("ownerUserId", ownerCandidate)
-            .eq("folderId", folderId)
-            .gte("createdAt", 0),
-        )
-        .collect(),
-      ctx.db
-        .query("assetFolders")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q
-            .eq("ownerUserId", ownerCandidate)
-            .eq("folderId", folderId)
-            .gte("createdAt", 0),
-        )
-        .collect(),
-    ]);
-    for (const asset of primaryAssets) assetIds.add(asset._id);
-    for (const link of links) assetIds.add(link.assetId);
-  }
-  return assetIds.size;
+  const folder = await ctx.db.get(folderId);
+  return folder?.memberCount ?? 0;
 };
 
 /**
@@ -1031,5 +1011,31 @@ export const backfillNormalizedNames = internalMutation({
       patched += 1;
     }
     return { scanned: folders.length, missing, patched };
+  },
+});
+
+// Backfill/repair for folders.memberCount (see recountFolderMembers). Safe to
+// re-run any time:
+//   bunx convex run folders:recountAllFolderMembers
+export const recountAllFolderMembers = internalMutation({
+  args: {},
+  returns: v.object({ scanned: v.number(), patched: v.number() }),
+  handler: async (ctx) => {
+    const folders = await ctx.db.query("folders").collect();
+    let patched = 0;
+    for (const folder of folders) {
+      const links = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_folder_createdAt", (q) =>
+          q.eq("folderId", folder._id).gte("createdAt", 0),
+        )
+        .collect();
+      const memberCount = new Set(links.map((link) => link.assetId)).size;
+      if (folder.memberCount !== memberCount) {
+        await ctx.db.patch(folder._id, { memberCount });
+        patched += 1;
+      }
+    }
+    return { scanned: folders.length, patched };
   },
 });
