@@ -389,6 +389,38 @@ export const collectAssetsForFolder = async (
     .slice(0, limit);
 };
 
+/**
+ * A WORLD's whole membership: the folder's own assets plus every
+ * sub-collection's ("Dear Annete" > Characters / Locations / Scenes), deduped
+ * and newest-first. Browsing a world in the vault should show the world, not
+ * just the loose assets that happen to sit on the parent folder.
+ *
+ * Nesting is capped at one level (see folders.assertValidParent), so this is
+ * a single extra fan-out, never a recursive walk.
+ */
+export const collectAssetsForFolderTree = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folderId: Id<"folders">,
+  limit: number,
+) => {
+  const children = await ctx.db
+    .query("folders")
+    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
+    .collect();
+  const folderIds = [folderId, ...children.map((child) => child._id)];
+
+  const collected: Doc<"assets">[] = [];
+  for (const id of folderIds) {
+    collected.push(
+      ...(await collectAssetsForFolder(ctx, ownerUserIds, id, limit)),
+    );
+  }
+  return dedupeAssetIds(collected)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, limit);
+};
+
 const collectAssetIdsForFolder = async (
   ctx: QueryCtx,
   folderId: Id<"folders">,
@@ -1216,6 +1248,10 @@ export const listGalleryAssets = query({
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
     folderId: v.optional(v.id("folders")),
+    // With folderId: also include the folder's sub-collections, so browsing a
+    // world shows its Characters / Locations / Scenes too, not just the loose
+    // assets sitting on the parent folder.
+    includeDescendants: v.optional(v.boolean()),
     // Browse a project's whole pool (union of its member collections).
     projectId: v.optional(v.id("folders")),
     // With projectId: skip members of "beats"-section collections — the
@@ -1267,7 +1303,14 @@ export const listGalleryAssets = query({
           args.excludeBeatAssets === true,
         )
       : args.folderId
-      ? await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
+      ? args.includeDescendants
+        ? await collectAssetsForFolderTree(
+            ctx,
+            ownerUserIds,
+            args.folderId,
+            queryTake,
+          )
+        : await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
       : (
           await Promise.all(
             ownerUserIds.map(async (ownerCandidate) => {

@@ -1661,7 +1661,22 @@ export function GalleryDashboard({
   // links, so a collection of ANY size streams fully (no 600-item cap).
   // Combining the folder with another asset filter falls back to the capped
   // one-shot query, same as before.
+  // A world = a collection with sub-collections. Browsing one unions the whole
+  // tree, which the single-folder cursor query can't paginate over, so world
+  // browse falls back to the capped one-shot read.
+  const childFolderParentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const folder of folders ?? []) {
+      if (folder.parentFolderId) ids.add(folder.parentFolderId as string);
+    }
+    return ids;
+  }, [folders]);
+  const browsingWorldFolder =
+    Boolean(effectiveSelectedFolderId) &&
+    childFolderParentIds.has(effectiveSelectedFolderId as string);
+
   const folderPaginationActive =
+    !browsingWorldFolder &&
     galleryScope === "mine" &&
     canAccessMyGallery &&
     Boolean(effectiveSelectedFolderId) &&
@@ -1769,6 +1784,7 @@ export function GalleryDashboard({
             effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
+          includeDescendants: browsingWorldFolder || undefined,
           projectId: browseProject
             ? (browseProject.id as Id<"folders">)
             : undefined,
@@ -4065,6 +4081,7 @@ export function GalleryDashboard({
                   _id: project._id,
                   name: project.name,
                   count: project.assetCount,
+                  worldName: project.world?.name,
                   directions: (project.collections ?? []).map(
                     (collection) => ({
                       id: collection.folderId as string,
