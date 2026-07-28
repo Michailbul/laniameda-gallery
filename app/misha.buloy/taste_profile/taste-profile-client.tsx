@@ -1,6 +1,10 @@
 "use client";
 import { useCurrentUser } from "@/lib/use-current-user";
-import { ShowcaseHome } from "@/components/showcase/showcase-home";
+// One public surface, two URLs: this legacy shareable link now renders the
+// same Featured / Worlds / Browse home as `/`, so published work never has to
+// be curated twice. (The old ShowcaseHome split storybooks into their own
+// stacks; storybooks are worlds now.)
+import { PublicHome } from "@/components/showcase/public-home";
 
 export function TasteProfileClient() {
   const { user, isLoading } = useCurrentUser();
@@ -13,5 +17,5 @@ export function TasteProfileClient() {
     );
   }
 
-  return <ShowcaseHome previewAuthed={Boolean(user)} />;
+  return <PublicHome previewAuthed={Boolean(user)} />;
 }

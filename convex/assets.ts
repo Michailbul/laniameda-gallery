@@ -1777,6 +1777,9 @@ export const listPublicGalleryAssetsPage = query({
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
     modelName: v.optional(v.string()),
+    // Restrict the public page to one collection's membership — what a
+    // collection-kind menu filter pill selects.
+    folderId: v.optional(v.id("folders")),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
     paginationOpts: paginationOptsValidator,
@@ -1785,6 +1788,20 @@ export const listPublicGalleryAssetsPage = query({
   handler: async (ctx, args) => {
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    // Membership is a links-only read; the ids gate the page below so the
+    // pagination cursor still walks the isPublic index.
+    const folderFilter = args.folderId
+      ? new Set(
+          (
+            await ctx.db
+              .query("assetFolders")
+              .withIndex("by_folder_createdAt", (q) =>
+                q.eq("folderId", args.folderId as Id<"folders">),
+              )
+              .collect()
+          ).map((link) => link.assetId as string),
+        )
+      : null;
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
     const assetRole = args.assetRole;
@@ -1821,6 +1838,9 @@ export const listPublicGalleryAssetsPage = query({
         return false;
       }
       if (kind && asset.kind !== kind) {
+        return false;
+      }
+      if (folderFilter && !folderFilter.has(asset._id)) {
         return false;
       }
       return true;

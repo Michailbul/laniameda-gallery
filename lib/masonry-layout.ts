@@ -114,6 +114,17 @@ export const DEFAULT_PORTRAIT_ROW_BOOST = 1.7;
  */
 export const DEFAULT_TALL_PORTRAIT_ROW_BOOST = 2.4;
 
+/**
+ * Ceiling on how tall a portrait row may grow, as a fraction of that row's
+ * boosted max. Verticals are boosted so they don't render as slivers, but the
+ * boost compounds with the size slider: at large tile sizes a 9:16 row ate a
+ * screenful of height while the tile itself gained little apparent size (its
+ * WIDTH is aspect × height, so a tall row buys mostly empty vertical space).
+ * Capping the row at 75% of its boosted max stops verticals from dominating
+ * the grid; landscape and square rows keep scaling to the full max.
+ */
+export const DEFAULT_PORTRAIT_ROW_MAX_FRACTION = 0.75;
+
 export type JustifiedOptions = {
   /** Content-box width available to the grid, in px (no padding). */
   containerWidth: number;
@@ -149,6 +160,13 @@ export type JustifiedOptions = {
    * to DEFAULT_TALL_PORTRAIT_ROW_BOOST.
    */
   tallPortraitRowBoost?: number;
+  /**
+   * Fraction of the boosted max row height that a PORTRAIT-containing row may
+   * actually reach. Keeps verticals from swallowing the viewport as the size
+   * slider goes up. Pass 1 to disable. Defaults to
+   * DEFAULT_PORTRAIT_ROW_MAX_FRACTION.
+   */
+  portraitRowMaxFraction?: number;
 };
 
 export type JustifiedTile = {
@@ -191,6 +209,13 @@ export function layoutJustified(
     portraitRowBoost,
     options.tallPortraitRowBoost ?? DEFAULT_TALL_PORTRAIT_ROW_BOOST,
   );
+  const portraitRowMaxFraction = Math.min(
+    1,
+    Math.max(
+      0.1,
+      options.portraitRowMaxFraction ?? DEFAULT_PORTRAIT_ROW_MAX_FRACTION,
+    ),
+  );
 
   if (
     containerWidth <= 0 ||
@@ -211,12 +236,21 @@ export function layoutJustified(
     for (let i = start; i < endExclusive; i += 1) sum += aspects[i]!;
     return sum;
   };
+  // The portrait boost is scaled down by portraitRowMaxFraction so it applies
+  // to the row-BREAKING target too, not just the ceiling. Lowering the target
+  // packs more verticals into a row, which is what actually shortens it: the
+  // row still justifies to full width, each tile just gets a fairer share.
+  // Clamping only the max left the row tall and half-empty instead.
   const rangeBoost = (start: number, endExclusive: number) => {
     let boost = 1;
     for (let i = start; i < endExclusive; i += 1) {
       const aspect = aspects[i]!;
-      if (aspect < TALL_PORTRAIT_ASPECT_THRESHOLD) return tallPortraitRowBoost;
-      if (aspect < PORTRAIT_ASPECT_THRESHOLD) boost = portraitRowBoost;
+      if (aspect < TALL_PORTRAIT_ASPECT_THRESHOLD) {
+        return Math.max(1, tallPortraitRowBoost * portraitRowMaxFraction);
+      }
+      if (aspect < PORTRAIT_ASPECT_THRESHOLD) {
+        boost = Math.max(1, portraitRowBoost * portraitRowMaxFraction);
+      }
     }
     return boost;
   };
@@ -235,6 +269,8 @@ export function layoutJustified(
     const aspectSum = rangeAspectSum(rowStart, endExclusive);
     const boost = rangeBoost(rowStart, endExclusive);
     const rowTarget = targetRowHeight * boost;
+    // boost already carries portraitRowMaxFraction, so the ceiling scales with
+    // it — a portrait row can never exceed 75% of its old maximum.
     const rowMaxHeight = maxRowHeightBase * boost;
 
     // A row justifies (fills the full width) when it's an interior row, or the

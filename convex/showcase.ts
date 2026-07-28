@@ -2,6 +2,7 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { collectAssetsForFolder } from "./assets";
+import { collectProjectCollectionLinks } from "./projects";
 import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
@@ -45,6 +46,11 @@ const CARD_PREVIEW_LIMIT = 4;
 // Ceiling on assets pulled into any single showcased set / the taste grid.
 const SET_ASSET_LIMIT = 200;
 const SELECTED_WORKS_LIMIT = 120;
+// Membership reads over-fetch by this factor before the isPublic filter, so a
+// set whose recent members are private still fills its limit.
+const PUBLIC_OVERFETCH = 3;
+// How many pieces lead the public home.
+const FEATURED_REEL_LIMIT = 12;
 
 const previewAssetValidator = v.object({
   assetId: v.id("assets"),
@@ -56,6 +62,33 @@ const previewAssetValidator = v.object({
   height: v.optional(v.number()),
   thumbWidth: v.optional(v.number()),
   thumbHeight: v.optional(v.number()),
+});
+
+// A "world" is a showcased project: a story universe grouping its member
+// collections as named sections (Characters, Locations, Stills, Beats).
+const worldSectionValidator = v.object({
+  key: v.union(
+    v.literal("beats"),
+    v.literal("characters"),
+    v.literal("locations"),
+    v.literal("stills"),
+    v.literal("story"),
+    v.literal("other"),
+  ),
+  label: v.string(),
+  count: v.number(),
+});
+
+const worldSummaryValidator = v.object({
+  folderId: v.id("folders"),
+  slug: v.optional(v.string()),
+  name: v.string(),
+  logline: v.optional(v.string()),
+  count: v.number(),
+  featured: v.boolean(),
+  cover: v.optional(previewAssetValidator),
+  previewAssets: v.array(previewAssetValidator),
+  sections: v.array(worldSectionValidator),
 });
 
 const showcaseSetSummaryValidator = v.object({
@@ -110,19 +143,33 @@ const orderShowcased = (a: Doc<"folders">, b: Doc<"folders">) => {
   return (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0);
 };
 
-// A showcased set's full membership: the folder's own assets plus every
-// sub-collection's ("Characters", "Locations", …), deduped, cover-first.
+// Public membership of one folder: only assets the owner individually marked
+// isPublic. Over-fetches before filtering so a set whose newest members are
+// private still fills up to the limit.
+const collectPublicAssetsForFolder = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  ownerUserIds: string[],
+  folderId: Id<"folders">,
+) => {
+  const members = await collectAssetsForFolder(
+    ctx,
+    ownerUserIds,
+    folderId,
+    SET_ASSET_LIMIT * PUBLIC_OVERFETCH,
+  );
+  return members
+    .filter((asset) => asset.isPublic === true)
+    .slice(0, SET_ASSET_LIMIT);
+};
+
+// A showcased set's public membership: the folder's own public assets plus
+// every sub-collection's ("Characters", "Locations", …), deduped, cover-first.
 const collectSetMembers = async (
   ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
   folder: Doc<"folders">,
 ) => {
   const ownerUserIds = resolveUserIdCandidates(folder.ownerUserId ?? "");
-  const own = await collectAssetsForFolder(
-    ctx,
-    ownerUserIds,
-    folder._id,
-    SET_ASSET_LIMIT,
-  );
+  const own = await collectPublicAssetsForFolder(ctx, ownerUserIds, folder._id);
 
   // Only plain collections nest; storybooks never have chapters.
   const childFolders =
@@ -139,12 +186,7 @@ const collectSetMembers = async (
   const chapters = await Promise.all(
     childFolders.map(async (child) => ({
       folder: child,
-      members: await collectAssetsForFolder(
-        ctx,
-        ownerUserIds,
-        child._id,
-        SET_ASSET_LIMIT,
-      ),
+      members: await collectPublicAssetsForFolder(ctx, ownerUserIds, child._id),
     })),
   );
 
@@ -166,6 +208,203 @@ const collectSetMembers = async (
   return { own, chapters, all: all.slice(0, SET_ASSET_LIMIT) };
 };
 
+const SECTION_LABELS = {
+  beats: "Beats",
+  characters: "Characters",
+  locations: "Locations",
+  stills: "Stills",
+  // A storybook's own frames — it has no sub-structure, the story IS the set.
+  story: "Story",
+  other: "More",
+} as const;
+
+type WorldSectionKey = keyof typeof SECTION_LABELS;
+
+// A WORLD is the single public concept for "a story universe". Three vault
+// shapes produce one, so publishing never forces a restructure:
+//   - a project (kind:"project") whose member collections carry an explicit
+//     projectCollections.section
+//   - a plain collection with sub-collections ("Dear Annette" > Scenes,
+//     Characters, Locations), where the child's NAME names the section
+//   - a storybook (kind:"storybook"), whose own frames are its one "Story"
+//     section — a storybook IS a world, just one without sub-structure
+// A childless plain collection is a plain set, not a world.
+const SECTION_BY_NAME: Array<[RegExp, WorldSectionKey]> = [
+  [/^(scenes?|beats?|shots?|storyboard)$/i, "beats"],
+  [/^(characters?|cast)$/i, "characters"],
+  [/^(locations?|places?|environments?)$/i, "locations"],
+  [/^(stills?|frames?|renders?)$/i, "stills"],
+];
+
+const sectionKeyForName = (name: string): WorldSectionKey => {
+  const trimmed = name.trim();
+  for (const [pattern, key] of SECTION_BY_NAME) {
+    if (pattern.test(trimmed)) return key;
+  }
+  return "other";
+};
+
+// A world's children: plain sub-collections AND nested projects. The project
+// tier is the second level of the hierarchy — world > project > beats >
+// statics — so a world that holds only a project is still a world.
+const worldChildFolders = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  world: Doc<"folders">,
+) =>
+  (
+    await ctx.db
+      .query("folders")
+      .withIndex("by_parent", (q) => q.eq("parentFolderId", world._id))
+      .collect()
+  ).filter((child) => child.kind === undefined || child.kind === "project");
+
+// Is this showcased folder a world (sectioned) rather than a flat set?
+const isWorldFolder = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  folder: Doc<"folders">,
+) => {
+  if (folder.kind === "project" || folder.kind === "storybook") return true;
+  if (folder.kind !== undefined) return false;
+  return (await worldChildFolders(ctx, folder)).length > 0;
+};
+
+// A world's public content, grouped into sections and carrying only assets
+// marked isPublic. An asset filed into more than one member collection is
+// presented once, in the first section that claims it, so the world page never
+// repeats a frame.
+const collectWorldSections = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  world: Doc<"folders">,
+) => {
+  const ownerUserIds = resolveUserIdCandidates(world.ownerUserId ?? "");
+
+  // Normalize every shape to (folderId, sectionKey) pairs before reading any
+  // membership, so the grouping below is shape-agnostic.
+  const members: Array<{ folderId: Id<"folders">; key: WorldSectionKey }> = [];
+
+  // A project's own member collections carry an explicit section.
+  const pushProjectMembers = async (projectId: Id<"folders">) => {
+    for (const link of await collectProjectCollectionLinks(
+      ctx,
+      ownerUserIds,
+      projectId,
+    )) {
+      members.push({ folderId: link.folderId, key: link.section ?? "other" });
+    }
+  };
+
+  if (world.kind === "project") {
+    await pushProjectMembers(world._id);
+  } else {
+    for (const child of await worldChildFolders(ctx, world)) {
+      if (child.kind === "project") {
+        // A project inside a world holds no assets itself — it contributes
+        // the sectioned collections filed under it.
+        await pushProjectMembers(child._id);
+      } else {
+        members.push({
+          folderId: child._id,
+          key: sectionKeyForName(child.name),
+        });
+      }
+    }
+  }
+
+  // Non-project worlds also show whatever sits directly on the folder itself:
+  // a storybook's frames ARE its story; a plain collection's loose members go
+  // under "More" so nothing published goes missing.
+  if (world.kind !== "project") {
+    members.push({
+      folderId: world._id,
+      key: world.kind === "storybook" ? "story" : "other",
+    });
+  }
+
+  const seen = new Set<string>();
+  const byKey = new Map<
+    WorldSectionKey,
+    { key: WorldSectionKey; label: string; assets: Doc<"assets">[] }
+  >();
+
+  for (const member of members) {
+    const collectionMembers = await collectPublicAssetsForFolder(
+      ctx,
+      ownerUserIds,
+      member.folderId,
+    );
+    const fresh = collectionMembers.filter((asset) => {
+      if (seen.has(asset._id)) return false;
+      seen.add(asset._id);
+      return true;
+    });
+    if (fresh.length === 0) continue;
+    const key = member.key;
+    const bucket = byKey.get(key) ?? {
+      key,
+      label: SECTION_LABELS[key],
+      assets: [],
+    };
+    bucket.assets.push(...fresh);
+    byKey.set(key, bucket);
+  }
+
+  // Stable, narrative order regardless of how the collections were linked.
+  const ORDER: WorldSectionKey[] = [
+    "story",
+    "beats",
+    "characters",
+    "locations",
+    "stills",
+    "other",
+  ];
+  const sections = ORDER.map((key) => byKey.get(key)).filter(
+    (section): section is NonNullable<typeof section> => section !== undefined,
+  );
+  const all = sections.flatMap((section) => section.assets);
+  return { sections, all };
+};
+
+// A world's public identity, as stamped onto any asset that belongs to it.
+const worldRefValidator = v.object({
+  folderId: v.id("folders"),
+  slug: v.optional(v.string()),
+  name: v.string(),
+});
+
+const summarizeWorld = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  world: Doc<"folders">,
+) => {
+  const { sections, all } = await collectWorldSections(ctx, world);
+  // The chosen cover fronts the card; otherwise the first public frame does.
+  const ordered = [...all];
+  if (world.coverAssetId) {
+    const idx = ordered.findIndex((a) => a._id === world.coverAssetId);
+    if (idx > 0) ordered.unshift(ordered.splice(idx, 1)[0]);
+  }
+  const previewAssets = await buildPreviewAssets(ctx, ordered);
+  return {
+    // Not part of the card payload — lets the caller stamp each world's
+    // members without walking the membership a second time.
+    assetIds: all.map((asset) => asset._id),
+    summary: {
+      folderId: world._id,
+      slug: world.slug,
+      name: world.name,
+      logline: world.description,
+      count: all.length,
+      featured: world.showcaseFeatured === true,
+      cover: previewAssets[0],
+      previewAssets,
+      sections: sections.map((section) => ({
+        key: section.key,
+        label: section.label,
+        count: section.assets.length,
+      })),
+    },
+  };
+};
+
 /**
  * The whole public home in one shot:
  *   featured    — showcased sets flagged showcaseFeatured (hero treatment)
@@ -182,6 +421,15 @@ const collectSetMembers = async (
 export const getShowcaseHome = query({
   args: {},
   returns: v.object({
+    // Each featured piece carries the world it belongs to, when it belongs to
+    // one — the card surfaces it on hover.
+    featuredReel: v.array(
+      v.object({
+        asset: galleryAssetResultValidator,
+        world: v.optional(worldRefValidator),
+      }),
+    ),
+    worlds: v.array(worldSummaryValidator),
     featured: v.array(showcaseSetSummaryValidator),
     collections: v.array(showcaseSetSummaryValidator),
     storybooks: v.array(showcaseSetSummaryValidator),
@@ -205,12 +453,39 @@ export const getShowcaseHome = query({
         .withIndex("by_showcased", (q) => q.eq("showcased", true))
         .collect()
     ).filter(
-      (f) =>
-        isShowcaseOwner(f.ownerUserId) &&
-        f.parentFolderId === undefined &&
-        (f.kind === undefined || f.kind === "storybook") &&
-        f._id !== tasteFolder?._id,
+      (f) => isShowcaseOwner(f.ownerUserId) && f.parentFolderId === undefined,
     );
+
+    // --- Worlds: showcased projects, plus showcased collections that carry
+    // sub-collections (Dear Annette > Scenes / Characters / Locations). Both
+    // shapes present identically to a visitor.
+    const worldFolders: Doc<"folders">[] = [];
+    const setFolders: Doc<"folders">[] = [];
+    for (const folder of showcasedFolders) {
+      if (folder._id === tasteFolder?._id) continue;
+      if (await isWorldFolder(ctx, folder)) worldFolders.push(folder);
+      else if (folder.kind === undefined || folder.kind === "storybook") {
+        setFolders.push(folder);
+      }
+    }
+
+    const summarizedWorlds = await Promise.all(
+      worldFolders.sort(orderShowcased).map((world) => summarizeWorld(ctx, world)),
+    );
+    const worlds = summarizedWorlds.map((entry) => entry.summary);
+
+    // assetId -> the world it belongs to, so a featured piece can say where it
+    // comes from. First world wins if an asset somehow sits in two.
+    const worldByAssetId = new Map<string, (typeof worlds)[number]>();
+    for (const entry of summarizedWorlds) {
+      for (const assetId of entry.assetIds) {
+        if (!worldByAssetId.has(assetId)) {
+          worldByAssetId.set(assetId, entry.summary);
+        }
+      }
+    }
+
+    const showcasedSetFolders = setFolders;
 
     const showcasedAssetIds = new Set<string>();
     const summarize = async (folder: Doc<"folders">) => {
@@ -239,7 +514,7 @@ export const getShowcaseHome = query({
     };
 
     const summarized = await Promise.all(
-      [...showcasedFolders].sort(orderShowcased).map(summarize),
+      [...showcasedSetFolders].sort(orderShowcased).map(summarize),
     );
 
     const featured = summarized
@@ -256,6 +531,43 @@ export const getShowcaseHome = query({
           s.folder.showcaseFeatured !== true && s.folder.kind === "storybook",
       )
       .map((s) => s.summary);
+
+    // --- Featured reel: the pieces that lead the page. Public + flagged
+    // featured, owner-ordered (orderPriority) with videos winning ties so the
+    // reel opens on motion. ---
+    const featuredReelAssets = (
+      await ctx.db
+        .query("assets")
+        .withIndex("by_isPublic_createdAt", (q) =>
+          q.eq("isPublic", true).gte("createdAt", 0),
+        )
+        .order("desc")
+        .take(SELECTED_WORKS_LIMIT * PUBLIC_OVERFETCH)
+    )
+      .filter((a) => a.isFeatured === true && isShowcaseOwner(a.ownerUserId))
+      .sort((a, b) => {
+        const ao = a.orderPriority ?? Number.POSITIVE_INFINITY;
+        const bo = b.orderPriority ?? Number.POSITIVE_INFINITY;
+        if (ao !== bo) return ao - bo;
+        const av = a.kind === "video" ? 0 : 1;
+        const bv = b.kind === "video" ? 0 : 1;
+        if (av !== bv) return av - bv;
+        return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+      })
+      .slice(0, FEATURED_REEL_LIMIT);
+    const hydratedReel = await hydrateGalleryAssetResults(
+      ctx,
+      featuredReelAssets,
+    );
+    const featuredReel = hydratedReel.map((asset) => {
+      const world = worldByAssetId.get(asset._id);
+      return {
+        asset,
+        world: world
+          ? { folderId: world.folderId, slug: world.slug, name: world.name }
+          : undefined,
+      };
+    });
 
     // --- Inspiration ---
     let inspiration;
@@ -287,7 +599,78 @@ export const getShowcaseHome = query({
       inspiration = await hydrateGalleryAssetResults(ctx, unsorted);
     }
 
-    return { featured, collections, storybooks, inspiration };
+    return { featuredReel, worlds, featured, collections, storybooks, inspiration };
+  },
+});
+
+const worldViewValidator = v.union(
+  v.null(),
+  v.object({
+    folderId: v.id("folders"),
+    slug: v.optional(v.string()),
+    name: v.string(),
+    logline: v.optional(v.string()),
+    cover: v.optional(previewAssetValidator),
+    sections: v.array(
+      v.object({
+        key: worldSectionValidator.fields.key,
+        label: v.string(),
+        assets: v.array(galleryAssetResultValidator),
+      }),
+    ),
+  }),
+);
+
+/**
+ * One world by slug (or raw folder id, for worlds published before slugs
+ * existed). Returns null unless the project is currently showcased — revoking
+ * the flag closes the public door immediately. Only isPublic members are ever
+ * returned.
+ */
+export const getWorld = query({
+  args: { slug: v.string() },
+  returns: worldViewValidator,
+  handler: async (ctx, args) => {
+    const key = args.slug.trim();
+    if (!key) return null;
+
+    const bySlug = await ctx.db
+      .query("folders")
+      .withIndex("by_slug", (q) => q.eq("slug", key))
+      .first();
+    // ctx.db.get throws on a malformed id, so only try the id path when the
+    // slug lookup missed and the key could plausibly be one.
+    const world =
+      bySlug ??
+      (await (async () => {
+        try {
+          return await ctx.db.get(key as Id<"folders">);
+        } catch {
+          return null;
+        }
+      })());
+
+    if (!world) return null;
+    if (world.showcased !== true) return null;
+    if (!isShowcaseOwner(world.ownerUserId)) return null;
+    if (!(await isWorldFolder(ctx, world))) return null;
+
+    const { sections } = await collectWorldSections(ctx, world);
+    const cover = (await buildPreviewAssets(ctx, sections[0]?.assets ?? []))[0];
+    return {
+      folderId: world._id,
+      slug: world.slug,
+      name: world.name,
+      logline: world.description,
+      cover,
+      sections: await Promise.all(
+        sections.map(async (section) => ({
+          key: section.key,
+          label: section.label,
+          assets: await hydrateGalleryAssetResults(ctx, section.assets),
+        })),
+      ),
+    };
   },
 });
 

@@ -46,6 +46,8 @@ interface GalleryImage {
   kind?: "image" | "video";
   contentType?: string;
   modelName?: string;
+  /** Optional caption revealed on card hover (public surface: the world an asset belongs to). */
+  overlayLabel?: string;
   pillar?: string;
   tagNames?: string[];
   sourceUrl?: string;
@@ -137,6 +139,8 @@ interface MasonryGridProps {
     kind?: "image" | "video";
     contentType?: string;
     modelName?: string;
+    /** Optional caption revealed on card hover (public surface: the world an asset belongs to). */
+    overlayLabel?: string;
     pillar?: string;
     tagNames?: string[];
       sourceUrl?: string;

@@ -151,16 +151,12 @@ const collectTaggedAssetIds = async (
   return assetIds;
 };
 
-export const listMenuFilters = query({
-  args: {
-    ownerUserId: v.string(),
-    // Count against the public gallery (isPublic assets) instead of the
-    // owner's full vault. The entries themselves are always the owner's.
-    isPublic: v.optional(v.boolean()),
-  },
-  returns: v.array(menuFilterResultValidator),
-  handler: async (ctx, args) => {
-    const ownerUserId = requireOwnerUserId(args.ownerUserId);
+const buildMenuFilters = async (
+  ctx: QueryCtx,
+  ownerUserId: string,
+  isPublic: boolean | undefined,
+) => {
+  {
     const entries = await listOwnerMenuFilters(ctx, ownerUserId);
     if (entries.length === 0) return [];
 
@@ -179,7 +175,7 @@ export const listMenuFilters = query({
     // on unrelated asset edits (only tag / membership changes invalidate it
     // now). The public scope still reads assets, but only the isPublic slice
     // via its index.
-    const publicAssetIds = args.isPublic
+    const publicAssetIds = isPublic
       ? new Set(
           (
             await ctx.db
@@ -235,6 +231,35 @@ export const listMenuFilters = query({
       });
     }
     return results;
+  }
+};
+
+export const listMenuFilters = query({
+  args: {
+    ownerUserId: v.string(),
+    // Count against the public gallery (isPublic assets) instead of the
+    // owner's full vault. The entries themselves are always the owner's.
+    isPublic: v.optional(v.boolean()),
+  },
+  returns: v.array(menuFilterResultValidator),
+  handler: (ctx, args) =>
+    buildMenuFilters(ctx, requireOwnerUserId(args.ownerUserId), args.isPublic),
+});
+
+// Authless twin for the public landing page: the same curated pills, pinned to
+// the showcase owner and always counted over the public slice. Anonymous
+// visitors get the pills without ever naming an owner id.
+export const listPublicMenuFilters = query({
+  args: {},
+  returns: v.array(menuFilterResultValidator),
+  handler: async (ctx) => {
+    const owner = (
+      process.env.SHOWCASE_OWNER_USER_ID ??
+      process.env.KB_OWNER_USER_ID ??
+      ""
+    ).trim();
+    if (!owner) return [];
+    return buildMenuFilters(ctx, owner, true);
   },
 });
 

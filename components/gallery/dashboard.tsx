@@ -58,6 +58,12 @@ import {
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
+  AddToPanel,
+  type PanelCollection,
+  type PanelSection,
+  type PanelWorld,
+} from "./add-to-panel";
+import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
@@ -502,6 +508,8 @@ export function GalleryDashboard({
   const [bulkCurationError, setBulkCurationError] = useState<string>();
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  // "Add to" drawer — declared up here because the card drag handler opens it.
+  const [addToPanelOpen, setAddToPanelOpen] = useState(false);
   const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
   const [bulkAddDraft, setBulkAddDraft] = useState("");
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
@@ -565,6 +573,10 @@ export function GalleryDashboard({
   );
   const removeAssetsFromProjectMutation = useMutation(
     api.projects.removeAssetsFromProject,
+  );
+  const ensureSectionPoolMutation = useMutation(api.projects.ensureSectionPool);
+  const addCollectionToProjectMutation = useMutation(
+    api.projects.addCollectionToProject,
   );
   const updateFolderMutation = useMutation(api.folders.updateFolder);
   const deleteFolderMutation = useMutation(api.folders.deleteFolder);
@@ -1264,9 +1276,13 @@ export function GalleryDashboard({
 
   // Collections browse view: preview summaries fetched only while the view is
   // open, merged with the live counts the dashboard already subscribes to.
+  // Also fetched for the Add-to drawer's folder view, which shows the same
+  // cover thumbnails as drop targets.
   const collectionSummaries = useQuery(
     api.folders.listCollectionSummaries,
-    viewMode === "collections" && galleryScope === "mine" && canAccessMyGallery
+    (viewMode === "collections" || addToPanelOpen) &&
+      galleryScope === "mine" &&
+      canAccessMyGallery
       ? { ownerUserId }
       : "skip",
   );
@@ -2740,6 +2756,9 @@ export function GalleryDashboard({
       });
       if (assetIds.length === 0) return;
       writeAssetDragPayload(event.dataTransfer, assetIds);
+      // Reveal the filing drawer the moment a drag starts, so there is always
+      // somewhere to drop without hunting for a button first.
+      setAddToPanelOpen(true);
     },
     [images, selectedAssetIds],
   );
@@ -2977,6 +2996,165 @@ export function GalleryDashboard({
       removeAssetsFromProjectMutation,
       selectedAssetMemberships,
     ],
+  );
+
+  // ── "Add to" panel ──
+  // The one filing surface: a drawer (not a modal) so the grid stays
+  // scrollable and draggable while it's open. Every handler ADDS; nothing
+  // here moves or removes.
+  const selectedAssetIdList = useMemo(
+    () => Array.from(selectedAssetIds),
+    [selectedAssetIds],
+  );
+
+  // Cover thumbs for the panel's folder view, keyed by folder.
+  const panelPreviewsByFolderId = useMemo(() => {
+    const map = new Map<string, { thumbUrl?: string; url?: string }[]>();
+    for (const summary of collectionSummaries ?? []) {
+      map.set(summary._id, summary.previewAssets);
+    }
+    return map;
+  }, [collectionSummaries]);
+
+  const panelWorlds = useMemo<PanelWorld[]>(
+    () =>
+      (projects ?? []).map((project) => ({
+        id: project._id,
+        name: project.name,
+        description: project.brief,
+        previews: project.previewAssets,
+        members: project.collections.map((member) => ({
+          folderId: member.folderId,
+          name: member.name,
+          section: member.section as PanelSection | undefined,
+          previews: panelPreviewsByFolderId.get(member.folderId),
+        })),
+      })),
+    [panelPreviewsByFolderId, projects],
+  );
+
+  // Collections offered as destinations EXCLUDE anything that is really a
+  // world's section — a project's member directions, and the sub-collections
+  // of a collection-shaped world. Those are reachable under their world, so
+  // listing them flat duplicated "Characters"/"Locations"/"Scenes" rows.
+  const worldSectionFolderIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const project of projects ?? []) {
+      for (const member of project.collections) ids.add(member.folderId);
+    }
+    return ids;
+  }, [projects]);
+
+  const panelCollections = useMemo<PanelCollection[]>(
+    () =>
+      collectionFoldersWithCounts
+        .filter((folder) => !worldSectionFolderIds.has(folder._id))
+        .map((folder) => ({
+          id: folder._id,
+          name: folder.name,
+          count: folder.count,
+          parentId: folder.parentFolderId ?? undefined,
+          previews: panelPreviewsByFolderId.get(folder._id),
+        })),
+    [collectionFoldersWithCounts, panelPreviewsByFolderId, worldSectionFolderIds],
+  );
+
+  const addAssetsToFolder = useCallback(
+    async (folderId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      await handleAssetsDropOnFolder(folderId, assetIds);
+    },
+    [handleAssetsDropOnFolder],
+  );
+
+  // Filing into a SECTION rather than a named collection: the world's pool
+  // folder for that section is created on demand, so "add a character" needs
+  // no collection to exist first.
+  const addAssetsToWorldSection = useCallback(
+    async (worldId: string, section: PanelSection, assetIds: string[]) => {
+      if (assetIds.length === 0 || !ownerUserId) return;
+      try {
+        const pool = await ensureSectionPoolMutation({
+          ownerUserId,
+          projectId: worldId as Id<"folders">,
+          section,
+        });
+        await handleAssetsDropOnFolder(pool.folderId as string, assetIds);
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Failed to file assets.",
+          error: true,
+        });
+      }
+    },
+    [ensureSectionPoolMutation, handleAssetsDropOnFolder, ownerUserId],
+  );
+
+  // A beat is a direction attached to the world under its "beats" section —
+  // the same shape the review modal's composer produces, now reachable from
+  // the gallery with any asset selected.
+  const createBeatFromAssets = useCallback(
+    async (worldId: string, name: string, assetIds: string[]) => {
+      if (!ownerUserId) return;
+      try {
+        const created = await createFolderMutation({
+          ownerUserId,
+          name,
+          kind: "direction",
+        });
+        await addCollectionToProjectMutation({
+          ownerUserId,
+          projectId: worldId as Id<"folders">,
+          folderId: created.folderId,
+          section: "beats",
+        });
+        if (assetIds.length > 0) {
+          await handleAssetsDropOnFolder(created.folderId as string, assetIds);
+        } else {
+          setMoveStatus({
+            text: `Beat "${name}" created`,
+          });
+        }
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Failed to create beat.",
+          error: true,
+        });
+      }
+    },
+    [
+      addCollectionToProjectMutation,
+      createFolderMutation,
+      handleAssetsDropOnFolder,
+      ownerUserId,
+    ],
+  );
+
+  const createCollectionFromAssets = useCallback(
+    async (name: string, assetIds: string[]) => {
+      const folderId = await createFolder(name);
+      if (folderId && assetIds.length > 0) {
+        await handleAssetsDropOnFolder(folderId, assetIds);
+      }
+    },
+    [createFolder, handleAssetsDropOnFolder],
+  );
+
+  const updateFolderDescription = useCallback(
+    async (folderId: string, description: string) => {
+      if (!ownerUserId) return;
+      const folder = (folders ?? []).find((entry) => entry._id === folderId);
+      if (!folder) return;
+      await updateFolderMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+        name: folder.name,
+        description: description || undefined,
+      });
+    },
+    [folders, ownerUserId, updateFolderMutation],
   );
 
   // ── Stable grid props ──
@@ -4722,8 +4900,13 @@ export function GalleryDashboard({
                 <div className="relative">
                   <button
                     type="button"
+                    // ADD TO now opens the filing drawer instead of the old
+                    // dropdown: same job, but it stays open while you scroll
+                    // and accepts drops. (The dropdown below is unreachable
+                    // and due for removal.)
                     onClick={() => {
-                      setBulkAddMenuOpen((open) => !open);
+                      setBulkAddMenuOpen(false);
+                      setAddToPanelOpen(true);
                     }}
                     disabled={bulkCurationLoading || bulkAddBusy}
                     className="lm-btn-ghost inline-flex items-center gap-1.5"
@@ -5239,6 +5422,21 @@ export function GalleryDashboard({
         leftOffset={contentMarginLeft}
         onClose={() => setOpenProjectId(null)}
       />
+
+      {canAccessMyGallery && (
+        <AddToPanel
+          open={addToPanelOpen}
+          onClose={() => setAddToPanelOpen(false)}
+          selectedAssetIds={selectedAssetIdList}
+          worlds={panelWorlds}
+          collections={panelCollections}
+          onAddToFolder={addAssetsToFolder}
+          onAddToSection={addAssetsToWorldSection}
+          onCreateBeat={createBeatFromAssets}
+          onCreateCollection={createCollectionFromAssets}
+          onUpdateDescription={updateFolderDescription}
+        />
+      )}
     </div>
     </CoralToastProvider>
   );

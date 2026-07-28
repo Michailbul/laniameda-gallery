@@ -48,6 +48,8 @@ interface ImageCardProps {
     kind?: "image" | "video";
     contentType?: string;
     modelName?: string;
+    /** Optional caption revealed on card hover (public surface: the world an asset belongs to). */
+    overlayLabel?: string;
     pillar?: string;
     tagNames?: string[];
     sourceUrl?: string;
@@ -89,6 +91,8 @@ interface ImageCardProps {
     kind?: "image" | "video";
     contentType?: string;
     modelName?: string;
+    /** Optional caption revealed on card hover (public surface: the world an asset belongs to). */
+    overlayLabel?: string;
     pillar?: string;
     tagNames?: string[];
     sourceUrl?: string;
@@ -917,6 +921,24 @@ export const ImageCard = memo(function ImageCard({
           }}
         >
           ▤ {image.packMemberCount}
+        </div>
+      )}
+
+      {/* Provenance caption — top-right, revealed on hover. The public surface
+          uses it to say which world a featured piece comes from. Sits where the
+          owner's delete/like cluster would be, so the two never both render. */}
+      {image.overlayLabel && !canDelete && !likeable && (
+        <div
+          className="pointer-events-none absolute right-2 top-2 z-20 max-w-[70%] truncate px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100"
+          style={{
+            backgroundColor: "var(--image-card-badge-bg-soft)",
+            backdropFilter: "blur(6px)",
+            // Always light: this sits on the image, not on the page surface.
+            color: "var(--lm-ink)",
+            borderRadius: 3,
+          }}
+        >
+          {image.overlayLabel}
         </div>
       )}
 

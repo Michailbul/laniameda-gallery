@@ -112,17 +112,32 @@ export default defineSchema({
     // Unguessable token that makes a project's direction board publicly
     // viewable at /b/<token>. Unset = sharing off.
     shareToken: v.optional(v.string()),
-    // Parent collection for nesting (e.g. "Dear Annette" > "Characters").
-    // Only plain collections nest, and only one level deep: a folder with a
-    // parent can't be a parent itself. Undefined = root-level.
+    // Parent collection for nesting. The hierarchy, top down:
+    //   world    a plain ROOT collection — the story universe ("Dear Annete");
+    //            the only tier that publishes to /w/<slug>
+    //   project  kind:"project" parented to a world ("Dari"); groups its own
+    //            sectioned member collections and holds no assets itself
+    //   beats    a project member (projectCollections.section = "beats")
+    //   statics  the characters/locations/stills a beat draws on, reached from
+    //            the beat's projectCollections row via beatCharacterFolderIds
+    //            / beatLocationFolderIds
+    // A world may also hold plain sub-collections directly ("Dear Annete" >
+    // "Characters") — the older shape, still supported.
+    // Only plain collections may be parents, and only at root, so parentage
+    // never exceeds world > child. Undefined = root-level.
     parentFolderId: v.optional(v.id("folders")),
-    // "My Taste" public showcase flag. When true, a plain collection or a
-    // storybook is surfaced (as a whole set) on the public showcase home and
-    // becomes browsable by anonymous visitors. Projects are NEVER showcased —
-    // they stay private and are shared only via shareToken. Undefined = off.
+    // Public showcase flag. When true, a plain collection, a storybook, or a
+    // project ("world") is surfaced on the public home and becomes browsable
+    // by anonymous visitors. Only assets individually marked isPublic are ever
+    // exposed — showcasing a set publishes the SET, never its private members.
+    // Directions are never showcased (internal scaffolding); a project is
+    // still shared privately via shareToken. Undefined = off.
     // Sub-collections are never showcased directly; they ride along as
     // chapters of their showcased parent.
     showcased: v.optional(v.boolean()),
+    // URL slug for a showcased world: /w/<slug>. Derived from the name when a
+    // project is first showcased; unique per owner. Undefined = address by id.
+    slug: v.optional(v.string()),
     // Featured on the public home: showcased sets with this flag get the
     // large hero treatment above the regular stacks. Implies showcased.
     showcaseFeatured: v.optional(v.boolean()),
@@ -151,6 +166,7 @@ export default defineSchema({
     .index("by_owner_kind", ["ownerUserId", "kind"])
     .index("by_shareToken", ["shareToken"])
     .index("by_showcased", ["showcased"])
+    .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])
     .index("by_parent", ["parentFolderId"]),
 

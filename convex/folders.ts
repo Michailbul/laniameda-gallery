@@ -43,6 +43,7 @@ const folderReturnValidator = v.object({
   showcased: v.optional(v.boolean()),
   showcaseFeatured: v.optional(v.boolean()),
   showcaseOrder: v.optional(v.number()),
+  slug: v.optional(v.string()),
   tasteCollection: v.optional(v.boolean()),
   memberCount: v.optional(v.number()),
   createdAt: v.optional(v.number()),
@@ -63,6 +64,38 @@ const scopedNormalizedName = (
 
 // Guard shared by createFolder / setFolderParent: a valid parent is an owned,
 // plain, root-level collection. Keeps nesting to exactly one level.
+// The tiers of the content hierarchy, top down:
+//
+//   world      a plain ROOT collection — the story universe ("Dear Annete").
+//              The only tier that publishes to /w/<slug>.
+//   project    a kind:"project" folder parented to a world ("Dari"). Groups
+//              its own sectioned member collections; holds no assets itself.
+//   beats      a project member collection filed under section "beats".
+//   statics    the characters / locations / stills a beat draws on — reached
+//              from the beat's projectCollections row via
+//              beatCharacterFolderIds / beatLocationFolderIds.
+//
+// A world may also hold plain sub-collections directly, which is the older
+// shape ("Dear Annete" > "Characters") and still supported.
+//
+// Only these kinds may sit inside a world. A storybook IS its own set, and a
+// direction belongs to a project through projectCollections rather than by
+// parentage, so neither nests here.
+type FolderKind = Doc<"folders">["kind"];
+
+const WORLD_CHILD_KINDS: ReadonlySet<FolderKind> = new Set<FolderKind>([
+  undefined,
+  "project",
+]);
+
+const assertNestableKind = (kind: FolderKind) => {
+  if (!WORLD_CHILD_KINDS.has(kind)) {
+    throw new ConvexError(
+      "Only plain collections and projects can sit inside a world.",
+    );
+  }
+};
+
 const assertValidParent = async (
   ctx: MutationCtx,
   ownerUserId: string,
@@ -75,9 +108,13 @@ const assertValidParent = async (
   if (!canActorAccessOwnerUserId(ownerUserId, parent.ownerUserId)) {
     throw new ConvexError("Parent collection does not belong to this user.");
   }
+  // Worlds are plain collections. A project can't hold another project by
+  // parentage — its members ride the projectCollections join instead.
   if (parent.kind !== undefined) {
     throw new ConvexError("Only plain collections can contain sub-collections.");
   }
+  // Depth stops at the project tier: a world's child is never itself nested,
+  // so the tree can't grow past world > project > (beats > statics via links).
   if (parent.parentFolderId !== undefined) {
     throw new ConvexError("Sub-collections can't be nested further.");
   }
@@ -119,9 +156,7 @@ export const createFolder = mutation({
     }
 
     if (args.parentFolderId !== undefined) {
-      if (args.kind !== undefined) {
-        throw new ConvexError("Only plain collections can be sub-collections.");
-      }
+      assertNestableKind(args.kind);
       await assertValidParent(ctx, ownerUserId, args.parentFolderId);
     }
 
@@ -221,6 +256,10 @@ export const updateFolder = mutation({
     folderId: v.id("folders"),
     name: v.string(),
     description: v.optional(v.string()),
+    // Re-file this folder in the hierarchy. Omit to leave parentage alone;
+    // pass null to lift it back to root. Lets an existing project be moved
+    // into a world without recreating it.
+    parentFolderId: v.optional(v.union(v.id("folders"), v.null())),
   },
   returns: v.id("folders"),
   handler: async (ctx, args) => {
@@ -243,7 +282,30 @@ export const updateFolder = mutation({
       throw new ConvexError("Folder does not belong to this user.");
     }
 
-    const normalizedName = scopedNormalizedName(name, folder.parentFolderId);
+    const reparenting = args.parentFolderId !== undefined;
+    const nextParentFolderId = reparenting
+      ? (args.parentFolderId ?? undefined)
+      : folder.parentFolderId;
+    if (reparenting && nextParentFolderId !== undefined) {
+      if (nextParentFolderId === args.folderId) {
+        throw new ConvexError("A folder can't be its own parent.");
+      }
+      assertNestableKind(folder.kind);
+      await assertValidParent(ctx, ownerUserId, nextParentFolderId);
+      // Moving a world under another world would strand its own children,
+      // since only a root folder can be a parent.
+      const children = await ctx.db
+        .query("folders")
+        .withIndex("by_parent", (q) => q.eq("parentFolderId", args.folderId))
+        .first();
+      if (children) {
+        throw new ConvexError(
+          "This collection holds sub-collections — empty it before filing it inside a world.",
+        );
+      }
+    }
+
+    const normalizedName = scopedNormalizedName(name, nextParentFolderId);
     let duplicate = null;
     for (const ownerCandidate of ownerUserIds) {
       duplicate = await ctx.db
@@ -268,6 +330,12 @@ export const updateFolder = mutation({
       name,
       normalizedName,
       description,
+      ...(reparenting ? { parentFolderId: nextParentFolderId } : {}),
+      // A folder filed inside a world is published through that world, never
+      // on its own; drop the flags so it can't linger on the public home.
+      ...(reparenting && nextParentFolderId !== undefined
+        ? { showcased: undefined, showcaseFeatured: undefined }
+        : {}),
       updatedAt: Date.now(),
     });
 
@@ -304,9 +372,13 @@ export const setFolderPinned = mutation({
   },
 });
 
-// Toggle a collection or storybook onto the public "My Taste" showcase home.
-// Projects and project-scoped directions can never be showcased — they stay
-// private and are shared only via a shareToken board.
+// Toggle a collection, storybook, or project ("world") onto the public home.
+// Directions can never be showcased — they are internal scaffolding, surfaced
+// publicly only as the sections of a showcased world.
+//
+// Showcasing publishes the SET, not its members: every public read filters to
+// assets the owner individually marked isPublic, so flipping this flag can
+// never expose a private asset.
 export const setFolderShowcased = mutation({
   args: {
     ownerUserId: v.string(),
@@ -326,14 +398,16 @@ export const setFolderShowcased = mutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
-    if (folder.kind === "project" || folder.kind === "direction") {
+    if (folder.kind === "direction") {
       throw new ConvexError(
-        "Projects can't be showcased publicly — share them via a board link instead.",
+        "Directions are shown inside their world — showcase the project instead.",
       );
     }
     if (folder.parentFolderId !== undefined) {
       throw new ConvexError(
-        "Sub-collections are shown inside their parent — showcase the parent collection instead.",
+        folder.kind === "project"
+          ? "A project publishes inside its world — showcase the world instead."
+          : "Sub-collections are shown inside their parent — showcase the parent collection instead.",
       );
     }
     await ctx.db.patch(args.folderId, {
@@ -341,11 +415,41 @@ export const setFolderShowcased = mutation({
       // free of stale `false` rows. Un-showcasing also drops featured.
       showcased: args.showcased ? true : undefined,
       showcaseFeatured: args.showcased ? folder.showcaseFeatured : undefined,
+      // A world is addressed by slug at /w/<slug>. Assign on first showcase
+      // and keep it stable afterwards, so a published link never rots when
+      // the folder is renamed or briefly unpublished. Assigned for every
+      // showcased root folder — a plain collection with sub-collections
+      // publishes as a world too.
+      slug:
+        args.showcased && !folder.slug
+          ? await allocateWorldSlug(ctx, folder.name)
+          : folder.slug,
       updatedAt: Date.now(),
     });
     return null;
   },
 });
+
+// URL-safe slug for a showcased world, unique across the folders table.
+// Collides only on same-named projects, which get a -2, -3, … suffix.
+const allocateWorldSlug = async (ctx: MutationCtx, name: string) => {
+  const base =
+    name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "world";
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    const taken = await ctx.db
+      .query("folders")
+      .withIndex("by_slug", (q) => q.eq("slug", candidate))
+      .first();
+    if (!taken) return candidate;
+  }
+  return `${base}-${Date.now()}`;
+};
 
 // Feature a showcased set on the public home (large hero treatment above the
 // regular stacks). Featuring implies showcasing; un-featuring keeps the set
@@ -369,8 +473,8 @@ export const setFolderFeatured = mutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
-    if (folder.kind === "project" || folder.kind === "direction") {
-      throw new ConvexError("Projects can't be featured publicly.");
+    if (folder.kind === "direction") {
+      throw new ConvexError("Directions can't be featured publicly.");
     }
     if (folder.parentFolderId !== undefined) {
       throw new ConvexError(

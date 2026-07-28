@@ -38,6 +38,11 @@ const projectSummaryValidator = v.object({
   _id: v.id("folders"),
   name: v.string(),
   brief: v.optional(v.string()),
+  // The world this project sits inside, when it's been filed into one. Absent
+  // = a root-level project that is its own world.
+  world: v.optional(
+    v.object({ folderId: v.id("folders"), name: v.string() }),
+  ),
   collectionCount: v.number(),
   assetCount: v.number(),
   createdAt: v.optional(v.number()),
@@ -213,10 +218,18 @@ export const listProjects = query({
           }),
         );
 
+        const worldFolder =
+          folder.parentFolderId !== undefined
+            ? await ctx.db.get(folder.parentFolderId)
+            : null;
+
         return {
           _id: folder._id,
           name: folder.name,
           brief: folder.description,
+          world: worldFolder
+            ? { folderId: worldFolder._id, name: worldFolder.name }
+            : undefined,
           collectionCount: collectionIds.length,
           assetCount,
           createdAt: folder.createdAt,
@@ -999,6 +1012,109 @@ export const addCollectionToProject = mutation({
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { added: true };
+  },
+});
+
+// The default holding folder for one of a world's sections — "CASSANDRA —
+// Characters" and friends. Lets the Add-to panel file a character, location,
+// or still into a world WITHOUT first inventing a collection for it: the
+// section itself is the destination. Idempotent; returns the existing pool
+// when one is already attached (matched by section first, then by name, so a
+// pool created by the review modal is reused rather than duplicated).
+const SECTION_POOL_LABEL = {
+  characters: "Characters",
+  locations: "Locations",
+  stills: "Stills",
+  beats: "Beats",
+} as const;
+
+export const ensureSectionPool = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    section: v.union(
+      v.literal("characters"),
+      v.literal("locations"),
+      v.literal("stills"),
+      v.literal("beats"),
+    ),
+  },
+  returns: v.object({ folderId: v.id("folders"), created: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const project = await requireOwnedFolder(
+      ctx,
+      ownerUserId,
+      args.projectId,
+      "project",
+    );
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const poolName = `${project.name} — ${SECTION_POOL_LABEL[args.section]}`;
+
+    // An existing member in this section wins — that IS the pool.
+    const links = await collectProjectCollectionLinks(
+      ctx,
+      ownerUserIds,
+      args.projectId,
+    );
+    for (const link of links) {
+      if (link.section !== args.section) continue;
+      const folder = await ctx.db.get(link.folderId);
+      if (folder?.name === poolName) {
+        return { folderId: link.folderId, created: false };
+      }
+    }
+
+    // Otherwise reuse a detached folder of the same name, or make one.
+    let pool: Doc<"folders"> | null = null;
+    for (const ownerCandidate of ownerUserIds) {
+      pool = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q
+            .eq("ownerUserId", ownerCandidate)
+            .eq("normalizedName", canonicalFolderName(poolName)),
+        )
+        .unique();
+      if (pool) break;
+    }
+
+    const now = Date.now();
+    const folderId =
+      pool?._id ??
+      (await ctx.db.insert("folders", {
+        ownerUserId,
+        name: poolName,
+        normalizedName: canonicalFolderName(poolName),
+        kind: "direction",
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+    const existingLink = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project_folder", (q) =>
+        q.eq("projectId", args.projectId).eq("folderId", folderId),
+      )
+      .unique();
+    if (existingLink) {
+      if (existingLink.section !== args.section) {
+        await ctx.db.patch(existingLink._id, { section: args.section });
+      }
+    } else {
+      await ctx.db.insert("projectCollections", {
+        ownerUserId,
+        projectId: args.projectId,
+        folderId,
+        section: args.section,
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return { folderId, created: pool === null };
   },
 });
 
