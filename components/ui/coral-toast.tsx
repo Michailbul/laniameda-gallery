@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -114,8 +115,16 @@ export function CoralToastProvider({
     [dismiss],
   );
 
+  // This provider sits inside the gallery dashboard, so it re-renders on every
+  // dashboard state change. A fresh `{ toast }` object each time would push a
+  // new context value to every consumer — and consumers include every card in
+  // the masonry, which then re-render straight through `memo()` even when all
+  // their props are identical. Keeping the value stable is what lets those
+  // bail-outs actually happen.
+  const value = useMemo(() => ({ toast }), [toast]);
+
   return (
-    <CoralToastContext.Provider value={{ toast }}>
+    <CoralToastContext.Provider value={value}>
       {children}
 
       {/* Toast stack — centered to content area (matches dock positioning) */}

@@ -2979,6 +2979,80 @@ export function GalleryDashboard({
     ],
   );
 
+  // ── Stable grid props ──
+  // Every prop the masonry hands to a card must keep its identity across
+  // dashboard re-renders, otherwise `memo(ImageCard)` never bails out and a
+  // single state change (opening the detail view, a hover flag, a toast)
+  // re-renders every mounted card. With a deep-scrolled grid that is 1000+
+  // card renders on the same frame the expanded view is trying to fade in.
+  const cardProjectOptions = useMemo(
+    () =>
+      (projects ?? []).map((project) => ({
+        id: project._id as string,
+        name: project.name,
+      })),
+    [projects],
+  );
+
+  const handleCardDelete = useCallback(
+    (imageId: string) => {
+      void deleteAsset(imageId);
+    },
+    [deleteAsset],
+  );
+
+  const handleCardToggleLike = useCallback(
+    (imageId: string, nextLiked: boolean) => {
+      void toggleAssetLike(imageId, nextLiked);
+    },
+    [toggleAssetLike],
+  );
+
+  const handleCardAddToProject = useCallback(
+    (imageId: string, projectId: string) => {
+      void handleAssetsDropOnProject(projectId, [imageId]);
+    },
+    [handleAssetsDropOnProject],
+  );
+
+  const handleCardRemoveTag = useCallback(
+    (imageId: string, tagName: string) => {
+      void setAssetTagStateMutation({
+        ownerUserId,
+        assetId: imageId as Id<"assets">,
+        tagName,
+        present: false,
+      });
+    },
+    [ownerUserId, setAssetTagStateMutation],
+  );
+
+  const handleCardCollectionOpen = useCallback((collectionId: string) => {
+    setSelectedImage(null);
+    setSelectedFolderId(collectionId);
+  }, []);
+
+  // A beat click steps into the project workspace — the separate review view
+  // over the same linked assets. In collection browse the beat's owning
+  // project is looked up from the project summaries.
+  const handleCardBeatOpen = useCallback(
+    (beatFolderId: string) => {
+      const projectId =
+        browseProject?.id ??
+        (projects ?? []).find((project) =>
+          project.collections.some(
+            (collection) =>
+              collection.folderId === beatFolderId &&
+              collection.section === "beats",
+          ),
+        )?._id;
+      if (projectId) {
+        setOpenProjectTarget({ projectId, beatFolderId });
+      }
+    },
+    [browseProject?.id, projects],
+  );
+
   const createTargetAndAddSelected = useCallback(
     async (kind: "collection" | "project") => {
       const name = bulkAddDraft.trim();
@@ -4179,24 +4253,25 @@ export function GalleryDashboard({
                 (
                   <MasonryGrid
                     images={images}
-                    compactColumns={Boolean(selectedImage)}
-                    selectedImageId={selectedImage?.id}
+                    // The desktop expanded view is a full-screen opaque
+                    // overlay, so nothing behind it is visible — re-flowing
+                    // the grid into compact columns (and dimming every card)
+                    // would relayout + repaint the whole mounted list for
+                    // pixels no one sees, on the exact frame the overlay is
+                    // trying to fade in.
+                    compactColumns={false}
                     onImageSelect={handleImageSelect}
                     onImageLoad={markImageLoaded}
                     canDelete={canDeleteInCurrentView}
                     deletingImageId={deletingAssetId}
                     exitingImageIds={exitingAssetIds}
-                    onDeleteImage={(imageId) => {
-                      void deleteAsset(imageId);
-                    }}
+                    onDeleteImage={handleCardDelete}
                     selectable={canCuratePublic || canManageFoldersInCurrentView}
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
                     onReplaceSelection={replaceAssetSelection}
                     likeable={canManageFoldersInCurrentView}
-                    onToggleLike={(imageId, nextLiked) => {
-                      void toggleAssetLike(imageId, nextLiked);
-                    }}
+                    onToggleLike={handleCardToggleLike}
                     draggableAssets={canManageFoldersInCurrentView}
                     onAssetDragStart={handleAssetDragStart}
                     collections={
@@ -4218,54 +4293,23 @@ export function GalleryDashboard({
                     }
                     projects={
                       canManageFoldersInCurrentView
-                        ? (projects ?? []).map((project) => ({
-                            id: project._id as string,
-                            name: project.name,
-                          }))
+                        ? cardProjectOptions
                         : undefined
                     }
                     onAddAssetToProject={
                       canManageFoldersInCurrentView
-                        ? (imageId, projectId) =>
-                            handleAssetsDropOnProject(projectId, [imageId])
+                        ? handleCardAddToProject
                         : undefined
                     }
                     // Owner-only: tag chips on card hover, click to remove.
                     onRemoveAssetTag={
                       canManageFoldersInCurrentView
-                        ? (imageId, tagName) => {
-                            void setAssetTagStateMutation({
-                              ownerUserId,
-                              assetId: imageId as Id<"assets">,
-                              tagName,
-                              present: false,
-                            });
-                          }
+                        ? handleCardRemoveTag
                         : undefined
                     }
                     onStorybookOpen={setOpenStorybookId}
-                    onCollectionOpen={(collectionId) => {
-                      setSelectedImage(null);
-                      setSelectedFolderId(collectionId);
-                    }}
-                    // A beat click steps into the project workspace — the
-                    // separate review view over the same linked assets. In
-                    // collection browse the beat's owning project is looked
-                    // up from the project summaries.
-                    onBeatOpen={(beatFolderId) => {
-                      const projectId =
-                        browseProject?.id ??
-                        (projects ?? []).find((project) =>
-                          project.collections.some(
-                            (collection) =>
-                              collection.folderId === beatFolderId &&
-                              collection.section === "beats",
-                          ),
-                        )?._id;
-                      if (projectId) {
-                        setOpenProjectTarget({ projectId, beatFolderId });
-                      }
-                    }}
+                    onCollectionOpen={handleCardCollectionOpen}
+                    onBeatOpen={handleCardBeatOpen}
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       anyPaginationActive ? loadNextGalleryPage : undefined
@@ -4457,17 +4501,23 @@ export function GalleryDashboard({
           aria-modal="true"
           aria-label="Selected image details"
         >
+          {/* No backdrop-filter here: at 0.992 alpha the blur is invisible,
+              but it forces a full-viewport blur pass over the whole gallery
+              behind it on every frame of the fade — the single most
+              expensive thing in the open animation. */}
           <div
             className="absolute inset-0 animate-fade-in"
             style={{
               backgroundColor: "rgba(8, 7, 6, 0.992)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
+              willChange: "opacity",
             }}
             onClick={closeSelectedImage}
             aria-hidden="true"
           />
-          <div className="relative z-10 h-full w-full animate-fade-in">
+          <div
+            className="relative z-10 h-full w-full animate-fade-in"
+            style={{ willChange: "opacity" }}
+          >
             <GalleryDetailPanel
               image={selectedImage}
               carouselImages={carouselImages}
