@@ -53,7 +53,7 @@ export function UploadModal({
       style={{ fontFamily: "var(--lm-font)" }}
     >
       <div
-        className="absolute inset-0 animate-fade-in bg-black/75"
+        className="absolute inset-0 animate-fade-in bg-[var(--lm-scrim)]"
         style={{ backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
         onClick={onClose}
         aria-hidden="true"
@@ -63,7 +63,7 @@ export function UploadModal({
         style={{
           backgroundColor: "var(--lm-surface-0)",
           border: "1px solid var(--lm-border-strong)",
-          boxShadow: "0 30px 90px rgba(0,0,0,0.65)",
+          boxShadow: "var(--lm-modal-shadow)",
         }}
         onClick={(event) => event.stopPropagation()}
       >

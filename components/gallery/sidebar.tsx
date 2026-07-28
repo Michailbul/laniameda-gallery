@@ -14,11 +14,13 @@ import {
   Home,
   Layers,
   Maximize2,
+  Moon,
   Pencil,
   Plus,
   Search,
   Sparkles,
   Star,
+  Sun,
   Trash2,
   LayoutGrid,
 } from "lucide-react";
@@ -26,6 +28,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
+import { useTheme } from "@/lib/use-theme";
 import {
   hasAssetDragPayload,
   readAssetDragPayload,
@@ -1045,6 +1048,14 @@ export function GallerySidebar({
           </div>
         )}
 
+        {/* Appearance */}
+        <div
+          className="px-3 py-2"
+          style={{ borderTop: "1px solid var(--lm-sidebar-divider)" }}
+        >
+          <ThemeToggleRow collapsed={collapsed} />
+        </div>
+
         {/* Profile */}
         <div
           className="px-3 py-3"
@@ -1152,6 +1163,49 @@ export function GallerySidebar({
         </div>
       </div>
     </aside>
+  );
+}
+
+/* Theme toggle — editorial row, same language as the nav (no chrome, the
+   label carries the state). Collapsed shows the icon only. */
+
+function ThemeToggleRow({ collapsed }: { collapsed: boolean }) {
+  const { theme, toggleTheme } = useTheme();
+  const nextTheme = theme === "dark" ? "light" : "dark";
+  const Icon = theme === "dark" ? Moon : Sun;
+  const title = `Switch to ${nextTheme} theme`;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label={title}
+        title={title}
+        className="flex w-full items-center justify-center py-1.5"
+        style={{ color: "var(--lm-sidebar-text-muted)" }}
+      >
+        <Icon className="h-3.5 w-3.5" strokeWidth={2} />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={title}
+      title={title}
+      role="switch"
+      aria-checked={theme === "light"}
+      className="lm-sidebar-text-link flex w-full items-center gap-2 px-1"
+    >
+      <Icon className="h-3 w-3 shrink-0" strokeWidth={2} />
+      <span>theme</span>
+      <span className="ml-auto" style={{ color: "var(--lm-sidebar-text-muted)" }}>
+        {theme}
+      </span>
+    </button>
   );
 }
 

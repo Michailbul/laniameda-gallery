@@ -534,7 +534,7 @@ export function SeedanceIngestModal({
     >
       <div
         className="absolute inset-0 animate-fade-in"
-        style={{ backgroundColor: "rgba(8, 7, 6, 0.94)", willChange: "opacity" }}
+        style={{ backgroundColor: "var(--lm-scrim-strong)", willChange: "opacity" }}
         onClick={handleClose}
         aria-hidden
       />
@@ -659,7 +659,7 @@ export function SeedanceIngestModal({
                     playsInline
                     preload="metadata"
                     className="h-full w-full object-contain"
-                    style={{ backgroundColor: "#000" }}
+                    style={{ backgroundColor: "var(--media-stage-bg)" }}
                   />
                 ) : (
                   <div className="flex flex-col items-center gap-2">

@@ -260,6 +260,156 @@
   /* Brutalist inverse surfaces — light panels on dark */
   --bg-inverse: #fffaf5;
   --text-inverse: #201710;
+
+  /* Letterbox behind <img>/<video> in a full-bleed stage — intentionally dark
+     in BOTH themes, so media reads as a lightbox regardless of app theme. */
+  --media-stage-bg: #0a0806;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THEME LAYER
+
+   `:root` above is the dark baseline (the default — no attribute needed).
+   The two blocks below re-declare every theme-DEPENDENT token so themes
+   can nest: a `[data-theme="dark"]` island inside a light page gets the
+   dark values back. Theme-INDEPENDENT tokens (spacing, durations, easings,
+   media scrims, image-card overlays) stay in `:root` only.
+
+   Set by `components/theme-provider.tsx` on <html data-theme="…">.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] {
+  --paper: #111110;
+  --paper-muted: #1a1918;
+  --ink: #f0e8e0;
+
+  --surface-0: var(--paper);
+  --surface-1: #1a1918;
+  --surface-2: #1f1e1c;
+  --surface-3: #2a2826;
+  --surface-4: #363330;
+
+  --border-subtle: rgba(240, 232, 224, 0.06);
+  --border-default: rgba(240, 232, 224, 0.10);
+  --border-strong: rgba(240, 232, 224, 0.18);
+  --border-accent: rgba(255, 138, 118, 0.30);
+
+  --text-primary: #f0e8e0;
+  --text-secondary: #bfb0a0;
+  --text-tertiary: #8a7b6c;
+  --text-ghost: #5c5048;
+
+  --amber-8: #f2977b;
+  --amber-9: #ff7a64;
+  --amber-10: #ff917d;
+  --amber-contrast: #ffffff;
+  --amber-surface: rgba(255, 122, 100, 0.12);
+  --amber-indicator: var(--amber-9);
+  --amber-track: var(--amber-9);
+  --amber-subtle: rgba(255, 122, 100, 0.10);
+  --amber-glow: rgba(255, 122, 100, 0.18);
+
+  --coral: #ff8a76;
+  --coral-hover: #ff9e8d;
+  --accent-subtle: rgba(255, 138, 118, 0.12);
+  --accent-glow: rgba(255, 138, 118, 0.18);
+  --warm-accent: #f0756a;
+  --warm-subtle: rgba(240, 117, 106, 0.14);
+
+  --pillar-r: 255;
+  --pillar-g: 122;
+  --pillar-b: 100;
+  --pillar-warm-r: 232;
+  --pillar-warm-g: 97;
+  --pillar-warm-b: 79;
+
+  --popover: #1a1918;
+  --input: #1f1e1c;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.20), 0 1px 2px rgba(0,0,0,0.14);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.24), 0 2px 4px rgba(0,0,0,0.14);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.32), 0 4px 8px rgba(0,0,0,0.18);
+  --shadow-sharp: 0 4px 12px rgba(0,0,0,0.30);
+  --shadow-elevated: 0 20px 40px -10px rgba(0,0,0,0.40);
+  --shadow-brutal: 4px 4px 0 0 rgba(0,0,0,0.50);
+  --shadow-brutal-sm: 2px 2px 0 0 rgba(0,0,0,0.40);
+
+  --bg-inverse: #fffaf5;
+  --text-inverse: #201710;
+
+  --card-hover-ring: rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15);
+  --card-rest-shadow: 0 2px 8px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(240, 232, 224, 0.05);
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --paper: #fffaf3;
+  --paper-muted: #f7f1e7;
+  --ink: #1a1512;
+
+  --surface-0: var(--paper);
+  --surface-1: #fbf5ec;
+  --surface-2: #f4ede2;
+  --surface-3: #ebe2d5;
+  --surface-4: #ddd2c2;
+
+  --border-subtle: rgba(26, 21, 18, 0.07);
+  --border-default: rgba(26, 21, 18, 0.12);
+  --border-strong: rgba(26, 21, 18, 0.22);
+  --border-accent: rgba(217, 72, 47, 0.35);
+
+  --text-primary: #221b16;
+  --text-secondary: #5a4c42;
+  --text-tertiary: #857567;
+  --text-ghost: #a89787;
+
+  --amber-8: #c9452f;
+  --amber-9: #d9482f;
+  --amber-10: #c23c25;
+  --amber-contrast: #ffffff;
+  --amber-surface: rgba(217, 72, 47, 0.10);
+  --amber-indicator: var(--amber-9);
+  --amber-track: var(--amber-9);
+  --amber-subtle: rgba(217, 72, 47, 0.08);
+  --amber-glow: rgba(217, 72, 47, 0.16);
+
+  /* Coral is darkened for light surfaces — #ff8a76 on paper is ~2.2:1 and
+     unreadable as text/hairline. #d9482f clears 4.5:1 on --paper and still
+     takes white or ink glyphs when used as a fill. */
+  --coral: #d9482f;
+  --coral-hover: #c23c25;
+  --accent-subtle: rgba(217, 72, 47, 0.10);
+  --accent-glow: rgba(217, 72, 47, 0.16);
+  --warm-accent: #c9452f;
+  --warm-subtle: rgba(201, 69, 47, 0.12);
+
+  --pillar-r: 217;
+  --pillar-g: 72;
+  --pillar-b: 47;
+  --pillar-warm-r: 201;
+  --pillar-warm-g: 69;
+  --pillar-warm-b: 47;
+
+  --popover: #fffaf3;
+  --input: #f4ede2;
+
+  --shadow-sm: 0 1px 3px rgba(32,23,16,0.08), 0 1px 2px rgba(32,23,16,0.05);
+  --shadow-md: 0 4px 12px rgba(32,23,16,0.10), 0 2px 4px rgba(32,23,16,0.06);
+  --shadow-lg: 0 12px 40px rgba(32,23,16,0.14), 0 4px 8px rgba(32,23,16,0.08);
+  --shadow-sharp: 0 4px 12px rgba(32,23,16,0.12);
+  --shadow-elevated: 0 20px 40px -10px rgba(32,23,16,0.18);
+  --shadow-brutal: 4px 4px 0 0 rgba(32,23,16,0.24);
+  --shadow-brutal-sm: 2px 2px 0 0 rgba(32,23,16,0.18);
+
+  /* Inverse surfaces flip: dark panels on light paper */
+  --bg-inverse: #1a1512;
+  --text-inverse: #fdf8f1;
+
+  --card-hover-ring: rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.20);
+  --card-rest-shadow: 0 2px 8px rgba(32, 23, 16, 0.06), 0 0 0 1px rgba(32, 23, 16, 0.06);
+
+  color-scheme: light;
 }
 
 @layer base {
@@ -846,23 +996,22 @@
      the group-hover:scale on the <Image> element inside. */
   .card-base {
     transition: box-shadow var(--duration-normal) var(--ease-out), opacity var(--duration-normal);
-    box-shadow: 0 2px 8px rgba(32, 23, 16, 0.06), 0 0 0 1px rgba(32, 23, 16, 0.04);
+    box-shadow: var(--card-rest-shadow, 0 2px 8px rgba(32, 23, 16, 0.06), 0 0 0 1px rgba(32, 23, 16, 0.04));
     contain: layout paint style;
     content-visibility: auto;
     contain-intrinsic-size: 280px 360px;
   }
   .card-base:hover {
     box-shadow:
-      0 8px 28px rgba(32, 23, 16, 0.10),
-      0 2px 8px rgba(32, 23, 16, 0.05),
-      0 0 0 1px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15);
+      var(--shadow-md),
+      0 0 0 1px var(--card-hover-ring, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15));
     opacity: 1;
   }
   .card-base.card-selected {
     box-shadow:
-      0 0 0 2px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.35),
-      0 8px 32px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.12),
-      0 2px 8px rgba(32, 23, 16, 0.06);
+      0 0 0 2px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.45),
+      0 8px 32px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.14),
+      var(--shadow-sm);
     opacity: 1;
   }
   .card-base.card-dimmed {
@@ -1387,7 +1536,7 @@
   height: 60px;
   object-fit: cover;
   border-radius: 6px;
-  border: 1px solid rgba(255, 244, 234, 0.4);
+  border: 1px solid var(--border-strong);
   background: var(--surface-2, #1f1e1c);
   box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
 }

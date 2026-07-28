@@ -773,7 +773,7 @@ export function GalleryDetailPanel({
               playsInline
               preload="metadata"
               className="h-full w-full object-contain"
-              style={{ backgroundColor: "#000", borderRadius: 0 }}
+              style={{ backgroundColor: "var(--media-stage-bg)", borderRadius: 0 }}
             />
           ) : (
             <>
@@ -1057,7 +1057,7 @@ export function GalleryDetailPanel({
                   style={{
                     backgroundColor: "var(--lm-surface-1)",
                     border: "1px solid var(--lm-border-strong)",
-                    boxShadow: "0 14px 36px rgba(0,0,0,0.42)",
+                    boxShadow: "var(--shadow-lg)",
                     minWidth: "180px",
                     borderRadius: "8px",
                   }}
@@ -1080,7 +1080,7 @@ export function GalleryDetailPanel({
                     className="mx-2 my-0.5"
                     style={{
                       height: "1px",
-                      backgroundColor: "rgba(255,255,255,0.08)",
+                      backgroundColor: "var(--lm-border)",
                     }}
                   />
                   <CopyMenuItem
@@ -1936,7 +1936,7 @@ export function GalleryDetailPanel({
                     aria-label="Delete asset"
                     style={{
                       border: "3px solid var(--lm-status-error)",
-                      backgroundColor: "rgba(220, 38, 38, 0.08)",
+                      backgroundColor: "var(--lm-status-error-dim)",
                       color: "var(--lm-status-error)",
                       fontSize: "10px",
                       fontWeight: 800,
@@ -2189,7 +2189,7 @@ function CopyMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-white/5"
+      className="flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--lm-surface-3)]"
       style={{
         color: primary ? "var(--lm-coral)" : "var(--lm-text-secondary)",
         fontWeight: primary ? 600 : 400,

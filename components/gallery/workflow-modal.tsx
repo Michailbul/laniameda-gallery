@@ -445,7 +445,7 @@ export function WorkflowModal({
           justify-content: center;
           overflow-y: auto;
           padding: 1rem;
-          background: rgba(10, 8, 5, 0.78);
+          background: var(--lm-scrim);
           backdrop-filter: blur(8px);
         }
         @media (min-width: 640px) {
@@ -461,7 +461,7 @@ export function WorkflowModal({
           border-radius: 18px;
           background: var(--surface-0);
           border: 1px solid var(--border-default);
-          box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+          box-shadow: var(--lm-modal-shadow);
         }
 
         .md-modal-state {

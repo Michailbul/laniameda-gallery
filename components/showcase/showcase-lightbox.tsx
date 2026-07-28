@@ -62,6 +62,8 @@ export function ShowcaseLightbox({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
+      /* Media viewer — pinned dark in both app themes. */
+      data-theme="dark"
       style={{
         position: "fixed",
         inset: 0,

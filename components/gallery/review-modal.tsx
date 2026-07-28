@@ -1752,6 +1752,9 @@ export function ReviewModal({
       role="dialog"
       aria-modal="true"
       aria-label={`Review: ${projectName}`}
+      /* Media-review surface — pinned dark in both app themes, like a
+         lightbox. Its chrome is tuned to sit over full-bleed imagery. */
+      data-theme="dark"
       onDragEnter={(event) => {
         if (readOnly || !dragHasFiles(event)) return;
         event.preventDefault();

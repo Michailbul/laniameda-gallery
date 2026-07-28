@@ -39,9 +39,10 @@ export function AiWorkspacePanel({
     <aside
       className="fixed right-0 top-0 z-[70] h-screen w-full max-w-[480px] animate-panel-slide-in xl:max-w-[540px] grain-overlay"
       style={{
-        background: "linear-gradient(180deg, rgba(17,10,6,0.99) 0%, var(--surface-0) 40%, rgba(8,4,2,0.99) 100%)",
+        background:
+          "linear-gradient(180deg, var(--paper-muted) 0%, var(--surface-0) 40%, var(--paper) 100%)",
         borderLeft: "1px solid var(--border-subtle)",
-        boxShadow: "-20px 0 60px -12px rgba(0, 0, 0, 0.6), -4px 0 20px rgba(255, 140, 66, 0.03)",
+        boxShadow: "var(--shadow-elevated)",
       }}
     >
       <div className="flex h-full flex-col">

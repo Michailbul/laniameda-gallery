@@ -11,5 +11,11 @@ export const metadata: Metadata = {
 };
 
 export default function TasteProfilePage() {
-  return <TasteProfileClient />;
+  // The public showcase keeps its dark editorial art direction regardless of
+  // the viewer's gallery theme — the theme toggle is a vault-side preference.
+  return (
+    <div data-theme="dark" style={{ background: "var(--lm-paper)" }}>
+      <TasteProfileClient />
+    </div>
+  );
 }

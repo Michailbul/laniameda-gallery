@@ -53,11 +53,14 @@
   /* Text */
   --lm-text-primary: #f0e8e0;
   --lm-text-secondary: #bfb0a0;
+  --lm-text-muted: #a89888;
   --lm-text-tertiary: #8a7b6c;
   --lm-text-ghost: #5c5048;
 
   /* Borders */
   --lm-border: rgba(240, 232, 224, 0.10);
+  --lm-border-subtle: rgba(240, 232, 224, 0.06);
+  --lm-border-default: var(--lm-border);
   --lm-border-strong: rgba(240, 232, 224, 0.18);
   --lm-border-thick: 2px;
   --lm-border-brutal: 3px;
@@ -92,6 +95,188 @@
   /* Layout */
   --lm-filter-height: 48px;
   --lm-radius: 2px;
+
+  /* Chrome that must flip with the theme */
+  --lm-grid-line: rgba(240, 232, 224, 0.06);
+  --lm-scrim: rgba(10, 8, 5, 0.78);
+  --lm-scrim-strong: rgba(8, 7, 6, 0.94);
+  --lm-overlay-canvas: rgba(8, 7, 6, 0.992);
+  --lm-panel-bg: #0c0a08;
+  --lm-island-shadow: 0 8px 32px rgba(0, 0, 0, 0.30), 0 2px 8px rgba(0, 0, 0, 0.20);
+  --lm-dock-shadow: 0 2px 12px rgba(0, 0, 0, 0.30);
+  --lm-dock-shadow-open: 0 4px 20px rgba(0, 0, 0, 0.40);
+  --lm-modal-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THEME LAYER — see the matching block in globals.css.
+
+   `:root` above is the dark baseline. Both blocks below list every
+   theme-DEPENDENT --lm-* token so themes can nest.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] {
+  --lm-ink: #f0e8e0;
+  --lm-bg-inverse: #fffaf5;
+  --lm-coral: #ff7a64;
+  --lm-paper: #111110;
+  --lm-paper-muted: #1a1918;
+
+  --lm-sidebar-bg: #141413;
+  --lm-sidebar-text: #f0e8e0;
+  --lm-sidebar-text-muted: #a89888;
+  --lm-sidebar-text-ghost: #6b5e52;
+  --lm-sidebar-border: rgba(240, 232, 224, 0.08);
+  --lm-sidebar-surface: rgba(255, 122, 100, 0.14);
+  --lm-sidebar-surface-hover: rgba(240, 232, 224, 0.05);
+
+  --lm-sidebar-glass-fill-top: hsl(30 6% 13% / 0.82);
+  --lm-sidebar-glass-fill-bottom: hsl(30 8% 8% / 0.62);
+  --lm-sidebar-glass-border: rgba(255, 255, 255, 0.08);
+  --lm-sidebar-glass-sheen: rgba(255, 255, 255, 0.06);
+  --lm-sidebar-glass-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.03),
+    1px 0 0 rgba(0, 0, 0, 0.35),
+    6px 0 24px -8px rgba(0, 0, 0, 0.45),
+    18px 0 60px -24px rgba(0, 0, 0, 0.60);
+  --lm-sidebar-divider: rgba(255, 255, 255, 0.06);
+
+  --lm-sidebar-active-fill: rgba(255, 122, 100, 0.16);
+  --lm-sidebar-active-border: rgba(255, 122, 100, 0.45);
+  --lm-sidebar-active-text: #ffb1a3;
+  --lm-sidebar-active-glow: 0 0 0 1px rgba(255, 122, 100, 0.22), 0 4px 14px -4px rgba(255, 122, 100, 0.30);
+  --lm-sidebar-hover-fill: rgba(255, 255, 255, 0.045);
+
+  --lm-surface-0: var(--lm-paper);
+  --lm-surface-1: #1a1918;
+  --lm-surface-2: #1f1e1c;
+  --lm-surface-3: #2a2826;
+  --lm-surface-4: #363330;
+
+  --lm-text-primary: #f0e8e0;
+  --lm-text-secondary: #bfb0a0;
+  --lm-text-muted: #a89888;
+  --lm-text-tertiary: #8a7b6c;
+  --lm-text-ghost: #5c5048;
+
+  --lm-border: rgba(240, 232, 224, 0.10);
+  --lm-border-subtle: rgba(240, 232, 224, 0.06);
+  --lm-border-default: var(--lm-border);
+  --lm-border-strong: rgba(240, 232, 224, 0.18);
+
+  --lm-accent: var(--lm-coral);
+  --lm-accent-dim: rgba(255, 122, 100, 0.12);
+  --lm-accent-hover: #ff9484;
+  --lm-success: #16a34a;
+  --lm-success-dim: rgba(22, 163, 74, 0.10);
+  --lm-success-text: #5fcf86;
+  --lm-status-error: #dc2626;
+  --lm-status-error-dim: rgba(220, 38, 38, 0.12);
+  --lm-status-error-border: rgba(220, 38, 38, 0.45);
+  --lm-status-error-text: #f08a82;
+
+  --lm-scope-pill-shadow: rgba(0, 0, 0, 0.25);
+
+  --lm-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.30);
+  --lm-shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.40);
+  --lm-shadow-lg: 4px 4px 0 rgba(0, 0, 0, 0.50);
+  --lm-shadow-accent: 3px 3px 0 rgba(255, 138, 118, 0.25);
+  --lm-shadow-dark: 3px 3px 0 rgba(0, 0, 0, 0.60);
+
+  --lm-grid-line: rgba(240, 232, 224, 0.06);
+  --lm-scrim: rgba(10, 8, 5, 0.78);
+  --lm-scrim-strong: rgba(8, 7, 6, 0.94);
+  --lm-overlay-canvas: rgba(8, 7, 6, 0.992);
+  --lm-panel-bg: #0c0a08;
+  --lm-island-shadow: 0 8px 32px rgba(0, 0, 0, 0.30), 0 2px 8px rgba(0, 0, 0, 0.20);
+  --lm-dock-shadow: 0 2px 12px rgba(0, 0, 0, 0.30);
+  --lm-dock-shadow-open: 0 4px 20px rgba(0, 0, 0, 0.40);
+  --lm-modal-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+
+[data-theme="light"] {
+  --lm-ink: #1a1512;
+  --lm-bg-inverse: #1a1512;
+  --lm-coral: #d9482f;
+  --lm-paper: #fffaf3;
+  --lm-paper-muted: #f7f1e7;
+
+  --lm-sidebar-bg: #f8f2e9;
+  --lm-sidebar-text: #221b16;
+  --lm-sidebar-text-muted: #6b5c50;
+  --lm-sidebar-text-ghost: #9c8b7b;
+  --lm-sidebar-border: rgba(26, 21, 18, 0.10);
+  --lm-sidebar-surface: rgba(217, 72, 47, 0.12);
+  --lm-sidebar-surface-hover: rgba(26, 21, 18, 0.05);
+
+  --lm-sidebar-glass-fill-top: hsl(34 60% 98% / 0.86);
+  --lm-sidebar-glass-fill-bottom: hsl(34 42% 95% / 0.70);
+  --lm-sidebar-glass-border: rgba(26, 21, 18, 0.10);
+  --lm-sidebar-glass-sheen: rgba(255, 255, 255, 0.75);
+  --lm-sidebar-glass-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.80),
+    inset -1px 0 0 rgba(255, 255, 255, 0.50),
+    1px 0 0 rgba(26, 21, 18, 0.07),
+    6px 0 24px -8px rgba(32, 23, 16, 0.10),
+    18px 0 60px -24px rgba(32, 23, 16, 0.14);
+  --lm-sidebar-divider: rgba(26, 21, 18, 0.08);
+
+  --lm-sidebar-active-fill: rgba(217, 72, 47, 0.10);
+  --lm-sidebar-active-border: rgba(217, 72, 47, 0.45);
+  --lm-sidebar-active-text: #b83a22;
+  --lm-sidebar-active-glow: 0 0 0 1px rgba(217, 72, 47, 0.20), 0 4px 14px -4px rgba(217, 72, 47, 0.22);
+  --lm-sidebar-hover-fill: rgba(26, 21, 18, 0.045);
+
+  --lm-surface-0: var(--lm-paper);
+  --lm-surface-1: #fbf5ec;
+  --lm-surface-2: #f4ede2;
+  --lm-surface-3: #ebe2d5;
+  --lm-surface-4: #ddd2c2;
+
+  --lm-text-primary: #221b16;
+  --lm-text-secondary: #5a4c42;
+  --lm-text-muted: #6b5c50;
+  --lm-text-tertiary: #857567;
+  --lm-text-ghost: #a89787;
+
+  --lm-border: rgba(26, 21, 18, 0.12);
+  --lm-border-subtle: rgba(26, 21, 18, 0.07);
+  --lm-border-default: var(--lm-border);
+  --lm-border-strong: rgba(26, 21, 18, 0.22);
+
+  --lm-accent: var(--lm-coral);
+  --lm-accent-dim: rgba(217, 72, 47, 0.10);
+  --lm-accent-hover: #c23c25;
+  --lm-success: #15803d;
+  --lm-success-dim: rgba(21, 128, 61, 0.10);
+  --lm-success-text: #15803d;
+  --lm-status-error: #c62222;
+  --lm-status-error-dim: rgba(198, 34, 34, 0.08);
+  --lm-status-error-border: rgba(198, 34, 34, 0.35);
+  --lm-status-error-text: #b31d1d;
+
+  --lm-scope-pill-shadow: rgba(32, 23, 16, 0.10);
+
+  /* Hard offset shadows read as ink, not void */
+  --lm-shadow-sm: 2px 2px 0 rgba(32, 23, 16, 0.16);
+  --lm-shadow-md: 3px 3px 0 rgba(32, 23, 16, 0.20);
+  --lm-shadow-lg: 4px 4px 0 rgba(32, 23, 16, 0.24);
+  --lm-shadow-accent: 3px 3px 0 rgba(217, 72, 47, 0.28);
+  --lm-shadow-dark: 3px 3px 0 rgba(32, 23, 16, 0.32);
+
+  --lm-grid-line: rgba(26, 21, 18, 0.05);
+  --lm-scrim: rgba(58, 44, 34, 0.42);
+  --lm-scrim-strong: rgba(48, 36, 27, 0.58);
+  /* Opaque, unlike dark's 0.992 — main dropped the backdrop-blur here for
+     perf, so the scrim alone does the masking, and light-on-light ghosts the
+     sidebar through where dark-on-dark hid it. */
+  --lm-overlay-canvas: #fffaf3;
+  --lm-panel-bg: #fffaf3;
+  --lm-island-shadow: 0 8px 32px rgba(32, 23, 16, 0.10), 0 2px 8px rgba(32, 23, 16, 0.06);
+  --lm-dock-shadow: 0 2px 12px rgba(32, 23, 16, 0.10);
+  --lm-dock-shadow-open: 0 4px 20px rgba(32, 23, 16, 0.14);
+  --lm-modal-shadow: 0 30px 90px rgba(32, 23, 16, 0.20);
 }
 
 /* ── Brutalist utility classes ── */
@@ -313,16 +498,14 @@
   background: var(--lm-surface-1);
   border: none;
   border-radius: 12px;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.30),
-    0 2px 8px rgba(0, 0, 0, 0.20);
+  box-shadow: var(--lm-island-shadow);
   overflow: hidden;
 }
 
 .lm-island-divider {
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--lm-border);
   flex-shrink: 0;
 }
 
@@ -344,13 +527,13 @@
   letter-spacing: 0.14em;
   cursor: pointer;
   transition: all var(--lm-duration-fast);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.30);
+  box-shadow: var(--lm-dock-shadow);
 }
 
 .lm-search-dock-btn:hover {
   border-color: var(--lm-accent);
   color: var(--lm-text-primary);
-  box-shadow: 0 0 20px rgba(255, 138, 118, 0.18);
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 .lm-search-dock-expanded {
@@ -362,7 +545,7 @@
   border: 2px solid var(--lm-ink);
   background-color: var(--lm-surface-1);
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.40);
+  box-shadow: var(--lm-dock-shadow-open);
 }
 
 .lm-search-dock-input {
@@ -465,8 +648,8 @@
 /* Grid background subtle pattern */
 .lm-grid-bg {
   background-image:
-    linear-gradient(rgba(240, 232, 224, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(240, 232, 224, 0.06) 1px, transparent 1px);
+    linear-gradient(var(--lm-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lm-grid-line) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, Search, Plus, User, X } from "lucide-react";
+import { Home, Moon, Search, Plus, Sun, User, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
+import { useTheme } from "@/lib/use-theme";
 
 interface MobileBottomNavUser {
   firstName?: string | null;
@@ -23,6 +24,7 @@ interface MobileBottomNavProps {
 export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: MobileBottomNavProps) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   const handleSearch = () => {
     if (onSearchClick) {
@@ -44,7 +46,7 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
         style={{
           height: "var(--mobile-bottom-nav-height)",
           background:
-            "linear-gradient(180deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.06) 0%, rgba(8, 4, 2, 0.95) 100%)",
+            "linear-gradient(180deg, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.06) 0%, color-mix(in srgb, var(--paper) 95%, transparent) 100%)",
           backdropFilter: "blur(24px) saturate(180%)",
           WebkitBackdropFilter: "blur(24px) saturate(180%)",
           borderColor: "var(--border-subtle)",
@@ -136,14 +138,15 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
       {profileOpen && (
         <div className="fixed inset-0 z-70 md:hidden">
           <div
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-fade-in"
+            className="absolute inset-0 backdrop-blur-sm animate-fade-in"
+            style={{ backgroundColor: "var(--lm-scrim)" }}
             onClick={() => setProfileOpen(false)}
             aria-hidden="true"
           />
           <div
             className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t animate-sheet-slide-up"
             style={{
-              background: "linear-gradient(180deg, rgba(17,10,6,0.98) 0%, rgba(8,4,2,0.99) 100%)",
+              background: "linear-gradient(180deg, var(--paper-muted) 0%, var(--paper) 100%)",
               borderColor: "var(--border-subtle)",
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
@@ -152,7 +155,7 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
             <div className="flex justify-center pt-3 pb-1">
               <div
                 className="h-1 w-10 rounded-full"
-                style={{ backgroundColor: "rgba(255,255,255,0.3)" }}
+                style={{ backgroundColor: "var(--border-strong)" }}
               />
             </div>
 
@@ -175,6 +178,32 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* Appearance — available signed in or out */}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                role="switch"
+                aria-checked={theme === "light"}
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+                className="mb-4 flex w-full items-center gap-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em]"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-tertiary)",
+                  borderTop: "1px solid var(--border-subtle)",
+                  borderBottom: "1px solid var(--border-subtle)",
+                }}
+              >
+                {theme === "dark" ? (
+                  <Moon className="h-3.5 w-3.5" />
+                ) : (
+                  <Sun className="h-3.5 w-3.5" />
+                )}
+                <span>theme</span>
+                <span className="ml-auto" style={{ color: "var(--text-secondary)" }}>
+                  {theme}
+                </span>
+              </button>
 
               {user ? (
                 <div className="flex flex-col gap-4">

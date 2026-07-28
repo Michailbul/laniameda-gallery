@@ -67,6 +67,8 @@ export function CinemaModal({ asset, onClose }: CinemaModalProps) {
           aria-modal="true"
           role="dialog"
           aria-label={asset.metadata?.movieTitle ?? "Cinema frame"}
+          /* Full-bleed frame viewer — pinned dark in both app themes. */
+          data-theme="dark"
           style={{ backgroundColor: "rgba(4, 5, 3, 0.96)" }}
         >
           {/* Centering frame — at least viewport-sized so small images center,

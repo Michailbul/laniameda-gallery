@@ -196,7 +196,7 @@ export function StorybookModal({
           role="dialog"
           aria-label={storybook?.folder.name ?? "Storybook"}
           style={{
-            backgroundColor: "rgba(12, 10, 8, 0.97)",
+            backgroundColor: "var(--lm-overlay-canvas)",
             // Pure-opacity fade only: a lingering transform (e.g. a
             // fill-mode:forwards translateY) would turn this scrolling
             // backdrop into the containing block for the fixed close button.
@@ -253,7 +253,7 @@ export function StorybookModal({
               style={{
                 fontSize: "clamp(24px, 4vw, 40px)",
                 letterSpacing: "0.04em",
-                color: "#FFF4EA",
+                color: "var(--lm-text-primary)",
                 caretColor: "var(--coral)",
               }}
             />
@@ -272,7 +272,7 @@ export function StorybookModal({
               rows={2}
               className="mt-4 w-full resize-none bg-transparent text-[15px] leading-[1.7] outline-none"
               style={{
-                color: "rgba(240, 232, 224, 0.78)",
+                color: "var(--lm-text-secondary)",
                 caretColor: "var(--coral)",
                 minHeight: "56px",
               }}
@@ -281,7 +281,7 @@ export function StorybookModal({
             <div
               className="mb-8 mt-6"
               style={{
-                borderBottom: "1px solid rgba(240, 232, 224, 0.14)",
+                borderBottom: "1px solid var(--lm-border)",
               }}
             />
 
@@ -324,8 +324,8 @@ export function StorybookModal({
                       style={{
                         breakInside: "avoid",
                         borderRadius: "12px",
-                        border: "1px solid rgba(240, 232, 224, 0.12)",
-                        backgroundColor: "rgba(240, 232, 224, 0.04)",
+                        border: "1px solid var(--lm-border)",
+                        backgroundColor: "var(--lm-surface-2)",
                       }}
                       aria-label={
                         asset.promptText ?? asset.fileName ?? "Storybook image"
@@ -373,7 +373,7 @@ export function StorybookModal({
             }}
             aria-label="Close storybook"
             className="fixed right-5 top-5 z-20 flex h-9 w-9 items-center justify-center transition-opacity hover:opacity-100"
-            style={{ color: "rgba(240, 232, 224, 0.6)", opacity: 0.75 }}
+            style={{ color: "var(--lm-text-tertiary)", opacity: 0.85 }}
           >
             <X className="h-5 w-5" />
           </button>

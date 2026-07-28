@@ -563,8 +563,8 @@ export function UploadPanel({
     NonNullable<StatusMessage>["type"],
     { bg: string; border: string; color: string }
   > = {
-    success: { bg: "var(--lm-success-dim)", border: "rgba(22,163,74,0.45)", color: "#5fcf86" },
-    error: { bg: "rgba(220,38,38,0.12)", border: "rgba(220,38,38,0.45)", color: "#f08a82" },
+    success: { bg: "var(--lm-success-dim)", border: "color-mix(in srgb, var(--lm-success) 45%, transparent)", color: "var(--lm-success-text)" },
+    error: { bg: "var(--lm-status-error-dim)", border: "var(--lm-status-error-border)", color: "var(--lm-status-error-text)" },
     info: { bg: "var(--lm-accent-dim)", border: "var(--lm-border-strong)", color: "var(--lm-text-secondary)" },
   };
 
@@ -579,7 +579,7 @@ export function UploadPanel({
   const selectTriggerCls =
     "h-11 w-full rounded-none border-0 border-b border-[var(--lm-border)] bg-transparent px-0 text-[14px] text-[var(--lm-text-primary)] shadow-none focus:border-[var(--lm-coral)] focus:ring-0 transition-colors data-placeholder:text-[var(--lm-text-ghost)]";
   const selectContentCls =
-    "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-1)] text-[var(--lm-text-primary)] shadow-[0_18px_46px_rgba(0,0,0,0.55)]";
+    "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-1)] text-[var(--lm-text-primary)] shadow-[var(--lm-modal-shadow)]";
   const selectItemCls =
     "text-[14px] text-[var(--lm-text-secondary)] focus:bg-[var(--lm-surface-2)] focus:text-[var(--lm-text-primary)]";
 
@@ -868,7 +868,7 @@ export function UploadPanel({
                         controls
                         playsInline
                         preload="metadata"
-                        className="h-[240px] w-full bg-black object-contain"
+                        className="h-[240px] w-full bg-[var(--media-stage-bg)] object-contain"
                       />
                     ) : (
                       <div className="flex h-[240px] w-full flex-col items-center justify-center gap-2">
@@ -1204,7 +1204,7 @@ export function UploadPanel({
             )}
             style={{
               backgroundColor: "var(--lm-coral)",
-              boxShadow: "3px 3px 0 rgba(0,0,0,0.5)",
+              boxShadow: "var(--lm-shadow-lg)",
             }}
             onMouseEnter={(e) => {
               if (canSubmit && !isUploading) e.currentTarget.style.backgroundColor = "var(--lm-accent-hover)";

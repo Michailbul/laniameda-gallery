@@ -3721,7 +3721,7 @@ export function GalleryDashboard({
         <div
           className="pointer-events-none fixed inset-0 z-[90] flex items-center justify-center p-8 lm-animate-fade-in"
           style={{
-            backgroundColor: "rgba(10, 8, 5, 0.78)",
+            backgroundColor: "var(--lm-scrim)",
             backdropFilter: "blur(6px)",
             WebkitBackdropFilter: "blur(6px)",
           }}
@@ -4508,7 +4508,7 @@ export function GalleryDashboard({
           <div
             className="absolute inset-0 animate-fade-in"
             style={{
-              backgroundColor: "rgba(8, 7, 6, 0.992)",
+              backgroundColor: "var(--lm-overlay-canvas)",
               willChange: "opacity",
             }}
             onClick={closeSelectedImage}
@@ -4537,7 +4537,7 @@ export function GalleryDashboard({
           aria-label="Selected image details"
         >
           <div
-            className={`absolute inset-0 bg-black/70 ${sheetDismissing ? "animate-fade-out" : "animate-fade-in"}`}
+            className={`absolute inset-0 bg-[var(--lm-scrim)] ${sheetDismissing ? "animate-fade-out" : "animate-fade-in"}`}
             onClick={closeSelectedImage}
             aria-hidden="true"
           />
