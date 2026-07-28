@@ -201,6 +201,21 @@
   background-color: var(--lm-surface-2);
 }
 
+/* Flat text field — hairline box, coral focus edge, no ring or glow. */
+.lm-field::placeholder {
+  color: var(--lm-text-ghost);
+}
+
+.lm-field:hover {
+  border-color: var(--lm-border-strong);
+}
+
+.lm-field:focus,
+.lm-field:focus-visible {
+  border-color: var(--lm-accent);
+  outline: none;
+}
+
 .lm-divider {
   height: 1px;
   background-color: var(--lm-border);
@@ -500,7 +515,7 @@
 /* Mobile sheet — stroke + shadow. Scoped to mobile so the desktop expanded
    view (also role="dialog") doesn't pick up the coral top stroke. */
 @media (max-width: 767px) {
-  .lm-brutal > div[role="dialog"] > div:last-child {
+  .lm-brutal > div[role="dialog"]:not([data-flat-dialog]) > div:last-child {
     border-top: 3px solid var(--lm-coral) !important;
     box-shadow: 0 -4px 24px rgba(32,23,16,0.08) !important;
     border-top-left-radius: 16px !important;

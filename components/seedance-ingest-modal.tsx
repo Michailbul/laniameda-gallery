@@ -3,15 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useUploadFile } from "@convex-dev/r2/react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { buildIngestKey } from "@/lib/ingest";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
-import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
-import { Film, ImageIcon, Plus, X } from "lucide-react";
+import { ArrowRight, Film, ImageIcon, Plus, X } from "lucide-react";
 
 type SeedanceIngestModalProps = {
   open: boolean;
@@ -29,6 +24,11 @@ type DropTarget = "video" | "image";
 type MetadataField = { id: string; key: string; value: string };
 
 const MODEL_NAME = "Seedance";
+
+// `.lm-brutal button { border-radius: 6px }` is house-wide, so fields, drop
+// zones and the shell match it rather than the sharper 2px token — otherwise
+// the buttons in this modal would be the only rounded things in it.
+const CONTROL_RADIUS = "6px";
 
 const VIDEO_CATEGORIES = [
   "action",
@@ -421,77 +421,218 @@ export function SeedanceIngestModal({
     }
   };
 
-  const statusClasses = {
-    success: "text-success-foreground bg-success/10 border border-success/20",
-    error: "text-destructive bg-destructive/10 border border-destructive/30",
-    info: "text-muted-foreground bg-muted/20 border border-muted",
-  } as const;
+  // ── Presentation primitives ──
+  // Flat and cardless by house rule: sections are separated by hairlines and
+  // typographic hierarchy, never by nested panels. Radius stays at the token
+  // (2px) so nothing reads as a rounded card.
+  const labelStyle: React.CSSProperties = {
+    fontFamily: "var(--lm-font)",
+    fontSize: "9px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.16em",
+    color: "var(--lm-text-ghost)",
+  };
+
+  const fieldStyle: React.CSSProperties = {
+    width: "100%",
+    fontFamily: "var(--lm-font)",
+    fontSize: "12px",
+    color: "var(--lm-text-primary)",
+    backgroundColor: "var(--lm-surface-1)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: CONTROL_RADIUS,
+    padding: "8px 10px",
+    outline: "none",
+  };
+
+  const hintStyle: React.CSSProperties = {
+    fontFamily: "var(--lm-font)",
+    fontSize: "10px",
+    lineHeight: 1.6,
+    color: "var(--lm-text-ghost)",
+  };
+
+  const statusAccent =
+    status?.type === "error"
+      ? "var(--lm-coral)"
+      : status?.type === "success"
+        ? "var(--lm-success)"
+        : "var(--lm-text-tertiary)";
+
+  const dropZoneStyle = (
+    target: DropTarget,
+    filled: boolean,
+  ): React.CSSProperties => ({
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    cursor: "pointer",
+    overflow: "hidden",
+    backgroundColor:
+      activeDrop === target ? "var(--lm-accent-dim)" : "var(--lm-surface-1)",
+    border: `1px ${filled ? "solid" : "dashed"} ${
+      activeDrop === target ? "var(--lm-coral)" : "var(--lm-border)"
+    }`,
+    borderRadius: CONTROL_RADIUS,
+    transition: "background-color 120ms, border-color 120ms",
+  });
+
+  const sectionLabel = (
+    text: string,
+    opts?: { required?: boolean; note?: string; action?: React.ReactNode },
+  ) => (
+    <div className="flex items-baseline justify-between gap-3">
+      <span style={labelStyle}>
+        {text}
+        {opts?.required && (
+          <span style={{ color: "var(--lm-coral)" }}> *</span>
+        )}
+        {opts?.note && (
+          <span style={{ color: "var(--lm-text-ghost)", opacity: 0.7 }}>
+            {" "}
+            {opts.note}
+          </span>
+        )}
+      </span>
+      {opts?.action}
+    </div>
+  );
+
+  const minorAction = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        fontFamily: "var(--lm-font)",
+        fontSize: "9px",
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: "0.14em",
+        color: "var(--lm-text-tertiary)",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 py-10"
+      className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6 lm-brutal"
       aria-modal="true"
       role="dialog"
+      aria-label="Seedance manual upload"
+      // Opts out of the mobile bottom-sheet treatment (coral top stroke +
+      // rounded top corners) that `[role="dialog"]` picks up under md — this
+      // is a centred panel, not a sheet.
+      data-flat-dialog=""
     >
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 animate-fade-in"
+        style={{ backgroundColor: "rgba(8, 7, 6, 0.94)", willChange: "opacity" }}
         onClick={handleClose}
+        aria-hidden
       />
+
       <div
-        className="relative z-10 flex max-h-[90vh] w-full max-w-[960px] flex-col overflow-hidden rounded-[24px] border border-border/60 bg-background shadow-2xl shadow-black/20"
+        className="relative z-10 flex max-h-[92vh] w-full max-w-[1080px] flex-col overflow-hidden animate-fade-in"
+        style={{
+          backgroundColor: "var(--lm-surface-0)",
+          border: "1px solid var(--lm-border-strong)",
+          borderRadius: CONTROL_RADIUS,
+          willChange: "opacity",
+        }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border/60 bg-surface-1/50 px-8 py-5">
-          <div className="flex flex-col gap-1">
-            <span className="text-micro text-muted-foreground">
-              Seedance ingest
+        {/* Header — mono eyebrow + mono title, no serif, no filled bar */}
+        <div
+          className="flex items-center justify-between gap-4 px-6 py-4"
+          style={{ borderBottom: "1px solid var(--lm-border)" }}
+        >
+          <div className="flex flex-col gap-1.5">
+            <span
+              style={{
+                fontFamily: "var(--lm-font)",
+                fontSize: "9px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.2em",
+                color: "var(--lm-coral)",
+              }}
+            >
+              Seedance
             </span>
-            <h2 className="text-[24px] font-display tracking-tight text-foreground">
-              Add Seedance asset
+            <h2
+              style={{
+                fontFamily: "var(--lm-font)",
+                fontSize: "15px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                color: "var(--lm-text-primary)",
+              }}
+            >
+              Manual upload
             </h2>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
+            type="button"
             onClick={handleClose}
-            aria-label="Close Seedance ingest"
-            className="h-8 w-8 rounded-full hover:bg-surface-2"
+            aria-label="Close Seedance manual upload"
+            className="flex h-7 w-7 shrink-0 items-center justify-center interactive-ghost"
+            style={{
+              border: "1px solid var(--lm-border)",
+              borderRadius: CONTROL_RADIUS,
+              color: "var(--lm-text-tertiary)",
+            }}
           >
-            <X className="h-4 w-4" aria-hidden />
-          </Button>
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-          {status && (
-            <div
-              role="status"
-              aria-live={status.type === "error" ? "assertive" : "polite"}
-              className={cn(
-                "mb-6 rounded-xl px-4 py-3 text-sm font-medium",
-                statusClasses[status.type],
-              )}
-            >
-              {status.message}
-            </div>
-          )}
+        {status && (
+          <div
+            role="status"
+            aria-live={status.type === "error" ? "assertive" : "polite"}
+            className="px-6 py-2.5"
+            style={{
+              borderBottom: "1px solid var(--lm-border)",
+              borderLeft: `2px solid ${statusAccent}`,
+              backgroundColor: "var(--lm-surface-1)",
+              fontFamily: "var(--lm-font)",
+              fontSize: "11px",
+              letterSpacing: "0.04em",
+              color:
+                status.type === "error"
+                  ? "var(--lm-coral)"
+                  : "var(--lm-text-secondary)",
+            }}
+          >
+            {status.message}
+          </div>
+        )}
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* Video drop zone */}
-            <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <Label className="text-[13px] font-semibold text-muted-foreground">
-                  Video <span className="text-destructive">*</span>
-                </Label>
-                {video && (
-                  <button
-                    type="button"
-                    onClick={() => setVideo(null)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+        {/* Two columns: media on the left, everything typed on the right, so
+            the two required fields (video + prompt) sit side by side without
+            scrolling. Stacks under md. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+          {/* ── Media ── */}
+          <div
+            className="flex shrink-0 flex-col gap-5 p-6 md:w-[42%] md:overflow-y-auto"
+            style={{ borderRight: "1px solid var(--lm-border)" }}
+          >
+            <div className="flex flex-col gap-2">
+              {sectionLabel("Video", {
+                required: true,
+                action: video
+                  ? minorAction("Remove", () => setVideo(null))
+                  : undefined,
+              })}
               <div
                 role="button"
                 tabIndex={0}
@@ -506,11 +647,10 @@ export function SeedanceIngestModal({
                 onDrop={onDrop("video")}
                 onDragOver={onDragOver("video")}
                 onDragLeave={onDragLeave}
-                className={cn(
-                  "relative flex min-h-[220px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-border/40 bg-linear-to-br from-surface-2 to-surface-1 p-4 text-center transition-all duration-250 hover:from-surface-3 hover:to-surface-2",
-                  activeDrop === "video" &&
-                    "border-primary from-accent-subtle to-surface-1 shadow-[0_0_0_3px_var(--accent-subtle)]",
-                )}
+                style={{
+                  ...dropZoneStyle("video", Boolean(video)),
+                  aspectRatio: "16 / 9",
+                }}
               >
                 {videoPreviewUrl ? (
                   <video
@@ -518,17 +658,29 @@ export function SeedanceIngestModal({
                     controls
                     playsInline
                     preload="metadata"
-                    className="h-full max-h-[240px] w-full rounded-lg bg-black object-contain"
+                    className="h-full w-full object-contain"
+                    style={{ backgroundColor: "#000" }}
                   />
                 ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    <Film className="mb-2 h-10 w-10 text-muted-foreground/60" />
-                    <p className="text-[15px] font-semibold text-foreground">
-                      Drop video here
-                    </p>
-                    <p className="text-[13px] text-muted-foreground">
-                      or click to browse
-                    </p>
+                  <div className="flex flex-col items-center gap-2">
+                    <Film
+                      className="h-6 w-6"
+                      style={{ color: "var(--lm-text-ghost)" }}
+                      aria-hidden
+                    />
+                    <span
+                      style={{
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.14em",
+                        color: "var(--lm-text-secondary)",
+                      }}
+                    >
+                      Drop video
+                    </span>
+                    <span style={hintStyle}>or click to browse</span>
                   </div>
                 )}
                 <input
@@ -543,32 +695,32 @@ export function SeedanceIngestModal({
                 />
               </div>
               {video && (
-                <div className="flex items-center justify-between px-1 text-[11px] text-muted-foreground">
-                  <span className="truncate">{video.name}</span>
-                  <span>
+                <div
+                  className="flex items-baseline justify-between gap-3"
+                  style={hintStyle}
+                >
+                  <span
+                    className="truncate"
+                    style={{ color: "var(--lm-text-secondary)" }}
+                  >
+                    {video.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
                     {(video.size / (1024 * 1024)).toFixed(1)} MB
                   </span>
                 </div>
               )}
             </div>
 
-            {/* Source image drop zone */}
-            <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-              <div className="flex items-center justify-between">
-                <Label className="text-[13px] font-semibold text-muted-foreground">
-                  Source image{" "}
-                  <span className="text-muted-foreground/60">(optional)</span>
-                </Label>
-                {sourceImage && (
-                  <button
-                    type="button"
-                    onClick={() => setSourceImage(null)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+            <div className="lm-divider" />
+
+            <div className="flex flex-col gap-2">
+              {sectionLabel("Source image", {
+                note: "· optional",
+                action: sourceImage
+                  ? minorAction("Remove", () => setSourceImage(null))
+                  : undefined,
+              })}
               <div
                 role="button"
                 tabIndex={0}
@@ -583,11 +735,13 @@ export function SeedanceIngestModal({
                 onDrop={onDrop("image")}
                 onDragOver={onDragOver("image")}
                 onDragLeave={onDragLeave}
-                className={cn(
-                  "relative flex min-h-[220px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-border/40 bg-linear-to-br from-surface-2 to-surface-1 p-4 text-center transition-all duration-250 hover:from-surface-3 hover:to-surface-2",
-                  activeDrop === "image" &&
-                    "border-primary from-accent-subtle to-surface-1 shadow-[0_0_0_3px_var(--accent-subtle)]",
-                )}
+                style={{
+                  ...dropZoneStyle("image", Boolean(sourceImage)),
+                  // Cap the filled zone, not the <img> — a wide frame would
+                  // otherwise push the filename row and hint out of the column.
+                  height: sourceImage ? "150px" : undefined,
+                  minHeight: sourceImage ? undefined : "96px",
+                }}
               >
                 {imagePreviewUrl ? (
                   <Image
@@ -596,17 +750,18 @@ export function SeedanceIngestModal({
                     width={400}
                     height={400}
                     unoptimized
-                    className="h-full max-h-[240px] w-auto rounded-lg object-contain"
+                    className="h-full w-full object-contain"
                   />
                 ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    <ImageIcon className="mb-2 h-10 w-10 text-muted-foreground/60" />
-                    <p className="text-[15px] font-semibold text-foreground">
-                      Drop source image
-                    </p>
-                    <p className="text-[13px] text-muted-foreground">
-                      or click to browse
-                    </p>
+                  <div className="flex items-center gap-2.5 px-3">
+                    <ImageIcon
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--lm-text-ghost)" }}
+                      aria-hidden
+                    />
+                    <span style={hintStyle}>
+                      Drop the frame this video was generated from
+                    </span>
                   </div>
                 )}
                 <input
@@ -621,203 +776,239 @@ export function SeedanceIngestModal({
                 />
               </div>
               {sourceImage && (
-                <div className="flex items-center justify-between px-1 text-[11px] text-muted-foreground">
-                  <span className="truncate">{sourceImage.name}</span>
-                  <span>
+                <div
+                  className="flex items-baseline justify-between gap-3"
+                  style={hintStyle}
+                >
+                  <span
+                    className="truncate"
+                    style={{ color: "var(--lm-text-secondary)" }}
+                  >
+                    {sourceImage.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
                     {(sourceImage.size / (1024 * 1024)).toFixed(1)} MB
                   </span>
                 </div>
               )}
+              <p style={hintStyle}>Linked as the video&rsquo;s upstream input.</p>
             </div>
           </div>
 
-          {/* Prompt */}
-          <div className="mt-6 flex flex-col gap-2 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-            <Label
-              htmlFor="seedance-prompt"
-              className="text-[13px] font-semibold text-muted-foreground"
-            >
-              Prompt <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              id="seedance-prompt"
-              value={promptText}
-              onChange={(event) => setPromptText(event.target.value)}
-              placeholder="Paste the Seedance prompt that produced this video..."
-              className="min-h-[160px] resize-y rounded-[14px] border-border/60 bg-surface-1 px-4 py-3 font-mono text-[13px] leading-relaxed focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
-              maxLength={4000}
-            />
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>
-                Saved with model name <strong>{MODEL_NAME}</strong>. Source
-                image (if added) is linked as upstream input.
-              </span>
-              <span className="font-mono">{promptText.length} / 4000</span>
+          {/* ── Prompt + metadata ── */}
+          <div className="flex min-w-0 flex-1 flex-col gap-4 p-6 md:overflow-y-auto">
+            <div className="flex flex-col gap-2">
+              {sectionLabel("Prompt", {
+                required: true,
+                action: (
+                  <span
+                    style={{ ...hintStyle, letterSpacing: "0.04em" }}
+                    className="tabular-nums"
+                  >
+                    {promptText.length} / 4000
+                  </span>
+                ),
+              })}
+              <textarea
+                id="seedance-prompt"
+                value={promptText}
+                onChange={(event) => setPromptText(event.target.value)}
+                placeholder="Paste the Seedance prompt that produced this video"
+                maxLength={4000}
+                className="lm-field resize-y"
+                style={{
+                  ...fieldStyle,
+                  minHeight: "148px",
+                  lineHeight: 1.65,
+                }}
+              />
             </div>
-          </div>
 
-          {/* Video category */}
-          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-            <div className="flex items-center justify-between">
-              <Label className="text-[13px] font-semibold text-muted-foreground">
-                Video category
-              </Label>
-              {videoCategory && (
-                <button
-                  type="button"
-                  onClick={() => setVideoCategory(null)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
+            <div className="lm-divider" />
+
+            <div className="flex flex-col gap-2.5">
+              {sectionLabel("Category", {
+                action: videoCategory
+                  ? minorAction("Clear", () => setVideoCategory(null))
+                  : undefined,
+              })}
+              <div className="flex flex-wrap gap-1.5">
+                {VIDEO_CATEGORIES.map((category) => {
+                  const active = videoCategory === category;
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      className="lm-chip"
+                      data-active={active ? "true" : undefined}
+                      onClick={() => setVideoCategory(active ? null : category)}
+                    >
+                      {category}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="lm-divider" />
+
+            <div className="flex flex-col gap-2.5">
+              {sectionLabel("Tags")}
+              <input
+                id="seedance-tags"
+                value={tagDraft}
+                onChange={(event) => setTagDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === ",") {
+                    event.preventDefault();
+                    commitTagDraft();
+                  }
+                }}
+                onBlur={() => {
+                  if (tagDraft.trim()) commitTagDraft();
+                }}
+                placeholder="dramatic, hero-shot — Enter or comma to add"
+                className="lm-field"
+                style={fieldStyle}
+              />
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
+                    <span key={tag} className="lm-chip" style={{ cursor: "default" }}>
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        aria-label={`Remove tag ${tag}`}
+                        className="flex items-center"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--lm-text-tertiary)",
+                          cursor: "pointer",
+                          padding: 0,
+                          marginLeft: "2px",
+                        }}
+                      >
+                        <X className="h-2.5 w-2.5" aria-hidden />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {VIDEO_CATEGORIES.map((category) => {
-                const active = videoCategory === category;
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() =>
-                      setVideoCategory(active ? null : category)
-                    }
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-[12px] font-medium uppercase tracking-wider transition-colors",
-                      active
-                        ? "border-primary bg-primary text-white"
-                        : "border-border/60 bg-surface-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground",
-                    )}
-                  >
-                    {category}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Saved as the <code>category:&lt;name&gt;</code> tag plus the
-              category itself, so the existing tag filter picks it up.
-            </p>
-          </div>
 
-          {/* Tags */}
-          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-            <Label
-              htmlFor="seedance-tags"
-              className="text-[13px] font-semibold text-muted-foreground"
-            >
-              Tags
-            </Label>
-            <Input
-              id="seedance-tags"
-              value={tagDraft}
-              onChange={(event) => setTagDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === ",") {
-                  event.preventDefault();
-                  commitTagDraft();
-                }
-              }}
-              onBlur={() => {
-                if (tagDraft.trim()) commitTagDraft();
-              }}
-              placeholder="Press Enter or comma to add (e.g. dramatic, hero-shot)"
-              className="h-11 rounded-[14px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
-            />
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface-2 px-3 py-1.5 text-[12px] text-foreground"
+            <div className="lm-divider" />
+
+            <div className="flex flex-col gap-2.5">
+              {sectionLabel("Metadata", {
+                action: (
+                  <button
+                    type="button"
+                    onClick={addMetadataField}
+                    className="inline-flex items-center gap-1"
+                    style={{
+                      fontFamily: "var(--lm-font)",
+                      fontSize: "9px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                      color: "var(--lm-text-tertiary)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
                   >
-                    {tag}
+                    <Plus className="h-2.5 w-2.5" aria-hidden />
+                    Add field
+                  </button>
+                ),
+              })}
+              <div className="flex flex-col gap-1.5">
+                {metadata.map((field) => (
+                  <div key={field.id} className="flex items-center gap-1.5">
+                    <input
+                      value={field.key}
+                      onChange={(event) =>
+                        updateMetadataField(field.id, {
+                          key: event.target.value,
+                        })
+                      }
+                      placeholder="duration"
+                      className="lm-field"
+                      style={{ ...fieldStyle, flex: "1 1 0%", minWidth: 0 }}
+                    />
+                    <input
+                      value={field.value}
+                      onChange={(event) =>
+                        updateMetadataField(field.id, {
+                          value: event.target.value,
+                        })
+                      }
+                      placeholder="5s"
+                      className="lm-field"
+                      style={{ ...fieldStyle, flex: "2 1 0%", minWidth: 0 }}
+                    />
                     <button
                       type="button"
-                      onClick={() => removeTag(tag)}
-                      aria-label={`Remove tag ${tag}`}
-                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => removeMetadataField(field.id)}
+                      aria-label="Remove metadata field"
+                      className="flex h-[33px] w-[33px] shrink-0 items-center justify-center interactive-ghost"
+                      style={{
+                        border: "1px solid var(--lm-border)",
+                        borderRadius: CONTROL_RADIUS,
+                        color: "var(--lm-text-ghost)",
+                      }}
                     >
-                      ×
+                      <X className="h-3 w-3" aria-hidden />
                     </button>
-                  </span>
+                  </div>
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* Free-form metadata */}
-          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border/60 bg-white/40 p-5 shadow-sm backdrop-blur-sm">
-            <div className="flex items-center justify-between">
-              <Label className="text-[13px] font-semibold text-muted-foreground">
-                Custom metadata
-              </Label>
-              <button
-                type="button"
-                onClick={addMetadataField}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="h-3 w-3" />
-                Add field
-              </button>
+              <p style={hintStyle}>
+                Category and each filled pair are saved as{" "}
+                <span style={{ color: "var(--lm-text-tertiary)" }}>
+                  key:value
+                </span>{" "}
+                tags, so the gallery&rsquo;s tag filter picks them up.
+              </p>
             </div>
-            <div className="flex flex-col gap-2">
-              {metadata.map((field) => (
-                <div key={field.id} className="flex items-center gap-2">
-                  <Input
-                    value={field.key}
-                    onChange={(event) =>
-                      updateMetadataField(field.id, { key: event.target.value })
-                    }
-                    placeholder="key (e.g. duration)"
-                    className="h-10 flex-1 rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
-                  />
-                  <Input
-                    value={field.value}
-                    onChange={(event) =>
-                      updateMetadataField(field.id, {
-                        value: event.target.value,
-                      })
-                    }
-                    placeholder="value (e.g. 5s)"
-                    className="h-10 flex-[2] rounded-[12px] border-border/60 bg-surface-1 text-[13px] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--accent-subtle)] focus-visible:ring-0"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeMetadataField(field.id)}
-                    aria-label="Remove metadata field"
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Each filled pair is saved as a <code>key:value</code> tag, so
-              you can filter on it later (e.g. <code>duration:5s</code>).
-            </p>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-border/60 bg-surface-1/50 px-8 py-4">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={handleClose}
-            disabled={submitting}
-            className="h-11 rounded-[14px] border border-border/60 bg-transparent px-5 text-[13px] font-medium text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-            className="h-11 rounded-[16px] bg-primary px-5 text-[14px] font-semibold text-white shadow-sm transition-all duration-150 hover:-translate-y-px hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
-          >
-            {submitting ? "Saving..." : "Save Seedance asset"}
-          </Button>
+        {/* Footer */}
+        <div
+          className="flex items-center justify-between gap-4 px-6 py-3.5"
+          style={{ borderTop: "1px solid var(--lm-border)" }}
+        >
+          <span className="hidden sm:inline" style={hintStyle}>
+            Saved as model{" "}
+            <span style={{ color: "var(--lm-text-secondary)" }}>
+              {MODEL_NAME}
+            </span>
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="lm-btn-ghost"
+              onClick={handleClose}
+              disabled={submitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="lm-btn-brutal"
+              onClick={() => void handleSubmit()}
+              disabled={!canSubmit}
+              style={
+                canSubmit ? undefined : { opacity: 0.4, cursor: "not-allowed" }
+              }
+            >
+              {submitting ? "Saving" : "Save to gallery"}
+              {!submitting && <ArrowRight className="h-3 w-3" aria-hidden />}
+            </button>
+          </div>
         </div>
       </div>
     </div>
