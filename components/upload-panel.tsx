@@ -332,6 +332,10 @@ export function UploadPanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name }),
       });
+      setCreatedFolders((previous) => [
+        ...previous.filter((folder) => folder._id !== result.folder._id),
+        { _id: result.folder._id, name },
+      ]);
       setFolderSelection(result.folder._id);
       setFolderDraftName("");
       setStatus({

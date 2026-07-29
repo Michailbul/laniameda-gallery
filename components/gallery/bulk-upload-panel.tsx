@@ -1514,7 +1514,9 @@ export function BulkUploadPanel({
             ? "Nothing staged yet"
             : errorCount > 0
               ? `${errorCount} failed — press upload to retry`
-              : `${pendingCount} to upload${featuredCount > 0 ? ` · ${featuredCount} featured` : ""}`}
+              : pendingCount === 0
+                ? "Saved — clear the batch to add more"
+                : `${pendingCount} to upload${featuredCount > 0 ? ` · ${featuredCount} featured` : ""}`}
         </span>
         <button
           type="button"
@@ -1535,9 +1537,12 @@ export function BulkUploadPanel({
               ? `Retry ${pendingCount}`
               : items.length === 0
                 ? "Upload batch"
-                : `Upload ${pendingCount || items.length} ${
-                    (pendingCount || items.length) === 1 ? "asset" : "assets"
-                  }`}
+                : // A finished batch keeps its thumbnails on screen, so the
+                  // button has to say the work is done rather than repeat the
+                  // count it started with.
+                  pendingCount === 0
+                  ? `${doneCount} in the vault`
+                  : `Upload ${pendingCount} ${pendingCount === 1 ? "asset" : "assets"}`}
         </button>
       </div>
     </div>
