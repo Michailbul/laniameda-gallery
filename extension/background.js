@@ -9,6 +9,9 @@ const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
 const LAST_FOLDER_ID_KEY = "lastFolderId";
+// Written by content.js on every save. See readSavePreset there — the presence
+// of the array (not its length) marks an explicit "no collection" save.
+const LAST_FOLDER_IDS_KEY = "lastFolderIds";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const BUILTIN_DISABLED_HOSTS = [
@@ -58,12 +61,21 @@ function apiHeaders(config) {
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["apiUrl", "apiToken", DEFAULT_FOLDER_ID_KEY, LAST_FOLDER_ID_KEY],
+      [
+        "apiUrl",
+        "apiToken",
+        DEFAULT_FOLDER_ID_KEY,
+        LAST_FOLDER_ID_KEY,
+        LAST_FOLDER_IDS_KEY,
+      ],
       (cfg) => resolve({
         apiUrl: normalizeApiUrl(cfg.apiUrl),
         apiToken: String(cfg.apiToken || "").trim(),
         defaultFolderId: String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim(),
         lastFolderId: String(cfg[LAST_FOLDER_ID_KEY] || "").trim(),
+        lastFolderIds: Array.isArray(cfg[LAST_FOLDER_IDS_KEY])
+          ? normalizeFolderIds(cfg[LAST_FOLDER_IDS_KEY])
+          : null,
       })
     );
   });
@@ -129,9 +141,13 @@ async function isContextMenuSaveAllowed(sourceUrl) {
   return !isHostDisabled(disabledHosts, host);
 }
 
-async function getDefaultSaveFolderId() {
+// The context-menu save reuses the last save's collections so it lands where the
+// in-page pickers last left off. Before any save the popup default seeds it.
+async function getSavePresetFolderIds() {
   const config = await getConfig();
-  return config.defaultFolderId || config.lastFolderId || undefined;
+  if (config.lastFolderIds) return config.lastFolderIds;
+  const seed = config.defaultFolderId || config.lastFolderId;
+  return seed ? [seed] : [];
 }
 
 async function saveToGallery(payload) {
@@ -235,12 +251,12 @@ async function fetchImageBytes(payload) {
   }
 }
 
-async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderId }) {
+async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderIds }) {
   const captured = await fetchImageBytes({ imageUrl });
   const response = await saveToGallery({
     imageUrl,
     sourceUrl,
-    folderId,
+    folderIds,
     file: captured?.ok
       ? {
           base64: captured.base64,
@@ -270,7 +286,7 @@ async function handleImageContextMenuClick(info, tab) {
     return;
   }
 
-  const folderId = await getDefaultSaveFolderId();
+  const folderIds = await getSavePresetFolderIds();
 
   if (typeof tab?.id === "number" && isTabMessageUrl(sourceUrl)) {
     try {
@@ -278,7 +294,8 @@ async function handleImageContextMenuClick(info, tab) {
         action: "saveImageFromContextMenu",
         imageUrl,
         sourceUrl,
-        folderId,
+        folderId: folderIds[0],
+        folderIds,
       });
       if (response?.handled) return;
     } catch {
@@ -290,7 +307,7 @@ async function handleImageContextMenuClick(info, tab) {
   const response = await saveContextMenuImageInBackground({
     imageUrl,
     sourceUrl,
-    folderId,
+    folderIds,
   });
   if (!response.ok) {
     console.warn("[Save to Gallery] context menu save failed:", response);

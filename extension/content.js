@@ -10,6 +10,11 @@
   const DISABLED_HOSTS_KEY = "disabledHosts";
   const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
   const LAST_FOLDER_ID_KEY = "lastFolderId";
+  // The full picker state the previous save used. Every save surface restores
+  // it, so save N+1 opens exactly where save N left off instead of resetting to
+  // the popup default. lastFolderId stays written as the single-id compat view.
+  const LAST_FOLDER_IDS_KEY = "lastFolderIds";
+  const LAST_COLLECTION_PILLAR_KEY = "lastCollectionPillar";
   // Remembered animation / live-action classification, auto-applied as a tag
   // to every save until changed.
   const STYLE_TAG_KEY = "lastStyleTag";
@@ -834,24 +839,53 @@
     };
   }
 
-  async function readSavedFolderIds() {
-    try {
-      const cfg = await getStorageSync([
-        DEFAULT_FOLDER_ID_KEY,
-        LAST_FOLDER_ID_KEY,
-      ]);
-      return {
-        defaultFolderId: String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim(),
-        lastFolderId: String(cfg[LAST_FOLDER_ID_KEY] || "").trim(),
-      };
-    } catch {
-      return { defaultFolderId: "", lastFolderId: "" };
-    }
+  function normalizeCollectionPillar(value) {
+    const pillar = String(value || "").trim().toLowerCase();
+    return COLLECTION_PILLAR_OPTIONS.some((option) => option.value === pillar)
+      ? pillar
+      : "";
   }
 
-  async function getDefaultSaveFolderId() {
-    const { defaultFolderId, lastFolderId } = await readSavedFolderIds();
-    return defaultFolderId || lastFolderId || undefined;
+  // The preset is whatever the previous save actually used. An explicit "No
+  // collection" save records an empty array, which has to stay distinguishable
+  // from "never saved" — otherwise the popup default silently comes back. So the
+  // presence of the array, not its length, decides whether a preset exists.
+  async function readSavePreset() {
+    let cfg = {};
+    try {
+      cfg = await getStorageSync([
+        DEFAULT_FOLDER_ID_KEY,
+        LAST_FOLDER_ID_KEY,
+        LAST_FOLDER_IDS_KEY,
+        LAST_COLLECTION_PILLAR_KEY,
+      ]);
+    } catch {
+      cfg = {};
+    }
+
+    const defaultFolderId = String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim();
+    const lastFolderId = String(cfg[LAST_FOLDER_ID_KEY] || "").trim();
+    const hasPreset = Array.isArray(cfg[LAST_FOLDER_IDS_KEY]);
+
+    return {
+      defaultFolderId,
+      hasPreset,
+      // Before the first save the popup default seeds the picker; a single
+      // lastFolderId covers presets written by an older build.
+      folderIds: hasPreset
+        ? normalizeFolderIdList(cfg[LAST_FOLDER_IDS_KEY])
+        : normalizeFolderIdList([defaultFolderId || lastFolderId]),
+      collectionPillar: normalizeCollectionPillar(cfg[LAST_COLLECTION_PILLAR_KEY]),
+    };
+  }
+
+  function rememberSavePreset({ folderIds, collectionPillar }) {
+    const normalizedFolderIds = normalizeFolderIdList(folderIds);
+    setStorageSync({
+      [LAST_FOLDER_IDS_KEY]: normalizedFolderIds,
+      [LAST_FOLDER_ID_KEY]: normalizedFolderIds[0] || "",
+      [LAST_COLLECTION_PILLAR_KEY]: normalizeCollectionPillar(collectionPillar),
+    });
   }
 
   // ── Animation / live-action style tag ──
@@ -955,31 +989,68 @@
     return ids;
   }
 
+  // A 401 here means the popup's API token is missing or stale. Reporting that
+  // as "no collections" is indistinguishable from an empty vault, so the load
+  // result carries the reason and every picker renders it.
+  function describeFolderLoadError(rawError) {
+    const error = String(rawError || "").trim();
+    if (!error) return "Could not load collections.";
+    if (/\b401\b|unauthorized/i.test(error)) {
+      return "Unauthorized — set the API token in the extension popup.";
+    }
+    if (/^network error/i.test(error)) return "Gallery unreachable.";
+    return error;
+  }
+
   async function loadFolders() {
     try {
       const response = await sendRuntimeMessage({ action: "getFolders" });
       if (response?.ok) {
-        return normalizeFolders(response.folders);
+        return { folders: normalizeFolders(response.folders), error: "" };
       }
+      const error = describeFolderLoadError(response?.error);
+      console.warn("[Save to Gallery] Could not load collections:", response?.error);
+      return { folders: [], error };
     } catch (err) {
       console.warn("[Save to Gallery] Could not load collections:", err);
+      return { folders: [], error: describeFolderLoadError(err?.message) };
     }
-    return [];
   }
 
   async function loadFoldersCached() {
-    if (foldersCache) return foldersCache;
+    if (foldersCache) return { folders: foldersCache, error: "" };
     if (!foldersPromise) {
       foldersPromise = loadFolders()
-        .then((folders) => {
-          foldersCache = folders;
-          return folders;
+        .then((result) => {
+          // Never cache a failure. The token is fixed in the popup mid-session,
+          // and a cached [] would keep every picker empty until a full reload.
+          if (!result.error) foldersCache = result.folders;
+          return result;
         })
         .finally(() => {
           foldersPromise = null;
         });
     }
     return foldersPromise;
+  }
+
+  // The popup writes apiToken/apiUrl into chrome.storage.sync. Drop the cached
+  // folder list and any menu already built from it so the next open refetches.
+  function invalidateFoldersCache() {
+    foldersCache = null;
+    for (const menu of document.querySelectorAll(".stg-mj-menu")) {
+      delete menu.dataset.ready;
+    }
+  }
+
+  try {
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area !== "sync") return;
+      if (!changes.apiToken && !changes.apiUrl) return;
+      invalidateFoldersCache();
+    });
+  } catch (err) {
+    console.warn("[Save to Gallery] Could not watch extension settings:", err);
   }
 
   async function createFolderRemote(name) {
@@ -1087,16 +1158,14 @@
     // ── Collection (folder) cards ──
     let loadedFolders = [];
     let foldersReady = false;
-    let rememberedFolderId = "";
+    let defaultFolderId = "";
+    let presetFolderIds = [];
+    let presetReady = false;
     let selectedFolderIds = [];
-    let selectedCollectionPillar = initialCollectionPillar;
+    let selectedCollectionPillar = normalizeCollectionPillar(initialCollectionPillar);
 
     const setSelectedCollectionPillar = (value) => {
-      selectedCollectionPillar = COLLECTION_PILLAR_OPTIONS.some(
-        (option) => option.value === value,
-      )
-        ? value
-        : "";
+      selectedCollectionPillar = normalizeCollectionPillar(value);
       for (const card of pillarGrid.querySelectorAll(".stg-pillar-card")) {
         const selected =
           card.dataset.collectionPillar === selectedCollectionPillar;
@@ -1148,7 +1217,10 @@
       const normalizedFolderIds = normalizeFolderIdList(selectedFolderIds);
       const normalizedFolderId = normalizedFolderIds[0] || "";
       if (remember) {
-        setStorageSync({ [LAST_FOLDER_ID_KEY]: normalizedFolderId });
+        rememberSavePreset({
+          folderIds: normalizedFolderIds,
+          collectionPillar: selectedCollectionPillar,
+        });
       }
       onSubmit({
         promptText: prompt,
@@ -1207,12 +1279,16 @@
       collectionGrid.appendChild(card);
     };
 
-    const renderCollectionCards = (folders, selectedId) => {
+    // `selectedIds` are restored as-is; only ids that still exist as root
+    // collections survive, so a deleted collection drops out of the preset
+    // instead of being submitted as a dead id.
+    const renderCollectionCards = (folders, selectedIds) => {
       collectionGrid.innerHTML = "";
       const rootFolders = getRootFolders(folders);
-      const activeSelectedId = rootFolders.some((folder) => folder.id === selectedId)
-        ? selectedId
-        : "";
+      const rootIds = new Set(rootFolders.map((folder) => folder.id));
+      const liveSelectedIds = normalizeFolderIdList(selectedIds).filter((id) =>
+        rootIds.has(id),
+      );
       appendCollectionCard({
         folderId: "",
         eyebrow: "Loose",
@@ -1220,28 +1296,80 @@
         clear: true,
       });
       for (const folder of rootFolders) {
+        const isDefault = Boolean(defaultFolderId) && folder.id === defaultFolderId;
         appendCollectionCard({
           folderId: folder.id,
-          eyebrow: folder.id === activeSelectedId ? "Default" : "Collection",
+          eyebrow: isDefault ? "Default" : "Collection",
           label: folder.name,
-          variant: folder.id === activeSelectedId ? "stg-collection-card--default" : "",
+          variant: isDefault ? "stg-collection-card--default" : "",
         });
       }
-      setSelectedFolderIds(activeSelectedId ? [activeSelectedId] : []);
+      setSelectedFolderIds(liveSelectedIds);
+    };
+
+    const renderCollectionError = (message) => {
+      collectionGrid.innerHTML = "";
+      const card = document.createElement("div");
+      card.className = "stg-collection-card stg-collection-card--error";
+
+      const label = document.createElement("span");
+      label.className = "stg-collection-card__label";
+      label.textContent = message;
+
+      const retry = document.createElement("button");
+      retry.className = "stg-collection-card__retry";
+      retry.type = "button";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        invalidateFoldersCache();
+        void fetchCollections();
+      });
+
+      card.append(label, retry);
+      collectionGrid.appendChild(card);
+    };
+
+    // The folder list and the stored preset resolve independently, and the grid
+    // needs both — rendering on whichever lands first would either drop the
+    // restored selection or paint cards with no folders.
+    let collectionLoadError = "";
+    const renderCollectionsIfReady = () => {
+      if (collectionLoadError) return;
+      if (!foldersReady || !presetReady) return;
+      renderCollectionCards(loadedFolders, presetFolderIds);
+    };
+
+    const fetchCollections = async () => {
+      collectionLoadError = "";
+      renderCollectionLoading();
+      const { folders, error } = await loadFolders();
+      loadedFolders = folders;
+      foldersReady = true;
+      if (error) {
+        collectionLoadError = error;
+        renderCollectionError(error);
+        return;
+      }
+      renderCollectionsIfReady();
     };
 
     renderCollectionLoading();
 
-    readSavedFolderIds().then(({ defaultFolderId, lastFolderId }) => {
-      rememberedFolderId = defaultFolderId || lastFolderId || "";
-      if (foldersReady) renderCollectionCards(loadedFolders, rememberedFolderId);
+    void readSavePreset().then((preset) => {
+      defaultFolderId = preset.defaultFolderId;
+      presetFolderIds = preset.folderIds;
+      presetReady = true;
+      // A tag-derived pillar is a content rule (Midjourney personalize / teach
+      // saves belong in Inspirations) and outranks the remembered one.
+      if (!selectedCollectionPillar) {
+        setSelectedCollectionPillar(preset.collectionPillar);
+      }
+      renderCollectionsIfReady();
     });
 
-    loadFolders().then((folders) => {
-      loadedFolders = folders;
-      foldersReady = true;
-      renderCollectionCards(folders, rememberedFolderId);
-    });
+    void fetchCollections();
 
     const handleCreateCollection = async () => {
       const name = newCollInput.value.trim();
@@ -1266,9 +1394,7 @@
       }
       newCollInput.value = "";
       newCollRow.setAttribute("hidden", "");
-      const previousSelectedFolderIds = selectedFolderIds;
-      renderCollectionCards(loadedFolders, newId);
-      setSelectedFolderIds([...previousSelectedFolderIds, newId]);
+      renderCollectionCards(loadedFolders, [...selectedFolderIds, newId]);
     };
 
     newCollToggle.addEventListener("click", (e) => {
@@ -1656,10 +1782,14 @@
       return { handled: true, ok: false, error: "Image URL unavailable." };
     }
 
-    const folderId =
-      typeof message?.folderId === "string" && message.folderId.trim()
-        ? message.folderId.trim()
-        : await getDefaultSaveFolderId();
+    const messageFolderIds = normalizeFolderIdList(
+      Array.isArray(message?.folderIds)
+        ? message.folderIds
+        : [message?.folderId],
+    );
+    const preset = messageFolderIds.length ? null : await readSavePreset();
+    const folderIds = preset ? preset.folderIds : messageFolderIds;
+    const collectionPillar = preset ? preset.collectionPillar : "";
     const sourceUrl =
       typeof message?.sourceUrl === "string" && message.sourceUrl
         ? message.sourceUrl
@@ -1676,7 +1806,9 @@
         imageUrl,
         sourceUrl,
         pageTitle: document.title,
-        folderId: folderId || undefined,
+        folderId: folderIds[0] || undefined,
+        folderIds,
+        collectionPillar: collectionPillar || undefined,
         tagNames: styleTag ? [styleTag] : undefined,
         file: fileData || undefined,
       });
@@ -1943,6 +2075,7 @@
 
   let midjourneyObserver = null;
   let midjourneyScanTimer = null;
+  let midjourneyScanDeadline = 0;
   let midjourneyLikedNavControl = null;
   let midjourneyLikedOnlyEnabled = false;
   let midjourneyViewerSaveWidget = null;
@@ -3347,6 +3480,42 @@
     }
   }
 
+  // Scroll only changes whether a widget's media is on-screen — the placement
+  // itself is host-relative and travels with the card. So a scroll pass just
+  // re-runs the visibility gate (one rect per widget) and pays for a full
+  // placement solve only on cards that became visible without ever having been
+  // placed (injected below the fold, where every candidate failed the viewport
+  // test). A full updateMidjourneyWidgetPositions() pass here would instead run
+  // getNearbyPageControlRects — a document-wide query — per widget per frame.
+  function refreshMidjourneyWidgetVisibility() {
+    if (suppressMidjourneySaveUiForViewer()) return;
+    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+      if (widget.classList.contains("stg-mj-quick-save--viewer")) continue;
+      if (widget.classList.contains("stg-mj-quick-save--menu-open")) continue;
+      const target = widget.__stgTarget;
+      if (!target || !document.contains(target)) continue;
+
+      const rect = target.getBoundingClientRect();
+      const onScreen =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth;
+
+      if (!onScreen) {
+        if (widget.style.display !== "none") widget.style.display = "none";
+        continue;
+      }
+      if (!widget.dataset.stgPlacement) {
+        positionMidjourneyWidget(widget, target);
+        continue;
+      }
+      if (widget.style.display !== "flex") widget.style.display = "flex";
+    }
+  }
+
   function updateMidjourneyWidgetPositions() {
     if (suppressMidjourneySaveUiForViewer()) return;
     for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
@@ -3365,7 +3534,7 @@
 
   function resetMidjourneySaveButton(button) {
     button.innerHTML = `${SAVE_ICON}<span>Save</span>`;
-    button.title = "Save to default collection";
+    button.title = "Save with the last used settings";
     button.classList.remove("stg-badge--saving", "stg-badge--saved", "stg-badge--error");
   }
 
@@ -3383,13 +3552,19 @@
       return;
     }
 
+    // One-click Save (no menu) repeats the previous save verbatim — the whole
+    // collection set and the pillar, not just the first collection.
     let effectiveFolderIds = normalizeFolderIdList(folderIds);
+    let presetCollectionPillar = "";
     if (arguments.length < 3) {
-      const defaultFolderId = await getDefaultSaveFolderId();
-      effectiveFolderIds = defaultFolderId ? [defaultFolderId] : [];
+      const preset = await readSavePreset();
+      effectiveFolderIds = preset.folderIds;
+      presetCollectionPillar = preset.collectionPillar;
     }
     const effectiveCollectionPillar =
-      collectionPillar || inferCollectionPillar(saveContext.tagNames);
+      collectionPillar ||
+      inferCollectionPillar(saveContext.tagNames) ||
+      presetCollectionPillar;
 
     // Higgsfield output videos are commonly many megabytes. Prefer the public
     // CDN URL so the extension does not base64-expand the whole clip into one
@@ -3441,7 +3616,16 @@
   }
 
   function updateMidjourneyMenuSelection(menu, folderIds) {
-    const selectedFolderIds = normalizeFolderIdList(folderIds);
+    // Restored presets can name a collection that has since been deleted. Keep
+    // only ids the menu actually offers so a dead id is never submitted.
+    const offeredIds = new Set(
+      [...menu.querySelectorAll(".stg-mj-menu__item")]
+        .map((item) => item.dataset.folderId || "")
+        .filter(Boolean),
+    );
+    const selectedFolderIds = normalizeFolderIdList(folderIds).filter((id) =>
+      offeredIds.has(id),
+    );
     const selectedSet = new Set(selectedFolderIds);
     menu.dataset.selectedFolderIds = JSON.stringify(selectedFolderIds);
 
@@ -3502,6 +3686,7 @@
     createButton.textContent = "…";
     const previousSelectedFolderIds = getMidjourneyMenuSelection(menu);
     const previousCollectionPillar = menu.dataset.collectionPillar || "";
+    const previousDefaultFolderId = menu.dataset.defaultFolderId || "";
     const res = await createFolderRemote(name);
     createButton.disabled = false;
     createButton.textContent = "Add";
@@ -3512,8 +3697,11 @@
     }
 
     const newId = res.id || findFolderIdByName(res.folders, name);
-    renderMidjourneyCollectionMenu(menu, res.folders, newId);
-    updateMidjourneyMenuSelection(menu, [...previousSelectedFolderIds, newId]);
+    renderMidjourneyCollectionMenu(menu, res.folders, {
+      defaultFolderId: previousDefaultFolderId,
+      selectedFolderIds: [...previousSelectedFolderIds, newId],
+      collectionPillar: previousCollectionPillar,
+    });
     updateMidjourneyMenuPillar(menu, previousCollectionPillar);
     const nextInput = menu.querySelector(".stg-mj-menu__new-input");
     if (nextInput) nextInput.value = "";
@@ -3542,11 +3730,7 @@
   }
 
   function updateMidjourneyMenuPillar(menu, pillar) {
-    const normalized = COLLECTION_PILLAR_OPTIONS.some(
-      (option) => option.value === pillar,
-    )
-      ? pillar
-      : "";
+    const normalized = normalizeCollectionPillar(pillar);
     menu.dataset.collectionPillar = normalized;
     for (const button of menu.querySelectorAll(".stg-mj-menu__pillar")) {
       const active = button.dataset.collectionPillar === normalized;
@@ -3555,9 +3739,17 @@
     }
   }
 
-  function renderMidjourneyCollectionMenu(menu, folders, defaultFolderId) {
+  function renderMidjourneyCollectionMenu(menu, folders, options = {}) {
+    const {
+      defaultFolderId = "",
+      selectedFolderIds = [],
+      collectionPillar = "",
+      loadError = "",
+    } = options;
     const rootFolders = getRootFolders(folders);
-    const activeDefaultFolderId = rootFolders.some((folder) => folder.id === defaultFolderId)
+    const activeDefaultFolderId = rootFolders.some(
+      (folder) => folder.id === defaultFolderId,
+    )
       ? defaultFolderId
       : "";
     const rows = [
@@ -3577,6 +3769,7 @@
     ];
 
     menu.innerHTML = "";
+    menu.dataset.defaultFolderId = activeDefaultFolderId;
 
     // Animation / live-action pills — the choice persists and auto-applies
     // to every save (quick save included) until changed.
@@ -3609,6 +3802,26 @@
       pillarSection.appendChild(button);
     }
     menu.appendChild(pillarSection);
+
+    if (loadError) {
+      // Without this the menu is indistinguishable from an empty vault — the
+      // usual cause is a missing/stale API token, which is fixable in the popup.
+      const errorRow = document.createElement("div");
+      errorRow.className = "stg-mj-menu__error";
+
+      const errorLabel = document.createElement("span");
+      errorLabel.className = "stg-mj-menu__error-label";
+      errorLabel.textContent = loadError;
+
+      const retry = document.createElement("button");
+      retry.className = "stg-mj-menu__error-retry";
+      retry.type = "button";
+      retry.dataset.retryCollections = "1";
+      retry.textContent = "Retry";
+
+      errorRow.append(errorLabel, retry);
+      menu.appendChild(errorRow);
+    }
 
     for (const row of rows) {
       const item = document.createElement("button");
@@ -3675,10 +3888,12 @@
     footer.appendChild(save);
     menu.appendChild(footer);
 
-    updateMidjourneyMenuSelection(menu, activeDefaultFolderId ? [activeDefaultFolderId] : []);
+    updateMidjourneyMenuSelection(menu, selectedFolderIds);
+    // The tag-derived pillar is a content rule (personalize / teach saves belong
+    // in Inspirations) and outranks the remembered one.
     updateMidjourneyMenuPillar(
       menu,
-      inferCollectionPillar(getMidjourneyTagNames()),
+      inferCollectionPillar(getMidjourneyTagNames()) || collectionPillar,
     );
   }
 
@@ -3688,23 +3903,40 @@
     if (menu.dataset.ready === "1") {
       menu.hidden = false;
       widget.classList.add("stg-mj-quick-save--menu-open");
-      // Re-sync the type pills — another widget or the popover may have
-      // changed the remembered tag since this menu was built.
-      void readStyleTag().then((tag) => updateMidjourneyMenuStyleTag(menu, tag));
+      // Re-sync against storage — another widget or the popover may have saved
+      // (and so moved the preset) since this menu was built.
+      void Promise.all([readStyleTag(), readSavePreset()]).then(
+        ([tag, preset]) => {
+          updateMidjourneyMenuStyleTag(menu, tag);
+          updateMidjourneyMenuSelection(menu, preset.folderIds);
+          updateMidjourneyMenuPillar(
+            menu,
+            inferCollectionPillar(getMidjourneyTagNames()) || preset.collectionPillar,
+          );
+        },
+      );
       return;
     }
 
     menu.hidden = false;
     widget.classList.add("stg-mj-quick-save--menu-open");
     menu.innerHTML = `<div class="stg-mj-menu__loading">Loading collections…</div>`;
-    const [{ defaultFolderId }, folders, styleTag] = await Promise.all([
-      readSavedFolderIds(),
+    const [preset, { folders, error }, styleTag] = await Promise.all([
+      readSavePreset(),
       loadFoldersCached(),
       readStyleTag(),
     ]);
-    renderMidjourneyCollectionMenu(menu, folders, defaultFolderId);
+    renderMidjourneyCollectionMenu(menu, folders, {
+      defaultFolderId: preset.defaultFolderId,
+      selectedFolderIds: preset.folderIds,
+      collectionPillar: preset.collectionPillar,
+      loadError: error,
+    });
     updateMidjourneyMenuStyleTag(menu, styleTag);
-    menu.dataset.ready = "1";
+    // A failed load must stay un-ready so reopening refetches instead of
+    // serving the error menu for the rest of the page's life.
+    if (error) delete menu.dataset.ready;
+    else menu.dataset.ready = "1";
   }
 
   function closeMidjourneyCollectionMenu(widget) {
@@ -3718,7 +3950,7 @@
     widget.className = "stg-mj-quick-save";
     widget.__stgTarget = target;
     widget.innerHTML = `
-      <button class="stg-mj-save-main" type="button" title="Save to default collection">
+      <button class="stg-mj-save-main" type="button" title="Save with the last used settings">
         ${SAVE_ICON}<span>Save</span>
       </button>
       <button class="stg-mj-save-arrow" type="button" title="Choose collection">${CHEVRON_ICON}</button>
@@ -3773,11 +4005,18 @@
       const item = event.target?.closest?.(".stg-mj-menu__item");
       const createItem = event.target?.closest?.(".stg-mj-menu__item--create");
       const createButton = event.target?.closest?.(".stg-mj-menu__new-create");
+      const retryButton = event.target?.closest?.(".stg-mj-menu__error-retry");
       const saveItem = event.target?.closest?.(".stg-mj-menu__save");
-      if (!item && !saveItem && !createButton && !typePill && !pillarButton) return;
+      if (!item && !saveItem && !createButton && !retryButton && !typePill && !pillarButton) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+
+      if (retryButton) {
+        invalidateFoldersCache();
+        void openMidjourneyCollectionMenu(widget);
+        return;
+      }
 
       if (typePill) {
         const nextStyleTag = typePill.dataset.styleTag || "";
@@ -3823,7 +4062,7 @@
 
       const selectedFolderIds = getMidjourneyMenuSelection(menu);
       const collectionPillar = menu.dataset.collectionPillar || "";
-      setStorageSync({ [LAST_FOLDER_ID_KEY]: selectedFolderIds[0] || "" });
+      rememberSavePreset({ folderIds: selectedFolderIds, collectionPillar });
       closeMidjourneyCollectionMenu(widget);
       void handleSaveMidjourneyMedia(
         target,
@@ -3886,18 +4125,33 @@
     syncMidjourneyNotesPresence();
   }
 
+  // The debounce is reset by every mutation, and an infinite feed mutates
+  // continuously while you scroll — a pure debounce would starve the scan for
+  // as long as the scrolling lasts, so newly loaded cards get no Save control
+  // until the page goes quiet. The deadline forces a pass through.
+  const MIDJOURNEY_SCAN_MAX_WAIT = 600;
+
+  function runMidjourneyMediaScan() {
+    midjourneyScanTimer = null;
+    midjourneyScanDeadline = 0;
+    if (!configLoaded) {
+      syncSiteStateFromStorage((isEnabled) => {
+        if (isEnabled) scanMidjourneyMediaTargets();
+      });
+      return;
+    }
+    scanMidjourneyMediaTargets();
+  }
+
   function scheduleMidjourneyMediaScan(delay = 80) {
     if (!isPersistentSaveSite()) return;
+    const now = Date.now();
+    if (!midjourneyScanDeadline) {
+      midjourneyScanDeadline = now + MIDJOURNEY_SCAN_MAX_WAIT;
+    }
+    const wait = Math.max(0, Math.min(delay, midjourneyScanDeadline - now));
     clearTimeout(midjourneyScanTimer);
-    midjourneyScanTimer = setTimeout(() => {
-      if (!configLoaded) {
-        syncSiteStateFromStorage((isEnabled) => {
-          if (isEnabled) scanMidjourneyMediaTargets();
-        });
-        return;
-      }
-      scanMidjourneyMediaTargets();
-    }, delay);
+    midjourneyScanTimer = setTimeout(runMidjourneyMediaScan, wait);
   }
 
   // All extension UI carries an "stg-" class prefix. Mutations inside our own
@@ -3942,11 +4196,21 @@
     });
     // Scroll doesn't bubble, but the capture phase sees inner-container
     // scrolls too — the fixed-position viewer widget must track its media.
+    let scrollFrame = 0;
     window.addEventListener("scroll", () => {
       const widget = midjourneyViewerSaveWidget;
       if (widget?.isConnected && widget.__stgTarget?.isConnected) {
         positionMidjourneyViewerWidget(widget, widget.__stgTarget);
       }
+      // Grid widgets are hidden whenever their card is outside the viewport.
+      // Nothing else re-runs placement on a settled feed, so without this pass
+      // they stay hidden after the card scrolls back into view — the Save
+      // controls just vanish the further you scroll.
+      if (scrollFrame) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0;
+        refreshMidjourneyWidgetVisibility();
+      });
     }, { passive: true, capture: true });
     // Watchdog: mutations are the normal scan trigger, but a page can settle
     // AFTER whatever removed or starved the widget. Cheap ticks guarantee the

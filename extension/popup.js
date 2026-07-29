@@ -18,12 +18,18 @@ const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
+// The remembered "last save" preset (written by content.js) normally outranks the
+// default collection, so changing the default here has to clear it.
+const LAST_FOLDER_IDS_KEY = "lastFolderIds";
+const LAST_FOLDER_ID_KEY = "lastFolderId";
+const LAST_COLLECTION_PILLAR_KEY = "lastCollectionPillar";
 const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
 
 let currentSiteHost = "";
 let currentTabId = null;
 let currentTabUrl = "";
 let currentTabTitle = "";
+let storedDefaultFolderId = "";
 
 const normalizeApiUrl = (rawValue) => {
   const value =
@@ -82,16 +88,18 @@ const normalizeFolders = (rawFolders) => {
     .filter((folder) => folder.id && folder.name);
 };
 
+// Settings still save without a collection list, but the failure has to be
+// visible: a 401 here is the same missing/stale token that breaks every save.
 const loadFolders = async () => {
   try {
     const response = await chrome.runtime.sendMessage({ action: "getFolders" });
     if (response?.ok) {
-      return normalizeFolders(response.folders);
+      return { folders: normalizeFolders(response.folders), error: "" };
     }
-  } catch {
-    // The picker can still save settings without a default collection.
+    return { folders: [], error: response?.error || "Could not load collections." };
+  } catch (err) {
+    return { folders: [], error: err?.message || "Could not load collections." };
   }
-  return [];
 };
 
 const renderDefaultCollectionOptions = (folders, selectedId) => {
@@ -216,8 +224,16 @@ const loadPopupState = async () => {
 
   if (defaultCollectionEl) {
     defaultCollectionEl.disabled = true;
-    const folders = await loadFolders();
-    renderDefaultCollectionOptions(folders, cfg[DEFAULT_FOLDER_ID_KEY] || "");
+    storedDefaultFolderId = String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim();
+    const { folders, error } = await loadFolders();
+    renderDefaultCollectionOptions(folders, storedDefaultFolderId);
+    if (error) {
+      setStatus(
+        /\b401\b|unauthorized/i.test(error)
+          ? "Collections unavailable — the API token is missing or wrong."
+          : `Collections unavailable — ${error}`.slice(0, 160),
+      );
+    }
   }
 };
 
@@ -226,6 +242,18 @@ saveBtn.addEventListener("click", () => {
   const apiToken = apiTokenInput ? apiTokenInput.value.trim() : "";
   const defaultFolderId = defaultCollectionEl?.value || "";
 
+  // Picking a different default is a deliberate reset — without dropping the
+  // remembered preset the new default would never be applied, since every save
+  // surface prefers the last save's collections.
+  if (defaultFolderId !== storedDefaultFolderId) {
+    chrome.storage.sync.remove([
+      LAST_FOLDER_IDS_KEY,
+      LAST_FOLDER_ID_KEY,
+      LAST_COLLECTION_PILLAR_KEY,
+    ]);
+  }
+  storedDefaultFolderId = defaultFolderId;
+
   chrome.storage.sync.set({ apiUrl, apiToken, [DEFAULT_FOLDER_ID_KEY]: defaultFolderId }, () => {
     apiUrlInput.value = apiUrl;
     setStatus("Settings saved.");
@@ -233,6 +261,19 @@ saveBtn.addEventListener("click", () => {
     window.setTimeout(() => {
       saveBtn.textContent = "Save settings";
     }, 1400);
+
+    // Re-fetch with the token that was just saved so a fixed token immediately
+    // fills the default-collection picker instead of waiting for a reopen.
+    void loadFolders().then(({ folders, error }) => {
+      renderDefaultCollectionOptions(folders, defaultFolderId);
+      if (error) {
+        setStatus(
+          /\b401\b|unauthorized/i.test(error)
+            ? "Saved, but the API token was rejected (401)."
+            : `Saved, but collections failed: ${error}`.slice(0, 160),
+        );
+      }
+    });
   });
 });
 

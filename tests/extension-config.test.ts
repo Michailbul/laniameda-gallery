@@ -85,4 +85,55 @@ describe("extension endpoint defaults", () => {
     expect(extensionStyles).toContain('[data-stg-mj-liked-filter-hidden="1"]');
     expect(extensionStyles).not.toContain('[data-stg-mj-liked-sort="liked"]');
   });
+
+  // Save N+1 has to open on the exact picker state save N used: the whole
+  // collection set and the pillar, not just the first collection.
+  test("every save surface restores the remembered save preset", () => {
+    const popupScript = readFileSync(
+      new URL("../extension/popup.js", import.meta.url),
+      "utf8",
+    );
+    const backgroundScript = readFileSync(
+      new URL("../extension/background.js", import.meta.url),
+      "utf8",
+    );
+    const contentScript = readFileSync(
+      new URL("../extension/content.js", import.meta.url),
+      "utf8",
+    );
+
+    // One storage contract, shared by all three scripts.
+    for (const script of [popupScript, backgroundScript, contentScript]) {
+      expect(script).toContain('"lastFolderIds"');
+    }
+    expect(contentScript).toContain('"lastCollectionPillar"');
+    expect(popupScript).toContain('"lastCollectionPillar"');
+
+    // An explicit "no collection" save stores []. Reading the preset must key on
+    // the array being present, not on it having entries, or the popup default
+    // silently comes back.
+    expect(contentScript).toContain("Array.isArray(cfg[LAST_FOLDER_IDS_KEY])");
+    expect(backgroundScript).toContain("Array.isArray(cfg[LAST_FOLDER_IDS_KEY])");
+
+    // Written on submit from both pickers, read back by both plus the two
+    // one-click paths (quick Save button, context menu).
+    expect(contentScript).toContain("function rememberSavePreset");
+    expect(contentScript).toContain("function readSavePreset");
+    expect(
+      contentScript.match(/rememberSavePreset\(/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      contentScript.match(/readSavePreset\(/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(5);
+    expect(backgroundScript).toContain("getSavePresetFolderIds");
+
+    // The old single-id readers are gone; lastFolderId is now write-only compat.
+    expect(contentScript).not.toContain("readSavedFolderIds");
+    expect(contentScript).not.toContain("getDefaultSaveFolderId");
+    expect(backgroundScript).not.toContain("getDefaultSaveFolderId(");
+
+    // Changing the popup default is the one deliberate reset of the preset.
+    expect(popupScript).toContain("chrome.storage.sync.remove");
+    expect(popupScript).toContain("storedDefaultFolderId");
+  });
 });
