@@ -34,6 +34,9 @@ export type FolderOption = {
   _id: string;
   name: string;
   description?: string | null;
+  /** Undefined = a plain collection; projects/directions/storybooks are typed. */
+  kind?: "storybook" | "project" | "direction" | "episode";
+  parentFolderId?: string;
 };
 
 type StatusMessage = {
