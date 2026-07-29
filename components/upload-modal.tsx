@@ -16,6 +16,7 @@ type UploadModalProps = {
   | "availableTags"
   | "folders"
   | "projects"
+  | "worlds"
   | "ownerUserId"
   | "canPromoteToPublic"
   | "onDataChanged"
@@ -28,6 +29,7 @@ export function UploadModal({
   availableTags,
   folders,
   projects,
+  worlds,
   ownerUserId,
   canPromoteToPublic,
   onDataChanged,
@@ -50,10 +52,15 @@ export function UploadModal({
   // prompt form, which would only ever ingest the first file. Resolved while
   // rendering (React's "adjust state when props change") so each open starts
   // from the right tab without a cascading effect.
+  // Files handed over from the single panel when a multi-file staging is sent to
+  // the batch panel — without this, "save all in batch" opened an empty batch.
+  const [handoffFiles, setHandoffFiles] = useState<File[] | undefined>(undefined);
+
   const openSeed = open ? (initialFiles ?? "empty") : "closed";
   const [seenSeed, setSeenSeed] = useState<unknown>("closed");
   if (openSeed !== seenSeed) {
     setSeenSeed(openSeed);
+    setHandoffFiles(undefined);
     if (open) {
       setMode((initialFiles?.length ?? 0) > 1 ? "bulk" : "single");
     }
@@ -196,10 +203,15 @@ export function UploadModal({
               availableTags={availableTags}
               folders={folders}
               projects={projects}
+              worlds={worlds}
               ownerUserId={ownerUserId}
               canPromoteToPublic={canPromoteToPublic}
               onDataChanged={onDataChanged}
               initialFiles={isBulk ? undefined : initialFiles}
+              onRequestBulk={(files) => {
+                setHandoffFiles(files);
+                setMode("bulk");
+              }}
               className="h-full"
             />
           </div>
@@ -211,7 +223,7 @@ export function UploadModal({
               ownerUserId={ownerUserId}
               canPromoteToPublic={canPromoteToPublic}
               onDataChanged={onDataChanged}
-              initialFiles={isBulk ? initialFiles : undefined}
+              initialFiles={isBulk ? (handoffFiles ?? initialFiles) : undefined}
               className="h-full"
             />
           </div>

@@ -49,11 +49,15 @@ import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FolderOption } from "@/components/upload-panel";
+import {
+  DestinationField,
+  type DestinationGroup,
+} from "@/components/gallery/destination-field";
 
 /**
  * Bulk ingest — a whole folder (or a .zip of one) in one pass.
  *
- * The single-asset panel is prompt-first: one prompt, one file, full taxonomy.
+ * The single-asset panel is media-first: one asset, its destinations, taxonomy.
  * This one is batch-first. Every destination and every piece of metadata is
  * shared by the whole drop, and the only per-asset decision is the one that
  * actually differs per asset: does this frame go to the public gallery as
@@ -144,11 +148,10 @@ export function BulkUploadPanel({
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<StatusMessage>(null);
 
-  const [folderSelection, setFolderSelection] = useState(NO_VALUE);
-  const [folderDraftName, setFolderDraftName] = useState("");
+  const [folderIds, setFolderIds] = useState<string[]>([]);
   const [creatingFolder, setCreatingFolder] = useState(false);
   // Collections created from this panel, held until the folders query catches
-  // up — see collectionOptions.
+  // up — see destinationGroups.
   const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
   const [projectSelection, setProjectSelection] = useState(NO_VALUE);
   const [sectionSelection, setSectionSelection] = useState<string>(NO_VALUE);
@@ -193,14 +196,18 @@ export function BulkUploadPanel({
   // picker below, and beats/episodes are reached through a project.
   //
   // A collection created here is selected the instant the API returns, which is
-  // before the folders query round-trips — and a Select whose value matches no
-  // mounted option falls back to its placeholder, so the new collection read as
-  // "No collection" until you picked it again. Carrying the created folder
-  // locally keeps an option under the value at all times.
-  const collectionOptions = useMemo(() => {
+  // before the folders query round-trips, so the created folder is carried
+  // locally to keep a row under the selection at all times.
+  const destinationGroups = useMemo<DestinationGroup[]>(() => {
     const plain = folders.filter((folder) => !folder.kind);
     const known = new Set(plain.map((folder) => folder._id));
-    return [...plain, ...createdFolders.filter((folder) => !known.has(folder._id))];
+    const options = [
+      ...plain,
+      ...createdFolders.filter((folder) => !known.has(folder._id)),
+    ]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((folder) => ({ id: folder._id, name: folder.name }));
+    return [{ key: "collections", label: "Collections", options }];
   }, [folders, createdFolders]);
 
   const totals = useMemo(() => {
@@ -372,8 +379,16 @@ export function BulkUploadPanel({
     setTags((previous) => Array.from(new Set([...previous, ...parsed])));
   };
 
-  const handleCreateFolder = async () => {
-    const name = folderDraftName.trim();
+  const toggleDestination = (folderId: string) => {
+    setFolderIds((previous) =>
+      previous.includes(folderId)
+        ? previous.filter((id) => id !== folderId)
+        : [...previous, folderId],
+    );
+  };
+
+  const handleCreateFolder = async (rawName: string) => {
+    const name = rawName.trim();
     if (!ownerUserId?.trim()) {
       setStatus({ type: "error", message: "Sign in to create collections." });
       return;
@@ -393,8 +408,11 @@ export function BulkUploadPanel({
         ...previous.filter((folder) => folder._id !== result.folder._id),
         { _id: result.folder._id, name },
       ]);
-      setFolderSelection(result.folder._id);
-      setFolderDraftName("");
+      setFolderIds((previous) =>
+        previous.includes(result.folder._id)
+          ? previous
+          : [...previous, result.folder._id],
+      );
       setStatus({
         type: "success",
         message: result.created ? "Collection created." : "Using existing collection.",
@@ -591,8 +609,9 @@ export function BulkUploadPanel({
     setIsUploading(true);
     setStatus(null);
 
-    const destinationFolderId =
-      folderSelection === NO_VALUE ? undefined : folderSelection;
+    // The first collection rides along on each ingest; any others attach after,
+    // so a batch can land in several collections at once.
+    const [destinationFolderId, ...extraFolderIds] = folderIds;
     const projectId = projectSelection === NO_VALUE ? undefined : projectSelection;
     const section =
       sectionSelection === NO_VALUE ? undefined : (sectionSelection as SectionValue);
@@ -638,6 +657,20 @@ export function BulkUploadPanel({
 
       const notes: string[] = [`${saved.length} saved`];
       if (failed > 0) notes.push(`${failed} failed`);
+
+      if (extraFolderIds.length > 0 && saved.length > 0 && ownerUserId) {
+        try {
+          for (const { assetId } of saved) {
+            await addAssetFolders({
+              ownerUserId,
+              assetId: assetId as Id<"assets">,
+              folderIds: extraFolderIds as Id<"folders">[],
+            });
+          }
+        } catch {
+          notes.push("couldn’t file into every collection");
+        }
+      }
 
       if (projectId && saved.length > 0) {
         try {
@@ -1148,57 +1181,30 @@ export function BulkUploadPanel({
 
               <div className="flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="bulk-folder-select" className={labelCls}>
-                    Collection
-                  </Label>
-                  <span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>
-                    Optional
+                  <span className={labelCls}>Collections</span>
+                  <span
+                    className={cn(
+                      mono,
+                      "text-[10px] tabular-nums",
+                      folderIds.length > 0
+                        ? "text-[var(--lm-coral)]"
+                        : "text-[var(--lm-text-ghost)]",
+                    )}
+                  >
+                    {folderIds.length > 0
+                      ? `${folderIds.length} picked`
+                      : "Uncategorized"}
                   </span>
                 </div>
-                <Select value={folderSelection} onValueChange={setFolderSelection}>
-                  <SelectTrigger id="bulk-folder-select" className={selectTriggerCls}>
-                    <SelectValue placeholder="No collection" />
-                  </SelectTrigger>
-                  <SelectContent className={selectContentCls}>
-                    <SelectGroup>
-                      <SelectItem value={NO_VALUE} className={selectItemCls}>
-                        No collection
-                      </SelectItem>
-                      {collectionOptions.map((folder) => (
-                        <SelectItem
-                          key={folder._id}
-                          value={folder._id}
-                          className={selectItemCls}
-                        >
-                          {folder.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {canCreateFolders && (
-                  <div className="mt-1 flex items-center gap-2">
-                    <Input
-                      value={folderDraftName}
-                      onChange={(event) => setFolderDraftName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter") return;
-                        event.preventDefault();
-                        void handleCreateFolder();
-                      }}
-                      placeholder="Create new collection"
-                      className={cn(underlineField, "h-10 flex-1")}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleCreateFolder()}
-                      disabled={creatingFolder || folderDraftName.trim().length === 0}
-                      className={cn(ghostAction, "h-10 shrink-0")}
-                    >
-                      {creatingFolder ? "Saving…" : "Create"}
-                    </button>
-                  </div>
-                )}
+                <DestinationField
+                  idPrefix="bulk"
+                  groups={destinationGroups}
+                  selectedIds={folderIds}
+                  onToggle={toggleDestination}
+                  onCreate={canCreateFolders ? handleCreateFolder : undefined}
+                  creating={creatingFolder}
+                  disabled={isUploading}
+                />
               </div>
 
               <div className="flex flex-col gap-2.5">

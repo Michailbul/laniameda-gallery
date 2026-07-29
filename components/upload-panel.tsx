@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Globe } from "lucide-react";
+import { Globe, Layers, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,6 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DestinationField,
+  type DestinationGroup,
+} from "@/components/gallery/destination-field";
 import { useMutation } from "convex/react";
 import { useUploadFile } from "@convex-dev/r2/react";
 import { requestJson } from "@/lib/app-api";
@@ -43,6 +47,13 @@ export type FolderOption = {
   parentFolderId?: string;
 };
 
+/** A world (showcased project) plus the section folders it already owns. */
+export type UploadWorld = {
+  _id: string;
+  name: string;
+  members: { folderId: string; name: string; section?: string }[];
+};
+
 type StatusMessage = {
   type: "success" | "error" | "info";
   message: string;
@@ -53,6 +64,8 @@ export type UploadPanelProps = {
   folders?: FolderOption[];
   /** Projects (folders with kind:"project") the asset can be filed into. */
   projects?: FolderOption[];
+  /** Worlds with their existing sections — offered as destinations by name. */
+  worlds?: UploadWorld[];
   ownerUserId?: string;
   /** Whether this user may promote saves straight into the public gallery. */
   canPromoteToPublic?: boolean;
@@ -60,6 +73,8 @@ export type UploadPanelProps = {
   className?: string;
   /** Files to seed the form with (e.g. dropped onto the gallery). */
   initialFiles?: File[];
+  /** Hand a multi-file staging over to the batch panel, files and all. */
+  onRequestBulk?: (files: File[]) => void;
 };
 
 type FilePreview = {
@@ -67,8 +82,29 @@ type FilePreview = {
   url: string;
 };
 
-const NO_FOLDER_VALUE = "__none";
 const NO_VALUE = "__none";
+
+/**
+ * Destinations that don't exist yet are picked as intent and resolved on save:
+ * a section pool is created on demand, a beat is created and linked, and the
+ * project inbox needs no folder at all.
+ */
+const NEW_POOL_PREFIX = "new-pool:";
+const NEW_BEAT_PREFIX = "new-beat:";
+const INBOX_PREFIX = "inbox:";
+
+const POOL_SECTIONS = [
+  { section: "characters", label: "Characters" },
+  { section: "locations", label: "Locations" },
+  { section: "stills", label: "Stills" },
+] as const;
+
+const SECTION_META: Record<string, string> = {
+  beats: "beat",
+  characters: "character",
+  locations: "location",
+  stills: "still",
+};
 
 const MODEL_NAME_OPTIONS = [
   // Image models
@@ -130,30 +166,32 @@ const ASSET_ROLE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
+const beatNameFromFile = (fileName: string) =>
+  fileName.replace(/\.[^.]+$/, "").slice(0, 60) || "Beat";
+
 export function UploadPanel({
   availableTags = [],
   folders = [],
   projects = [],
+  worlds = [],
   ownerUserId,
   canPromoteToPublic = false,
   onDataChanged,
   className,
   initialFiles,
+  onRequestBulk,
 }: UploadPanelProps) {
   const [promptText, setPromptText] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [folderSelection, setFolderSelection] = useState(NO_FOLDER_VALUE);
-  const [projectSelection, setProjectSelection] = useState(NO_VALUE);
+  const [destinationIds, setDestinationIds] = useState<string[]>([]);
   const [promoteToPublic, setPromoteToPublic] = useState(false);
-  const [folderDraftName, setFolderDraftName] = useState("");
+  const [featureOnSave, setFeatureOnSave] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   // A collection created here is selected the instant the API returns, which is
-  // before the folders query round-trips — and a Select whose value matches no
-  // mounted option falls back to its placeholder, so the new collection read as
-  // "No collection (default)" until you picked it again. Carrying the created
-  // folder locally keeps an option under the value at all times.
+  // before the folders query round-trips — carrying it locally keeps the row in
+  // the list under the selection at all times.
   const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
@@ -207,14 +245,6 @@ export function UploadPanel({
       setActivePreviewIndex(0);
     }
   }, [previews.length, activePreviewIndex]);
-
-  useEffect(() => {
-    if (previews.length <= 1) return;
-    const interval = window.setInterval(() => {
-      setActivePreviewIndex((prev) => (prev + 1) % previews.length);
-    }, 4000);
-    return () => window.clearInterval(interval);
-  }, [previews.length]);
 
   useEffect(() => {
     if (!status) return;
@@ -276,10 +306,97 @@ export function UploadPanel({
     return unique.slice(0, 6);
   }, [availableTags]);
 
-  const folderOptions = useMemo(() => {
+  // Folders that are really a world's section are reachable under their world
+  // below — listing them flat as "collections" is what made the old drop list
+  // 76 rows of "DADDY ISSUES — Characters".
+  // Worlds carry their sections; a plain project with none still deserves an
+  // inbox row, so fall back to the project list when no world was passed.
+  const worldGroupSources = useMemo<UploadWorld[]>(
+    () =>
+      worlds.length > 0
+        ? worlds
+        : projects.map((project) => ({
+            _id: project._id,
+            name: project.name,
+            members: [],
+          })),
+    [projects, worlds],
+  );
+
+  const worldMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const world of worldGroupSources) {
+      for (const member of world.members) ids.add(member.folderId);
+    }
+    return ids;
+  }, [worldGroupSources]);
+
+  const destinationGroups = useMemo<DestinationGroup[]>(() => {
     const known = new Set(folders.map((folder) => folder._id));
-    return [...folders, ...createdFolders.filter((folder) => !known.has(folder._id))];
-  }, [folders, createdFolders]);
+    const collections = [
+      ...folders.filter(
+        (folder) => !folder.kind && !worldMemberIds.has(folder._id),
+      ),
+      ...createdFolders.filter((folder) => !known.has(folder._id)),
+    ].sort((left, right) => left.name.localeCompare(right.name));
+
+    const groups: DestinationGroup[] = [];
+    if (collections.length > 0 || createdFolders.length > 0) {
+      groups.push({
+        key: "collections",
+        label: "Collections",
+        options: collections.map((folder) => ({
+          id: folder._id,
+          name: folder.name,
+        })),
+      });
+    }
+
+    for (const world of worldGroupSources) {
+      const existingSections = new Set(
+        world.members
+          .map((member) => member.section)
+          .filter((section): section is string => Boolean(section)),
+      );
+      groups.push({
+        key: world._id,
+        label: `${world.name} · world`,
+        options: [
+          // Existing sections and named beats, by name. Episodes group beats
+          // and hold no assets, so they are never a destination.
+          ...world.members
+            .filter((member) => member.section !== "episodes")
+            .map((member) => ({
+              id: member.folderId,
+              name: member.name,
+              meta: member.section ? SECTION_META[member.section] : undefined,
+            })),
+          // Pools this world hasn't opened yet — created on save.
+          ...POOL_SECTIONS.filter(
+            (pool) => !existingSections.has(pool.section),
+          ).map((pool) => ({
+            id: `${NEW_POOL_PREFIX}${world._id}:${pool.section}`,
+            name: pool.label,
+            meta: "new pool",
+          })),
+          {
+            id: `${NEW_BEAT_PREFIX}${world._id}`,
+            name: selectedFiles[0]
+              ? `New beat — ${beatNameFromFile(selectedFiles[0].name)}`
+              : "New beat",
+            meta: "new beat",
+          },
+          {
+            id: `${INBOX_PREFIX}${world._id}`,
+            name: "Inbox — sort later",
+            meta: "inbox",
+          },
+        ],
+      });
+    }
+
+    return groups;
+  }, [createdFolders, folders, selectedFiles, worldGroupSources, worldMemberIds]);
 
   const handleIncomingFiles = (files: FileList | File[]) => {
     const added: File[] = Array.from(files).filter((file): file is File => file instanceof File);
@@ -320,6 +437,14 @@ export function UploadPanel({
     setTags((previous) => Array.from(new Set([...previous, ...parsed])));
   };
 
+  const toggleDestination = (folderId: string) => {
+    setDestinationIds((previous) =>
+      previous.includes(folderId)
+        ? previous.filter((id) => id !== folderId)
+        : [...previous, folderId],
+    );
+  };
+
   const clearForm = () => {
     setPromptText("");
     setUrlInput("");
@@ -327,10 +452,9 @@ export function UploadPanel({
     setTags([]);
     setSelectedFiles([]);
     setSaveAsTextOnlyPrompt(false);
-    setFolderSelection(NO_FOLDER_VALUE);
-    setProjectSelection(NO_VALUE);
+    setDestinationIds([]);
     setPromoteToPublic(false);
-    setFolderDraftName("");
+    setFeatureOnSave(false);
     setCreatingFolder(false);
     setModelNameSelection(NO_VALUE);
     setModelNameCustom("");
@@ -343,18 +467,13 @@ export function UploadPanel({
     setStatus(null);
   };
 
-  const handleCreateFolder = async () => {
-    const name = folderDraftName.trim();
+  const handleCreateFolder = async (name: string) => {
     const normalizedOwnerUserId = ownerUserId?.trim();
     if (!normalizedOwnerUserId) {
       setStatus({ type: "error", message: "Sign in to create collections." });
       return;
     }
-    if (!name) {
-      setStatus({ type: "error", message: "Collection name is required." });
-      return;
-    }
-    if (creatingFolder) return;
+    if (!name.trim() || creatingFolder) return;
 
     setCreatingFolder(true);
     setStatus(null);
@@ -365,14 +484,17 @@ export function UploadPanel({
       }>("/api/folders", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: name.trim() }),
       });
       setCreatedFolders((previous) => [
         ...previous.filter((folder) => folder._id !== result.folder._id),
-        { _id: result.folder._id, name },
+        { _id: result.folder._id, name: name.trim() },
       ]);
-      setFolderSelection(result.folder._id);
-      setFolderDraftName("");
+      setDestinationIds((previous) =>
+        previous.includes(result.folder._id)
+          ? previous
+          : [...previous, result.folder._id],
+      );
       setStatus({
         type: "success",
         message: result.created ? "Collection created." : "Using existing collection.",
@@ -389,6 +511,58 @@ export function UploadPanel({
 
   const uploadVideo = useUploadFile(api.r2);
   const addAssetsToProject = useMutation(api.projects.addAssetsToProject);
+  const addAssetFolders = useMutation(api.assets.addAssetFolders);
+  const createFolder = useMutation(api.folders.createFolder);
+  const addCollectionToProject = useMutation(api.projects.addCollectionToProject);
+  const ensureSectionPool = useMutation(api.projects.ensureSectionPool);
+
+  /**
+   * Turn the picked destinations into real folder ids, creating pools and beats
+   * on the way. Returns the project ids that only wanted the inbox separately —
+   * those file the asset without a folder of their own.
+   */
+  const resolveDestinations = async (fileName: string) => {
+    const folderIds: string[] = [];
+    const inboxProjectIds: string[] = [];
+    if (!ownerUserId) return { folderIds, inboxProjectIds };
+
+    for (const id of destinationIds) {
+      if (id.startsWith(INBOX_PREFIX)) {
+        inboxProjectIds.push(id.slice(INBOX_PREFIX.length));
+        continue;
+      }
+      if (id.startsWith(NEW_POOL_PREFIX)) {
+        const [projectId, section] = id
+          .slice(NEW_POOL_PREFIX.length)
+          .split(":");
+        const pool = await ensureSectionPool({
+          ownerUserId,
+          projectId: projectId as Id<"folders">,
+          section: section as "characters" | "locations" | "stills",
+        });
+        folderIds.push(pool.folderId as string);
+        continue;
+      }
+      if (id.startsWith(NEW_BEAT_PREFIX)) {
+        const projectId = id.slice(NEW_BEAT_PREFIX.length);
+        const created = await createFolder({
+          ownerUserId,
+          name: beatNameFromFile(fileName),
+          kind: "beat",
+        });
+        await addCollectionToProject({
+          ownerUserId,
+          projectId: projectId as Id<"folders">,
+          folderId: created.folderId,
+          section: "beats",
+        });
+        folderIds.push(created.folderId as string);
+        continue;
+      }
+      folderIds.push(id);
+    }
+    return { folderIds, inboxProjectIds };
+  };
 
   const handleSubmit = async () => {
     if (isUploading) return;
@@ -399,24 +573,35 @@ export function UploadPanel({
     setIsUploading(true);
     setStatus(null);
     try {
-      const resolvedFolderId =
-        folderSelection === NO_FOLDER_VALUE || !folderSelection
-          ? undefined
-          : folderSelection;
-      const resolvedProjectId =
-        projectSelection === NO_VALUE || !projectSelection
-          ? undefined
-          : projectSelection;
       const resolvedModelName =
         modelNameSelection === "__custom"
           ? modelNameCustom.trim() || undefined
           : modelNameSelection === NO_VALUE
             ? undefined
             : modelNameSelection;
+      // Whatever is on screen is what saves — the thumbnail strip is the
+      // chooser, so silently saving file 0 while file 2 is previewed would be a
+      // lie the old panel told.
+      const candidateFile =
+        selectedFiles[activePreviewIndex] ?? selectedFiles[0] ?? null;
+      const isVideoUpload = Boolean(
+        candidateFile && candidateFile.type.startsWith("video/"),
+      );
+      // The taxonomy follows the file unless it was set by hand — nobody should
+      // have to tell the form that an .mp4 is a video.
+      const derivedType = candidateFile
+        ? isVideoUpload
+          ? "video_gen"
+          : "image_gen"
+        : undefined;
       const resolvedGenerationType =
-        generationType === NO_VALUE ? undefined : generationType;
+        generationType === NO_VALUE ? derivedType : generationType;
       const resolvedPromptType =
-        promptType === NO_VALUE ? undefined : promptType;
+        promptType === NO_VALUE
+          ? promptText.trim()
+            ? derivedType
+            : undefined
+          : promptType;
       const resolvedWorkflowType =
         workflowType === NO_VALUE ? undefined : workflowType;
       const resolvedAssetRole =
@@ -426,10 +611,7 @@ export function UploadPanel({
           "Enable “save as text-only prompt” to ingest prompt-only content.",
         );
       }
-      const candidateFile = selectedFiles[0] ?? null;
-      const isVideoUpload = Boolean(
-        candidateFile && candidateFile.type.startsWith("video/"),
-      );
+
       // Convex Node action args cap at 5 MiB, and small images travel as
       // base64 INSIDE the action call — large ones must go browser → R2
       // like videos do, or ingest rejects them.
@@ -445,7 +627,9 @@ export function UploadPanel({
         promptText,
         allowPromptOnly: isPromptOnlyDraft && saveAsTextOnlyPrompt,
         url: urlInput,
-        folderId: resolvedFolderId,
+        // Destinations are attached after the save. A new beat or pool is a real
+        // folder, and creating one up front would litter the world with empties
+        // every time an upload failed.
         tags,
         file: isVideoUpload || isLargeImageUpload ? null : candidateFile,
         modelName: resolvedModelName,
@@ -514,35 +698,53 @@ export function UploadPanel({
       }
 
       // Ingest is synchronous and returns the freshly-created asset id — chain
-      // project filing and public promotion off it. Both are best-effort: the
-      // asset is already saved, so a follow-up failure downgrades to a warning
-      // rather than losing the save.
+      // the extra destinations, project filing and curation off it. All are
+      // best-effort: the asset is already saved, so a follow-up failure
+      // downgrades to a warning rather than losing the save.
       const savedAssetId =
         body && body.result && typeof body.result.assetId === "string"
           ? (body.result.assetId as string)
           : undefined;
       const followupNotes: string[] = [];
 
-      if (savedAssetId && resolvedProjectId && ownerUserId?.trim()) {
+      if (savedAssetId && destinationIds.length > 0 && ownerUserId?.trim()) {
         try {
-          await addAssetsToProject({
-            ownerUserId,
-            projectId: resolvedProjectId as Id<"folders">,
-            assetIds: [savedAssetId as Id<"assets">],
-          });
+          const { folderIds, inboxProjectIds } = await resolveDestinations(
+            candidateFile?.name || promptText.trim().slice(0, 60) || "Beat",
+          );
+          if (folderIds.length > 0) {
+            await addAssetFolders({
+              ownerUserId,
+              assetId: savedAssetId as Id<"assets">,
+              folderIds: folderIds as Id<"folders">[],
+            });
+          }
+          for (const projectId of inboxProjectIds) {
+            await addAssetsToProject({
+              ownerUserId,
+              projectId: projectId as Id<"folders">,
+              assetIds: [savedAssetId as Id<"assets">],
+            });
+          }
         } catch {
-          followupNotes.push("couldn’t file it into the project");
+          followupNotes.push("couldn’t file it into every destination");
         }
       }
 
-      if (savedAssetId && promoteToPublic && canPromoteToPublic) {
+      // Featuring implies publishing — the backend force-ANDs isFeatured with
+      // isPublic, so a featured save always publishes.
+      const wantsPublic = promoteToPublic || featureOnSave;
+      if (savedAssetId && wantsPublic && canPromoteToPublic) {
         try {
           const curationRes = await fetch(
             `/api/admin/assets/${savedAssetId}/curation`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ isPublic: true }),
+              body: JSON.stringify({
+                isPublic: true,
+                isFeatured: featureOnSave,
+              }),
             },
           );
           if (!curationRes.ok) {
@@ -635,6 +837,8 @@ export function UploadPanel({
     "rounded-[10px] border border-[var(--lm-border-strong)] bg-[var(--lm-surface-1)] text-[var(--lm-text-primary)] shadow-[var(--lm-modal-shadow)]";
   const selectItemCls =
     "text-[14px] text-[var(--lm-text-secondary)] focus:bg-[var(--lm-surface-2)] focus:text-[var(--lm-text-primary)]";
+  const checkboxCls =
+    "mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]";
 
   const FieldLabel = ({
     htmlFor,
@@ -669,6 +873,9 @@ export function UploadPanel({
     </div>
   );
 
+  const activePreview = previews[activePreviewIndex];
+  const extraFileCount = Math.max(0, selectedFiles.length - 1);
+
   return (
     <div className={cn("flex h-full min-h-0 w-full flex-col", className)}>
       {status && (
@@ -695,8 +902,8 @@ export function UploadPanel({
             "mx-8 mt-4 border-l-2 pl-3 text-[12px] leading-relaxed",
           )}
           style={{
-            borderColor: "var(--coral)",
-            color: "var(--text-secondary)",
+            borderColor: "var(--lm-coral)",
+            color: "var(--lm-text-secondary)",
           }}
         >
           {audioWarning}
@@ -712,10 +919,244 @@ export function UploadPanel({
       >
         {/* Scrollable form body */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-8 py-7">
-          <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.55fr_1fr] lg:items-start">
-            {/* ── Left: core content ── */}
+          <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[1.35fr_1fr] lg:items-start">
+            {/* ── Left: the asset itself, then what it says ── */}
             <div className="flex flex-col gap-9">
-              {/* Prompt */}
+              {/* Media — the asset leads, because a drop already brought one */}
+              <section className="flex flex-col gap-3">
+                <SectionRule
+                  trailing={
+                    activePreview ? (
+                      <span className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className={cn(
+                            mono,
+                            "text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline",
+                          )}
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFiles([])}
+                          className={cn(
+                            mono,
+                            "text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-coral)] hover:underline",
+                          )}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    ) : undefined
+                  }
+                >
+                  Media
+                </SectionRule>
+
+                <div
+                  data-testid="upload-dropzone"
+                  role="button"
+                  aria-label="Drag files here or click to browse"
+                  aria-describedby={descriptionId}
+                  tabIndex={0}
+                  onClick={() => {
+                    if (activePreview) return;
+                    fileInputRef.current?.click();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    fileInputRef.current?.click();
+                  }}
+                  onDrop={handleDrop}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    handleDragEnter(event);
+                  }}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  className={cn(
+                    "group relative overflow-hidden rounded-[12px] transition-colors duration-200",
+                    activePreview
+                      ? "cursor-default bg-[var(--lm-surface-1)]"
+                      : "flex min-h-[132px] cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-[var(--lm-border)] p-6 text-center hover:border-[var(--lm-text-ghost)]",
+                    isDragActive &&
+                      "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)] outline outline-1 outline-[var(--lm-coral)]",
+                  )}
+                >
+                  {isUploading && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[12px] bg-[var(--lm-surface-0)]/80 backdrop-blur-sm">
+                      <span className={cn(mono, "animate-pulse text-[10px] font-bold uppercase tracking-[0.3em] text-[var(--lm-coral)]")}>
+                        Uploading…
+                      </span>
+                    </div>
+                  )}
+
+                  {activePreview ? (
+                    activePreview.file.type.startsWith("image/") ? (
+                      <Image
+                        src={activePreview.url}
+                        alt={activePreview.file.name}
+                        width={1200}
+                        height={800}
+                        unoptimized
+                        className="max-h-[360px] w-full object-contain"
+                      />
+                    ) : activePreview.file.type.startsWith("video/") ? (
+                      <video
+                        src={activePreview.url}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="max-h-[360px] w-full bg-[var(--media-stage-bg)] object-contain"
+                      />
+                    ) : (
+                      <div className="flex h-[200px] w-full flex-col items-center justify-center gap-2">
+                        <span className="text-sm font-semibold text-[var(--lm-text-secondary)]">
+                          {activePreview.file.name}
+                        </span>
+                        <span className={cn(labelCls, "text-[9px]")}>No preview</span>
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      <span className="text-[var(--lm-coral)] transition-transform duration-200 group-hover:scale-105">
+                        <svg className="h-7 w-7" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      </span>
+                      <p className={cn(mono, "text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--lm-text-primary)]")}>
+                        Drop media here
+                      </p>
+                      <p className="text-[12px] text-[var(--lm-text-tertiary)]">or click to browse</p>
+                    </>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,video/*"
+                    className="sr-only"
+                    onChange={(event) => {
+                      if (event.target.files) {
+                        handleIncomingFiles(event.target.files);
+                      }
+                      event.target.value = "";
+                    }}
+                  />
+                </div>
+
+                {activePreview ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={cn(mono, "min-w-0 flex-1 truncate text-[11px] text-[var(--lm-text-tertiary)]")}>
+                      {activePreview.file.name}
+                    </span>
+                    <span className={cn(mono, "shrink-0 text-[10px] tabular-nums text-[var(--lm-text-ghost)]")}>
+                      {(activePreview.file.size / (1024 * 1024)).toFixed(1)} MB
+                    </span>
+                  </div>
+                ) : (
+                  <p id={descriptionId} className="text-[11px] text-[var(--lm-text-ghost)]">
+                    JPEG, PNG, MP4, MOV. One asset per save.
+                  </p>
+                )}
+
+                {/* A single save takes a single asset. Say so, and offer the
+                    panel that does take the rest — the old copy admitted the
+                    extras were dropped in a footnote nobody read. */}
+                {extraFileCount > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-l-2 border-[var(--lm-coral)] pl-3">
+                    <span className="text-[11.5px] leading-snug text-[var(--lm-text-secondary)]">
+                      {extraFileCount} more file{extraFileCount === 1 ? "" : "s"} staged
+                      — only{" "}
+                      <span className="text-[var(--lm-text-primary)]">
+                        {activePreview?.file.name}
+                      </span>{" "}
+                      saves here. Pick another below, or save the lot as a batch.
+                    </span>
+                    {onRequestBulk && (
+                      <button
+                        type="button"
+                        onClick={() => onRequestBulk(selectedFiles)}
+                        className={cn(
+                          mono,
+                          "inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-coral)] underline-offset-4 hover:underline",
+                        )}
+                      >
+                        <Layers className="h-3 w-3" aria-hidden />
+                        Save all in batch
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedFiles((previous) =>
+                          previous.filter((_, index) => index === activePreviewIndex),
+                        )
+                      }
+                      className={cn(
+                        mono,
+                        "text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline",
+                      )}
+                    >
+                      Drop the extras
+                    </button>
+                  </div>
+                )}
+
+                {previews.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {previews.map((preview, index) => (
+                      <button
+                        key={`${preview.file.name}-${index}`}
+                        type="button"
+                        onClick={() => setActivePreviewIndex(index)}
+                        aria-label={`Preview ${preview.file.name}`}
+                        aria-pressed={index === activePreviewIndex}
+                        className={cn(
+                          "h-12 w-12 overflow-hidden rounded-[6px] bg-[var(--lm-surface-1)] transition-all",
+                          index === activePreviewIndex
+                            ? "outline outline-2 outline-[var(--lm-coral)]"
+                            : "opacity-60 hover:opacity-100",
+                        )}
+                      >
+                        {preview.file.type.startsWith("image/") ? (
+                          <Image
+                            src={preview.url}
+                            alt=""
+                            width={96}
+                            height={96}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className={cn(mono, "flex h-full w-full items-center justify-center text-[9px] font-bold uppercase text-[var(--lm-text-ghost)]")}>
+                            {index === 0 ? "1st" : index + 1}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2.5 pt-1">
+                  <FieldLabel htmlFor="prompt-url">
+                    Or fetch from a URL
+                  </FieldLabel>
+                  <Input
+                    id="prompt-url"
+                    placeholder="https://example.com/asset"
+                    value={urlInput}
+                    onChange={(event) => setUrlInput(event.target.value)}
+                    className={underlineField}
+                  />
+                </div>
+              </section>
+
+              {/* Prompt — optional for a plain media save, so it no longer owns
+                  the top of the form */}
               <section className="flex flex-col gap-3">
                 <SectionRule
                   trailing={
@@ -724,9 +1165,9 @@ export function UploadPanel({
                     </span>
                   }
                 >
-                  Prompt
+                  Prompt{hasMediaInputs ? " · optional" : ""}
                 </SectionRule>
-                <div className="relative min-h-[260px] flex-1">
+                <div className="relative min-h-[150px] flex-1">
                   {promptHighlight && (
                     <pre
                       ref={highlightRef}
@@ -748,7 +1189,7 @@ export function UploadPanel({
                     }}
                     maxLength={2000}
                     className={cn(
-                      "min-h-[260px] h-full w-full resize-y rounded-none border-0 bg-transparent px-0 pb-4 pt-1 font-display text-[19px] italic leading-relaxed shadow-none placeholder:text-[var(--lm-text-ghost)] focus-visible:ring-0",
+                      "min-h-[150px] h-full w-full resize-y rounded-none border-0 bg-transparent px-0 pb-4 pt-1 font-display text-[19px] italic leading-relaxed shadow-none placeholder:text-[var(--lm-text-ghost)] focus-visible:ring-0",
                       promptHighlight
                         ? "text-transparent caret-[var(--lm-coral)] selection:bg-[var(--lm-accent-dim)] selection:text-transparent"
                         : "text-[var(--lm-text-primary)]",
@@ -756,336 +1197,174 @@ export function UploadPanel({
                   />
                 </div>
 
-                {/* Text-only toggle — inline, boxless */}
-                <label
-                  htmlFor="save-as-text-only-prompt"
-                  className="flex cursor-pointer items-start gap-3 pt-1"
-                >
-                  <Checkbox
-                    id="save-as-text-only-prompt"
-                    checked={saveAsTextOnlyPrompt}
-                    onCheckedChange={(checked) => setSaveAsTextOnlyPrompt(checked === true)}
-                    className="mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]"
-                  />
-                  <div className="space-y-0.5">
-                    <span className={cn(labelCls, "block")}>Save as text-only prompt</span>
-                    <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
-                      Required to ingest prompt text without any file or URL attached.
-                    </p>
-                    {isPromptOnlyDraft && !saveAsTextOnlyPrompt ? (
-                      <p className="text-[11px] font-medium text-[var(--lm-coral)]">
-                        No media attached — turn this on to save it intentionally as text-only.
-                      </p>
-                    ) : null}
-                  </div>
-                </label>
-              </section>
-
-              {/* Media */}
-              <section className="flex flex-col gap-3">
-                <SectionRule>Media</SectionRule>
-                <div
-                  data-testid="upload-dropzone"
-                  role="button"
-                  aria-label="Drag files here or click to browse"
-                  aria-describedby={descriptionId}
-                  tabIndex={0}
-                  onClick={() => fileInputRef.current?.click()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                  onDrop={handleDrop}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "copy";
-                    handleDragEnter(event);
-                  }}
-                  onDragEnter={handleDragEnter}
-                  onDragLeave={handleDragLeave}
-                  className={cn(
-                    "group relative flex min-h-[132px] flex-col items-center justify-center gap-2.5 rounded-[12px] border border-dashed border-[var(--lm-border)] bg-transparent p-6 text-center transition-colors duration-200 hover:border-[var(--lm-text-ghost)]",
-                    isDragActive &&
-                      "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)]",
-                  )}
-                >
-                  {isUploading && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-[12px] bg-[var(--lm-surface-0)]/80 backdrop-blur-sm">
-                      <span className={cn(mono, "animate-pulse text-[10px] font-bold uppercase tracking-[0.3em] text-[var(--lm-coral)]")}>
-                        Uploading…
-                      </span>
-                    </div>
-                  )}
-                  <span className="text-[var(--lm-coral)] transition-transform duration-200 group-hover:scale-105">
-                    <svg className="h-7 w-7" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                  </span>
-                  <p className={cn(mono, "text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--lm-text-primary)]")}>
-                    Drop media here
-                  </p>
-                  <p className="text-[12px] text-[var(--lm-text-tertiary)]">or click to browse</p>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    className="sr-only"
-                    onChange={(event) => {
-                      if (event.target.files) {
-                        handleIncomingFiles(event.target.files);
-                      }
-                      event.target.value = "";
-                    }}
-                  />
-                </div>
-                <p id={descriptionId} className="text-[11px] text-[var(--lm-text-ghost)]">
-                  JPEG, PNG, MP4, MOV — up to 50MB per file. Multi-file sends the first for now.
-                </p>
-              </section>
-
-              {/* URL + Tags */}
-              <section className="flex flex-col gap-6">
-                <div className="flex flex-col gap-2.5">
-                  <FieldLabel htmlFor="prompt-url">Source URL</FieldLabel>
-                  <Input
-                    id="prompt-url"
-                    placeholder="https://example.com/asset"
-                    value={urlInput}
-                    onChange={(event) => setUrlInput(event.target.value)}
-                    className={underlineField}
-                  />
-                  <p className="text-[11px] text-[var(--lm-text-ghost)]">Fetch media from an external URL you trust.</p>
-                </div>
-
-                <div className="flex flex-col gap-2.5">
-                  <FieldLabel htmlFor="tag-input">Tags</FieldLabel>
-                  <Input
-                    id="tag-input"
-                    placeholder="Type a tag, press Enter or comma to add"
-                    value={tagInput}
-                    onChange={(event) => setTagInput(event.target.value)}
-                    onKeyDown={handleTagKeyDown}
-                    className={underlineField}
-                  />
-
-                  {tags.length > 0 && (
-                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
-                      {tags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          aria-label={`Remove ${tag}`}
-                          onClick={() => setTags((previous) => previous.filter((value) => value !== tag))}
-                          className={cn(
-                            mono,
-                            "group inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-[var(--lm-coral)] transition-opacity hover:opacity-70",
-                          )}
-                        >
-                          <span className="text-[var(--lm-text-ghost)]">#</span>
-                          {tag}
-                          <span className="text-[var(--lm-text-ghost)] transition-colors group-hover:text-[var(--lm-coral)]">×</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {tagSuggestions.length > 0 && (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
-                      {tagSuggestions.map((suggestion) => (
-                        <button
-                          key={suggestion}
-                          type="button"
-                          className={cn(
-                            mono,
-                            "text-[12px] font-medium text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline",
-                          )}
-                          onClick={() => {
-                            addTags(suggestion);
-                            setTagInput("");
-                          }}
-                        >
-                          {suggestion}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            {/* ── Right: preview + destination + details ── */}
-            <div className="flex flex-col gap-9">
-              {/* Preview */}
-              {previews.length > 0 && (
-                <section className="flex flex-col gap-3 animate-fade-in-up">
-                  <SectionRule>Preview</SectionRule>
-                  <div className="relative overflow-hidden rounded-[10px] bg-[var(--lm-surface-1)]">
-                    {previews[activePreviewIndex]?.file.type.startsWith("image/") ? (
-                      <Image
-                        src={previews[activePreviewIndex].url}
-                        alt={previews[activePreviewIndex].file.name}
-                        width={800}
-                        height={600}
-                        unoptimized
-                        className="h-[240px] w-full object-cover"
-                      />
-                    ) : previews[activePreviewIndex]?.file.type.startsWith("video/") ? (
-                      <video
-                        src={previews[activePreviewIndex].url}
-                        controls
-                        playsInline
-                        preload="metadata"
-                        className="h-[240px] w-full bg-[var(--media-stage-bg)] object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-[240px] w-full flex-col items-center justify-center gap-2">
-                        <span className="text-sm font-semibold text-[var(--lm-text-secondary)]">
-                          {previews[activePreviewIndex].file.name}
-                        </span>
-                        <span className={cn(labelCls, "text-[9px]")}>No preview</span>
-                      </div>
-                    )}
-                    {previews.length > 1 && (
-                      <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
-                        {previews.map((preview, index) => (
-                          <span
-                            key={`${preview.file.name}-${index}`}
-                            className={cn(
-                              "h-1.5 rounded-full transition-all duration-300",
-                              index === activePreviewIndex ? "w-4 bg-[var(--lm-coral)]" : "w-1.5 bg-white/40",
-                            )}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={cn(mono, "max-w-[200px] truncate text-[11px] text-[var(--lm-text-tertiary)]")}>
-                      {previews[activePreviewIndex].file.name}
-                    </span>
-                    <span className={cn(mono, "text-[10px] text-[var(--lm-text-ghost)]")}>
-                      {(previews[activePreviewIndex].file.size / (1024 * 1024)).toFixed(1)} MB
-                    </span>
-                  </div>
-                </section>
-              )}
-
-              {/* Destination — collection · project · visibility */}
-              <section className="flex flex-col gap-6">
-                <SectionRule>Destination</SectionRule>
-
-                {/* Collection */}
-                <div className="flex flex-col gap-2.5">
-                  <FieldLabel
-                    htmlFor="folder-select"
-                    trailing={<span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>Optional</span>}
-                  >
-                    Collection
-                  </FieldLabel>
-                  <Select value={folderSelection} onValueChange={(value) => setFolderSelection(value)}>
-                    <SelectTrigger id="folder-select" className={selectTriggerCls}>
-                      <SelectValue placeholder="No collection (default)" />
-                    </SelectTrigger>
-                    <SelectContent className={selectContentCls}>
-                      <SelectGroup>
-                        <SelectItem value={NO_FOLDER_VALUE} className={selectItemCls}>No collection (default)</SelectItem>
-                        {folderOptions.map((folder) => (
-                          <SelectItem key={folder._id} value={folder._id} className={selectItemCls}>
-                            {folder.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  {canCreateFolders && (
-                    <div className="mt-1 flex items-center gap-2">
-                      <Input
-                        value={folderDraftName}
-                        onChange={(event) => setFolderDraftName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          event.preventDefault();
-                          void handleCreateFolder();
-                        }}
-                        placeholder="Create new collection"
-                        className={cn(underlineField, "h-10 flex-1")}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleCreateFolder()}
-                        disabled={creatingFolder || folderDraftName.trim().length === 0}
-                        className={cn(
-                          mono,
-                          "h-10 shrink-0 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--lm-text-secondary)] underline-offset-4 transition-colors hover:text-[var(--lm-coral)] hover:underline disabled:opacity-40 disabled:no-underline",
-                        )}
-                      >
-                        {creatingFolder ? "Saving…" : "Create"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Project */}
-                <div className="flex flex-col gap-2.5">
-                  <FieldLabel
-                    htmlFor="project-select"
-                    trailing={<span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>Optional</span>}
-                  >
-                    Project
-                  </FieldLabel>
-                  <Select
-                    value={projectSelection}
-                    onValueChange={(value) => setProjectSelection(value)}
-                    disabled={projects.length === 0}
-                  >
-                    <SelectTrigger id="project-select" className={cn(selectTriggerCls, projects.length === 0 && "opacity-50")}>
-                      <SelectValue placeholder={projects.length === 0 ? "No projects yet" : "No project"} />
-                    </SelectTrigger>
-                    <SelectContent className={selectContentCls}>
-                      <SelectGroup>
-                        <SelectItem value={NO_VALUE} className={selectItemCls}>No project</SelectItem>
-                        {projects.map((project) => (
-                          <SelectItem key={project._id} value={project._id} className={selectItemCls}>
-                            {project.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] text-[var(--lm-text-ghost)]">
-                    Files the save into the project’s inbox for review.
-                  </p>
-                </div>
-
-                {/* Promote to public */}
-                {canPromoteToPublic && (
+                {/* Only a prompt with no media has a decision to make here. */}
+                {isPromptOnlyDraft && (
                   <label
-                    htmlFor="promote-to-public"
-                    className="flex cursor-pointer items-start gap-3"
+                    htmlFor="save-as-text-only-prompt"
+                    className="flex cursor-pointer items-start gap-3 pt-1"
                   >
                     <Checkbox
-                      id="promote-to-public"
-                      checked={promoteToPublic}
-                      onCheckedChange={(checked) => setPromoteToPublic(checked === true)}
-                      className="mt-0.5 border-[var(--lm-border-strong)] data-[state=checked]:border-[var(--lm-coral)] data-[state=checked]:bg-[var(--lm-coral)] data-[state=checked]:text-[#1a1008]"
+                      id="save-as-text-only-prompt"
+                      checked={saveAsTextOnlyPrompt}
+                      onCheckedChange={(checked) => setSaveAsTextOnlyPrompt(checked === true)}
+                      className={checkboxCls}
                     />
                     <div className="space-y-0.5">
-                      <span className={cn(labelCls, "flex items-center gap-1.5")}>
-                        <Globe className="h-3 w-3 text-[var(--lm-coral)]" aria-hidden />
-                        Promote to public gallery
-                      </span>
+                      <span className={cn(labelCls, "block")}>Save as text-only prompt</span>
                       <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
-                        Publishes this save to your public gallery the moment it lands.
+                        No media attached — turn this on to save the prompt on its own.
                       </p>
                     </div>
                   </label>
                 )}
               </section>
 
-              {/* Details — taxonomy, collapsed by default */}
+              {/* Tags */}
+              <section className="flex flex-col gap-2.5">
+                <FieldLabel htmlFor="tag-input">Tags</FieldLabel>
+                <Input
+                  id="tag-input"
+                  placeholder="Type a tag, press Enter or comma to add"
+                  value={tagInput}
+                  onChange={(event) => setTagInput(event.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  className={underlineField}
+                />
+
+                {tags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {tags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        aria-label={`Remove ${tag}`}
+                        onClick={() => setTags((previous) => previous.filter((value) => value !== tag))}
+                        className={cn(
+                          mono,
+                          "group inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-[var(--lm-coral)] transition-opacity hover:opacity-70",
+                        )}
+                      >
+                        <span className="text-[var(--lm-text-ghost)]">#</span>
+                        {tag}
+                        <span className="text-[var(--lm-text-ghost)] transition-colors group-hover:text-[var(--lm-coral)]">×</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {tagSuggestions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
+                    {tagSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className={cn(
+                          mono,
+                          "text-[12px] font-medium text-[var(--lm-text-tertiary)] underline-offset-4 transition-colors hover:text-[var(--lm-text-primary)] hover:underline",
+                        )}
+                        onClick={() => {
+                          addTags(suggestion);
+                          setTagInput("");
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {/* ── Right: where it goes, who sees it ── */}
+            <div className="flex flex-col gap-9">
+              <section className="flex flex-col gap-3">
+                <SectionRule
+                  trailing={
+                    <span
+                      className={cn(
+                        mono,
+                        "text-[10px] tabular-nums",
+                        destinationIds.length > 0
+                          ? "text-[var(--lm-coral)]"
+                          : "text-[var(--lm-text-ghost)]",
+                      )}
+                    >
+                      {destinationIds.length > 0
+                        ? `${destinationIds.length} picked`
+                        : "Uncategorized"}
+                    </span>
+                  }
+                >
+                  Destination
+                </SectionRule>
+                <DestinationField
+                  idPrefix="upload"
+                  groups={destinationGroups}
+                  selectedIds={destinationIds}
+                  onToggle={toggleDestination}
+                  onCreate={canCreateFolders ? handleCreateFolder : undefined}
+                  creating={creatingFolder}
+                  disabled={isUploading}
+                />
+              </section>
+
+              {/* Visibility */}
+              {canPromoteToPublic && (
+                <section className="flex flex-col gap-4">
+                  <SectionRule>Visibility</SectionRule>
+
+                  <label
+                    htmlFor="promote-to-public"
+                    className="flex cursor-pointer items-start gap-3"
+                  >
+                    <Checkbox
+                      id="promote-to-public"
+                      checked={promoteToPublic || featureOnSave}
+                      disabled={featureOnSave}
+                      onCheckedChange={(checked) => setPromoteToPublic(checked === true)}
+                      className={checkboxCls}
+                    />
+                    <div className="space-y-0.5">
+                      <span className={cn(labelCls, "flex items-center gap-1.5")}>
+                        <Globe className="h-3 w-3 text-[var(--lm-coral)]" aria-hidden />
+                        Publish to the public gallery
+                      </span>
+                      <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
+                        A world page only renders published assets.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    htmlFor="feature-on-save"
+                    className="flex cursor-pointer items-start gap-3"
+                  >
+                    <Checkbox
+                      id="feature-on-save"
+                      checked={featureOnSave}
+                      onCheckedChange={(checked) => setFeatureOnSave(checked === true)}
+                      className={checkboxCls}
+                    />
+                    <div className="space-y-0.5">
+                      <span className={cn(labelCls, "flex items-center gap-1.5")}>
+                        <Star
+                          className="h-3 w-3 text-[var(--lm-coral)]"
+                          fill="currentColor"
+                          aria-hidden
+                        />
+                        Feature on the home reel
+                      </span>
+                      <p className="text-[11px] leading-snug text-[var(--lm-text-tertiary)]">
+                        Featuring publishes too — there is no private featured state.
+                      </p>
+                    </div>
+                  </label>
+                </section>
+              )}
+
+              {/* Details — taxonomy, collapsed by default. A dropped file already
+                  answers image-vs-video, so nothing here is required. */}
               <section className="flex flex-col gap-3">
                 <button
                   type="button"
@@ -1155,11 +1434,19 @@ export function UploadPanel({
                         <FieldLabel htmlFor="generation-type-select">Generation type</FieldLabel>
                         <Select value={generationType} onValueChange={(value) => setGenerationType(value)}>
                           <SelectTrigger id="generation-type-select" className={selectTriggerCls}>
-                            <SelectValue placeholder="Select type" />
+                            <SelectValue
+                              placeholder={
+                                selectedFiles[0]?.type.startsWith("video/")
+                                  ? "From the file — Video"
+                                  : selectedFiles[0]
+                                    ? "From the file — Image"
+                                    : "Select type"
+                              }
+                            />
                           </SelectTrigger>
                           <SelectContent className={selectContentCls}>
                             <SelectGroup>
-                              <SelectItem value={NO_VALUE} className={selectItemCls}>None</SelectItem>
+                              <SelectItem value={NO_VALUE} className={selectItemCls}>From the file</SelectItem>
                               {GENERATION_TYPE_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value} className={selectItemCls}>
                                   {opt.label}
@@ -1175,11 +1462,11 @@ export function UploadPanel({
                         <FieldLabel htmlFor="prompt-type-select">Prompt type</FieldLabel>
                         <Select value={promptType} onValueChange={(value) => setPromptType(value)}>
                           <SelectTrigger id="prompt-type-select" className={selectTriggerCls}>
-                            <SelectValue placeholder="Select prompt type" />
+                            <SelectValue placeholder="From the file" />
                           </SelectTrigger>
                           <SelectContent className={selectContentCls}>
                             <SelectGroup>
-                              <SelectItem value={NO_VALUE} className={selectItemCls}>None</SelectItem>
+                              <SelectItem value={NO_VALUE} className={selectItemCls}>From the file</SelectItem>
                               {PROMPT_TYPE_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value} className={selectItemCls}>
                                   {opt.label}
@@ -1195,7 +1482,7 @@ export function UploadPanel({
                         <FieldLabel htmlFor="workflow-type-select">Workflow type</FieldLabel>
                         <Select value={workflowType} onValueChange={(value) => setWorkflowType(value)}>
                           <SelectTrigger id="workflow-type-select" className={selectTriggerCls}>
-                            <SelectValue placeholder="Select workflow type" />
+                            <SelectValue placeholder="None" />
                           </SelectTrigger>
                           <SelectContent className={selectContentCls}>
                             <SelectGroup>
@@ -1215,7 +1502,7 @@ export function UploadPanel({
                         <FieldLabel htmlFor="asset-role-select">Asset role</FieldLabel>
                         <Select value={assetRole} onValueChange={(value) => setAssetRole(value)}>
                           <SelectTrigger id="asset-role-select" className={selectTriggerCls}>
-                            <SelectValue placeholder="Select asset role" />
+                            <SelectValue placeholder="None" />
                           </SelectTrigger>
                           <SelectContent className={selectContentCls}>
                             <SelectGroup>
