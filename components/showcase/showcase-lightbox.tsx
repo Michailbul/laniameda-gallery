@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ShowcaseAsset } from "./types";
 import { assetSrc, meaningfulPrompt } from "./types";
 
@@ -29,6 +29,12 @@ export function ShowcaseLightbox({
   // Same self-clearing trick for the share link: navigating away resets it.
   const [sharedIndex, setSharedIndex] = useState<number | null>(null);
   const shared = sharedIndex === index;
+  // Keep the active thumb in view as you arrow through a long reel.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const active = stripRef.current?.querySelector('[data-active="true"]');
+    active?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }, [index]);
 
   const go = useCallback(
     (delta: number) => {
@@ -305,6 +311,93 @@ export function ShowcaseLightbox({
           </div>
         )}
       </div>
+
+      {/* Filmstrip — the only signal that there is more than this one piece, so
+          it renders whenever there is. A shared link lands on a single asset;
+          without this the visitor has no idea the rest of the work is one
+          arrow away. */}
+      {assets.length > 1 && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            flexShrink: 0,
+            borderTop: "1px solid var(--lm-border)",
+            padding: "10px 20px 14px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              paddingBottom: 8,
+              fontFamily: "var(--lm-font)",
+              fontSize: 10,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--lm-text-ghost)",
+            }}
+          >
+            <span>More work</span>
+            <span>← → to move</span>
+          </div>
+          <div
+            ref={stripRef}
+            className="lm-lightbox-strip"
+            style={{
+              display: "flex",
+              gap: 8,
+              overflowX: "auto",
+              paddingBottom: 2,
+            }}
+          >
+            {assets.map((entry, i) => {
+              const active = i === index;
+              const thumb = entry.thumbUrl ?? assetSrc(entry);
+              return (
+                <button
+                  key={entry._id as string}
+                  type="button"
+                  data-active={active ? "true" : "false"}
+                  onClick={() => onIndexChange(i)}
+                  aria-label={`Show item ${i + 1} of ${assets.length}`}
+                  aria-current={active ? "true" : undefined}
+                  style={{
+                    flex: "0 0 auto",
+                    width: 74,
+                    height: 46,
+                    padding: 0,
+                    borderRadius: 4,
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    background: "var(--lm-surface-2)",
+                    border: active
+                      ? "1.5px solid var(--lm-coral)"
+                      : "1.5px solid transparent",
+                    opacity: active ? 1 : 0.45,
+                    transition:
+                      "opacity var(--lm-duration-fast), border-color var(--lm-duration-fast)",
+                  }}
+                >
+                  {thumb ? (
+                    <img
+                      src={thumb}
+                      alt=""
+                      loading="lazy"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        display: "block",
+                      }}
+                    />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

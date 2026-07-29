@@ -72,6 +72,30 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
     }
     return labels;
   }, [data]);
+
+  // The shared piece leads; the rest of the reel follows so the filmstrip has
+  // somewhere to go. Deduped — the shared asset is usually in the reel already.
+  const sharedReelAssets = useMemo(() => {
+    if (!sharedAsset) return [];
+    const lead = sharedAsset as ShowcaseAsset;
+    const rest = featuredReel.filter((asset) => asset._id !== lead._id);
+    return [lead, ...rest];
+  }, [sharedAsset, featuredReel]);
+  // Derived, not reset-by-effect: the position is stored against the link it
+  // belongs to, so a NEW shared link falls back to 0 (its own piece leads)
+  // without an effect racing the render that already shows the new reel.
+  const [reelPos, setReelPos] = useState<{ id: string; index: number } | null>(
+    null,
+  );
+  const sharedReelIndex =
+    reelPos && reelPos.id === sharedAssetId ? reelPos.index : 0;
+  const setSharedReelIndex = useCallback(
+    (next: number) => {
+      if (!sharedAssetId) return;
+      setReelPos({ id: sharedAssetId, index: next });
+    },
+    [sharedAssetId],
+  );
   const copy = PUBLIC_MODES.find((entry) => entry.id === mode)!;
 
   return (
@@ -186,13 +210,14 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
           </a>
         </span>
       </footer>
-      {/* A shared link opens over the page, whatever mode is showing. One
-          asset, so the lightbox gets no arrows. */}
+      {/* A shared link opens over the page, whatever mode is showing. The
+          shared piece leads, then the rest of the featured reel — so the
+          filmstrip gives the visitor somewhere to go instead of a dead end. */}
       {sharedAssetId && sharedAsset && (
         <ShowcaseLightbox
-          assets={[sharedAsset as ShowcaseAsset]}
-          index={0}
-          onIndexChange={() => {}}
+          assets={sharedReelAssets}
+          index={sharedReelIndex}
+          onIndexChange={setSharedReelIndex}
           onClose={closeSharedAsset}
           shareHrefFor={(asset) => sharedAssetHref(asset._id as string)}
         />

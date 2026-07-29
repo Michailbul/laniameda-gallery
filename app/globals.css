@@ -650,6 +650,18 @@
   display: none;
 }
 
+/* Lightbox filmstrip — hide the scrollbar; hovering a thumb brings it up to
+   full so the row reads as browsable. */
+.lm-lightbox-strip {
+  scrollbar-width: none;
+}
+.lm-lightbox-strip::-webkit-scrollbar {
+  display: none;
+}
+.lm-lightbox-strip > button:hover {
+  opacity: 0.85 !important;
+}
+
 /* The @handle on public surfaces links to the owner's site. Ghost until
    hovered, so it reads as a signature rather than a call to action. */
 .lm-owner-handle-link {
