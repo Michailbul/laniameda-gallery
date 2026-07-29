@@ -169,7 +169,7 @@ export function AddToPanel({
         width: "min(520px, 96vw)",
         zIndex: 45,
         display: "flex",
-        flexBeat: "column",
+        flexDirection: "column",
         background: "var(--lm-sidebar-bg)",
         borderLeft: "1px solid var(--lm-border)",
         boxShadow: "-22px 0 60px -34px rgba(0,0,0,0.85)",
@@ -439,7 +439,7 @@ function Grid({
               gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
               gap: 10,
             }
-          : { display: "flex", flexBeat: "column", gap: 2 }
+          : { display: "flex", flexDirection: "column", gap: 2 }
       }
     >
       {children}
@@ -537,7 +537,7 @@ function Target({
       style={{
         position: "relative",
         display: "flex",
-        flexBeat: "column",
+        flexDirection: "column",
         justifyContent: "flex-end",
         alignItems: "stretch",
         height: 118,

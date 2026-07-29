@@ -233,7 +233,7 @@ Video generations ingest through the **same script and payload shape** as images
 - Use `imagePath` / `filePath` / `url` pointing at a video file (`.mp4`, `.mov`, `.webm`). The server detects `video/*` content-type automatically and stores the asset with `kind: "video"`.
 - Set `generationType: "video_gen"` and `promptType: "video_gen"`.
 - Preserve the model name only when the user provides it or reliable source metadata identifies it. Do not infer Seedance 2.0 from prompt structure alone.
-- A poster/thumbnail is **not** generated automatically for videos. If you want a custom still for the gallery card, ingest the video first, then run the `update` op on the asset with an `imagePath` pointing at a still frame to replace the thumbnail.
+- The backend generates **no** thumbnail for video. `scripts/ingest.ts` extracts a poster frame for you (see "Video of any size" below) — set `posterAtSeconds` to pick the frame. Through MCP `save_asset`, which has no ffmpeg, you must supply the still yourself.
 - The same prompt-only rule applies: **never save a video prompt without the video file unless the user explicitly approves** `allowPromptOnly: true`.
 
 Example:
@@ -254,39 +254,50 @@ Pass this payload to MCP `save_asset`. Use the legacy direct script only when a 
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
-### Large videos (> ~10 MB) — the base64 path does not work
+### Video of any size — the script handles it
 
-`scripts/ingest.ts` reads the file and passes `file.base64` as a Convex function
-argument. Base64 inflates bytes ~1.33x, so anything past roughly 10 MB blows the
-argument size cap. A 24 MB video becomes a 32 MB arg and the call fails.
+Pass `filePath` and nothing else. `scripts/ingest.ts` detects video and runs the
+whole pipeline itself, so **do not hand-roll an R2 upload script**:
 
-Upload direct to R2 instead, mirroring `lib/video-ingest.ts`. Write a bun script
-with `ConvexHttpClient` + `anyApi`:
-
-1. `r2:generateUploadUrl {}` → `{key, url}`
-2. plain `fetch(url, {method: "PUT", body: bytes, headers: {"Content-Type": "video/mp4"}})`
-3. `r2:syncMetadata {key}`
-4. extract a poster locally: `ffmpeg -ss <t> -i in.mp4 -frames:v 1 -vf "scale='min(1280,iw)':-2" -q:v 3 poster.jpg`
-5. `ingest:ingestFromApi` with `{ownerUserId, r2Key, mediaContentType, mediaSize,
-   mediaWidth, mediaHeight, mediaFileName, posterFile: {base64, contentType,
-   width, height, size}, folderId, tagNames, ingestKey}`
-
-Only the poster rides base64, which is small enough to be safe. Videos get no
-automatic thumbnail, so `posterFile` is what makes the gallery card look right —
-always send one.
-
-**PCM-audio trap.** Exported `.mov` files (DaVinci, QuickTime) commonly carry
-`pcm_s24le` audio, which browsers cannot decode in MP4/MOV containers. The asset
-lands looking fine in the grid and plays silent. Probe first
-(`ffprobe -select_streams a -show_entries stream=codec_name`) and remux — lossless
-for video:
+1. **ffprobe reads the real dimensions** (rotation applied). This matters more
+   than it looks: the R2 branch of `ingestFromApi` decodes nothing server-side,
+   so the dimensions the script sends are the only ones the asset will ever have.
+   Wrong or missing dims mean a 1:1 masonry cell and a cropped card.
+2. **Browser-hostile audio is remuxed.** `.mov` exports from DaVinci and
+   QuickTime routinely carry `pcm_s24le`, which browsers cannot decode — the
+   asset ingests clean, looks right in the grid, and plays **silent**. The video
+   stream is copied, so remuxing costs no quality. `.mov`/`.avi`/`.mkv`
+   containers are normalised to `.mp4` for the same reason.
+3. **A poster frame is extracted** at 15% of duration (clamped to 1–10s).
+   Videos get no server-generated thumbnail, so the poster IS the card. Override
+   with `posterAtSeconds` when the default lands on a fade or a murky shot.
+4. **Bytes go direct to R2**, then the asset is created with `r2Key`. Only the
+   poster rides base64. This is unconditional for video, not a size threshold —
+   `posterFile` is only honoured on the `r2Key` branch, so a base64 video could
+   never get a thumbnail.
 
 ```bash
-ffmpeg -i in.mov -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -b:a 320k -movflags +faststart out.mp4
+bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+  "filePath": "/path/to/episode1.mov",
+  "folderId": "<collection-id>",
+  "tagNames": ["cinematic"],
+  "ingestKey": "gallery:my-project:episode1:v1"
+}'
 ```
 
-Verifying the upload: `r2.dev` public URLs reject `HEAD` with 403. That is not a
-broken upload — check with a range GET instead:
+Requires `ffmpeg` and `ffprobe` on PATH (`brew install ffmpeg`); the script fails
+with that instruction rather than ingesting a dimensionless, posterless asset.
+
+**Images still ride base64** through the Convex argument, which caps near 10 MB —
+the server decodes them and builds the thumbnail. Oversized images fail with a
+"compress to JPEG first" error instead of a cryptic argument-size failure.
+
+**No R2 branch on `update` or workflow steps.** `updateFromApi` and
+`workflows:ingestWorkflowFromApi` accept base64 only. To attach a large video,
+ingest it as its own `create` and link it with `upstreamInputs`.
+
+Verifying an upload by hand: `r2.dev` public URLs reject `HEAD` with 403. That is
+not a broken upload — use a range GET:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code} %{content_type}\n" -r 0-1023 "<r2-url>"
