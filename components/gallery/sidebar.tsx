@@ -131,6 +131,9 @@ interface GallerySidebarProps {
 interface ProjectEntry extends Folder {
   /** Member directions (collections), for expandable drop targets. */
   directions?: { id: string; name: string }[];
+  /** The world this project sits inside, when it's been filed into one.
+   * Shown as a ghost prefix so the world > project tier reads at a glance. */
+  worldName?: string;
 }
 
 export function GallerySidebar({
@@ -1427,6 +1430,12 @@ function ProjectRow({
               letterSpacing: "0.10em",
             }}
           >
+            {project.worldName && (
+              <span style={{ color: "var(--lm-sidebar-text-ghost)" }}>
+                {project.worldName}
+                {" / "}
+              </span>
+            )}
             {project.name}
           </span>
         )}
