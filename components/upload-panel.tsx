@@ -22,6 +22,10 @@ import { buildIngestKey, parseTagNames } from "@/lib/ingest";
 import { buildUploadFormData } from "@/lib/upload-form";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
 import {
+  inspectVideoFileAudio,
+  UNDECODABLE_AUDIO_WARNING,
+} from "@/lib/video-audio-check";
+import {
   LARGE_IMAGE_BYTES,
   appendImageUploadFields,
   uploadImageToR2,
@@ -235,6 +239,37 @@ export function UploadPanel({
     seededFilesRef.current = initialFiles;
     setSelectedFiles((previous) => [...previous, ...initialFiles]);
   }, [initialFiles]);
+
+  // A PCM-audio clip uploads perfectly and then plays silent, so the warning has
+  // to arrive at selection time — after upload there is nothing to react to.
+  // Only a positive identification warns; an unparseable container stays quiet.
+  const [audioWarning, setAudioWarning] = useState<string | null>(null);
+  useEffect(() => {
+    const videos = selectedFiles.filter((file) => file.type.startsWith("video/"));
+    if (videos.length === 0) {
+      setAudioWarning(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      for (const video of videos) {
+        const check = await inspectVideoFileAudio(video);
+        if (cancelled) return;
+        if (check.hasUndecodableAudio) {
+          setAudioWarning(
+            videos.length > 1
+              ? `${video.name}: ${UNDECODABLE_AUDIO_WARNING}`
+              : UNDECODABLE_AUDIO_WARNING,
+          );
+          return;
+        }
+      }
+      if (!cancelled) setAudioWarning(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFiles]);
 
   const tagSuggestions = useMemo(() => {
     const unique = Array.from(new Set(availableTags));
@@ -649,6 +684,23 @@ export function UploadPanel({
         >
           {status.message}
         </div>
+      )}
+
+      {audioWarning && (
+        <p
+          role="status"
+          aria-live="polite"
+          className={cn(
+            mono,
+            "mx-8 mt-4 border-l-2 pl-3 text-[12px] leading-relaxed",
+          )}
+          style={{
+            borderColor: "var(--coral)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {audioWarning}
+        </p>
       )}
 
       <form

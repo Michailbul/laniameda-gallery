@@ -118,8 +118,22 @@ assets:bulkSetAssetCuration {assetIds, actorUserId, isPublic: true, isFeatured?,
 Asset-level `isFeatured` feeds the public home's featured reel; folder-level
 `showcaseFeatured` is a separate hero treatment.
 
+Or curate as part of the ingest, with `isPublic` / `featured` on the payload:
+
+```json
+{ "filePath": "/path/to/cut.mov", "featured": true }
+```
+
+**There is no private "featured" state.** `convex/assets.ts` force-ANDs
+`isFeatured` with `isPublic`, so asking for `featured` publishes the asset and
+puts it at the head of the reel on the public home page. Never set either flag
+because a filename or a folder implies polish — only when the user has actually
+asked to publish. If the secret is missing the ingest still succeeds and the
+asset stays private, so re-running with the same `ingestKey` is safe.
+
 Verify with `showcase:getWorld {slug}` before reporting done — it returns the
-world's `sections` exactly as the public page will render them.
+world's `sections` exactly as the public page will render them. For the public
+home reel, `showcase:getShowcaseHome {}` returns `featuredReel` in render order.
 
 ## Read first
 

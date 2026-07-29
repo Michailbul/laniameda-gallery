@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   assertBase64Ingestible,
   buildCreateArgs,
+  curateAsset,
   describeRemuxReason,
   posterTimestamp,
   probeVideo,
@@ -118,6 +119,26 @@ describe("gallery ingest video preparation", () => {
       expect(() => assertBase64Ingestible(small, "small.png")).not.toThrow();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The CLI cannot exercise this: bun auto-loads .env.local, so the secret is
+  // always present when the script runs from the repo. In-process is the only
+  // place the guard is reachable.
+  test("publishing without the curation secret refuses, and says the asset survived", async () => {
+    const saved = process.env.CURATION_ADMIN_SECRET;
+    delete process.env.CURATION_ADMIN_SECRET;
+    try {
+      await expect(
+        curateAsset("https://example.invalid", "asset-1", "owner-1", true, () => {}),
+      ).rejects.toThrow(/CURATION_ADMIN_SECRET is required/);
+      // The message has to say the asset still exists, or the caller re-ingests.
+      await expect(
+        curateAsset("https://example.invalid", "asset-1", "owner-1", true, () => {}),
+      ).rejects.toThrow(/created and is private/);
+    } finally {
+      if (saved === undefined) delete process.env.CURATION_ADMIN_SECRET;
+      else process.env.CURATION_ADMIN_SECRET = saved;
     }
   });
 

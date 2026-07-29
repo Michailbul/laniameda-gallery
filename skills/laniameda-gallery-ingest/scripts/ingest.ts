@@ -143,6 +143,12 @@ type CreateItem = {
   // Video only: where to grab the poster frame. Defaults to 15% in, clamped to
   // 1–10s. Set it when the default frame lands on a fade or a murky shot.
   posterAtSeconds?: number;
+  // Curation, applied after the asset exists. `featured` implies `isPublic` —
+  // the backend force-ANDs them, so there is no private "featured" state.
+  // BOTH make the asset visible on the public site. Never set either without
+  // the user explicitly asking to publish.
+  isPublic?: boolean;
+  featured?: boolean;
 };
 
 type UpdateItem = {
@@ -246,6 +252,8 @@ type SkillActionResult = {
   designInspirationId?: string;
   workflowId?: string;
   stepCount?: number;
+  isPublic?: boolean;
+  isFeatured?: boolean;
 };
 
 type SkillResult = SkillActionResult & {
@@ -618,6 +626,43 @@ export async function prepareMediaForCreate(
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
+}
+
+// ── Curation ────────────────────────────────────────────────────────────────
+//
+// isFeatured is force-ANDed with isPublic in convex/assets.ts, so there is no
+// private "featured" state — asking for either PUBLISHES the asset, and a
+// featured asset leads the public home reel. Gated on CURATION_ADMIN_SECRET
+// matching the deployment, with the owner in CURATION_ADMIN_USER_IDS.
+export async function curateAsset(
+  convexUrl: string,
+  assetId: string,
+  ownerUserId: string,
+  featured: boolean,
+  note: (message: string) => void = (message) => console.error(message),
+): Promise<void> {
+  const adminSecret = (process.env.CURATION_ADMIN_SECRET ?? "").trim();
+  if (!adminSecret) {
+    throw new Error(
+      "CURATION_ADMIN_SECRET is required to publish or feature an asset. The " +
+        "asset itself was created and is private — set the secret and re-run with " +
+        "the same ingestKey, or curate it from the gallery UI.",
+    );
+  }
+
+  await callConvex(convexUrl, "mutation", "assets:setAssetCuration", {
+    assetId,
+    actorUserId: ownerUserId,
+    isPublic: true,
+    isFeatured: featured,
+    adminSecret,
+  });
+
+  note(
+    featured
+      ? `[ingest] ${assetId} is now PUBLIC and FEATURED — it leads the reel on the public home page.`
+      : `[ingest] ${assetId} is now PUBLIC — visible to anyone on the public site.`,
+  );
 }
 
 export function resolveConvexUrl(explicitValue?: string): string {
@@ -1054,7 +1099,31 @@ export async function mutateOne(
       };
     }
 
-    return result.value ?? {};
+    const value = result.value ?? {};
+
+    // Curation is a second call, and a failure here must not read as a failed
+    // ingest — the asset exists either way, just private.
+    if (isCreateItem(item) && (item.featured || item.isPublic) && value.assetId) {
+      try {
+        await curateAsset(
+          convexUrl,
+          value.assetId,
+          ownerUserId,
+          Boolean(item.featured),
+        );
+        return { ...value, isPublic: true, isFeatured: Boolean(item.featured) };
+      } catch (error) {
+        return {
+          ...value,
+          error: `Asset created but curation failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          input: summarizeInput(item),
+        };
+      }
+    }
+
+    return value;
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : String(error),
