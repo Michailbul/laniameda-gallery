@@ -41,6 +41,7 @@ import {
 } from "./browse-breadcrumb";
 import { ProjectSectionTabs } from "./project-section-tabs";
 import { ProjectEpisodes } from "./project-episodes";
+import { FeaturedPanel } from "./featured-panel";
 import { GalleryDetailPanel } from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
@@ -579,6 +580,8 @@ export function GalleryDashboard({
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   // "Add to" drawer — declared up here because the card drag handler opens it.
   const [addToPanelOpen, setAddToPanelOpen] = useState(false);
+  // The featured shelf — owner-only control over the public home reel.
+  const [featuredPanelOpen, setFeaturedPanelOpen] = useState(false);
   const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
   const [bulkAddDraft, setBulkAddDraft] = useState("");
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
@@ -4364,6 +4367,12 @@ export function GalleryDashboard({
             setOpenProjectId(null);
             openAddModal();
           }}
+          onFeaturedShelf={
+            canManageFoldersInCurrentView
+              ? () => setFeaturedPanelOpen(true)
+              : undefined
+          }
+          featuredShelfActive={featuredPanelOpen}
           onSeedanceClick={() => setSeedanceOpen(true)}
           onStorybooksTab={
             canManageFoldersInCurrentView
@@ -5797,6 +5806,19 @@ export function GalleryDashboard({
         storybookId={openStorybookId}
         onClose={() => setOpenStorybookId(null)}
       />
+
+      {canAccessMyGallery && (
+        <FeaturedPanel
+          ownerUserId={ownerUserId}
+          open={featuredPanelOpen}
+          onClose={() => setFeaturedPanelOpen(false)}
+          onOpenAsset={(assetId) => {
+            setFeaturedPanelOpen(false);
+            const match = images.find((image) => image.id === assetId);
+            if (match) setSelectedImage(match as unknown as SelectedImage);
+          }}
+        />
+      )}
 
       <ReviewModal
         key={openProjectId ?? "review-closed"}

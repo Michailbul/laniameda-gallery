@@ -64,6 +64,9 @@ interface GallerySidebarProps {
   onCollapsedChange: (collapsed: boolean) => void;
   onUploadClick: () => void;
   onSeedanceClick?: () => void;
+  /** Opens the featured shelf — the owner's control over the public home reel. */
+  onFeaturedShelf?: () => void;
+  featuredShelfActive?: boolean;
   /** Opens the dedicated Storybooks masonry tab. */
   onStorybooksTab?: () => void;
   storybooksTabActive?: boolean;
@@ -145,6 +148,8 @@ export function GallerySidebar({
   onCollapsedChange,
   onUploadClick,
   onSeedanceClick,
+  onFeaturedShelf,
+  featuredShelfActive = false,
   onStorybooksTab,
   storybooksTabActive = false,
   onGalleryHome,
@@ -421,6 +426,16 @@ export function GallerySidebar({
           collapsed={collapsed}
           onClick={onUploadClick}
         />
+        {onFeaturedShelf && (
+          <NavItem
+            icon={Star}
+            label="Featured"
+            href="#"
+            active={featuredShelfActive}
+            collapsed={collapsed}
+            onClick={onFeaturedShelf}
+          />
+        )}
         {onStorybooksTab && (
           <NavItem
             icon={BookOpen}

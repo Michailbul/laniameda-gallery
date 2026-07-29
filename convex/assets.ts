@@ -3292,3 +3292,143 @@ export const wipeAllAssets = internalMutation({
     };
   },
 });
+
+// ── Featured shelf (owner admin) ────────────────────────────────────────────
+// The pieces that lead the public home, as the owner manages them. The public
+// reel is capped, so this deliberately returns MORE than that cap and marks
+// which rows actually make the cut — a piece you featured but can't see out
+// front should be visible here, not silently missing.
+const FEATURED_SHELF_LIMIT = 60;
+
+export const listFeaturedAssets = query({
+  args: { ownerUserId: v.string(), publicCap: v.optional(v.number()) },
+  returns: v.array(
+    v.object({
+      asset: galleryAssetResultValidator,
+      /** Position in the owner's order, 1-based. */
+      position: v.number(),
+      /** False once past the public reel's cap — featured but not on the home. */
+      onPublicHome: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const cap = args.publicCap ?? 12;
+
+    const rows: Doc<"assets">[] = [];
+    for (const ownerCandidate of ownerUserIds) {
+      rows.push(
+        ...(await ctx.db
+          .query("assets")
+          .withIndex("by_owner_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
+          )
+          .order("desc")
+          .take(1200)),
+      );
+    }
+    const seen = new Set<string>();
+    const featured = rows.filter((asset) => {
+      if (asset.isFeatured !== true || seen.has(asset._id)) return false;
+      seen.add(asset._id);
+      return true;
+    });
+
+    // Must match convex/showcase.ts's reel sort exactly, or this panel would
+    // show a different order than the page it manages.
+    featured.sort((a, b) => {
+      const ao = a.orderPriority ?? Number.NEGATIVE_INFINITY;
+      const bo = b.orderPriority ?? Number.NEGATIVE_INFINITY;
+      if (ao !== bo) return bo - ao;
+      const av = a.kind === "video" ? 0 : 1;
+      const bv = b.kind === "video" ? 0 : 1;
+      if (av !== bv) return av - bv;
+      return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    });
+
+    const capped = featured.slice(0, FEATURED_SHELF_LIMIT);
+    const hydrated = await hydrateGalleryAssetResults(ctx, capped);
+    return hydrated.map((asset, index) => ({
+      asset,
+      position: index + 1,
+      onPublicHome: index < cap,
+    }));
+  },
+});
+
+/**
+ * Write an explicit order across the featured shelf.
+ *
+ * Takes the full ordered list rather than a swap: dense descending weights mean
+ * the result can't drift, and one call covers a drag, a nudge, or a reversal.
+ * Weights are large and spaced so a later `setAssetPriority("top")` from the
+ * project workspace (which writes +Date.now()) still lands above the shelf
+ * instead of landing in the middle of it.
+ */
+export const reorderFeaturedAssets = mutation({
+  args: { ownerUserId: v.string(), assetIds: v.array(v.id("assets")) },
+  returns: v.object({ updated: v.number() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    if (args.assetIds.length === 0) return { updated: 0 };
+
+    let updated = 0;
+    const top = args.assetIds.length;
+    for (const [index, assetId] of args.assetIds.entries()) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) continue;
+      if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+        throw new ConvexError("Asset does not belong to this user.");
+      }
+      // Higher = earlier, matching the schema and both consumers.
+      const next = top - index;
+      if (asset.orderPriority !== next) {
+        await ctx.db.patch(assetId, { orderPriority: next });
+        updated += 1;
+      }
+    }
+    return { updated };
+  },
+});
+
+/**
+ * Set just the description. `updateAssetMetadata` also exists, but it takes a
+ * full `tagIds` array and replaces membership wholesale — using it to edit one
+ * caption means echoing every tag back correctly or silently wiping them. This
+ * touches one column.
+ */
+export const setAssetDescription = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    description: v.string(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    description: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    // Empty clears it rather than storing "".
+    const description = args.description.trim() || undefined;
+    await ctx.db.patch(args.assetId, { description });
+    return { assetId: args.assetId, description };
+  },
+});
