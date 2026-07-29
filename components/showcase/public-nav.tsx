@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Moon, Sun } from "lucide-react";
-import { OWNER_HANDLE } from "@/lib/routes";
+import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 import { useTheme } from "@/lib/use-theme";
 
 // The public surface has exactly three modes. This toggle IS the navigation —
@@ -126,17 +126,24 @@ export function PublicNav({
               })}
             </div>
           )}
-          <span
+          {/* The handle is the way out to the person behind the work. */}
+          <a
+            href={OWNER_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer me"
+            title="mishabuloichyk.com"
+            className="lm-owner-handle-link"
             style={{
               fontFamily: "var(--lm-font)",
               fontSize: 11,
               letterSpacing: "0.08em",
               color: "var(--lm-text-ghost)",
               whiteSpace: "nowrap",
+              textDecoration: "none",
             }}
           >
             @{OWNER_HANDLE}
-          </span>
+          </a>
           <ThemeToggle />
         </div>
       </div>

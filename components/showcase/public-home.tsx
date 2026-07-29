@@ -12,7 +12,7 @@ import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
 import { BrowseBand } from "./browse-band";
 import { assetThumb } from "./types";
 import type { ShowcaseAsset } from "./types";
-import { OWNER_HANDLE } from "@/lib/routes";
+import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 
 const OWNER_LOGIN_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim().replace(
   /^@+/,
@@ -174,7 +174,16 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
               Owner sign-in
             </a>
           )}
-          <span>@{OWNER_HANDLE}</span>
+          <a
+            href={OWNER_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer me"
+            title="mishabuloichyk.com"
+            className="lm-owner-handle-link"
+            style={{ color: "inherit", textDecoration: "none" }}
+          >
+            @{OWNER_HANDLE}
+          </a>
         </span>
       </footer>
       {/* A shared link opens over the page, whatever mode is showing. One

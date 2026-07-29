@@ -650,6 +650,16 @@
   display: none;
 }
 
+/* The @handle on public surfaces links to the owner's site. Ghost until
+   hovered, so it reads as a signature rather than a call to action. */
+.lm-owner-handle-link {
+  transition: color var(--lm-duration-fast);
+}
+.lm-owner-handle-link:hover,
+.lm-owner-handle-link:focus-visible {
+  color: var(--lm-coral) !important;
+}
+
 /* Reveal-on-demand "+ New episode" — a word until you click it, so the
    Episodes tab carries no idle input rule. */
 .lm-episode-add:hover {
