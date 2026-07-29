@@ -562,9 +562,15 @@ export const getShowcaseHome = query({
     )
       .filter((a) => a.isFeatured === true && isShowcaseOwner(a.ownerUserId))
       .sort((a, b) => {
-        const ao = a.orderPriority ?? Number.POSITIVE_INFINITY;
-        const bo = b.orderPriority ?? Number.POSITIVE_INFINITY;
-        if (ao !== bo) return ao - bo;
+        // HIGHER first — the same convention as the schema comment and the
+        // project workspace. This used to sort ascending, which silently
+        // inverted the owner's intent: `setAssetOrderPriority("top")` writes
+        // +Date.now(), so a piece sent to the top landed LAST out here. It went
+        // unnoticed because nothing had a priority set, leaving every asset on
+        // the videos-then-newest fallback below.
+        const ao = a.orderPriority ?? Number.NEGATIVE_INFINITY;
+        const bo = b.orderPriority ?? Number.NEGATIVE_INFINITY;
+        if (ao !== bo) return bo - ao;
         const av = a.kind === "video" ? 0 : 1;
         const bv = b.kind === "video" ? 0 : 1;
         if (av !== bv) return av - bv;
