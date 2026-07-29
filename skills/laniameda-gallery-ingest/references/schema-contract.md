@@ -14,6 +14,15 @@ Use `convex/schema.ts` as source of truth. This file is the quick ingest map for
   - User-facing organization is collection-first. The authenticated agent API and MCP accept `folderIds` for multi-collection asset create/update, while the underlying Convex ingest action retains `folderId` for backward compatibility.
   - Idempotency index: `by_owner_ingestKey`.
 
+- `folders`
+  - Every organizing tier is a row here — collections, worlds, projects, episodes, beats, directions. There is no `collections`, `worlds`, or `beats` table.
+  - Key fields: `ownerUserId`, `name`, `normalizedName`, `kind`, `parentFolderId`, `description`, `coverAssetId`, `shareToken`, `showcased`, `slug`, `showcaseFeatured`, `showcaseOrder`, `tasteCollection`, `pinnedAt`, `memberCount`.
+  - `kind`: `storybook` | `project` | `direction` | `episode`; undefined = a plain collection.
+  - `parentFolderId` nests one level only: a plain root collection is the parent, and only plain collections and projects may be children (`WORLD_CHILD_KINDS` in `convex/folders.ts`).
+  - `memberCount` is denormalized; backend mutations recount via `recountFolderMembers`.
+  - `showcased: true` publishes the folder as a world and allocates its stable `/w/<slug>` on first showcase (`folders:setFolderShowcased`). Projects with a parent cannot be showcased.
+  - Idempotency: `by_owner_normalizedName` — `createFolder` reuses an existing folder of the same normalized name.
+
 - `designInspirations`
   - Legacy/internal browser-extension structure for older design-specific saves.
   - Local MCP agents should not create new rows here. Save UI/design references as normal `assets` and classify them with tags.
@@ -72,6 +81,15 @@ See `convex/validators.ts`:
 - `promptTags`
 - `assetTags`
 - `assetFolders`
+  - The source of truth for collection membership. Reads are links-only; `assets.folderId` is just the primary pointer kept for backward compatibility.
+  - `createAsset` writes the link from the ingest payload's `folderId`, so a single `folderId` is enough — do not follow an ingest with a separate add-membership call.
+- `projectCollections`
+  - Which collections belong to a project, and which layer they sit in.
+  - Fields: `ownerUserId`, `projectId`, `folderId`, `section`, `episodeFolderId`, `episodeOrder`, `beatCharacterFolderIds`, `beatLocationFolderIds`, `createdAt`.
+  - `section`: `characters` | `locations` | `stills` | `beats` | `episodes`; undefined = unsorted.
+  - Statics pool (one shared folder per section, via `projects:ensureSectionPool`). Beats never pool — one `kind:"direction"` folder per video, linked with `projects:addCollectionToProject {section: "beats"}`.
+  - `beat*FolderIds` link a beat to the character/location directions it uses. Read-side today; no ingest-facing write API.
+  - Indexes: `by_project`, `by_project_folder`, `by_owner_project`, `by_folder`.
 - `designInspirationTags`
 
 These are maintained by backend mutations; callers usually pass tag names, typed tag inputs, or `folderId` instead of raw join rows.

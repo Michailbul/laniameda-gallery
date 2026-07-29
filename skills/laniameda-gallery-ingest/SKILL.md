@@ -3,10 +3,12 @@ name: laniameda-gallery-ingest
 description: >-
   This skill should be used when the user asks to "add this to my gallery",
   "save this in my gallery", "put this in the Love collection", "ingest this
-  prompt and video", or update/delete an existing gallery item. It resolves
-  the authenticated user's collections and saves prompts, files, URLs, and
-  visual references through the current gallery contract.
-version: 0.2.0
+  prompt and video", "add these statics to the DADDY ISSUES world", "sort these
+  into characters and locations", "make this a beat", or update/delete an
+  existing gallery item. It resolves the authenticated user's collections,
+  worlds, projects, and beats, and saves prompts, files, URLs, and visual
+  references through the current gallery contract.
+version: 0.3.0
 ---
 
 # laniameda-gallery-ingest
@@ -19,6 +21,11 @@ The skill now supports explicit `create`, `update`, and `delete` operations thro
 
 - Interpret **"my gallery"** as the authenticated user's whole gallery, not a collection or legacy pillar named `creators`.
 - Treat **collections** as the primary user-facing organization.
+- **"World"** means the showcased top tier — the published story universe at
+  `/w/<slug>`. Never showcase a project that sits inside one.
+- **"Project"** groups a world's sectioned member collections and holds no
+  assets itself. **"Beat"** is one video plus the statics it uses.
+  **"Statics"** are the characters / locations / stills.
 - Treat tags as descriptive classification, not navigation destinations.
 - Leave the dormant `pillar` field unset on ordinary new saves. Use a specialized internal pillar only when its dedicated backend contract explicitly requires one, such as `cinema-inspiration`.
 
@@ -33,6 +40,87 @@ The skill now supports explicit `create`, `update`, and `delete` operations thro
 
 When no collection is named, save uncategorized unless an obvious existing collection can be resolved with high confidence from the user's wording. Do not silently substitute a tag or pillar for a collection.
 
+## Content hierarchy — worlds, projects, episodes, beats, statics
+
+Everything in the vault is a `folders` row. There is no `worlds`, `beats`, or
+`collections` table. The tiers are expressed with `folders.kind`,
+`folders.parentFolderId`, and the `projectCollections` join table:
+
+```
+world      showcased root collection or root project — publishes /w/<slug>
+└─ project kind:"project"        groups sectioned member collections
+   ├─ episodes  kind:"episode"   chapters that group beats; hold no assets
+   ├─ beats     one folder per video + its statics
+   ├─ characters │
+   ├─ locations  │ section pools of statics
+   └─ stills     │
+```
+
+- **world** — the story universe and the ONLY tier that publishes.
+  `folders:setFolderShowcased` allocates the stable `/w/<slug>` on first
+  showcase. Two shapes coexist: a plain root collection with sub-collections
+  (`Dear Annete`), and a root `kind:"project"` that is itself showcased
+  (`CASSANDRA`, `DADDY ISSUES`, `LIZ`). Both are "the world" in conversation.
+- **project** — `kind:"project"`. Holds no assets itself; groups member
+  collections through `projectCollections`. A project nested under a world via
+  `parentFolderId` cannot be showcased ("a project publishes inside its world").
+- **episode** — `kind:"episode"`, filed in the project's `episodes` layer.
+  Beats point at it via `projectCollections.episodeFolderId`. Holds no assets.
+- **beat** — one video plus the statics it uses. Beats are **never pooled**:
+  each beat is its own `kind:"direction"` folder linked at `section: "beats"`.
+- **statics** — characters / locations / stills. These DO pool: one shared
+  folder per section per project, named `"<PROJECT> — Characters"` etc.
+
+`projectCollections` columns: `{ownerUserId, projectId, folderId, section,
+episodeFolderId?, episodeOrder?, beatCharacterFolderIds?,
+beatLocationFolderIds?}`. The two `beat*FolderIds` arrays link a beat to the
+character/location directions it uses; they are read-side today with no
+ingest-facing write API.
+
+Naming convention: projects/worlds are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
+Section pools and episodes are namespaced `"<PROJECT> — <Label>"` so the same
+label can exist in every project without colliding on `normalizedName`.
+
+## Filing into a world
+
+Resolve or create the destination BEFORE ingesting, then pass the resulting
+`folderId` on each save. Direct-Convex mutations (admin/agent path):
+
+```bash
+# 1. statics — idempotent, returns the shared pool for that section
+projects:ensureSectionPool {ownerUserId, projectId, section}
+#    section is characters | locations | stills — NOT beats
+
+# 2. a beat — one folder per video, then link it into the beats layer
+folders:createFolder      {ownerUserId, name: "<PROJECT> — <Beat>", kind: "direction"}
+projects:addCollectionToProject {ownerUserId, projectId, folderId, section: "beats"}
+
+# 3. optional: file the beat under an episode
+projects:createEpisode  {ownerUserId, projectId, name}
+projects:setBeatEpisode {ownerUserId, projectId, beatFolderId, episodeFolderId, order?}
+```
+
+Then ingest with `folderId` set to the pool / beat folder. `createAsset` writes
+the `assetFolders` link from `folderId`, so one `folderId` is enough — do not
+also call an add-membership mutation.
+
+### Publishing — showcasing is not enough
+
+A world page renders ONLY assets with `isPublic: true`. A showcased world full
+of private assets is a blank page. After ingesting into a world, curate:
+
+```bash
+assets:bulkSetAssetCuration {assetIds, actorUserId, isPublic: true, isFeatured?, adminSecret}
+```
+
+`adminSecret` must match `CURATION_ADMIN_SECRET`, and `actorUserId` must be in
+`CURATION_ADMIN_USER_IDS` (both set on the deployment and in `.env.local`).
+Asset-level `isFeatured` feeds the public home's featured reel; folder-level
+`showcaseFeatured` is a separate hero treatment.
+
+Verify with `showcase:getWorld {slug}` before reporting done — it returns the
+world's `sections` exactly as the public page will render them.
+
 ## Read first
 
 Before constructing payloads or changing the ingest script, read these repo files:
@@ -43,6 +131,13 @@ Before constructing payloads or changing the ingest script, read these repo file
 - `convex/agent_ingest.ts`
 - `convex/workflows.ts`
 - `app/api/ingest/route.ts`
+
+When the save targets a world, also read:
+
+- `convex/folders.ts` — kinds, `parentFolderId` nesting rules, `setFolderShowcased`
+- `convex/projects.ts` — `projectCollections`, section pools, episodes, beats
+- `convex/showcase.ts` — what the public `/w/<slug>` page actually reads
+- `lib/video-ingest.ts` — the browser upload path that the large-video script mirrors
 
 Use `references/schema-contract.md` for a quick map and `references/ingest-examples.md` for copy-ready examples.
 
@@ -158,6 +253,44 @@ Example:
 Pass this payload to MCP `save_asset`. Use the legacy direct script only when a single `folderId` is sufficient.
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
+
+### Large videos (> ~10 MB) — the base64 path does not work
+
+`scripts/ingest.ts` reads the file and passes `file.base64` as a Convex function
+argument. Base64 inflates bytes ~1.33x, so anything past roughly 10 MB blows the
+argument size cap. A 24 MB video becomes a 32 MB arg and the call fails.
+
+Upload direct to R2 instead, mirroring `lib/video-ingest.ts`. Write a bun script
+with `ConvexHttpClient` + `anyApi`:
+
+1. `r2:generateUploadUrl {}` → `{key, url}`
+2. plain `fetch(url, {method: "PUT", body: bytes, headers: {"Content-Type": "video/mp4"}})`
+3. `r2:syncMetadata {key}`
+4. extract a poster locally: `ffmpeg -ss <t> -i in.mp4 -frames:v 1 -vf "scale='min(1280,iw)':-2" -q:v 3 poster.jpg`
+5. `ingest:ingestFromApi` with `{ownerUserId, r2Key, mediaContentType, mediaSize,
+   mediaWidth, mediaHeight, mediaFileName, posterFile: {base64, contentType,
+   width, height, size}, folderId, tagNames, ingestKey}`
+
+Only the poster rides base64, which is small enough to be safe. Videos get no
+automatic thumbnail, so `posterFile` is what makes the gallery card look right —
+always send one.
+
+**PCM-audio trap.** Exported `.mov` files (DaVinci, QuickTime) commonly carry
+`pcm_s24le` audio, which browsers cannot decode in MP4/MOV containers. The asset
+lands looking fine in the grid and plays silent. Probe first
+(`ffprobe -select_streams a -show_entries stream=codec_name`) and remux — lossless
+for video:
+
+```bash
+ffmpeg -i in.mov -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -b:a 320k -movflags +faststart out.mp4
+```
+
+Verifying the upload: `r2.dev` public URLs reject `HEAD` with 403. That is not a
+broken upload — check with a range GET instead:
+
+```bash
+curl -s -o /dev/null -w "%{http_code} %{content_type}\n" -r 0-1023 "<r2-url>"
+```
 
 ## Cinema Inspiration pillar (frames, no prompt)
 
@@ -383,6 +516,16 @@ These are the valid enum values the Convex schema enforces — use these or inge
 **`promptSections` fields:** `finalPrompt` (required), `generationNotes` (optional), `negativePrompt` (optional)
 → No other keys — extra fields cause validation errors.
 
+**`folders.kind`:** `storybook`, `project`, `direction`, `episode`
+→ Undefined = a plain collection. A beat is a `direction`.
+
+**`projectCollections.section`:** `characters`, `locations`, `stills`, `beats`, `episodes`
+→ Undefined = unsorted. `ensureSectionPool` accepts only the first three.
+
+**`parentFolderId` nesting:** only a plain root collection may be a parent, and
+only plain collections and projects may be children. One level deep — anything
+deeper is expressed through join tables, never by chaining `parentFolderId`.
+
 ## Update workflow (important)
 
 **Always edit the canonical source first:**
@@ -435,3 +578,23 @@ LANIAMEDA_GALLERY_API_URL=https://<app-host> LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_
 ```
 
 If the installed path is different for your agent runtime, use that runtime's installed `laniameda-gallery-ingest/scripts/ingest.ts` path instead.
+
+### Deployment ground truth (direct-Convex path only)
+
+One Convex deployment serves both local dev and production: `dev:perfect-buffalo-375`
+at `https://perfect-buffalo-375.convex.cloud`. There is no separate prod
+deployment — never pass `--prod`.
+
+The shell commonly inherits `CONVEX_DEPLOYMENT` pointing at a *different*
+project. `bunx convex run …` picks that up silently and resolves IDs against the
+wrong tables, returning plausible-looking wrong data. Always prefix CLI calls:
+
+```bash
+CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex run folders:listFolders '{"ownerUserId":"<id>"}'
+```
+
+Scripts that build their own `ConvexHttpClient` should hardcode the cloud URL
+rather than read `process.env.CONVEX_URL`, for the same reason. And source
+secrets from the repo's `.env.local` explicitly — `export $(grep … .env.local)`
+run from a scratch directory silently finds nothing and dumps the whole
+environment.
