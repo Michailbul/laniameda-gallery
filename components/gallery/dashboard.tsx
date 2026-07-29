@@ -3089,6 +3089,8 @@ export function GalleryDashboard({
   const addAssetsToWorldSection = useCallback(
     async (worldId: string, section: PanelSection, assetIds: string[]) => {
       if (assetIds.length === 0 || !ownerUserId) return;
+      // Beats never pool — the panel routes them to createBeatsFromAssets.
+      if (section === "beats") return;
       try {
         const pool = await ensureSectionPoolMutation({
           ownerUserId,
@@ -3146,6 +3148,23 @@ export function GalleryDashboard({
       handleAssetsDropOnFolder,
       ownerUserId,
     ],
+  );
+
+  // Beats are never pooled: one video + its characters/locations IS the beat.
+  // Filing assets onto a world's Beats makes one beat per asset, named from
+  // the asset so it's identifiable before you rename it.
+  const createBeatsFromAssets = useCallback(
+    async (worldId: string, assetIds: string[]) => {
+      if (assetIds.length === 0) return;
+      for (const assetId of assetIds) {
+        const image = images.find((entry) => entry.id === assetId);
+        const base =
+          image?.prompt?.trim().slice(0, 40) ||
+          `Beat ${new Date().toISOString().slice(11, 19)}`;
+        await createBeatFromAssets(worldId, base, [assetId]);
+      }
+    },
+    [createBeatFromAssets, images],
   );
 
   const createCollectionFromAssets = useCallback(
@@ -5450,6 +5469,7 @@ export function GalleryDashboard({
           onAddToFolder={addAssetsToFolder}
           onAddToSection={addAssetsToWorldSection}
           onCreateBeat={createBeatFromAssets}
+          onAddAsBeats={createBeatsFromAssets}
           onCreateCollection={createCollectionFromAssets}
           onUpdateDescription={updateFolderDescription}
         />

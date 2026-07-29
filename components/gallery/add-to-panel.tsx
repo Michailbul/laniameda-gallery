@@ -75,6 +75,7 @@ export function AddToPanel({
   onAddToFolder,
   onAddToSection,
   onCreateBeat,
+  onAddAsBeats,
   onCreateCollection,
   onUpdateDescription,
   topOffset = 0,
@@ -95,6 +96,8 @@ export function AddToPanel({
     name: string,
     assetIds: string[],
   ) => Promise<void> | void;
+  /** Beats are never pooled — filing onto "Beats" makes ONE beat per asset. */
+  onAddAsBeats: (worldId: string, assetIds: string[]) => Promise<void> | void;
   onCreateCollection: (name: string, assetIds: string[]) => Promise<void> | void;
   onUpdateDescription: (
     folderId: string,
@@ -245,12 +248,17 @@ export function AddToPanel({
                   icon={section.icon}
                   label={section.label}
                   busy={busyKey === `${drilled.id}:${section.key}`}
+                  hint={section.key === "beats" ? "One beat each" : undefined}
                   onActivate={(ids) =>
                     run(
                       `${drilled.id}:${section.key}`,
                       `${drilled.name} · ${section.label}`,
                       () =>
-                        onAddToSection(drilled.id, section.key, resolveIds(ids)),
+                        // A beat is one video plus its characters/locations, so
+                        // Beats is not a pool: each asset becomes its own beat.
+                        section.key === "beats"
+                          ? onAddAsBeats(drilled.id, resolveIds(ids))
+                          : onAddToSection(drilled.id, section.key, resolveIds(ids)),
                     )
                   }
                 />

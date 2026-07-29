@@ -1025,18 +1025,19 @@ const SECTION_POOL_LABEL = {
   characters: "Characters",
   locations: "Locations",
   stills: "Stills",
-  beats: "Beats",
 } as const;
 
 export const ensureSectionPool = mutation({
   args: {
     ownerUserId: v.string(),
     projectId: v.id("folders"),
+    // NOT "beats": a beat is one video plus its characters/locations, so
+    // beats are never pooled into a shared folder. Callers create one beat
+    // folder per asset instead (see createBeatsFromAssets).
     section: v.union(
       v.literal("characters"),
       v.literal("locations"),
       v.literal("stills"),
-      v.literal("beats"),
     ),
   },
   returns: v.object({ folderId: v.id("folders"), created: v.boolean() }),

@@ -429,6 +429,18 @@ export function ReviewModal({
   const [openDirectionId, setOpenDirectionId] = useState<string | null>(
     initialDirectionId ?? null,
   );
+  // Opening a beat straight from the gallery deep-links past the beats grid.
+  // Escape must then CLOSE, not fall back to a grid the user never visited —
+  // they expect to land back where they clicked from. Once they navigate
+  // elsewhere in the modal the deep link stops applying.
+  const enteredAtDirection = useRef(Boolean(initialDirectionId));
+  // The moment they navigate off the entry beat, the deep link is spent: from
+  // then on the beats grid IS a place they've been, so Escape should go there.
+  useEffect(() => {
+    if (openDirectionId !== initialDirectionId) enteredAtDirection.current = false;
+  }, [openDirectionId, initialDirectionId]);
+  const closedFromEntryDirection =
+    enteredAtDirection.current && openDirectionId === initialDirectionId;
   const [likedOnly, setLikedOnly] = useState(false);
   // Masonry tile size (target CSS column width). Driven by the header
   // slider; the browser fits as many columns as the viewport allows, so the
@@ -1689,8 +1701,9 @@ export function ReviewModal({
         else if (composerOpen) setComposer(null);
         else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
-        else if (openDirectionId) setOpenDirectionId(null);
-        else onClose?.();
+        else if (openDirectionId && !closedFromEntryDirection) {
+          setOpenDirectionId(null);
+        } else onClose?.();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
         goFocus(-1);
@@ -1707,7 +1720,7 @@ export function ReviewModal({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, goFocus, stepBeatFocus, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, closedFromEntryDirection, goFocus, stepBeatFocus, onClose]);
 
   // Owner mode with no open project → render nothing. Viewer mode is driven by
   // the token instead, so it stays mounted.
