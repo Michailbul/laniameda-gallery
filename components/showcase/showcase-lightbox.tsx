@@ -10,6 +10,8 @@ interface ShowcaseLightboxProps {
   index: number;
   onIndexChange: (next: number) => void;
   onClose: () => void;
+  /** Absolute link that reopens this exact asset. Omit to hide Share. */
+  shareHrefFor?: (asset: ShowcaseAsset) => string;
 }
 
 export function ShowcaseLightbox({
@@ -17,12 +19,16 @@ export function ShowcaseLightbox({
   index,
   onIndexChange,
   onClose,
+  shareHrefFor,
 }: ShowcaseLightboxProps) {
   const asset = assets[index];
   // Track which slide was copied so "Copied" clears itself the moment you
   // navigate — no reset effect needed.
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const copied = copiedIndex === index;
+  // Same self-clearing trick for the share link: navigating away resets it.
+  const [sharedIndex, setSharedIndex] = useState<number | null>(null);
+  const shared = sharedIndex === index;
 
   const go = useCallback(
     (delta: number) => {
@@ -46,6 +52,24 @@ export function ShowcaseLightbox({
 
   const src = assetSrc(asset);
   const prompt = meaningfulPrompt(asset.promptText);
+
+  const shareAsset = async () => {
+    if (!shareHrefFor || !asset) return;
+    const href = shareHrefFor(asset);
+    // Native sheet on mobile; clipboard everywhere else. Either way the link
+    // is the deep link, so the recipient lands on this same piece.
+    try {
+      if (navigator.share) {
+        await navigator.share({ url: href });
+        return;
+      }
+      await navigator.clipboard.writeText(href);
+      setSharedIndex(index);
+    } catch {
+      // A dismissed share sheet rejects — don't claim success.
+      setSharedIndex(null);
+    }
+  };
 
   const copyPrompt = async () => {
     if (!prompt) return;
@@ -92,6 +116,27 @@ export function ShowcaseLightbox({
         <span>
           {index + 1} / {assets.length}
         </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {shareHrefFor && (
+            <button
+              type="button"
+              onClick={shareAsset}
+              aria-label="Copy a link that opens this piece"
+              title="Copy a link that opens this piece"
+              style={{
+                background: "none",
+                border: "none",
+                padding: 4,
+                cursor: "pointer",
+                font: "inherit",
+                letterSpacing: "inherit",
+                textTransform: "inherit",
+                color: shared ? "var(--lm-coral)" : "var(--lm-text-secondary)",
+              }}
+            >
+              {shared ? "Link copied" : "Share"}
+            </button>
+          )}
         <button
           type="button"
           onClick={onClose}
@@ -108,6 +153,7 @@ export function ShowcaseLightbox({
         >
           ×
         </button>
+        </span>
       </div>
 
       {/* Stage */}

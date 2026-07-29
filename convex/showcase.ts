@@ -767,3 +767,36 @@ export const getShowcaseStorybook = query({
   returns: showcaseSetValidator,
   handler: (ctx, args) => loadShowcaseSet(ctx, args.folderId, "storybook"),
 });
+
+/**
+ * One public asset by id — backs the shareable deep link
+ * `?asset=<id>` on the public surfaces, so a link opens straight onto the same
+ * piece even when it sits deep past the visitor's first loaded page.
+ *
+ * Authless, so the guard is the whole point: an asset is only returned when it
+ * is individually `isPublic` AND owned by the showcase owner. A private asset,
+ * or someone else's, returns null exactly like a bad id — the caller can't tell
+ * the difference, so this can't be used to probe for what exists.
+ */
+export const getPublicAsset = query({
+  args: { assetId: v.string() },
+  returns: v.union(galleryAssetResultValidator, v.null()),
+  handler: async (ctx, args) => {
+    const raw = args.assetId.trim();
+    if (!raw) return null;
+
+    // ctx.db.get throws on a malformed id, and a shared link is user input.
+    let asset: Doc<"assets"> | null = null;
+    try {
+      asset = await ctx.db.get(raw as Id<"assets">);
+    } catch {
+      return null;
+    }
+    if (!asset) return null;
+    if (asset.isPublic !== true) return null;
+    if (!isShowcaseOwner(asset.ownerUserId)) return null;
+
+    const [hydrated] = await hydrateGalleryAssetResults(ctx, [asset]);
+    return hydrated ?? null;
+  },
+});

@@ -2,11 +2,13 @@
 
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { PublicNav, PUBLIC_MODES, type PublicMode } from "./public-nav";
 import { ShowcaseMasonry } from "./showcase-masonry";
+import { ShowcaseLightbox } from "./showcase-lightbox";
+import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
 import { BrowseBand } from "./browse-band";
 import { assetThumb } from "./types";
 import type { ShowcaseAsset } from "./types";
@@ -23,6 +25,36 @@ const OWNER_LOGIN_LINK = OWNER_LOGIN_BOT
 export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean }) {
   const [mode, setMode] = useState<PublicMode>("featured");
   const data = useQuery(api.showcase.getShowcaseHome, {});
+
+  // ── Shared deep link ────────────────────────────────────────────────────
+  // `?asset=<id>` opens that one piece over whatever mode is showing. Resolved
+  // by its own query rather than by searching the loaded grid, so a link still
+  // works when the piece sits past the visitor's first page — or isn't in the
+  // active mode at all.
+  const [sharedAssetId, setSharedAssetId] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () =>
+      setSharedAssetId(
+        new URLSearchParams(window.location.search).get(SHARED_ASSET_PARAM),
+      );
+    read();
+    // Back/forward should close or reopen the shared piece.
+    window.addEventListener("popstate", read);
+    return () => window.removeEventListener("popstate", read);
+  }, []);
+
+  const sharedAsset = useQuery(
+    api.showcase.getPublicAsset,
+    sharedAssetId ? { assetId: sharedAssetId } : "skip",
+  );
+
+  const closeSharedAsset = useCallback(() => {
+    setSharedAssetId(null);
+    // Drop the param so a refresh doesn't reopen it, without adding history.
+    const url = new URL(window.location.href);
+    url.searchParams.delete(SHARED_ASSET_PARAM);
+    window.history.replaceState(null, "", url.toString());
+  }, []);
 
   const worlds = data?.worlds ?? [];
   const loading = data === undefined;
@@ -145,6 +177,17 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
           <span>@{OWNER_HANDLE}</span>
         </span>
       </footer>
+      {/* A shared link opens over the page, whatever mode is showing. One
+          asset, so the lightbox gets no arrows. */}
+      {sharedAssetId && sharedAsset && (
+        <ShowcaseLightbox
+          assets={[sharedAsset as ShowcaseAsset]}
+          index={0}
+          onIndexChange={() => {}}
+          onClose={closeSharedAsset}
+          shareHrefFor={(asset) => sharedAssetHref(asset._id as string)}
+        />
+      )}
     </main>
   );
 }

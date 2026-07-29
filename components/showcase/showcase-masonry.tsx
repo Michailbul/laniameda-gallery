@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { assetSrc, assetThumb } from "./types";
+import { sharedAssetHref } from "@/lib/shared-asset-link";
 import type { ShowcaseAsset } from "./types";
 
 /**
@@ -86,6 +87,7 @@ export function ShowcaseMasonry({
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
+          shareHrefFor={(asset) => sharedAssetHref(asset._id as string)}
         />
       )}
     </>
