@@ -48,7 +48,7 @@ const projectSummaryValidator = v.object({
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
   previewAssets: v.array(projectPreviewValidator),
-  // Member directions, so the sidebar can offer them as drop targets.
+  // Member beats, so the sidebar can offer them as drop targets.
   collections: v.array(
     v.object({
       folderId: v.id("folders"),
@@ -58,13 +58,21 @@ const projectSummaryValidator = v.object({
   ),
 });
 
-export type ProjectSection = "characters" | "locations" | "stills" | "beats";
+export type ProjectSection =
+  | "characters"
+  | "locations"
+  | "stills"
+  | "beats"
+  | "episodes";
 
 export type ProjectCollectionLink = {
   folderId: Id<"folders">;
   section?: ProjectSection;
   beatCharacterFolderIds: Id<"folders">[];
   beatLocationFolderIds: Id<"folders">[];
+  /** Beat rows only: the episode this beat is filed under. */
+  episodeFolderId?: Id<"folders">;
+  episodeOrder?: number;
 };
 
 // Collect the member-collection links of a project, via the projectCollections
@@ -91,6 +99,8 @@ export const collectProjectCollectionLinks = async (
       section: row.section,
       beatCharacterFolderIds: row.beatCharacterFolderIds ?? [],
       beatLocationFolderIds: row.beatLocationFolderIds ?? [],
+      episodeFolderId: row.episodeFolderId,
+      episodeOrder: row.episodeOrder,
     });
   }
   return links;
@@ -266,7 +276,7 @@ const beatStackValidator = v.object({
 
 const BEAT_PEEK_LIMIT = 8;
 
-// One beat (direction folder) as a grid stack card: MASTER-first cover,
+// One beat (beat folder) as a grid stack card: MASTER-first cover,
 // capped peek thumbs, full member id list. Null when the folder is gone.
 const buildBeatStack = async (
   ctx: QueryCtx,
@@ -281,7 +291,7 @@ const buildBeatStack = async (
     beatFolderId,
     PROJECT_COLLECTION_ASSET_LIMIT,
   );
-  // The direction's MASTER asset fronts the stack; first member otherwise.
+  // The beat's MASTER asset fronts the stack; first member otherwise.
   const coverAsset =
     (folder.coverAssetId &&
       members.find((asset) => asset._id === folder.coverAssetId)) ||
@@ -361,7 +371,7 @@ export const listProjectBeatStacks = query({
 });
 
 // Beats that live INSIDE a plain collection: every beat (any project's
-// "beats"-section direction) whose members are all members of the collection.
+// "beats"-section beat) whose members are all members of the collection.
 // Lets a collection that mirrors a project's pool — e.g. "Cassandra
 // Collection" — browse with the same stack cards as the project itself.
 export const listCollectionBeatStacks = query({
@@ -449,7 +459,7 @@ export const listCollectionBeatStacks = query({
 });
 
 // The full project "review" payload — the workspace view model. The shared
-// public board (directionBoard.getBoardWorkspace) returns this SAME shape so
+// public board (beatBoard.getBoardWorkspace) returns this SAME shape so
 // the review UI renders identically for owner and anonymous viewer.
 export const projectViewValidator = v.object({
   project: v.object({
@@ -481,7 +491,7 @@ export const projectViewValidator = v.object({
       names: v.array(v.string()),
     }),
   ),
-  // …and per direction (beat cards on the board take whole-beat likes).
+  // …and per beat (beat cards on the board take whole-beat likes).
   collectionLikes: v.array(
     v.object({
       folderId: v.id("folders"),
@@ -495,7 +505,7 @@ export type ProjectView = Infer<typeof projectViewValidator>;
 
 /**
  * Build the review payload for a project folder. Shared by the owner query
- * (getProject) and the token-gated public board (directionBoard). Pure read —
+ * (getProject) and the token-gated public board (beatBoard). Pure read —
  * the caller is responsible for auth (owner) or token resolution (public).
  */
 export const buildProjectView = async (
@@ -564,7 +574,7 @@ export const buildProjectView = async (
   }
 
   // Viewer likes from the shared board, grouped per asset and per whole
-  // direction, with the names viewers chose to leave (anonymous likes count
+  // beat, with the names viewers chose to leave (anonymous likes count
   // but add no name).
   const reactions = await ctx.db
     .query("boardReactions")
@@ -675,7 +685,7 @@ const requireOwnedFolder = async (
  * project when it belongs to ANY of the project's member collections — so
  * assets already present (e.g. living inside a beat) are SKIPPED, not
  * double-filed. Only genuinely new assets land in the project's "— Inbox"
- * direction, ready to be sorted into beats from the workspace.
+ * beat, ready to be sorted into beats from the workspace.
  */
 export const addAssetsToProject = mutation({
   args: {
@@ -736,7 +746,7 @@ export const addAssetsToProject = mutation({
       return { added: 0, skipped, inboxFolderId: null };
     }
 
-    // Ensure the project's Inbox direction exists and is a member.
+    // Ensure the project's Inbox beat exists and is a member.
     const inboxName = `${project.name} — Inbox`;
     const normalizedInboxName = canonicalFolderName(inboxName);
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
@@ -759,7 +769,7 @@ export const addAssetsToProject = mutation({
           ownerUserId,
           name: inboxName,
           normalizedName: normalizedInboxName,
-          kind: "direction",
+          kind: "beat",
           createdAt: now,
           updatedAt: now,
         });
@@ -1090,7 +1100,7 @@ export const ensureSectionPool = mutation({
         ownerUserId,
         name: poolName,
         normalizedName: canonicalFolderName(poolName),
-        kind: "direction",
+        kind: "beat",
         createdAt: now,
         updatedAt: now,
       }));
@@ -1145,5 +1155,284 @@ export const removeCollectionFromProject = mutation({
     await ctx.db.delete(existing._id);
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { removed: true };
+  },
+});
+
+// ── Episodes ───────────────────────────────────────────────────────────────
+// An episode is a chapter of a project that groups its beats: a
+// kind:"episode" folder filed in the project's "episodes" layer, which beats
+// point at via projectCollections.episodeFolderId. Episodes hold no assets of
+// their own — their content IS their beats, so the hierarchy reads
+// world > project > episode > beat > statics.
+
+const episodeBeatValidator = v.object({
+  folderId: v.id("folders"),
+  name: v.string(),
+  count: v.number(),
+  order: v.optional(v.number()),
+  cover: v.optional(projectPreviewValidator),
+});
+
+const episodeSummaryValidator = v.object({
+  folderId: v.id("folders"),
+  name: v.string(),
+  synopsis: v.optional(v.string()),
+  createdAt: v.optional(v.number()),
+  beats: v.array(episodeBeatValidator),
+  /** Assets across every beat in the episode. */
+  assetCount: v.number(),
+  cover: v.optional(projectPreviewValidator),
+});
+
+// Create an episode inside a project (idempotent by normalized name, like
+// every other folder create) and file it in the "episodes" layer.
+export const createEpisode = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    name: v.string(),
+    synopsis: v.optional(v.string()),
+  },
+  returns: v.object({ folderId: v.id("folders"), created: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const project = await requireOwnedFolder(
+      ctx,
+      ownerUserId,
+      args.projectId,
+      "project",
+    );
+    const name = args.name.trim();
+    if (!name) {
+      throw new ConvexError("Episode name is required.");
+    }
+    // Namespaced like the section pools, so "Episode 1" can exist in every
+    // project without colliding on folders.normalizedName.
+    const scopedName = name.startsWith(`${project.name} — `)
+      ? name
+      : `${project.name} — ${name}`;
+    const normalizedName = canonicalFolderName(scopedName);
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+
+    let existing: Doc<"folders"> | null = null;
+    for (const ownerCandidate of ownerUserIds) {
+      existing = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("normalizedName", normalizedName),
+        )
+        .unique();
+      if (existing) break;
+    }
+    if (existing && existing.kind !== "episode") {
+      throw new ConvexError(
+        `"${name}" already exists as a different kind of collection.`,
+      );
+    }
+
+    const now = Date.now();
+    const folderId =
+      existing?._id ??
+      (await ctx.db.insert("folders", {
+        ownerUserId,
+        name: scopedName,
+        normalizedName,
+        description: args.synopsis?.trim() || undefined,
+        kind: "episode",
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+    const link = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project_folder", (q) =>
+        q.eq("projectId", args.projectId).eq("folderId", folderId),
+      )
+      .unique();
+    if (link) {
+      if (link.section !== "episodes") {
+        await ctx.db.patch(link._id, { section: "episodes" });
+      }
+    } else {
+      await ctx.db.insert("projectCollections", {
+        ownerUserId,
+        projectId: args.projectId,
+        folderId,
+        section: "episodes",
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return { folderId, created: existing === null };
+  },
+});
+
+// File a beat into an episode, or pass episodeFolderId: null to unfile it.
+export const setBeatEpisode = mutation({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+    beatFolderId: v.id("folders"),
+    episodeFolderId: v.union(v.id("folders"), v.null()),
+    order: v.optional(v.number()),
+  },
+  returns: v.object({ filed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    await requireOwnedFolder(ctx, ownerUserId, args.projectId, "project");
+
+    const beatLink = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project_folder", (q) =>
+        q.eq("projectId", args.projectId).eq("folderId", args.beatFolderId),
+      )
+      .unique();
+    if (!beatLink) {
+      throw new ConvexError("That beat is not part of this project.");
+    }
+
+    if (args.episodeFolderId !== null) {
+      // The episode has to be an episode, and one of THIS project's.
+      const episode = await ctx.db.get(args.episodeFolderId);
+      if (!episode || episode.kind !== "episode") {
+        throw new ConvexError("Target is not an episode.");
+      }
+      if (!canActorAccessOwnerUserId(ownerUserId, episode.ownerUserId)) {
+        throw new ConvexError("Episode does not belong to this user.");
+      }
+      const episodeLink = await ctx.db
+        .query("projectCollections")
+        .withIndex("by_project_folder", (q) =>
+          q
+            .eq("projectId", args.projectId)
+            .eq("folderId", args.episodeFolderId as Id<"folders">),
+        )
+        .unique();
+      if (!episodeLink) {
+        throw new ConvexError("That episode is not part of this project.");
+      }
+      // An episode can't hold itself, and episodes don't nest.
+      if (args.beatFolderId === args.episodeFolderId) {
+        throw new ConvexError("An episode can't contain itself.");
+      }
+    }
+
+    await ctx.db.patch(beatLink._id, {
+      episodeFolderId: args.episodeFolderId ?? undefined,
+      episodeOrder: args.episodeFolderId === null ? undefined : args.order,
+    });
+    await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
+    return { filed: args.episodeFolderId !== null };
+  },
+});
+
+// A project's episodes with the beats filed under each, plus the beats that
+// aren't in any episode yet — everything the Episodes tab needs in one read.
+export const listProjectEpisodes = query({
+  args: {
+    ownerUserId: v.string(),
+    projectId: v.id("folders"),
+  },
+  returns: v.object({
+    episodes: v.array(episodeSummaryValidator),
+    unassignedBeats: v.array(episodeBeatValidator),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+    const links = await collectProjectCollectionLinks(
+      ctx,
+      ownerUserIds,
+      args.projectId,
+    );
+
+    const episodeLinks = links.filter((link) => link.section === "episodes");
+    const beatLinks = links.filter((link) => link.section === "beats");
+
+    const buildBeat = async (link: ProjectCollectionLink) => {
+      const folder = await ctx.db.get(link.folderId);
+      const assets = await collectAssetsForFolder(
+        ctx,
+        ownerUserIds,
+        link.folderId,
+        STACK_PREVIEW_LIMIT,
+      );
+      const coverDoc =
+        (folder?.coverAssetId
+          ? await ctx.db.get(folder.coverAssetId)
+          : null) ?? assets[0] ?? null;
+      const cover = coverDoc
+        ? {
+            assetId: coverDoc._id,
+            kind: coverDoc.kind,
+            contentType: coverDoc.contentType,
+            url: (await resolveAssetUrl(ctx, coverDoc)) ?? undefined,
+            thumbUrl: (await resolveAssetThumbUrl(ctx, coverDoc)) ?? undefined,
+            width: coverDoc.width,
+            height: coverDoc.height,
+            thumbWidth: coverDoc.thumbWidth,
+            thumbHeight: coverDoc.thumbHeight,
+          }
+        : undefined;
+      return {
+        folderId: link.folderId,
+        name: folder?.name ?? "Untitled beat",
+        count: folder?.memberCount ?? assets.length,
+        order: link.episodeOrder,
+        cover,
+      };
+    };
+
+    const summaries = [];
+    for (const episodeLink of episodeLinks) {
+      const episode = await ctx.db.get(episodeLink.folderId);
+      if (!episode) continue;
+      const mine = beatLinks.filter(
+        (beat) => beat.episodeFolderId === episodeLink.folderId,
+      );
+      const beats = await Promise.all(mine.map(buildBeat));
+      // Story order: explicit episodeOrder first, unordered beats after.
+      beats.sort(
+        (a, b) =>
+          (a.order ?? Number.MAX_SAFE_INTEGER) -
+          (b.order ?? Number.MAX_SAFE_INTEGER),
+      );
+      summaries.push({
+        folderId: episode._id,
+        name: episode.name,
+        synopsis: episode.description,
+        createdAt: episode.createdAt,
+        beats,
+        assetCount: beats.reduce((total, beat) => total + beat.count, 0),
+        cover: beats.find((beat) => beat.cover)?.cover,
+      });
+    }
+    summaries.sort(
+      (left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0),
+    );
+
+    // Beats whose episode is unset — or points at an episode that has since
+    // been deleted, which would otherwise strand them out of every group.
+    const episodeIds = new Set(episodeLinks.map((link) => link.folderId));
+    const unassignedBeats = await Promise.all(
+      beatLinks
+        .filter(
+          (beat) =>
+            beat.episodeFolderId === undefined ||
+            !episodeIds.has(beat.episodeFolderId),
+        )
+        .map(buildBeat),
+    );
+
+    return { episodes: summaries, unassignedBeats };
   },
 });

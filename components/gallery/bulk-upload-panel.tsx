@@ -147,6 +147,9 @@ export function BulkUploadPanel({
   const [folderSelection, setFolderSelection] = useState(NO_VALUE);
   const [folderDraftName, setFolderDraftName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
+  // Collections created from this panel, held until the folders query catches
+  // up — see collectionOptions.
+  const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
   const [projectSelection, setProjectSelection] = useState(NO_VALUE);
   const [sectionSelection, setSectionSelection] = useState<string>(NO_VALUE);
   const [publishAll, setPublishAll] = useState(false);
@@ -187,11 +190,18 @@ export function BulkUploadPanel({
   const canFeature = canPromoteToPublic;
 
   // Only plain collections are sane bulk destinations — projects have their own
-  // picker below, and directions/episodes are reached through a project.
-  const collectionOptions = useMemo(
-    () => folders.filter((folder) => !folder.kind),
-    [folders],
-  );
+  // picker below, and beats/episodes are reached through a project.
+  //
+  // A collection created here is selected the instant the API returns, which is
+  // before the folders query round-trips — and a Select whose value matches no
+  // mounted option falls back to its placeholder, so the new collection read as
+  // "No collection" until you picked it again. Carrying the created folder
+  // locally keeps an option under the value at all times.
+  const collectionOptions = useMemo(() => {
+    const plain = folders.filter((folder) => !folder.kind);
+    const known = new Set(plain.map((folder) => folder._id));
+    return [...plain, ...createdFolders.filter((folder) => !known.has(folder._id))];
+  }, [folders, createdFolders]);
 
   const totals = useMemo(() => {
     let bytes = 0;
@@ -379,6 +389,10 @@ export function BulkUploadPanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name }),
       });
+      setCreatedFolders((previous) => [
+        ...previous.filter((folder) => folder._id !== result.folder._id),
+        { _id: result.folder._id, name },
+      ]);
       setFolderSelection(result.folder._id);
       setFolderDraftName("");
       setStatus({
@@ -497,7 +511,7 @@ export function BulkUploadPanel({
           const created = await createFolderMutation({
             ownerUserId,
             name: name || "Beat",
-            kind: "direction",
+            kind: "beat",
           });
           await addCollectionToProject({
             ownerUserId,

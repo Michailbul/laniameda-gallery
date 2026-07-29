@@ -21,6 +21,7 @@ import {
   Loader2,
   ExternalLink,
   Save,
+  Star,
 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { downloadImage } from "@/lib/download-image";
@@ -69,6 +70,8 @@ interface GalleryDetailPanelProps {
     folderIds?: string[];
     isPublic?: boolean;
     isFeatured?: boolean;
+    starredAt?: number;
+    starNote?: string;
     isDesignInspiration?: boolean;
     designTitle?: string;
     designDescription?: string;
@@ -92,6 +95,9 @@ interface GalleryDetailPanelProps {
   onDelete?: (imageId: string) => void;
   deleting?: boolean;
   deleteError?: string;
+  /** Owner-only: star this asset and write the note that rides with it. */
+  onToggleStar?: (imageId: string, nextStarred: boolean) => void;
+  onSaveStarNote?: (imageId: string, note: string) => Promise<void> | void;
   canCuratePublic?: boolean;
   onSetPublicState?: (imageId: string, isPublic: boolean) => void;
   onSetFeaturedState?: (imageId: string, isFeatured: boolean) => void;
@@ -179,6 +185,8 @@ export function GalleryDetailPanel({
   deleting = false,
   deleteError,
   canCuratePublic = false,
+  onToggleStar,
+  onSaveStarNote,
   onSetPublicState,
   onSetFeaturedState,
   curationBusy = false,
@@ -229,6 +237,8 @@ export function GalleryDetailPanel({
   const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editFileName, setEditFileName] = useState("");
   const [editContentType, setEditContentType] = useState("");
+  const [starNoteDraft, setStarNoteDraft] = useState("");
+  const [savingStarNote, setSavingStarNote] = useState(false);
   const activeFolderIds = useMemo(
     () => image.folderIds ?? (image.folderId ? [image.folderId] : []),
     [image.folderId, image.folderIds],
@@ -440,6 +450,26 @@ export function GalleryDetailPanel({
     image.contentType,
     image.tagNames,
   ]);
+
+  const isStarred = Boolean(image.starredAt);
+
+  // The note draft follows whichever asset is open. Keyed on the stored note
+  // too, so a save (or a star toggle from the card) settles the field instead
+  // of leaving a stale draft behind.
+  useEffect(() => {
+    setStarNoteDraft(image.starNote ?? "");
+  }, [currentAssetId, image.starNote]);
+
+  const handleSaveStarNote = async () => {
+    if (!onSaveStarNote || savingStarNote) return;
+    setSavingStarNote(true);
+    try {
+      await onSaveStarNote(currentAssetId, starNoteDraft);
+      toastFn?.("Note saved", undefined, "success");
+    } finally {
+      setSavingStarNote(false);
+    }
+  };
 
   const handleSaveAssetEdit = async () => {
     if (!canEditCurrentAsset || !onSaveAssetEdit) return;
@@ -1805,6 +1835,92 @@ export function GalleryDetailPanel({
                       >
                         {folderError}
                       </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Star — promotes the asset to the top of every grid it shows
+                  up in, and carries an optional line on why. */}
+              {onToggleStar && (
+                <div
+                  className="py-2.5"
+                  style={{ borderBottom: "1px solid var(--lm-border)" }}
+                >
+                  <SectionLabel>Star</SectionLabel>
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onToggleStar(image.id, !isStarred)}
+                      className="flex items-center gap-2.5 px-3 py-2.5 transition-colors"
+                      style={{
+                        border: `2px solid ${isStarred ? "var(--lm-coral)" : "var(--lm-border-strong)"}`,
+                        backgroundColor: isStarred
+                          ? "var(--lm-accent-dim)"
+                          : "transparent",
+                        color: isStarred
+                          ? "var(--lm-coral)"
+                          : "var(--lm-text-secondary)",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.14em",
+                        borderRadius: "var(--lm-radius)",
+                      }}
+                      aria-pressed={isStarred}
+                    >
+                      <Star
+                        className="h-3.5 w-3.5"
+                        strokeWidth={2.25}
+                        fill={isStarred ? "currentColor" : "none"}
+                      />
+                      {isStarred ? "STARRED" : "STAR THIS"}
+                    </button>
+
+                    {isStarred && onSaveStarNote && (
+                      <>
+                        <textarea
+                          value={starNoteDraft}
+                          onChange={(event) =>
+                            setStarNoteDraft(event.target.value)
+                          }
+                          rows={3}
+                          maxLength={500}
+                          placeholder="Why this one? (optional)"
+                          className="w-full resize-y px-2.5 py-2"
+                          style={{
+                            border: "1px solid var(--lm-border-strong)",
+                            borderRadius: "var(--lm-radius)",
+                            backgroundColor: "var(--lm-surface-1)",
+                            color: "var(--lm-text-primary)",
+                            fontSize: "12px",
+                            lineHeight: 1.45,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleSaveStarNote();
+                          }}
+                          disabled={
+                            savingStarNote ||
+                            starNoteDraft.trim() === (image.starNote ?? "").trim()
+                          }
+                          className="px-3 py-2 transition-colors disabled:opacity-40"
+                          style={{
+                            border: "2px solid var(--lm-border-strong)",
+                            backgroundColor: "transparent",
+                            color: "var(--lm-text-secondary)",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.14em",
+                            borderRadius: "var(--lm-radius)",
+                          }}
+                        >
+                          {savingStarNote ? "SAVING..." : "SAVE NOTE"}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

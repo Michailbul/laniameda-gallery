@@ -104,12 +104,16 @@ export default defineSchema({
       v.union(
         v.literal("storybook"),
         v.literal("project"),
-        // A project-scoped direction (beat / stack / pool) created from the
-        // workspace — hidden from the sidebar collections list.
-        v.literal("direction"),
+        // A beat: one shot of a project, created from the project view and
+        // hidden from the sidebar collections list.
+        v.literal("beat"),
+        // A chapter of a project that groups its beats ("Episode 1"). Holds no
+        // assets of its own; beats point at it via
+        // projectCollections.episodeFolderId.
+        v.literal("episode"),
       ),
     ),
-    // Unguessable token that makes a project's direction board publicly
+    // Unguessable token that makes a project's beat board publicly
     // viewable at /b/<token>. Unset = sharing off.
     shareToken: v.optional(v.string()),
     // Parent collection for nesting. The hierarchy, top down:
@@ -130,7 +134,7 @@ export default defineSchema({
     // project ("world") is surfaced on the public home and becomes browsable
     // by anonymous visitors. Only assets individually marked isPublic are ever
     // exposed — showcasing a set publishes the SET, never its private members.
-    // Directions are never showcased (internal scaffolding); a project is
+    // Beats are never showcased (internal scaffolding); a project is
     // still shared privately via shareToken. Undefined = off.
     // Sub-collections are never showcased directly; they ride along as
     // chapters of their showcased parent.
@@ -149,8 +153,8 @@ export default defineSchema({
     // instead of auto-pulling individually-public assets.
     tasteCollection: v.optional(v.boolean()),
     // MASTER option: the asset used as this collection's thumbnail when it is
-    // browsed as a "direction" (a set of similar options). Falls back to the
-    // first asset when unset or dangling.
+    // browsed as a beat (a set of similar options). Falls back to the first
+    // asset when unset or dangling.
     coverAssetId: v.optional(v.id("assets")),
     // Pinned in the project workspace (beat/stack cards float first).
     pinnedAt: v.optional(v.number()),
@@ -181,16 +185,25 @@ export default defineSchema({
     // Which layer/tab of the project this collection is filed under
     // (characters | locations | beats). Undefined = unsorted.
     section: optionalProjectSectionValidator,
-    // For beat-layer rows only: which character / location directions this
+    // For beat-layer rows only: which character / location collections this
     // beat uses (member collections of the same project); the beat
     // collection's own assets are the resulting media (videos/stills).
     beatCharacterFolderIds: v.optional(v.array(v.id("folders"))),
     beatLocationFolderIds: v.optional(v.array(v.id("folders"))),
+    // For beat-layer rows only: the episode this beat belongs to — a
+    // kind:"episode" folder filed in the same project's "episodes" layer. One
+    // episode holds many beats; a beat sits in at most one. Undefined = not yet
+    // filed into an episode, which the project view groups as "Unassigned".
+    episodeFolderId: v.optional(v.id("folders")),
+    // Sort key inside the episode, so beats play in story order rather than by
+    // creation time. Undefined sorts last.
+    episodeOrder: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
     .index("by_project_folder", ["projectId", "folderId"])
-    .index("by_folder", ["folderId"]),
+    .index("by_folder", ["folderId"])
+    .index("by_episode", ["episodeFolderId"]),
   // Curated filter pills on the main gallery menu. The owner manages these
   // from the filter bar's admin panel — the raw tag cloud never surfaces
   // directly. An entry maps to either a set of tag names ("tag" kind, matched
@@ -217,7 +230,7 @@ export default defineSchema({
     ownerUserId: v.string(),
     projectId: v.id("folders"),
     // Exactly one of assetId / folderId is set: a like on one asset, or on a
-    // whole direction (a beat card on the shared board).
+    // whole beat (a beat card on the shared board).
     assetId: v.optional(v.id("assets")),
     folderId: v.optional(v.id("folders")),
     viewerKey: v.string(),
@@ -304,6 +317,16 @@ export default defineSchema({
     // Owner's personal "like"/favorite flag. Single-user vault, so a boolean on
     // the asset is sufficient (no per-user likes join table needed).
     isLiked: v.optional(v.boolean()),
+    // Owner's STAR: this one is a standout. Travels with the asset, so it reads
+    // the same in a collection, a world, a project section or plain browse —
+    // starred pieces lead every grid they appear in and render highlighted.
+    // Timestamped so the most recently starred leads; unset = not starred.
+    // (Distinct from pinnedAt, which is manual ordering local to the project
+    // workspace and carries no note.)
+    starredAt: v.optional(v.number()),
+    // Optional owner note on why this one is starred. Only surfaced while the
+    // asset is starred; kept on unstar so an accidental toggle loses nothing.
+    starNote: v.optional(v.string()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
     pillar: optionalPillarValidator,
@@ -328,6 +351,9 @@ export default defineSchema({
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_name", ["ownerUserId", "name"])
     .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
+    // Backs the starred-first prepend: a small set read on its own so a starred
+    // asset leads the grid even when its natural page hasn't streamed in yet.
+    .index("by_owner_starredAt", ["ownerUserId", "starredAt"])
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
     .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])
     .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])

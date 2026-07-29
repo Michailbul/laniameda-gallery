@@ -4,7 +4,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { streamAssetDownload } from "@/lib/server/asset-download";
 
 /**
- * Download proxy for the public direction board. The share token gates
+ * Download proxy for the public beat board. The share token gates
  * access (validated in Convex against the project's member collections);
  * the response streams the asset same-origin with a Content-Disposition
  * header, because R2's public domain sends no CORS headers and a
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   let download;
   try {
     const client = getServerConvexClient();
-    download = await client.query(api.directionBoard.getBoardAssetDownload, {
+    download = await client.query(api.beatBoard.getBoardAssetDownload, {
       token,
       assetId: assetId as Id<"assets">,
     });

@@ -21,6 +21,7 @@ import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Check, Download, Eye, EyeOff, FolderPlus, Layers, Loader2, Minus, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { downloadImagesAsZip } from "@/lib/download-image";
+import { isZipFile, readDroppedFiles, resolveMedia } from "@/lib/bulk-upload";
 import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
@@ -38,6 +39,8 @@ import {
   BrowseBreadcrumb,
   type BreadcrumbSegment,
 } from "./browse-breadcrumb";
+import { ProjectSectionTabs } from "./project-section-tabs";
+import { ProjectEpisodes } from "./project-episodes";
 import { GalleryDetailPanel } from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
@@ -103,6 +106,8 @@ type SelectedImage = {
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;
+  starredAt?: number;
+  starNote?: string;
   isDesignInspiration?: boolean;
   designTitle?: string;
   designDescription?: string;
@@ -123,6 +128,35 @@ type SemanticMode =
   | { kind: "query"; query: string }
   | { kind: "similar"; assetId: string; prompt: string }
   | null;
+
+// The project view's section switcher. "all" is the whole pool; the named
+// sections mirror projectCollections.section, and "unsorted" catches members
+// that were never filed so nothing is unreachable.
+type ProjectSectionTab =
+  | "all"
+  | "episodes"
+  | "beats"
+  | "characters"
+  | "locations"
+  | "stills"
+  | "unsorted";
+
+// Always offered, in narrative order, so the switcher doesn't shift around as
+// a project fills up. Stills/Unsorted are conditional — see projectSectionTabs.
+const PROJECT_SECTION_TABS: {
+  key: ProjectSectionTab;
+  label: string;
+  /** Hide until the project actually has members here. */
+  onlyWhenPresent?: boolean;
+}[] = [
+  { key: "all", label: "All" },
+  { key: "episodes", label: "Episodes" },
+  { key: "beats", label: "Beats" },
+  { key: "characters", label: "Characters" },
+  { key: "locations", label: "Locations" },
+  { key: "stills", label: "Stills", onlyWhenPresent: true },
+  { key: "unsorted", label: "Unsorted", onlyWhenPresent: true },
+];
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -370,6 +404,33 @@ export function GalleryDashboard({
     id: string;
     name: string;
   } | null>(null);
+  // Which layer of the browsed project the grid is showing. "all" is the whole
+  // pool; the rest narrow to one section. This is the project view's own
+  // switcher — the top filter bar (image/video/liked/tags) still applies on
+  // top of whichever section is active.
+  const [projectSection, setProjectSection] =
+    useState<ProjectSectionTab>("all");
+  // Stepped inside one beat of the browsed project (breadcrumb: PROJECTS /
+  // name / beat). Drilling in stays in this view rather than handing off to the
+  // review workspace, which is deprecated.
+  const [browseBeat, setBrowseBeat] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  // A different project starts back on "All" rather than inheriting a section
+  // the new project may not even have. Deliberately does NOT clear browseBeat:
+  // stepping into a beat from collection browse sets project + beat in the same
+  // tick, and an effect here would race that and drop the beat. Every path that
+  // means "leave the beat" clears it explicitly instead.
+  const browsedProjectId = browseProject?.id ?? null;
+  useEffect(() => {
+    setProjectSection("all");
+  }, [browsedProjectId]);
+  // Changing section leaves the beat — its media isn't in the new layer.
+  const selectProjectSection = useCallback((next: ProjectSectionTab) => {
+    setProjectSection(next);
+    setBrowseBeat(null);
+  }, []);
   // Grid tile size (0.4–1, 1 = full size), persisted across sessions.
   const [gridZoom, setGridZoomRaw] = useState(1);
   useEffect(() => {
@@ -429,7 +490,7 @@ export function GalleryDashboard({
 
   // Don't hijack drags while a modal already owns its own dropzone — the
   // upload modals have one, and the project review modal uploads dropped
-  // files straight into a direction. Without this the shell overlay and the
+  // files straight into a beat. Without this the shell overlay and the
   // review modal fight over the drag and the drop goes nowhere.
   const canAcceptShellDrop =
     canAccessMyGallery &&
@@ -472,11 +533,19 @@ export function GalleryDashboard({
       event.preventDefault();
       dragDepthRef.current = 0;
       setIsDraggingFiles(false);
-      const files = Array.from(event.dataTransfer?.files ?? []).filter(
-        (file) =>
-          file.type.startsWith("image/") || file.type.startsWith("video/"),
-      );
-      if (files.length > 0) openUploadWithFiles(files);
+      // Folders and archives only surface through the entries API —
+      // dataTransfer.files reports a dropped directory as one typeless entry,
+      // so reading it directly threw the whole folder away.
+      const dataTransfer = event.dataTransfer;
+      if (!dataTransfer) return;
+      void readDroppedFiles(dataTransfer).then((raw) => {
+        const files = raw
+          .map((entry) => entry.file)
+          .filter(
+            (file) => isZipFile(file) || resolveMedia(file.name, file.type) !== null,
+          );
+        if (files.length > 0) openUploadWithFiles(files);
+      });
     },
     [canAcceptShellDrop, openUploadWithFiles],
   );
@@ -564,6 +633,8 @@ export function GalleryDashboard({
     api.assets.addAssetFolders,
   );
   const setAssetLikedMutation = useMutation(api.assets.setAssetLiked);
+  const setAssetStarredMutation = useMutation(api.assets.setAssetStarred);
+  const setAssetStarNoteMutation = useMutation(api.assets.setAssetStarNote);
   const setAssetTagStateMutation = useMutation(api.assets.setAssetTagState);
   const createFolderMutation = useMutation(
     api.folders.createFolder,
@@ -1087,6 +1158,55 @@ export function GalleryDashboard({
     [canAccessMyGallery, ownerUserId, setAssetLikedMutation],
   );
 
+  const toggleAssetStar = useCallback(
+    async (assetId: string, nextStarred: boolean) => {
+      if (!canAccessMyGallery) {
+        return;
+      }
+      // Optimistic on the open detail panel, same as the like toggle — the
+      // reactive gallery query repaints the card ring a moment later.
+      setSelectedImage((current) =>
+        current && current.id === assetId
+          ? { ...current, starredAt: nextStarred ? Date.now() : undefined }
+          : current,
+      );
+      try {
+        await setAssetStarredMutation({
+          ownerUserId,
+          assetId: assetId as Id<"assets">,
+          starred: nextStarred,
+        });
+      } catch {
+        setSelectedImage((current) =>
+          current && current.id === assetId
+            ? { ...current, starredAt: nextStarred ? undefined : Date.now() }
+            : current,
+        );
+      }
+    },
+    [canAccessMyGallery, ownerUserId, setAssetStarredMutation],
+  );
+
+  const saveAssetStarNote = useCallback(
+    async (assetId: string, note: string) => {
+      if (!canAccessMyGallery) {
+        return;
+      }
+      const trimmed = note.trim();
+      setSelectedImage((current) =>
+        current && current.id === assetId
+          ? { ...current, starNote: trimmed || undefined }
+          : current,
+      );
+      await setAssetStarNoteMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        note: trimmed,
+      });
+    },
+    [canAccessMyGallery, ownerUserId, setAssetStarNoteMutation],
+  );
+
   const closeSelectedImage = useCallback(() => {
     const isMobile =
       typeof window !== "undefined" &&
@@ -1241,16 +1361,17 @@ export function GalleryDashboard({
       })),
     [folders, folderCountById],
   );
-  // Storybooks, projects, and project directions (beats/stacks/pools) are
-  // folders too, but they surface through their own UIs — keep them out of
-  // the plain collections list.
+  // Storybooks, projects, project beats (beats/stacks/pools), and
+  // episodes are folders too, but they surface through their own UIs — keep
+  // them out of the plain collections list.
   const collectionFoldersWithCounts = useMemo(
     () =>
       foldersWithCounts.filter(
         (folder) =>
           folder.kind !== "storybook" &&
           folder.kind !== "project" &&
-          folder.kind !== "direction",
+          folder.kind !== "beat" &&
+          folder.kind !== "episode",
       ),
     [foldersWithCounts],
   );
@@ -1311,6 +1432,8 @@ export function GalleryDashboard({
       setOpenProjectId(null);
       setSelectedFolderId(null);
       setBrowseProject({ id: projectId, name });
+      // Opening a project lands on its top level, never inside a stale beat.
+      setBrowseBeat(null);
       setViewMode("grid");
     },
     [setOpenProjectId, setViewMode],
@@ -1599,16 +1722,23 @@ export function GalleryDashboard({
   const breadcrumbSegments = useMemo<BreadcrumbSegment[]>(() => {
     if (galleryScope !== "mine" || viewMode !== "grid") return [];
     if (browseProject) {
-      return [
+      const segments: BreadcrumbSegment[] = [
         {
           label: "Projects",
           onClick: () => {
             setBrowseProject(null);
+            setBrowseBeat(null);
             setViewMode("collections");
           },
         },
-        { label: browseProject.name },
+        {
+          label: browseProject.name,
+          // Only clickable while stepped inside a beat — that's what it undoes.
+          onClick: browseBeat ? () => setBrowseBeat(null) : undefined,
+        },
       ];
+      if (browseBeat) segments.push({ label: browseBeat.name });
+      return segments;
     }
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
@@ -1638,6 +1768,7 @@ export function GalleryDashboard({
     }
     return [];
   }, [
+    browseBeat,
     browseProject,
     effectiveSelectedFolderId,
     foldersWithCounts,
@@ -1741,8 +1872,13 @@ export function GalleryDashboard({
   // in the flat set, so a VIDEO filter still surfaces a beat's videos).
   const showBeatStacks =
     Boolean(browseProject) &&
+    // Inside a beat the grid shows that beat's flat media, not stack cards.
+    !browseBeat &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
+    // Beats collapse into stack cards on the All and Beats tabs only. On a
+    // Characters/Locations/Stills tab there are no beats in the pool anyway.
+    (projectSection === "all" || projectSection === "beats") &&
     !effectiveSelectedFolderId &&
     !selectedModelName &&
     !mediaKind &&
@@ -1780,17 +1916,25 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           tagIds: selectedTagIds,
-          folderId:
-            effectiveSelectedFolderId && !activeSmartCollectionFilter
+          // Inside a beat, that one beat IS the scope — it wins over the
+          // project pool so the grid shows only the beat's own media.
+          folderId: browseBeat
+            ? (browseBeat.id as Id<"folders">)
+            : effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
             : undefined,
           includeDescendants: browsingWorldFolder || undefined,
-          projectId: browseProject
-            ? (browseProject.id as Id<"folders">)
-            : undefined,
+          projectId:
+            browseProject && !browseBeat
+              ? (browseProject.id as Id<"folders">)
+              : undefined,
           // Beats render as stack cards (below) — keep their members out of
           // the flat tiles so nothing shows twice.
           excludeBeatAssets: showBeatStacks ? true : undefined,
+          projectSection:
+            browseProject && projectSection !== "all"
+              ? projectSection
+              : undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
@@ -1798,6 +1942,62 @@ export function GalleryDashboard({
         }
       : "skip",
   );
+
+  // Starred assets in the CURRENT view, read on their own so they can lead the
+  // grid. Browse streams 60 rows at a time, so a starred piece sitting deep in
+  // the gallery would otherwise not float to the top until the user scrolled
+  // that far. Scoped with the same folder/project args as the grid query above
+  // (independently of which read path is active — the folder-paginated path
+  // takes only a folderId), and merged in BEFORE search and the filter bar run,
+  // so a starred asset is never exempt from a filter the user set.
+  const starredAssets = useQuery(
+    api.assets.listStarredAssets,
+    galleryScope === "mine" && canAccessMyGallery && !workflowsOnly
+      ? {
+          ownerUserId,
+          folderId: browseBeat
+            ? (browseBeat.id as Id<"folders">)
+            : effectiveSelectedFolderId && !activeSmartCollectionFilter
+              ? (effectiveSelectedFolderId as Id<"folders">)
+              : undefined,
+          includeDescendants: browsingWorldFolder || undefined,
+          projectId:
+            browseProject && !browseBeat
+              ? (browseProject.id as Id<"folders">)
+              : undefined,
+          excludeBeatAssets: showBeatStacks ? true : undefined,
+          projectSection:
+            browseProject && projectSection !== "all"
+              ? projectSection
+              : undefined,
+        }
+      : "skip",
+  );
+
+  // Section tabs for the browsed project, counted by member collections (so
+  // "Beats 4" means four beats, matching how the workspace counts them).
+  // Stills/Unsorted only appear once the project actually uses them.
+  const projectSectionTabs = useMemo(() => {
+    if (!browseProject) return [];
+    const project = (projects ?? []).find((p) => p._id === browseProject.id);
+    if (!project) return [];
+    const counts = new Map<ProjectSectionTab, number>();
+    for (const collection of project.collections) {
+      const key = (collection.section ?? "unsorted") as ProjectSectionTab;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return PROJECT_SECTION_TABS.filter(
+      (tab) =>
+        !tab.onlyWhenPresent ||
+        (counts.get(tab.key) ?? 0) > 0 ||
+        // Never hide the tab the user is currently on out from under them.
+        tab.key === projectSection,
+    ).map((tab) => ({
+      ...tab,
+      count:
+        tab.key === "all" ? project.collections.length : (counts.get(tab.key) ?? 0),
+    }));
+  }, [browseProject, projects, projectSection]);
 
   // The browsed project's beats as stack cards for the grid (cover tile +
   // hover peek fan). Same underlying assets as the review workspace.
@@ -1809,6 +2009,61 @@ export function GalleryDashboard({
           projectId: browseProject.id as Id<"folders">,
         }
       : "skip",
+  );
+
+  // Episodes (chapters grouping beats) — only read while that tab is open.
+  const episodesView = projectSection === "episodes" && !browseBeat;
+  const projectEpisodes = useQuery(
+    api.projects.listProjectEpisodes,
+    browseProject && episodesView && canAccessMyGallery
+      ? {
+          ownerUserId,
+          projectId: browseProject.id as Id<"folders">,
+        }
+      : "skip",
+  );
+  const createEpisodeMutation = useMutation(api.projects.createEpisode);
+  const setBeatEpisodeMutation = useMutation(api.projects.setBeatEpisode);
+  const [episodeNotice, setEpisodeNotice] = useState<
+    DashboardNotice | undefined
+  >(undefined);
+  const warnEpisode = useCallback((error: unknown, fallback: string) => {
+    setEpisodeNotice({
+      title: error instanceof Error ? error.message : fallback,
+      type: "warning",
+      at: Date.now(),
+    });
+  }, []);
+
+  const createEpisode = useCallback(
+    async (name: string) => {
+      if (!browseProject) return;
+      try {
+        await createEpisodeMutation({
+          ownerUserId,
+          projectId: browseProject.id as Id<"folders">,
+          name,
+        });
+      } catch (error) {
+        warnEpisode(error, "Could not add episode.");
+      }
+    },
+    [browseProject, createEpisodeMutation, ownerUserId, warnEpisode],
+  );
+
+  const fileBeatIntoEpisode = useCallback(
+    (beatFolderId: string, episodeFolderId: string | null) => {
+      if (!browseProject) return;
+      void setBeatEpisodeMutation({
+        ownerUserId,
+        projectId: browseProject.id as Id<"folders">,
+        beatFolderId: beatFolderId as Id<"folders">,
+        episodeFolderId: (episodeFolderId as Id<"folders"> | null) ?? null,
+      }).catch((error: unknown) => {
+        warnEpisode(error, "Could not file the beat.");
+      });
+    },
+    [browseProject, ownerUserId, setBeatEpisodeMutation, warnEpisode],
   );
 
   // Beats fully contained in the browsed collection (stack cards).
@@ -1855,10 +2110,13 @@ export function GalleryDashboard({
     : galleryScope === "mine"
       ? mineGalleryAssets
       : publicGalleryAssets;
-  const baseGalleryAssets = useMemo(
-    () => galleryAssets ?? [],
-    [galleryAssets],
-  );
+  const baseGalleryAssets = useMemo(() => {
+    const base = galleryAssets ?? [];
+    if (!starredAssets || starredAssets.length === 0) return base;
+    const present = new Set(base.map((asset) => asset._id));
+    const missing = starredAssets.filter((asset) => !present.has(asset._id));
+    return missing.length > 0 ? [...missing, ...base] : base;
+  }, [galleryAssets, starredAssets]);
   const isSimilarMode = semanticMode?.kind === "similar";
 
   useEffect(() => {
@@ -2095,9 +2353,13 @@ export function GalleryDashboard({
       loadedAssetIds: loadedImageIdsRef.current,
       sortOrder,
       shuffleSeed,
+      // Semantic results are already ordered by score — that ranking is what
+      // the user asked for, so a star doesn't get to jump the queue there.
+      promoteStarred: filteredSemanticResults === null,
     });
   }, [
     displayGalleryAssets,
+    filteredSemanticResults,
     hiddenAssetIds,
     sortOrder,
     shuffleSeed,
@@ -2348,7 +2610,18 @@ export function GalleryDashboard({
     // Stacks lead the grid — they're shelves, not dated assets. In project
     // browse that's the beats; in the default state, storybooks.
     const leading = [...stacks, ...childCollections, ...beats];
-    return leading.length > 0 ? [...leading, ...mixed] : mixed;
+    const ordered =
+      leading.length > 0 ? [...leading, ...mixed] : mixed;
+    // ...except a star outranks a shelf. Starring is a deliberate "this one
+    // first" on a specific piece, so it wins the very top of the grid — above
+    // the storybook/beat/collection stacks, not just above the other tiles.
+    // buildGalleryEntries already ordered the starred ones among themselves.
+    const starredLead = ordered.filter((entry) => "starredAt" in entry && entry.starredAt);
+    if (starredLead.length === 0) return ordered;
+    return [
+      ...starredLead,
+      ...ordered.filter((entry) => !("starredAt" in entry && entry.starredAt)),
+    ];
   }, [
     workflowsOnly,
     mediaKind,
@@ -2470,7 +2743,7 @@ export function GalleryDashboard({
       setBulkCurationStatus(undefined);
       try {
         // Move relocates the asset among PLAIN collections only. Storybook
-        // and beat/direction memberships are orthogonal overlays and survive
+        // and beat/beat memberships are orthogonal overlays and survive
         // a move — replacing the full set here used to silently strip them.
         const plainCollectionIds = new Set(
           collectionFoldersWithCounts.map((folder) => String(folder._id)),
@@ -2718,23 +2991,43 @@ export function GalleryDashboard({
   // Per-card menu targets: plain collections (Move/Add) plus storybooks
   // (always additive). Projects group collections, not assets, so they are
   // never asset-membership targets and are excluded.
-  const cardCollections = useMemo(
-    () => [
-      ...collectionFoldersWithCounts.map((folder) => ({
+  const cardCollections = useMemo(() => {
+    const nameById = new Map(
+      collectionFoldersWithCounts.map((folder) => [
+        folder._id as string,
+        folder.name,
+      ]),
+    );
+    const rows = collectionFoldersWithCounts.map((folder) => {
+      const parentId = folder.parentFolderId as string | undefined;
+      return {
         id: folder._id as string,
         name: folder.name,
+        // Several parents each own a "Characters"/"Locations", so the row has
+        // to say whose it is or the options are indistinguishable.
+        parentName: parentId ? nameById.get(parentId) : undefined,
         count: folder.count,
         kind: "collection" as const,
-      })),
+      };
+    });
+    // Group each child under its parent, roots alphabetical, so the list reads
+    // as the tree it is instead of an interleaved flat dump.
+    const sortKey = (row: (typeof rows)[number]) =>
+      `${(row.parentName ?? row.name).toLowerCase()} ${
+        row.parentName ? `1${row.name.toLowerCase()}` : "0"
+      }`;
+    rows.sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
+    return [
+      ...rows,
       ...(storybooks ?? []).map((storybook) => ({
         id: storybook._id as string,
         name: storybook.name,
+        parentName: undefined,
         count: storybook.count,
         kind: "storybook" as const,
       })),
-    ],
-    [collectionFoldersWithCounts, storybooks],
-  );
+    ];
+  }, [collectionFoldersWithCounts, storybooks]);
 
   // Plain collections only (no storybooks/projects) — offered as members a
   // project's review can aggregate.
@@ -2780,7 +3073,7 @@ export function GalleryDashboard({
   );
 
   // Dropping on a collection ADDS membership, exactly like storybooks and
-  // directions below — every drop target in the sidebar behaves the same.
+  // beats below — every drop target in the sidebar behaves the same.
   // Moving (which removes other collection memberships) is only ever the
   // explicit Move action in the card menu, never a drag.
   const handleAssetsDropOnFolder = useCallback(
@@ -2843,10 +3136,10 @@ export function GalleryDashboard({
     [addAssetFoldersMutation, folderNameById, ownerUserId],
   );
 
-  // Dropping on a direction (a project's member collection) ADDS membership,
-  // same semantics as storybooks — directions layer on top of the asset's home.
-  const handleAssetsDropOnDirection = useCallback(
-    async (directionId: string, assetIds: string[]) => {
+  // Dropping on a beat (a project's member collection) ADDS membership,
+  // same semantics as storybooks — beats layer on top of the asset's home.
+  const handleAssetsDropOnBeat = useCallback(
+    async (beatId: string, assetIds: string[]) => {
       if (assetIds.length === 0) return;
       try {
         await Promise.all(
@@ -2854,19 +3147,19 @@ export function GalleryDashboard({
             addAssetFoldersMutation({
               ownerUserId,
               assetId: assetId as Id<"assets">,
-              folderIds: [directionId as Id<"folders">],
+              folderIds: [beatId as Id<"folders">],
             }),
           ),
         );
         setMoveStatus({
-          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(directionId) ?? "direction"}`,
+          text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(beatId) ?? "beat"}`,
         });
       } catch (error) {
         setMoveStatus({
           text:
             error instanceof Error
               ? error.message
-              : "Failed to add to direction.",
+              : "Failed to add to beat.",
           error: true,
         });
       }
@@ -2888,9 +3181,9 @@ export function GalleryDashboard({
     return counts;
   }, [projects, selectedAssetMemberships]);
 
-  // Dropping on a project files assets into its "<Project> — Inbox" direction
+  // Dropping on a project files assets into its "<Project> — Inbox" beat
   // (created + attached on first drop, idempotent) so a drop never needs a
-  // target choice mid-drag; sort into proper directions later.
+  // target choice mid-drag; sort into proper beats later.
   const handleAssetsDropOnProject = useCallback(
     // projectNameOverride covers just-created projects that aren't in the
     // reactive `projects` list yet (used by the bulk "Add to" picker).
@@ -3050,7 +3343,7 @@ export function GalleryDashboard({
   );
 
   // Collections offered as destinations EXCLUDE anything that is really a
-  // world's section — a project's member directions, and the sub-collections
+  // world's section — a project's member beats, and the sub-collections
   // of a collection-shaped world. Those are reachable under their world, so
   // listing them flat duplicated "Characters"/"Locations"/"Scenes" rows.
   const worldSectionFolderIds = useMemo(() => {
@@ -3109,7 +3402,7 @@ export function GalleryDashboard({
     [ensureSectionPoolMutation, handleAssetsDropOnFolder, ownerUserId],
   );
 
-  // A beat is a direction attached to the world under its "beats" section —
+  // A beat is a beat attached to the world under its "beats" section —
   // the same shape the review modal's composer produces, now reachable from
   // the gallery with any asset selected.
   const createBeatFromAssets = useCallback(
@@ -3119,7 +3412,7 @@ export function GalleryDashboard({
         const created = await createFolderMutation({
           ownerUserId,
           name,
-          kind: "direction",
+          kind: "beat",
         });
         await addCollectionToProjectMutation({
           ownerUserId,
@@ -3221,6 +3514,13 @@ export function GalleryDashboard({
     [toggleAssetLike],
   );
 
+  const handleCardToggleStar = useCallback(
+    (imageId: string, nextStarred: boolean) => {
+      void toggleAssetStar(imageId, nextStarred);
+    },
+    [toggleAssetStar],
+  );
+
   const handleCardAddToProject = useCallback(
     (imageId: string, projectId: string) => {
       void handleAssetsDropOnProject(projectId, [imageId]);
@@ -3245,25 +3545,39 @@ export function GalleryDashboard({
     setSelectedFolderId(collectionId);
   }, []);
 
-  // A beat click steps into the project workspace — the separate review view
-  // over the same linked assets. In collection browse the beat's owning
-  // project is looked up from the project summaries.
+  // A beat click steps INTO the beat without leaving the project view — the
+  // grid re-scopes to that one beat and the breadcrumb grows a segment. It used
+  // to hand off to the review workspace; that view is deprecated, and bouncing
+  // into it also dropped the light theme and the top filter bar.
   const handleCardBeatOpen = useCallback(
     (beatFolderId: string) => {
-      const projectId =
-        browseProject?.id ??
-        (projects ?? []).find((project) =>
-          project.collections.some(
-            (collection) =>
-              collection.folderId === beatFolderId &&
-              collection.section === "beats",
-          ),
-        )?._id;
-      if (projectId) {
-        setOpenProjectTarget({ projectId, beatFolderId });
+      const owningProject = (projects ?? []).find((project) =>
+        project.collections.some(
+          (collection) => collection.folderId === beatFolderId,
+        ),
+      );
+      const rawName =
+        owningProject?.collections.find(
+          (collection) => collection.folderId === beatFolderId,
+        )?.name ?? "Beat";
+      // Beat folders are namespaced ("DADDY ISSUES — Full Film") so names stay
+      // unique across projects; the breadcrumb already says the project, so
+      // show just the leaf.
+      const prefix = owningProject ? `${owningProject.name} — ` : "";
+      const beatName =
+        prefix && rawName.startsWith(prefix)
+          ? rawName.slice(prefix.length)
+          : rawName;
+      // Reached from collection browse rather than project browse: step into
+      // the owning project first so the breadcrumb stays truthful.
+      if (!browseProject && owningProject) {
+        setSelectedFolderId(null);
+        setBrowseProject({ id: owningProject._id, name: owningProject.name });
       }
+      setSelectedImage(null);
+      setBrowseBeat({ id: beatFolderId, name: beatName });
     },
-    [browseProject?.id, projects],
+    [browseProject, projects],
   );
 
   const createTargetAndAddSelected = useCallback(
@@ -3434,6 +3748,8 @@ export function GalleryDashboard({
               : [],
         isPublic: entry.isPublic,
         isFeatured: entry.isFeatured,
+        starredAt: "starredAt" in entry ? entry.starredAt : undefined,
+        starNote: "starNote" in entry ? entry.starNote : undefined,
         previewImages: entry.previewImages ?? [],
       });
     },
@@ -3844,6 +4160,12 @@ export function GalleryDashboard({
         ? deleteAssetError
         : undefined
       : undefined,
+    onToggleStar: canManageFoldersInCurrentView
+      ? handleCardToggleStar
+      : undefined,
+    onSaveStarNote: canManageFoldersInCurrentView
+      ? saveAssetStarNote
+      : undefined,
     folders: folders ?? [],
     canManageFolder: canManageFoldersInCurrentView,
     onSetFolders: canManageFoldersInCurrentView
@@ -3920,6 +4242,7 @@ export function GalleryDashboard({
         silent no-op. */}
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
+      <NoticeToast notice={episodeNotice} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar="creators"
@@ -4101,7 +4424,7 @@ export function GalleryDashboard({
                   name: project.name,
                   count: project.assetCount,
                   worldName: project.world?.name,
-                  directions: (project.collections ?? []).map(
+                  beats: (project.collections ?? []).map(
                     (collection) => ({
                       id: collection.folderId as string,
                       name: collection.name,
@@ -4124,9 +4447,9 @@ export function GalleryDashboard({
               ? handleAssetsDropOnProject
               : undefined
           }
-          onAssetsDropOnDirection={
+          onAssetsDropOnBeat={
             canManageFoldersInCurrentView
-              ? handleAssetsDropOnDirection
+              ? handleAssetsDropOnBeat
               : undefined
           }
           onRenameFolder={
@@ -4347,7 +4670,26 @@ export function GalleryDashboard({
               {!storybooksView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb segments={breadcrumbSegments} />
               )}
-              {storybooksView ? (
+              {!storybooksView && browseProject && (
+                <ProjectSectionTabs
+                  tabs={projectSectionTabs}
+                  active={projectSection}
+                  onChange={selectProjectSection}
+                />
+              )}
+              {/* Episodes are a grouping of beats, not a flat asset set, so
+                  that tab replaces the grid with its own list. */}
+              {browseProject && episodesView ? (
+                <ProjectEpisodes
+                  projectName={browseProject.name}
+                  episodes={projectEpisodes?.episodes ?? []}
+                  unassignedBeats={projectEpisodes?.unassignedBeats ?? []}
+                  loading={projectEpisodes === undefined}
+                  onOpenBeat={handleCardBeatOpen}
+                  onCreateEpisode={createEpisode}
+                  onFileBeat={fileBeatIntoEpisode}
+                />
+              ) : storybooksView ? (
                 storybookEntries.length > 0 ? (
                   <MasonryGrid
                     images={storybookEntries}
@@ -4486,6 +4828,8 @@ export function GalleryDashboard({
                     onReplaceSelection={replaceAssetSelection}
                     likeable={canManageFoldersInCurrentView}
                     onToggleLike={handleCardToggleLike}
+                    starrable={canManageFoldersInCurrentView}
+                    onToggleStar={handleCardToggleStar}
                     draggableAssets={canManageFoldersInCurrentView}
                     onAssetDragStart={handleAssetDragStart}
                     collections={
@@ -4504,6 +4848,11 @@ export function GalleryDashboard({
                     }
                     onCreateCollection={
                       canManageFoldersInCurrentView ? createFolder : undefined
+                    }
+                    onRenameCollection={
+                      canManageFoldersInCurrentView
+                        ? handleRenameFolder
+                        : undefined
                     }
                     projects={
                       canManageFoldersInCurrentView
@@ -5453,7 +5802,7 @@ export function GalleryDashboard({
         key={openProjectId ?? "review-closed"}
         ownerUserId={ownerUserId}
         projectId={openProjectId}
-        initialDirectionId={openProjectTarget?.beatFolderId ?? null}
+        initialBeatId={openProjectTarget?.beatFolderId ?? null}
         allCollections={projectCollectionOptions}
         leftOffset={contentMarginLeft}
         onClose={() => setOpenProjectId(null)}

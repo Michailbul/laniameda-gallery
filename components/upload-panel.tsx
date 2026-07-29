@@ -34,8 +34,8 @@ export type FolderOption = {
   _id: string;
   name: string;
   description?: string | null;
-  /** Undefined = a plain collection; projects/directions/storybooks are typed. */
-  kind?: "storybook" | "project" | "direction" | "episode";
+  /** Undefined = a plain collection; projects/beats/storybooks are typed. */
+  kind?: "storybook" | "project" | "beat" | "episode";
   parentFolderId?: string;
 };
 
@@ -145,6 +145,12 @@ export function UploadPanel({
   const [promoteToPublic, setPromoteToPublic] = useState(false);
   const [folderDraftName, setFolderDraftName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
+  // A collection created here is selected the instant the API returns, which is
+  // before the folders query round-trips — and a Select whose value matches no
+  // mounted option falls back to its placeholder, so the new collection read as
+  // "No collection (default)" until you picked it again. Carrying the created
+  // folder locally keeps an option under the value at all times.
+  const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
   const [generationType, setGenerationType] = useState(NO_VALUE);
@@ -234,6 +240,11 @@ export function UploadPanel({
     const unique = Array.from(new Set(availableTags));
     return unique.slice(0, 6);
   }, [availableTags]);
+
+  const folderOptions = useMemo(() => {
+    const known = new Set(folders.map((folder) => folder._id));
+    return [...folders, ...createdFolders.filter((folder) => !known.has(folder._id))];
+  }, [folders, createdFolders]);
 
   const handleIncomingFiles = (files: FileList | File[]) => {
     const added: File[] = Array.from(files).filter((file): file is File => file instanceof File);
@@ -925,7 +936,7 @@ export function UploadPanel({
                     <SelectContent className={selectContentCls}>
                       <SelectGroup>
                         <SelectItem value={NO_FOLDER_VALUE} className={selectItemCls}>No collection (default)</SelectItem>
-                        {folders.map((folder) => (
+                        {folderOptions.map((folder) => (
                           <SelectItem key={folder._id} value={folder._id} className={selectItemCls}>
                             {folder.name}
                           </SelectItem>

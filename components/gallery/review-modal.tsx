@@ -148,7 +148,7 @@ type LinkedRef = {
  * with the loose assets, in masonry order; a stack renders as a carousel. */
 type FeedItem =
   | { kind: "asset"; id: string; asset: ReviewAsset }
-  | { kind: "stack"; id: string; card: DirectionCardData; assets: ReviewAsset[] };
+  | { kind: "stack"; id: string; card: BeatCardData; assets: ReviewAsset[] };
 
 type AssetLikes = { count: number; names: string[] };
 
@@ -236,7 +236,7 @@ type ReviewModalProps = {
   /** Folder id of the open project, or null when closed. */
   projectId?: string | null;
   /** Member collection to drill into as soon as the project opens. */
-  initialDirectionId?: string | null;
+  initialBeatId?: string | null;
   /** All of the owner's plain collections, for the "add collections" picker. */
   allCollections?: CollectionOption[];
   /**
@@ -279,7 +279,7 @@ type ReviewAsset = {
   tagNames: string[];
 };
 
-type DirectionCardData = {
+type BeatCardData = {
   id: string;
   name: string;
   count: number;
@@ -300,7 +300,7 @@ type DirectionCardData = {
   /** Kind breakdown for the card footer. */
   videos: number;
   images: number;
-  /** Whole-direction likes left by board viewers. */
+  /** Whole-beat likes left by board viewers. */
   likes: number;
   /** Pinned cards float first in their mode. */
   pinned: boolean;
@@ -318,7 +318,7 @@ type DirectionCardData = {
 export function ReviewModal({
   ownerUserId = "",
   projectId,
-  initialDirectionId,
+  initialBeatId,
   allCollections = [],
   viewerToken,
   leftOffset,
@@ -347,7 +347,7 @@ export function ReviewModal({
       : "skip",
   );
   const viewerBoard = useQuery(
-    api.directionBoard.getBoardWorkspace,
+    api.beatBoard.getBoardWorkspace,
     readOnly && viewerToken
       ? { token: viewerToken, viewerKey: viewerKey ?? undefined }
       : "skip",
@@ -374,10 +374,10 @@ export function ReviewModal({
   // Videos upload straight from the browser to R2 (the ingest route only
   // carries image bytes — video files would blow the serverless body limit).
   const uploadVideo = useUploadFile(api.r2);
-  const enableShare = useMutation(api.directionBoard.enableShare);
-  const disableShare = useMutation(api.directionBoard.disableShare);
+  const enableShare = useMutation(api.beatBoard.enableShare);
+  const disableShare = useMutation(api.beatBoard.disableShare);
   const shareState = useQuery(
-    api.directionBoard.getShareState,
+    api.beatBoard.getShareState,
     projectId
       ? { ownerUserId, projectId: projectId as Id<"folders"> }
       : "skip",
@@ -390,7 +390,7 @@ export function ReviewModal({
   );
 
   // ── Viewer likes (read-only mode) ──
-  const toggleBoardLikeMutation = useMutation(api.directionBoard.toggleBoardLike);
+  const toggleBoardLikeMutation = useMutation(api.beatBoard.toggleBoardLike);
   const viewerLikedAssets = useMemo(
     () => new Set<string>(viewerBoard?.viewerLikedAssetIds ?? []),
     [viewerBoard],
@@ -410,7 +410,7 @@ export function ReviewModal({
     },
     [readOnly, viewerToken, viewerKey, toggleBoardLikeMutation],
   );
-  const toggleDirectionLike = useCallback(
+  const toggleBeatLike = useCallback(
     (folderId: string) => {
       if (!readOnly || !viewerToken || !viewerKey) return;
       void toggleBoardLikeMutation({
@@ -424,23 +424,23 @@ export function ReviewModal({
 
   // The active mode of the centered toggle. Projects open on Beats.
   const [activeTab, setActiveTab] = useState<ReviewTab>("beats");
-  // Direction currently drilled into (a member collection id), or null when
+  // Beat currently drilled into (a member collection id), or null when
   // browsing a mode.
-  const [openDirectionId, setOpenDirectionId] = useState<string | null>(
-    initialDirectionId ?? null,
+  const [openBeatId, setOpenBeatId] = useState<string | null>(
+    initialBeatId ?? null,
   );
   // Opening a beat straight from the gallery deep-links past the beats grid.
   // Escape must then CLOSE, not fall back to a grid the user never visited —
   // they expect to land back where they clicked from. Once they navigate
   // elsewhere in the modal the deep link stops applying.
-  const enteredAtDirection = useRef(Boolean(initialDirectionId));
+  const enteredAtBeat = useRef(Boolean(initialBeatId));
   // The moment they navigate off the entry beat, the deep link is spent: from
   // then on the beats grid IS a place they've been, so Escape should go there.
   useEffect(() => {
-    if (openDirectionId !== initialDirectionId) enteredAtDirection.current = false;
-  }, [openDirectionId, initialDirectionId]);
-  const closedFromEntryDirection =
-    enteredAtDirection.current && openDirectionId === initialDirectionId;
+    if (openBeatId !== initialBeatId) enteredAtBeat.current = false;
+  }, [openBeatId, initialBeatId]);
+  const closedFromEntryBeat =
+    enteredAtBeat.current && openBeatId === initialBeatId;
   const [likedOnly, setLikedOnly] = useState(false);
   // Masonry tile size (target CSS column width). Driven by the header
   // slider; the browser fits as many columns as the viewport allows, so the
@@ -465,7 +465,7 @@ export function ReviewModal({
   const [stackName, setStackName] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  // Inline rename of the drilled direction (null = not renaming).
+  // Inline rename of the drilled beat (null = not renaming).
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   // Draft beat composer: the user stages files, sorts each into a bucket
   // (character / location / still; videos are fixed), names the beat, and
@@ -538,7 +538,7 @@ export function ReviewModal({
       [...likesByAsset.values()].reduce((sum, entry) => sum + entry.count, 0),
     [likesByAsset],
   );
-  // Whole-direction likes (a viewer liking a beat card), keyed by folder id.
+  // Whole-beat likes (a viewer liking a beat card), keyed by folder id.
   const likesByCollection = useMemo(
     () =>
       new Map<string, AssetLikes>(
@@ -613,15 +613,15 @@ export function ReviewModal({
     };
   }, [project]);
 
-  // The drilled-into direction, if it still exists in the project.
-  const openDirection = useMemo<ProjectCollection | null>(
+  // The drilled-into beat, if it still exists in the project.
+  const openBeat = useMemo<ProjectCollection | null>(
     () =>
-      (openDirectionId &&
+      (openBeatId &&
         (project?.collections ?? []).find(
-          (c) => (c.folderId as string) === openDirectionId,
+          (c) => (c.folderId as string) === openBeatId,
         )) ||
       null,
-    [project, openDirectionId],
+    [project, openBeatId],
   );
 
   const resolveCoverId = useCallback(
@@ -635,8 +635,8 @@ export function ReviewModal({
 
   // One card per collection. Beat cards cycle their videos (master first);
   // video-less stacks keep the fanned-deck look with the image master on top.
-  const toDirectionCard = useCallback(
-    (collection: ProjectCollection): DirectionCardData => {
+  const toBeatCard = useCallback(
+    (collection: ProjectCollection): BeatCardData => {
       const reviewAssets = collection.assets.map((a) =>
         toReviewAsset(a, collection),
       );
@@ -696,29 +696,29 @@ export function ReviewModal({
   );
 
   // Beats mode cards, pinned first.
-  const beatCards = useMemo<DirectionCardData[]>(
+  const beatCards = useMemo<BeatCardData[]>(
     () =>
       effectiveTab === "beats"
         ? [...tabCollections]
             .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-            .map(toDirectionCard)
+            .map(toBeatCard)
         : [],
-    [effectiveTab, tabCollections, toDirectionCard],
+    [effectiveTab, tabCollections, toBeatCard],
   );
 
   // Pool modes: named stacks (every section collection except the pool) +
   // the loose pool assets not yet in any stack.
   const poolCollection =
     effectiveTab === "beats" ? undefined : pools[effectiveTab];
-  const stackCards = useMemo<DirectionCardData[]>(
+  const stackCards = useMemo<BeatCardData[]>(
     () =>
       effectiveTab === "beats"
         ? []
         : [...tabCollections]
             .filter((c) => c.folderId !== poolCollection?.folderId)
             .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-            .map(toDirectionCard),
-    [effectiveTab, tabCollections, poolCollection, toDirectionCard],
+            .map(toBeatCard),
+    [effectiveTab, tabCollections, poolCollection, toBeatCard],
   );
   const looseAssets = useMemo<ReviewAsset[]>(() => {
     if (effectiveTab === "beats") return [];
@@ -774,33 +774,33 @@ export function ReviewModal({
 
   const drilledAssets = useMemo<ReviewAsset[]>(
     () =>
-      openDirection
-        ? openDirection.assets
-            .map((a) => toReviewAsset(a, openDirection))
+      openBeat
+        ? openBeat.assets
+            .map((a) => toReviewAsset(a, openBeat))
             .sort(byPriority)
         : [],
-    [openDirection, toReviewAsset],
+    [openBeat, toReviewAsset],
   );
 
-  // The drilled direction's hero video: its master when that's a video, else
+  // The drilled beat's hero video: its master when that's a video, else
   // the first video in the pack.
   const drilledBeat = useMemo<ReviewAsset | null>(() => {
-    if (!openDirection) return null;
+    if (!openBeat) return null;
     const videos = drilledAssets.filter((a) => a.kind === "video");
-    const coverId = resolveCoverId(openDirection);
+    const coverId = resolveCoverId(openBeat);
     return videos.find((a) => a.id === coverId) ?? videos[0] ?? null;
-  }, [openDirection, drilledAssets, resolveCoverId]);
-  const drilledIsBeat = openDirection
-    ? tabOf(openDirection.section) === "beats"
+  }, [openBeat, drilledAssets, resolveCoverId]);
+  const drilledIsBeat = openBeat
+    ? tabOf(openBeat.section) === "beats"
     : false;
 
-  // The tile scope: a drilled direction's assets, the mode's loose pool, or
+  // The tile scope: a drilled beat's assets, the mode's loose pool, or
   // (on the Beats main page) the project's unsorted files.
   const assets = useMemo<ReviewAsset[]>(() => {
-    if (openDirection) return drilledAssets;
+    if (openBeat) return drilledAssets;
     if (effectiveTab === "beats") return unsortedAssets;
     return looseAssets;
-  }, [openDirection, drilledAssets, effectiveTab, unsortedAssets, looseAssets]);
+  }, [openBeat, drilledAssets, effectiveTab, unsortedAssets, looseAssets]);
 
   const passesFilters = useCallback(
     (asset: ReviewAsset) =>
@@ -818,11 +818,11 @@ export function ReviewModal({
   // stable, so unweighted stacks lead the unweighted assets.
   const modeItems = useMemo<
     (
-      | { kind: "stack"; card: DirectionCardData }
+      | { kind: "stack"; card: BeatCardData }
       | { kind: "asset"; asset: ReviewAsset }
     )[]
   >(() => {
-    if (effectiveTab === "beats" || openDirection) return [];
+    if (effectiveTab === "beats" || openBeat) return [];
     const weighted = [
       ...stackCards.map((card) => ({
         item: { kind: "stack" as const, card },
@@ -839,7 +839,7 @@ export function ReviewModal({
       (a, b) => b.pinnedAt - a.pinnedAt || b.orderPriority - a.orderPriority,
     );
     return weighted.map((entry) => entry.item);
-  }, [effectiveTab, openDirection, stackCards, visibleAssets]);
+  }, [effectiveTab, openBeat, stackCards, visibleAssets]);
 
   // Pool grid: justified rows (Flickr/Google-Photos model) — row-major, so
   // pinned items lead horizontally, every row packs edge-to-edge, and mixed
@@ -890,7 +890,7 @@ export function ReviewModal({
   // A drilled beat's elements in presentation order: videos (master first),
   // then characters, locations, and stills. Drives the preview strip.
   const beatElements = useMemo<ReviewAsset[]>(() => {
-    if (!openDirection) return [];
+    if (!openBeat) return [];
     const rank = (a: ReviewAsset) =>
       a.kind === "video"
         ? a.id === drilledBeat?.id
@@ -904,7 +904,7 @@ export function ReviewModal({
     return [...visibleAssets].sort(
       (a, b) => rank(a) - rank(b) || byPriority(a, b),
     );
-  }, [openDirection, visibleAssets, drilledBeat]);
+  }, [openBeat, visibleAssets, drilledBeat]);
   // Focused element in the beat viewer: explicit pick, else the master.
   const beatFocus =
     beatElements.find((a) => a.id === beatFocusId) ??
@@ -912,7 +912,7 @@ export function ReviewModal({
     beatElements[0] ??
     null;
 
-  // Step the drilled direction's focused element (arrow keys + trackpad).
+  // Step the drilled beat's focused element (arrow keys + trackpad).
   const stepBeatFocus = useCallback(
     (delta: number) => {
       if (beatElements.length === 0 || !beatFocus) return;
@@ -957,13 +957,13 @@ export function ReviewModal({
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
     // Re-bind whenever the pane can (un)mount: drill-in, select mode, focus.
-  }, [openDirectionId, selectMode, focusId]);
+  }, [openBeatId, selectMode, focusId]);
 
   // The full-res preview feed. Pool modes walk the merged masonry — stacks
   // become carousel entries between the loose assets; everywhere else it's
   // the flat asset scope.
   const feedItems = useMemo<FeedItem[]>(() => {
-    if (!openDirection && effectiveTab !== "beats") {
+    if (!openBeat && effectiveTab !== "beats") {
       const collectionById = new Map(
         tabCollections.map((c) => [c.folderId as string, c]),
       );
@@ -990,7 +990,7 @@ export function ReviewModal({
       asset,
     }));
   }, [
-    openDirection,
+    openBeat,
     effectiveTab,
     modeItems,
     tabCollections,
@@ -1040,12 +1040,12 @@ export function ReviewModal({
   // the grid without a state-syncing effect.
   const inFocus = Boolean(focusItem);
 
-  // ── File uploads into a direction ──
+  // ── File uploads into a beat ──
   // A dropped/typed text becomes the prompt for every file in the pack; the
-  // first video becomes the direction's MASTER (its beat) unless a video
+  // first video becomes the beat's MASTER (its beat) unless a video
   // master already exists, so the card previews as the shot. Returns the
   // created asset ids in file order (null where an upload failed).
-  const uploadFilesToDirection = async (
+  const uploadFilesToBeat = async (
     media: File[],
     targetFolderId: string,
     promptText: string,
@@ -1178,7 +1178,7 @@ export function ReviewModal({
     const detached = allCollections.find((c) => c.name === name);
     const folderId = detached
       ? detached.id
-      : ((await createFolder({ ownerUserId, name, kind: "direction" }))
+      : ((await createFolder({ ownerUserId, name, kind: "beat" }))
           .folderId as string);
     await addCollection({
       ownerUserId,
@@ -1192,7 +1192,7 @@ export function ReviewModal({
   // Pool modes: uploads land straight in the pool, tagged with their role.
   const uploadToPool = async (media: File[], section: PoolSection) => {
     const poolId = await ensurePool(section);
-    const uploaded = await uploadFilesToDirection(media, poolId, "", true);
+    const uploaded = await uploadFilesToBeat(media, poolId, "", true);
     const tag = POOL_TAGS[section];
     for (const { assetId, isVideo } of uploaded) {
       if (!assetId || isVideo) continue;
@@ -1204,7 +1204,7 @@ export function ReviewModal({
     }
   };
 
-  // Drilled: dropped files land in that direction. Beats mode: they STAGE
+  // Drilled: dropped files land in that beat. Beats mode: they STAGE
   // into the beat composer (never auto-created). Characters / Locations:
   // straight into the pool.
   const handleFilesDrop = async (dropped: File[]) => {
@@ -1221,16 +1221,16 @@ export function ReviewModal({
       ? (await promptFile.text()).trim().slice(0, 4000)
       : "";
 
-    if (openDirection && !composer) {
+    if (openBeat && !composer) {
       if (media.length === 0) {
         setUploadState({ done: 0, total: 0, error: "Drop images or videos." });
         return;
       }
-      await uploadFilesToDirection(
+      await uploadFilesToBeat(
         media,
-        openDirection.folderId as string,
+        openBeat.folderId as string,
         promptText,
-        drilledBeat !== null && drilledBeat.id === resolveCoverId(openDirection),
+        drilledBeat !== null && drilledBeat.id === resolveCoverId(openBeat),
       );
       return;
     }
@@ -1308,7 +1308,7 @@ export function ReviewModal({
         ownerUserId,
         name,
         description: prompt.trim() || undefined,
-        kind: "direction",
+        kind: "beat",
       });
       await addCollection({
         ownerUserId,
@@ -1317,7 +1317,7 @@ export function ReviewModal({
         section: "beats",
       });
       setComposer(null);
-      setOpenDirectionId(created.folderId as string);
+      setOpenBeatId(created.folderId as string);
       setBeatFocusId(null);
       // Resolve each pool once per save — `pools` is stale inside this
       // closure after the first ensurePool creates one.
@@ -1349,7 +1349,7 @@ export function ReviewModal({
 
       let hasVideoMaster = false;
       if (files.length > 0) {
-        const uploaded = await uploadFilesToDirection(
+        const uploaded = await uploadFilesToBeat(
           files,
           created.folderId as string,
           prompt.trim(),
@@ -1412,7 +1412,7 @@ export function ReviewModal({
       const created = await createFolder({
         ownerUserId,
         name,
-        kind: "direction",
+        kind: "beat",
       });
       await addCollection({
         ownerUserId,
@@ -1445,13 +1445,13 @@ export function ReviewModal({
     Array.from(event.dataTransfer?.types ?? []).includes("Files");
 
   const dropTargetLabel =
-    openDirection && !composer
-      ? `Drop to add to ${openDirection.name}`
+    openBeat && !composer
+      ? `Drop to add to ${openBeat.name}`
       : composer
-        ? "Drop to stage in the new direction"
-        : "Drop to draft a new direction";
+        ? "Drop to stage in the new beat"
+        : "Drop to draft a new beat";
 
-  // Set (or clear, when assetId is null) a direction's MASTER option.
+  // Set (or clear, when assetId is null) a beat's MASTER option.
   const setMaster = useCallback(
     (collectionId: string, assetId: string | null) => {
       setCoverOverride((prev) => ({ ...prev, [collectionId]: assetId }));
@@ -1471,19 +1471,19 @@ export function ReviewModal({
     [ownerUserId, setFolderCover],
   );
 
-  // Remove an asset's membership in the drilled direction — other collection
+  // Remove an asset's membership in the drilled beat — other collection
   // memberships stay intact; the asset is never deleted from the gallery.
-  const removeFromDirection = useCallback(
+  const removeFromBeat = useCallback(
     (asset: ReviewAsset) => {
-      if (!openDirectionId) return;
-      const next = asset.folderIds.filter((id) => id !== openDirectionId);
+      if (!openBeatId) return;
+      const next = asset.folderIds.filter((id) => id !== openBeatId);
       void setAssetFolders({
         ownerUserId,
         assetId: asset.id as Id<"assets">,
         folderIds: next as Id<"folders">[],
       });
     },
-    [openDirectionId, ownerUserId, setAssetFolders],
+    [openBeatId, ownerUserId, setAssetFolders],
   );
 
   // ── Multiselect + destructive actions ──
@@ -1535,9 +1535,9 @@ export function ReviewModal({
     [bulkBusy, exitSelect],
   );
 
-  // Bulk remove from the drilled direction — membership only, assets stay.
-  const removeSelectedFromDirection = useCallback(async () => {
-    if (!openDirectionId) return;
+  // Bulk remove from the drilled beat — membership only, assets stay.
+  const removeSelectedFromBeat = useCallback(async () => {
+    if (!openBeatId) return;
     const byId = new Map(assets.map((asset) => [asset.id, asset]));
     for (const id of selectedIds) {
       const asset = byId.get(id);
@@ -1546,17 +1546,17 @@ export function ReviewModal({
         ownerUserId,
         assetId: id as Id<"assets">,
         folderIds: asset.folderIds.filter(
-          (folderId) => folderId !== openDirectionId,
+          (folderId) => folderId !== openBeatId,
         ) as Id<"folders">[],
       }).catch(() => {});
     }
     exitSelect();
-  }, [openDirectionId, assets, selectedIds, ownerUserId, setAssetFolders, exitSelect]);
+  }, [openBeatId, assets, selectedIds, ownerUserId, setAssetFolders, exitSelect]);
 
-  // Delete a whole direction (the folder). Assets stay in the gallery.
-  const deleteDirectionById = useCallback(
+  // Delete a whole beat (the folder). Assets stay in the gallery.
+  const deleteBeatById = useCallback(
     (folderId: string) => {
-      setOpenDirectionId((current) =>
+      setOpenBeatId((current) =>
         current === folderId ? null : current,
       );
       void deleteFolderMutation({
@@ -1626,13 +1626,13 @@ export function ReviewModal({
     [ownerUserId, setAssetPinnedMutation],
   );
 
-  // Pin/unpin a direction card (beat or stack).
-  const toggleDirectionPin = useCallback(
-    (direction: DirectionCardData) => {
+  // Pin/unpin a beat card (beat or stack).
+  const toggleBeatPin = useCallback(
+    (beat: BeatCardData) => {
       void setFolderPinnedMutation({
         ownerUserId,
-        folderId: direction.id as Id<"folders">,
-        pinned: !direction.pinned,
+        folderId: beat.id as Id<"folders">,
+        pinned: !beat.pinned,
       }).catch(() => {});
     },
     [ownerUserId, setFolderPinnedMutation],
@@ -1651,18 +1651,18 @@ export function ReviewModal({
     [ownerUserId, setTagStateMutation],
   );
 
-  // Save the drilled direction's text (its description).
-  const saveDirectionText = useCallback(
+  // Save the drilled beat's text (its description).
+  const saveBeatText = useCallback(
     (text: string) => {
-      if (!openDirection) return;
+      if (!openBeat) return;
       void updateFolder({
         ownerUserId,
-        folderId: openDirection.folderId,
-        name: openDirection.name,
+        folderId: openBeat.folderId,
+        name: openBeat.name,
         description: text,
       }).catch(() => {});
     },
-    [openDirection, ownerUserId, updateFolder],
+    [openBeat, ownerUserId, updateFolder],
   );
 
   const goFocus = useCallback((delta: number) => {
@@ -1701,8 +1701,8 @@ export function ReviewModal({
         else if (composerOpen) setComposer(null);
         else if (selectMode) exitSelect();
         else if (focusId) setFocusId(null);
-        else if (openDirectionId && !closedFromEntryDirection) {
-          setOpenDirectionId(null);
+        else if (openBeatId && !closedFromEntryBeat) {
+          setOpenBeatId(null);
         } else onClose?.();
       } else if (focusId && e.key === "ArrowLeft") {
         e.preventDefault();
@@ -1710,17 +1710,17 @@ export function ReviewModal({
       } else if (focusId && e.key === "ArrowRight") {
         e.preventDefault();
         goFocus(1);
-      } else if (openDirectionId && e.key === "ArrowLeft") {
+      } else if (openBeatId && e.key === "ArrowLeft") {
         e.preventDefault();
         stepBeatFocus(-1);
-      } else if (openDirectionId && e.key === "ArrowRight") {
+      } else if (openBeatId && e.key === "ArrowRight") {
         e.preventDefault();
         stepBeatFocus(1);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openDirectionId, closedFromEntryDirection, goFocus, stepBeatFocus, onClose]);
+  }, [projectId, pickerOpen, shareOpen, composerOpen, selectMode, exitSelect, focusId, focusAsset, openBeatId, closedFromEntryBeat, goFocus, stepBeatFocus, onClose]);
 
   // Owner mode with no open project → render nothing. Viewer mode is driven by
   // the token instead, so it stays mounted.
@@ -1745,11 +1745,11 @@ export function ReviewModal({
     return seen.size;
   };
 
-  const openDirectionMasterId = openDirection
-    ? resolveCoverId(openDirection)
+  const openBeatMasterId = openBeat
+    ? resolveCoverId(openBeat)
     : null;
-  const openDirectionLikes = openDirectionId
-    ? likesByCollection.get(openDirectionId)
+  const openBeatLikes = openBeatId
+    ? likesByCollection.get(openBeatId)
     : undefined;
 
   return (
@@ -1811,7 +1811,7 @@ export function ReviewModal({
               active={effectiveTab}
               onPick={(key) => {
                 setActiveTab(key);
-                setOpenDirectionId(null);
+                setOpenBeatId(null);
                 setBeatFocusId(null);
               }}
             />
@@ -1834,7 +1834,7 @@ export function ReviewModal({
             className="shrink-0 text-[11px]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            {openDirection
+            {openBeat
               ? `${visibleAssets.length} shown`
               : effectiveTab === "beats"
                 ? `${beatCards.length} ${beatCards.length === 1 ? "beat" : "beats"}`
@@ -1923,7 +1923,7 @@ export function ReviewModal({
             <>
               {hasCollections &&
                 !inFocus &&
-                (Boolean(openDirection) ||
+                (Boolean(openBeat) ||
                   effectiveTab !== "beats" ||
                   unsortedAssets.length > 0) && (
                 <button
@@ -1975,7 +1975,7 @@ export function ReviewModal({
                     ? "var(--lm-coral)"
                     : "var(--lm-text-secondary)",
                 }}
-                title="Share a read-only direction board link"
+                title="Share a read-only beat board link"
               >
                 <Link2 className="h-3.5 w-3.5" />
                 Share
@@ -2025,19 +2025,19 @@ export function ReviewModal({
             active={effectiveTab}
             onPick={(key) => {
               setActiveTab(key);
-              setOpenDirectionId(null);
+              setOpenBeatId(null);
               setBeatFocusId(null);
             }}
           />
         </div>
       )}
 
-      {/* ── Drilled direction breadcrumb ── */}
-      {openDirection && !inFocus && (
+      {/* ── Drilled beat breadcrumb ── */}
+      {openBeat && !inFocus && (
         <div className="flex flex-wrap items-center gap-2 px-4 pb-2.5 md:px-6">
           <button
             type="button"
-            onClick={() => setOpenDirectionId(null)}
+            onClick={() => setOpenBeatId(null)}
             className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
             style={{
               borderColor: "var(--lm-border-strong)",
@@ -2058,10 +2058,10 @@ export function ReviewModal({
                   e.preventDefault();
                   const name = renameDraft.trim();
                   setRenameDraft(null);
-                  if (!name || name === openDirection.name) return;
+                  if (!name || name === openBeat.name) return;
                   void updateFolder({
                     ownerUserId,
-                    folderId: openDirection.folderId,
+                    folderId: openBeat.folderId,
                     name,
                   });
                 } else if (e.key === "Escape") {
@@ -2072,10 +2072,10 @@ export function ReviewModal({
               onBlur={() => {
                 const name = (renameDraft ?? "").trim();
                 setRenameDraft(null);
-                if (!name || name === openDirection.name) return;
+                if (!name || name === openBeat.name) return;
                 void updateFolder({
                   ownerUserId,
-                  folderId: openDirection.folderId,
+                  folderId: openBeat.folderId,
                   name,
                 });
               }}
@@ -2085,7 +2085,7 @@ export function ReviewModal({
                 borderColor: "var(--lm-coral)",
                 color: "var(--lm-text-primary)",
               }}
-              aria-label="Rename direction"
+              aria-label="Rename beat"
             />
           ) : (
             <>
@@ -2093,16 +2093,16 @@ export function ReviewModal({
                 className="truncate text-[14px] font-semibold"
                 style={{ color: "var(--lm-text-primary)" }}
               >
-                {openDirection.name}
+                {openBeat.name}
               </span>
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() => setRenameDraft(openDirection.name)}
+                  onClick={() => setRenameDraft(openBeat.name)}
                   className="flex h-6 w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
                   style={{ color: "var(--lm-text-ghost)" }}
-                  aria-label="Rename direction"
-                  title="Rename this direction"
+                  aria-label="Rename beat"
+                  title="Rename this beat"
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
@@ -2113,16 +2113,16 @@ export function ReviewModal({
             className="text-[11px]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            {openDirection.count}{" "}
-            {openDirection.count === 1 ? "option" : "options"}
+            {openBeat.count}{" "}
+            {openBeat.count === 1 ? "option" : "options"}
           </span>
           <LikeControl
-            count={openDirectionLikes?.count ?? 0}
-            likes={openDirectionLikes}
-            likedByMe={viewerLikedFolders.has(openDirection.folderId as string)}
+            count={openBeatLikes?.count ?? 0}
+            likes={openBeatLikes}
+            likedByMe={viewerLikedFolders.has(openBeat.folderId as string)}
             onToggle={
               readOnly
-                ? () => toggleDirectionLike(openDirection.folderId as string)
+                ? () => toggleBeatLike(openBeat.folderId as string)
                 : undefined
             }
           />
@@ -2131,9 +2131,9 @@ export function ReviewModal({
               <ArmedDeleteButton
                 label="Delete"
                 variant="chrome"
-                title="Delete this direction — its assets stay in the gallery"
+                title="Delete this beat — its assets stay in the gallery"
                 onConfirm={() =>
-                  deleteDirectionById(openDirection.folderId as string)
+                  deleteBeatById(openBeat.folderId as string)
                 }
               />
             </span>
@@ -2579,17 +2579,17 @@ export function ReviewModal({
             focusId={focusItem.id}
             onFocusChange={setFocusId}
             likesByAsset={likesByAsset}
-            masterId={openDirection ? openDirectionMasterId : null}
+            masterId={openBeat ? openBeatMasterId : null}
             onMaster={
-              openDirection
+              openBeat
                 ? (asset) =>
                     setMaster(
-                      openDirection.folderId as string,
-                      openDirectionMasterId === asset.id ? null : asset.id,
+                      openBeat.folderId as string,
+                      openBeatMasterId === asset.id ? null : asset.id,
                     )
                 : undefined
             }
-            onRemove={openDirection ? removeFromDirection : undefined}
+            onRemove={openBeat ? removeFromBeat : undefined}
             onDelete={(asset) => void deleteAssetsByIds([asset.id])}
             onRename={(asset, next) => renameAsset(asset.id, next)}
             onSetTag={(asset, tag, present) =>
@@ -2604,13 +2604,13 @@ export function ReviewModal({
               readOnly ? (asset) => toggleAssetLike(asset.id) : undefined
             }
             onOpenStack={(folderId) => {
-              setOpenDirectionId(folderId);
+              setOpenBeatId(folderId);
               setBeatFocusId(null);
               setFocusId(null);
             }}
           />
-        ) : openDirection && selectMode ? (
-          /* ── Drilled direction in select mode: flat grid to multi-pick ── */
+        ) : openBeat && selectMode ? (
+          /* ── Drilled beat in select mode: flat grid to multi-pick ── */
           <div className="h-full overflow-y-auto px-4 pb-10 pt-1 md:px-6">
             <div
               style={{ columns: `${tileSize}px`, columnGap: "14px" }}
@@ -2629,8 +2629,8 @@ export function ReviewModal({
               ))}
             </div>
           </div>
-        ) : openDirection ? (
-          /* ── Direction detail: native-res preview left, elements right ── */
+        ) : openBeat ? (
+          /* ── Beat detail: native-res preview left, elements right ── */
           <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
             {/* Preview */}
             <div className="flex min-w-0 shrink-0 flex-col px-4 pb-5 pt-2 md:px-8 lg:min-h-0 lg:flex-1 lg:shrink">
@@ -2665,7 +2665,7 @@ export function ReviewModal({
                       <img
                         key={beatFocus.id}
                         src={beatFocus.url ?? beatFocus.thumbUrl}
-                        alt={beatFocus.promptText ?? openDirection.name}
+                        alt={beatFocus.promptText ?? openBeat.name}
                         className="max-h-full max-w-full object-contain"
                         style={{ height: "auto", width: "auto" }}
                       />
@@ -2784,7 +2784,7 @@ export function ReviewModal({
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeFromDirection(beatFocus)}
+                            onClick={() => removeFromBeat(beatFocus)}
                             className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
                             style={{
                               borderColor: "var(--lm-border-strong)",
@@ -2820,9 +2820,9 @@ export function ReviewModal({
                 </p>
               )}
               <div className="max-h-[22vh] shrink-0 overflow-y-auto">
-                <DirectionTextBlock
-                  description={openDirection.description}
-                  onSave={saveDirectionText}
+                <BeatTextBlock
+                  description={openBeat.description}
+                  onSave={saveBeatText}
                   readOnly={readOnly}
                 />
               </div>
@@ -2846,7 +2846,7 @@ export function ReviewModal({
                       void addAssetFolders({
                         ownerUserId,
                         assetId: option.assetId as Id<"assets">,
-                        folderIds: [openDirection.folderId],
+                        folderIds: [openBeat.folderId],
                       }).catch(() => {})
                     }
                   />
@@ -2913,7 +2913,7 @@ export function ReviewModal({
                         />
                         {/* Promote to master straight from the thumbnail */}
                         {!readOnly &&
-                          (openDirectionMasterId === el.id ? (
+                          (openBeatMasterId === el.id ? (
                             <span
                               className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md"
                               style={{
@@ -2931,7 +2931,7 @@ export function ReviewModal({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setMaster(
-                                  openDirection.folderId as string,
+                                  openBeat.folderId as string,
                                   el.id,
                                 );
                               }}
@@ -2940,7 +2940,7 @@ export function ReviewModal({
                                   e.preventDefault();
                                   e.stopPropagation();
                                   setMaster(
-                                    openDirection.folderId as string,
+                                    openBeat.folderId as string,
                                     el.id,
                                   );
                                 }
@@ -3023,16 +3023,16 @@ export function ReviewModal({
                 alignItems: "start",
               }}
             >
-              {beatCards.map((direction) => (
-                <DirectionCard
-                  key={direction.id}
-                  direction={direction}
+              {beatCards.map((beat) => (
+                <BeatCard
+                  key={beat.id}
+                  beat={beat}
                   onOpen={() => {
-                    setOpenDirectionId(direction.id);
+                    setOpenBeatId(beat.id);
                     setBeatFocusId(null);
                   }}
-                  onDelete={() => deleteDirectionById(direction.id)}
-                  onPin={() => toggleDirectionPin(direction)}
+                  onDelete={() => deleteBeatById(beat.id)}
+                  onPin={() => toggleBeatPin(beat)}
                   onDropAssets={(assetIds) => {
                     for (const assetId of assetIds) {
                       if (!projectId) break;
@@ -3040,18 +3040,18 @@ export function ReviewModal({
                         ownerUserId,
                         projectId: projectId as Id<"folders">,
                         assetId: assetId as Id<"assets">,
-                        folderId: direction.id as Id<"folders">,
+                        folderId: beat.id as Id<"folders">,
                       }).catch(() => {});
                     }
                   }}
                   onUploadFiles={(files) => {
-                    void uploadFilesToDirection(files, direction.id, "", false);
+                    void uploadFilesToBeat(files, beat.id, "", false);
                   }}
                   readOnly={readOnly}
-                  likedByMe={viewerLikedFolders.has(direction.id)}
+                  likedByMe={viewerLikedFolders.has(beat.id)}
                   onToggleLike={
                     readOnly
-                      ? () => toggleDirectionLike(direction.id)
+                      ? () => toggleBeatLike(beat.id)
                       : undefined
                   }
                 />
@@ -3133,15 +3133,15 @@ export function ReviewModal({
             {(() => {
               const renderItem = (item: (typeof modeItems)[number]) =>
                 item.kind === "stack" ? (
-                  <DirectionCard
+                  <BeatCard
                     key={`stack-${item.card.id}`}
-                    direction={item.card}
+                    beat={item.card}
                     onOpen={() => {
-                      setOpenDirectionId(item.card.id);
+                      setOpenBeatId(item.card.id);
                       setBeatFocusId(null);
                     }}
-                    onDelete={() => deleteDirectionById(item.card.id)}
-                    onPin={() => toggleDirectionPin(item.card)}
+                    onDelete={() => deleteBeatById(item.card.id)}
+                    onPin={() => toggleBeatPin(item.card)}
                     onDropAssets={(assetIds) => {
                       // Filing drains the project's staging pool (Inbox) so
                       // the asset is presented once, in its new home.
@@ -3156,13 +3156,13 @@ export function ReviewModal({
                       }
                     }}
                     onUploadFiles={(files) => {
-                      void uploadFilesToDirection(files, item.card.id, "", false);
+                      void uploadFilesToBeat(files, item.card.id, "", false);
                     }}
                     readOnly={readOnly}
                     likedByMe={viewerLikedFolders.has(item.card.id)}
                     onToggleLike={
                       readOnly
-                        ? () => toggleDirectionLike(item.card.id)
+                        ? () => toggleBeatLike(item.card.id)
                         : undefined
                     }
                   />
@@ -3266,23 +3266,23 @@ export function ReviewModal({
               >
                 {selectedIds.size} selected
               </span>
-              {openDirection && (
+              {openBeat && (
                 <button
                   type="button"
                   disabled={selectedIds.size === 0}
-                  onClick={() => void removeSelectedFromDirection()}
+                  onClick={() => void removeSelectedFromBeat()}
                   className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-80 disabled:opacity-40"
                   style={{
                     borderColor: "var(--lm-border-strong)",
                     color: "var(--lm-text-secondary)",
                   }}
-                  title="Remove from this direction — assets stay in the gallery"
+                  title="Remove from this beat — assets stay in the gallery"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={3} />
                   Remove
                 </button>
               )}
-              {!openDirection &&
+              {!openBeat &&
                 effectiveTab === "beats" &&
                 selectedIds.size > 0 && (
                   <button
@@ -3300,7 +3300,7 @@ export function ReviewModal({
                     New beat
                   </button>
                 )}
-              {!openDirection &&
+              {!openBeat &&
                 effectiveTab !== "beats" &&
                 selectedIds.size > 0 && (
                   <>
@@ -3330,7 +3330,7 @@ export function ReviewModal({
                       onClick={() => void createStackFromSelection()}
                       className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-40"
                       style={{ backgroundColor: "var(--lm-coral)", color: "#000" }}
-                      title="Group the selected assets into a named stack (one direction)"
+                      title="Group the selected assets into a named stack (one beat)"
                     >
                       <Plus className="h-3.5 w-3.5" strokeWidth={3} />
                       Create stack
@@ -3444,7 +3444,7 @@ export function ReviewModal({
               const { folderId } = await createFolder({
                 ownerUserId,
                 name,
-                kind: "direction",
+                kind: "beat",
               });
               await addCollection({
                 ownerUserId,
@@ -3461,12 +3461,12 @@ export function ReviewModal({
   );
 }
 
-/* ── Direction card ──
+/* ── Beat card ──
  * Beats: a compact STACK with the master video on top — poster idle,
  * playback on hover, arrows to cycle when the beat has several takes.
  * Video-less stacks: the fanned deck with the image master + hover rotate. */
-function DirectionCard({
-  direction,
+function BeatCard({
+  beat,
   onOpen,
   onDelete,
   onPin,
@@ -3477,9 +3477,9 @@ function DirectionCard({
   onDropAssets,
   onUploadFiles,
 }: {
-  direction: DirectionCardData;
+  beat: BeatCardData;
   onOpen: () => void;
-  /** Deletes the whole direction (assets stay in the gallery). */
+  /** Deletes the whole beat (assets stay in the gallery). */
   onDelete?: () => void;
   /** Pin/unpin — pinned cards float first in their mode. */
   onPin?: () => void;
@@ -3489,7 +3489,7 @@ function DirectionCard({
   readOnly?: boolean;
   /** This viewer already liked the whole beat (interactive-like fill). */
   likedByMe?: boolean;
-  /** Present → the beat ♥ toggles this viewer's whole-direction like. */
+  /** Present → the beat ♥ toggles this viewer's whole-beat like. */
   onToggleLike?: () => void;
   /** Present → the card accepts dragged asset tiles (adds them here). */
   onDropAssets?: (assetIds: string[]) => void;
@@ -3501,8 +3501,8 @@ function DirectionCard({
     onDropAssets = undefined;
     onUploadFiles = undefined;
   }
-  const cover = direction.cover;
-  const beatVideos = direction.beatVideos;
+  const cover = beat.cover;
+  const beatVideos = beat.beatVideos;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [videoIndex, setVideoIndex] = useState(0);
@@ -3511,12 +3511,12 @@ function DirectionCard({
   // the bottom edge; hovering one scales it up in place (no modal, no
   // navigation — everything stays on this screen).
   const peekStrip =
-    direction.peekThumbs.length > 1 ? (
+    beat.peekThumbs.length > 1 ? (
       <div
         className="lm-beat-peek pointer-events-none absolute inset-x-2 bottom-2 z-20 flex items-end justify-center opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
         aria-hidden
       >
-        {direction.peekThumbs.map((src, i) => (
+        {beat.peekThumbs.map((src, i) => (
           <div key={`${src}-${i}`} className="lm-beat-peek-slot">
             <img
               src={src}
@@ -3559,7 +3559,7 @@ function DirectionCard({
           color: "#fff",
           borderColor: "rgba(255,255,255,0.25)",
         }}
-        aria-label={`Upload files into ${direction.name}`}
+        aria-label={`Upload files into ${beat.name}`}
         title="Upload files into this stack"
       >
         <Upload className="h-3 w-3" strokeWidth={2.5} />
@@ -3594,15 +3594,15 @@ function DirectionCard({
       : null;
   // Hover 1s → rotate through the options in place (image decks only).
   const preview = useStackHoverPreview(
-    activeVideo ? 0 : direction.previews.length,
+    activeVideo ? 0 : beat.previews.length,
   );
 
-  const optionNoun = direction.section === "beats" ? "frame" : "option";
+  const optionNoun = beat.section === "beats" ? "frame" : "option";
   const breakdown = [
-    direction.videos > 0 &&
-      `${direction.videos} video${direction.videos === 1 ? "" : "s"}`,
-    direction.images > 0 &&
-      `${direction.images} ${optionNoun}${direction.images === 1 ? "" : "s"}`,
+    beat.videos > 0 &&
+      `${beat.videos} video${beat.videos === 1 ? "" : "s"}`,
+    beat.images > 0 &&
+      `${beat.images} ${optionNoun}${beat.images === 1 ? "" : "s"}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -3631,12 +3631,12 @@ function DirectionCard({
         onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
         onMouseLeave={() => videoRef.current?.pause()}
         role="button"
-        aria-label={`Open beat: ${direction.name}`}
+        aria-label={`Open beat: ${beat.name}`}
       >
         {/* Fanned deck — the beat's other assets peeking behind the shot */}
-        {direction.backs.map((src, index) => (
+        {beat.backs.map((src, index) => (
           <div
-            key={`${direction.id}-back-${index}`}
+            key={`${beat.id}-back-${index}`}
             className="absolute inset-0 overflow-hidden rounded-xl transition-transform duration-200 ease-out"
             style={{
               border: "1px solid var(--lm-border)",
@@ -3740,25 +3740,25 @@ function DirectionCard({
                   onPin();
                 }}
                 className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
-                  direction.pinned
+                  beat.pinned
                     ? "opacity-100"
                     : "opacity-0 group-hover:opacity-100"
                 }`}
                 style={{
-                  backgroundColor: direction.pinned
+                  backgroundColor: beat.pinned
                     ? "var(--lm-coral)"
                     : "rgba(0,0,0,0.62)",
-                  color: direction.pinned ? "#000" : "#fff",
-                  borderColor: direction.pinned
+                  color: beat.pinned ? "#000" : "#fff",
+                  borderColor: beat.pinned
                     ? "var(--lm-coral)"
                     : "rgba(255,255,255,0.25)",
                 }}
-                aria-pressed={direction.pinned}
-                title={direction.pinned ? "Unpin" : "Pin to the top"}
+                aria-pressed={beat.pinned}
+                title={beat.pinned ? "Unpin" : "Pin to the top"}
               >
                 <Pin
                   className="h-3 w-3"
-                  fill={direction.pinned ? "currentColor" : "none"}
+                  fill={beat.pinned ? "currentColor" : "none"}
                   strokeWidth={2.5}
                 />
               </button>
@@ -3780,7 +3780,7 @@ function DirectionCard({
           {/* Likes + take counter */}
           <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
             <LikeControl
-              count={direction.likes}
+              count={beat.likes}
               likedByMe={likedByMe}
               onToggle={onToggleLike}
             />
@@ -3795,7 +3795,7 @@ function DirectionCard({
             >
               {beatVideos.length > 1
                 ? `${videoIndex + 1}/${beatVideos.length}`
-                : direction.count}
+                : beat.count}
             </span>
           </div>
 
@@ -3822,7 +3822,7 @@ function DirectionCard({
                   textShadow: "0 1px 4px rgba(0,0,0,0.8)",
                 }}
               >
-                {direction.name}
+                {beat.name}
               </p>
               {breakdown && (
                 <p
@@ -3860,12 +3860,12 @@ function DirectionCard({
       onMouseEnter={preview.start}
       onMouseLeave={preview.stop}
       role="button"
-      aria-label={`Open direction: ${direction.name}`}
+      aria-label={`Open beat: ${beat.name}`}
     >
       {/* Fanned deck — next variations peeking behind the master */}
-      {direction.backs.map((src, index) => (
+      {beat.backs.map((src, index) => (
         <div
-          key={`${direction.id}-back-${index}`}
+          key={`${beat.id}-back-${index}`}
           className="absolute inset-0 overflow-hidden rounded-xl transition-transform duration-200 ease-out"
           style={{
             border: "1px solid var(--lm-border)",
@@ -3914,7 +3914,7 @@ function DirectionCard({
         )}
 
         <StackHoverPreviewOverlay
-          previews={direction.previews}
+          previews={beat.previews}
           index={preview.index}
           engaged={preview.engaged}
         />
@@ -3929,25 +3929,25 @@ function DirectionCard({
                   onPin();
                 }}
                 className={`flex items-center rounded-lg border p-1.5 transition-opacity ${
-                  direction.pinned
+                  beat.pinned
                     ? "opacity-100"
                     : "opacity-0 group-hover:opacity-100"
                 }`}
                 style={{
-                  backgroundColor: direction.pinned
+                  backgroundColor: beat.pinned
                     ? "var(--lm-coral)"
                     : "rgba(0,0,0,0.62)",
-                  color: direction.pinned ? "#000" : "#fff",
-                  borderColor: direction.pinned
+                  color: beat.pinned ? "#000" : "#fff",
+                  borderColor: beat.pinned
                     ? "var(--lm-coral)"
                     : "rgba(255,255,255,0.25)",
                 }}
-                aria-pressed={direction.pinned}
-                title={direction.pinned ? "Unpin" : "Pin to the top"}
+                aria-pressed={beat.pinned}
+                title={beat.pinned ? "Unpin" : "Pin to the top"}
               >
                 <Pin
                   className="h-3 w-3"
-                  fill={direction.pinned ? "currentColor" : "none"}
+                  fill={beat.pinned ? "currentColor" : "none"}
                   strokeWidth={2.5}
                 />
               </button>
@@ -3957,7 +3957,7 @@ function DirectionCard({
               <span className="opacity-0 transition-opacity group-hover:opacity-100">
                 <ArmedDeleteButton
                   compact
-                  title="Delete this direction — assets stay in the gallery"
+                  title="Delete this beat — assets stay in the gallery"
                   onConfirm={onDelete}
                 />
               </span>
@@ -3977,8 +3977,8 @@ function DirectionCard({
           }}
         >
           {preview.engaged
-            ? `${(preview.index % direction.previews.length) + 1}/${direction.previews.length}`
-            : direction.count}
+            ? `${(preview.index % beat.previews.length) + 1}/${beat.previews.length}`
+            : beat.count}
         </span>
 
         {/* Bottom label over a gradient so any master image stays readable */}
@@ -3995,20 +3995,20 @@ function DirectionCard({
               className="text-[9px] font-mono font-bold uppercase tracking-[0.16em]"
               style={{ color: "var(--lm-coral)" }}
             >
-              Direction
+              Beat
             </p>
             <p
               className="truncate text-[14px] font-semibold"
               style={{ color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}
             >
-              {direction.name}
+              {beat.name}
             </p>
             <p
               className="text-[10px] font-mono font-bold uppercase tracking-wider"
               style={{ color: "rgba(255,255,255,0.68)" }}
             >
               {breakdown ||
-                `${direction.count} ${direction.count === 1 ? "option" : "options"}`}
+                `${beat.count} ${beat.count === 1 ? "option" : "options"}`}
             </p>
           </div>
           <span
@@ -4072,10 +4072,10 @@ function ReviewTile({
   likedByMe?: boolean;
   /** Present → the ♥ is an interactive like toggle (viewer mode). */
   onToggleLike?: () => void;
-  /** Only defined inside a drilled direction, where "master" is unambiguous. */
+  /** Only defined inside a drilled beat, where "master" is unambiguous. */
   isMaster?: boolean;
   onMaster?: () => void;
-  /** Removes the asset from the drilled direction (membership only). */
+  /** Removes the asset from the drilled beat (membership only). */
   onRemove?: () => void;
   /** Permanently deletes the asset from the gallery. */
   onDelete?: () => void;
@@ -4204,7 +4204,7 @@ function ReviewTile({
         />
       </div>
 
-      {/* Master (direction thumbnail) toggle */}
+      {/* Master (beat thumbnail) toggle */}
       {onMaster && !selectable && (
         <button
           type="button"
@@ -4226,7 +4226,7 @@ function ReviewTile({
           title={
             isMaster
               ? "Master option — click to unset"
-              : "Make master (direction thumbnail)"
+              : "Make master (beat thumbnail)"
           }
         >
           <Crown className="h-3 w-3" strokeWidth={2.5} />
@@ -4490,7 +4490,7 @@ function ReviewTile({
                 color: "#fff",
                 borderColor: "rgba(255,255,255,0.25)",
               }}
-              title="Remove from this direction (stays in the gallery)"
+              title="Remove from this beat (stays in the gallery)"
             >
               <X className="h-3 w-3" strokeWidth={3} />
               Remove
@@ -4928,8 +4928,8 @@ function ArmedDeleteButton({
   );
 }
 
-/* ── Direction text: read view with an edit affordance → inline textarea ── */
-function DirectionTextBlock({
+/* ── Beat text: read view with an edit affordance → inline textarea ── */
+function BeatTextBlock({
   description,
   onSave,
   readOnly,
@@ -4971,7 +4971,7 @@ function DirectionTextBlock({
           onClick={() => setDraft(description ?? "")}
           className="mt-1.5 flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-70"
           style={{ color: "var(--lm-text-ghost)" }}
-          title="Edit this direction's text"
+          title="Edit this beat's text"
         >
           <Pencil className="h-3 w-3" />
           {description ? "Edit text" : "Add text"}
@@ -4999,7 +4999,7 @@ function DirectionTextBlock({
           borderBottom: "1px solid var(--lm-border)",
           caretColor: "var(--lm-coral)",
         }}
-        aria-label="Direction text"
+        aria-label="Beat text"
       />
       <div className="mt-2 flex items-center gap-2">
         <button
@@ -5051,7 +5051,7 @@ function FocusScrollFeed({
   focusId: string;
   onFocusChange: (id: string) => void;
   likesByAsset: Map<string, AssetLikes>;
-  /** Current master id when drilled into a direction, else null. */
+  /** Current master id when drilled into a beat, else null. */
   masterId: string | null;
   onMaster?: (asset: ReviewAsset) => void;
   onRemove?: (asset: ReviewAsset) => void;
@@ -5264,7 +5264,7 @@ function FocusScrollFeed({
                     title={
                       isMaster
                         ? "Master option — click to unset"
-                        : "Make master (direction thumbnail)"
+                        : "Make master (beat thumbnail)"
                     }
                   >
                     <Crown className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -5281,7 +5281,7 @@ function FocusScrollFeed({
                       color: "#fff",
                       borderColor: "rgba(255,255,255,0.25)",
                     }}
-                    title="Remove from this direction (stays in the gallery)"
+                    title="Remove from this beat (stays in the gallery)"
                   >
                     <X className="h-3.5 w-3.5" strokeWidth={3} />
                     Remove
@@ -5380,7 +5380,7 @@ function StackFeedSection({
   position,
   onOpen,
 }: {
-  card: DirectionCardData;
+  card: BeatCardData;
   assets: ReviewAsset[];
   /** "n/N" position of this entry inside the feed. */
   position: string;
@@ -5554,7 +5554,7 @@ function Media({
   );
 }
 
-/* ── Share direction board panel ── */
+/* ── Share beat board panel ── */
 // Turn a project name into a URL-safe slug for the share link prefix. Strips
 // accents, lowercases, collapses non-alphanumerics to single hyphens, and
 // caps length so the link stays tidy. May return "" for name-less projects.
@@ -5648,7 +5648,7 @@ function SharePanel({
             className="text-[10px] font-mono font-bold uppercase tracking-[0.14em]"
             style={{ color: "var(--lm-text-tertiary)" }}
           >
-            Direction board link
+            Beat board link
           </span>
           <button
             type="button"
@@ -5791,7 +5791,7 @@ function CollectionPicker({
             style={{ color: "var(--lm-text-tertiary)" }}
           >
             {section
-              ? `Add directions — ${TAB_LABELS[section]}`
+              ? `Add beats — ${TAB_LABELS[section]}`
               : "Collections in project"}
           </span>
           <button
@@ -5823,7 +5823,7 @@ function CollectionPicker({
             }}
             placeholder={
               section
-                ? `New ${TAB_LABELS[section].toLowerCase()} direction…`
+                ? `New ${TAB_LABELS[section].toLowerCase()} beat…`
                 : "New collection…"
             }
             className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-[12px] outline-none"

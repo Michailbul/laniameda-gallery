@@ -69,6 +69,7 @@ const previewAssetValidator = v.object({
 const worldSectionValidator = v.object({
   key: v.union(
     v.literal("beats"),
+    v.literal("episodes"),
     v.literal("characters"),
     v.literal("locations"),
     v.literal("stills"),
@@ -143,6 +144,16 @@ const orderShowcased = (a: Doc<"folders">, b: Doc<"folders">) => {
   return (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0);
 };
 
+// Starred assets lead every set they appear in, newest star first — the same
+// promotion the owner sees in the vault, carried onto the public page. Ties
+// (and everything unstarred) keep the existing newest-first order.
+const starredFirst = (a: Doc<"assets">, b: Doc<"assets">) => {
+  const as = a.starredAt ?? 0;
+  const bs = b.starredAt ?? 0;
+  if (as !== bs) return bs - as;
+  return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+};
+
 // Public membership of one folder: only assets the owner individually marked
 // isPublic. Over-fetches before filtering so a set whose newest members are
 // private still fills up to the limit.
@@ -159,6 +170,7 @@ const collectPublicAssetsForFolder = async (
   );
   return members
     .filter((asset) => asset.isPublic === true)
+    .sort(starredFirst)
     .slice(0, SET_ASSET_LIMIT);
 };
 
@@ -210,6 +222,9 @@ const collectSetMembers = async (
 
 const SECTION_LABELS = {
   beats: "Beats",
+  // Episode folders carry no assets themselves (their beats do), so this
+  // bucket stays empty in practice — it exists so the section union is total.
+  episodes: "Episodes",
   characters: "Characters",
   locations: "Locations",
   stills: "Stills",
@@ -351,6 +366,7 @@ const collectWorldSections = async (
   // Stable, narrative order regardless of how the collections were linked.
   const ORDER: WorldSectionKey[] = [
     "story",
+    "episodes",
     "beats",
     "characters",
     "locations",
@@ -711,7 +727,7 @@ const loadShowcaseSet = async (
   const folderKind = folder.kind === "storybook" ? "storybook" : "collection";
   if (folderKind !== expected) return null;
   // Guard: only plain collections and storybooks are ever public here.
-  if (folder.kind === "project" || folder.kind === "direction") return null;
+  if (folder.kind === "project" || folder.kind === "beat") return null;
 
   const { own, chapters } = await collectSetMembers(ctx, folder);
   const chapterAssetIds = new Set(

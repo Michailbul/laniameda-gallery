@@ -283,7 +283,7 @@ const assertValidMapping = async (
   if (!folder || !canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
     throw new ConvexError("Collection not found.");
   }
-  if (folder.kind === "project" || folder.kind === "direction") {
+  if (folder.kind === "project" || folder.kind === "beat") {
     throw new ConvexError(
       "Only collections and storybooks can back a menu filter.",
     );

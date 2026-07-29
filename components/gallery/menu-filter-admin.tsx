@@ -72,7 +72,7 @@ export function MenuFilterAdmin({
   const [saving, setSaving] = useState(false);
 
   // Only plain collections and storybooks can back a pill (matches the
-  // backend guard — projects and directions are workspace furniture).
+  // backend guard — projects and beats are workspace furniture).
   const collectionOptions = useMemo(
     () =>
       (folders ?? [])
@@ -125,8 +125,8 @@ export function MenuFilterAdmin({
       }
     });
 
-  const handleMove = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
+  const handleMove = (index: number, beat: -1 | 1) => {
+    const target = index + beat;
     if (target < 0 || target >= menuFilters.length) return;
     const orderedIds = menuFilters.map((entry) => entry._id);
     [orderedIds[index], orderedIds[target]] = [

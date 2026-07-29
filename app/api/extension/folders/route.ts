@@ -28,7 +28,7 @@ const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 500;
 
 // Return only what the extension picker needs — not ownerUserId/timestamps.
-// `kind` marks storybooks / projects / directions, which are folders too but
+// `kind` marks storybooks / projects / beats, which are folders too but
 // must NOT appear as plain collections in the picker (matches the gallery
 // sidebar, which lists only kind-less folders as collections). Any truthy kind
 // ⇒ not a plain collection. undefined kind ⇒ plain collection.

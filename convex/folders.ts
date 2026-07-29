@@ -24,7 +24,8 @@ export const folderKindValidator = v.optional(
   v.union(
     v.literal("storybook"),
     v.literal("project"),
-    v.literal("direction"),
+    v.literal("beat"),
+    v.literal("episode"),
   ),
 );
 
@@ -79,7 +80,7 @@ const scopedNormalizedName = (
 // shape ("Dear Annete" > "Characters") and still supported.
 //
 // Only these kinds may sit inside a world. A storybook IS its own set, and a
-// direction belongs to a project through projectCollections rather than by
+// beat belongs to a project through projectCollections rather than by
 // parentage, so neither nests here.
 type FolderKind = Doc<"folders">["kind"];
 
@@ -343,7 +344,7 @@ export const updateFolder = mutation({
   },
 });
 
-// Pin/unpin a direction (beat/stack) in the project workspace — pinned
+// Pin/unpin a beat (beat/stack) in the project workspace — pinned
 // cards float first in their mode.
 export const setFolderPinned = mutation({
   args: {
@@ -373,7 +374,7 @@ export const setFolderPinned = mutation({
 });
 
 // Toggle a collection, storybook, or project ("world") onto the public home.
-// Directions can never be showcased — they are internal scaffolding, surfaced
+// Beats can never be showcased — they are internal scaffolding, surfaced
 // publicly only as the sections of a showcased world.
 //
 // Showcasing publishes the SET, not its members: every public read filters to
@@ -398,9 +399,9 @@ export const setFolderShowcased = mutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
-    if (folder.kind === "direction") {
+    if (folder.kind === "beat" || folder.kind === "episode") {
       throw new ConvexError(
-        "Directions are shown inside their world — showcase the project instead.",
+        "Beats and episodes are shown inside their world — showcase the project instead.",
       );
     }
     if (folder.parentFolderId !== undefined) {
@@ -473,8 +474,8 @@ export const setFolderFeatured = mutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
-    if (folder.kind === "direction") {
-      throw new ConvexError("Directions can't be featured publicly.");
+    if (folder.kind === "beat" || folder.kind === "episode") {
+      throw new ConvexError("Beats and episodes can't be featured publicly.");
     }
     if (folder.parentFolderId !== undefined) {
       throw new ConvexError(
@@ -944,7 +945,7 @@ export const listChildCollectionEntries = query({
 });
 
 // Set or clear the MASTER option (cover asset) of a collection — the
-// thumbnail used when the collection is browsed as a "direction" (a set of
+// thumbnail used when the collection is browsed as a "beat" (a set of
 // similar options). The asset must actually be in the collection, via the
 // primary folderId or an assetFolders link.
 export const setFolderCover = mutation({

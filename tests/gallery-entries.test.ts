@@ -141,4 +141,110 @@ describe("gallery entry builder", () => {
     expect(entries[0]?.width).toBe(16);
     expect(entries[0]?.height).toBe(9);
   });
+
+  test("floats starred assets to the top, newest star first", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:newest",
+          sourceUrl: "https://example.com/newest.jpg",
+          createdAt: 900,
+        },
+        {
+          _id: "asset:old-star",
+          sourceUrl: "https://example.com/old-star.jpg",
+          createdAt: 100,
+          starredAt: 500,
+          starNote: "the reference for the whole world",
+        },
+        {
+          _id: "asset:new-star",
+          sourceUrl: "https://example.com/new-star.jpg",
+          createdAt: 200,
+          starredAt: 800,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "asset:new-star",
+      "asset:old-star",
+      "asset:newest",
+    ]);
+    expect(entries[1]?.starNote).toBe("the reference for the whole world");
+  });
+
+  test("keeps starred assets on top through a shuffle", () => {
+    const entries = buildGalleryEntries({
+      assets: Array.from({ length: 8 }, (_, index) => ({
+        _id: `asset:${index}`,
+        sourceUrl: `https://example.com/${index}.jpg`,
+        createdAt: index,
+        starredAt: index === 3 ? 999 : undefined,
+      })),
+      sortOrder: "shuffle",
+      shuffleSeed: 7,
+    });
+
+    expect(entries).toHaveLength(8);
+    expect(entries[0]?.id).toBe("asset:3");
+  });
+
+  test("leaves semantic score order alone when star promotion is off", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:best-match",
+          sourceUrl: "https://example.com/best.jpg",
+          createdAt: 100,
+        },
+        {
+          _id: "asset:starred-but-weaker",
+          sourceUrl: "https://example.com/weaker.jpg",
+          createdAt: 50,
+          starredAt: 999,
+        },
+      ],
+      sortOrder: "shuffle",
+      shuffleSeed: 1,
+      promoteStarred: false,
+    });
+
+    expect(entries.map((entry) => entry.id)).toContain("asset:best-match");
+    expect(entries.filter((entry) => entry.starredAt)).toHaveLength(1);
+  });
+
+  test("a starred pack member promotes the pack tile it renders as", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:pack-cover",
+          assetPackId: "pack:1",
+          packSlotIndex: 0,
+          sourceUrl: "https://example.com/cover.jpg",
+          createdAt: 200,
+        },
+        {
+          _id: "asset:pack-member",
+          assetPackId: "pack:1",
+          packSlotIndex: 1,
+          sourceUrl: "https://example.com/member.jpg",
+          createdAt: 100,
+          starredAt: 700,
+          starNote: "this frame is the one",
+        },
+        {
+          _id: "asset:loose-newer",
+          sourceUrl: "https://example.com/loose.jpg",
+          createdAt: 5000,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries[0]?.id).toBe("asset:pack-cover");
+    expect(entries[0]?.starredAt).toBe(700);
+    expect(entries[0]?.starNote).toBe("this frame is the one");
+  });
 });

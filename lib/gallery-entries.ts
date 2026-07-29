@@ -43,6 +43,8 @@ export type GalleryAssetRecord = {
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;
+  starredAt?: number;
+  starNote?: string;
   assetPackId?: string;
   packSlotIndex?: number;
   size?: number;
@@ -93,6 +95,11 @@ export type GalleryEntry = {
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;
+  /** Set when the owner starred this piece — the entry then leads the grid
+   *  and the card renders highlighted. */
+  starredAt?: number;
+  /** Optional owner note on a starred piece, shown on the card. */
+  starNote?: string;
   packMemberCount?: number;
   /** Member count for stack entries (galleryItemType "storybook" / "beat"). */
   storybookCount?: number;
@@ -112,6 +119,10 @@ type BuildGalleryEntriesArgs = {
   /** Deals the "shuffle" arrangement; same seed = same order, so the grid
    * stays put across re-renders until the user asks for a new deal. */
   shuffleSeed?: number;
+  /** Float starred entries to the top (default). Turned off for semantic
+   * search, where the score IS the order the user asked for — a star is a
+   * curation signal, not a relevance one. */
+  promoteStarred?: boolean;
 };
 
 // Small deterministic PRNG (mulberry32) for the seeded shuffle.
@@ -265,6 +276,18 @@ const buildEntry = (
     isPublic: cover.isPublic ?? false,
     isFeatured: cover.isFeatured ?? false,
     isLiked: cover.isLiked ?? false,
+    // A pack's star is whichever member is starred (the cover leads), so
+    // starring one frame of a prompt pack promotes the tile it renders as.
+    starredAt: members.reduce<number | undefined>(
+      (best, member) =>
+        member.starredAt && (!best || member.starredAt > best)
+          ? member.starredAt
+          : best,
+      undefined,
+    ),
+    starNote:
+      members.find((member) => member.starredAt && member.starNote)?.starNote ??
+      undefined,
     packMemberCount: members.length > 1 ? members.length : undefined,
     size: cover.size,
     totalSize: totalSize > 0 ? totalSize : undefined,
@@ -279,6 +302,7 @@ export const buildGalleryEntries = ({
   loadedAssetIds,
   sortOrder,
   shuffleSeed,
+  promoteStarred = true,
 }: BuildGalleryEntriesArgs): GalleryEntry[] => {
   const visibleAssets = assets.filter(
     (asset) => !hiddenAssetIds?.has(asset._id),
@@ -311,8 +335,20 @@ export const buildGalleryEntries = ({
     }),
   ];
 
+  // Starred pieces lead the grid in EVERY sort mode — that's the point of a
+  // star. The chosen sort still governs each group, so "newest" and "shuffle"
+  // behave normally below the starred band (and a shuffle re-deals the starred
+  // band too, it just keeps it on top).
+  const starred = promoteStarred
+    ? entries.filter((entry) => Boolean(entry.starredAt))
+    : [];
+  const rest = promoteStarred
+    ? entries.filter((entry) => !entry.starredAt)
+    : entries;
+  starred.sort((left, right) => (right.starredAt ?? 0) - (left.starredAt ?? 0));
+
   if (sortOrder === "featured") {
-    entries.sort((left, right) => {
+    rest.sort((left, right) => {
       const featuredDiff =
         Number(Boolean(right.isFeatured)) -
         Number(Boolean(left.isFeatured));
@@ -321,13 +357,13 @@ export const buildGalleryEntries = ({
       }
       return (right.createdAt ?? 0) - (left.createdAt ?? 0);
     });
-    return entries;
+    return [...starred, ...rest];
   }
 
   if (sortOrder === "shuffle") {
-    return seededShuffle(entries, shuffleSeed ?? 1);
+    return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
   }
 
-  entries.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
-  return entries;
+  rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
+  return [...starred, ...rest];
 };

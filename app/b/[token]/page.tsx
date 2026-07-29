@@ -3,8 +3,8 @@ import "@/app/tokens.css";
 import { ReviewModal } from "@/components/gallery/review-modal";
 
 export const metadata: Metadata = {
-  title: "Direction board — Laniameda",
-  description: "Shared project direction board.",
+  title: "Beat board — Laniameda",
+  description: "Shared project beat board.",
   robots: { index: false, follow: false },
 };
 

@@ -10,7 +10,7 @@ import { Clapperboard } from "lucide-react";
 export type BeatStackCardData = {
   /** Grid entry id (`beat:<folderId>`). */
   id: string;
-  /** The underlying direction folder id. */
+  /** The underlying beat folder id. */
   beatFolderId: string;
   name: string;
   count: number;
@@ -27,7 +27,7 @@ interface BeatStackCardProps {
 }
 
 /**
- * Masonry stack card for a project beat (a video+stills direction): the cover
+ * Masonry stack card for a project beat (a video+stills beat): the cover
  * sits on a fanned deck, and hovering the card fans its contents out as small
  * stacked thumbs along the bottom edge (the same .lm-beat-peek deck the review
  * workspace uses — hover a thumb to zoom it in place, no modal). Click opens

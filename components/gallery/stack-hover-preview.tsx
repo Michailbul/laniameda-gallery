@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Hover-to-preview for direction stack cards: after `delayMs` of hovering,
- * cycle through the direction's option thumbs every `intervalMs` so the stack
+ * Hover-to-preview for beat stack cards: after `delayMs` of hovering,
+ * cycle through the beat's option thumbs every `intervalMs` so the stack
  * can be skimmed without opening it. Leaving the card resets to the master.
  */
 export function useStackHoverPreview(

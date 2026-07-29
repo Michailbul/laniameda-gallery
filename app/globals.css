@@ -158,6 +158,14 @@
     rgba(8, 4, 2, 0.1) 50%,
     transparent 100%
   );
+  /* Scrim under a starred card's note. Shorter and denser at the base than the
+     hover gradient — the note has to stay readable at rest, over any image. */
+  --image-card-star-note-scrim: linear-gradient(
+    to top,
+    rgba(8, 4, 2, 0.78) 0%,
+    rgba(8, 4, 2, 0.45) 55%,
+    transparent 100%
+  );
   --image-card-prompt-sheet-bg: linear-gradient(
     180deg,
     rgba(15, 12, 10, 0) 0%,
@@ -624,6 +632,37 @@
   }
 }
 
+/* Project section switcher — labels only; the sliding hairline is the chrome.
+   Hover lifts an inactive label toward the primary text color. */
+.lm-section-tab[data-active="false"]:hover > span:first-child {
+  color: var(--lm-text-secondary);
+}
+.lm-section-tab {
+  /* No focus box — the hairline and color already say where you are. */
+  outline: none;
+}
+.lm-section-tab:focus-visible > span:first-child {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* Hide the horizontal scrollbar on the tab row (narrow screens). */
+[role="tablist"]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reveal-on-demand "+ New episode" — a word until you click it, so the
+   Episodes tab carries no idle input rule. */
+.lm-episode-add:hover {
+  color: var(--lm-coral);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm-section-tab > span,
+  .lm-section-marker {
+    transition: none !important;
+  }
+}
+
 .lm-showcase-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -1080,6 +1119,22 @@
       var(--shadow-md),
       0 0 0 1px var(--card-hover-ring, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15));
     opacity: 1;
+  }
+  /* Starred: a standing coral ring so a promoted piece reads as promoted even
+     in a dense grid. Declared BEFORE .card-selected on purpose — same
+     specificity, so selection (a transient focus state) still wins the ring
+     when a starred card is the open one. */
+  .card-base.card-starred {
+    box-shadow:
+      0 0 0 2px var(--lm-coral),
+      0 6px 24px color-mix(in srgb, var(--lm-coral) 22%, transparent),
+      var(--shadow-sm);
+  }
+  .card-base.card-starred:hover {
+    box-shadow:
+      0 0 0 2px var(--lm-coral),
+      var(--shadow-md),
+      0 8px 30px color-mix(in srgb, var(--lm-coral) 30%, transparent);
   }
   .card-base.card-selected {
     box-shadow:

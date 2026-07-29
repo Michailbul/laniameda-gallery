@@ -466,7 +466,7 @@ export function WorkflowModal({
 
         .md-modal-state {
           display: flex;
-          flex-direction: column;
+          flex-beat: column;
           align-items: center;
           justify-content: center;
           gap: 0.85rem;
@@ -897,7 +897,7 @@ export function WorkflowModal({
         }
         .md-figure-empty {
           display: flex;
-          flex-direction: column;
+          flex-beat: column;
           align-items: flex-start;
           gap: 0.4rem;
           padding: 1.2rem 1.4rem;
@@ -1032,7 +1032,7 @@ export function WorkflowModal({
         /* === DOC END ======================================================= */
         .md-doc-end {
           display: flex;
-          flex-direction: column;
+          flex-beat: column;
           align-items: center;
           gap: 0.85rem;
           padding-top: 4rem;

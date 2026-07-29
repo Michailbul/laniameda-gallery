@@ -291,16 +291,27 @@ export const agentTokenScopeValidator = v.union(
 );
 
 // Which layer (tab) of a project a member collection is filed under. A
-// "direction" — a collection of similar options with a master cover — lives
+// "beat" — a collection of similar options with a master cover — lives
 // in exactly one of these layers per project. Undefined = unsorted.
 export const projectSectionValidator = v.union(
   v.literal("characters"),
   v.literal("locations"),
   v.literal("stills"),
   v.literal("beats"),
+  // The episodes layer holds kind:"episode" folders — chapters that group the
+  // project's beats. Episodes carry no assets themselves.
+  v.literal("episodes"),
 );
 export const optionalProjectSectionValidator = v.optional(
   projectSectionValidator,
+);
+
+// Which section tab the project view is filtered to. Adds "unsorted" on top of
+// the real sections so members that were never filed stay reachable; omitting
+// the filter altogether is the "All" tab.
+export const projectSectionFilterValidator = v.union(
+  projectSectionValidator,
+  v.literal("unsorted"),
 );
 
 // Full raw asset document shape (schema.assets + system fields). Keep in sync
@@ -340,6 +351,8 @@ export const assetDocValidator = v.object({
   isPublic: v.optional(v.boolean()),
   isFeatured: v.optional(v.boolean()),
   isLiked: v.optional(v.boolean()),
+  starredAt: v.optional(v.number()),
+  starNote: v.optional(v.string()),
   curatedByUserId: v.optional(v.string()),
   curatedAt: v.optional(v.number()),
   pillar: optionalPillarValidator,

@@ -71,7 +71,7 @@ export function ShowcaseLightbox({
         background: "rgba(8, 7, 6, 0.94)",
         backdropFilter: "blur(6px)",
         display: "flex",
-        flexDirection: "column",
+        flexBeat: "column",
       }}
     >
       {/* Top bar */}
@@ -132,7 +132,7 @@ export function ShowcaseLightbox({
             maxWidth: "min(1100px, 92vw)",
             maxHeight: "82vh",
             display: "flex",
-            flexDirection: "column",
+            flexBeat: "column",
             alignItems: "center",
           }}
         >

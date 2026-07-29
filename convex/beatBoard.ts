@@ -21,12 +21,12 @@ import {
 const BOARD_COLLECTION_ASSET_LIMIT = 200;
 
 /**
- * Public payload for one asset on a shared direction board. Deliberately
+ * Public payload for one asset on a shared beat board. Deliberately
  * trimmed: no prompt text, model names, tags, or owner ids leak to viewers —
  * a colleague needs the media, its dimensions, a label, and the approved flag.
  */
-// Base shape shared with the PDF direction payload (which needs no likes).
-const directionAssetValidator = v.object({
+// Base shape shared with the PDF beat payload (which needs no likes).
+const beatAssetValidator = v.object({
   id: v.id("assets"),
   kind: v.union(v.literal("image"), v.literal("video")),
   contentType: v.optional(v.string()),
@@ -42,7 +42,7 @@ const directionAssetValidator = v.object({
 });
 
 const boardAssetValidator = v.object({
-  ...directionAssetValidator.fields,
+  ...beatAssetValidator.fields,
   likeCount: v.number(),
   likedByMe: v.boolean(),
   // Tag names, so viewers can filter the expanded views by metadata.
@@ -64,13 +64,13 @@ const boardValidator = v.object({
       description: v.optional(v.string()),
       section: optionalProjectSectionValidator,
       coverAssetId: v.optional(v.id("assets")),
-      // Which character / location directions a beat uses.
+      // Which character / location beats a beat uses.
       beatCharacterFolderIds: v.array(v.id("folders")),
       beatLocationFolderIds: v.array(v.id("folders")),
-      // Whole-direction likes (the Like button on a beat).
+      // Whole-beat likes (the Like button on a beat).
       likeCount: v.number(),
       likedByMe: v.boolean(),
-      // Owner curation: pinned directions float first.
+      // Owner curation: pinned beats float first.
       pinnedAt: v.optional(v.number()),
       count: v.number(),
       assets: v.array(boardAssetValidator),
@@ -255,7 +255,7 @@ export const getBoardWorkspace = query({
       assets: collection.assets.map(stripSensitiveAssetFields),
     }));
 
-    // This viewer's own likes (asset + whole-direction), so the hearts fill in.
+    // This viewer's own likes (asset + whole-beat), so the hearts fill in.
     const viewerKey = args.viewerKey?.trim();
     const viewerLikedAssetIds: Id<"assets">[] = [];
     const viewerLikedFolderIds: Id<"folders">[] = [];
@@ -311,7 +311,7 @@ const assetInSharedProject = async (
 export const toggleBoardLike = mutation({
   args: {
     token: v.string(),
-    // Exactly one target: an asset, or a whole direction (a beat card).
+    // Exactly one target: an asset, or a whole beat (a beat card).
     assetId: v.optional(v.id("assets")),
     folderId: v.optional(v.id("folders")),
     viewerKey: v.string(),
@@ -344,7 +344,7 @@ export const toggleBoardLike = mutation({
         folder._id,
       );
       if (!memberIds.includes(args.folderId)) {
-        throw new ConvexError("Direction is not on this board.");
+        throw new ConvexError("Beat is not on this board.");
       }
     }
 
@@ -491,22 +491,22 @@ export const getBoardAssetDownload = query({
   },
 });
 
-// One direction (member collection) of a project, in the trimmed public
+// One beat (member collection) of a project, in the trimmed public
 // asset shape — the payload behind the packaged-PDF export.
-const directionPayloadValidator = v.union(
+const beatPayloadValidator = v.union(
   v.null(),
   v.object({
     projectName: v.string(),
-    direction: v.object({
+    beat: v.object({
       id: v.id("folders"),
       name: v.string(),
       coverAssetId: v.optional(v.id("assets")),
-      assets: v.array(directionAssetValidator),
+      assets: v.array(beatAssetValidator),
     }),
   }),
 );
 
-const resolveDirectionPayload = async (
+const resolveBeatPayload = async (
   ctx: QueryCtx,
   projectFolder: Doc<"folders">,
   folderId: Id<"folders">,
@@ -562,7 +562,7 @@ const resolveDirectionPayload = async (
 
   return {
     projectName: projectFolder.name,
-    direction: {
+    beat: {
       id: folderId,
       name: collectionFolder.name,
       coverAssetId: collectionFolder.coverAssetId,
@@ -572,45 +572,45 @@ const resolveDirectionPayload = async (
 };
 
 /**
- * PUBLIC: one direction of a shared board, token-gated. Backs the
- * /api/board/direction-pdf export.
+ * PUBLIC: one beat of a shared board, token-gated. Backs the
+ * /api/board/beat-pdf export.
  */
-export const getBoardDirection = query({
+export const getBoardBeat = query({
   args: {
     token: v.string(),
     folderId: v.id("folders"),
   },
-  returns: directionPayloadValidator,
+  returns: beatPayloadValidator,
   handler: async (ctx, args) => {
     const folder = await resolveSharedProject(ctx, args.token);
     if (!folder) return null;
-    return await resolveDirectionPayload(ctx, folder, args.folderId);
+    return await resolveBeatPayload(ctx, folder, args.folderId);
   },
 });
 
 /**
- * Owner-side twin of getBoardDirection — same trimmed payload, gated by
- * ownerUserId instead of a share token. Backs /api/projects/direction-pdf.
+ * Owner-side twin of getBoardBeat — same trimmed payload, gated by
+ * ownerUserId instead of a share token. Backs /api/projects/beat-pdf.
  */
-export const getOwnerDirection = query({
+export const getOwnerBeat = query({
   args: {
     ownerUserId: v.string(),
     projectId: v.id("folders"),
     folderId: v.id("folders"),
   },
-  returns: directionPayloadValidator,
+  returns: beatPayloadValidator,
   handler: async (ctx, args) => {
     const folder = await requireOwnedProject(
       ctx,
       args.ownerUserId,
       args.projectId,
     );
-    return await resolveDirectionPayload(ctx, folder, args.folderId);
+    return await resolveBeatPayload(ctx, folder, args.folderId);
   },
 });
 
 /**
- * PUBLIC: resolve a shared direction board by its token. No auth — the
+ * PUBLIC: resolve a shared beat board by its token. No auth — the
  * unguessable token IS the capability. Returns null for unknown/revoked
  * tokens so the page can render a clean "link not active" state.
  */

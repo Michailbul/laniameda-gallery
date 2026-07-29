@@ -12,13 +12,13 @@ import {
 import sharp from "sharp";
 
 /**
- * Server-side "direction package" PDF: a branded, shareable document for one
- * direction (a collection of similar options with a MASTER). Images are
+ * Server-side "beat package" PDF: a branded, shareable document for one
+ * beat (a collection of similar options with a MASTER). Images are
  * embedded (re-encoded to JPEG via sharp — R2 assets are often WebP, which
  * PDF can't hold); videos are listed as clickable links instead.
  */
 
-export type DirectionPdfAsset = {
+export type BeatPdfAsset = {
   id: string;
   kind: "image" | "video";
   url?: string;
@@ -28,11 +28,11 @@ export type DirectionPdfAsset = {
   approved: boolean;
 };
 
-export type DirectionPdfInput = {
+export type BeatPdfInput = {
   projectName: string;
-  directionName: string;
+  beatName: string;
   coverAssetId?: string | null;
-  assets: DirectionPdfAsset[];
+  assets: BeatPdfAsset[];
 };
 
 /* ── Brand (light/print variant of the warm editorial system) ── */
@@ -104,7 +104,7 @@ const addLinkAnnotation = (
 
 // Fetch + normalize one image to embeddable JPEG bytes. Returns null on any
 // failure — a broken asset should cost one slot, not the whole export.
-const fetchJpeg = async (asset: DirectionPdfAsset): Promise<Uint8Array | null> => {
+const fetchJpeg = async (asset: BeatPdfAsset): Promise<Uint8Array | null> => {
   const url = asset.url ?? asset.thumbUrl;
   if (!url) return null;
   try {
@@ -151,13 +151,13 @@ const mapWithConcurrency = async <T, R>(
 };
 
 type EmbeddedImage = {
-  asset: DirectionPdfAsset;
+  asset: BeatPdfAsset;
   image: PDFImage;
   isMaster: boolean;
 };
 
-export async function buildDirectionPdf(
-  input: DirectionPdfInput,
+export async function buildBeatPdf(
+  input: BeatPdfInput,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const serif = await doc.embedFont(StandardFonts.TimesRomanBold);
@@ -165,7 +165,7 @@ export async function buildDirectionPdf(
   const sansBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
   const projectName = safeText(input.projectName) || "Project";
-  const directionName = safeText(input.directionName) || "Direction";
+  const beatName = safeText(input.beatName) || "Beat";
 
   const images = input.assets
     .filter((asset) => asset.kind === "image")
@@ -199,7 +199,7 @@ export async function buildDirectionPdf(
     });
     page.drawText(
       truncateToWidth(
-        `LANIAMEDA  -  ${projectName} / ${directionName}`,
+        `LANIAMEDA  -  ${projectName} / ${beatName}`,
         sansBold,
         7.5,
         PAGE_W - MARGIN * 2 - 80,
@@ -269,7 +269,7 @@ export async function buildDirectionPdf(
       font: sansBold,
       color: INK,
     });
-    const shared = "DIRECTION PACKAGE";
+    const shared = "BEAT PACKAGE";
     page.drawText(shared, {
       x: PAGE_W - MARGIN - sansBold.widthOfTextAtSize(shared, 8),
       y: cursorY + 1,
@@ -279,7 +279,7 @@ export async function buildDirectionPdf(
     });
 
     cursorY -= 64;
-    page.drawText("DIRECTION", {
+    page.drawText("BEAT", {
       x: MARGIN,
       y: cursorY,
       size: 11,
@@ -287,12 +287,12 @@ export async function buildDirectionPdf(
       color: CORAL,
     });
     cursorY -= 40;
-    const titleSize = serif.widthOfTextAtSize(directionName, 40) >
+    const titleSize = serif.widthOfTextAtSize(beatName, 40) >
       PAGE_W - MARGIN * 2
       ? 28
       : 40;
     page.drawText(
-      truncateToWidth(directionName, serif, titleSize, PAGE_W - MARGIN * 2),
+      truncateToWidth(beatName, serif, titleSize, PAGE_W - MARGIN * 2),
       { x: MARGIN, y: cursorY, size: titleSize, font: serif, color: INK },
     );
     cursorY -= 24;
@@ -366,7 +366,7 @@ export async function buildDirectionPdf(
       font: sansBold,
       color: CORAL,
     });
-    const rangeLabel = `${directionName} - ${start + 1}-${Math.min(
+    const rangeLabel = `${beatName} - ${start + 1}-${Math.min(
       start + COLS * ROWS,
       variations.length,
     )} of ${variations.length}`;

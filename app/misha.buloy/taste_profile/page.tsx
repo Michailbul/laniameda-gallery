@@ -11,10 +11,12 @@ export const metadata: Metadata = {
 };
 
 export default function TasteProfilePage() {
-  // The public showcase keeps its dark editorial art direction regardless of
-  // the viewer's gallery theme — the theme toggle is a vault-side preference.
+  // Follows the viewer's theme from <html data-theme>, same as the rest of the
+  // site. This used to pin data-theme="dark", which silently won over the root
+  // attribute and made the theme toggle in the public nav look broken here.
+  // Every color in the client comes from tokens, so both themes render.
   return (
-    <div data-theme="dark" style={{ background: "var(--lm-paper)" }}>
+    <div style={{ background: "var(--lm-paper)" }}>
       <TasteProfileClient />
     </div>
   );

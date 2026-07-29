@@ -2,12 +2,18 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, FolderPlus, Layers, Loader2, X } from "lucide-react";
+import { Check, FolderPlus, Layers, Loader2, Pencil, X } from "lucide-react";
 
 export type CollectionOption = {
   id: string;
   name: string;
   count?: number;
+  /**
+   * Owning collection, for sub-collections. Rendered as a ghost prefix
+   * ("Dear Annete / Characters") because several parents each have a child
+   * called Characters or Locations — bare names made those rows identical.
+   */
+  parentName?: string;
   /**
    * "collection" (default) rows honor the Move/Add toggle. "storybook" rows are
    * always additive — a storybook is a narrative overlay, so moving an asset
@@ -26,6 +32,8 @@ interface CardCollectionButtonProps {
   onCopy: (imageId: string, folderId: string) => Promise<void> | void;
   onRemove?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreate?: (name: string) => Promise<string | null>;
+  /** Rename a collection in place, so a wrong name is fixable where it's seen. */
+  onRename?: (folderId: string, name: string) => Promise<void> | void;
   /** Projects the asset can be sent to (lands in the project's Inbox). */
   projects?: CollectionOption[];
   onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
@@ -52,6 +60,7 @@ export function CardCollectionButton({
   onCopy,
   onRemove,
   onCreate,
+  onRename,
   projects,
   onAddToProject,
   positionClassName,
@@ -70,20 +79,34 @@ export function CardCollectionButton({
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [createError, setCreateError] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const hoverOpenTimerRef = useRef<number | null>(null);
   const hoverCloseTimerRef = useRef<number | null>(null);
   // Mirror of busy/creating for the close timer: never hover-close while an
   // action is in flight or the user is typing a new collection name.
   const stayOpenRef = useRef(false);
-  stayOpenRef.current = busy || creating;
+  stayOpenRef.current = busy || creating || renamingId !== null;
 
   const close = useCallback(() => {
     setOpen(false);
     setCreating(false);
     setDraftName("");
     setCreateError(false);
+    setRenamingId(null);
   }, []);
+
+  // Commit a rename. A blank or unchanged name just exits edit mode.
+  const commitRename = useCallback(
+    async (collection: CollectionOption) => {
+      const next = renameDraft.trim();
+      setRenamingId(null);
+      if (!next || next === collection.name || !onRename) return;
+      await onRename(collection.id, next);
+    },
+    [onRename, renameDraft],
+  );
 
   const cancelHoverOpen = useCallback(() => {
     if (hoverOpenTimerRef.current !== null) {
@@ -227,15 +250,56 @@ export function CardCollectionButton({
   const renderRow = (collection: CollectionOption) => {
     const isMember = currentSet.has(collection.id);
     const removable = isMember && Boolean(onRemove);
+    // Sub-collections share names across parents, so every label the user
+    // reads (and every tooltip) carries the owning collection.
+    const fullName = collection.parentName
+      ? `${collection.parentName} / ${collection.name}`
+      : collection.name;
     const addLabel =
       collection.kind === "storybook"
-        ? `Add to ${collection.name}`
+        ? `Add to ${fullName}`
         : mode === "move"
-          ? `Move to ${collection.name}`
-          : `Add to ${collection.name}`;
+          ? `Move to ${fullName}`
+          : `Add to ${fullName}`;
+
+    // Renaming takes over the row — the destination is irrelevant mid-edit.
+    if (renamingId === collection.id) {
+      return (
+        <div key={collection.id} className="px-3 py-1.5">
+          <input
+            autoFocus
+            value={renameDraft}
+            onClick={stop}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void commitRename(collection);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setRenamingId(null);
+              }
+            }}
+            onBlur={() => void commitRename(collection)}
+            aria-label={`Rename ${fullName}`}
+            className="w-full bg-transparent outline-none"
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "var(--lm-text-primary)",
+              borderBottom: "1px solid var(--lm-coral)",
+              caretColor: "var(--lm-coral)",
+              paddingBottom: "2px",
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
+      <div key={collection.id} className="group/row flex w-full items-center">
       <button
-        key={collection.id}
         type="button"
         role="menuitem"
         disabled={busy}
@@ -243,16 +307,24 @@ export function CardCollectionButton({
           stop(event);
           void runAction(collection, removable);
         }}
-        className="group/row flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
+        className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
         style={{
           fontSize: "12px",
           fontWeight: 600,
           color: "var(--lm-text-primary)",
           backgroundColor: "transparent",
         }}
-        title={removable ? `Remove from ${collection.name}` : addLabel}
+        title={removable ? `Remove from ${fullName}` : addLabel}
       >
-        <span className="truncate">{collection.name}</span>
+        <span className="truncate">
+          {collection.parentName && (
+            <span style={{ color: "var(--lm-text-ghost)", fontWeight: 500 }}>
+              {collection.parentName}
+              {" / "}
+            </span>
+          )}
+          {collection.name}
+        </span>
         {isMember ? (
           removable ? (
             <span className="relative h-3.5 w-3.5 shrink-0">
@@ -280,6 +352,25 @@ export function CardCollectionButton({
           </span>
         )}
       </button>
+        {/* Rename in place — storybooks are renamed from their own modal. */}
+        {onRename && collection.kind !== "storybook" && (
+          <button
+            type="button"
+            aria-label={`Rename ${fullName}`}
+            title={`Rename ${fullName}`}
+            disabled={busy}
+            onClick={(event) => {
+              stop(event);
+              setRenameDraft(collection.name);
+              setRenamingId(collection.id);
+            }}
+            className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100"
+            style={{ color: "var(--lm-text-tertiary)" }}
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+      </div>
     );
   };
 

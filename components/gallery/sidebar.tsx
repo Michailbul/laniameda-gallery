@@ -93,10 +93,10 @@ interface GallerySidebarProps {
    * hover control. */
   onProjectBrowse?: (projectId: string) => void;
   onCreateProject?: (name: string) => Promise<string | null>;
-  /** Dropping assets on a project files them into its Inbox direction. */
+  /** Dropping assets on a project files them into its Inbox beat. */
   onAssetsDropOnProject?: (projectId: string, assetIds: string[]) => void;
-  /** Dropping assets on a direction ADDS them to that collection. */
-  onAssetsDropOnDirection?: (directionId: string, assetIds: string[]) => void;
+  /** Dropping assets on a beat ADDS them to that collection. */
+  onAssetsDropOnBeat?: (beatId: string, assetIds: string[]) => void;
   /** Manage any folder-backed row (collection / storybook / project). */
   onRenameFolder?: (folderId: string, name: string) => Promise<void> | void;
   /** Deletes the folder; its assets stay in the gallery. */
@@ -129,8 +129,8 @@ interface GallerySidebarProps {
 }
 
 interface ProjectEntry extends Folder {
-  /** Member directions (collections), for expandable drop targets. */
-  directions?: { id: string; name: string }[];
+  /** Member beats (collections), for expandable drop targets. */
+  beats?: { id: string; name: string }[];
   /** The world this project sits inside, when it's been filed into one.
    * Shown as a ghost prefix so the world > project tier reads at a glance. */
   worldName?: string;
@@ -165,7 +165,7 @@ export function GallerySidebar({
   onProjectBrowse,
   onCreateProject,
   onAssetsDropOnProject,
-  onAssetsDropOnDirection,
+  onAssetsDropOnBeat,
   onRenameFolder,
   onDeleteFolder,
   showcasedFolderIds,
@@ -655,7 +655,7 @@ export function GallerySidebar({
                               onAssetsDropOnProject(project._id, assetIds)
                           : undefined
                       }
-                      onDropAssetsOnDirection={onAssetsDropOnDirection}
+                      onDropAssetsOnBeat={onAssetsDropOnBeat}
                       onRename={
                         onRenameFolder
                           ? (name) => onRenameFolder(project._id, name)
@@ -1294,9 +1294,9 @@ function NavItem({
   );
 }
 
-/* Project row — expandable, with per-direction drop targets. Dropping on the
-   project itself files assets into its Inbox direction; hovering a drag over
-   the row auto-expands it so a direction can be targeted directly. */
+/* Project row — expandable, with per-beat drop targets. Dropping on the
+   project itself files assets into its Inbox beat; hovering a drag over
+   the row auto-expands it so a beat can be targeted directly. */
 
 function ProjectRow({
   project,
@@ -1304,7 +1304,7 @@ function ProjectRow({
   onOpen,
   onBrowse,
   onDropAssets,
-  onDropAssetsOnDirection,
+  onDropAssetsOnBeat,
   onRename,
   onDelete,
 }: {
@@ -1316,7 +1316,7 @@ function ProjectRow({
    * row's primary click and onOpen moves to a hover control. */
   onBrowse?: () => void;
   onDropAssets?: (assetIds: string[]) => void;
-  onDropAssetsOnDirection?: (directionId: string, assetIds: string[]) => void;
+  onDropAssetsOnBeat?: (beatId: string, assetIds: string[]) => void;
   onRename?: (name: string) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
 }) {
@@ -1324,7 +1324,7 @@ function ProjectRow({
   const [dragOver, setDragOver] = useState(false);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const [deleteArmed, setDeleteArmed] = useState(false);
-  const directions = project.directions ?? [];
+  const beats = project.beats ?? [];
   const droppable = Boolean(onDropAssets);
 
   const commitRename = () => {
@@ -1349,7 +1349,7 @@ function ProjectRow({
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
                 setDragOver(true);
-                if (directions.length > 0) setExpanded(true);
+                if (beats.length > 0) setExpanded(true);
               }
             : undefined
         }
@@ -1515,8 +1515,8 @@ function ProjectRow({
                 }
                 title={
                   deleteArmed
-                    ? "Click again to delete — directions and assets survive"
-                    : "Delete project (directions and assets survive)"
+                    ? "Click again to delete — beats and assets survive"
+                    : "Delete project (beats and assets survive)"
                 }
               >
                 <Trash2 className="h-2.5 w-2.5" />
@@ -1536,7 +1536,7 @@ function ProjectRow({
             )}
           </span>
         )}
-        {directions.length > 0 && (
+        {beats.length > 0 && (
           <span
             role="button"
             tabIndex={-1}
@@ -1544,7 +1544,7 @@ function ProjectRow({
               event.stopPropagation();
               setExpanded((prev) => !prev);
             }}
-            aria-label={expanded ? "Collapse directions" : "Expand directions"}
+            aria-label={expanded ? "Collapse beats" : "Expand beats"}
             className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
             style={{ color: "var(--lm-sidebar-text-ghost)" }}
           >
@@ -1557,14 +1557,14 @@ function ProjectRow({
       </button>
 
       {expanded &&
-        directions.map((direction) => (
-          <DirectionDropRow
-            key={direction.id}
-            name={direction.name}
+        beats.map((beat) => (
+          <BeatDropRow
+            key={beat.id}
+            name={beat.name}
             onClick={onOpen}
             onDropAssets={
-              onDropAssetsOnDirection
-                ? (assetIds) => onDropAssetsOnDirection(direction.id, assetIds)
+              onDropAssetsOnBeat
+                ? (assetIds) => onDropAssetsOnBeat(beat.id, assetIds)
                 : undefined
             }
           />
@@ -1573,7 +1573,7 @@ function ProjectRow({
   );
 }
 
-function DirectionDropRow({
+function BeatDropRow({
   name,
   onClick,
   onDropAssets,
@@ -1621,7 +1621,7 @@ function DirectionDropRow({
             }
           : {}),
       }}
-      title={onDropAssets ? "Drop assets to add to this direction" : undefined}
+      title={onDropAssets ? "Drop assets to add to this beat" : undefined}
     >
       <FolderOpen
         className="h-3 w-3 flex-shrink-0"

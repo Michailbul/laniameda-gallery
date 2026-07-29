@@ -29,25 +29,25 @@ class QueryBuilder {
 }
 
 class InMemoryQuery {
-  private readonly direction: "asc" | "desc";
+  private readonly beat: "asc" | "desc";
 
   constructor(
     private readonly db: InMemoryDB,
     private readonly table: string,
     private readonly constraints: Constraint[],
-    direction: "asc" | "desc" = "asc",
+    beat: "asc" | "desc" = "asc",
   ) {
-    this.direction = direction;
+    this.beat = beat;
   }
 
   withIndex(_indexName: string, build: (builder: QueryBuilder) => QueryBuilder) {
     const builder = new QueryBuilder();
     build(builder);
-    return new InMemoryQuery(this.db, this.table, builder.constraints, this.direction);
+    return new InMemoryQuery(this.db, this.table, builder.constraints, this.beat);
   }
 
-  order(direction: "asc" | "desc") {
-    return new InMemoryQuery(this.db, this.table, this.constraints, direction);
+  order(beat: "asc" | "desc") {
+    return new InMemoryQuery(this.db, this.table, this.constraints, beat);
   }
 
   async collect() {
@@ -118,7 +118,7 @@ class InMemoryQuery {
       return a - b;
     });
 
-    if (this.direction === "desc") {
+    if (this.beat === "desc") {
       sorted.reverse();
     }
 

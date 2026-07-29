@@ -34,9 +34,18 @@ import {
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
+  projectSectionFilterValidator,
 } from "./validators";
 
 const pillarValidator = optionalPillarValidator;
+// Which project layer the grid is narrowed to; undefined = the "All" tab.
+type ProjectSectionFilter =
+  | "characters"
+  | "locations"
+  | "stills"
+  | "beats"
+  | "episodes"
+  | "unsorted";
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
@@ -627,6 +636,80 @@ export const setAssetLiked = mutation({
     await ctx.db.patch(args.assetId, { isLiked: args.isLiked });
 
     return { assetId: args.assetId, isLiked: args.isLiked };
+  },
+});
+
+const STAR_NOTE_MAX_LENGTH = 500;
+
+const requireOwnedAsset = async (
+  ctx: MutationCtx,
+  rawOwnerUserId: string,
+  assetId: Id<"assets">,
+) => {
+  const ownerUserId = rawOwnerUserId.trim();
+  if (!ownerUserId) {
+    throw new ConvexError("ownerUserId is required.");
+  }
+  const asset = await ctx.db.get(assetId);
+  if (!asset) {
+    throw new ConvexError("Asset not found.");
+  }
+  if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+    throw new ConvexError("Asset does not belong to this user.");
+  }
+  return asset;
+};
+
+// Star/unstar an asset. The star travels with the asset, so it reads the same
+// wherever the asset surfaces — collection, world, project section or plain
+// browse. Unstarring KEEPS any note: the note is only ever shown while starred,
+// so holding it makes an accidental toggle free to undo.
+export const setAssetStarred = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    starred: v.boolean(),
+    // Set the note in the same round-trip as the star (the card's "star + write
+    // a line" flow), so the grid re-sorts once instead of twice.
+    note: v.optional(v.string()),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    starredAt: v.optional(v.number()),
+    starNote: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const asset = await requireOwnedAsset(ctx, args.ownerUserId, args.assetId);
+
+    const starredAt = args.starred ? Date.now() : undefined;
+    const starNote =
+      args.note === undefined
+        ? asset.starNote
+        : args.note.trim().slice(0, STAR_NOTE_MAX_LENGTH) || undefined;
+
+    await ctx.db.patch(asset._id, { starredAt, starNote });
+
+    return { assetId: asset._id, starredAt, starNote };
+  },
+});
+
+// Edit just the note on a starred asset, without touching the star itself.
+export const setAssetStarNote = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    note: v.string(),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    starNote: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const asset = await requireOwnedAsset(ctx, args.ownerUserId, args.assetId);
+    const starNote =
+      args.note.trim().slice(0, STAR_NOTE_MAX_LENGTH) || undefined;
+    await ctx.db.patch(asset._id, { starNote });
+    return { assetId: asset._id, starNote };
   },
 });
 
@@ -1221,6 +1304,7 @@ const collectAssetsForProject = async (
   projectId: Id<"folders">,
   limit: number,
   excludeBeats = false,
+  section?: ProjectSectionFilter,
 ) => {
   const links = await ctx.db
     .query("projectCollections")
@@ -1228,6 +1312,12 @@ const collectAssetsForProject = async (
     .collect();
   const assets: Doc<"assets">[] = [];
   for (const link of links) {
+    // A section tab narrows the pool to that layer. "unsorted" reaches the
+    // members that were never filed, which no named tab would otherwise show.
+    if (section !== undefined) {
+      const linkSection = link.section ?? "unsorted";
+      if (linkSection !== section) continue;
+    }
     if (excludeBeats && link.section === "beats") continue;
     if (assets.length >= limit) break;
     assets.push(
@@ -1241,6 +1331,127 @@ const collectAssetsForProject = async (
   }
   return assets;
 };
+
+// Which folders the current view is looking at, as a membership test for the
+// starred read. null = unscoped (plain browse), so every starred asset counts.
+const resolveScopeFolderIds = async (
+  ctx: QueryCtx,
+  args: {
+    folderId?: Id<"folders">;
+    includeDescendants?: boolean;
+    projectId?: Id<"folders">;
+    projectSection?: ProjectSectionFilter;
+    excludeBeatAssets?: boolean;
+  },
+): Promise<Set<string> | null> => {
+  if (args.projectId) {
+    const links = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId!))
+      .collect();
+    const scoped = new Set<string>();
+    for (const link of links) {
+      if (
+        args.projectSection !== undefined &&
+        (link.section ?? "unsorted") !== args.projectSection
+      ) {
+        continue;
+      }
+      if (args.excludeBeatAssets && link.section === "beats") continue;
+      scoped.add(link.folderId as string);
+    }
+    return scoped;
+  }
+
+  if (args.folderId) {
+    const scoped = new Set<string>([args.folderId as string]);
+    if (args.includeDescendants) {
+      const children = await ctx.db
+        .query("folders")
+        .withIndex("by_parent", (q) => q.eq("parentFolderId", args.folderId!))
+        .collect();
+      for (const child of children) scoped.add(child._id as string);
+    }
+    return scoped;
+  }
+
+  return null;
+};
+
+// Every folder an asset is filed into: the membership links plus the legacy
+// primary pointer, which stays mirrored into links but is cheap to include.
+const assetFolderIdSet = async (ctx: QueryCtx, asset: Doc<"assets">) => {
+  const links = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  const ids = new Set<string>(links.map((link) => link.folderId as string));
+  if (asset.folderId) ids.add(asset.folderId as string);
+  return ids;
+};
+
+// The starred assets in the current view, newest star first.
+//
+// Read on its own rather than sorted out of the main grid query: browse is
+// cursor-paginated 60 at a time, so a starred asset sitting on page 9 would
+// otherwise not reach the top of the grid until the user scrolled that far.
+// The caller merges these into its asset list before filtering, so search and
+// the filter bar still apply to them normally.
+export const listStarredAssets = query({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.optional(v.id("folders")),
+    includeDescendants: v.optional(v.boolean()),
+    projectId: v.optional(v.id("folders")),
+    projectSection: v.optional(projectSectionFilterValidator),
+    excludeBeatAssets: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(galleryAssetResultValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const limit = Math.min(args.limit ?? 120, 400);
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+
+    const starred = dedupeAssetIds(
+      (
+        await Promise.all(
+          ownerUserIds.map(async (ownerCandidate) =>
+            await ctx.db
+              .query("assets")
+              .withIndex("by_owner_starredAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).gt("starredAt", 0),
+              )
+              .order("desc")
+              .take(limit),
+          ),
+        )
+      ).flat(),
+    ).sort((a, b) => (b.starredAt ?? 0) - (a.starredAt ?? 0));
+
+    const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
+    if (scopeFolderIds === null) {
+      return await hydrateGalleryAssetResults(ctx, starred.slice(0, limit));
+    }
+    if (scopeFolderIds.size === 0) return [];
+
+    const inScope: Doc<"assets">[] = [];
+    for (const asset of starred) {
+      if (inScope.length >= limit) break;
+      const folderIds = await assetFolderIdSet(ctx, asset);
+      for (const folderId of folderIds) {
+        if (scopeFolderIds.has(folderId)) {
+          inScope.push(asset);
+          break;
+        }
+      }
+    }
+    return await hydrateGalleryAssetResults(ctx, inScope);
+  },
+});
 
 export const listGalleryAssets = query({
   args: {
@@ -1257,6 +1468,9 @@ export const listGalleryAssets = query({
     // With projectId: skip members of "beats"-section collections — the
     // caller shows those as beat stack cards, not flat tiles.
     excludeBeatAssets: v.optional(v.boolean()),
+    // With projectId: narrow to one section tab (Beats / Characters /
+    // Locations / Stills / Unsorted). Omit for the "All" tab.
+    projectSection: v.optional(projectSectionFilterValidator),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -1301,6 +1515,7 @@ export const listGalleryAssets = query({
           args.projectId,
           queryTake,
           args.excludeBeatAssets === true,
+          args.projectSection,
         )
       : args.folderId
       ? args.includeDescendants
@@ -2396,7 +2611,7 @@ export const setAssetPinned = mutation({
   },
 });
 
-// Owner-side twin of directionBoard.getBoardAssetDownload: resolve one asset's
+// Owner-side twin of beatBoard.getBoardAssetDownload: resolve one asset's
 // bytes URL for the /api/assets/[assetId]/download proxy (R2's public domain
 // has no CORS headers, so downloads stream same-origin with an attachment
 // header). The route validates the session before calling this.
@@ -2511,7 +2726,7 @@ export const APPROVED_TAG_NAME = "approved";
 
 // Shared engine for boolean-flag tags (approved, character, location, …):
 // add or remove one tag on an asset with an owner check, keeping tagIds +
-// assetTags links + usageCount in sync. Idempotent in both directions.
+// assetTags links + usageCount in sync. Idempotent in both beats.
 const setTagPresenceOnAsset = async (
   ctx: MutationCtx,
   args: { ownerUserId: string; assetId: Id<"assets"> },
@@ -2593,7 +2808,7 @@ const setTagPresenceOnAsset = async (
 
 // Toggle any global tag on an asset with the same boolean-flag ergonomics.
 // Powers the project workspace role chips (character / location), where a
-// tag IS the asset's role inside a direction.
+// tag IS the asset's role inside a beat.
 export const setAssetTagState = mutation({
   args: {
     ownerUserId: v.string(),

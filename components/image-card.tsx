@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
@@ -59,6 +59,8 @@ interface ImageCardProps {
     isPublic?: boolean;
     isFeatured?: boolean;
     isLiked?: boolean;
+    starredAt?: number;
+    starNote?: string;
     packMemberCount?: number;
     size?: number;
     totalSize?: number;
@@ -101,6 +103,8 @@ interface ImageCardProps {
       isPublic?: boolean;
       isFeatured?: boolean;
       isLiked?: boolean;
+      starredAt?: number;
+      starNote?: string;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -131,12 +135,17 @@ interface ImageCardProps {
   likeable?: boolean;
   liked?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
+  /** Owner-only: the card offers the star toggle. */
+  starrable?: boolean;
+  onToggleStar?: (imageId: string, nextStarred: boolean) => void;
   showPublicBadge?: boolean;
   collections?: CollectionOption[];
   onMoveToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCopyToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onRemoveFromCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
+  /** Rename a collection from the card's collection menu. */
+  onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
   /** Projects the asset can be sent to via the collection menu (→ Inbox). */
   projects?: CollectionOption[];
   onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
@@ -180,12 +189,15 @@ export const ImageCard = memo(function ImageCard({
   likeable = false,
   liked = false,
   onToggleLike,
+  starrable = false,
+  onToggleStar,
   showPublicBadge = false,
   collections,
   onMoveToCollection,
   onCopyToCollection,
   onRemoveFromCollection,
   onCreateCollection,
+  onRenameCollection,
   projects,
   onAddToProject,
   onRemoveTag,
@@ -395,6 +407,8 @@ export const ImageCard = memo(function ImageCard({
       isPublic: image.isPublic,
       isFeatured: image.isFeatured,
       isLiked: image.isLiked,
+      starredAt: image.starredAt,
+      starNote: image.starNote,
       previewImages,
     });
 
@@ -418,10 +432,14 @@ export const ImageCard = memo(function ImageCard({
   // Focus dimming: selected stays full, others dim when there is a selection
   const dimmed = hasSelection && !isSelected;
 
+  const isStarred = Boolean(image.starredAt);
+  const starNote = isStarred ? image.starNote?.trim() || undefined : undefined;
+
   const shouldAnimateEntrance = index < ENTRANCE_ANIMATION_LIMIT;
   const cardClasses = [
     "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-xl",
     shouldAnimateEntrance && "animate-card-entrance",
+    isStarred && "card-starred",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
@@ -438,6 +456,12 @@ export const ImageCard = memo(function ImageCard({
     event.preventDefault();
     event.stopPropagation();
     onToggleLike?.(image.id, !liked);
+  };
+
+  const handleToggleStar = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleStar?.(image.id, !isStarred);
   };
 
   const handleDownload = useCallback(
@@ -816,7 +840,9 @@ export const ImageCard = memo(function ImageCard({
           rest and fades away on hover, when the video itself starts playing. */}
       {isVideo && (
         <div
-          className="pointer-events-none absolute bottom-2 right-2 z-20 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-0"
+          className={`pointer-events-none absolute right-2 z-20 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-0 ${
+            starNote ? "bottom-9" : "bottom-2"
+          }`}
           style={{
             background: "var(--image-card-badge-bg)",
             color: "var(--image-card-badge-text)",
@@ -902,6 +928,7 @@ export const ImageCard = memo(function ImageCard({
             onCopy={onCopyToCollection}
             onRemove={onRemoveFromCollection}
             onCreate={onCreateCollection}
+            onRename={onRenameCollection}
             projects={projects}
             onAddToProject={onAddToProject}
             positionClassName="pointer-events-auto z-20"
@@ -944,7 +971,11 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Model + public-status badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
       {!isCinema && (image.modelName || (showPublicBadge && image.isPublic)) && (
-        <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0">
+        <div
+          className={`absolute left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0 ${
+            starNote ? "bottom-9" : "bottom-2"
+          }`}
+        >
           {image.modelName && (
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
@@ -1004,6 +1035,35 @@ export const ImageCard = memo(function ImageCard({
               <X className="h-2 w-2" style={{ color: "var(--coral)" }} />
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Star note — the owner's line on why this piece is starred. Visible at
+          rest (that's the whole point of writing it) and fades on hover so the
+          prompt chip and tag chips get the bottom band back. Carries its own
+          scrim: at rest there is no hover gradient to sit on. */}
+      {starNote && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2.5 pb-2 pt-6 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0"
+          style={{ background: "var(--image-card-star-note-scrim)" }}
+        >
+          <p
+            className="line-clamp-2 text-[10px] font-medium leading-snug"
+            style={{
+              // Always light: this sits on the image, never on the page surface.
+              color: "var(--image-card-overlay-text)",
+              textShadow: "var(--image-card-text-shadow)",
+            }}
+            title={starNote}
+          >
+            <Star
+              className="mr-1 inline-block h-2.5 w-2.5 -translate-y-px"
+              fill="currentColor"
+              strokeWidth={0}
+              style={{ color: "var(--lm-coral)" }}
+            />
+            {starNote}
+          </p>
         </div>
       )}
 
@@ -1112,9 +1172,9 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Top-right action cluster — destructive/like actions kept apart from
-          the left cluster; flex keeps delete and like evenly spaced. */}
-      {(canDelete || likeable) && (
+      {/* Top-right action cluster — destructive/curation actions kept apart
+          from the left cluster; flex keeps the buttons evenly spaced. */}
+      {(canDelete || likeable || starrable) && (
         <div className="card-toolbar pointer-events-none absolute right-2 top-2 z-30 flex items-center gap-1.5">
           {canDelete && (
             <button
@@ -1145,6 +1205,30 @@ export const ImageCard = memo(function ImageCard({
               ) : (
                 <Trash2 className="h-4 w-4" />
               )}
+            </button>
+          )}
+
+          {/* Star — stays lit at rest so a starred piece is legible without
+              hovering; it doubles as the card's "this one matters" marker. */}
+          {starrable && (
+            <button
+              type="button"
+              onClick={handleToggleStar}
+              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border ${
+                isStarred
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-active={isStarred ? "dark" : undefined}
+              aria-label={isStarred ? "Remove star" : "Star asset"}
+              aria-pressed={isStarred}
+              title={isStarred ? "Starred — click to unstar" : "Star"}
+            >
+              <Star
+                className="h-4 w-4"
+                strokeWidth={2.25}
+                fill={isStarred ? "currentColor" : "none"}
+              />
             </button>
           )}
 

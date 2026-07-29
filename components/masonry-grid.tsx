@@ -57,6 +57,8 @@ interface GalleryImage {
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;
+  starredAt?: number;
+  starNote?: string;
   packMemberCount?: number;
   storybookCount?: number;
   /** Beat entries: every member thumb (cover first) for the hover peek fan. */
@@ -93,6 +95,9 @@ interface MasonryGridProps {
   onReplaceSelection?: (imageIds: string[]) => void;
   likeable?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
+  /** Owner-only: cards offer the star toggle. */
+  starrable?: boolean;
+  onToggleStar?: (imageId: string, nextStarred: boolean) => void;
   draggableAssets?: boolean;
   onAssetDragStart?: (
     event: React.DragEvent<HTMLDivElement>,
@@ -112,6 +117,7 @@ interface MasonryGridProps {
     folderId: string,
   ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
+  onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
   /** Projects the asset can be sent to via the collection menu (→ Inbox). */
   projects?: CollectionOption[];
   onAddAssetToProject?: (
@@ -122,7 +128,7 @@ interface MasonryGridProps {
   onRemoveAssetTag?: (imageId: string, tagName: string) => void;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
-  /** Opens a beat (direction folder) for entries with galleryItemType "beat". */
+  /** Opens a beat (beat folder) for entries with galleryItemType "beat". */
   onBeatOpen?: (beatFolderId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
@@ -149,6 +155,8 @@ interface MasonryGridProps {
       isPublic?: boolean;
       isFeatured?: boolean;
       isLiked?: boolean;
+      starredAt?: number;
+      starNote?: string;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -278,6 +286,8 @@ export function MasonryGrid({
   onReplaceSelection,
   likeable = false,
   onToggleLike,
+  starrable = false,
+  onToggleStar,
   draggableAssets = false,
   onAssetDragStart,
   collections,
@@ -285,6 +295,7 @@ export function MasonryGrid({
   onCopyAssetToCollection,
   onRemoveAssetFromCollection,
   onCreateCollection,
+  onRenameCollection,
   projects,
   onAddAssetToProject,
   onRemoveAssetTag,
@@ -663,6 +674,8 @@ export function MasonryGrid({
                 }
                 liked={Boolean(image.isLiked)}
                 onToggleLike={onToggleLike}
+                starrable={starrable && isAssetCard}
+                onToggleStar={onToggleStar}
                 collections={isAssetCard ? collections : undefined}
                 onMoveToCollection={
                   isAssetCard ? onMoveAssetToCollection : undefined
@@ -675,6 +688,9 @@ export function MasonryGrid({
                 }
                 onCreateCollection={
                   isAssetCard ? onCreateCollection : undefined
+                }
+                onRenameCollection={
+                  isAssetCard ? onRenameCollection : undefined
                 }
                 projects={isAssetCard ? projects : undefined}
                 onAddToProject={isAssetCard ? onAddAssetToProject : undefined}

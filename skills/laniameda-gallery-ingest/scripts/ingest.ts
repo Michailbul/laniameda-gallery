@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
+import { spawnSync } from "child_process";
 import { createHash } from "crypto";
-import { existsSync, readFileSync } from "fs";
-import { basename } from "path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
 
 type Pillar = string;
 type Operation = "create" | "update" | "delete" | "workflow";
@@ -138,6 +140,9 @@ type CreateItem = {
   designInspiration?: DesignInspirationInput;
   domain?: string;
   upstreamInputs?: UpstreamInput[];
+  // Video only: where to grab the poster frame. Defaults to 15% in, clamped to
+  // 1–10s. Set it when the default frame lands on a fade or a murky shot.
+  posterAtSeconds?: number;
 };
 
 type UpdateItem = {
@@ -263,6 +268,358 @@ function guessMime(fileName: string): string {
   return mimeByExt[ext ?? ""] ?? "application/octet-stream";
 }
 
+// ── Media preparation ───────────────────────────────────────────────────────
+//
+// Images ride the Convex function argument as base64 (the server decodes them
+// and builds a thumbnail). Video cannot: base64 inflates bytes ~1.33x and blows
+// the argument cap, and `posterFile` is only honoured on the r2Key branch of
+// ingestFromApi — so a base64 video can never get a thumbnail. Video therefore
+// always uploads direct to R2, which also means nothing decodes it server-side
+// and the dimensions we send are the ONLY ones the asset will ever have.
+
+const BASE64_MAX_BYTES = 10 * 1024 * 1024;
+
+// Browsers cannot decode PCM audio inside an MP4/MOV container. Such a file
+// ingests clean, looks correct in the grid, and plays SILENT — an invisible
+// failure, so it gets remuxed rather than merely flagged. DaVinci and QuickTime
+// exports hit this routinely.
+const BROWSER_SAFE_AUDIO_CODECS = new Set([
+  "aac",
+  "mp3",
+  "opus",
+  "vorbis",
+  "flac",
+  "alac",
+]);
+
+// Containers browsers handle inconsistently even with an h264/aac payload.
+const REMUX_CONTAINER_EXTENSIONS = new Set(["mov", "qt", "avi", "mkv"]);
+
+export type PosterFileInput = {
+  base64: string;
+  contentType: string;
+  width?: number;
+  height?: number;
+  size?: number;
+};
+
+export type PreparedMedia = {
+  file?: { base64: string; fileName: string; contentType: string };
+  r2Key?: string;
+  mediaContentType?: string;
+  mediaSize?: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  mediaFileName?: string;
+  posterFile?: PosterFileInput;
+};
+
+export type VideoProbe = {
+  width: number;
+  height: number;
+  durationSeconds: number;
+  audioCodec?: string;
+  hasAudio: boolean;
+};
+
+function runBinary(bin: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
+  const result = spawnSync(bin, args, {
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.error) {
+    return { ok: false, stdout: "", stderr: result.error.message };
+  }
+  return {
+    ok: result.status === 0,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function hasBinary(bin: string): boolean {
+  return runBinary(bin, ["-version"]).ok;
+}
+
+// Rotated captures store the coded size, so a 90°-rotated phone clip would get a
+// landscape masonry cell without this.
+function readRotation(videoStream: Record<string, unknown>): number {
+  const tags = videoStream.tags as Record<string, unknown> | undefined;
+  const fromTag = Number(tags?.rotate);
+  if (Number.isFinite(fromTag) && fromTag !== 0) return fromTag;
+
+  const sideData = Array.isArray(videoStream.side_data_list)
+    ? (videoStream.side_data_list as Record<string, unknown>[])
+    : [];
+  for (const entry of sideData) {
+    const rotation = Number(entry?.rotation);
+    if (Number.isFinite(rotation) && rotation !== 0) return rotation;
+  }
+  return 0;
+}
+
+export function probeVideo(filePath: string): VideoProbe | undefined {
+  const probe = runBinary("ffprobe", [
+    "-v", "error",
+    "-print_format", "json",
+    "-show_streams",
+    "-show_format",
+    filePath,
+  ]);
+  if (!probe.ok) return undefined;
+
+  let parsed: { streams?: Record<string, unknown>[]; format?: Record<string, unknown> };
+  try {
+    parsed = JSON.parse(probe.stdout);
+  } catch {
+    return undefined;
+  }
+
+  const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+  const video = streams.find((stream) => stream.codec_type === "video");
+  if (!video) return undefined;
+  const audio = streams.find((stream) => stream.codec_type === "audio");
+
+  let width = Number(video.width) || 0;
+  let height = Number(video.height) || 0;
+  const rotation = Math.abs(readRotation(video)) % 360;
+  if (rotation === 90 || rotation === 270) {
+    [width, height] = [height, width];
+  }
+
+  return {
+    width,
+    height,
+    durationSeconds: Number(video.duration ?? parsed.format?.duration) || 0,
+    audioCodec: audio?.codec_name ? String(audio.codec_name) : undefined,
+    hasAudio: Boolean(audio),
+  };
+}
+
+function fileExtension(filePath: string): string {
+  return filePath.split(".").pop()?.toLowerCase() ?? "";
+}
+
+export function describeRemuxReason(
+  filePath: string,
+  probe: VideoProbe,
+): string | undefined {
+  if (probe.hasAudio && !BROWSER_SAFE_AUDIO_CODECS.has(probe.audioCodec ?? "")) {
+    return `audio is ${probe.audioCodec}, which browsers cannot decode — the asset would play silent`;
+  }
+  if (REMUX_CONTAINER_EXTENSIONS.has(fileExtension(filePath))) {
+    return `.${fileExtension(filePath)} container plays inconsistently across browsers`;
+  }
+  return undefined;
+}
+
+function remuxForBrowser(filePath: string, probe: VideoProbe, workDir: string): string {
+  const audioIsSafe =
+    !probe.hasAudio || BROWSER_SAFE_AUDIO_CODECS.has(probe.audioCodec ?? "");
+  const outPath = join(workDir, `${basename(filePath).replace(/\.[^.]+$/, "")}.mp4`);
+
+  const args = ["-y", "-v", "error", "-i", filePath, "-map", "0:v:0"];
+  if (probe.hasAudio) args.push("-map", "0:a:0");
+  // The video stream is always copied, so this is lossless. Only undecodable
+  // audio is re-encoded.
+  args.push("-c:v", "copy");
+  if (probe.hasAudio) {
+    args.push(...(audioIsSafe ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "320k"]));
+  }
+  args.push("-movflags", "+faststart", outPath);
+
+  const result = runBinary("ffmpeg", args);
+  if (!result.ok || !existsSync(outPath)) {
+    throw new Error(
+      `ffmpeg could not remux ${basename(filePath)}: ${result.stderr.trim().slice(0, 400)}`,
+    );
+  }
+  return outPath;
+}
+
+export function posterTimestamp(probe: VideoProbe, override?: number): number {
+  if (typeof override === "number" && Number.isFinite(override) && override >= 0) {
+    return override;
+  }
+  if (!probe.durationSeconds) return 1;
+  return Math.min(10, Math.max(1, probe.durationSeconds * 0.15));
+}
+
+function probeImageDimensions(filePath: string): { width: number; height: number } | undefined {
+  const result = runBinary("ffprobe", [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "stream=width,height",
+    "-of", "csv=p=0:s=x",
+    filePath,
+  ]);
+  if (!result.ok) return undefined;
+  const [width, height] = result.stdout.trim().split("x").map(Number);
+  return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : undefined;
+}
+
+// Video assets get no server-generated thumbnail, so the poster IS the card.
+function extractPoster(
+  videoPath: string,
+  atSeconds: number,
+  workDir: string,
+): PosterFileInput | undefined {
+  const outPath = join(workDir, "poster.jpg");
+  const result = runBinary("ffmpeg", [
+    "-y", "-v", "error",
+    "-ss", String(atSeconds),
+    "-i", videoPath,
+    "-frames:v", "1",
+    "-vf", "scale='min(1280,iw)':-2",
+    "-q:v", "3",
+    outPath,
+  ]);
+  if (!result.ok || !existsSync(outPath)) return undefined;
+
+  const bytes = readFileSync(outPath);
+  const dimensions = probeImageDimensions(outPath);
+  return {
+    base64: bytes.toString("base64"),
+    contentType: "image/jpeg",
+    width: dimensions?.width,
+    height: dimensions?.height,
+    size: bytes.byteLength,
+  };
+}
+
+async function callConvex(
+  convexUrl: string,
+  kind: "mutation" | "action",
+  path: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const response = await fetch(`${convexUrl}/api/${kind}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, args }),
+  });
+  const body = (await response.json()) as {
+    status?: string;
+    value?: unknown;
+    errorMessage?: string;
+  };
+  if (!response.ok || body.status !== "success") {
+    throw new Error(body.errorMessage ?? `HTTP ${response.status} calling ${path}`);
+  }
+  return body.value;
+}
+
+async function uploadBytesToR2(
+  convexUrl: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string> {
+  const reserved = (await callConvex(convexUrl, "mutation", "r2:generateUploadUrl", {})) as {
+    key?: string;
+    url?: string;
+  };
+  if (!reserved?.key || !reserved?.url) {
+    throw new Error("r2:generateUploadUrl returned no key/url.");
+  }
+
+  const put = await fetch(reserved.url, {
+    method: "PUT",
+    body: new Uint8Array(bytes),
+    headers: { "Content-Type": contentType },
+  });
+  if (!put.ok) {
+    throw new Error(`R2 upload failed: ${put.status} ${(await put.text()).slice(0, 300)}`);
+  }
+
+  await callConvex(convexUrl, "mutation", "r2:syncMetadata", { key: reserved.key });
+  return reserved.key;
+}
+
+// Only the create path has an R2 branch. updateFromApi and workflow step media
+// take base64 and nothing else, so oversized files there need a real explanation
+// rather than a cryptic argument-size failure from Convex.
+export function assertBase64Ingestible(
+  filePath: string,
+  fileName: string,
+  remedy = "compress it to JPEG first",
+) {
+  const size = statSync(filePath).size;
+  if (size <= BASE64_MAX_BYTES) return;
+  throw new Error(
+    `${fileName} is ${(size / 1e6).toFixed(1)} MB and has to ride the Convex function ` +
+      `argument as base64, which caps out near ${(BASE64_MAX_BYTES / 1e6).toFixed(0)} MB — ${remedy}.`,
+  );
+}
+
+// Returns undefined when the sync base64 path in buildCreateArgs should handle
+// the file (images, inline base64, remote URLs).
+export async function prepareMediaForCreate(
+  item: CreateItem,
+  convexUrl: string,
+  warn: (message: string) => void = (message) => console.error(message),
+): Promise<PreparedMedia | undefined> {
+  const filePath = item.filePath ?? item.imagePath;
+  if (!filePath) return undefined;
+  if (!existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  const fileName = item.fileName ?? basename(filePath);
+  const contentType = item.contentType ?? guessMime(fileName);
+
+  if (!contentType.startsWith("video/")) {
+    assertBase64Ingestible(filePath, fileName);
+    return undefined;
+  }
+
+  if (!hasBinary("ffprobe") || !hasBinary("ffmpeg")) {
+    throw new Error(
+      "ffmpeg and ffprobe are required to ingest video — they supply the real " +
+        "dimensions, browser-safe audio, and the poster frame. Install with `brew install ffmpeg`.",
+    );
+  }
+
+  const probe = probeVideo(filePath);
+  if (!probe?.width || !probe?.height) {
+    throw new Error(`Could not read video dimensions from ${filePath}.`);
+  }
+
+  const workDir = mkdtempSync(join(tmpdir(), "laniameda-ingest-"));
+  try {
+    let uploadPath = filePath;
+    const remuxReason = describeRemuxReason(filePath, probe);
+    if (remuxReason) {
+      warn(`[ingest] remuxing ${fileName}: ${remuxReason}. The video stream is copied, so no quality is lost.`);
+      uploadPath = remuxForBrowser(filePath, probe, workDir);
+    }
+
+    const poster = extractPoster(
+      uploadPath,
+      posterTimestamp(probe, item.posterAtSeconds),
+      workDir,
+    );
+    if (!poster) {
+      warn(`[ingest] could not extract a poster from ${fileName}; its gallery card will have no thumbnail.`);
+    }
+
+    const remuxed = uploadPath !== filePath;
+    const bytes = readFileSync(uploadPath);
+    const uploadContentType = remuxed ? "video/mp4" : contentType;
+
+    return {
+      r2Key: await uploadBytesToR2(convexUrl, bytes, uploadContentType),
+      mediaContentType: uploadContentType,
+      mediaSize: bytes.byteLength,
+      mediaWidth: probe.width,
+      mediaHeight: probe.height,
+      mediaFileName: remuxed ? fileName.replace(/\.[^.]+$/, ".mp4") : fileName,
+      posterFile: poster,
+    };
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
 export function resolveConvexUrl(explicitValue?: string): string {
   const value = (explicitValue ?? process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "").trim();
   if (!value) {
@@ -328,7 +685,11 @@ function assignIfDefined(
   }
 }
 
-export function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<string, unknown> {
+export function buildCreateArgs(
+  item: CreateItem,
+  ownerUserId: string,
+  prepared?: PreparedMedia,
+): Record<string, unknown> {
   const args: Record<string, unknown> = {
     ownerUserId,
     ingestSource: item.ingestSource ?? "agent",
@@ -364,7 +725,19 @@ export function buildCreateArgs(item: CreateItem, ownerUserId: string): Record<s
 
   args.ingestKey = item.ingestKey ?? stableIngestKey(item);
 
-  if (filePath) {
+  if (prepared?.r2Key) {
+    // Video: bytes are already in R2. Nothing decodes them server-side, so the
+    // probed dimensions and poster travelling here are all the asset will get.
+    args.r2Key = prepared.r2Key;
+    assignIfDefined(args, "mediaContentType", prepared.mediaContentType);
+    assignIfDefined(args, "mediaSize", prepared.mediaSize);
+    assignIfDefined(args, "mediaWidth", prepared.mediaWidth);
+    assignIfDefined(args, "mediaHeight", prepared.mediaHeight);
+    assignIfDefined(args, "mediaFileName", prepared.mediaFileName);
+    assignIfDefined(args, "posterFile", prepared.posterFile);
+  } else if (prepared?.file) {
+    args.file = prepared.file;
+  } else if (filePath) {
     if (!existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
@@ -414,8 +787,13 @@ export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<s
     if (!existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
-    const fileBuffer = readFileSync(filePath);
     const resolvedFileName = basename(filePath);
+    assertBase64Ingestible(
+      filePath,
+      resolvedFileName,
+      "updateFromApi has no R2 branch, so ingest this as a new asset instead of replacing media this large",
+    );
+    const fileBuffer = readFileSync(filePath);
     args.file = {
       base64: fileBuffer.toString("base64"),
       fileName: resolvedFileName,
@@ -525,8 +903,13 @@ export function buildWorkflowArgs(
         if (!existsSync(filePath)) {
           throw new Error(`File not found: ${filePath}`);
         }
-        const fileBuffer = readFileSync(filePath);
         const resolvedFileName = entry.fileName ?? basename(filePath);
+        assertBase64Ingestible(
+          filePath,
+          resolvedFileName,
+          "workflow step media has no R2 branch — ingest the video with its own create call and link it through upstreamInputs",
+        );
+        const fileBuffer = readFileSync(filePath);
         out.file = {
           base64: fileBuffer.toString("base64"),
           fileName: resolvedFileName,
@@ -587,6 +970,7 @@ export function buildWorkflowArgs(
 export function buildActionRequest(
   item: SkillItem,
   ownerUserId: string,
+  prepared?: PreparedMedia,
 ): { path: string; args: Record<string, unknown> } {
   if (isWorkflowItem(item)) {
     return {
@@ -598,7 +982,7 @@ export function buildActionRequest(
   if (isCreateItem(item)) {
     return {
       path: "ingest:ingestFromApi",
-      args: buildCreateArgs(item, ownerUserId),
+      args: buildCreateArgs(item, ownerUserId, prepared),
     };
   }
 
@@ -645,7 +1029,12 @@ export async function mutateOne(
   convexUrl: string,
 ): Promise<SkillResult> {
   try {
-    const request = buildActionRequest(item, ownerUserId);
+    // Video is remuxed, probed, postered and pushed to R2 before the ingest call
+    // — all of which is I/O, so it cannot live inside the pure arg builders.
+    const prepared = isCreateItem(item)
+      ? await prepareMediaForCreate(item, convexUrl)
+      : undefined;
+    const request = buildActionRequest(item, ownerUserId, prepared);
     const response = await fetch(`${convexUrl}/api/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
