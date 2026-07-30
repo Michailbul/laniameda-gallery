@@ -1,5 +1,6 @@
 "use node";
 
+import { createHash } from "node:crypto";
 import { Jimp, JimpMime } from "jimp";
 import { action, type ActionCtx } from "./_generated/server";
 import { v, ConvexError, type Infer } from "convex/values";
@@ -405,6 +406,8 @@ const applyUpstreamInputs = async (
 };
 
 type ProcessedMedia = {
+  /** SHA-256 of the original bytes, hex — the dedupe key. */
+  contentHash: string;
   storageId?: Id<"_storage">;
   thumbStorageId?: Id<"_storage">;
   r2Key?: string;
@@ -449,6 +452,9 @@ const processMediaInput = async (
   const arrayBuffer = await blob.arrayBuffer();
   const fileBuffer = Buffer.from(arrayBuffer);
   const normalizedContentType = contentType ?? "application/octet-stream";
+  // Hash the ORIGINAL bytes, before any thumbnail work — a re-encode would
+  // change the digest and defeat the whole point.
+  const contentHash = createHash("sha256").update(fileBuffer).digest("hex");
 
   let thumbStorageId: Id<"_storage"> | undefined;
   let thumbR2Key: string | undefined;
@@ -519,6 +525,7 @@ const processMediaInput = async (
   });
 
   return {
+    contentHash,
     storageId: undefined,
     thumbStorageId,
     r2Key,
@@ -568,6 +575,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     domain: v.optional(v.string()),
     upstreamInputs: v.optional(v.array(upstreamInputValidator)),
     r2Key: v.optional(v.string()),
+    /** SHA-256 hex of the R2-hosted bytes, computed in the browser. */
+    mediaContentHash: v.optional(v.string()),
     r2Bucket: v.optional(v.string()),
     mediaContentType: v.optional(v.string()),
     mediaSize: v.optional(v.number()),
@@ -588,6 +597,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     assetId: v.optional(v.id("assets")),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    /** The bytes were already in the vault; assetId points at the original. */
+    duplicateMedia: v.optional(v.boolean()),
   }),
   handler: async (
     ctx,
@@ -596,6 +607,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     assetId?: Id<"assets">;
     promptId?: Id<"prompts">;
     designInspirationId?: Id<"designInspirations">;
+    duplicateMedia?: boolean;
   }> => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -642,6 +654,10 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     let promptCreated = true;
     let promptId: Id<"prompts"> | undefined;
     let assetCreated = true;
+    // Distinct from `!assetCreated`: an ingestKey match means "you sent this
+    // request before", a contentHash match means "these bytes are already in
+    // the vault, whatever you called them".
+    let assetDuplicate = false;
     let assetId: Id<"assets"> | undefined;
     let designInspirationCreated = true;
     let designInspirationId: Id<"designInspirations"> | undefined;
@@ -684,6 +700,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
         let fileName: string | undefined;
         let r2KeyForRow: string | undefined;
         let r2BucketForRow: string | undefined;
+        let contentHash: string | undefined;
 
         if (args.r2Key) {
           // R2-hosted media: bytes already live in Cloudflare R2 and were
@@ -700,6 +717,8 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           fileName = args.mediaFileName ?? args.r2Key.split("/").pop();
           r2KeyForRow = args.r2Key;
           r2BucketForRow = args.r2Bucket;
+          // Bytes went browser → R2 directly, so the digest comes with them.
+          contentHash = args.mediaContentHash;
 
           if (args.posterFile) {
             const posterBuffer = Buffer.from(args.posterFile.base64, "base64");
@@ -735,6 +754,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           thumbWidth = media.thumbWidth;
           thumbHeight = media.thumbHeight;
           fileName = media.fileName;
+          contentHash = media.contentHash;
         }
 
         const result = (await ctx.runMutation(api.assets.createAsset, {
@@ -760,14 +780,20 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           tagIds,
           folderId: args.folderId,
           ingestKey: args.ingestKey,
+          contentHash,
           modelName: args.modelName,
           pillar: args.pillar,
           generationType: args.generationType,
           assetRole: args.assetRole,
           ingestSource: args.ingestSource ?? "api",
-        })) as { assetId: Id<"assets">; created: boolean };
+        })) as {
+          assetId: Id<"assets">;
+          created: boolean;
+          duplicate?: boolean;
+        };
         assetId = result.assetId;
         assetCreated = result.created;
+        assetDuplicate = result.duplicate === true;
       }
 
       if (args.designInspiration) {
@@ -820,6 +846,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     }
 
     const ingestKeyDuplicate = Boolean(args.ingestKey && !assetCreated);
+    const duplicateMedia = assetDuplicate;
     const promptIngestKeyDuplicate = Boolean((args.promptIngestKey ?? args.ingestKey) && !promptCreated);
     const inspirationIngestKeyDuplicate = Boolean(
       (args.designInspiration?.ingestKey ?? args.ingestKey) && !designInspirationCreated,
@@ -833,12 +860,16 @@ export const ingestFromApi: ReturnType<typeof action> = action({
       assetId,
       promptId,
       isDuplicate:
-        ingestKeyDuplicate || promptIngestKeyDuplicate || inspirationIngestKeyDuplicate,
+        ingestKeyDuplicate ||
+        duplicateMedia ||
+        promptIngestKeyDuplicate ||
+        inspirationIngestKeyDuplicate,
     });
     return {
       assetId,
       promptId,
       designInspirationId,
+      duplicateMedia,
     };
   },
 });
@@ -986,6 +1017,7 @@ export const updateFromApi: ReturnType<typeof action> = action({
             folderId:
               hasOwn(args, "folderId") ? (args.folderId ?? undefined) : existing.folderId,
             ingestKey: assetIngestKey,
+            contentHash: media.contentHash,
             modelName:
               hasOwn(args, "modelName")
                 ? normalizeOptionalString(args.modelName)

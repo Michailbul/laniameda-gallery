@@ -1091,6 +1091,9 @@ export function ReviewModal({
           if (isVideo) {
             const upload = await uploadVideoToR2(file, { uploadVideo });
             formData.append("r2Key", upload.r2Key);
+            if (upload.contentHash) {
+              formData.append("mediaContentHash", upload.contentHash);
+            }
             formData.append("mediaContentType", upload.contentType);
             formData.append("mediaSize", String(upload.size));
             formData.append("mediaWidth", String(upload.poster.width));

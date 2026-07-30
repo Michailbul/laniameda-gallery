@@ -653,6 +653,9 @@ export function UploadPanel({
           },
         });
         formData.append("r2Key", upload.r2Key);
+        if (upload.contentHash) {
+          formData.append("mediaContentHash", upload.contentHash);
+        }
         formData.append("mediaContentType", upload.contentType);
         formData.append("mediaSize", String(upload.size));
         formData.append("mediaWidth", String(upload.poster.width));
@@ -705,6 +708,9 @@ export function UploadPanel({
         body && body.result && typeof body.result.assetId === "string"
           ? (body.result.assetId as string)
           : undefined;
+      // The bytes were already in the vault: ingest filed them where you asked
+      // and handed back the original instead of making a second copy.
+      const wasDuplicate = Boolean(body?.result?.duplicateMedia);
       const followupNotes: string[] = [];
 
       if (savedAssetId && destinationIds.length > 0 && ownerUserId?.trim()) {
@@ -760,6 +766,12 @@ export function UploadPanel({
         setStatus({
           type: "info",
           message: `Saved to the vault, but ${followupNotes.join(" and ")}.`,
+        });
+      } else if (wasDuplicate) {
+        setStatus({
+          type: "info",
+          message:
+            "Already in your vault — filed into the same places instead of duplicating it.",
         });
       } else {
         setStatus({

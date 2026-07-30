@@ -91,6 +91,7 @@ const sanitizeFailurePayload = (payload: Record<string, unknown>) => {
     r2Key: payload.r2Key,
     r2Bucket: payload.r2Bucket,
     mediaContentType: payload.mediaContentType,
+    mediaContentHash: payload.mediaContentHash,
     mediaSize: payload.mediaSize,
     mediaWidth: payload.mediaWidth,
     mediaHeight: payload.mediaHeight,
@@ -167,6 +168,7 @@ export async function POST(request: Request) {
     let designInspiration: Record<string, unknown> | undefined;
     let upstreamInputs: Record<string, unknown>[] | undefined;
     let r2Key: string | undefined;
+    let mediaContentHash: string | undefined;
     let r2Bucket: string | undefined;
     let mediaContentType: string | undefined;
     let mediaSize: number | undefined;
@@ -226,6 +228,8 @@ export async function POST(request: Request) {
         ? (data.upstreamInputs as Record<string, unknown>[])
         : undefined;
       r2Key = typeof data.r2Key === "string" ? data.r2Key : undefined;
+      mediaContentHash =
+        typeof data.mediaContentHash === "string" ? data.mediaContentHash : undefined;
       r2Bucket = typeof data.r2Bucket === "string" ? data.r2Bucket : undefined;
       mediaContentType =
         typeof data.mediaContentType === "string" ? data.mediaContentType : undefined;
@@ -299,6 +303,7 @@ export async function POST(request: Request) {
       );
 
       const r2KeyValue = form.get("r2Key");
+      const mediaContentHashValue = form.get("mediaContentHash");
       const r2BucketValue = form.get("r2Bucket");
       const mediaContentTypeValue = form.get("mediaContentType");
       const mediaSizeValue = form.get("mediaSize");
@@ -309,6 +314,8 @@ export async function POST(request: Request) {
       const posterWidthValue = form.get("posterWidth");
       const posterHeightValue = form.get("posterHeight");
       r2Key = typeof r2KeyValue === "string" ? r2KeyValue : undefined;
+      mediaContentHash =
+        typeof mediaContentHashValue === "string" ? mediaContentHashValue : undefined;
       r2Bucket = typeof r2BucketValue === "string" ? r2BucketValue : undefined;
       mediaContentType =
         typeof mediaContentTypeValue === "string" ? mediaContentTypeValue : undefined;
@@ -397,6 +404,8 @@ export async function POST(request: Request) {
     if (r2Key) {
       payload.r2Key = r2Key;
       payload.r2Bucket = r2Bucket || undefined;
+      // Browser-computed digest: the action never sees these bytes.
+      payload.mediaContentHash = mediaContentHash;
       payload.mediaContentType = mediaContentType;
       payload.mediaSize = mediaSize;
       payload.mediaWidth = mediaWidth;

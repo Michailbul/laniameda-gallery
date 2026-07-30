@@ -471,6 +471,8 @@ export const createAsset = mutation({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    /** SHA-256 of the media bytes, hex — see the schema note on assets. */
+    contentHash: v.optional(v.string()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -481,6 +483,8 @@ export const createAsset = mutation({
   returns: v.object({
     assetId: v.id("assets"),
     created: v.boolean(),
+    /** True when identical BYTES were already in the vault. */
+    duplicate: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -504,6 +508,44 @@ export const createAsset = mutation({
           }
         }
         return { assetId: existing._id, created: false };
+      }
+    }
+
+    // Same bytes already in the vault → file them where the caller asked and
+    // hand back the original. This catches what ingestKey can't: the same image
+    // re-downloaded under another name, or saved from a second URL.
+    if (args.contentHash) {
+      const twin = await ctx.db
+        .query("assets")
+        .withIndex("by_owner_contentHash", (q) =>
+          q.eq("ownerUserId", ownerUserId).eq("contentHash", args.contentHash),
+        )
+        .first();
+      if (twin) {
+        if (args.folderId) {
+          await addAssetFolderLink(ctx, ownerUserId, twin._id, args.folderId);
+          if (!twin.folderId) {
+            await ctx.db.patch(twin._id, { folderId: args.folderId });
+          }
+        }
+        // Tags are additive here: a second save often carries better tags than
+        // the first, and dropping them would lose the only new information.
+        const extraTagIds = dedupeIds(args.tagIds).filter(
+          (tagId) => !twin.tagIds.includes(tagId),
+        );
+        if (extraTagIds.length > 0) {
+          const nextTagIds = dedupeIds([...twin.tagIds, ...extraTagIds]);
+          await ctx.db.patch(twin._id, { tagIds: nextTagIds });
+          for (const tagId of extraTagIds) {
+            await ctx.db.insert("assetTags", {
+              assetId: twin._id,
+              tagId,
+              createdAt: twin.createdAt ?? Date.now(),
+            });
+          }
+          await bumpTagUsage(ctx, extraTagIds, 1);
+        }
+        return { assetId: twin._id, created: false, duplicate: true };
       }
     }
 
@@ -533,6 +575,7 @@ export const createAsset = mutation({
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
+      contentHash: args.contentHash,
       modelName: args.modelName,
       isPublic: false,
       isFeatured: false,
@@ -3500,5 +3543,68 @@ export const setAssetTags = mutation({
       assetId: args.assetId,
     });
     return { assetId: args.assetId, tagIds };
+  },
+});
+
+// ── Content-hash backfill support ───────────────────────────────────────────
+// Rows created before contentHash existed carry no digest, so a re-upload of
+// older work would sail past the duplicate check. These two feed the
+// "use node" action that hashes them (convex/contentHash.ts).
+
+export const listAssetsMissingContentHash = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        r2Key: v.optional(v.string()),
+        storageId: v.optional(v.id("_storage")),
+      }),
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const page = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_createdAt", (q) =>
+        q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
+      )
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: args.batchSize ?? 25,
+      });
+    return {
+      rows: page.page
+        .filter((asset) => !asset.contentHash)
+        .map((asset) => ({
+          assetId: asset._id,
+          r2Key: asset.r2Key,
+          storageId: asset.storageId,
+        })),
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+export const setAssetContentHash = internalMutation({
+  args: { assetId: v.id("assets"), contentHash: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    // Only ever fills a gap — never overwrites a digest ingest computed.
+    if (asset && !asset.contentHash) {
+      await ctx.db.patch(args.assetId, { contentHash: args.contentHash });
+    }
+    return null;
   },
 });

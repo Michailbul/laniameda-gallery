@@ -8,9 +8,12 @@
 // Both the Seedance modal and the generic upload panel share this so
 // the video flow lives in one place.
 
+import { hashFileContent } from "@/lib/content-hash";
 import { extractVideoPoster, type PosterResult } from "@/lib/video-poster";
 
 export type VideoUploadResult = {
+  /** SHA-256 hex of the bytes; undefined when Web Crypto is unavailable. */
+  contentHash?: string;
   r2Key: string;
   poster: PosterResult;
   contentType: string;
@@ -35,11 +38,15 @@ export async function uploadVideoToR2(
   const poster = await extractVideoPoster(file);
 
   onStage?.("uploading");
-  const r2Key = await uploadVideo(file);
+  const [r2Key, contentHash] = await Promise.all([
+    uploadVideo(file),
+    hashFileContent(file),
+  ]);
 
   onStage?.("done");
   return {
     r2Key,
+    contentHash,
     poster,
     contentType: file.type,
     size: file.size,

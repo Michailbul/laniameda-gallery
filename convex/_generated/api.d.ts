@@ -16,6 +16,7 @@ import type * as assets from "../assets.js";
 import type * as authz from "../authz.js";
 import type * as beatBoard from "../beatBoard.js";
 import type * as cinemaInspiration from "../cinemaInspiration.js";
+import type * as contentHash from "../contentHash.js";
 import type * as designExtensionSaves from "../designExtensionSaves.js";
 import type * as designInspirations from "../designInspirations.js";
 import type * as designSaveHelpers from "../designSaveHelpers.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   authz: typeof authz;
   beatBoard: typeof beatBoard;
   cinemaInspiration: typeof cinemaInspiration;
+  contentHash: typeof contentHash;
   designExtensionSaves: typeof designExtensionSaves;
   designInspirations: typeof designInspirations;
   designSaveHelpers: typeof designSaveHelpers;

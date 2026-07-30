@@ -110,6 +110,8 @@ describe("video workflow ingest", () => {
       assetId: "assets:1",
       promptId: "prompts:1",
       designInspirationId: undefined,
+      // These bytes were new, so the content-hash check found no twin.
+      duplicateMedia: false,
     });
     expect(harness.state.storedBlobTypes).toEqual([]);
     expect(harness.state.createPromptCalls[0]).toMatchObject({

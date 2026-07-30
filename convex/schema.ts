@@ -311,6 +311,13 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
+    // SHA-256 of the media bytes, hex. The CALLER-independent identity of a
+    // file: `ingestKey` only dedupes when the caller happens to pass the same
+    // key, so the same image saved from two URLs (or re-downloaded under a new
+    // file name) used to land twice. Set on ingest for every path that has the
+    // bytes; backfilled for older rows by
+    // assets:backfillContentHashes. Undefined = never hashed.
+    contentHash: v.optional(v.string()),
     modelName: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
     isFeatured: v.optional(v.boolean()),
@@ -340,6 +347,7 @@ export default defineSchema({
   })
     .index("by_ingestKey", ["ingestKey"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_contentHash", ["ownerUserId", "contentHash"])
     .index("by_prompt_createdAt", ["promptId", "createdAt"])
     .index("by_owner_prompt_createdAt", ["ownerUserId", "promptId", "createdAt"])
     .index("by_folder_createdAt", ["folderId", "createdAt"])

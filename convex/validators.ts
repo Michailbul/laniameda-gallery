@@ -347,6 +347,7 @@ export const assetDocValidator = v.object({
   tagIds: v.array(v.id("tags")),
   folderId: v.optional(v.id("folders")),
   ingestKey: v.optional(v.string()),
+  contentHash: v.optional(v.string()),
   modelName: v.optional(v.string()),
   isPublic: v.optional(v.boolean()),
   isFeatured: v.optional(v.boolean()),

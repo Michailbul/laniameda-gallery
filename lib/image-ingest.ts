@@ -5,6 +5,8 @@
 // browser → R2 directly (useUploadFile), and the ingest request only carries
 // the r2Key, dimensions, and a small client-rendered thumbnail.
 
+import { hashFileContent } from "@/lib/content-hash";
+
 export const LARGE_IMAGE_BYTES = 3 * 1024 * 1024; // base64 ≈ 4 MiB < 5 MiB cap
 
 const THUMB_MAX_EDGE = 1024; // matches the server-side Jimp thumb target
@@ -18,6 +20,8 @@ export type ImageThumbResult = {
 
 export type ImageUploadResult = {
   r2Key: string;
+  /** SHA-256 hex of the bytes; undefined when Web Crypto is unavailable. */
+  contentHash?: string;
   contentType: string;
   size: number;
   fileName: string;
@@ -78,10 +82,14 @@ export async function uploadImageToR2(
     decoded = null;
   }
 
-  const r2Key = await upload(file);
+  const [r2Key, contentHash] = await Promise.all([
+    upload(file),
+    hashFileContent(file),
+  ]);
 
   return {
     r2Key,
+    contentHash,
     contentType: file.type || "image/jpeg",
     size: file.size,
     fileName: file.name,
@@ -101,6 +109,9 @@ export function appendImageUploadFields(
   upload: ImageUploadResult,
 ) {
   formData.append("r2Key", upload.r2Key);
+  if (upload.contentHash) {
+    formData.append("mediaContentHash", upload.contentHash);
+  }
   formData.append("mediaContentType", upload.contentType);
   formData.append("mediaSize", String(upload.size));
   if (upload.width) formData.append("mediaWidth", String(upload.width));

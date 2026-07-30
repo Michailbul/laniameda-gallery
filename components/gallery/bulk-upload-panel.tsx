@@ -85,7 +85,11 @@ const UPLOAD_CONCURRENCY = 3;
 // /api/admin/assets/bulk-curation caps at 200 per request.
 const CURATION_CHUNK = 100;
 
-type ItemStatus = "idle" | "uploading" | "done" | "error";
+type ItemStatus = "idle" | "uploading" | "done" | "duplicate" | "error";
+
+/** Finished either way — a duplicate was filed onto the existing asset. */
+const isSettled = (status: ItemStatus | undefined) =>
+  status === "done" || status === "duplicate";
 
 type ItemState = {
   status: ItemStatus;
@@ -221,7 +225,7 @@ export function BulkUploadPanel({
   }, [items]);
 
   const doneCount = useMemo(
-    () => Object.values(itemStates).filter((state) => state.status === "done").length,
+    () => Object.values(itemStates).filter((state) => isSettled(state.status)).length,
     [itemStates],
   );
   const errorCount = useMemo(
@@ -229,7 +233,7 @@ export function BulkUploadPanel({
     [itemStates],
   );
   const pendingCount = items.filter(
-    (item) => (itemStates[item.id]?.status ?? "idle") !== "done",
+    (item) => !isSettled(itemStates[item.id]?.status),
   ).length;
 
   // ── Preview URLs. Kept in a ref so a re-render never re-mints them, pruned
@@ -432,7 +436,10 @@ export function BulkUploadPanel({
   // ── One asset, start to finish. Mirrors the single panel's branching: videos
   // and large images go browser → R2 and the ingest only carries the key. ──
   const ingestOne = useCallback(
-    async (item: StagedFile, destinationFolderId?: string): Promise<string> => {
+    async (
+      item: StagedFile,
+      destinationFolderId?: string,
+    ): Promise<{ assetId: string; duplicate: boolean }> => {
       const resolvedModelName =
         modelNameSelection === "__custom"
           ? modelNameCustom.trim() || undefined
@@ -464,6 +471,9 @@ export function BulkUploadPanel({
       if (isVideo) {
         const upload = await uploadVideoToR2(item.file, { uploadVideo: uploadToR2 });
         formData.append("r2Key", upload.r2Key);
+        if (upload.contentHash) {
+          formData.append("mediaContentHash", upload.contentHash);
+        }
         formData.append("mediaContentType", upload.contentType);
         formData.append("mediaSize", String(upload.size));
         formData.append("mediaWidth", String(upload.poster.width));
@@ -494,7 +504,10 @@ export function BulkUploadPanel({
           ? (body.result.assetId as string)
           : undefined;
       if (!assetId) throw new Error("Ingest returned no asset.");
-      return assetId;
+      return {
+        assetId,
+        duplicate: Boolean(body?.result?.duplicateMedia),
+      };
     },
     [modelNameCustom, modelNameSelection, sharedPrompt, tags, uploadToR2],
   );
@@ -599,7 +612,7 @@ export function BulkUploadPanel({
     if (isUploading || items.length === 0) return;
 
     const queue = items.filter(
-      (item) => (itemStates[item.id]?.status ?? "idle") !== "done",
+      (item) => !isSettled(itemStates[item.id]?.status),
     );
     if (queue.length === 0) {
       setStatus({ type: "info", message: "Everything here is already uploaded." });
@@ -618,6 +631,10 @@ export function BulkUploadPanel({
 
     const saved: { item: StagedFile; assetId: string }[] = [];
     let failed = 0;
+    // Duplicates still count as saved — they were filed into the chosen
+    // collections/project, just onto the existing asset — so they ride along in
+    // `saved` and are only broken out for the summary line.
+    let duplicates = 0;
     let cursor = 0;
 
     const worker = async () => {
@@ -631,11 +648,15 @@ export function BulkUploadPanel({
           [item.id]: { status: "uploading" },
         }));
         try {
-          const assetId = await ingestOne(item, destinationFolderId);
+          const { assetId, duplicate } = await ingestOne(
+            item,
+            destinationFolderId,
+          );
           saved.push({ item, assetId });
+          if (duplicate) duplicates += 1;
           setItemStates((previous) => ({
             ...previous,
-            [item.id]: { status: "done", assetId },
+            [item.id]: { status: duplicate ? "duplicate" : "done", assetId },
           }));
         } catch (error) {
           failed += 1;
@@ -655,7 +676,13 @@ export function BulkUploadPanel({
         Array.from({ length: Math.min(UPLOAD_CONCURRENCY, queue.length) }, worker),
       );
 
-      const notes: string[] = [`${saved.length} saved`];
+      const fresh = saved.length - duplicates;
+      const notes: string[] = [`${fresh} saved`];
+      if (duplicates > 0) {
+        notes.push(
+          `${duplicates} already in your vault (filed, not duplicated)`,
+        );
+      }
       if (failed > 0) notes.push(`${failed} failed`);
 
       if (extraFolderIds.length > 0 && saved.length > 0 && ownerUserId) {
@@ -1095,11 +1122,21 @@ export function BulkUploadPanel({
                               </span>
                             </span>
                           )}
-                          {state?.status === "done" && (
+                          {isSettled(state?.status) && (
                             <span className="absolute inset-0 bg-[var(--lm-surface-0)]/45">
                               <span
                                 className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
-                                style={{ backgroundColor: "var(--lm-success)" }}
+                                style={{
+                                  backgroundColor:
+                                    state?.status === "duplicate"
+                                      ? "var(--lm-coral)"
+                                      : "var(--lm-success)",
+                                }}
+                                title={
+                                  state?.status === "duplicate"
+                                    ? "Already in your vault — filed, not duplicated"
+                                    : "Saved"
+                                }
                               >
                                 <Check
                                   className="h-3 w-3 text-[#0d1410]"
@@ -1125,7 +1162,7 @@ export function BulkUploadPanel({
                         </button>
 
                         {/* Remove — hover only, never during upload */}
-                        {!isUploading && state?.status !== "done" && (
+                        {!isUploading && !isSettled(state?.status) && (
                           <button
                             type="button"
                             onClick={() => removeItem(item.id)}
