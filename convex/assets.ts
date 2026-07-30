@@ -3608,3 +3608,264 @@ export const setAssetContentHash = internalMutation({
     return null;
   },
 });
+
+// ── Duplicate sweep ─────────────────────────────────────────────────────────
+// Ingest now blocks new duplicates by content hash, but rows created before
+// that landed can still be twins. These power contentHash:dedupeExistingAssets.
+
+export const listAssetHashPage = internalQuery({
+  args: {
+    ownerUserId: v.string(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    batchSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        contentHash: v.string(),
+      }),
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const page = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_createdAt", (q) =>
+        q.eq("ownerUserId", ownerUserId).gte("createdAt", 0),
+      )
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: args.batchSize ?? 200,
+      });
+    return {
+      rows: page.page
+        .filter((asset) => Boolean(asset.contentHash))
+        .map((asset) => ({
+          assetId: asset._id,
+          contentHash: asset.contentHash!,
+        })),
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * Fold a group of byte-identical assets into one.
+ *
+ * The group is passed whole and the keeper is chosen HERE, with the docs in
+ * hand: a piece that is published, featured or starred wins (public surfaces
+ * and the featured reel point at it by id), then the one filed in the most
+ * places, then the one carrying a prompt, then the oldest — the original save.
+ *
+ * Everything the losers carried moves across first: collection and project
+ * memberships, tags, the owner's flags, and every inbound reference (folder /
+ * pack / workflow covers, lineage, board likes). Only then are they deleted, so
+ * no id is ever left dangling.
+ */
+export const mergeDuplicateAssets = internalMutation({
+  args: {
+    ownerUserId: v.string(),
+    assetIds: v.array(v.id("assets")),
+  },
+  returns: v.object({
+    keeperId: v.union(v.id("assets"), v.null()),
+    removed: v.array(v.id("assets")),
+    foldersGained: v.number(),
+    tagsGained: v.number(),
+    referencesRepointed: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const docs = [];
+    for (const assetId of dedupeIds(args.assetIds)) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) continue;
+      if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+        throw new ConvexError("Asset does not belong to this user.");
+      }
+      docs.push(asset);
+    }
+    if (docs.length < 2) {
+      return {
+        keeperId: docs[0]?._id ?? null,
+        removed: [],
+        foldersGained: 0,
+        tagsGained: 0,
+        referencesRepointed: 0,
+      };
+    }
+
+    const folderIdsFor = async (asset: Doc<"assets">) => {
+      const links = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+        .collect();
+      return links;
+    };
+
+    const scored = [];
+    for (const asset of docs) {
+      const links = await folderIdsFor(asset);
+      scored.push({
+        asset,
+        links,
+        curated:
+          asset.isPublic === true ||
+          asset.isFeatured === true ||
+          Boolean(asset.starredAt),
+      });
+    }
+    scored.sort((a, b) => {
+      if (a.curated !== b.curated) return a.curated ? -1 : 1;
+      if (a.links.length !== b.links.length) return b.links.length - a.links.length;
+      const ap = a.asset.promptId ? 1 : 0;
+      const bp = b.asset.promptId ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return (a.asset.createdAt ?? 0) - (b.asset.createdAt ?? 0);
+    });
+
+    const keeper = scored[0];
+    const losers = scored.slice(1);
+    const keeperFolderIds = new Set(keeper.links.map((link) => link.folderId));
+
+    let foldersGained = 0;
+    let tagsGained = 0;
+    let referencesRepointed = 0;
+    const patch: Partial<Doc<"assets">> = {};
+    const nextTagIds = new Set<string>(keeper.asset.tagIds);
+
+    for (const loser of losers) {
+      // Memberships the keeper doesn't have yet.
+      for (const link of loser.links) {
+        if (keeperFolderIds.has(link.folderId)) continue;
+        keeperFolderIds.add(link.folderId);
+        await ctx.db.insert("assetFolders", {
+          ownerUserId: link.ownerUserId,
+          assetId: keeper.asset._id,
+          folderId: link.folderId,
+          createdAt: link.createdAt,
+        });
+        foldersGained += 1;
+      }
+      if (!keeper.asset.folderId && loser.asset.folderId) {
+        patch.folderId = loser.asset.folderId;
+      }
+
+      // Tags.
+      for (const tagId of loser.asset.tagIds) {
+        if (nextTagIds.has(tagId)) continue;
+        nextTagIds.add(tagId);
+        await ctx.db.insert("assetTags", {
+          assetId: keeper.asset._id,
+          tagId,
+          createdAt: keeper.asset.createdAt ?? Date.now(),
+        });
+        await bumpTagUsage(ctx, [tagId], 1);
+        tagsGained += 1;
+      }
+
+      // Owner intent is a union: a flag set on ANY copy survives.
+      if (loser.asset.isPublic && !keeper.asset.isPublic) patch.isPublic = true;
+      if (loser.asset.isFeatured && !keeper.asset.isFeatured) {
+        patch.isFeatured = true;
+      }
+      if (loser.asset.isLiked && !keeper.asset.isLiked) patch.isLiked = true;
+      if (loser.asset.starredAt && !keeper.asset.starredAt) {
+        patch.starredAt = loser.asset.starredAt;
+        if (loser.asset.starNote && !keeper.asset.starNote) {
+          patch.starNote = loser.asset.starNote;
+        }
+      }
+      if (!keeper.asset.description && loser.asset.description) {
+        patch.description = loser.asset.description;
+      }
+      if (!keeper.asset.promptId && loser.asset.promptId) {
+        patch.promptId = loser.asset.promptId;
+      }
+      if (!keeper.asset.sourceUrl && loser.asset.sourceUrl) {
+        patch.sourceUrl = loser.asset.sourceUrl;
+      }
+
+      // Inbound references — repoint before the row disappears.
+      const coverFolders = await ctx.db
+        .query("folders")
+        .filter((q) => q.eq(q.field("coverAssetId"), loser.asset._id))
+        .collect();
+      for (const folder of coverFolders) {
+        await ctx.db.patch(folder._id, { coverAssetId: keeper.asset._id });
+        referencesRepointed += 1;
+      }
+      const coverPacks = await ctx.db
+        .query("assetPacks")
+        .filter((q) => q.eq(q.field("coverAssetId"), loser.asset._id))
+        .collect();
+      for (const pack of coverPacks) {
+        await ctx.db.patch(pack._id, { coverAssetId: keeper.asset._id });
+        referencesRepointed += 1;
+      }
+      const coverWorkflows = await ctx.db
+        .query("workflows")
+        .filter((q) => q.eq(q.field("coverAssetId"), loser.asset._id))
+        .collect();
+      for (const workflow of coverWorkflows) {
+        await ctx.db.patch(workflow._id, { coverAssetId: keeper.asset._id });
+        referencesRepointed += 1;
+      }
+      const likes = await ctx.db
+        .query("boardReactions")
+        .filter((q) => q.eq(q.field("assetId"), loser.asset._id))
+        .collect();
+      for (const like of likes) {
+        await ctx.db.patch(like._id, { assetId: keeper.asset._id });
+        referencesRepointed += 1;
+      }
+
+      // The cascade deletes the loser's R2 objects. Identical bytes normally
+      // mean separate uploads and separate keys, but if a key IS shared with
+      // the keeper, clear it first or the survivor loses its media.
+      const sharedKey = loser.asset.r2Key && loser.asset.r2Key === keeper.asset.r2Key;
+      const sharedThumb =
+        loser.asset.thumbR2Key && loser.asset.thumbR2Key === keeper.asset.thumbR2Key;
+      if (sharedKey || sharedThumb) {
+        await ctx.db.patch(loser.asset._id, {
+          r2Key: sharedKey ? undefined : loser.asset.r2Key,
+          thumbR2Key: sharedThumb ? undefined : loser.asset.thumbR2Key,
+        });
+      }
+      const refreshed = await ctx.db.get(loser.asset._id);
+      if (refreshed) {
+        await deleteAssetCascade(ctx, refreshed);
+      }
+    }
+
+    if (nextTagIds.size !== keeper.asset.tagIds.length) {
+      patch.tagIds = Array.from(nextTagIds) as Id<"tags">[];
+    }
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(keeper.asset._id, patch);
+    }
+    await recountFolderMembers(ctx, Array.from(keeperFolderIds) as Id<"folders">[]);
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: keeper.asset._id,
+    });
+
+    return {
+      keeperId: keeper.asset._id,
+      removed: losers.map((loser) => loser.asset._id),
+      foldersGained,
+      tagsGained,
+      referencesRepointed,
+    };
+  },
+});

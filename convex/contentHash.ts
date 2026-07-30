@@ -109,3 +109,111 @@ export const backfillContentHashes: ReturnType<typeof internalAction> = internal
     return { hashed, skipped, done };
   },
 });
+
+/**
+ * Find byte-identical assets already in the vault and fold each group into one.
+ *
+ * `dryRun` (the default) only reports, because this deletes rows: run it, read
+ * the groups, then pass dryRun: false. Assets whose bytes were never hashable
+ * (a missing blob) carry no digest and are simply not considered — they can't
+ * be compared, so they are never touched.
+ */
+export const dedupeExistingAssets: ReturnType<typeof internalAction> = internalAction({
+  args: {
+    ownerUserId: v.string(),
+    dryRun: v.optional(v.boolean()),
+    pageSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    duplicateGroups: v.number(),
+    removable: v.number(),
+    removed: v.number(),
+    foldersGained: v.number(),
+    tagsGained: v.number(),
+    referencesRepointed: v.number(),
+    groups: v.array(
+      v.object({
+        contentHash: v.string(),
+        assetIds: v.array(v.id("assets")),
+      }),
+    ),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    scanned: number;
+    duplicateGroups: number;
+    removable: number;
+    removed: number;
+    foldersGained: number;
+    tagsGained: number;
+    referencesRepointed: number;
+    groups: Array<{ contentHash: string; assetIds: Id<"assets">[] }>;
+  }> => {
+    const dryRun = args.dryRun !== false;
+    const byHash = new Map<string, Id<"assets">[]>();
+    let cursor: string | null = null;
+    let scanned = 0;
+
+    for (;;) {
+      const page: {
+        rows: Array<{ assetId: Id<"assets">; contentHash: string }>;
+        nextCursor: string | null;
+        isDone: boolean;
+      } = await ctx.runQuery(internal.assets.listAssetHashPage, {
+        ownerUserId: args.ownerUserId,
+        cursor,
+        batchSize: args.pageSize ?? 200,
+      });
+      for (const row of page.rows) {
+        scanned += 1;
+        const list = byHash.get(row.contentHash) ?? [];
+        list.push(row.assetId);
+        byHash.set(row.contentHash, list);
+      }
+      if (page.isDone) break;
+      cursor = page.nextCursor;
+    }
+
+    const groups = Array.from(byHash.entries())
+      .filter(([, ids]) => ids.length > 1)
+      .map(([contentHash, assetIds]) => ({ contentHash, assetIds }));
+    const removable = groups.reduce((sum, group) => sum + group.assetIds.length - 1, 0);
+
+    let removed = 0;
+    let foldersGained = 0;
+    let tagsGained = 0;
+    let referencesRepointed = 0;
+
+    if (!dryRun) {
+      for (const group of groups) {
+        const result: {
+          removed: Id<"assets">[];
+          foldersGained: number;
+          tagsGained: number;
+          referencesRepointed: number;
+        } = await ctx.runMutation(internal.assets.mergeDuplicateAssets, {
+          ownerUserId: args.ownerUserId,
+          assetIds: group.assetIds,
+        });
+        removed += result.removed.length;
+        foldersGained += result.foldersGained;
+        tagsGained += result.tagsGained;
+        referencesRepointed += result.referencesRepointed;
+      }
+    }
+
+    return {
+      scanned,
+      duplicateGroups: groups.length,
+      removable,
+      removed,
+      foldersGained,
+      tagsGained,
+      referencesRepointed,
+      groups,
+    };
+  },
+});
