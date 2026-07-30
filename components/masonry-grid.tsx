@@ -130,6 +130,9 @@ interface MasonryGridProps {
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a beat (beat folder) for entries with galleryItemType "beat". */
   onBeatOpen?: (beatFolderId: string) => void;
+  /** Beat management — hover actions on the stack card. */
+  onBeatUnpack?: (beatFolderId: string) => void;
+  onBeatDelete?: (beatFolderId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
   onImageSelect?: (image: {
@@ -301,6 +304,8 @@ export function MasonryGrid({
   onRemoveAssetTag,
   onStorybookOpen,
   onBeatOpen,
+  onBeatUnpack,
+  onBeatDelete,
   onCollectionOpen,
   showPublicBadge = false,
   onEndReached,
@@ -586,6 +591,8 @@ export function MasonryGrid({
                   }}
                   eager={originalIndex < EAGER_IMAGE_COUNT}
                   onOpen={onBeatOpen}
+                  onUnpack={onBeatUnpack}
+                  onDelete={onBeatDelete}
                 />
               </div>
             );

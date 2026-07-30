@@ -48,7 +48,6 @@ import {
   type BreadcrumbSegment,
 } from "./browse-breadcrumb";
 import { ProjectSectionTabs } from "./project-section-tabs";
-import { ProjectEpisodes } from "./project-episodes";
 import { FeaturedPanel } from "./featured-panel";
 import {
   GalleryDetailPanel,
@@ -150,7 +149,6 @@ type SemanticMode =
 // that were never filed so nothing is unreachable.
 type ProjectSectionTab =
   | "all"
-  | "episodes"
   | "beats"
   | "characters"
   | "locations"
@@ -166,13 +164,24 @@ const PROJECT_SECTION_TABS: {
   onlyWhenPresent?: boolean;
 }[] = [
   { key: "all", label: "All" },
-  { key: "episodes", label: "Episodes" },
   { key: "beats", label: "Beats" },
   { key: "characters", label: "Characters" },
   { key: "locations", label: "Locations" },
   { key: "stills", label: "Stills", onlyWhenPresent: true },
-  { key: "unsorted", label: "Unsorted", onlyWhenPresent: true },
+  // Custom project folders and never-filed members both land here.
+  { key: "unsorted", label: "More", onlyWhenPresent: true },
 ];
+
+// Text-only breadcrumb-row actions share one look.
+const quietActionStyle: React.CSSProperties = {
+  fontFamily: "var(--lm-font)",
+  fontSize: "10px",
+  fontWeight: 700,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "var(--lm-text-ghost)",
+  cursor: "pointer",
+};
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -570,8 +579,6 @@ export function GalleryDashboard({
   >(null);
   const [deleteAssetError, setDeleteAssetError] =
     useState<string>();
-  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
-  const [editAssetError, setEditAssetError] = useState<string>();
   const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<
     string | null
   >(null);
@@ -666,6 +673,7 @@ export function GalleryDashboard({
   );
   const updateFolderMutation = useMutation(api.folders.updateFolder);
   const deleteFolderMutation = useMutation(api.folders.deleteFolder);
+  const unpackBeatMutation = useMutation(api.projects.unpackBeat);
   const setFolderShowcasedMutation = useMutation(
     api.folders.setFolderShowcased,
   );
@@ -1286,9 +1294,39 @@ export function GalleryDashboard({
       // Opening a project lands on its top level, never inside a stale beat.
       setBrowseBeat(null);
       setViewMode("grid");
+      // A history entry per browse level, so the browser's Back walks back
+      // OUT of the project instead of leaving the vault entirely.
+      window.history.pushState({ lmBrowse: "project" }, "");
     },
     [setOpenProjectId, setViewMode],
   );
+
+  // Back unwinds the in-app browse (beat → project → gallery). Without this
+  // the dashboard never touches history, so Back from a project view jumps to
+  // whatever page came before the vault — usually the taste profile.
+  const browseStateRef = useRef<{ beat: boolean; project: boolean }>({
+    beat: false,
+    project: false,
+  });
+  browseStateRef.current = {
+    beat: Boolean(browseBeat),
+    project: Boolean(browseProject),
+  };
+  useEffect(() => {
+    const onPopState = () => {
+      const { beat, project } = browseStateRef.current;
+      if (beat) {
+        setBrowseBeat(null);
+      } else if (project) {
+        setBrowseProject(null);
+        setViewMode("collections");
+      }
+      // Neither open: the entry being popped is ours but already unwound via
+      // the breadcrumb — let the browser continue on its way.
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [setViewMode]);
 
 
   // Which folders (collections + storybooks) are published to the public
@@ -1860,61 +1898,6 @@ export function GalleryDashboard({
           projectId: browseProject.id as Id<"folders">,
         }
       : "skip",
-  );
-
-  // Episodes (chapters grouping beats) — only read while that tab is open.
-  const episodesView = projectSection === "episodes" && !browseBeat;
-  const projectEpisodes = useQuery(
-    api.projects.listProjectEpisodes,
-    browseProject && episodesView && canAccessMyGallery
-      ? {
-          ownerUserId,
-          projectId: browseProject.id as Id<"folders">,
-        }
-      : "skip",
-  );
-  const createEpisodeMutation = useMutation(api.projects.createEpisode);
-  const setBeatEpisodeMutation = useMutation(api.projects.setBeatEpisode);
-  const [episodeNotice, setEpisodeNotice] = useState<
-    DashboardNotice | undefined
-  >(undefined);
-  const warnEpisode = useCallback((error: unknown, fallback: string) => {
-    setEpisodeNotice({
-      title: error instanceof Error ? error.message : fallback,
-      type: "warning",
-      at: Date.now(),
-    });
-  }, []);
-
-  const createEpisode = useCallback(
-    async (name: string) => {
-      if (!browseProject) return;
-      try {
-        await createEpisodeMutation({
-          ownerUserId,
-          projectId: browseProject.id as Id<"folders">,
-          name,
-        });
-      } catch (error) {
-        warnEpisode(error, "Could not add episode.");
-      }
-    },
-    [browseProject, createEpisodeMutation, ownerUserId, warnEpisode],
-  );
-
-  const fileBeatIntoEpisode = useCallback(
-    (beatFolderId: string, episodeFolderId: string | null) => {
-      if (!browseProject) return;
-      void setBeatEpisodeMutation({
-        ownerUserId,
-        projectId: browseProject.id as Id<"folders">,
-        beatFolderId: beatFolderId as Id<"folders">,
-        episodeFolderId: (episodeFolderId as Id<"folders"> | null) ?? null,
-      }).catch((error: unknown) => {
-        warnEpisode(error, "Could not file the beat.");
-      });
-    },
-    [browseProject, ownerUserId, setBeatEpisodeMutation, warnEpisode],
   );
 
   // Beats fully contained in the browsed collection (stack cards).
@@ -3444,6 +3427,7 @@ export function GalleryDashboard({
       }
       setSelectedImage(null);
       setBrowseBeat({ id: beatFolderId, name: beatName });
+      window.history.pushState({ lmBrowse: "beat" }, "");
     },
     [browseProject, projects],
   );
@@ -3537,6 +3521,85 @@ export function GalleryDashboard({
     },
     [ownerUserId, deleteFolderMutation, folderNameById, setOpenProjectId],
   );
+
+  // ── Beat management from the project browse ───────────────────────────────
+  // Unpack dissolves the grouping but keeps every member in the project (they
+  // move to the Inbox). Delete removes the grouping AND the members' project
+  // membership — the assets themselves always survive in the vault.
+  const handleBeatUnpack = useCallback(
+    async (beatFolderId: string) => {
+      const name = folderNameById.get(beatFolderId) ?? "beat";
+      try {
+        const result = await unpackBeatMutation({
+          ownerUserId,
+          beatFolderId: beatFolderId as Id<"folders">,
+        });
+        setBrowseBeat((current) =>
+          current?.id === beatFolderId ? null : current,
+        );
+        setMoveStatus({
+          text:
+            result.movedAssets > 0
+              ? `Unpacked ${name} — ${result.movedAssets} asset${result.movedAssets === 1 ? "" : "s"} moved to Inbox`
+              : `Unpacked ${name}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Failed to unpack.",
+          error: true,
+        });
+      }
+    },
+    [folderNameById, ownerUserId, unpackBeatMutation],
+  );
+
+  const handleBeatDelete = useCallback(
+    async (beatFolderId: string) => {
+      const name = folderNameById.get(beatFolderId) ?? "this beat";
+      const confirmed = window.confirm(
+        `Delete ${name}? Its assets stay in the vault but leave this project. To keep them in the project, unpack instead.`,
+      );
+      if (!confirmed) return;
+      setBrowseBeat((current) =>
+        current?.id === beatFolderId ? null : current,
+      );
+      await handleDeleteFolder(beatFolderId);
+    },
+    [folderNameById, handleDeleteFolder],
+  );
+
+  // A custom folder inside the project — the owner's own sorting layer next
+  // to the fixed sections. Linked with no section, so it lands on the More
+  // tab and its assets stay in the project's All pool.
+  const handleCreateProjectFolder = useCallback(async () => {
+    if (!browseProject || !ownerUserId) return;
+    const name = window.prompt(
+      `New folder in ${browseProject.name}`,
+    )?.trim();
+    if (!name) return;
+    try {
+      const created = await createFolderMutation({ ownerUserId, name });
+      await addCollectionToProjectMutation({
+        ownerUserId,
+        projectId: browseProject.id as Id<"folders">,
+        folderId: created.folderId,
+      });
+      setMoveStatus({
+        text: `Folder “${name}” added to ${browseProject.name}`,
+      });
+    } catch (error) {
+      setMoveStatus({
+        text:
+          error instanceof Error ? error.message : "Failed to create folder.",
+        error: true,
+      });
+    }
+  }, [
+    addCollectionToProjectMutation,
+    browseProject,
+    createFolderMutation,
+    ownerUserId,
+  ]);
 
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
@@ -4300,7 +4363,6 @@ export function GalleryDashboard({
         silent no-op. */}
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
-      <NoticeToast notice={episodeNotice} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar="creators"
@@ -4735,10 +4797,38 @@ export function GalleryDashboard({
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
-                    browseProject &&
-                    !episodesView &&
-                    canManageFoldersInCurrentView ? (
-                      <>
+                    browseBeat && canManageFoldersInCurrentView ? (
+                      <span className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => void handleBeatUnpack(browseBeat.id)}
+                          title="Dissolve this beat — its assets move to the project's Inbox"
+                          className="lm-quiet-action border-none bg-transparent p-0"
+                          style={quietActionStyle}
+                        >
+                          Unpack beat
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleBeatDelete(browseBeat.id)}
+                          title="Delete this beat"
+                          className="lm-quiet-action border-none bg-transparent p-0"
+                          style={quietActionStyle}
+                        >
+                          Delete beat
+                        </button>
+                      </span>
+                    ) : browseProject && canManageFoldersInCurrentView ? (
+                      <span className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateProjectFolder()}
+                          title="Create a folder inside this project for your own sorting"
+                          className="lm-quiet-action border-none bg-transparent p-0"
+                          style={quietActionStyle}
+                        >
+                          New folder
+                        </button>
                         <input
                           ref={projectCoverInputRef}
                           type="file"
@@ -4757,12 +4847,7 @@ export function GalleryDashboard({
                           title="Upload an image to use as this world's thumbnail"
                           className="lm-quiet-action border-none bg-transparent p-0"
                           style={{
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            letterSpacing: "0.14em",
-                            textTransform: "uppercase",
-                            color: "var(--lm-text-ghost)",
+                            ...quietActionStyle,
                             cursor: projectCoverBusy ? "default" : "pointer",
                           }}
                         >
@@ -4772,7 +4857,7 @@ export function GalleryDashboard({
                               ? "Replace thumbnail"
                               : "Upload thumbnail"}
                         </button>
-                      </>
+                      </span>
                     ) : undefined
                   }
                 />
@@ -4784,19 +4869,7 @@ export function GalleryDashboard({
                   onChange={selectProjectSection}
                 />
               )}
-              {/* Episodes are a grouping of beats, not a flat asset set, so
-                  that tab replaces the grid with its own list. */}
-              {browseProject && episodesView ? (
-                <ProjectEpisodes
-                  projectName={browseProject.name}
-                  episodes={projectEpisodes?.episodes ?? []}
-                  unassignedBeats={projectEpisodes?.unassignedBeats ?? []}
-                  loading={projectEpisodes === undefined}
-                  onOpenBeat={handleCardBeatOpen}
-                  onCreateEpisode={createEpisode}
-                  onFileBeat={fileBeatIntoEpisode}
-                />
-              ) : storybooksView ? (
+              {storybooksView ? (
                 storybookEntries.length > 0 ? (
                   <MasonryGrid
                     images={storybookEntries}
@@ -4980,6 +5053,16 @@ export function GalleryDashboard({
                     onStorybookOpen={setOpenStorybookId}
                     onCollectionOpen={handleCardCollectionOpen}
                     onBeatOpen={handleCardBeatOpen}
+                    onBeatUnpack={
+                      canManageFoldersInCurrentView
+                        ? handleBeatUnpack
+                        : undefined
+                    }
+                    onBeatDelete={
+                      canManageFoldersInCurrentView
+                        ? handleBeatDelete
+                        : undefined
+                    }
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       anyPaginationActive ? loadNextGalleryPage : undefined

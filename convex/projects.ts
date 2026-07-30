@@ -21,6 +21,9 @@ import {
 const STACK_PREVIEW_LIMIT = 4;
 // Per-member-collection asset cap when hydrating a project for review.
 const PROJECT_COLLECTION_ASSET_LIMIT = 200;
+// Unpacking walks every member; real beats hold a handful of assets, so this
+// is a runaway guard rather than a working limit.
+const UNPACK_MEMBER_LIMIT = 500;
 
 const projectPreviewValidator = v.object({
   assetId: v.id("assets"),
@@ -1155,6 +1158,157 @@ export const removeCollectionFromProject = mutation({
     await ctx.db.delete(existing._id);
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
     return { removed: true };
+  },
+});
+
+/**
+ * Dissolve a beat back into loose assets: every member moves to the project's
+ * Inbox (the same `${project} — Inbox` pool addAssetsToProject files into),
+ * then the beat folder and its links go away. The assets stay in the project —
+ * they just stop being grouped — so this is the safe undo for "that shouldn't
+ * have been a beat", where deleting the beat would silently drop its members
+ * out of the project entirely.
+ */
+export const unpackBeat = mutation({
+  args: {
+    ownerUserId: v.string(),
+    beatFolderId: v.id("folders"),
+  },
+  returns: v.object({
+    movedAssets: v.number(),
+    inboxFolderId: v.union(v.id("folders"), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const beat = await requireOwnedFolder(ctx, ownerUserId, args.beatFolderId);
+    if (beat.kind !== "beat") {
+      throw new ConvexError("Only beats can be unpacked.");
+    }
+    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
+
+    // The project this beat belongs to. A detached beat (no project link)
+    // still unpacks — its members just have nowhere to move, so they keep
+    // their other memberships and the grouping disappears.
+    const projectLinks = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_folder", (q) => q.eq("folderId", args.beatFolderId))
+      .collect();
+    const projectLink = projectLinks.find((link) =>
+      ownerUserIds.includes(link.ownerUserId),
+    );
+    const project = projectLink
+      ? await ctx.db.get(projectLink.projectId)
+      : null;
+
+    const members = await collectAssetsForFolder(
+      ctx,
+      ownerUserIds,
+      args.beatFolderId,
+      UNPACK_MEMBER_LIMIT,
+    );
+
+    const now = Date.now();
+    let inboxFolderId: Id<"folders"> | null = null;
+    if (project && members.length > 0) {
+      // Same find-or-create the filing path uses, so unpacked assets land in
+      // the one Inbox rather than a parallel pool.
+      const inboxName = `${project.name} — Inbox`;
+      const normalizedInboxName = canonicalFolderName(inboxName);
+      let inbox: Doc<"folders"> | null = null;
+      for (const ownerCandidate of ownerUserIds) {
+        inbox = await ctx.db
+          .query("folders")
+          .withIndex("by_owner_normalizedName", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .eq("normalizedName", normalizedInboxName),
+          )
+          .unique();
+        if (inbox) break;
+      }
+      inboxFolderId =
+        inbox?._id ??
+        (await ctx.db.insert("folders", {
+          ownerUserId,
+          name: inboxName,
+          normalizedName: normalizedInboxName,
+          kind: "beat",
+          createdAt: now,
+          updatedAt: now,
+        }));
+      const existingLink = await ctx.db
+        .query("projectCollections")
+        .withIndex("by_project_folder", (q) =>
+          q.eq("projectId", project._id).eq("folderId", inboxFolderId!),
+        )
+        .unique();
+      if (!existingLink) {
+        await ctx.db.insert("projectCollections", {
+          ownerUserId,
+          projectId: project._id,
+          folderId: inboxFolderId,
+          createdAt: now,
+        });
+      }
+      for (const asset of members) {
+        const existing = await ctx.db
+          .query("assetFolders")
+          .withIndex("by_asset_folder", (q) =>
+            q.eq("assetId", asset._id).eq("folderId", inboxFolderId!),
+          )
+          .unique();
+        if (!existing) {
+          await ctx.db.insert("assetFolders", {
+            ownerUserId,
+            assetId: asset._id,
+            folderId: inboxFolderId,
+            createdAt: now,
+          });
+        }
+      }
+    }
+
+    // Detach members from the beat: primary alias re-points at the Inbox (or
+    // clears), membership links to the beat go away.
+    for (const asset of members) {
+      if (asset.folderId === args.beatFolderId) {
+        await ctx.db.patch(asset._id, {
+          folderId: inboxFolderId ?? undefined,
+        });
+      }
+    }
+    const beatLinks = [];
+    for (const ownerCandidate of ownerUserIds) {
+      beatLinks.push(
+        ...(await ctx.db
+          .query("assetFolders")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q
+              .eq("ownerUserId", ownerCandidate)
+              .eq("folderId", args.beatFolderId)
+              .gte("createdAt", 0),
+          )
+          .collect()),
+      );
+    }
+    for (const link of beatLinks) {
+      await ctx.db.delete(link._id);
+    }
+    for (const link of projectLinks) {
+      await ctx.db.delete(link._id);
+    }
+    await ctx.db.delete(args.beatFolderId);
+
+    if (inboxFolderId) {
+      await recountFolderMembers(ctx, [inboxFolderId]);
+    }
+    if (project) {
+      await ctx.db.patch(project._id, { updatedAt: now });
+    }
+    return { movedAssets: members.length, inboxFolderId };
   },
 });
 

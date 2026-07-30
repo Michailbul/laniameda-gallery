@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useState } from "react";
 import Image from "next/image";
-import { Clapperboard } from "lucide-react";
+import { Clapperboard, PackageOpen, Trash2 } from "lucide-react";
 
 export type BeatStackCardData = {
   /** Grid entry id (`beat:<folderId>`). */
@@ -24,6 +24,10 @@ interface BeatStackCardProps {
   beat: BeatStackCardData;
   eager?: boolean;
   onOpen: (beatFolderId: string) => void;
+  /** Dissolve the beat — members move to the project's Inbox. */
+  onUnpack?: (beatFolderId: string) => void;
+  /** Delete the beat folder (members leave the project with it). */
+  onDelete?: (beatFolderId: string) => void;
 }
 
 /**
@@ -37,6 +41,8 @@ export const BeatStackCard = memo(function BeatStackCard({
   beat,
   eager = false,
   onOpen,
+  onUnpack,
+  onDelete,
 }: BeatStackCardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false);
   // Cached images can be complete before onLoad wires up — check on mount so
@@ -139,6 +145,52 @@ export const BeatStackCard = memo(function BeatStackCard({
             >
               {beat.name}
             </span>
+          </div>
+        )}
+
+        {/* Manage — hover-reveal, top-left, opposite the count badge. */}
+        {(onUnpack || onDelete) && (
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 group-focus-visible:opacity-100">
+            {onUnpack && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onUnpack(beat.beatFolderId);
+                }}
+                aria-label={`Unpack beat ${beat.name}`}
+                title="Unpack — members move to the project's Inbox"
+                className="flex h-6 w-6 items-center justify-center transition-colors"
+                style={{
+                  backgroundColor: "var(--image-card-badge-bg)",
+                  color: "#FFF4EA",
+                  border: "1px solid rgba(255, 244, 234, 0.25)",
+                  borderRadius: "6px",
+                }}
+              >
+                <PackageOpen className="h-3 w-3" />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(beat.beatFolderId);
+                }}
+                aria-label={`Delete beat ${beat.name}`}
+                title="Delete this beat"
+                className="flex h-6 w-6 items-center justify-center transition-colors"
+                style={{
+                  backgroundColor: "var(--image-card-badge-bg)",
+                  color: "var(--coral)",
+                  border: "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+                  borderRadius: "6px",
+                }}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
           </div>
         )}
 
