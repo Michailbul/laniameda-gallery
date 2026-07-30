@@ -449,7 +449,7 @@ function WorkTile({
   onClick: () => void;
 }) {
   const src = assetThumb(asset);
-  const label = asset.description ?? asset.fileName ?? "Video";
+  const label = asset.name ?? asset.description ?? asset.fileName ?? "Video";
 
   if (asset.kind === "video") {
     return (
@@ -528,7 +528,7 @@ function WorkTile({
           masonry columns never reflow mid-scroll. */}
       <img
         src={src}
-        alt={asset.description ?? asset.fileName ?? "Work"}
+        alt={asset.name ?? asset.description ?? asset.fileName ?? "Work"}
         loading="lazy"
         decoding="async"
         style={{

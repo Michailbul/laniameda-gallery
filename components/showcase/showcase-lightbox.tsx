@@ -265,7 +265,7 @@ export function ShowcaseLightbox({
           ) : (
             <img
               src={src}
-              alt={asset.description ?? asset.fileName ?? "Work"}
+              alt={asset.name ?? asset.description ?? asset.fileName ?? "Work"}
               style={{
                 maxWidth: "100%",
                 maxHeight: "82vh",
@@ -291,11 +291,30 @@ export function ShowcaseLightbox({
           fontFamily: "var(--lm-font)",
         }}
       >
+        {/* The title set on the featured shelf. Leads the strip so a named
+            piece reads as a piece rather than a file. */}
+        {asset.name?.trim() && (
+          <h2
+            style={{
+              margin: "0 0 6px",
+              fontFamily: "var(--lm-font-display)",
+              fontSize: 21,
+              fontWeight: 700,
+              letterSpacing: "-0.01em",
+              lineHeight: 1.2,
+              color: "var(--lm-text-primary)",
+            }}
+          >
+            {asset.name.trim()}
+          </h2>
+        )}
         {asset.description && (
           <p
             style={{
               margin: "0 0 10px",
-              color: "var(--lm-text-primary)",
+              color: asset.name?.trim()
+                ? "var(--lm-text-secondary)"
+                : "var(--lm-text-primary)",
               fontSize: 15,
               lineHeight: 1.5,
             }}

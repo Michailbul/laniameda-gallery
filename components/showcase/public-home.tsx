@@ -68,7 +68,11 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
   const featuredWorldLabels = useMemo(() => {
     const labels = new Map<string, string>();
     for (const entry of data?.featuredReel ?? []) {
-      if (entry.world) labels.set(entry.asset._id as string, entry.world.name);
+      // A piece titled from the featured shelf speaks for itself; only an
+      // untitled one falls back to naming the world it came from.
+      const title = entry.asset.name?.trim();
+      const label = title || entry.world?.name;
+      if (label) labels.set(entry.asset._id as string, label);
     }
     return labels;
   }, [data]);

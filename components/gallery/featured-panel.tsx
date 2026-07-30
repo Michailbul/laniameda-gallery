@@ -39,10 +39,16 @@ export function FeaturedPanel({
   const reorder = useMutation(api.assets.reorderFeaturedAssets);
   const setDescription = useMutation(api.assets.setAssetDescription);
   const setStarred = useMutation(api.assets.setAssetStarred);
+  const rename = useMutation(api.assets.renameAsset);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
+  // One editor at a time, across both fields of a row.
+  const [draft, setDraft] = useState<{
+    id: string;
+    field: "name" | "description";
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -136,6 +142,9 @@ export function FeaturedPanel({
               ? "Loading…"
               : `${rows.length} featured · top ${PUBLIC_REEL_CAP} lead the public home`}
           </p>
+          <p style={{ fontSize: "11px", color: "var(--lm-text-ghost)" }}>
+            Title and description are what visitors read.
+          </p>
         </div>
         <button
           type="button"
@@ -179,7 +188,11 @@ export function FeaturedPanel({
             const asset = row.asset;
             const id = asset._id as string;
             const thumb = asset.thumbUrl ?? asset.url;
-            const editing = draft?.id === id;
+            const editingName = draft?.id === id && draft.field === "name";
+            const editing = draft?.id === id && draft.field === "description";
+            // The public title. Unnamed pieces fall back to the upload's file
+            // name, which is what visitors would otherwise read — "hf_2026…mp4".
+            const publicName = asset.name?.trim();
             // The row where the public reel stops carrying pieces.
             const cutHere =
               index === PUBLIC_REEL_CAP && rows.length > PUBLIC_REEL_CAP;
@@ -243,16 +256,66 @@ export function FeaturedPanel({
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p
-                      className="truncate"
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 550,
-                        color: "var(--lm-text-primary)",
-                      }}
-                    >
-                      {asset.fileName ?? "Untitled"}
-                    </p>
+                    {editingName ? (
+                      <input
+                        autoFocus
+                        value={draft.text}
+                        maxLength={80}
+                        onChange={(event) =>
+                          setDraft({ id, field: "name", text: event.target.value })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setDraft(null);
+                          } else if (event.key === "Enter") {
+                            event.preventDefault();
+                            (event.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        onBlur={() => {
+                          const text = draft.text;
+                          setDraft(null);
+                          if ((publicName ?? "") === text.trim()) return;
+                          void run(() =>
+                            rename({
+                              ownerUserId,
+                              assetId: id as Id<"assets">,
+                              name: text,
+                            }),
+                          );
+                        }}
+                        placeholder="Name this piece…"
+                        className="w-full bg-transparent outline-none"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 550,
+                          color: "var(--lm-text-primary)",
+                          borderBottom: "1px solid var(--lm-coral)",
+                          caretColor: "var(--lm-coral)",
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft({ id, field: "name", text: publicName ?? "" })
+                        }
+                        title="Edit the title visitors see"
+                        className="block w-full cursor-text truncate border-none bg-transparent p-0 text-left"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: 550,
+                          // An unnamed piece shows its file name in the ghost
+                          // tone, so "not titled yet" reads at a glance.
+                          color: publicName
+                            ? "var(--lm-text-primary)"
+                            : "var(--lm-text-ghost)",
+                        }}
+                      >
+                        {publicName || asset.fileName || "Name this piece…"}
+                      </button>
+                    )}
 
                     {editing ? (
                       <textarea
@@ -260,7 +323,11 @@ export function FeaturedPanel({
                         rows={2}
                         value={draft.text}
                         onChange={(event) =>
-                          setDraft({ id, text: event.target.value })
+                          setDraft({
+                            id,
+                            field: "description",
+                            text: event.target.value,
+                          })
                         }
                         onKeyDown={(event) => {
                           if (event.key === "Escape") {
@@ -297,7 +364,11 @@ export function FeaturedPanel({
                       <button
                         type="button"
                         onClick={() =>
-                          setDraft({ id, text: asset.description ?? "" })
+                          setDraft({
+                            id,
+                            field: "description",
+                            text: asset.description ?? "",
+                          })
                         }
                         title="Edit the description"
                         className="mt-0.5 block w-full cursor-text border-none bg-transparent p-0 text-left"
