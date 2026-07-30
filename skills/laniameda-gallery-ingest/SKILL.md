@@ -202,7 +202,7 @@ The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and 
 - Metadata updates for prompts and assets
 - Idempotent deletes for prompts and assets
 - Automatic pack sync for multi-asset prompt variations that share a prompt record
-- **Workflows**: multi-step presets/tutorials that bundle prompt + media steps under one record via `operation: "workflow"`
+- **Workflows**: multi-step presets/tutorials that bundle prompt + media steps under one record via `operation: "workflow"`. These surface ONLY in the gallery's Workflows view — their step media is kept out of the main grid on purpose.
 
 ## Reading ingested content back (for agent handoff)
 
@@ -424,7 +424,34 @@ Rules:
 
 A **workflow** bundles several prompt + media steps under one organizing record — a reusable preset or tutorial. Use it when the knowledge is multi-step (e.g. an image-gen prompt + result images, then a video-gen prompt + result video) and worth keeping together rather than as scattered one-shot prompts.
 
-Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the workflow row and ingests each step through the canonical ingest path — so every step's prompt and media also stay normal, independently-searchable gallery entries.
+Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the workflow row and ingests each step through the canonical ingest path, so every step's prompt and media become real gallery records.
+
+### A workflow shows up in ONE place: the Workflows view
+
+Saving a workflow does **not** add anything to the main grid. This is enforced, not incidental:
+
+- Step media is stored with `assetRole: "workflow_asset"`, and every owner-facing browse read (`listGalleryAssets`, `listGalleryAssetsPage`, `listFolderAssetsPage`, `listStarredAssets`, plus `galleryAssetFacets`) drops that role. A workflow can attach a dozen intermediate frames — depth maps, character sheets, poster stills — without flooding the vault.
+- The workflow record itself renders only in the Workflows view (the third view-mode button, `Workflow` icon). It is not a grid card and has no `workflowsOnly` filter pill anymore.
+- Semantic search still reaches step media on purpose, so "find that depth map" keeps working.
+- An explicit `assetRole: "workflow_asset"` query still returns it, which is how admin tooling and verification get at it.
+- Deleting a workflow clears the `workflow_asset` role on its step media, returning those assets to the grid rather than stranding them in no view at all.
+
+**Do not** file workflow steps into collections expecting them to appear there — collection browse applies the same exclusion. If a piece of media should live in the gallery proper, ingest it as its own `create` instead of as a workflow step.
+
+### `pillar` is REQUIRED on workflow ingest
+
+`ingestWorkflowFromApi` validates `pillar` as a bare `v.string()`, not `optionalPillarValidator`. Omitting it fails with `ArgumentValidationError: Object is missing the required field pillar` — this is the one place the otherwise-dormant pillar column is mandatory. Pass `"creators"` for creator/AI-filmmaking workflows (`designs`, `dump`, `cinema-inspiration` are the other live values).
+
+### Large video in a step
+
+Workflow step media is base64-only — there is no R2 branch — so a video over ~10 MB cannot ride a step. Do NOT fall back to a step `url` either: the URL branch of `processMediaInput` derives no dimensions for non-image content types, so the asset lands dimensionless and posterless (1:1 masonry cell, no thumbnail).
+
+Working pattern — ingest the video as its own `create`, sharing the step's prompt:
+
+1. `create` the video with `promptIngestKey` set to the step's key. This path runs ffprobe for real dimensions, remuxes browser-hostile audio, extracts a poster frame, and uploads direct to R2.
+2. Run the workflow ingest with that same `promptIngestKey` on the step and `allowPromptOnly: true`.
+
+Prompts dedupe on `promptIngestKey`, so the step resolves to the prompt the video is already attached to. No media is dropped — `allowPromptOnly` here is bookkeeping, not a missing asset, and is the one sanctioned use of that flag without asking the user.
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
@@ -491,7 +518,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
-- Reusing one `promptIngestKey` across multiple media ingests now creates or updates an `assetPack` automatically.
+- Reusing one `promptIngestKey` across multiple media ingests still creates or updates an `assetPack` automatically, but **packs no longer have a browse surface** — the Packs view became the Workflows view. Packs are now an internal grouping only; to give a multi-media prompt a card the user can open, save it as a workflow.
 - Keep `ownerUserId` env-driven; callers never pass it directly.
 - `ingestKey` is only an idempotency key for `create`; it does not patch existing records.
 - For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
@@ -500,6 +527,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - When attaching media to a prompt, an `assetIngestKey` is derived as `${ingestKey}:img` by default, or can be set explicitly.
 - Re-uploading media with the same `assetIngestKey` replaces the existing asset's file rather than creating a duplicate.
 - Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
+- Existing packs are converted to single-step workflows with `workflows:backfillPacksAsWorkflows {ownerUserId, dryRun?}`. It skips packs whose prompt already belongs to a workflow, leaves the pack rows in place (reversible), and deliberately does not stamp `workflow_asset` on their assets — those images predate the workflow concept and stay visible in the grid.
 
 ## Install/update workflow
 
