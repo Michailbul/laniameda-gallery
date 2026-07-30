@@ -1390,6 +1390,22 @@ const assetFolderIdSet = async (ctx: QueryCtx, asset: Doc<"assets">) => {
   return ids;
 };
 
+// Workflow step media belongs to its workflow, not to the vault at large. The
+// Workflows view is its only browse surface, so the grid, collection and
+// starred reads drop it — otherwise one workflow upload floods the gallery with
+// its own intermediate frames (depth maps, character sheets, poster stills).
+// An explicit `assetRole: "workflow_asset"` query still reaches it, which keeps
+// the admin tools working; semantic search runs on its own path and is
+// deliberately left alone so a step asset is still findable by searching for it.
+const WORKFLOW_STEP_ROLE = "workflow_asset" as const;
+
+const isHiddenWorkflowStepAsset = (
+  asset: Doc<"assets">,
+  requestedAssetRole?: string,
+) =>
+  asset.assetRole === WORKFLOW_STEP_ROLE &&
+  requestedAssetRole !== WORKFLOW_STEP_ROLE;
+
 // The starred assets in the current view, newest star first.
 //
 // Read on its own rather than sorted out of the main grid query: browse is
@@ -1430,7 +1446,9 @@ export const listStarredAssets = query({
           ),
         )
       ).flat(),
-    ).sort((a, b) => (b.starredAt ?? 0) - (a.starredAt ?? 0));
+    )
+      .filter((asset) => !isHiddenWorkflowStepAsset(asset))
+      .sort((a, b) => (b.starredAt ?? 0) - (a.starredAt ?? 0));
 
     const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
     if (scopeFolderIds === null) {
@@ -1604,6 +1622,9 @@ export const listGalleryAssets = query({
       return true;
     });
     const filteredAssets = assets.filter((asset) => {
+      if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+        return false;
+      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         return false;
       }
@@ -1687,7 +1708,11 @@ export const galleryAssetFacets = query({
           .collect();
         rows.push(...rowsForOwner);
       }
-      assets = dedupeAssetIds(rows);
+      // Match the grid: workflow step media is not browsable here, so counting
+      // it would advertise model pills that filter down to nothing.
+      assets = dedupeAssetIds(rows).filter(
+        (asset) => !isHiddenWorkflowStepAsset(asset),
+      );
     } else if (args.isPublic) {
       assets = await ctx.db
         .query("assets")
@@ -1944,6 +1969,9 @@ export const listGalleryAssetsPage = query({
     });
 
     const filtered = result.page.filter((asset) => {
+      if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+        return false;
+      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         return false;
       }
@@ -2016,7 +2044,10 @@ export const listFolderAssetsPage = query({
       await Promise.all(
         result.page.map(async (link) => await ctx.db.get(link.assetId)),
       )
-    ).filter((asset): asset is Doc<"assets"> => asset !== null);
+    ).filter(
+      (asset): asset is Doc<"assets"> =>
+        asset !== null && !isHiddenWorkflowStepAsset(asset),
+    );
 
     const isLastCandidate = ownerIndex >= candidates.length - 1;
     return {

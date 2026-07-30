@@ -6,7 +6,6 @@ import {
   Grid3X3,
   Heart,
   Image as ImageIcon,
-  Package,
   SlidersHorizontal,
   Video,
   Workflow,
@@ -18,7 +17,7 @@ export type MediaKind = "image" | "video";
 
 export type SortOrder = "featured" | "newest" | "shuffle";
 export type GalleryScope = "mine" | "public";
-export type ViewMode = "grid" | "collections" | "packs";
+export type ViewMode = "grid" | "collections" | "workflows";
 
 // A curated menu pill (admin-managed on the backend). "tag" pills toggle the
 // tag filter; "collection" pills toggle the folder filter to their collection.
@@ -44,8 +43,6 @@ interface GalleryFilterBarProps {
   /** Owner may open the manage panel and edit the menu (mine scope only). */
   canManageMenuFilters?: boolean;
   ownerUserId: string;
-  workflowsOnly: boolean;
-  onWorkflowsOnlyChange: (next: boolean) => void;
   likedOnly?: boolean;
   onLikedOnlyChange?: (next: boolean) => void;
   showLiked?: boolean;
@@ -79,8 +76,6 @@ export function GalleryFilterBar({
   onClearAllTags,
   canManageMenuFilters = false,
   ownerUserId,
-  workflowsOnly,
-  onWorkflowsOnlyChange,
   likedOnly = false,
   onLikedOnlyChange,
   showLiked = false,
@@ -171,8 +166,6 @@ export function GalleryFilterBar({
                 <ContentTypePills
                   mediaKind={mediaKind}
                   onMediaKindChange={onMediaKindChange}
-                  workflowsOnly={workflowsOnly}
-                  onWorkflowsOnlyChange={onWorkflowsOnlyChange}
                   likedOnly={likedOnly}
                   onLikedOnlyChange={onLikedOnlyChange}
                   showLiked={showLiked}
@@ -213,8 +206,6 @@ export function GalleryFilterBar({
           <ContentTypePills
             mediaKind={mediaKind}
             onMediaKindChange={onMediaKindChange}
-            workflowsOnly={workflowsOnly}
-            onWorkflowsOnlyChange={onWorkflowsOnlyChange}
             likedOnly={likedOnly}
             onLikedOnlyChange={onLikedOnlyChange}
             showLiked={showLiked}
@@ -592,22 +583,23 @@ function ViewModeToggle({
       />
       <button
         type="button"
-        onClick={() => onViewModeChange("packs")}
+        onClick={() => onViewModeChange("workflows")}
         className="flex items-center justify-center transition-colors"
         style={{
           padding: buttonPadding,
           background:
-            viewMode === "packs"
+            viewMode === "workflows"
               ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
               : "transparent",
           color:
-            viewMode === "packs"
+            viewMode === "workflows"
               ? "#fff"
               : "var(--lm-text-ghost)",
         }}
-        aria-label="Packs view"
+        aria-label="Workflows view"
+        title="Browse workflows"
       >
-        <Package className="h-3.5 w-3.5" />
+        <Workflow className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -661,21 +653,18 @@ function ScopePill({
   );
 }
 
-// Content-type filter — Image / Video (asset kind) and Workflows. Single-select:
-// clicking the active chip clears it back to "all".
+// Content-type filter — Image / Video (asset kind). Single-select: clicking the
+// active chip clears it back to "all". Workflows are not a content type here;
+// they have their own view mode, which is the only place they render.
 function ContentTypePills({
   mediaKind,
   onMediaKindChange,
-  workflowsOnly,
-  onWorkflowsOnlyChange,
   likedOnly = false,
   onLikedOnlyChange,
   showLiked = false,
 }: {
   mediaKind: MediaKind | null;
   onMediaKindChange: (kind: MediaKind | null) => void;
-  workflowsOnly: boolean;
-  onWorkflowsOnlyChange: (next: boolean) => void;
   likedOnly?: boolean;
   onLikedOnlyChange?: (next: boolean) => void;
   showLiked?: boolean;
@@ -683,7 +672,7 @@ function ContentTypePills({
   const items: Array<{
     key: string;
     label: string;
-    icon: typeof Workflow;
+    icon: typeof Heart;
     active: boolean;
     onClick: () => void;
   }> = [
@@ -691,22 +680,15 @@ function ContentTypePills({
       key: "image",
       label: "Image",
       icon: ImageIcon,
-      active: !workflowsOnly && mediaKind === "image",
+      active: mediaKind === "image",
       onClick: () => onMediaKindChange(mediaKind === "image" ? null : "image"),
     },
     {
       key: "video",
       label: "Video",
       icon: Video,
-      active: !workflowsOnly && mediaKind === "video",
+      active: mediaKind === "video",
       onClick: () => onMediaKindChange(mediaKind === "video" ? null : "video"),
-    },
-    {
-      key: "workflows",
-      label: "Workflows",
-      icon: Workflow,
-      active: workflowsOnly,
-      onClick: () => onWorkflowsOnlyChange(!workflowsOnly),
     },
     ...(showLiked && onLikedOnlyChange
       ? [

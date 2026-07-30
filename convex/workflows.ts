@@ -373,6 +373,21 @@ export const deleteWorkflow = mutation({
         workflowStepOrder: undefined,
         workflowStepLabel: undefined,
       });
+      // The grid hides `workflow_asset` media because its workflow is the only
+      // place it belongs. Once that workflow is gone the role would strand the
+      // asset in no view at all, so clear it and let the media back into the
+      // grid — which is what "survive as standalone grid entries" means.
+      const stepAssets = await ctx.db
+        .query("assets")
+        .withIndex("by_prompt_createdAt", (q) =>
+          q.eq("promptId", prompt._id).gte("createdAt", 0),
+        )
+        .collect();
+      for (const asset of stepAssets) {
+        if (asset.assetRole === "workflow_asset") {
+          await ctx.db.patch(asset._id, { assetRole: undefined });
+        }
+      }
     }
 
     await ctx.db.delete(args.id);
@@ -425,6 +440,128 @@ export const finalizeWorkflow = internalMutation({
       updatedAt: Date.now(),
     });
     return null;
+  },
+});
+
+// One-time backfill: asset packs and workflows were two names for the same
+// idea — a group of media that shares one prompt — and only workflows have a
+// browse surface now. Each pack becomes a single-step workflow whose step is
+// the prompt its assets already share.
+//
+// Deliberately does NOT stamp `assetRole: "workflow_asset"` on the converted
+// assets. Those images have always been ordinary grid content; giving them the
+// workflow role would yank them out of the gallery, which is a different
+// decision than "give this pack a workflows-view card". The pack rows are left
+// in place too — nothing reads them anymore, and keeping them makes this
+// reversible.
+export const backfillPacksAsWorkflows = mutation({
+  args: {
+    ownerUserId: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    packsScanned: v.number(),
+    converted: v.number(),
+    skippedAlreadyWorkflow: v.number(),
+    skippedNoPrompt: v.number(),
+    titles: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const dryRun = args.dryRun === true;
+
+    const packs: Doc<"assetPacks">[] = [];
+    for (const owner of resolveUserIdCandidates(ownerUserId)) {
+      const rows = await ctx.db
+        .query("assetPacks")
+        .withIndex("by_owner_createdAt", (q) =>
+          q.eq("ownerUserId", owner).gte("createdAt", 0),
+        )
+        .collect();
+      packs.push(...rows);
+    }
+
+    let converted = 0;
+    let skippedAlreadyWorkflow = 0;
+    let skippedNoPrompt = 0;
+    const titles: string[] = [];
+
+    for (const pack of packs) {
+      const members = await ctx.db
+        .query("assets")
+        .withIndex("by_assetPack_packSlotIndex", (q) =>
+          q.eq("assetPackId", pack._id),
+        )
+        .collect();
+
+      // A pack exists because its members share a prompt; that prompt is the
+      // step. If members disagree, the earliest-created one wins.
+      const promptIds = members
+        .map((asset) => asset.promptId)
+        .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId));
+      if (promptIds.length === 0) {
+        skippedNoPrompt += 1;
+        continue;
+      }
+      const prompt = await ctx.db.get(promptIds[0]!);
+      if (!prompt) {
+        skippedNoPrompt += 1;
+        continue;
+      }
+      // Packs that a workflow ingest created as a side effect of one step
+      // sharing a promptIngestKey across several media. Their parent workflow
+      // already represents them.
+      if (prompt.workflowId) {
+        skippedAlreadyWorkflow += 1;
+        continue;
+      }
+
+      if (dryRun) {
+        converted += 1;
+        titles.push(pack.title);
+        continue;
+      }
+
+      const now = Date.now();
+      const workflowId = await ctx.db.insert("workflows", {
+        ownerUserId: pack.ownerUserId,
+        title: pack.title,
+        description: pack.description,
+        pillar: pack.pillar,
+        tagIds: pack.tagIds,
+        ingestKey: pack.ingestKey
+          ? `${pack.ingestKey}:as-workflow`
+          : undefined,
+        coverAssetId: pack.coverAssetId,
+        stepCount: 1,
+        isPublic: pack.isPublic,
+        isFeatured: pack.isFeatured,
+        createdAt: pack.createdAt,
+        updatedAt: now,
+      });
+
+      await ctx.db.patch(prompt._id, {
+        workflowId,
+        workflowStepOrder: 0,
+        workflowStepLabel: pack.modelName
+          ? `${pack.modelName} — ${members.length} ${members.length === 1 ? "output" : "outputs"}`
+          : `${members.length} ${members.length === 1 ? "output" : "outputs"}`,
+      });
+
+      converted += 1;
+      titles.push(pack.title);
+    }
+
+    return {
+      packsScanned: packs.length,
+      converted,
+      skippedAlreadyWorkflow,
+      skippedNoPrompt,
+      titles,
+    };
   },
 });
 
