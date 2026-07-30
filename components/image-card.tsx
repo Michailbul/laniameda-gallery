@@ -131,7 +131,7 @@ interface ImageCardProps {
   /** True when a multi-selection is in progress — a plain card click then
       toggles selection instead of opening the detail panel. */
   selectionActive?: boolean;
-  onToggleSelect?: (imageId: string) => void;
+  onToggleSelect?: (imageId: string, mode?: "toggle" | "range") => void;
   likeable?: boolean;
   liked?: boolean;
   onToggleLike?: (imageId: string, nextLiked: boolean) => void;
@@ -423,7 +423,9 @@ export const ImageCard = memo(function ImageCard({
     ) {
       event.preventDefault();
       event.stopPropagation();
-      onToggleSelect(image.id);
+      // Shift extends from the last card you touched; cmd/ctrl (and a plain
+      // click once a selection is underway) toggles just this one.
+      onToggleSelect(image.id, event.shiftKey ? "range" : "toggle");
       return;
     }
     selectImage();
@@ -449,7 +451,7 @@ export const ImageCard = memo(function ImageCard({
   const handleToggleSelect = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onToggleSelect?.(image.id);
+    onToggleSelect?.(image.id, event.shiftKey ? "range" : "toggle");
   };
 
   const handleToggleLike = (event: React.MouseEvent<HTMLButtonElement>) => {

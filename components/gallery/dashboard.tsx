@@ -41,7 +41,7 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
-import { PackGrid, PackDetailView } from "./pack-grid";
+import { WorkflowGrid } from "./workflow-grid";
 import { CollectionsGrid } from "./collections-grid";
 import {
   BrowseBreadcrumb,
@@ -364,7 +364,6 @@ export function GalleryDashboard({
   );
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [workflowsOnly, setWorkflowsOnly] = useState<boolean>(false);
   const [likedOnly, setLikedOnly] = useState<boolean>(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
@@ -422,7 +421,8 @@ export function GalleryDashboard({
   const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
-    if (mode !== "packs") setSelectedPackId(null);
+    // Leaving the workflows view closes whatever workflow was open with it.
+    if (mode !== "workflows") setSelectedWorkflowId(null);
   }, []);
   // Browsing a project's pool in the main grid (breadcrumb: PROJECTS / name).
   const [browseProject, setBrowseProject] = useState<{
@@ -616,7 +616,6 @@ export function GalleryDashboard({
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const [debouncedAssetSearchQuery, setDebouncedAssetSearchQuery] =
     useState("");
-  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [semanticMode, setSemanticMode] = useState<SemanticMode>(null);
   const [semanticResults, setSemanticResults] = useState<
     SemanticGalleryAsset[] | null
@@ -681,11 +680,6 @@ export function GalleryDashboard({
   const setTasteCollectionMutation = useMutation(
     api.folders.setTasteCollection,
   );
-  const deleteWorkflowMutation = useMutation(api.workflows.deleteWorkflow);
-  // Ids of workflow grid entries, so delete can route to the right backend.
-  // A ref (synced below where workflow entries are computed) because
-  // deleteAsset is declared before the workflows query.
-  const workflowIdsRef = useRef<Set<string>>(new Set());
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const processAndReplaceThumbnail = useAction(
     api.thumbnails.processAndReplaceThumbnail,
@@ -713,8 +707,6 @@ export function GalleryDashboard({
     setFolderLoadingAssetId(null);
     setCurationError(undefined);
     setDeletingAssetId(null);
-    setEditAssetError(undefined);
-    setEditingAssetId(null);
     setSelectedImage(null);
     setSheetDismissing(false);
     setSheetDragY(0);
@@ -722,7 +714,6 @@ export function GalleryDashboard({
     setSemanticResults(null);
     setSemanticError(undefined);
     setSemanticLoading(false);
-    setSelectedPackId(null);
     setSelectedAssetIds(new Set());
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
@@ -733,8 +724,6 @@ export function GalleryDashboard({
   useEffect(() => {
     setFolderError(undefined);
     setFolderLoadingAssetId(null);
-    setEditAssetError(undefined);
-    setEditingAssetId(null);
   }, [selectedImage?.id]);
 
   useEffect(() => {
@@ -808,19 +797,47 @@ export function GalleryDashboard({
     [canCuratePublic, curationLoadingAssetId],
   );
 
-  const toggleAssetSelection = useCallback((assetId: string) => {
-    setBulkCurationError(undefined);
-    setBulkCurationStatus(undefined);
-    setSelectedAssetIds((current) => {
-      const next = new Set(current);
-      if (next.has(assetId)) {
-        next.delete(assetId);
-      } else {
-        next.add(assetId);
+  // The last card whose selection was touched — the far end of a shift-click
+  // range. A ref, not state: it changes on every click but nothing renders
+  // from it, and re-rendering the whole grid to remember it would be waste.
+  // Grid order for range selection, kept in a ref so the handler below can be
+  // declared before the memo that computes it.
+  const selectableAssetIdsRef = useRef<string[]>([]);
+  const selectionAnchorRef = useRef<string | null>(null);
+
+  const toggleAssetSelection = useCallback(
+    (assetId: string, mode: "toggle" | "range" = "toggle") => {
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+
+      // Shift-click: take everything between the anchor and this card, in grid
+      // order. Additive, and the anchor stays put so you can widen or narrow
+      // the same range by shift-clicking again.
+      if (mode === "range" && selectionAnchorRef.current) {
+        const order = selectableAssetIdsRef.current;
+        const from = order.indexOf(selectionAnchorRef.current);
+        const to = order.indexOf(assetId);
+        if (from !== -1 && to !== -1) {
+          const [lo, hi] = from <= to ? [from, to] : [to, from];
+          const span = order.slice(lo, hi + 1);
+          setSelectedAssetIds((current) => new Set([...current, ...span]));
+          return;
+        }
       }
-      return next;
-    });
-  }, []);
+
+      selectionAnchorRef.current = assetId;
+      setSelectedAssetIds((current) => {
+        const next = new Set(current);
+        if (next.has(assetId)) {
+          next.delete(assetId);
+        } else {
+          next.add(assetId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   // Replace the whole selection set — used by shift+drag box-select in the grid.
   const replaceAssetSelection = useCallback((ids: string[]) => {
@@ -1109,27 +1126,17 @@ export function GalleryDashboard({
       setDeletingAssetId(assetId);
 
       try {
-        // Workflow grid entries carry a workflows-table id — the assets
-        // DELETE route can't touch them, so route by item type.
-        if (workflowIdsRef.current.has(assetId)) {
-          await deleteWorkflowMutation({
-            ownerUserId,
-            id: assetId as Id<"workflows">,
-          });
-          setSelectedWorkflowId((current) =>
-            current === assetId ? null : current,
-          );
-        } else {
-          const response = await fetch(
-            `/api/assets/${encodeURIComponent(assetId)}`,
-            { method: "DELETE" },
-          );
-          if (!response.ok) {
-            const payload = (await response
-              .json()
-              .catch(() => ({}))) as { error?: string };
-            throw new Error(payload.error || "Failed to delete asset.");
-          }
+        // Only assets reach the grid now — workflows have their own view, and
+        // delete their own record from the card there.
+        const response = await fetch(
+          `/api/assets/${encodeURIComponent(assetId)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          const payload = (await response
+            .json()
+            .catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error || "Failed to delete asset.");
         }
 
         loadedImageIdsRef.current.delete(assetId);
@@ -1170,8 +1177,6 @@ export function GalleryDashboard({
     [
       canDeleteInCurrentView,
       deletingAssetId,
-      deleteWorkflowMutation,
-      ownerUserId,
     ],
   );
 
@@ -1772,7 +1777,6 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    !workflowsOnly &&
     selectedTags.length === 0 &&
     !semanticMode &&
     !assetSearchQuery.trim();
@@ -1789,7 +1793,6 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    !workflowsOnly &&
     selectedTags.length === 0 &&
     !semanticMode &&
     !assetSearchQuery.trim();
@@ -1841,7 +1844,7 @@ export function GalleryDashboard({
   // so a starred asset is never exempt from a filter the user set.
   const starredAssets = useQuery(
     api.assets.listStarredAssets,
-    galleryScope === "mine" && canAccessMyGallery && !workflowsOnly
+    galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
           folderId: browseBeat
@@ -2086,7 +2089,6 @@ export function GalleryDashboard({
     setSelectedFolderId(null);
     setBrowseProject(null);
     setSelectedModelName(null);
-    setWorkflowsOnly(false);
     setMediaKind(null);
     setLikedOnly(false);
     setAssetSearchQuery("");
@@ -2096,24 +2098,12 @@ export function GalleryDashboard({
     setSemanticError(undefined);
     setSemanticLoading(false);
   };
-  // Content-type filter: Image/Video (asset kind) and Workflows are mutually
-  // exclusive — picking one clears the others.
+  // Content-type filter: Image / Video are mutually exclusive asset kinds.
   const handleMediaKindChange = useCallback((next: "image" | "video" | null) => {
     setMediaKind(next);
-    if (next) setWorkflowsOnly(false);
-  }, []);
-  const handleWorkflowsOnlyChange = useCallback((next: boolean) => {
-    setWorkflowsOnly(next);
-    if (next) {
-      setMediaKind(null);
-      // Workflows aren't likeable assets — leave the liked-only view.
-      setLikedOnly(false);
-    }
   }, []);
   const handleLikedOnlyChange = useCallback((next: boolean) => {
     setLikedOnly(next);
-    // Liked filters the asset grid, so it can't coexist with the workflow view.
-    if (next) setWorkflowsOnly(false);
   }, []);
   const clearSemanticMode = useCallback(() => {
     setAssetSearchQuery("");
@@ -2199,74 +2189,8 @@ export function GalleryDashboard({
     shuffleSeed,
   ]);
 
-  // Workflows are an organizing layer — they mix into the grid as their own
-  // card type and open a dedicated modal instead of the side detail panel.
-  const workflowCards = useQuery(
-    api.workflows.listWorkflows,
-    ownerUserId
-      ? {
-          ownerUserId,
-          scope: galleryScope,
-          limit: 40,
-          previewLimit: 8,
-        }
-      : "skip",
-  );
-
-  const workflowEntries = useMemo(() => {
-    if (!workflowCards) return [];
-    return workflowCards.map((workflow) => {
-      const playable = workflow.previewImages.filter((media) =>
-        Boolean(media.url),
-      );
-      const imageMedia = playable.filter((media) => media.kind === "image");
-      const carousel = imageMedia.length > 0 ? imageMedia : playable;
-      const previewImages = carousel.map((media) => ({
-        id: media.id,
-        galleryItemId: media.id,
-        galleryItemType: "workflow" as const,
-        src: media.thumbUrl ?? media.url ?? "/placeholder.svg",
-        fullSrc: media.url ?? "/placeholder.svg",
-        prompt: workflow.title,
-        width: media.width,
-        height: media.height,
-        kind: media.kind,
-        contentType: media.contentType,
-      }));
-      const cover = previewImages[0];
-      return {
-        id: workflow._id,
-        galleryItemId: workflow._id,
-        galleryItemType: "workflow" as const,
-        src: cover?.src ?? "/placeholder.svg",
-        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
-        prompt: workflow.description?.trim() || workflow.title,
-        author: "Workflow",
-        likes: 0,
-        width: cover?.width,
-        height: cover?.height,
-        kind: cover?.kind,
-        contentType: cover?.contentType,
-        modelName: undefined as string | undefined,
-        pillar: workflow.pillar ?? undefined,
-        tagNames: workflow.tagNames,
-        sourceUrl: undefined as string | undefined,
-        createdAt: workflow.createdAt,
-        folderId: undefined as string | undefined,
-        isPublic: workflow.isPublic ?? false,
-        isFeatured: workflow.isFeatured ?? false,
-        stepCount: workflow.stepCount,
-        previewImages,
-      };
-    });
-  }, [workflowCards]);
-
-  // Keep the delete router's workflow-id set in sync with the grid entries.
-  useEffect(() => {
-    workflowIdsRef.current = new Set(
-      workflowEntries.map((entry) => entry.id as string),
-    );
-  }, [workflowEntries]);
+  // Workflows are an organizing layer that owns its own view. WorkflowGrid
+  // queries and renders them there; nothing about them belongs in this grid.
 
   // Storybook stack cards only join the grid in the default browse state —
   // every filter below targets assets, which storybooks are not.
@@ -2278,7 +2202,6 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    !workflowsOnly &&
     selectedTags.length === 0 &&
     !semanticMode &&
     !assetSearchQuery.trim();
@@ -2414,33 +2337,21 @@ export function GalleryDashboard({
   }, [showCollectionBeatStacks, collectionBeatStacks]);
 
   const images = useMemo(() => {
-    if (workflowsOnly) return workflowEntries;
     const stacks = showStorybookStacks ? storybookEntries : [];
     const beats =
       showBeatStacks || showCollectionBeatStacks ? beatEntries : [];
     const childCollections = showChildCollectionStacks
       ? childCollectionEntries
       : [];
-    // When filtering by media kind (image/video) or liked-only, keep workflows
-    // out of the grid — those filters target likeable assets, not workflows.
-    const flatImages = baseImages.filter((image) => {
+    // Workflows never join the grid — they render only in the workflows view,
+    // so a saved recipe can't push assets down the feed with its own card.
+    const mixed = baseImages.filter((image) => {
       if (collectionBeatMemberIds?.has(image.id)) return false;
       if (!childCollectionIds || !("folderIds" in image)) return true;
       return !(image.folderIds ?? []).some((folderId) =>
         childCollectionIds.has(folderId),
       );
     });
-    const mixed =
-      mediaKind || likedOnly
-        ? flatImages
-        : workflowEntries.length === 0
-          ? flatImages
-          : sortOrder === "shuffle"
-            ? // Don't re-sort by date — that would undo the shuffle deal.
-              [...workflowEntries, ...flatImages]
-            : [...workflowEntries, ...flatImages].sort(
-                (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
-              );
     // Stacks lead the grid — they're shelves, not dated assets. In project
     // browse that's the beats; in the default state, storybooks.
     const leading = [...stacks, ...childCollections, ...beats];
@@ -2457,11 +2368,6 @@ export function GalleryDashboard({
       ...ordered.filter((entry) => !("starredAt" in entry && entry.starredAt)),
     ];
   }, [
-    workflowsOnly,
-    mediaKind,
-    likedOnly,
-    sortOrder,
-    workflowEntries,
     baseImages,
     showStorybookStacks,
     storybookEntries,
@@ -2487,6 +2393,10 @@ export function GalleryDashboard({
         .map((image) => image.id),
     [images],
   );
+  // Mirrors allVisibleAssetIds for the shift-range handler, which is declared
+  // earlier in the component than the memo it needs.
+  selectableAssetIdsRef.current = allVisibleAssetIds;
+
   const selectAllVisibleAssets = useCallback(() => {
     setSelectedAssetIds(new Set(allVisibleAssetIds));
   }, [allVisibleAssetIds]);
@@ -3912,6 +3822,28 @@ export function GalleryDashboard({
     goToNext,
   ]);
 
+  // Escape drops the selection when no overlay is up (the detail view has its
+  // own Escape handler and wins while open).
+  useEffect(() => {
+    if (selectedImage || selectedAssetIds.size === 0) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target as HTMLElement | null;
+      // Never steal Escape from a field the user is typing in.
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      clearAssetSelection();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearAssetSelection, selectedAssetIds.size, selectedImage]);
+
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
     showChildCollectionStacks && childCollectionStacks === undefined
@@ -3925,7 +3857,6 @@ export function GalleryDashboard({
           : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
-    workflowsOnly ||
     likedOnly ||
     effectiveSelectedFolderId !== null ||
     browseProject !== null ||
@@ -4644,8 +4575,6 @@ export function GalleryDashboard({
                   galleryScope === "mine" && canAccessMyGallery
                 }
                 ownerUserId={ownerUserId}
-                workflowsOnly={workflowsOnly}
-                onWorkflowsOnlyChange={handleWorkflowsOnlyChange}
                 likedOnly={likedOnly}
                 onLikedOnlyChange={handleLikedOnlyChange}
                 showLiked={canManageFoldersInCurrentView}
@@ -4928,39 +4857,13 @@ export function GalleryDashboard({
                     </p>
                   </div>
                 )
-              ) : viewMode === "packs" ? (
+              ) : viewMode === "workflows" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
-                  selectedPackId ? (
-                    <PackDetailView
-                      ownerUserId={ownerUserId}
-                      packId={selectedPackId}
-                      selectedAssetId={
-                        selectedImage?.packId === selectedPackId
-                          ? selectedImage?.id
-                          : undefined
-                      }
-                      compact={Boolean(selectedImage)}
-                      onBack={() => { setSelectedPackId(null); setSelectedImage(null); }}
-                      onAssetSelect={(asset) => {
-                        handleImageSelect({
-                          ...asset,
-                          thumbSrc: asset.thumbSrc,
-                          fullSrc: asset.fullSrc,
-                          // Mini masonry handles navigation — no right-side carousel
-                          previewImages: [],
-                          galleryItemId: asset.id,
-                          galleryItemType: "asset",
-                        });
-                      }}
-                    />
-                  ) : (
-                    <PackGrid
-                      ownerUserId={ownerUserId}
-                      selectedTagIds={selectedTagIds}
-                      selectedModelName={selectedModelName}
-                      onPackSelect={setSelectedPackId}
-                    />
-                  )
+                  <WorkflowGrid
+                    ownerUserId={ownerUserId}
+                    scope={galleryScope}
+                    onWorkflowSelect={setSelectedWorkflowId}
+                  />
                 ) : (
                   <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
                     <p
@@ -4973,7 +4876,7 @@ export function GalleryDashboard({
                         color: "var(--lm-text-tertiary)",
                       }}
                     >
-                      SWITCH TO MY GALLERY TO BROWSE PACKS.
+                      SWITCH TO MY GALLERY TO BROWSE WORKFLOWS.
                     </p>
                   </div>
                 )
@@ -5420,6 +5323,18 @@ export function GalleryDashboard({
                 }}
               >
                 {selectedAssetIds.size} selected
+              </span>
+              {/* The gestures are invisible otherwise — nothing on a card
+                  suggests that shift extends or that empty space boxes. */}
+              <span
+                className="hidden md:inline"
+                style={{
+                  fontFamily: "var(--lm-font)",
+                  fontSize: "10.5px",
+                  color: "var(--lm-text-ghost)",
+                }}
+              >
+                Shift-click a range · drag empty space to box · Esc to clear
               </span>
               {selectedAssetIds.size < allVisibleAssetIds.length && (
                 <button

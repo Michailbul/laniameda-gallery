@@ -90,7 +90,7 @@ interface MasonryGridProps {
   onDeleteImage?: (imageId: string) => void;
   selectable?: boolean;
   selectedAssetIds?: Set<string>;
-  onToggleAssetSelect?: (imageId: string) => void;
+  onToggleAssetSelect?: (imageId: string, mode?: "toggle" | "range") => void;
   /** Replace the entire selection set — used by shift+drag box-select. */
   onReplaceSelection?: (imageIds: string[]) => void;
   likeable?: boolean;
@@ -447,17 +447,27 @@ export function MasonryGrid({
   const marqueeEnabled = selectable && Boolean(onReplaceSelection);
 
   const beginMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
-    // Reserve shift+primary-drag for box-select; a plain drag still drags cards.
-    if (!marqueeEnabled || !event.shiftKey || event.button !== 0) return;
+    // Any fresh press ends the previous gesture's grace period. Without this
+    // the click-swallow below outlives its drag and eats the next real click
+    // on a card — box-select once, and the card after it refuses to open.
+    didMarqueeRef.current = false;
+    if (!marqueeEnabled || event.button !== 0) return;
     const el = containerRef.current;
     if (!el) return;
+    // Two ways in. Shift+drag boxes from anywhere and ADDS to the selection —
+    // it has to be shift there, because a plain drag on a card is the filing
+    // drag. A drag that starts on empty grid (the event target IS the
+    // container, since every tile is an absolutely-positioned child) needs no
+    // modifier and REPLACES, which is what every file manager does.
+    const onEmptySpace = event.target === el;
+    if (!event.shiftKey && !onEmptySpace) return;
     const rect = el.getBoundingClientRect();
     const x0 = event.clientX - rect.left;
     const y0 = event.clientY - rect.top;
     marqueeRef.current = {
       x0,
       y0,
-      base: new Set(selectedAssetIds ?? []),
+      base: event.shiftKey ? new Set(selectedAssetIds ?? []) : new Set(),
       moved: false,
     };
     setMarquee({ left: x0, top: y0, width: 0, height: 0 });
@@ -505,6 +515,10 @@ export function MasonryGrid({
     const state = marqueeRef.current;
     if (!state) return;
     if (state.moved) didMarqueeRef.current = true;
+    else if (!event.shiftKey && (selectedAssetIds?.size ?? 0) > 0) {
+      // Clicked empty space without dragging: drop the selection.
+      onReplaceSelection?.([]);
+    }
     marqueeRef.current = null;
     setMarquee(null);
     try {
