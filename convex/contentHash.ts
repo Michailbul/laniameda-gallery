@@ -7,6 +7,11 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { buildR2PublicUrl } from "./r2_url";
 
+// A ceiling so one absurd file can't hold a batch open indefinitely. Well
+// above the largest real asset here (a 182 MB film), and streaming means the
+// bytes are never all in memory at once.
+const MAX_HASH_BYTES = 1_500_000_000;
+
 /**
  * Backfill `assets.contentHash` for rows that predate it.
  *
@@ -19,6 +24,15 @@ import { buildR2PublicUrl } from "./r2_url";
  * media, which is far too slow to do for a whole vault inside one action
  * timeout. Safe to re-run — `setAssetContentHash` only fills gaps, and a batch
  * that dies mid-way just leaves the rest for the next run.
+ *
+ * Two things here are the scars of the same bug. The digest is computed by
+ * STREAMING the body through the hash instead of buffering it: the first
+ * version called response.arrayBuffer(), which held the whole file in memory
+ * and got the invocation killed by a 182 MB video. And the continuation is
+ * scheduled BEFORE the rows are processed, because a kill is not a catchable
+ * exception — the old code scheduled at the end, so that one video silently
+ * stopped the entire chain and every asset ordered after it stayed unhashed
+ * through repeated "successful" re-runs.
  */
 // The explicit annotations below are load-bearing: the handler schedules
 // ITSELF, so without them TypeScript can't close the inference loop and every
@@ -60,35 +74,9 @@ export const backfillContentHashes: ReturnType<typeof internalAction> = internal
     let hashed = args.hashedSoFar ?? 0;
     let skipped = args.skippedSoFar ?? 0;
 
-    for (const row of batch.rows) {
-      const url = row.r2Key
-        ? buildR2PublicUrl(row.r2Key)
-        : row.storageId
-          ? await ctx.storage.getUrl(row.storageId)
-          : null;
-      if (!url) {
-        skipped += 1;
-        continue;
-      }
-      try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          skipped += 1;
-          continue;
-        }
-        const bytes = Buffer.from(await response.arrayBuffer());
-        const digest = createHash("sha256").update(bytes).digest("hex");
-        await ctx.runMutation(internal.assets.setAssetContentHash, {
-          assetId: row.assetId,
-          contentHash: digest,
-        });
-        hashed += 1;
-      } catch {
-        // A single unreachable blob must not stall the whole vault.
-        skipped += 1;
-      }
-    }
-
+    // Queue the next page FIRST. If this invocation dies on a pathological
+    // file, the walk still continues and the casualty is one page of rows that
+    // a later re-run picks up — rather than the whole chain.
     const batchesLeft = (args.maxBatches ?? Infinity) - 1;
     const done = batch.isDone || batchesLeft <= 0;
     if (!done) {
@@ -104,6 +92,56 @@ export const backfillContentHashes: ReturnType<typeof internalAction> = internal
           skippedSoFar: skipped,
         },
       );
+    }
+
+    for (const row of batch.rows) {
+      const url = row.r2Key
+        ? buildR2PublicUrl(row.r2Key)
+        : row.storageId
+          ? await ctx.storage.getUrl(row.storageId)
+          : null;
+      if (!url) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        const response = await fetch(url);
+        if (!response.ok || !response.body) {
+          skipped += 1;
+          continue;
+        }
+        // Chunk-by-chunk: memory stays flat whether the asset is a 40 KB
+        // thumbnail or a 200 MB film.
+        const hash = createHash("sha256");
+        const reader = response.body.getReader();
+        let bytesRead = 0;
+        let tooBig = false;
+        for (;;) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) break;
+          if (value) {
+            bytesRead += value.byteLength;
+            if (bytesRead > MAX_HASH_BYTES) {
+              tooBig = true;
+              await reader.cancel();
+              break;
+            }
+            hash.update(value);
+          }
+        }
+        if (tooBig) {
+          skipped += 1;
+          continue;
+        }
+        await ctx.runMutation(internal.assets.setAssetContentHash, {
+          assetId: row.assetId,
+          contentHash: hash.digest("hex"),
+        });
+        hashed += 1;
+      } catch {
+        // A single unreachable blob must not stall the whole vault.
+        skipped += 1;
+      }
     }
 
     return { hashed, skipped, done };
