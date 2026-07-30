@@ -12,6 +12,13 @@ interface ShowcaseLightboxProps {
   onClose: () => void;
   /** Absolute link that reopens this exact asset. Omit to hide Share. */
   shareHrefFor?: (asset: ShowcaseAsset) => string;
+  /**
+   * Owner-only: make this piece the set's thumbnail. Omitted for visitors, so
+   * the control simply doesn't exist on the public page.
+   */
+  onSetCover?: (asset: ShowcaseAsset) => Promise<void> | void;
+  /** The asset currently used as the cover, so the button can read as set. */
+  coverAssetId?: string;
 }
 
 export function ShowcaseLightbox({
@@ -20,6 +27,8 @@ export function ShowcaseLightbox({
   onIndexChange,
   onClose,
   shareHrefFor,
+  onSetCover,
+  coverAssetId,
 }: ShowcaseLightboxProps) {
   const asset = assets[index];
   // Track which slide was copied so "Copied" clears itself the moment you
@@ -29,6 +38,12 @@ export function ShowcaseLightbox({
   // Same self-clearing trick for the share link: navigating away resets it.
   const [sharedIndex, setSharedIndex] = useState<number | null>(null);
   const shared = sharedIndex === index;
+  // "saving" / "error" are per-slide too, for the same self-clearing reason.
+  const [coverState, setCoverState] = useState<{
+    index: number;
+    state: "saving" | "error";
+  } | null>(null);
+  const coverStatus = coverState?.index === index ? coverState.state : null;
   // Keep the active thumb in view as you arrow through a long reel.
   const stripRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -74,6 +89,19 @@ export function ShowcaseLightbox({
     } catch {
       // A dismissed share sheet rejects — don't claim success.
       setSharedIndex(null);
+    }
+  };
+
+  const setCover = async () => {
+    if (!onSetCover || !asset) return;
+    setCoverState({ index, state: "saving" });
+    try {
+      await onSetCover(asset);
+      // The cover id arrives back through the query, so success needs no
+      // local flag — the label flips on its own.
+      setCoverState(null);
+    } catch {
+      setCoverState({ index, state: "error" });
     }
   };
 
@@ -123,6 +151,42 @@ export function ShowcaseLightbox({
           {index + 1} / {assets.length}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {onSetCover &&
+            (() => {
+              const isCover = coverAssetId === (asset._id as string);
+              return (
+                <button
+                  type="button"
+                  onClick={setCover}
+                  disabled={coverStatus === "saving"}
+                  aria-pressed={isCover}
+                  title="Use this piece as the world's thumbnail"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 4,
+                    cursor: coverStatus === "saving" ? "default" : "pointer",
+                    font: "inherit",
+                    letterSpacing: "inherit",
+                    textTransform: "inherit",
+                    color:
+                      coverStatus === "error"
+                        ? "var(--lm-status-error)"
+                        : isCover
+                          ? "var(--lm-coral)"
+                          : "var(--lm-text-secondary)",
+                  }}
+                >
+                  {coverStatus === "saving"
+                    ? "Setting…"
+                    : coverStatus === "error"
+                      ? "Failed"
+                      : isCover
+                        ? "Cover ✓"
+                        : "Make cover"}
+                </button>
+              );
+            })()}
           {shareHrefFor && (
             <button
               type="button"

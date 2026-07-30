@@ -634,6 +634,15 @@
 
 /* Project section switcher — labels only; the sliding hairline is the chrome.
    Hover lifts an inactive label toward the primary text color. */
+/* A text-only control that stays out of the way until you go for it — used for
+   per-location actions in the breadcrumb row. */
+.lm-quiet-action {
+  transition: color var(--lm-duration-fast);
+}
+.lm-quiet-action:hover:not(:disabled) {
+  color: var(--lm-coral);
+}
+
 .lm-section-tab[data-active="false"]:hover > span:first-child {
   color: var(--lm-text-secondary);
 }

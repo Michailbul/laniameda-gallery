@@ -15,8 +15,11 @@ export interface BreadcrumbSegment {
  */
 export function BrowseBreadcrumb({
   segments,
+  trailing,
 }: {
   segments: BreadcrumbSegment[];
+  /** Right-aligned controls for the current location (e.g. its thumbnail). */
+  trailing?: React.ReactNode;
 }) {
   if (segments.length === 0) return null;
   return (
@@ -71,6 +74,7 @@ export function BrowseBreadcrumb({
           </span>
         );
       })}
+      {trailing && <span className="ml-auto flex items-center">{trailing}</span>}
     </nav>
   );
 }

@@ -137,6 +137,33 @@ const buildPreviewAssets = async (
     }),
   );
 
+/**
+ * Put the owner's chosen cover at the front of a set's preview stack.
+ *
+ * The pick wins even when the asset itself is not published: a cover is chrome
+ * for the set, not a member of it, so choosing one exposes a thumbnail and
+ * nothing else — no prompt, no metadata, no place in the grid. Without this an
+ * unpublished pick silently did nothing, which reads as a broken button.
+ */
+const orderedWithCoverFirst = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  folder: Doc<"folders">,
+  members: Doc<"assets">[],
+): Promise<Doc<"assets">[]> => {
+  if (!folder.coverAssetId) return members;
+  const ordered = [...members];
+  const idx = ordered.findIndex((a) => a._id === folder.coverAssetId);
+  if (idx > 0) {
+    ordered.unshift(ordered.splice(idx, 1)[0]);
+    return ordered;
+  }
+  if (idx === 0) return ordered;
+  const cover = await ctx.db.get(folder.coverAssetId);
+  // A dangling cover id (asset deleted) falls back to the public members.
+  if (cover) ordered.unshift(cover);
+  return ordered;
+};
+
 const orderShowcased = (a: Doc<"folders">, b: Doc<"folders">) => {
   const ao = a.showcaseOrder ?? Number.POSITIVE_INFINITY;
   const bo = b.showcaseOrder ?? Number.POSITIVE_INFINITY;
@@ -392,12 +419,7 @@ const summarizeWorld = async (
   world: Doc<"folders">,
 ) => {
   const { sections, all } = await collectWorldSections(ctx, world);
-  // The chosen cover fronts the card; otherwise the first public frame does.
-  const ordered = [...all];
-  if (world.coverAssetId) {
-    const idx = ordered.findIndex((a) => a._id === world.coverAssetId);
-    if (idx > 0) ordered.unshift(ordered.splice(idx, 1)[0]);
-  }
+  const ordered = await orderedWithCoverFirst(ctx, world, all);
   const previewAssets = await buildPreviewAssets(ctx, ordered);
   return {
     // Not part of the card payload — lets the caller stamp each world's
@@ -633,6 +655,8 @@ const worldViewValidator = v.union(
     name: v.string(),
     logline: v.optional(v.string()),
     cover: v.optional(previewAssetValidator),
+    /** The owner's explicit pick, so owner UI can mark the current cover. */
+    coverAssetId: v.optional(v.id("assets")),
     sections: v.array(
       v.object({
         key: worldSectionValidator.fields.key,
@@ -677,14 +701,17 @@ export const getWorld = query({
     if (!isShowcaseOwner(world.ownerUserId)) return null;
     if (!(await isWorldFolder(ctx, world))) return null;
 
-    const { sections } = await collectWorldSections(ctx, world);
-    const cover = (await buildPreviewAssets(ctx, sections[0]?.assets ?? []))[0];
+    const { sections, all } = await collectWorldSections(ctx, world);
+    const cover = (
+      await buildPreviewAssets(ctx, await orderedWithCoverFirst(ctx, world, all))
+    )[0];
     return {
       folderId: world._id,
       slug: world.slug,
       name: world.name,
       logline: world.description,
       cover,
+      coverAssetId: world.coverAssetId,
       sections: await Promise.all(
         sections.map(async (section) => ({
           key: section.key,

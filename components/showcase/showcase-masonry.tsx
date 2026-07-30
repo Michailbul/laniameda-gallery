@@ -22,6 +22,8 @@ export function ShowcaseMasonry({
   compact = true,
   zoom = 1,
   labels,
+  onSetCover,
+  coverAssetId,
 }: {
   assets: ShowcaseAsset[];
   loading?: boolean;
@@ -32,6 +34,9 @@ export function ShowcaseMasonry({
   zoom?: number;
   /** assetId → caption shown on card hover (e.g. the world it belongs to). */
   labels?: Map<string, string>;
+  /** Owner-only: make the open piece this set's thumbnail. */
+  onSetCover?: (asset: ShowcaseAsset) => Promise<void> | void;
+  coverAssetId?: string;
 }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -88,6 +93,8 @@ export function ShowcaseMasonry({
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
           shareHrefFor={(asset) => sharedAssetHref(asset._id as string)}
+          onSetCover={onSetCover}
+          coverAssetId={coverAssetId}
         />
       )}
     </>

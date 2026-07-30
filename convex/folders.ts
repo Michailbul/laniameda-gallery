@@ -944,10 +944,45 @@ export const listChildCollectionEntries = query({
   },
 });
 
+// Every folder an asset could count as "inside" when the target is a
+// container rather than a leaf collection:
+//   project  — its member collections (beats, section pools) plus the statics
+//              a beat row points at. A project holds no assets itself, so
+//              without this a world could never take a cover.
+//   world    — a plain root collection's direct children ("Characters", …),
+//              which the public set read already folds in as chapters.
+const containerMemberFolderIds = async (
+  ctx: QueryCtx | MutationCtx,
+  folder: Doc<"folders">,
+): Promise<Set<string>> => {
+  const ids = new Set<string>();
+  if (folder.kind === "project") {
+    const rows = await ctx.db
+      .query("projectCollections")
+      .withIndex("by_project", (q) => q.eq("projectId", folder._id))
+      .collect();
+    for (const row of rows) {
+      ids.add(row.folderId);
+      for (const id of row.beatCharacterFolderIds ?? []) ids.add(id);
+      for (const id of row.beatLocationFolderIds ?? []) ids.add(id);
+    }
+    return ids;
+  }
+  if (folder.kind === undefined) {
+    const children = await ctx.db
+      .query("folders")
+      .withIndex("by_parent", (q) => q.eq("parentFolderId", folder._id))
+      .collect();
+    for (const child of children) ids.add(child._id);
+  }
+  return ids;
+};
+
 // Set or clear the MASTER option (cover asset) of a collection — the
 // thumbnail used when the collection is browsed as a "beat" (a set of
-// similar options). The asset must actually be in the collection, via the
-// primary folderId or an assetFolders link.
+// similar options), and the card image when it is published as a world.
+// The asset must actually be inside, via the primary folderId, an
+// assetFolders link, or — for a container — one of its member folders.
 export const setFolderCover = mutation({
   args: {
     ownerUserId: v.string(),
@@ -992,6 +1027,19 @@ export const setFolderCover = mutation({
         )
         .unique();
       isMember = Boolean(link);
+    }
+    if (!isMember) {
+      const memberFolderIds = await containerMemberFolderIds(ctx, folder);
+      if (memberFolderIds.size > 0) {
+        isMember = Boolean(asset.folderId && memberFolderIds.has(asset.folderId));
+        if (!isMember) {
+          const links = await ctx.db
+            .query("assetFolders")
+            .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+            .collect();
+          isMember = links.some((link) => memberFolderIds.has(link.folderId));
+        }
+      }
     }
     if (!isMember) {
       throw new ConvexError("Asset is not in this collection.");

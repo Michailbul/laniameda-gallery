@@ -5,9 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
   ArrowRight,
-  Paintbrush,
-  Move,
-  UserRound,
   Trash2,
   Copy,
   Download,
@@ -20,7 +17,6 @@ import {
   ImagePlus,
   Loader2,
   ExternalLink,
-  Save,
   Star,
 } from "lucide-react";
 import { useQuery } from "convex/react";
@@ -29,8 +25,6 @@ import { meaningfulPrompt } from "@/lib/prompt";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-
-type ModalIntent = "transfer_style" | "transfer_pose" | "replace_character";
 
 interface CarouselImage {
   id: string;
@@ -42,6 +36,29 @@ interface CarouselImage {
   kind?: "image" | "video";
   contentType?: string;
 }
+
+/** One place this asset already lives, as the Manage tab lists it. */
+export type AssetMembership = {
+  folderId: string;
+  label: string;
+  /** The world a section or beat belongs to, shown as a quiet prefix. */
+  context?: string;
+  /** True when this asset is the folder's cover. */
+  isCover: boolean;
+  /** Worlds hold collections rather than assets — no × on those rows. */
+  canRemove: boolean;
+};
+
+/** Somewhere this asset could be filed, flattened for one searchable list. */
+export type AssetFilingTarget = {
+  /** Stable key — a folder id, or `world:section` for on-demand pools. */
+  key: string;
+  label: string;
+  context?: string;
+  folderId?: string;
+  worldId?: string;
+  section?: "beats" | "characters" | "locations" | "stills";
+};
 
 interface GalleryDetailPanelProps {
   image: {
@@ -84,9 +101,6 @@ interface GalleryDetailPanelProps {
   };
   carouselImages?: CarouselImage[];
   onClose: () => void;
-  onAction: (intent: ModalIntent, imageId: string) => void;
-  activeRunId?: string;
-  onOpenRun?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
   canGoPrev?: boolean;
@@ -103,41 +117,42 @@ interface GalleryDetailPanelProps {
   onSetFeaturedState?: (imageId: string, isFeatured: boolean) => void;
   curationBusy?: boolean;
   curationError?: string;
-  folders?: Array<{ _id: string; name: string }>;
+  /** Filing — where the asset lives, and everywhere it could go. */
   canManageFolder?: boolean;
-  onSetFolders?: (
+  memberships?: AssetMembership[];
+  filingTargets?: AssetFilingTarget[];
+  onAddToTarget?: (
+    target: AssetFilingTarget,
     imageId: string,
-    folderIds: string[],
   ) => Promise<void> | void;
-  onCreateFolder?: (name: string) => Promise<string | null>;
-  folderBusy?: boolean;
-  folderError?: string;
+  onRemoveMembership?: (
+    imageId: string,
+    folderId: string,
+  ) => Promise<void> | void;
+  /** Make this asset the folder's thumbnail (or clear it with `null`). */
+  onSetCover?: (
+    folderId: string,
+    assetId: string | null,
+  ) => Promise<void> | void;
+  onCreateCollection?: (
+    name: string,
+    imageId: string,
+  ) => Promise<void> | void;
+  filingBusy?: boolean;
+  filingError?: string;
   onFindSimilar?: (imageId: string) => void;
   similarBusy?: boolean;
   similarActive?: boolean;
   onReplaceThumbnail?: (imageId: string, file: File) => Promise<void>;
   replacingThumbnail?: boolean;
-  canEditAsset?: boolean;
-  availableTags?: string[];
-  onSaveAssetEdit?: (
+  /** Inline description/tag editing. Owner-auth, no admin mode needed. */
+  canEditDetails?: boolean;
+  onSaveDescription?: (
     imageId: string,
-    patch: {
-      description: string | null;
-      promptText: string | null;
-      tagNames: string[];
-      kind: "image" | "video";
-      modelName: string | null;
-      pillar: string | null;
-      generationType: string | null;
-      assetRole: string | null;
-      ingestSource: string | null;
-      sourceUrl: string | null;
-      fileName: string | null;
-      contentType: string | null;
-    },
-  ) => Promise<void>;
-  editingAsset?: boolean;
-  editError?: string;
+    description: string,
+  ) => Promise<void> | void;
+  onSaveTags?: (imageId: string, tagNames: string[]) => Promise<void> | void;
+  availableTags?: string[];
   toast?: (title: string, message?: string, type?: "success" | "warning" | "info" | "default") => void;
   /**
    * Layout variant. "sidebar" (default) stacks the media above the details in
@@ -148,34 +163,13 @@ interface GalleryDetailPanelProps {
   variant?: "sidebar" | "modal";
 }
 
-const ACTIONS = [
-  {
-    intent: "transfer_style" as ModalIntent,
-    label: "TRANSFER STYLE",
-    icon: Paintbrush,
-  },
-  {
-    intent: "transfer_pose" as ModalIntent,
-    label: "TRANSFER POSE",
-    icon: Move,
-  },
-  {
-    intent: "replace_character" as ModalIntent,
-    label: "REPLACE CHARACTER",
-    icon: UserRound,
-  },
-];
-
-const DETAIL_TABS = ["INFO", "ACTIONS", "MANAGE"] as const;
+const DETAIL_TABS = ["DETAILS", "MANAGE"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 export function GalleryDetailPanel({
   image,
   carouselImages,
   onClose,
-  onAction,
-  activeRunId,
-  onOpenRun,
   onPrev,
   onNext,
   canGoPrev,
@@ -191,22 +185,24 @@ export function GalleryDetailPanel({
   onSetFeaturedState,
   curationBusy = false,
   curationError,
-  folders = [],
   canManageFolder = false,
-  onSetFolders,
-  onCreateFolder,
-  folderBusy = false,
-  folderError,
+  memberships = [],
+  filingTargets = [],
+  onAddToTarget,
+  onRemoveMembership,
+  onSetCover,
+  onCreateCollection,
+  filingBusy = false,
+  filingError,
   onFindSimilar,
   similarBusy = false,
   similarActive = false,
   onReplaceThumbnail,
   replacingThumbnail = false,
-  canEditAsset = false,
+  canEditDetails = false,
+  onSaveDescription,
+  onSaveTags,
   availableTags = [],
-  onSaveAssetEdit,
-  editingAsset = false,
-  editError,
   toast: externalToast,
   variant = "sidebar",
 }: GalleryDetailPanelProps) {
@@ -214,39 +210,25 @@ export function GalleryDetailPanel({
   const toastFn = externalToast ?? coralCtx?.toast ?? null;
   const isModal = variant === "modal";
   const { modelName, tagNames } = image;
-  const [activeTab, setActiveTab] = useState<DetailTab>("INFO");
+  const [activeTab, setActiveTab] = useState<DetailTab>("DETAILS");
   const [copied, setCopied] = useState(false);
   const [copiedLabel, setCopiedLabel] = useState("COPIED");
   const [downloadStarted, setDownloadStarted] = useState(false);
-  const [folderDraftName, setFolderDraftName] = useState("");
-  const [creatingFolder, setCreatingFolder] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastExiting, setToastExiting] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [showLivePreview, setShowLivePreview] = useState(true);
-  const [editPrompt, setEditPrompt] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editTagsInput, setEditTagsInput] = useState("");
-  const [editModelName, setEditModelName] = useState("");
-  const [editPillar, setEditPillar] = useState("");
-  const [editKind, setEditKind] = useState<"image" | "video">("image");
-  const [editGenerationType, setEditGenerationType] = useState("");
-  const [editAssetRole, setEditAssetRole] = useState("");
-  const [editIngestSource, setEditIngestSource] = useState("");
-  const [editSourceUrl, setEditSourceUrl] = useState("");
-  const [editFileName, setEditFileName] = useState("");
-  const [editContentType, setEditContentType] = useState("");
+  // null = not editing. Drafts live per field so a blur can't leak into the other.
+  const [descDraft, setDescDraft] = useState<string | null>(null);
+  const [tagsDraft, setTagsDraft] = useState<string | null>(null);
+  const [savingField, setSavingField] = useState<"description" | "tags" | null>(
+    null,
+  );
   const [starNoteDraft, setStarNoteDraft] = useState("");
   const [savingStarNote, setSavingStarNote] = useState(false);
-  const activeFolderIds = useMemo(
-    () => image.folderIds ?? (image.folderId ? [image.folderId] : []),
-    [image.folderId, image.folderIds],
-  );
-  const activeFolderIdSet = useMemo(
-    () => new Set(activeFolderIds),
-    [activeFolderIds],
-  );
+  const [filingQuery, setFilingQuery] = useState("");
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [fullLoadedMap, setFullLoadedMap] = useState<
     Record<number, boolean>
   >({});
@@ -366,10 +348,11 @@ export function GalleryDetailPanel({
     setCopyMenuOpen(false);
     setToastVisible(false);
     setToastExiting(false);
-    setFolderDraftName("");
-    setCreatingFolder(false);
-    setActiveTab("INFO");
+    setActiveTab("DETAILS");
     setShowLivePreview(true);
+    setDescDraft(null);
+    setTagsDraft(null);
+    setFilingQuery("");
   }, [image.id]);
 
   useEffect(() => {
@@ -414,42 +397,8 @@ export function GalleryDetailPanel({
   // ("Untitled prompt", a bare file name) so the prompt UI stays hidden.
   const promptForDisplay = meaningfulPrompt(activePrompt);
   const currentAssetId = currentSlide.id ?? image.id;
-  const canEditCurrentAsset = Boolean(
-    canEditAsset &&
-      onSaveAssetEdit &&
-      !isDesignView &&
-      currentAssetId,
-  );
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
-
-  useEffect(() => {
-    setEditPrompt(activePrompt ?? "");
-    setEditDescription(image.description ?? "");
-    setEditTagsInput((image.tagNames ?? []).join(", "));
-    setEditModelName(image.modelName ?? "");
-    setEditPillar(image.pillar ?? "");
-    setEditKind(image.kind ?? "image");
-    setEditGenerationType(image.generationType ?? "");
-    setEditAssetRole(image.assetRole ?? "");
-    setEditIngestSource(image.ingestSource ?? "");
-    setEditSourceUrl(image.sourceUrl ?? "");
-    setEditFileName(image.fileName ?? "");
-    setEditContentType(image.contentType ?? "");
-  }, [
-    activePrompt,
-    currentAssetId,
-    image.description,
-    image.modelName,
-    image.pillar,
-    image.kind,
-    image.generationType,
-    image.assetRole,
-    image.ingestSource,
-    image.sourceUrl,
-    image.fileName,
-    image.contentType,
-    image.tagNames,
-  ]);
+  const canEditThis = Boolean(canEditDetails && !isDesignView);
 
   const isStarred = Boolean(image.starredAt);
 
@@ -471,28 +420,36 @@ export function GalleryDetailPanel({
     }
   };
 
-  const handleSaveAssetEdit = async () => {
-    if (!canEditCurrentAsset || !onSaveAssetEdit) return;
-    const tagNames = editTagsInput
+  // Both inline fields commit on blur. The draft is read from the event rather
+  // than state so React's batching can't hand the save a stale value.
+  const commitDescription = async (next: string) => {
+    setDescDraft(null);
+    if (!onSaveDescription) return;
+    if ((image.description ?? "").trim() === next.trim()) return;
+    setSavingField("description");
+    try {
+      await onSaveDescription(currentAssetId, next);
+      toastFn?.("Description saved", undefined, "success");
+    } finally {
+      setSavingField(null);
+    }
+  };
+
+  const commitTags = async (next: string) => {
+    setTagsDraft(null);
+    if (!onSaveTags) return;
+    const parsed = next
       .split(/[,\n]/)
       .map((tag) => tag.trim())
       .filter(Boolean);
-    await onSaveAssetEdit(currentAssetId, {
-      description: editDescription.trim() || null,
-      promptText: editPrompt.trim() || null,
-      tagNames,
-      kind: editKind,
-      modelName: editModelName.trim() || null,
-      pillar: editPillar.trim() || null,
-      generationType: editGenerationType.trim() || null,
-      assetRole: editAssetRole.trim() || null,
-      ingestSource: editIngestSource.trim() || null,
-      sourceUrl: editSourceUrl.trim() || null,
-      fileName: editFileName.trim() || null,
-      contentType: editContentType.trim() || null,
-    });
-    if (toastFn) {
-      toastFn("Asset updated", undefined, "success");
+    const current = tagNames ?? [];
+    if (parsed.join(" ") === current.join(" ")) return;
+    setSavingField("tags");
+    try {
+      await onSaveTags(currentAssetId, parsed);
+      toastFn?.("Tags saved", undefined, "success");
+    } finally {
+      setSavingField(null);
     }
   };
 
@@ -535,37 +492,35 @@ export function GalleryDetailPanel({
     setTimeout(() => setDownloadStarted(false), 1500);
   };
 
-  const handleFolderToggle = (folderId: string, checked: boolean) => {
-    if (!onSetFolders) return;
-    const nextFolderIds = checked
-      ? [...activeFolderIds, folderId]
-      : activeFolderIds.filter((id) => id !== folderId);
-    void onSetFolders(image.id, Array.from(new Set(nextFolderIds)));
-  };
-
-  const handleClearFolders = () => {
-    if (!onSetFolders || activeFolderIds.length === 0) return;
-    void onSetFolders(image.id, []);
-  };
-
-  const handleCreateFolder = async () => {
-    if (!onCreateFolder) return;
-    const name = folderDraftName.trim();
-    if (!name || creatingFolder) return;
-    setCreatingFolder(true);
+  // One runner for every filing/cover write so exactly one row shows a spinner.
+  const runFiling = async (key: string, task: () => Promise<void> | void) => {
+    if (pendingKey) return;
+    setPendingKey(key);
     try {
-      const folderId = await onCreateFolder(name);
-      if (folderId && onSetFolders) {
-        await onSetFolders(
-          image.id,
-          Array.from(new Set([...activeFolderIds, folderId])),
-        );
-      }
-      setFolderDraftName("");
+      await task();
     } finally {
-      setCreatingFolder(false);
+      setPendingKey(null);
     }
   };
+
+  const memberFolderIds = useMemo(
+    () => new Set(memberships.map((entry) => entry.folderId)),
+    [memberships],
+  );
+
+  const filteredTargets = useMemo(() => {
+    const query = filingQuery.trim().toLowerCase();
+    return filingTargets
+      .filter((target) => !target.folderId || !memberFolderIds.has(target.folderId))
+      .filter((target) =>
+        query
+          ? `${target.context ?? ""} ${target.label}`
+              .toLowerCase()
+              .includes(query)
+          : true,
+      )
+      .slice(0, query ? 40 : 12);
+  }, [filingQuery, filingTargets, memberFolderIds]);
 
   useEffect(() => {
     const el = panelRef.current;
@@ -596,6 +551,12 @@ export function GalleryDetailPanel({
     if (days < 30) return `${days}D AGO`;
     return undefined;
   }, [image.createdAt]);
+
+  const hasManageOptions =
+    canManageFolder ||
+    Boolean(onToggleStar) ||
+    Boolean(canCuratePublic && onSetPublicState) ||
+    Boolean(onDelete);
 
   return (
     <div
@@ -944,30 +905,17 @@ export function GalleryDetailPanel({
         >
         {/* Quick metadata strip + actions */}
         <div
-          className="flex flex-wrap items-center gap-1.5 px-3 py-2"
+          className="flex flex-wrap items-center gap-2 px-3 py-2"
           style={{
-            borderBottom: "1px solid var(--lm-border)",
+            borderBottom: "1px solid var(--lm-border-subtle)",
           }}
         >
-          {(modelName || (isDesignView && designView?.sourceDomain)) && (
-            <span
-              style={{
-                padding: "2px 8px",
-                fontSize: "10px",
-                fontWeight: 700,
-                backgroundColor: "var(--lm-ink)",
-                color: "var(--lm-coral)",
-                borderRadius: "4px",
-              }}
-            >
-              {isDesignView ? designView?.sourceDomain : modelName}
-            </span>
-          )}
           {relativeDate && (
             <span
               style={{
                 fontSize: "10px",
                 fontWeight: 500,
+                letterSpacing: "0.08em",
                 color: "var(--lm-text-ghost)",
               }}
             >
@@ -983,18 +931,17 @@ export function GalleryDetailPanel({
               <button
                 type="button"
                 onClick={() => void handleCopyGalleryId(idKind, idValue)}
-                className="flex items-center gap-1 transition-all hover:scale-[1.02]"
+                className="flex items-center gap-1"
                 aria-label={`Copy ${idKind} ID`}
                 title={`Copy ${idKind} ID: ${token}`}
                 style={{
-                  padding: "2px 7px",
                   fontSize: "10px",
                   fontFamily: "var(--lm-font-mono, ui-monospace, monospace)",
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: "var(--lm-coral)",
-                  backgroundColor: "color-mix(in srgb, var(--lm-coral) 14%, transparent)",
-                  border: "1px solid color-mix(in srgb, var(--lm-coral) 45%, transparent)",
-                  borderRadius: "4px",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
                   cursor: "pointer",
                 }}
               >
@@ -1007,18 +954,17 @@ export function GalleryDetailPanel({
             <button
               type="button"
               onClick={() => void handleCopyGalleryId("pack", image.packId!)}
-              className="flex items-center gap-1 transition-all hover:scale-[1.02]"
+              className="flex items-center gap-1"
               aria-label="Copy pack ID"
               title={`Copy pack ID: pack:${image.packId}`}
               style={{
-                padding: "2px 7px",
                 fontSize: "10px",
                 fontFamily: "var(--lm-font-mono, ui-monospace, monospace)",
-                fontWeight: 700,
-                color: "var(--lm-text-secondary)",
-                backgroundColor: "var(--lm-surface-2)",
-                border: "1px solid var(--lm-border)",
-                borderRadius: "4px",
+                fontWeight: 600,
+                color: "var(--lm-text-tertiary)",
+                background: "none",
+                border: "none",
+                padding: 0,
                 cursor: "pointer",
               }}
             >
@@ -1173,7 +1119,7 @@ export function GalleryDetailPanel({
         <div
           className="flex items-center gap-0.5 px-3"
           style={{
-            borderBottom: "1px solid var(--lm-border)",
+            borderBottom: "1px solid var(--lm-border-subtle)",
           }}
         >
           {DETAIL_TABS.map((tab) => (
@@ -1183,8 +1129,8 @@ export function GalleryDetailPanel({
               onClick={() => setActiveTab(tab)}
               className="relative flex items-center px-2.5 py-2 transition-colors"
               style={{
-                fontSize: "11px",
-                fontWeight: activeTab === tab ? 700 : 500,
+                fontSize: "11.5px",
+                fontWeight: activeTab === tab ? 650 : 500,
                 color:
                   activeTab === tab
                     ? "var(--lm-text-primary)"
@@ -1196,7 +1142,7 @@ export function GalleryDetailPanel({
                 <span
                   className="absolute bottom-0 left-1 right-1"
                   style={{
-                    height: "2px",
+                    height: "1.5px",
                     backgroundColor: "var(--lm-coral)",
                     borderRadius: "1px",
                   }}
@@ -1207,899 +1153,601 @@ export function GalleryDetailPanel({
         </div>
 
         {/* ── Tab Content ── */}
-        <div className="px-3 pb-4">
-          {activeTab === "INFO" && (
-            <div className="flex flex-col gap-0 pt-2.5">
+        <div className="px-3 pb-6">
+          {activeTab === "DETAILS" && (
+            <div className="flex flex-col pt-3">
               {isDesignView && designView ? (
                 <>
-                  {/* Title */}
                   {designView.title && (
-                    <div className="pb-2">
-                      <SectionLabel>Title</SectionLabel>
-                      <p
-                        className="mt-1.5"
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          lineHeight: 1.4,
-                          color: "var(--lm-text-primary)",
-                          fontFamily: "var(--lm-font)",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {designView.title}
-                      </p>
-                    </div>
+                    <Field label="Title">
+                      <p style={bodyStyle}>{designView.title}</p>
+                    </Field>
                   )}
-
-                  {/* Description */}
                   {designView.description && (
-                    <div
-                      className="pb-2 pt-2.5"
-                      style={{
-                        borderTop: "1px solid var(--lm-border)",
-                      }}
-                    >
-                      <SectionLabel>Description</SectionLabel>
-                      <p
-                        className="mt-1.5"
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: 400,
-                          lineHeight: 1.55,
-                          color: "var(--lm-text-secondary)",
-                          fontFamily: "var(--lm-font)",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {designView.description}
-                      </p>
-                    </div>
+                    <Field label="Description">
+                      <p style={bodyStyle}>{designView.description}</p>
+                    </Field>
                   )}
-
-                  {/* Source URL */}
                   {designView.sourceUrl && (
-                    <div
-                      className="pb-2 pt-2.5"
-                      style={{
-                        borderTop: "1px solid var(--lm-border)",
-                      }}
-                    >
-                      <SectionLabel>Source</SectionLabel>
+                    <Field label="Source">
                       <a
                         href={designView.sourceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-1.5 flex items-center gap-1.5"
+                        className="flex items-center gap-1.5"
                         style={{
-                          fontSize: "11px",
+                          fontSize: "11.5px",
                           color: "var(--lm-coral)",
-                          fontFamily: "var(--lm-font)",
                           wordBreak: "break-all",
                         }}
                       >
                         <LinkIcon className="h-3 w-3 flex-shrink-0" />
                         {designView.sourceDomain ?? designView.sourceUrl}
                       </a>
-                    </div>
+                    </Field>
                   )}
-
-                  {/* User note */}
                   {designView.userNote && (
-                    <div
-                      className="pb-2 pt-2.5"
-                      style={{
-                        borderTop: "1px solid var(--lm-border)",
-                      }}
-                    >
-                      <SectionLabel>Note</SectionLabel>
-                      <p
-                        className="mt-1.5"
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: 400,
-                          lineHeight: 1.55,
-                          color: "var(--lm-text-secondary)",
-                          fontFamily: "var(--lm-font)",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {designView.userNote}
-                      </p>
-                    </div>
+                    <Field label="Note">
+                      <p style={bodyStyle}>{designView.userNote}</p>
+                    </Field>
                   )}
-
-                  {/* Design metadata chips */}
-                  <div
-                    className="pt-2.5"
-                    style={{
-                      borderTop: "1px solid var(--lm-border)",
-                    }}
-                  >
-                    <SectionLabel>Details</SectionLabel>
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {designView.captureKind && (
-                        <span className="lm-chip">{designView.captureKind}</span>
-                      )}
-                      {designView.saveIntent && (
-                        <span className="lm-chip">{designView.saveIntent}</span>
-                      )}
-                      {designView.inspirationType && (
-                        <span className="lm-chip">{designView.inspirationType}</span>
-                      )}
-                    </div>
-                  </div>
                 </>
               ) : (
                 <>
                   {/* Prompt — only when a real prompt exists (placeholder
                       fallbacks like "Untitled prompt" are suppressed). */}
                   {promptForDisplay && (
-                    <div className="pb-2">
-                      <SectionLabel>Prompt</SectionLabel>
+                    <Field
+                      label="Prompt"
+                      action={
+                        <TextAction
+                          label="Copy"
+                          onClick={() => void handleCopy()}
+                        />
+                      }
+                    >
                       <p
-                        className="mt-1.5"
                         style={{
-                          fontSize: "12px",
-                          fontWeight: 400,
-                          lineHeight: 1.55,
-                          color: "var(--lm-text-secondary)",
-                          fontFamily: "var(--lm-font)",
-                          wordBreak: "break-word",
+                          ...bodyStyle,
+                          whiteSpace: "pre-wrap",
+                          maxHeight: "220px",
+                          overflowY: "auto",
                         }}
                       >
                         {promptForDisplay}
                       </p>
-                    </div>
+                    </Field>
                   )}
-                  {image.description && (
-                    <div
-                      className="pb-2 pt-2.5"
-                      style={{
-                        borderTop: "1px solid var(--lm-border)",
-                      }}
-                    >
-                      <SectionLabel>Description</SectionLabel>
-                      <p
-                        className="mt-1.5"
+
+                  <Field
+                    label="Description"
+                    action={
+                      savingField === "description" ? (
+                        <Loader2
+                          className="h-3 w-3 animate-spin"
+                          style={{ color: "var(--lm-text-ghost)" }}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {descDraft !== null ? (
+                      <textarea
+                        autoFocus
+                        rows={3}
+                        value={descDraft}
+                        onChange={(event) => setDescDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setDescDraft(null);
+                          } else if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            (event.target as HTMLTextAreaElement).blur();
+                          }
+                        }}
+                        onBlur={(event) =>
+                          void commitDescription(event.target.value)
+                        }
+                        placeholder="Describe this piece…"
+                        className="w-full resize-y bg-transparent outline-none"
                         style={{
-                          fontSize: "12px",
-                          fontWeight: 400,
-                          lineHeight: 1.55,
-                          color: "var(--lm-text-secondary)",
-                          fontFamily: "var(--lm-font)",
-                          wordBreak: "break-word",
+                          ...bodyStyle,
+                          borderBottom: "1px solid var(--lm-coral)",
+                          caretColor: "var(--lm-coral)",
+                        }}
+                      />
+                    ) : canEditThis ? (
+                      <button
+                        type="button"
+                        onClick={() => setDescDraft(image.description ?? "")}
+                        className="block w-full cursor-text border-none bg-transparent p-0 text-left"
+                        style={{
+                          ...bodyStyle,
+                          color: image.description
+                            ? "var(--lm-text-secondary)"
+                            : "var(--lm-text-ghost)",
                         }}
                       >
-                        {image.description}
+                        {image.description || "Add a description…"}
+                      </button>
+                    ) : image.description ? (
+                      <p style={bodyStyle}>{image.description}</p>
+                    ) : (
+                      <p style={{ ...bodyStyle, color: "var(--lm-text-ghost)" }}>
+                        No description
                       </p>
-                    </div>
-                  )}
+                    )}
+                  </Field>
                 </>
               )}
 
-              {/* Tags */}
-              <div className="pt-2.5">
-                <SectionLabel>Tags</SectionLabel>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {tagNames && tagNames.length > 0 ? (
-                    tagNames.map((tag) => (
-                      <span key={tag} className="lm-chip">
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--lm-text-ghost)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      No tags
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "ACTIONS" && (
-            <div className="flex flex-col gap-0 pt-2.5">
-              {/* AI Actions */}
-              <div
-                className="pb-2.5"
-                style={{
-                  borderBottom: "1px solid var(--lm-border)",
-                }}
+              {/* Tags — one editable line, comma separated. */}
+              <Field
+                label="Tags"
+                action={
+                  savingField === "tags" ? (
+                    <Loader2
+                      className="h-3 w-3 animate-spin"
+                      style={{ color: "var(--lm-text-ghost)" }}
+                    />
+                  ) : undefined
+                }
               >
-                <SectionLabel>AI Actions</SectionLabel>
-                <div className="mt-1.5 flex flex-col gap-1">
-                  {onFindSimilar ? (
-                    <button
-                      type="button"
-                      onClick={() => onFindSimilar(image.id)}
-                      disabled={similarBusy}
-                      className="lm-btn-brutal group flex w-full items-center gap-3 justify-start disabled:cursor-wait disabled:opacity-70"
-                      aria-label="Find similar"
-                    >
-                      <Search
-                        className="h-3.5 w-3.5 flex-shrink-0"
-                        style={{ opacity: 0.7 }}
-                      />
-                      <span className="flex-1 text-left">
-                        {similarBusy
-                          ? "FINDING SIMILAR"
-                          : similarActive
-                            ? "SHOWING SIMILAR"
-                            : "FIND SIMILAR"}
-                      </span>
-                      <ArrowRight
-                        className="h-3 w-3"
-                        style={{ opacity: 0.4 }}
-                      />
-                    </button>
-                  ) : null}
-                  {activeRunId && (
-                    <button
-                      type="button"
-                      onClick={onOpenRun}
-                      className="flex items-center justify-between px-3 py-2.5 transition-colors"
-                      aria-label="View active run"
-                      style={{
-                        border: "2px solid var(--lm-success)",
-                        backgroundColor: "var(--lm-success-dim)",
-                        color: "var(--lm-success)",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.10em",
-                        borderRadius: "var(--lm-radius)",
+                {tagsDraft !== null ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={tagsDraft}
+                      list={tagDatalistId}
+                      onChange={(event) => setTagsDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setTagsDraft(null);
+                        } else if (event.key === "Enter") {
+                          event.preventDefault();
+                          (event.target as HTMLInputElement).blur();
+                        }
                       }}
-                    >
-                      <span>RUN ACTIVE: {activeRunId}</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {!isDesignView &&
-                    ACTIONS.map(({ intent, label, icon: Icon }) => (
-                    <button
-                      key={intent}
-                      type="button"
-                      onClick={() => onAction(intent, image.id)}
-                      className="lm-btn-brutal group flex w-full items-center gap-3 justify-start"
-                      aria-label={label}
-                    >
-                      <Icon
-                        className="h-3.5 w-3.5 flex-shrink-0"
-                        style={{ opacity: 0.7 }}
-                      />
-                      <span className="flex-1 text-left">
-                        {label}
-                      </span>
-                      <ArrowRight
-                        className="h-3 w-3"
-                        style={{ opacity: 0.4 }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quick Copy/Download */}
-              <div className="pt-2.5">
-                <SectionLabel>Export</SectionLabel>
-                <div className="mt-1.5 flex flex-col gap-1">
-                  {isDesignView && designView?.sourceUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleCopy(designView.sourceUrl)}
-                      className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
+                      onBlur={(event) => void commitTags(event.target.value)}
+                      placeholder="noir, cassandra, reference"
+                      className="w-full bg-transparent outline-none"
                       style={{
-                        border: "2px solid var(--lm-border-strong)",
+                        ...bodyStyle,
+                        borderBottom: "1px solid var(--lm-coral)",
+                        caretColor: "var(--lm-coral)",
                       }}
-                    >
-                      <LinkIcon className="h-3 w-3" />
-                      COPY SOURCE URL
-                    </button>
-                  ) : promptForDisplay ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleCopy()}
-                      className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
-                      style={{
-                        border: "2px solid var(--lm-border-strong)",
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                      COPY PROMPT
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyPackage()}
-                    className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
-                    style={{
-                      border: "2px solid var(--lm-border-strong)",
-                    }}
-                  >
-                    <Package className="h-3 w-3" />
-                    COPY FULL PACKAGE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDownload()}
-                    className="lm-btn-ghost flex w-full items-center gap-2 justify-start"
-                    style={{
-                      border: "2px solid var(--lm-border-strong)",
-                    }}
-                  >
-                    <Download className="h-3 w-3" />
-                    DOWNLOAD IMAGE
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "MANAGE" && (
-            <div className="flex flex-col gap-0 pt-2.5">
-              {canEditCurrentAsset && (
-                <div
-                  className="pb-2.5"
-                  style={{
-                    borderBottom: "1px solid var(--lm-border)",
-                  }}
-                >
-                  <SectionLabel>Admin edit</SectionLabel>
-                  <div className="mt-2 flex flex-col gap-2">
-                    <AdminEditTextarea
-                      label="Prompt"
-                      value={editPrompt}
-                      onChange={setEditPrompt}
-                      minRows={5}
-                    />
-                    <AdminEditTextarea
-                      label="Description"
-                      value={editDescription}
-                      onChange={setEditDescription}
-                      minRows={3}
-                    />
-                    <AdminEditInput
-                      label="Tags"
-                      value={editTagsInput}
-                      onChange={setEditTagsInput}
-                      listId={tagDatalistId}
                     />
                     <datalist id={tagDatalistId}>
                       {availableTags.map((tag) => (
                         <option key={tag} value={tag} />
                       ))}
                     </datalist>
-                    <AdminEditInput
-                      label="Model"
-                      value={editModelName}
-                      onChange={setEditModelName}
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <AdminEditSelect
-                        label="Media kind"
-                        value={editKind}
-                        onChange={(value) =>
-                          setEditKind(value === "video" ? "video" : "image")
-                        }
-                        options={[
-                          { value: "image", label: "Image" },
-                          { value: "video", label: "Video" },
-                        ]}
-                      />
-                      <AdminEditInput
-                        label="Content type"
-                        value={editContentType}
-                        onChange={setEditContentType}
-                      />
-                    </div>
-                    <AdminEditSelect
-                      label="Generation type"
-                      value={editGenerationType}
-                      onChange={setEditGenerationType}
-                      options={[
-                        { value: "", label: "Unset" },
-                        { value: "image_gen", label: "Image gen" },
-                        { value: "video_gen", label: "Video gen" },
-                        { value: "ui_design", label: "UI design" },
-                        { value: "workflow", label: "Workflow" },
-                        { value: "other", label: "Other" },
-                      ]}
-                    />
-                    <AdminEditSelect
-                      label="Asset role"
-                      value={editAssetRole}
-                      onChange={setEditAssetRole}
-                      options={[
-                        { value: "", label: "Unset" },
-                        { value: "generated_output", label: "Generated output" },
-                        { value: "reference", label: "Reference" },
-                        { value: "inspiration_capture", label: "Inspiration capture" },
-                        { value: "workflow_asset", label: "Workflow asset" },
-                        { value: "cinema_frame", label: "Cinema frame" },
-                        { value: "other", label: "Other" },
-                      ]}
-                    />
-                    <AdminEditSelect
-                      label="Ingest source"
-                      value={editIngestSource}
-                      onChange={setEditIngestSource}
-                      options={[
-                        { value: "", label: "Unset" },
-                        { value: "api", label: "API" },
-                        { value: "agent", label: "Agent" },
-                        { value: "telegram", label: "Telegram" },
-                        { value: "manual", label: "Manual" },
-                        { value: "import", label: "Import" },
-                      ]}
-                    />
-                    <AdminEditInput
-                      label="Source URL"
-                      value={editSourceUrl}
-                      onChange={setEditSourceUrl}
-                    />
-                    <AdminEditInput
-                      label="File name"
-                      value={editFileName}
-                      onChange={setEditFileName}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleSaveAssetEdit()}
-                      disabled={editingAsset}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 transition-colors disabled:opacity-40"
-                      style={{
-                        border: "2px solid var(--lm-ink)",
-                        backgroundColor: "var(--lm-coral)",
-                        color: "#000",
-                        fontSize: "10px",
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.14em",
-                        borderRadius: "var(--lm-radius)",
-                      }}
-                    >
-                      {editingAsset ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
-                      {editingAsset ? "Saving" : "Save edits"}
-                    </button>
-                    {editError && (
-                      <p
+                  </>
+                ) : canEditThis ? (
+                  <button
+                    type="button"
+                    onClick={() => setTagsDraft((tagNames ?? []).join(", "))}
+                    className="block w-full cursor-text border-none bg-transparent p-0 text-left"
+                    style={{
+                      ...bodyStyle,
+                      color: tagNames?.length
+                        ? "var(--lm-text-secondary)"
+                        : "var(--lm-text-ghost)",
+                    }}
+                  >
+                    {tagNames?.length ? tagNames.join(" · ") : "Add tags…"}
+                  </button>
+                ) : (
+                  <p
+                    style={{
+                      ...bodyStyle,
+                      color: tagNames?.length
+                        ? "var(--lm-text-secondary)"
+                        : "var(--lm-text-ghost)",
+                    }}
+                  >
+                    {tagNames?.length ? tagNames.join(" · ") : "No tags"}
+                  </p>
+                )}
+              </Field>
+
+              {(modelName || image.sourceUrl) && !isDesignView && (
+                <Field label="Origin">
+                  <div className="flex flex-col gap-1">
+                    {modelName && (
+                      <span style={bodyStyle}>{modelName}</span>
+                    )}
+                    {image.sourceUrl && (
+                      <a
+                        href={image.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5"
                         style={{
-                          fontSize: "10px",
-                          color: "var(--lm-status-error)",
-                          fontWeight: 600,
+                          fontSize: "11.5px",
+                          color: "var(--lm-coral)",
+                          wordBreak: "break-all",
                         }}
-                        role="alert"
                       >
-                        {editError}
-                      </p>
+                        <LinkIcon className="h-3 w-3 flex-shrink-0" />
+                        {image.sourceUrl}
+                      </a>
                     )}
                   </div>
-                </div>
+                </Field>
               )}
 
-              {/* Collections — file this asset into one or more collections
-                  (multi-board membership). Toggling moves/copies the asset. */}
+              {onFindSimilar && !isDesignView && (
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={() => onFindSimilar(image.id)}
+                    disabled={similarBusy}
+                    className="flex w-full items-center gap-2 border-none bg-transparent p-0 disabled:opacity-50"
+                    style={{
+                      cursor: similarBusy ? "wait" : "pointer",
+                      fontSize: "11.5px",
+                      fontWeight: 600,
+                      color: similarActive
+                        ? "var(--lm-coral)"
+                        : "var(--lm-text-secondary)",
+                    }}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    {similarBusy
+                      ? "Finding similar…"
+                      : similarActive
+                        ? "Showing similar"
+                        : "Find similar"}
+                    <ArrowRight className="h-3 w-3" style={{ opacity: 0.5 }} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "MANAGE" && (
+            <div className="flex flex-col pt-3">
+              {/* ── Where it lives ── every membership, with the cover pick and
+                  a remove on the rows that own assets directly. */}
               {canManageFolder && (
-                <div
-                  className="pb-2.5"
-                  style={{
-                    borderBottom: "1px solid var(--lm-border)",
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <SectionLabel>Collections</SectionLabel>
-                    <button
-                      type="button"
-                      onClick={handleClearFolders}
-                      disabled={folderBusy || activeFolderIds.length === 0}
-                      className="disabled:opacity-40"
-                      style={{
-                        fontFamily: "var(--lm-font)",
-                        fontSize: "9px",
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--lm-text-muted)",
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="mt-2">
-                    <div
-                      className="max-h-36 overflow-y-auto"
-                      style={{
-                        border: "2px solid var(--lm-border-strong)",
-                        backgroundColor: "var(--lm-surface-2)",
-                        borderRadius: "var(--lm-radius)",
-                      }}
-                    >
-                      {folders.length === 0 ? (
-                        <div
-                          className="px-2 py-2"
-                          style={{
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "10px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.10em",
-                            color: "var(--lm-text-muted)",
-                          }}
-                        >
-                          No collections
-                        </div>
-                      ) : (
-                        folders.map((folder) => (
-                          <label
-                            key={folder._id}
-                            className="flex h-8 cursor-pointer items-center gap-2 px-2"
+                <Field label="In">
+                  {memberships.length === 0 ? (
+                    <p style={{ ...bodyStyle, color: "var(--lm-text-ghost)" }}>
+                      Not filed anywhere yet.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col">
+                      {memberships.map((entry) => {
+                        const coverKey = `cover:${entry.folderId}`;
+                        const removeKey = `remove:${entry.folderId}`;
+                        return (
+                          <div
+                            key={entry.folderId}
+                            className="flex items-center gap-2 py-1.5"
                             style={{
-                              borderBottom:
-                                "1px solid var(--lm-border)",
-                              fontFamily: "var(--lm-font)",
-                              fontSize: "10px",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.10em",
+                              borderBottom: "1px solid var(--lm-border-subtle)",
+                            }}
+                          >
+                            <span className="min-w-0 flex-1 truncate">
+                              {entry.context && (
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    color: "var(--lm-text-ghost)",
+                                  }}
+                                >
+                                  {entry.context}{" "}
+                                  <span style={{ opacity: 0.5 }}>/</span>{" "}
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontSize: "12px",
+                                  fontWeight: 550,
+                                  color: "var(--lm-text-primary)",
+                                }}
+                              >
+                                {entry.label}
+                              </span>
+                            </span>
+                            {onSetCover && (
+                              <TextAction
+                                label={
+                                  pendingKey === coverKey
+                                    ? "…"
+                                    : entry.isCover
+                                      ? "Cover ✓"
+                                      : "Cover"
+                                }
+                                active={entry.isCover}
+                                title={
+                                  entry.isCover
+                                    ? "This asset is the thumbnail — click to clear it"
+                                    : "Use this asset as the thumbnail"
+                                }
+                                disabled={Boolean(pendingKey)}
+                                onClick={() =>
+                                  void runFiling(coverKey, () =>
+                                    onSetCover(
+                                      entry.folderId,
+                                      entry.isCover ? null : currentAssetId,
+                                    ),
+                                  )
+                                }
+                              />
+                            )}
+                            {entry.canRemove && onRemoveMembership && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void runFiling(removeKey, () =>
+                                    onRemoveMembership(
+                                      image.id,
+                                      entry.folderId,
+                                    ),
+                                  )
+                                }
+                                disabled={Boolean(pendingKey)}
+                                aria-label={`Remove from ${entry.label}`}
+                                title={`Remove from ${entry.label}`}
+                                className="flex h-5 w-5 shrink-0 items-center justify-center border-none bg-transparent"
+                                style={{
+                                  cursor: pendingKey ? "default" : "pointer",
+                                  color: "var(--lm-text-ghost)",
+                                }}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Field>
+              )}
+
+              {/* ── Add to ── one search over worlds, sections and collections. */}
+              {canManageFolder && (onAddToTarget || onCreateCollection) && (
+                <Field label="Add to">
+                  <input
+                    value={filingQuery}
+                    onChange={(event) => setFilingQuery(event.target.value)}
+                    placeholder="Search worlds and collections…"
+                    className="w-full bg-transparent outline-none"
+                    style={{
+                      ...bodyStyle,
+                      paddingBottom: "4px",
+                      borderBottom: "1px solid var(--lm-border)",
+                      caretColor: "var(--lm-coral)",
+                    }}
+                  />
+                  <div
+                    className="mt-1 flex max-h-52 flex-col overflow-y-auto"
+                    role="list"
+                  >
+                    {filteredTargets.map((target) => (
+                      <button
+                        key={target.key}
+                        type="button"
+                        role="listitem"
+                        onClick={() =>
+                          onAddToTarget
+                            ? void runFiling(`add:${target.key}`, async () => {
+                                await onAddToTarget(target, image.id);
+                                setFilingQuery("");
+                              })
+                            : undefined
+                        }
+                        disabled={Boolean(pendingKey)}
+                        className="flex items-center gap-2 border-none bg-transparent py-1.5 text-left"
+                        style={{
+                          cursor: pendingKey ? "default" : "pointer",
+                          borderBottom: "1px solid var(--lm-border-subtle)",
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {target.context && (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--lm-text-ghost)",
+                              }}
+                            >
+                              {target.context}{" "}
+                              <span style={{ opacity: 0.5 }}>/</span>{" "}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              fontSize: "12px",
                               color: "var(--lm-text-secondary)",
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              checked={activeFolderIdSet.has(folder._id)}
-                              onChange={(event) =>
-                                handleFolderToggle(
-                                  folder._id,
-                                  event.target.checked,
-                                )
-                              }
-                              disabled={folderBusy}
-                              className="h-3.5 w-3.5"
-                            />
-                            <span className="min-w-0 truncate">
-                              {folder.name}
-                            </span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                    {onCreateFolder && (
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <input
-                          value={folderDraftName}
-                          onChange={(event) =>
-                            setFolderDraftName(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            void handleCreateFolder();
-                          }}
-                          placeholder="NEW COLLECTION"
-                          className="h-8 flex-1 px-2 outline-none"
+                            {target.label}
+                          </span>
+                        </span>
+                        <span
                           style={{
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "10px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.10em",
-                            border:
-                              "2px solid var(--lm-border-strong)",
-                            backgroundColor: "var(--lm-surface-2)",
-                            color: "var(--lm-text-secondary)",
-                            borderRadius: "var(--lm-radius)",
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void handleCreateFolder()}
-                          disabled={
-                            creatingFolder ||
-                            folderDraftName.trim().length === 0
-                          }
-                          className="h-8 px-3 disabled:opacity-40"
-                          style={{
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "9px",
-                            fontWeight: 800,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.14em",
-                            border:
-                              "2px solid var(--lm-ink)",
-                            backgroundColor: "var(--lm-ink)",
-                            color: "var(--lm-paper)",
-                            borderRadius: "var(--lm-radius)",
+                            fontSize: "11px",
+                            color:
+                              pendingKey === `add:${target.key}`
+                                ? "var(--lm-coral)"
+                                : "var(--lm-text-ghost)",
                           }}
                         >
-                          {creatingFolder ? "..." : "CREATE"}
-                        </button>
-                      </div>
-                    )}
-                    {folderError && (
-                      <p
-                        className="mt-1"
-                        style={{
-                          fontSize: "10px",
-                          color: "var(--lm-status-error)",
-                          fontWeight: 600,
-                        }}
-                        role="alert"
-                      >
-                        {folderError}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Star — promotes the asset to the top of every grid it shows
-                  up in, and carries an optional line on why. */}
-              {onToggleStar && (
-                <div
-                  className="py-2.5"
-                  style={{ borderBottom: "1px solid var(--lm-border)" }}
-                >
-                  <SectionLabel>Star</SectionLabel>
-                  <div className="mt-1.5 flex flex-col gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onToggleStar(image.id, !isStarred)}
-                      className="flex items-center gap-2.5 px-3 py-2.5 transition-colors"
-                      style={{
-                        border: `2px solid ${isStarred ? "var(--lm-coral)" : "var(--lm-border-strong)"}`,
-                        backgroundColor: isStarred
-                          ? "var(--lm-accent-dim)"
-                          : "transparent",
-                        color: isStarred
-                          ? "var(--lm-coral)"
-                          : "var(--lm-text-secondary)",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.14em",
-                        borderRadius: "var(--lm-radius)",
-                      }}
-                      aria-pressed={isStarred}
-                    >
-                      <Star
-                        className="h-3.5 w-3.5"
-                        strokeWidth={2.25}
-                        fill={isStarred ? "currentColor" : "none"}
-                      />
-                      {isStarred ? "STARRED" : "STAR THIS"}
-                    </button>
-
-                    {isStarred && onSaveStarNote && (
-                      <>
-                        <textarea
-                          value={starNoteDraft}
-                          onChange={(event) =>
-                            setStarNoteDraft(event.target.value)
-                          }
-                          rows={3}
-                          maxLength={500}
-                          placeholder="Why this one? (optional)"
-                          className="w-full resize-y px-2.5 py-2"
-                          style={{
-                            border: "1px solid var(--lm-border-strong)",
-                            borderRadius: "var(--lm-radius)",
-                            backgroundColor: "var(--lm-surface-1)",
-                            color: "var(--lm-text-primary)",
-                            fontSize: "12px",
-                            lineHeight: 1.45,
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handleSaveStarNote();
-                          }}
-                          disabled={
-                            savingStarNote ||
-                            starNoteDraft.trim() === (image.starNote ?? "").trim()
-                          }
-                          className="px-3 py-2 transition-colors disabled:opacity-40"
-                          style={{
-                            border: "2px solid var(--lm-border-strong)",
-                            backgroundColor: "transparent",
-                            color: "var(--lm-text-secondary)",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.14em",
-                            borderRadius: "var(--lm-radius)",
-                          }}
-                        >
-                          {savingStarNote ? "SAVING..." : "SAVE NOTE"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Curation */}
-              {canCuratePublic && onSetPublicState && (
-                <div
-                  className="py-2.5"
-                  style={{
-                    borderBottom: "1px solid var(--lm-border)",
-                  }}
-                >
-                  <SectionLabel>Curation</SectionLabel>
-                  <div className="mt-1.5 flex flex-col gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onSetPublicState(
-                          image.id,
-                          !Boolean(image.isPublic),
-                        )
-                      }
-                      disabled={curationBusy}
-                      className="flex items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
-                      style={{
-                        border: `2px solid ${image.isPublic ? "var(--lm-success)" : "var(--lm-border-strong)"}`,
-                        backgroundColor: image.isPublic
-                          ? "var(--lm-success-dim)"
-                          : "transparent",
-                        color: image.isPublic
-                          ? "var(--lm-success)"
-                          : "var(--lm-text-secondary)",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.14em",
-                        borderRadius: "var(--lm-radius)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: "8px",
-                          height: "8px",
-                          backgroundColor: image.isPublic
-                            ? "var(--lm-success)"
-                            : "var(--lm-text-ghost)",
-                          borderRadius: "var(--lm-radius)",
-                        }}
-                      />
-                      {curationBusy
-                        ? "SAVING..."
-                        : image.isPublic
-                          ? "REMOVE FROM PUBLIC"
-                          : "PUBLISH TO PUBLIC"}
-                    </button>
-                    {onSetFeaturedState && (
+                          {pendingKey === `add:${target.key}` ? "…" : "Add"}
+                        </span>
+                      </button>
+                    ))}
+                    {onCreateCollection && filingQuery.trim().length > 0 && (
                       <button
                         type="button"
                         onClick={() =>
-                          onSetFeaturedState(
-                            image.id,
-                            !Boolean(image.isFeatured),
-                          )
+                          void runFiling("create", async () => {
+                            await onCreateCollection(
+                              filingQuery.trim(),
+                              image.id,
+                            );
+                            setFilingQuery("");
+                          })
                         }
-                        disabled={
-                          curationBusy || !image.isPublic
-                        }
-                        className="flex items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
+                        disabled={Boolean(pendingKey)}
+                        className="flex items-center gap-2 border-none bg-transparent py-1.5 text-left"
                         style={{
-                          border: `2px solid ${image.isFeatured && image.isPublic ? "var(--lm-coral)" : "var(--lm-border-strong)"}`,
-                          backgroundColor:
-                            image.isFeatured && image.isPublic
-                              ? "var(--lm-accent-dim)"
-                              : "transparent",
-                          color:
-                            image.isFeatured && image.isPublic
-                              ? "var(--lm-coral)"
-                              : "var(--lm-text-secondary)",
-                          fontSize: "10px",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.14em",
-                          borderRadius: "var(--lm-radius)",
+                          cursor: pendingKey ? "default" : "pointer",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "var(--lm-coral)",
                         }}
                       >
-                        <span
-                          style={{
-                            width: "8px",
-                            height: "8px",
-                            backgroundColor:
-                              image.isFeatured && image.isPublic
-                                ? "var(--lm-coral)"
-                                : "var(--lm-text-ghost)",
-                            borderRadius: "var(--lm-radius)",
-                          }}
-                        />
-                        {curationBusy
-                          ? "SAVING..."
-                          : image.isFeatured
-                            ? "UNSET FEATURED"
-                            : "SET AS FEATURED"}
+                        {pendingKey === "create"
+                          ? "Creating…"
+                          : `New collection “${filingQuery.trim()}”`}
                       </button>
                     )}
-                    {curationError && (
+                    {filteredTargets.length === 0 && !onCreateCollection && (
                       <p
-                        style={{
-                          fontSize: "10px",
-                          color: "var(--lm-status-error)",
-                          fontWeight: 600,
-                        }}
-                        role="alert"
+                        className="py-1.5"
+                        style={{ ...bodyStyle, color: "var(--lm-text-ghost)" }}
                       >
-                        {curationError}
+                        Nothing matches.
                       </p>
                     )}
                   </div>
-                </div>
+                  {filingError && <ErrorLine>{filingError}</ErrorLine>}
+                  {filingBusy && (
+                    <p
+                      className="pt-1"
+                      style={{ fontSize: "11px", color: "var(--lm-text-ghost)" }}
+                    >
+                      Filing…
+                    </p>
+                  )}
+                </Field>
               )}
 
-              {/* Delete */}
+              {/* ── Promote ── star leads every grid, public opens the door,
+                  featured leads the public home. */}
+              {(onToggleStar || (canCuratePublic && onSetPublicState)) && (
+                <Field label="Promote">
+                  <div className="flex flex-col">
+                    {onToggleStar && (
+                      <SwitchRow
+                        label="Highlighted"
+                        hint="Leads every grid it shows up in"
+                        on={isStarred}
+                        onClick={() => onToggleStar(image.id, !isStarred)}
+                        icon={
+                          <Star
+                            className="h-3.5 w-3.5"
+                            strokeWidth={2}
+                            fill={isStarred ? "currentColor" : "none"}
+                          />
+                        }
+                      />
+                    )}
+                    {canCuratePublic && onSetPublicState && (
+                      <SwitchRow
+                        label="Public"
+                        hint="Visible on the taste profile"
+                        on={Boolean(image.isPublic)}
+                        busy={curationBusy}
+                        onClick={() =>
+                          onSetPublicState(image.id, !image.isPublic)
+                        }
+                      />
+                    )}
+                    {canCuratePublic && onSetFeaturedState && (
+                      <SwitchRow
+                        label="Featured"
+                        hint={
+                          image.isPublic
+                            ? "Leads the public home"
+                            : "Publish it first"
+                        }
+                        on={Boolean(image.isFeatured && image.isPublic)}
+                        busy={curationBusy}
+                        disabled={!image.isPublic}
+                        onClick={() =>
+                          onSetFeaturedState(image.id, !image.isFeatured)
+                        }
+                      />
+                    )}
+                  </div>
+                  {curationError && <ErrorLine>{curationError}</ErrorLine>}
+
+                  {isStarred && onSaveStarNote && (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      <textarea
+                        value={starNoteDraft}
+                        onChange={(event) =>
+                          setStarNoteDraft(event.target.value)
+                        }
+                        rows={2}
+                        maxLength={500}
+                        placeholder="Why this one? (optional)"
+                        className="w-full resize-y bg-transparent outline-none"
+                        style={{
+                          ...bodyStyle,
+                          borderBottom: "1px solid var(--lm-border)",
+                          caretColor: "var(--lm-coral)",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveStarNote()}
+                        disabled={
+                          savingStarNote ||
+                          starNoteDraft.trim() === (image.starNote ?? "").trim()
+                        }
+                        className="self-start border-none bg-transparent p-0 disabled:opacity-40"
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          color: "var(--lm-coral)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {savingStarNote ? "Saving…" : "Save note"}
+                      </button>
+                    </div>
+                  )}
+                </Field>
+              )}
+
               {onDelete && (
-                <div className="py-3">
+                <div className="pt-4">
                   <button
                     type="button"
                     onClick={() => onDelete(image.id)}
                     disabled={deleting}
-                    className="flex w-full items-center gap-2.5 px-3 py-2.5 transition-colors disabled:opacity-40"
+                    className="flex items-center gap-2 border-none bg-transparent p-0 disabled:opacity-40"
                     aria-label="Delete asset"
                     style={{
-                      border: "3px solid var(--lm-status-error)",
-                      backgroundColor: "var(--lm-status-error-dim)",
+                      cursor: "pointer",
+                      fontSize: "11.5px",
+                      fontWeight: 600,
                       color: "var(--lm-status-error)",
-                      fontSize: "10px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.14em",
-                      borderRadius: "var(--lm-radius)",
-                      boxShadow: "var(--lm-shadow-sm)",
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {deleting ? "DELETING..." : "DELETE ASSET"}
+                    {deleting ? "Deleting…" : "Delete asset"}
                   </button>
-                  {deleteError && (
-                    <p
-                      className="mt-1"
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--lm-status-error)",
-                        fontWeight: 600,
-                      }}
-                      role="alert"
-                    >
-                      {deleteError}
-                    </p>
-                  )}
+                  {deleteError && <ErrorLine>{deleteError}</ErrorLine>}
                 </div>
               )}
 
-              {/* If no manage options */}
-              {!canManageFolder &&
-                !canEditCurrentAsset &&
-                !(canCuratePublic && onSetPublicState) &&
-                !onDelete && (
-                  <div className="py-6 text-center">
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.14em",
-                        color: "var(--lm-text-ghost)",
-                        fontWeight: 600,
-                      }}
-                    >
-                      NO MANAGEMENT OPTIONS AVAILABLE
-                    </span>
-                  </div>
-                )}
+              {!hasManageOptions && (
+                <p
+                  className="py-6 text-center"
+                  style={{ fontSize: "11.5px", color: "var(--lm-text-ghost)" }}
+                >
+                  Nothing to manage here.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -2137,7 +1785,35 @@ export function GalleryDetailPanel({
   );
 }
 
-/* ── Section Label ── */
+/* ── Flat building blocks: a label, a hairline, and content. No boxes. ── */
+
+const bodyStyle: React.CSSProperties = {
+  fontFamily: "var(--lm-font)",
+  fontSize: "12.5px",
+  lineHeight: 1.55,
+  color: "var(--lm-text-secondary)",
+  wordBreak: "break-word",
+};
+
+function Field({
+  label,
+  action,
+  children,
+}: {
+  label: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="pb-3 pt-2.5 first:pt-0">
+      <div className="flex items-center justify-between gap-2 pb-1">
+        <SectionLabel>{label}</SectionLabel>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -2145,7 +1821,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       style={{
         fontSize: "10px",
         fontWeight: 700,
-        letterSpacing: "0.04em",
+        letterSpacing: "0.14em",
         color: "var(--lm-text-ghost)",
         textTransform: "uppercase",
       }}
@@ -2155,136 +1831,127 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AdminEditInput({
+function TextAction({
   label,
-  value,
-  onChange,
-  listId,
+  onClick,
+  active,
+  disabled,
+  title,
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
-  listId?: string;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span
-        style={{
-          fontSize: "9px",
-          fontWeight: 800,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--lm-text-ghost)",
-        }}
-      >
-        {label}
-      </span>
-      <input
-        value={value}
-        list={listId}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full px-2 outline-none"
-        style={{
-          fontFamily: "var(--lm-font)",
-          fontSize: "11px",
-          border: "2px solid var(--lm-border-strong)",
-          backgroundColor: "var(--lm-surface-2)",
-          color: "var(--lm-text-secondary)",
-          borderRadius: "var(--lm-radius)",
-        }}
-      />
-    </label>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="shrink-0 border-none bg-transparent p-0"
+      style={{
+        cursor: disabled ? "default" : "pointer",
+        fontFamily: "var(--lm-font)",
+        fontSize: "11px",
+        fontWeight: active ? 700 : 500,
+        letterSpacing: "0.04em",
+        color: active ? "var(--lm-coral)" : "var(--lm-text-tertiary)",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
-function AdminEditSelect({
+/**
+ * A promote toggle. The state reads as a word rather than a switch widget —
+ * three of these stacked on hairlines say more than three filled pills.
+ */
+function SwitchRow({
   label,
-  value,
-  onChange,
-  options,
+  hint,
+  on,
+  onClick,
+  busy,
+  disabled,
+  icon,
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  hint?: string;
+  on: boolean;
+  onClick: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  icon?: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      aria-pressed={on}
+      className="flex w-full items-center gap-2 border-none bg-transparent py-2 text-left"
+      style={{
+        cursor: disabled ? "default" : "pointer",
+        borderBottom: "1px solid var(--lm-border-subtle)",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
       <span
-        style={{
-          fontSize: "9px",
-          fontWeight: 800,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--lm-text-ghost)",
-        }}
+        className="flex items-center gap-2"
+        style={{ color: on ? "var(--lm-coral)" : "var(--lm-text-tertiary)" }}
       >
-        {label}
+        {icon ?? (
+          <span
+            aria-hidden
+            style={{
+              width: "7px",
+              height: "7px",
+              borderRadius: "50%",
+              backgroundColor: on ? "var(--lm-coral)" : "transparent",
+              border: on ? "none" : "1.5px solid var(--lm-text-ghost)",
+              display: "inline-block",
+            }}
+          />
+        )}
+        <span
+          style={{
+            fontSize: "12px",
+            fontWeight: on ? 650 : 500,
+            color: on ? "var(--lm-coral)" : "var(--lm-text-primary)",
+          }}
+        >
+          {label}
+        </span>
       </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full px-2 outline-none"
-        style={{
-          fontFamily: "var(--lm-font)",
-          fontSize: "11px",
-          border: "2px solid var(--lm-border-strong)",
-          backgroundColor: "var(--lm-surface-2)",
-          color: "var(--lm-text-secondary)",
-          borderRadius: "var(--lm-radius)",
-        }}
-      >
-        {options.map((option) => (
-          <option key={option.value || "__unset"} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+      {hint && (
+        <span
+          className="ml-auto truncate"
+          style={{ fontSize: "11px", color: "var(--lm-text-ghost)" }}
+        >
+          {busy ? "Saving…" : hint}
+        </span>
+      )}
+    </button>
   );
 }
 
-function AdminEditTextarea({
-  label,
-  value,
-  onChange,
-  minRows,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  minRows: number;
-}) {
+function ErrorLine({ children }: { children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span
-        style={{
-          fontSize: "9px",
-          fontWeight: 800,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--lm-text-ghost)",
-        }}
-      >
-        {label}
-      </span>
-      <textarea
-        value={value}
-        rows={minRows}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full resize-y px-2 py-2 outline-none"
-        style={{
-          minHeight: `${minRows * 24}px`,
-          fontFamily: "var(--lm-font)",
-          fontSize: "11px",
-          lineHeight: 1.45,
-          border: "2px solid var(--lm-border-strong)",
-          backgroundColor: "var(--lm-surface-2)",
-          color: "var(--lm-text-secondary)",
-          borderRadius: "var(--lm-radius)",
-        }}
-      />
-    </label>
+    <p
+      className="pt-1"
+      style={{
+        fontSize: "11px",
+        fontWeight: 600,
+        color: "var(--lm-status-error)",
+      }}
+      role="alert"
+    >
+      {children}
+    </p>
   );
 }
 

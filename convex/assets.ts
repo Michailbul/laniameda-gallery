@@ -3432,3 +3432,42 @@ export const setAssetDescription = mutation({
     return { assetId: args.assetId, description };
   },
 });
+
+/**
+ * Replace an asset's tags by NAME, owner-auth.
+ *
+ * The admin route (`adminUpdateAsset`) can already do this, but it sits behind
+ * the curation secret and takes a full metadata patch — too heavy for editing
+ * tags on an open asset. Names rather than ids so the caller never has to
+ * create a tag first; unknown names are created, like ingest does.
+ */
+export const setAssetTags = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    tagNames: v.array(v.string()),
+  },
+  returns: v.object({ assetId: v.id("assets"), tagIds: v.array(v.id("tags")) }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+
+    const tagIds = await resolveTagIdsForNames(ctx, args.tagNames, asset.pillar);
+    await replaceAssetTagLinks(ctx, asset, tagIds);
+    await ctx.db.patch(args.assetId, { tagIds });
+    // Tags feed the embedding text, so the vector goes stale without this.
+    await ctx.scheduler.runAfter(0, reindexAssetAction, {
+      assetId: args.assetId,
+    });
+    return { assetId: args.assetId, tagIds };
+  },
+});

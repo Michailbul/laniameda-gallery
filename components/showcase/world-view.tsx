@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { useCurrentUser } from "@/lib/use-current-user";
 import { PublicNav } from "./public-nav";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import type { ShowcaseAsset } from "./types";
@@ -13,6 +15,26 @@ import type { ShowcaseAsset } from "./types";
 export function WorldView({ slug }: { slug: string }) {
   const world = useQuery(api.showcase.getWorld, { slug });
   const [sectionKey, setSectionKey] = useState<string>("all");
+
+  // The page itself is authless. A signed-in visitor gets the one owner
+  // affordance that only makes sense here — picking the world's thumbnail from
+  // the work on the page. The mutation re-checks ownership, so a signed-in
+  // stranger clicking it just gets an error back.
+  const { user } = useCurrentUser();
+  const setFolderCover = useMutation(api.folders.setFolderCover);
+  const ownerUserId = user?.ownerUserId;
+  const worldFolderId = world?.folderId;
+  const setCover = useCallback(
+    async (asset: ShowcaseAsset) => {
+      if (!ownerUserId || !worldFolderId) return;
+      await setFolderCover({
+        ownerUserId,
+        folderId: worldFolderId,
+        assetId: asset._id as Id<"assets">,
+      });
+    },
+    [ownerUserId, setFolderCover, worldFolderId],
+  );
 
   const sections = useMemo(() => world?.sections ?? [], [world]);
   const visible = useMemo<ShowcaseAsset[]>(() => {
@@ -153,6 +175,8 @@ export function WorldView({ slug }: { slug: string }) {
             key={sectionKey}
             assets={visible}
             loading={world === undefined}
+            onSetCover={ownerUserId && worldFolderId ? setCover : undefined}
+            coverAssetId={world?.coverAssetId as string | undefined}
           />
         )}
       </section>

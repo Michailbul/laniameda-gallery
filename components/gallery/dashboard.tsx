@@ -20,7 +20,15 @@ import {
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Check, Download, Eye, EyeOff, FolderPlus, Layers, Loader2, Minus, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
+import { useUploadFile } from "@convex-dev/r2/react";
 import { downloadImagesAsZip } from "@/lib/download-image";
+import { buildUploadFormData } from "@/lib/upload-form";
+import { buildIngestKey } from "@/lib/ingest";
+import {
+  LARGE_IMAGE_BYTES,
+  appendImageUploadFields,
+  uploadImageToR2,
+} from "@/lib/image-ingest";
 import { isZipFile, readDroppedFiles, resolveMedia } from "@/lib/bulk-upload";
 import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
@@ -42,14 +50,18 @@ import {
 import { ProjectSectionTabs } from "./project-section-tabs";
 import { ProjectEpisodes } from "./project-episodes";
 import { FeaturedPanel } from "./featured-panel";
-import { GalleryDetailPanel } from "./detail-panel";
+import {
+  GalleryDetailPanel,
+  type AssetFilingTarget,
+  type AssetMembership,
+} from "./detail-panel";
 import { WorkflowModal } from "./workflow-modal";
 import { StorybookModal } from "./storybook-modal";
 import { ReviewModal } from "./review-modal";
 import { UploadModal } from "@/components/upload-modal";
+import type { UploadWorld } from "@/components/upload-panel";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
-import { AiWorkspacePanel } from "@/components/ai-workspace-panel";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
@@ -72,12 +84,15 @@ import {
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
 
-const INTENT_LABELS = {
-  transfer_style: "Transfer Style",
-  transfer_pose: "Transfer Pose",
-  replace_character: "Replace Character",
-} as const;
-
+// The world sections an asset can be filed into, in narrative order. Section
+// pools are created on demand, so these are offered whether or not the folder
+// behind them exists yet.
+const PANEL_SECTIONS: { key: PanelSection; label: string }[] = [
+  { key: "beats", label: "Beats" },
+  { key: "characters", label: "Characters" },
+  { key: "locations", label: "Locations" },
+  { key: "stills", label: "Stills" },
+];
 
 type SelectedImage = {
   id: string;
@@ -550,18 +565,13 @@ export function GalleryDashboard({
     },
     [canAcceptShellDrop, openUploadWithFiles],
   );
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [workspaceRunId, setWorkspaceRunId] = useState<string>();
-  const [workspaceActionLabel, setWorkspaceActionLabel] =
-    useState("Prompt Package");
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [workspaceContent, setWorkspaceContent] = useState("");
-  const [workspaceError, setWorkspaceError] = useState<string>();
   const [deletingAssetId, setDeletingAssetId] = useState<
     string | null
   >(null);
   const [deleteAssetError, setDeleteAssetError] =
     useState<string>();
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [editAssetError, setEditAssetError] = useState<string>();
   const [folderLoadingAssetId, setFolderLoadingAssetId] = useState<
     string | null
   >(null);
@@ -569,8 +579,6 @@ export function GalleryDashboard({
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
-  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
-  const [editAssetError, setEditAssetError] = useState<string>();
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -625,7 +633,6 @@ export function GalleryDashboard({
   const canDeleteAssets = canCuratePublic;
   const canDeleteInCurrentView =
     canDeleteAssets && galleryScope === "mine";
-  const canEditAssets = adminMode && canCuratePublic;
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
 
@@ -649,6 +656,11 @@ export function GalleryDashboard({
     api.projects.removeAssetsFromProject,
   );
   const ensureSectionPoolMutation = useMutation(api.projects.ensureSectionPool);
+  const setFolderCoverMutation = useMutation(api.folders.setFolderCover);
+  const setAssetDescriptionMutation = useMutation(
+    api.assets.setAssetDescription,
+  );
+  const setAssetTagsMutation = useMutation(api.assets.setAssetTags);
   const addCollectionToProjectMutation = useMutation(
     api.projects.addCollectionToProject,
   );
@@ -786,109 +798,6 @@ export function GalleryDashboard({
       }
     },
     [canCuratePublic, curationLoadingAssetId],
-  );
-
-  const saveAssetEdit = useCallback(
-    async (
-      assetId: string,
-      patch: {
-        description: string | null;
-        promptText: string | null;
-        tagNames: string[];
-        kind: "image" | "video";
-        modelName: string | null;
-        pillar: string | null;
-        generationType: string | null;
-        assetRole: string | null;
-        ingestSource: string | null;
-        sourceUrl: string | null;
-        fileName: string | null;
-        contentType: string | null;
-      },
-    ) => {
-      if (!canEditAssets || editingAssetId) return;
-
-      setEditAssetError(undefined);
-      setEditingAssetId(assetId);
-      try {
-        const response = await fetch(
-          `/api/admin/assets/${encodeURIComponent(assetId)}`,
-          {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(patch),
-          },
-        );
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              error?: string;
-              result?: {
-                assetId: string;
-                promptText?: string;
-                description?: string;
-                tagNames: string[];
-                folderId?: string;
-                sourceUrl?: string;
-                fileName?: string;
-                contentType?: string;
-                kind?: "image" | "video";
-                modelName?: string;
-                pillar?: string;
-                generationType?: string;
-                assetRole?: string;
-                ingestSource?: string;
-              };
-            }
-          | null;
-        if (!response.ok || !payload?.result) {
-          throw new Error(payload?.error || "Failed to update asset.");
-        }
-
-        const result = payload.result;
-        setSelectedImage((current) => {
-          if (!current) return current;
-          const previewImages = current.previewImages?.map((preview) =>
-            preview.id === result.assetId
-              ? {
-                  ...preview,
-                  prompt: result.promptText ?? preview.prompt,
-                }
-              : preview,
-          );
-          if (current.id !== result.assetId) {
-            return {
-              ...current,
-              previewImages,
-            };
-          }
-          return {
-            ...current,
-            prompt: result.promptText ?? current.prompt,
-            description: result.description ?? undefined,
-            tagNames: result.tagNames,
-            folderId: result.folderId ?? undefined,
-            sourceUrl: result.sourceUrl ?? undefined,
-            fileName: result.fileName ?? undefined,
-            contentType: result.contentType ?? undefined,
-            kind: result.kind ?? current.kind,
-            modelName: result.modelName ?? undefined,
-            pillar: result.pillar ?? undefined,
-            generationType: result.generationType ?? undefined,
-            assetRole: result.assetRole ?? undefined,
-            ingestSource: result.ingestSource ?? undefined,
-            previewImages,
-          };
-        });
-      } catch (error) {
-        setEditAssetError(
-          error instanceof Error ? error.message : "Failed to update asset.",
-        );
-        throw error;
-      } finally {
-        setEditingAssetId((current) => (current === assetId ? null : current));
-      }
-    },
-    [canEditAssets, editingAssetId],
   );
 
   const toggleAssetSelection = useCallback((assetId: string) => {
@@ -1068,67 +977,6 @@ export function GalleryDashboard({
       }
     },
     [canAccessMyGallery, createFolderMutation, ownerUserId, setOpenProjectId],
-  );
-
-  const setAssetFolders = useCallback(
-    async (assetId: string, folderIds: string[]) => {
-      if (!canAccessMyGallery) {
-        setFolderError("Sign in to manage folders.");
-        return;
-      }
-      if (folderLoadingAssetId) return;
-
-      setFolderError(undefined);
-      setFolderLoadingAssetId(assetId);
-      try {
-        const result = await setAssetFoldersMutation({
-          ownerUserId,
-          assetId: assetId as Id<"assets">,
-          folderIds: Array.from(new Set(folderIds))
-            .filter((folderId) => folderId.trim().length > 0)
-            .map((folderId) => folderId as Id<"folders">),
-        });
-        const nextFolderId = result.folderId ?? undefined;
-        const nextFolderIds = (result.folderIds ?? []).map(String);
-        setSelectedImage((current) =>
-          current && current.id === assetId
-            ? {
-                ...current,
-                folderId: nextFolderId,
-                folderIds: nextFolderIds,
-              }
-            : current,
-        );
-
-        if (
-          galleryScope === "mine" &&
-          selectedFolderId &&
-          !nextFolderIds.includes(selectedFolderId)
-        ) {
-          setSelectedImage((current) =>
-            current?.id === assetId ? null : current,
-          );
-        }
-      } catch (error) {
-        setFolderError(
-          error instanceof Error
-            ? error.message
-            : "Failed to update asset folder.",
-        );
-      } finally {
-        setFolderLoadingAssetId((current) =>
-          current === assetId ? null : current,
-        );
-      }
-    },
-    [
-      canAccessMyGallery,
-      folderLoadingAssetId,
-      galleryScope,
-      ownerUserId,
-      selectedFolderId,
-      setAssetFoldersMutation,
-    ],
   );
 
   const toggleAssetLike = useCallback(
@@ -3345,6 +3193,23 @@ export function GalleryDashboard({
     [panelPreviewsByFolderId, projects],
   );
 
+  // The same worlds, shaped for the upload modal's destination list: sections
+  // and named beats by name, so a manual save can land where the Add-to drawer
+  // would have put it.
+  const uploadWorlds = useMemo<UploadWorld[]>(
+    () =>
+      (projects ?? []).map((project) => ({
+        _id: project._id,
+        name: project.name,
+        members: project.collections.map((member) => ({
+          folderId: member.folderId,
+          name: member.name,
+          section: member.section,
+        })),
+      })),
+    [projects],
+  );
+
   // Collections offered as destinations EXCLUDE anything that is really a
   // world's section — a project's member beats, and the sub-collections
   // of a collection-shaped world. Those are reachable under their world, so
@@ -3984,110 +3849,6 @@ export function GalleryDashboard({
     goToNext,
   ]);
 
-  const runAction = useCallback(
-    async (
-      intent: keyof typeof INTENT_LABELS,
-      referenceAssetId: string,
-      promptText?: string,
-    ) => {
-      setWorkspaceOpen(true);
-      setWorkspaceLoading(true);
-      setWorkspaceError(undefined);
-      setWorkspaceContent("");
-      setWorkspaceRunId(undefined);
-      setWorkspaceActionLabel(INTENT_LABELS[intent]);
-
-      try {
-        const response = await fetch("/api/ai/runs/stream", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            intent,
-            referenceAssetId,
-            source: "dashboard",
-            userInput: { prompt: promptText },
-          }),
-        });
-
-        if (!response.ok || !response.body) {
-          const payload = (await response
-            .json()
-            .catch(() => null)) as {
-            error?: string;
-          } | null;
-          throw new Error(
-            payload?.error || "Failed to start AI run.",
-          );
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let delimiterIndex = buffer.indexOf("\n");
-          while (delimiterIndex >= 0) {
-            const line = buffer
-              .slice(0, delimiterIndex)
-              .trim();
-            buffer = buffer.slice(delimiterIndex + 1);
-            if (line) {
-              const event = JSON.parse(line) as {
-                type:
-                  | "run_start"
-                  | "partial"
-                  | "done"
-                  | "error"
-                  | "canceled";
-                runId?: string;
-                partial?: unknown;
-                output?: unknown;
-                error?: string;
-                message?: string;
-              };
-              if (event.runId) setWorkspaceRunId(event.runId);
-              if (event.type === "partial" && event.partial)
-                setWorkspaceContent(
-                  JSON.stringify(event.partial, null, 2),
-                );
-              if (event.type === "done" && event.output)
-                setWorkspaceContent(
-                  JSON.stringify(event.output, null, 2),
-                );
-              if (event.type === "done")
-                setWorkspaceLoading(false);
-              if (event.type === "error") {
-                setWorkspaceError(
-                  event.error || "Run failed.",
-                );
-                setWorkspaceLoading(false);
-              }
-              if (event.type === "canceled") {
-                setWorkspaceError(
-                  event.message || "Run canceled.",
-                );
-                setWorkspaceLoading(false);
-              }
-            }
-            delimiterIndex = buffer.indexOf("\n");
-          }
-        }
-        setWorkspaceLoading(false);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unknown run error.";
-        setWorkspaceError(message);
-        setWorkspaceLoading(false);
-      }
-    },
-    [],
-  );
-
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
     showChildCollectionStacks && childCollectionStacks === undefined
@@ -4133,19 +3894,305 @@ export function GalleryDashboard({
     }));
   }, [selectedImage]);
 
+  // The open asset, live. `selectedImage` is a snapshot taken on click, so
+  // anything written from the panel — a description, tags, filing, a cover —
+  // would leave the panel showing its own stale copy. Subscribing to the one
+  // asset keeps the panel honest without re-fetching the grid.
+  const selectedAssetIdForLive =
+    selectedImage &&
+    (selectedImage.galleryItemType === "asset" ||
+      selectedImage.galleryItemType === undefined) &&
+    !selectedImage.isDesignInspiration
+      ? selectedImage.id
+      : null;
+  const liveSelectedAsset = useQuery(
+    api.assets.getGalleryAsset,
+    selectedAssetIdForLive && canAccessMyGallery
+      ? { id: selectedAssetIdForLive as Id<"assets">, ownerUserId }
+      : "skip",
+  );
+
+  const selectedImageLive = useMemo<SelectedImage | null>(() => {
+    if (!selectedImage) return null;
+    if (!liveSelectedAsset || liveSelectedAsset._id !== selectedImage.id) {
+      return selectedImage;
+    }
+    return {
+      ...selectedImage,
+      description: liveSelectedAsset.description,
+      tagNames: liveSelectedAsset.tagNames,
+      folderId: liveSelectedAsset.folderId as string | undefined,
+      folderIds: liveSelectedAsset.folderIds.map(String),
+      isPublic: liveSelectedAsset.isPublic,
+      isFeatured: liveSelectedAsset.isFeatured,
+      isLiked: liveSelectedAsset.isLiked,
+      starredAt: liveSelectedAsset.starredAt,
+      starNote: liveSelectedAsset.starNote,
+      modelName: liveSelectedAsset.modelName ?? selectedImage.modelName,
+    };
+  }, [liveSelectedAsset, selectedImage]);
+
+  // ── Project thumbnail ──────────────────────────────────────────────────────
+  // A world's card image can come from any piece inside it (the detail panel's
+  // "Cover"), or from a file that isn't in the vault yet — a poster frame, a
+  // title card. That second path ingests into the project's Stills pool first,
+  // because a cover still has to be an asset somewhere.
+  const uploadToR2 = useUploadFile(api.r2);
+  const projectCoverInputRef = useRef<HTMLInputElement | null>(null);
+  const [projectCoverBusy, setProjectCoverBusy] = useState(false);
+
+  const uploadProjectCover = useCallback(
+    async (file: File) => {
+      if (!ownerUserId || !browseProject || projectCoverBusy) return;
+      const projectId = browseProject.id as Id<"folders">;
+      const promptText = `${browseProject.name} cover`;
+      setProjectCoverBusy(true);
+      try {
+        const pool = await ensureSectionPoolMutation({
+          ownerUserId,
+          projectId,
+          section: "stills",
+        });
+        // Past ~3 MB the bytes can't ride inside the ingest action call, so
+        // they go browser → R2 first, exactly like the upload panel does.
+        const isLarge = file.size > LARGE_IMAGE_BYTES;
+        const formData = buildUploadFormData({
+          promptText,
+          folderId: pool.folderId as string,
+          file: isLarge ? null : file,
+          assetRole: "reference",
+        });
+        if (isLarge) {
+          const upload = await uploadImageToR2(file, { upload: uploadToR2 });
+          appendImageUploadFields(formData, upload);
+          const key = buildIngestKey({ promptText, fileName: file.name });
+          if (key) formData.set("ingestKey", key);
+        }
+        const response = await fetch("/api/ingest", {
+          method: "POST",
+          body: formData,
+        });
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+          result?: { assetId?: string };
+        } | null;
+        if (!response.ok) {
+          throw new Error(body?.error ?? "Upload failed.");
+        }
+        const assetId = body?.result?.assetId;
+        if (!assetId) {
+          throw new Error("Upload didn't return an asset.");
+        }
+        await setFolderCoverMutation({
+          ownerUserId,
+          folderId: projectId,
+          assetId: assetId as Id<"assets">,
+        });
+        setMoveStatus({ text: `Thumbnail set for ${browseProject.name}` });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error
+              ? error.message
+              : "Couldn't set the thumbnail.",
+          error: true,
+        });
+      } finally {
+        setProjectCoverBusy(false);
+      }
+    },
+    [
+      browseProject,
+      ensureSectionPoolMutation,
+      ownerUserId,
+      projectCoverBusy,
+      setFolderCoverMutation,
+      uploadToR2,
+    ],
+  );
+
+  // ── The open asset's filing model ──────────────────────────────────────────
+  // The detail panel needs three things the raw folder list can't answer:
+  // which folders this asset is actually in, which world each of those sits
+  // under, and which of them uses this asset as its thumbnail.
+  const folderById = useMemo(
+    () => new Map((folders ?? []).map((folder) => [folder._id as string, folder])),
+    [folders],
+  );
+
+  // folderId -> the project that links it as a member collection.
+  const projectByMemberFolderId = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    for (const project of projects ?? []) {
+      for (const member of project.collections) {
+        if (!map.has(member.folderId)) {
+          map.set(member.folderId, { id: project._id, name: project.name });
+        }
+      }
+    }
+    return map;
+  }, [projects]);
+
+  const selectedFolderIds = useMemo<string[]>(() => {
+    const asset = selectedImageLive;
+    if (!asset) return [];
+    if (asset.folderIds && asset.folderIds.length > 0) return asset.folderIds;
+    return asset.folderId ? [asset.folderId] : [];
+  }, [selectedImageLive]);
+
+  const assetMemberships = useMemo<AssetMembership[]>(() => {
+    if (!selectedImageLive) return [];
+    const assetId = selectedImageLive.id;
+    const rows: AssetMembership[] = [];
+    // Worlds first — the project a beat belongs to is the thing whose cover
+    // matters publicly, and it holds collections rather than assets, so it can
+    // never be "removed from" here.
+    const seenProjects = new Set<string>();
+    for (const folderId of selectedFolderIds) {
+      const project = projectByMemberFolderId.get(folderId);
+      if (!project || seenProjects.has(project.id)) continue;
+      seenProjects.add(project.id);
+      const projectFolder = folderById.get(project.id);
+      rows.push({
+        folderId: project.id,
+        label: project.name,
+        context: "World",
+        isCover: projectFolder?.coverAssetId === assetId,
+        canRemove: false,
+      });
+    }
+    for (const folderId of selectedFolderIds) {
+      const folder = folderById.get(folderId);
+      if (!folder) continue;
+      const project = projectByMemberFolderId.get(folderId);
+      const parent = folder.parentFolderId
+        ? folderById.get(folder.parentFolderId)
+        : undefined;
+      rows.push({
+        folderId,
+        label: folder.name,
+        context: project?.name ?? parent?.name,
+        isCover: folder.coverAssetId === assetId,
+        canRemove: true,
+      });
+    }
+    return rows;
+  }, [
+    folderById,
+    projectByMemberFolderId,
+    selectedFolderIds,
+    selectedImageLive,
+  ]);
+
+  const assetFilingTargets = useMemo<AssetFilingTarget[]>(() => {
+    const targets: AssetFilingTarget[] = [];
+    for (const project of projects ?? []) {
+      for (const section of PANEL_SECTIONS) {
+        targets.push({
+          key: `${project._id}:${section.key}`,
+          label: section.label,
+          context: project.name,
+          worldId: project._id,
+          section: section.key,
+        });
+      }
+      for (const member of project.collections) {
+        targets.push({
+          key: member.folderId,
+          label: member.name,
+          context: project.name,
+          folderId: member.folderId,
+        });
+      }
+    }
+    for (const folder of collectionFoldersWithCounts) {
+      if (worldSectionFolderIds.has(folder._id)) continue;
+      const parent = folder.parentFolderId
+        ? folderById.get(folder.parentFolderId)
+        : undefined;
+      targets.push({
+        key: folder._id,
+        label: folder.name,
+        context: parent?.name,
+        folderId: folder._id,
+      });
+    }
+    return targets;
+  }, [
+    collectionFoldersWithCounts,
+    folderById,
+    projects,
+    worldSectionFolderIds,
+  ]);
+
+  const handleSetFolderCover = useCallback(
+    async (folderId: string, assetId: string | null) => {
+      if (!ownerUserId) return;
+      try {
+        await setFolderCoverMutation({
+          ownerUserId,
+          folderId: folderId as Id<"folders">,
+          assetId: assetId ? (assetId as Id<"assets">) : null,
+        });
+        setMoveStatus({
+          text: assetId
+            ? `Thumbnail set for ${folderNameById.get(folderId) ?? "set"}`
+            : `Thumbnail cleared for ${folderNameById.get(folderId) ?? "set"}`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Couldn't set the thumbnail.",
+          error: true,
+        });
+      }
+    },
+    [folderNameById, ownerUserId, setFolderCoverMutation],
+  );
+
+  const handleAddAssetToTarget = useCallback(
+    async (target: AssetFilingTarget, assetId: string) => {
+      if (target.folderId) {
+        await addAssetsToFolder(target.folderId, [assetId]);
+        return;
+      }
+      if (!target.worldId || !target.section) return;
+      // Beats never pool — filing onto a world's Beats makes one beat.
+      if (target.section === "beats") {
+        await createBeatsFromAssets(target.worldId, [assetId]);
+        return;
+      }
+      await addAssetsToWorldSection(target.worldId, target.section, [assetId]);
+    },
+    [addAssetsToFolder, addAssetsToWorldSection, createBeatsFromAssets],
+  );
+
+  const handleSaveAssetDescription = useCallback(
+    async (assetId: string, description: string) => {
+      if (!ownerUserId) return;
+      await setAssetDescriptionMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        description,
+      });
+    },
+    [ownerUserId, setAssetDescriptionMutation],
+  );
+
+  const handleSaveAssetTags = useCallback(
+    async (assetId: string, tagNames: string[]) => {
+      if (!ownerUserId) return;
+      await setAssetTagsMutation({
+        ownerUserId,
+        assetId: assetId as Id<"assets">,
+        tagNames,
+      });
+    },
+    [ownerUserId, setAssetTagsMutation],
+  );
+
   const expandedDetailProps = {
     onClose: closeSelectedImage,
-    onAction: (
-      intent:
-        | "transfer_style"
-        | "transfer_pose"
-        | "replace_character",
-      imageId: string,
-    ) => {
-      void runAction(intent, imageId, selectedImage?.prompt);
-    },
-    activeRunId: workspaceRunId,
-    onOpenRun: () => setWorkspaceOpen(true),
     onPrev: goToPrev,
     onNext: goToNext,
     canGoPrev,
@@ -4169,18 +4216,24 @@ export function GalleryDashboard({
     onSaveStarNote: canManageFoldersInCurrentView
       ? saveAssetStarNote
       : undefined,
-    folders: folders ?? [],
     canManageFolder: canManageFoldersInCurrentView,
-    onSetFolders: canManageFoldersInCurrentView
-      ? (imageId: string, folderIds: string[]) => {
-          void setAssetFolders(imageId, folderIds);
-        }
+    memberships: assetMemberships,
+    filingTargets: canManageFoldersInCurrentView ? assetFilingTargets : [],
+    onAddToTarget: canManageFoldersInCurrentView
+      ? handleAddAssetToTarget
       : undefined,
-    onCreateFolder: canManageFoldersInCurrentView
-      ? async (name: string) => createFolder(name)
+    onRemoveMembership: canManageFoldersInCurrentView
+      ? (imageId: string, folderId: string) => removeAssetFromFolder(imageId, folderId)
       : undefined,
-    folderBusy: folderLoadingAssetId === selectedImage?.id,
-    folderError:
+    onSetCover: canManageFoldersInCurrentView
+      ? handleSetFolderCover
+      : undefined,
+    onCreateCollection: canManageFoldersInCurrentView
+      ? (name: string, imageId: string) =>
+          createCollectionFromAssets(name, [imageId])
+      : undefined,
+    filingBusy: folderLoadingAssetId === selectedImage?.id,
+    filingError:
       folderLoadingAssetId === selectedImage?.id ||
       folderError
         ? folderError
@@ -4198,7 +4251,7 @@ export function GalleryDashboard({
       ? (imageId: string, isFeatured: boolean) => {
           void updateAssetCuration({
             assetId: imageId,
-            isPublic: Boolean(selectedImage?.isPublic),
+            isPublic: Boolean(selectedImageLive?.isPublic),
             isFeatured,
           });
         }
@@ -4225,14 +4278,16 @@ export function GalleryDashboard({
       : undefined,
     replacingThumbnail:
       replacingThumbAssetId === selectedImage?.id,
-    canEditAsset: canEditAssets,
+    // Description and tags edit through owner-auth mutations, so this needs no
+    // admin mode — unlike the old metadata form, which sat behind /admin.
+    canEditDetails: canManageFoldersInCurrentView,
     availableTags: availableUploadTags,
-    onSaveAssetEdit: canEditAssets ? saveAssetEdit : undefined,
-    editingAsset: editingAssetId === selectedImage?.id,
-    editError:
-      editingAssetId === selectedImage?.id || editAssetError
-        ? editAssetError
-        : undefined,
+    onSaveDescription: canManageFoldersInCurrentView
+      ? handleSaveAssetDescription
+      : undefined,
+    onSaveTags: canManageFoldersInCurrentView
+      ? handleSaveAssetTags
+      : undefined,
   };
 
   return (
@@ -4677,7 +4732,50 @@ export function GalleryDashboard({
               className="relative min-w-0"
             >
               {!storybooksView && breadcrumbSegments.length > 0 && (
-                <BrowseBreadcrumb segments={breadcrumbSegments} />
+                <BrowseBreadcrumb
+                  segments={breadcrumbSegments}
+                  trailing={
+                    browseProject &&
+                    !episodesView &&
+                    canManageFoldersInCurrentView ? (
+                      <>
+                        <input
+                          ref={projectCoverInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = "";
+                            if (file) void uploadProjectCover(file);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => projectCoverInputRef.current?.click()}
+                          disabled={projectCoverBusy}
+                          title="Upload an image to use as this world's thumbnail"
+                          className="lm-quiet-action border-none bg-transparent p-0"
+                          style={{
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            letterSpacing: "0.14em",
+                            textTransform: "uppercase",
+                            color: "var(--lm-text-ghost)",
+                            cursor: projectCoverBusy ? "default" : "pointer",
+                          }}
+                        >
+                          {projectCoverBusy
+                            ? "Uploading…"
+                            : folderById.get(browseProject.id)?.coverAssetId
+                              ? "Replace thumbnail"
+                              : "Upload thumbnail"}
+                        </button>
+                      </>
+                    ) : undefined
+                  }
+                />
               )}
               {!storybooksView && browseProject && (
                 <ProjectSectionTabs
@@ -5091,7 +5189,7 @@ export function GalleryDashboard({
             style={{ willChange: "opacity" }}
           >
             <GalleryDetailPanel
-              image={selectedImage}
+              image={selectedImageLive ?? selectedImage}
               carouselImages={carouselImages}
               variant="modal"
               {...expandedDetailProps}
@@ -5144,7 +5242,7 @@ export function GalleryDashboard({
             </div>
             <div className="h-[calc(100%-20px)] overflow-y-auto">
               <GalleryDetailPanel
-                image={selectedImage}
+                image={selectedImageLive ?? selectedImage}
                 carouselImages={carouselImages}
                 {...expandedDetailProps}
               />
@@ -5768,6 +5866,7 @@ export function GalleryDashboard({
         availableTags={availableUploadTags}
         folders={folders ?? []}
         projects={projects ?? []}
+        worlds={uploadWorlds}
         ownerUserId={
           canAccessMyGallery ? ownerUserId : undefined
         }
@@ -5783,16 +5882,6 @@ export function GalleryDashboard({
       <CinemaModal
         asset={selectedCinemaAsset}
         onClose={() => setSelectedCinemaAsset(null)}
-      />
-
-      <AiWorkspacePanel
-        open={workspaceOpen}
-        actionLabel={workspaceActionLabel}
-        runId={workspaceRunId}
-        loading={workspaceLoading}
-        content={workspaceContent}
-        error={workspaceError}
-        onClose={() => setWorkspaceOpen(false)}
       />
 
       <WorkflowModal
