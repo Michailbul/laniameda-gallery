@@ -92,6 +92,12 @@ export type GalleryEntry = {
   createdAt?: number;
   folderId?: string;
   folderIds?: string[];
+  /** Collections this piece is filed in, resolved to display labels by the
+   *  caller (the folder table lives in the dashboard, not here). Rendered as
+   *  card badges so a tile says where it belongs without opening it. */
+  collectionLabels?: string[];
+  /** What the piece IS — Character / Location / Scene / Inspiration. */
+  typeLabel?: string;
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;

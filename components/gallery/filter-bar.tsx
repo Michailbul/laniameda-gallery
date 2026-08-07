@@ -27,6 +27,9 @@ export interface MenuFilterItem {
   kind: "tag" | "collection";
   tagNames?: string[];
   folderId?: string;
+  /** The backing collection was deleted — the pill can never match, so it is
+   *  kept out of the menu row and only shown (flagged) in the admin panel. */
+  missingFolder?: boolean;
   count: number;
 }
 
@@ -91,6 +94,13 @@ export function GalleryFilterBar({
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const [adminOpen, setAdminOpen] = useState(false);
   const tagScrollRef = useRef<HTMLDivElement>(null);
+
+  // A pill whose collection was deleted matches nothing — showing it would be
+  // a dead click. The admin panel below still lists it so the owner can fix it.
+  const visibleMenuFilters = useMemo(
+    () => menuFilters.filter((entry) => !entry.missingFolder),
+    [menuFilters],
+  );
 
   const showMenuRow = menuFilters.length > 0 || canManageMenuFilters;
 
@@ -297,8 +307,8 @@ export function GalleryFilterBar({
                   element.scrollLeft += event.deltaY;
                 }}
               >
-                {menuFilters.length > 0 ? (
-                  menuFilters.map((entry) => {
+                {visibleMenuFilters.length > 0 ? (
+                  visibleMenuFilters.map((entry) => {
                     const isActive =
                       entry.kind === "tag"
                         ? selectedTagSet.has(entry._id)

@@ -15,6 +15,10 @@ import {
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
+// Two collection badges is the most a tile carries before the row eats the
+// image; the rest collapse into a +N.
+const MAX_COLLECTION_BADGES = 2;
+
 type CinemaMetadataLite = {
   movieTitle: string;
   director?: string;
@@ -56,6 +60,10 @@ interface ImageCardProps {
     createdAt?: number;
     folderId?: string;
     folderIds?: string[];
+    /** Collections this piece is filed in, already resolved to display labels. */
+    collectionLabels?: string[];
+    /** What the piece is — Character / Location / Scene / Inspiration. */
+    typeLabel?: string;
     isPublic?: boolean;
     isFeatured?: boolean;
     isLiked?: boolean;
@@ -971,13 +979,63 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model + public-status badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
-      {!isCinema && (image.modelName || (showPublicBadge && image.isPublic)) && (
+      {/* Model + filing badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
+      {!isCinema &&
+        (image.modelName ||
+          image.typeLabel ||
+          (image.collectionLabels?.length ?? 0) > 0 ||
+          (showPublicBadge && image.isPublic)) && (
         <div
-          className={`absolute left-2 z-10 flex items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0 ${
+          className={`absolute left-2 z-10 flex max-w-[85%] flex-wrap items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0 ${
             starNote ? "bottom-9" : "bottom-2"
           }`}
         >
+          {/* What the piece IS — character / location / scene. Coral so it
+              reads apart from the neutral provenance badges beside it. */}
+          {image.typeLabel && (
+            <div
+              className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+              style={{
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--coral)",
+                border:
+                  "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+              }}
+            >
+              {image.typeLabel}
+            </div>
+          )}
+          {/* Where it's filed. Two collections fit; the rest collapse into a
+              +N whose tooltip names them. */}
+          {(image.collectionLabels ?? [])
+            .slice(0, MAX_COLLECTION_BADGES)
+            .map((label) => (
+              <div
+                key={label}
+                className="max-w-[140px] truncate px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
+                style={{
+                  backgroundColor: "var(--image-card-badge-bg)",
+                  color: "var(--image-card-badge-text)",
+                  border: "1px solid var(--image-card-badge-border)",
+                }}
+                title={`In collection "${label}"`}
+              >
+                {label}
+              </div>
+            ))}
+          {(image.collectionLabels?.length ?? 0) > MAX_COLLECTION_BADGES && (
+            <div
+              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
+              style={{
+                backgroundColor: "var(--image-card-badge-bg)",
+                color: "var(--image-card-badge-text)",
+                border: "1px solid var(--image-card-badge-border)",
+              }}
+              title={image.collectionLabels!.join(" · ")}
+            >
+              +{image.collectionLabels!.length - MAX_COLLECTION_BADGES}
+            </div>
+          )}
           {image.modelName && (
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"

@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCurrentUser } from "@/lib/use-current-user";
+import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { PublicNav } from "./public-nav";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import type { ShowcaseAsset } from "./types";
@@ -193,7 +194,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         color: "var(--lm-text-primary)",
       }}
     >
-      <PublicNav backHref="/" backLabel="All worlds" />
+      <PublicNav backHref={TASTE_PROFILE_PATH} backLabel="All worlds" />
       {children}
     </main>
   );

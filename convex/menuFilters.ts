@@ -31,6 +31,12 @@ const menuFilterResultValidator = v.object({
   // query's tagIds filter.
   tagIds: v.array(v.id("tags")),
   folderId: v.optional(v.id("folders")),
+  // A "collection" entry whose folder has since been deleted. It can never
+  // match anything, so the menu row hides it — but the admin panel still shows
+  // it (flagged) so the owner can remap or remove it. Deleting a folder does
+  // not cascade into menuFilters, so this is the only place the dangling
+  // reference surfaces.
+  missingFolder: v.optional(v.boolean()),
   sortOrder: v.number(),
   count: v.number(),
 });
@@ -210,14 +216,16 @@ const buildMenuFilters = async (
           tagNames: entry.tagNames,
           tagIds,
           folderId: undefined,
+          missingFolder: undefined,
           sortOrder: entry.sortOrder,
           count,
         });
         continue;
       }
 
-      const count = entry.folderId
-        ? countInScope(await collectFolderMemberAssetIds(ctx, entry.folderId))
+      const folder = entry.folderId ? await ctx.db.get(entry.folderId) : null;
+      const count = folder
+        ? countInScope(await collectFolderMemberAssetIds(ctx, folder._id))
         : 0;
       results.push({
         _id: entry._id,
@@ -226,6 +234,7 @@ const buildMenuFilters = async (
         tagNames: undefined,
         tagIds: [] as Id<"tags">[],
         folderId: entry.folderId,
+        missingFolder: folder ? undefined : true,
         sortOrder: entry.sortOrder,
         count,
       });

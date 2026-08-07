@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Moon, Sun } from "lucide-react";
-import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
+import { OWNER_HANDLE, OWNER_SITE_URL, TASTE_PROFILE_PATH } from "@/lib/routes";
 import { useTheme } from "@/lib/use-theme";
 
 // The public surface has exactly three modes. This toggle IS the navigation —
@@ -67,7 +67,7 @@ export function PublicNav({
         }}
       >
         <Link
-          href="/"
+          href={TASTE_PROFILE_PATH}
           style={{
             fontFamily: "var(--lm-font)",
             fontSize: 11,

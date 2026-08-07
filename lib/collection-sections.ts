@@ -36,3 +36,40 @@ export const compareCollectionSectionNames = (left: string, right: string) => {
     collectionSectionRank(left) - collectionSectionRank(right);
   return rankDifference || left.localeCompare(right);
 };
+
+// Singular form for a card badge — the badge describes ONE piece, so it reads
+// "Character", not "Characters".
+const SECTION_BADGE_LABELS: Record<CollectionSectionKey, string> = {
+  characters: "Character",
+  locations: "Location",
+  scenes: "Scene",
+  inspirations: "Inspiration",
+};
+
+export const collectionSectionBadgeLabel = (key: CollectionSectionKey) =>
+  SECTION_BADGE_LABELS[key];
+
+// Statics tags are the ground truth for what a piece IS — Characters and
+// Locations are TAGS, not root collections (the root duplicates were retired
+// 2026-07-29). The section enum still says "stills" where the tag says
+// "scene", so both spellings land on `scenes`.
+const SECTION_KEY_BY_TAG: Record<string, CollectionSectionKey> = {
+  character: "characters",
+  characters: "characters",
+  location: "locations",
+  locations: "locations",
+  scene: "scenes",
+  scenes: "scenes",
+  still: "scenes",
+  stills: "scenes",
+  inspiration: "inspirations",
+  inspirations: "inspirations",
+};
+
+export const sectionKeyForTagName = (
+  tagName: string | null | undefined,
+): CollectionSectionKey | null => {
+  const normalized = tagName?.trim().toLowerCase().replace(/^#+/, "");
+  if (!normalized) return null;
+  return SECTION_KEY_BY_TAG[normalized] ?? null;
+};

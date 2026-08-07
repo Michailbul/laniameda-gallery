@@ -287,6 +287,85 @@ function guessMime(fileName: string): string {
 
 const BASE64_MAX_BYTES = 10 * 1024 * 1024;
 
+// `fetch` has no default timeout, so a saturated deployment used to hang the
+// script indefinitely: a batch of 12 role updates once sat for 7 minutes and
+// committed NOTHING, because the very first call never returned and there was
+// no per-item output to show where it stopped. The trigger was a backlog of
+// video reindex actions (each one pulls the clip from R2 and embeds it)
+// queued by a preceding bulk ingest — the deployment was busy, not broken.
+//
+// So: bound every call, retry the transient ones, and report progress as the
+// batch runs.
+const CALL_TIMEOUT_MS = Number(process.env.LANIAMEDA_INGEST_TIMEOUT_MS ?? 120_000);
+// R2 receives whole videos, so it gets its own budget scaled by payload size.
+const R2_TIMEOUT_FLOOR_MS = 120_000;
+const R2_TIMEOUT_MS_PER_MB = 4_000;
+const RETRY_DELAYS_MS = [2_000, 8_000, 20_000] as const;
+
+class TransientCallError extends Error {}
+
+const isTransientStatus = (status: number) =>
+  status === 408 || status === 425 || status === 429 || status >= 500;
+
+// A timeout or a dropped socket says nothing about whether the server ran the
+// mutation, so retrying is only safe when the call is idempotent. Convex dedupes
+// on ingestKey, which is what makes a repeat harmless.
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; retry: boolean; label: string },
+): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? CALL_TIMEOUT_MS;
+  const maxAttempts = options.retry ? RETRY_DELAYS_MS.length + 1 : 1;
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_DELAYS_MS[attempt - 1]!;
+      process.stderr.write(
+        `  retry ${attempt}/${maxAttempts - 1} for ${options.label} in ${delay / 1000}s — ${lastError?.message}\n`,
+      );
+      await sleep(delay);
+    }
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      // 4xx other than the throttling codes is a deterministic rejection —
+      // a bad payload retried three times is still a bad payload.
+      if (!response.ok && isTransientStatus(response.status)) {
+        throw new TransientCallError(`HTTP ${response.status}`);
+      }
+      return response;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      const transient =
+        err instanceof TransientCallError ||
+        err.name === "TimeoutError" ||
+        err.name === "AbortError" ||
+        // Bun/Node surface connection resets as a bare TypeError from fetch.
+        err instanceof TypeError;
+      if (!transient) throw err;
+      lastError = err;
+      if (err.name === "TimeoutError") {
+        lastError = new Error(`timed out after ${timeoutMs / 1000}s`);
+      }
+    }
+  }
+
+  throw new Error(
+    `${options.label} failed after ${maxAttempts} attempt(s): ${lastError?.message}` +
+      (options.retry
+        ? ""
+        : " — the call is not idempotent (no ingestKey), so it was not retried; " +
+          "add an ingestKey to make retries safe"),
+  );
+}
+
 // Browsers cannot decode PCM audio inside an MP4/MOV container. Such a file
 // ingests clean, looks correct in the grid, and plays SILENT — an invisible
 // failure, so it gets remuxed rather than merely flagged. DaVinci and QuickTime
@@ -501,11 +580,17 @@ async function callConvex(
   path: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const response = await fetch(`${convexUrl}/api/${kind}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, args }),
-  });
+  // These are the plumbing calls (upload-url reservation, metadata sync). They
+  // carry no user payload to duplicate, so retrying them is always safe.
+  const response = await fetchWithRetry(
+    `${convexUrl}/api/${kind}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, args }),
+    },
+    { retry: true, label: path },
+  );
   const body = (await response.json()) as {
     status?: string;
     value?: unknown;
@@ -530,11 +615,23 @@ async function uploadBytesToR2(
     throw new Error("r2:generateUploadUrl returned no key/url.");
   }
 
-  const put = await fetch(reserved.url, {
-    method: "PUT",
-    body: new Uint8Array(bytes),
-    headers: { "Content-Type": contentType },
-  });
+  // A reserved R2 key is single-use and the PUT is a plain overwrite of it, so
+  // a retry re-sends the same bytes to the same key — idempotent by definition.
+  const put = await fetchWithRetry(
+    reserved.url,
+    {
+      method: "PUT",
+      body: new Uint8Array(bytes),
+      headers: { "Content-Type": contentType },
+    },
+    {
+      retry: true,
+      label: `R2 upload (${(bytes.byteLength / 1e6).toFixed(1)} MB)`,
+      timeoutMs:
+        R2_TIMEOUT_FLOOR_MS +
+        (bytes.byteLength / 1e6) * R2_TIMEOUT_MS_PER_MB,
+    },
+  );
   if (!put.ok) {
     throw new Error(`R2 upload failed: ${put.status} ${(await put.text()).slice(0, 300)}`);
   }
@@ -1068,6 +1165,15 @@ function summarizeInput(item: SkillItem): string {
   );
 }
 
+// Retrying a call whose outcome is unknown is only safe when a repeat cannot
+// create a second record. Update and delete address an existing row, and Convex
+// dedupes creates on ingestKey — a create without one would duplicate, so it is
+// reported rather than retried.
+function isIdempotent(item: SkillItem): boolean {
+  if (!isCreateItem(item)) return true;
+  return Boolean(item.ingestKey);
+}
+
 export async function mutateOne(
   item: SkillItem,
   ownerUserId: string,
@@ -1080,11 +1186,15 @@ export async function mutateOne(
       ? await prepareMediaForCreate(item, convexUrl)
       : undefined;
     const request = buildActionRequest(item, ownerUserId, prepared);
-    const response = await fetch(`${convexUrl}/api/action`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
+    const response = await fetchWithRetry(
+      `${convexUrl}/api/action`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      },
+      { retry: isIdempotent(item), label: summarizeInput(item) },
+    );
 
     const result = (await response.json()) as {
       status?: string;
@@ -1145,8 +1255,21 @@ export async function runIngestSkill(
   }
 
   const results: SkillResult[] = [];
-  for (const item of items) {
-    results.push(await mutateOne(item, ownerUserId, convexUrl));
+  // Batches print nothing until the whole run resolves, which made a stalled
+  // call look identical to a slow one. Progress goes to stderr so stdout stays
+  // pure JSON for callers that parse it.
+  const trace = items.length > 1;
+  for (const [index, item] of items.entries()) {
+    if (trace) {
+      process.stderr.write(
+        `[${index + 1}/${items.length}] ${summarizeInput(item)}\n`,
+      );
+    }
+    const result = await mutateOne(item, ownerUserId, convexUrl);
+    if (trace && result.error) {
+      process.stderr.write(`  failed: ${result.error}\n`);
+    }
+    results.push(result);
   }
 
   return results;

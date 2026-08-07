@@ -371,6 +371,14 @@ function MenuFilterRow({
         style={{ ...INPUT_STYLE, width: "140px", textTransform: "uppercase" }}
       />
       <span style={GHOST_LABEL}>{entry.kind}</span>
+      {entry.missingFolder ? (
+        <span
+          style={{ ...GHOST_LABEL, color: "var(--lm-coral)" }}
+          title="This collection was deleted — pick another one or delete the filter. The pill is hidden from the menu until then."
+        >
+          collection deleted
+        </span>
+      ) : null}
       {entry.kind === "tag" ? (
         <input
           value={tagNames}

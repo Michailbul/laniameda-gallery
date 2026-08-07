@@ -1,7 +1,13 @@
 "use client";
 
 import "@/app/tokens.css";
-import { compareCollectionSectionNames } from "@/lib/collection-sections";
+import {
+  type CollectionSectionKey,
+  collectionSectionBadgeLabel,
+  compareCollectionSectionNames,
+  normalizeCollectionSection,
+  sectionKeyForTagName,
+} from "@/lib/collection-sections";
 
 import {
   type SetStateAction,
@@ -1217,6 +1223,67 @@ export function GalleryDashboard({
       ),
     [folderAssetCounts],
   );
+  // Card badges: where a piece is filed, plus what it is. A section
+  // sub-collection (Dear Annete / Characters) badges as its PARENT and hands
+  // over the section as the type — the section name on its own would read the
+  // same on every world. Projects, beats and episodes are workspace furniture
+  // and surface through project browse, so they never badge a tile.
+  const folderBadgeById = useMemo(() => {
+    const byId = new Map(
+      (folders ?? []).map((folder) => [folder._id as string, folder]),
+    );
+    const badges = new Map<
+      string,
+      { label: string; section: CollectionSectionKey | null }
+    >();
+    for (const folder of folders ?? []) {
+      if (
+        folder.kind === "project" ||
+        folder.kind === "beat" ||
+        folder.kind === "episode"
+      ) {
+        continue;
+      }
+      const parent = folder.parentFolderId
+        ? byId.get(folder.parentFolderId as string)
+        : undefined;
+      const section = normalizeCollectionSection(folder.name);
+      badges.set(folder._id as string, {
+        label: section && parent ? parent.name : folder.name,
+        section,
+      });
+    }
+    return badges;
+  }, [folders]);
+  const resolveEntryBadges = useCallback(
+    (entry: GalleryEntry) => {
+      const labels: string[] = [];
+      let sectionFromFolder: CollectionSectionKey | null = null;
+      for (const folderId of entry.folderIds ?? []) {
+        const badge = folderBadgeById.get(folderId);
+        if (!badge) continue;
+        if (badge.section && !sectionFromFolder) {
+          sectionFromFolder = badge.section;
+        }
+        if (!labels.includes(badge.label)) labels.push(badge.label);
+      }
+      // Tags win over the filing: `character` / `location` / `scene` are the
+      // ground truth for what a piece is, the folder is only the fallback for
+      // pieces that predate the tag conversion.
+      let section: CollectionSectionKey | null = null;
+      for (const tagName of entry.tagNames ?? []) {
+        section = sectionKeyForTagName(tagName);
+        if (section) break;
+      }
+      section = section ?? sectionFromFolder;
+      if (labels.length === 0 && !section) return null;
+      return {
+        collectionLabels: labels.length > 0 ? labels : undefined,
+        typeLabel: section ? collectionSectionBadgeLabel(section) : undefined,
+      };
+    },
+    [folderBadgeById],
+  );
   const foldersWithCounts = useMemo(
     () =>
       (folders ?? []).map((folder) => ({
@@ -2171,7 +2238,7 @@ export function GalleryDashboard({
 
   const baseImages = useMemo(() => {
     if (!displayGalleryAssets) return [];
-    return buildGalleryEntries({
+    const entries = buildGalleryEntries({
       assets: displayGalleryAssets,
       hiddenAssetIds,
       loadedAssetIds: loadedImageIdsRef.current,
@@ -2181,10 +2248,15 @@ export function GalleryDashboard({
       // the user asked for, so a star doesn't get to jump the queue there.
       promoteStarred: filteredSemanticResults === null,
     });
+    return entries.map((entry) => {
+      const badges = resolveEntryBadges(entry);
+      return badges ? { ...entry, ...badges } : entry;
+    });
   }, [
     displayGalleryAssets,
     filteredSemanticResults,
     hiddenAssetIds,
+    resolveEntryBadges,
     sortOrder,
     shuffleSeed,
   ]);

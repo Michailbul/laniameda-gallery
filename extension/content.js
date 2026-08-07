@@ -198,8 +198,13 @@
     try {
       return await runtime.sendMessage(message);
     } catch (err) {
+      // "message port closed" / "receiving end does not exist" also happens when
+      // the MV3 service worker was asleep and lost the message — a transient
+      // failure, not a dead context. Treating it as a reload signal used to kill
+      // the media scan for the rest of the page's life. The runtime id is the
+      // only reliable liveness check, so re-probe it before giving up.
       if (isContextInvalidatedError(err)) {
-        notifyExtensionReloadNeeded();
+        if (!isExtensionContextValid()) notifyExtensionReloadNeeded();
         throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
       }
       throw err;
@@ -650,10 +655,47 @@
     };
   }
 
-  function isPageControlToAvoid(control, target) {
-    if (!control || control.closest?.(EXTENSION_UI_SELECTOR)) return false;
-    if (control === target || control.contains?.(target)) return false;
-    return isVisibleElement(control);
+  // Collecting the page's controls means a document-wide query plus a
+  // getComputedStyle per hit (400+ nodes on a Midjourney feed). Doing that once
+  // per widget per scan tick is what wedged the main thread while scrolling the
+  // personalize grid — 20 on-screen widgets turned one pass into ~200ms of
+  // forced layout, and the scan fires at least every 600ms during a scroll. The
+  // list is identical for every widget in a pass, so collect it once and let
+  // each widget filter the cached rects arithmetically.
+  let pageControlRectCache = null;
+
+  function beginPageControlRectPass() {
+    pageControlRectCache = null;
+  }
+
+  function endPageControlRectPass() {
+    pageControlRectCache = null;
+  }
+
+  function collectPageControlRects() {
+    if (pageControlRectCache) return pageControlRectCache;
+
+    const viewport = {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+    const rects = [];
+    for (const control of document.querySelectorAll(PAGE_CONTROL_SELECTOR)) {
+      if (control.closest?.(EXTENSION_UI_SELECTOR)) continue;
+      const rect = control.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      // A control outside the viewport can never collide with a save widget:
+      // every placement we consider is inside the viewport. Cheap rect test
+      // first keeps getComputedStyle off the hot path.
+      if (!rectsOverlap(rect, viewport, 0)) continue;
+      if (!isVisibleElement(control)) continue;
+      rects.push({ control, rect });
+    }
+
+    pageControlRectCache = rects;
+    return rects;
   }
 
   function getNearbyPageControlRects(target) {
@@ -664,10 +706,9 @@
       right: targetRect.right + 96,
       bottom: targetRect.bottom + 96,
     };
-    const controls = Array.from(document.querySelectorAll(PAGE_CONTROL_SELECTOR));
-    return controls
-      .filter((control) => isPageControlToAvoid(control, target))
-      .map((control) => control.getBoundingClientRect())
+    return collectPageControlRects()
+      .filter(({ control }) => control !== target && !control.contains?.(target))
+      .map(({ rect }) => rect)
       .filter((rect) => rectsOverlap(rect, searchRect, 0));
   }
 
@@ -739,6 +780,72 @@
     }));
   }
 
+  function fromViewportPoint(host, viewportLeft, viewportTop) {
+    const hostRect = host.getBoundingClientRect();
+    const scrollLeft = host === document.body || host === document.documentElement
+      ? 0
+      : host.scrollLeft;
+    const scrollTop = host === document.body || host === document.documentElement
+      ? 0
+      : host.scrollTop;
+    return {
+      left: viewportLeft - hostRect.left + scrollLeft,
+      top: viewportTop - hostRect.top + scrollTop,
+    };
+  }
+
+  // Last-resort placements for media that only PARTLY fits on screen. The six
+  // corner candidates are anchored to the media's own corners, so a tall card
+  // straddling the top or bottom edge of the viewport fails every one of them —
+  // which is exactly how the Save control used to disappear while scrolling a
+  // Midjourney grid of near-viewport-height images. These instead sit in the
+  // visible slice of the media, so the control stays reachable for as long as
+  // any usable part of the image is on screen.
+  function buildClampedSaveControlCandidates(targetRect, host, width, height) {
+    const gap = SAVE_CONTROL_GAP;
+    const visible = {
+      left: Math.max(targetRect.left, 0),
+      top: Math.max(targetRect.top, 0),
+      right: Math.min(targetRect.right, window.innerWidth),
+      bottom: Math.min(targetRect.bottom, window.innerHeight),
+    };
+    if (
+      visible.right - visible.left < width + gap * 2 ||
+      visible.bottom - visible.top < height + gap * 2
+    ) {
+      return [];
+    }
+
+    const left = visible.right - width - gap;
+    const topEdge = visible.top + gap;
+    const bottomEdge = visible.bottom - height - gap;
+    // When the media is cut off at the top, the page's own header/toolbar sits
+    // right where the top candidate would go — try the bottom of the visible
+    // slice first in that case.
+    const order = targetRect.top < 0
+      ? [
+          { placement: "clamped-bottom-right", viewportTop: bottomEdge },
+          { placement: "clamped-top-right", viewportTop: topEdge },
+        ]
+      : [
+          { placement: "clamped-top-right", viewportTop: topEdge },
+          { placement: "clamped-bottom-right", viewportTop: bottomEdge },
+        ];
+
+    return order.map(({ placement, viewportTop }) => ({
+      placement,
+      viewportRect: {
+        left,
+        top: viewportTop,
+        right: left + width,
+        bottom: viewportTop + height,
+        width,
+        height,
+      },
+      ...fromViewportPoint(host, left, viewportTop),
+    }));
+  }
+
   function positionSaveControlAvoidingPageUi(control, target, host, options = {}) {
     if (!control || !target || !host) return false;
     const targetRect = target.getBoundingClientRect();
@@ -768,13 +875,28 @@
       bottom: window.innerHeight,
     };
 
-    const safeCandidate = candidates.find((candidate) => {
-      const viewportRect = toViewportRect(host, candidate.left, candidate.top, width, height);
-      if (!rectFitsInside(viewportRect, viewportBounds, 1)) return false;
-      return pageControlRects.every(
+    const clearOfPageControls = (viewportRect) =>
+      pageControlRects.every(
         (controlRect) => !rectsOverlap(viewportRect, controlRect, PAGE_CONTROL_CLEARANCE),
       );
-    });
+
+    const onScreenCandidates = candidates
+      .map((candidate) => ({
+        ...candidate,
+        viewportRect: toViewportRect(host, candidate.left, candidate.top, width, height),
+      }))
+      .filter((candidate) => rectFitsInside(candidate.viewportRect, viewportBounds, 1));
+
+    const clamped = buildClampedSaveControlCandidates(targetRect, host, width, height);
+
+    // Preference order: a corner placement that clears the page's own controls,
+    // then a corner placement that doesn't, then the visible-slice fallback.
+    // Only a target with no usable visible area leaves the control unplaced.
+    const safeCandidate =
+      onScreenCandidates.find((candidate) => clearOfPageControls(candidate.viewportRect)) ||
+      clamped.find((candidate) => clearOfPageControls(candidate.viewportRect)) ||
+      onScreenCandidates[0] ||
+      clamped[0];
 
     if (!safeCandidate) return false;
 
@@ -3414,6 +3536,17 @@
     }
   }
 
+  // The badge attribute on the media is what stops the scan re-injecting a
+  // second widget, so a widget must never be dropped without clearing it —
+  // otherwise that media is marked "already has a Save control" forever and the
+  // only way back is toggling the extension off and on for the site.
+  function discardMidjourneyWidget(widget) {
+    if (!widget) return;
+    widget.__stgTarget?.removeAttribute?.(MJ_MEDIA_BADGE_ATTR);
+    widget.__stgTarget = null;
+    widget.remove();
+  }
+
   function positionMidjourneyWidget(widget, target) {
     if (widget.classList.contains("stg-mj-quick-save--viewer")) {
       positionMidjourneyViewerWidget(widget, target);
@@ -3421,7 +3554,7 @@
     }
 
     if (!target || !document.contains(target)) {
-      widget.remove();
+      discardMidjourneyWidget(widget);
       return;
     }
 
@@ -3437,7 +3570,7 @@
 
     const host = getMidjourneyWidgetHost(target);
     if (!host || !document.contains(host)) {
-      widget.remove();
+      discardMidjourneyWidget(widget);
       return;
     }
 
@@ -3481,55 +3614,72 @@
     }
   }
 
-  // Scroll only changes whether a widget's media is on-screen — the placement
-  // itself is host-relative and travels with the card. So a scroll pass just
-  // re-runs the visibility gate (one rect per widget) and pays for a full
-  // placement solve only on cards that became visible without ever having been
-  // placed (injected below the fold, where every candidate failed the viewport
-  // test). A full updateMidjourneyWidgetPositions() pass here would instead run
-  // getNearbyPageControlRects — a document-wide query — per widget per frame.
+  // A corner placement is host-relative and travels with the card, so scroll
+  // only changes whether the card is on-screen — those widgets just need the
+  // visibility gate (one rect each). Two cases do need a real solve: a widget
+  // that was never placed (injected below the fold), and a widget sitting in the
+  // visible-slice fallback, whose position is tied to the viewport edge and goes
+  // stale the moment you scroll.
+  function needsPlacementSolve(widget) {
+    const placement = widget.dataset.stgPlacement;
+    return !placement || placement.startsWith("clamped");
+  }
+
   function refreshMidjourneyWidgetVisibility() {
     if (suppressMidjourneySaveUiForViewer()) return;
-    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
-      if (widget.classList.contains("stg-mj-quick-save--viewer")) continue;
-      if (widget.classList.contains("stg-mj-quick-save--menu-open")) continue;
-      const target = widget.__stgTarget;
-      if (!target || !document.contains(target)) continue;
+    // Scrolling is often the only thing happening — a settled feed queues no
+    // mutations, so the scan (and with it the orphan sweep) would never run and
+    // media that lost its widget would stay Save-less until the next re-render.
+    if (dropOrphanedMidjourneyBadgeAttrs() > 0) scheduleMidjourneyMediaScan(0);
+    beginPageControlRectPass();
+    try {
+      for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+        if (widget.classList.contains("stg-mj-quick-save--viewer")) continue;
+        if (widget.classList.contains("stg-mj-quick-save--menu-open")) continue;
+        const target = widget.__stgTarget;
+        if (!target || !document.contains(target)) continue;
 
-      const rect = target.getBoundingClientRect();
-      const onScreen =
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.bottom > 0 &&
-        rect.right > 0 &&
-        rect.top < window.innerHeight &&
-        rect.left < window.innerWidth;
+        const rect = target.getBoundingClientRect();
+        const onScreen =
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.bottom > 0 &&
+          rect.right > 0 &&
+          rect.top < window.innerHeight &&
+          rect.left < window.innerWidth;
 
-      if (!onScreen) {
-        if (widget.style.display !== "none") widget.style.display = "none";
-        continue;
+        if (!onScreen) {
+          if (widget.style.display !== "none") widget.style.display = "none";
+          continue;
+        }
+        if (needsPlacementSolve(widget)) {
+          positionMidjourneyWidget(widget, target);
+          continue;
+        }
+        if (widget.style.display !== "flex") widget.style.display = "flex";
       }
-      if (!widget.dataset.stgPlacement) {
-        positionMidjourneyWidget(widget, target);
-        continue;
-      }
-      if (widget.style.display !== "flex") widget.style.display = "flex";
+    } finally {
+      endPageControlRectPass();
     }
   }
 
   function updateMidjourneyWidgetPositions() {
     if (suppressMidjourneySaveUiForViewer()) return;
-    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
-      const target = widget.__stgTarget;
-      if (!target || !document.contains(target)) {
-        // MJ often swaps a media node out and back within a tick — never
-        // yank the widget out from under the cursor mid-click.
-        if (widget.matches(":hover")) continue;
-        if (target?.removeAttribute) target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
-        widget.remove();
-        continue;
+    beginPageControlRectPass();
+    try {
+      for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+        const target = widget.__stgTarget;
+        if (!target || !document.contains(target)) {
+          // MJ often swaps a media node out and back within a tick — never
+          // yank the widget out from under the cursor mid-click.
+          if (widget.matches(":hover")) continue;
+          discardMidjourneyWidget(widget);
+          continue;
+        }
+        positionMidjourneyWidget(widget, target);
       }
-      positionMidjourneyWidget(widget, target);
+    } finally {
+      endPageControlRectPass();
     }
   }
 
@@ -4111,19 +4261,45 @@
     if (!configLoaded || !extensionEnabled || !isPersistentSaveSite()) return;
     if (suppressMidjourneySaveUiForViewer()) return;
 
-    const candidates = document.querySelectorAll(getSiteMediaSelector());
-    for (const candidate of candidates) {
-      if (candidate.tagName?.toLowerCase() === "img" && !candidate.complete) {
-        candidate.addEventListener("load", () => {
-          if (extensionEnabled) injectMidjourneyMediaBadge(candidate);
-        }, { once: true });
-        continue;
+    dropOrphanedMidjourneyBadgeAttrs();
+
+    beginPageControlRectPass();
+    try {
+      const candidates = document.querySelectorAll(getSiteMediaSelector());
+      for (const candidate of candidates) {
+        if (candidate.tagName?.toLowerCase() === "img" && !candidate.complete) {
+          candidate.addEventListener("load", () => {
+            if (extensionEnabled) injectMidjourneyMediaBadge(candidate);
+          }, { once: true });
+          continue;
+        }
+        injectMidjourneyMediaBadge(candidate);
       }
-      injectMidjourneyMediaBadge(candidate);
+    } finally {
+      endPageControlRectPass();
     }
     updateMidjourneyWidgetPositions();
     updateMidjourneyLikedNavigation();
     syncMidjourneyNotesPresence();
+  }
+
+  // The site's own framework can remove our widget along with the card subtree
+  // it was mounted into, and nothing tells us it happened. The media keeps the
+  // badge attribute, so the scan would skip it forever. Reconcile first: any
+  // badge attribute with no live widget behind it is cleared, which lets this
+  // same pass inject a fresh control.
+  function dropOrphanedMidjourneyBadgeAttrs() {
+    const claimed = new Set();
+    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+      if (widget.__stgTarget) claimed.add(widget.__stgTarget);
+    }
+    let cleared = 0;
+    for (const target of document.querySelectorAll(`[${MJ_MEDIA_BADGE_ATTR}]`)) {
+      if (claimed.has(target)) continue;
+      target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
+      cleared += 1;
+    }
+    return cleared;
   }
 
   // The debounce is reset by every mutation, and an infinite feed mutates
@@ -4209,8 +4385,14 @@
       // controls just vanish the further you scroll.
       if (scrollFrame) return;
       scrollFrame = requestAnimationFrame(() => {
+        // The frame id must be cleared even if the pass throws, or one bad
+        // frame silently ends widget tracking for the rest of the session.
         scrollFrame = 0;
-        refreshMidjourneyWidgetVisibility();
+        try {
+          refreshMidjourneyWidgetVisibility();
+        } catch (err) {
+          console.debug("[Save to Gallery] Widget visibility pass failed:", err);
+        }
       });
     }, { passive: true, capture: true });
     // Watchdog: mutations are the normal scan trigger, but a page can settle

@@ -54,6 +54,10 @@ interface GalleryImage {
   createdAt?: number;
   folderId?: string;
   folderIds?: string[];
+  /** Collections this piece is filed in, already resolved to display labels. */
+  collectionLabels?: string[];
+  /** What the piece is — Character / Location / Scene / Inspiration. */
+  typeLabel?: string;
   isPublic?: boolean;
   isFeatured?: boolean;
   isLiked?: boolean;

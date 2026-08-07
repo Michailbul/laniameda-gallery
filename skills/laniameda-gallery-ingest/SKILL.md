@@ -176,6 +176,25 @@ When MCP tools are available, use them directly:
 
 Never send `ownerUserId` through MCP calls. The user-issued token selects the owner.
 
+### Timeouts and retries (script path)
+
+Every call the script makes is time-bounded and retried on transient failures
+(timeout, dropped socket, 408/425/429/5xx) with a 2s → 8s → 20s backoff.
+
+- `LANIAMEDA_INGEST_TIMEOUT_MS` — per-call budget, default `120000`. R2 uploads
+  get their own larger budget scaled to the file size.
+- Batches print `[n/total] <item>` to **stderr** as they run, so a slow run is
+  distinguishable from a stalled one. stdout stays pure JSON.
+- **Retries need an `ingestKey`.** A timeout does not say whether the server ran
+  the mutation, so a repeat is only safe when Convex can dedupe it. Updates and
+  deletes always retry; a create without an `ingestKey` fails after one attempt
+  and tells you to add one rather than risking a duplicate asset.
+
+Bulk ingests queue a background reindex per asset, and video reindexing is heavy
+(the clip is pulled from R2 and embedded). Following a large ingest immediately
+with another batch can hit a saturated deployment — the calls now fail with a
+clear timeout instead of hanging, and are safe to re-run.
+
 ### Collections
 
 Collections are owner-scoped groupings stored in `folders`; "collection" is the product-facing term.

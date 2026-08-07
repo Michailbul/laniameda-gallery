@@ -6,6 +6,7 @@ import {
   signSession,
   verifySession,
 } from "@/lib/session-jwt";
+import { TASTE_PROFILE_PATH } from "@/lib/routes";
 
 const FALLBACK_CANONICAL_HOST = "gallery.laniameda.space";
 
@@ -51,7 +52,32 @@ const withRenewedSession = async (
   return response;
 };
 
+// `/` is the owner's gallery workbench. A visitor with no session has nothing to
+// see there, so send them to the public taste profile instead of the gallery's
+// auth splash. This also makes being signed out legible to the owner: the URL
+// changes, rather than the vault silently becoming someone else's portfolio.
+const isSignedOutRoot = async (request: NextRequest) => {
+  if (request.nextUrl.pathname !== "/") return false;
+
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return true;
+
+  return (await verifySession(token)) === null;
+};
+
+const tasteProfileRedirect = (request: NextRequest) => {
+  const redirectUrl = request.nextUrl.clone();
+  redirectUrl.pathname = TASTE_PROFILE_PATH;
+  // 307, not 308: whether `/` belongs to the visitor or the owner depends on a
+  // cookie, so this hop must never be cached as permanent.
+  return NextResponse.redirect(redirectUrl, 307);
+};
+
 export async function proxy(request: NextRequest) {
+  if (await isSignedOutRoot(request)) {
+    return tasteProfileRedirect(request);
+  }
+
   if (process.env.VERCEL_ENV !== "production") {
     return withRenewedSession(request, NextResponse.next());
   }
