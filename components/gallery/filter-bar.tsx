@@ -6,6 +6,7 @@ import {
   Grid3X3,
   Heart,
   Image as ImageIcon,
+  Minus,
   SlidersHorizontal,
   Video,
   Workflow,
@@ -40,6 +41,9 @@ interface GalleryFilterBarProps {
   menuFilters: MenuFilterItem[];
   selectedTags: string[];
   onTagToggle: (tag: string) => void;
+  /** Menu-filter ids pushed to the negative side (minus on the pill's edge). */
+  excludedFilters?: string[];
+  onFilterExcludeToggle?: (filterId: string) => void;
   selectedFolderId?: string | null;
   onCollectionToggle: (folderId: string) => void;
   onClearAllTags: () => void;
@@ -74,6 +78,8 @@ export function GalleryFilterBar({
   menuFilters,
   selectedTags,
   onTagToggle,
+  excludedFilters = [],
+  onFilterExcludeToggle,
   selectedFolderId,
   onCollectionToggle,
   onClearAllTags,
@@ -92,7 +98,14 @@ export function GalleryFilterBar({
   onGridZoomChange,
 }: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const excludedFilterSet = useMemo(
+    () => new Set(excludedFilters),
+    [excludedFilters],
+  );
+  const activeFilterCount = selectedTags.length + excludedFilters.length;
   const [adminOpen, setAdminOpen] = useState(false);
+  // Which pill is showing its minus affordance (hover or keyboard focus).
+  const [hoveredFilterId, setHoveredFilterId] = useState<string | null>(null);
   const tagScrollRef = useRef<HTMLDivElement>(null);
 
   // A pill whose collection was deleted matches nothing — showing it would be
@@ -263,7 +276,7 @@ export function GalleryFilterBar({
               }}
             />
             <div className="flex items-center gap-2 px-3 py-2">
-              {selectedTags.length > 0 ? (
+              {activeFilterCount > 0 ? (
                 <button
                   type="button"
                   onClick={onClearAllTags}
@@ -280,7 +293,7 @@ export function GalleryFilterBar({
                   }}
                 >
                   <X className="h-2.5 w-2.5" />
-                  Clear {selectedTags.length}
+                  Clear {activeFilterCount}
                 </button>
               ) : null}
 
@@ -308,73 +321,35 @@ export function GalleryFilterBar({
                 }}
               >
                 {visibleMenuFilters.length > 0 ? (
-                  visibleMenuFilters.map((entry) => {
-                    const isActive =
-                      entry.kind === "tag"
-                        ? selectedTagSet.has(entry._id)
-                        : entry.folderId != null &&
-                          entry.folderId === selectedFolderId;
-                    return (
-                      <button
-                        key={entry._id}
-                        type="button"
-                        onClick={() =>
-                          entry.kind === "tag"
-                            ? onTagToggle(entry._id)
-                            : entry.folderId && onCollectionToggle(entry.folderId)
-                        }
-                        title={
-                          entry.kind === "collection"
-                            ? `Show the ${entry.label} collection`
-                            : undefined
-                        }
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "4px",
-                          padding: "4px 11px",
-                          fontFamily: "var(--lm-font)",
-                          fontSize: "10px",
-                          fontWeight: isActive ? 700 : 600,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.10em",
-                          border: isActive
-                            ? "2px solid var(--gradient-3)"
-                            : "2px solid var(--lm-border)",
-                          color: isActive
-                            ? "#fff"
-                            : "var(--lm-text-secondary)",
-                          background: isActive
-                            ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
-                            : "var(--lm-surface-1)",
-                          cursor: "pointer",
-                          transition: "all var(--lm-duration-fast)",
-                          borderRadius: "999px",
-                          boxShadow: isActive
-                            ? "0 0 10px rgba(255, 122, 100, 0.2)"
-                            : "none",
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {entry.kind === "collection" ? (
-                          <FolderOpen className="h-2.5 w-2.5" aria-hidden />
-                        ) : null}
-                        {entry.label}
-                        {entry.count > 0 ? (
-                          <span
-                            style={{
-                              opacity: 0.5,
-                              fontSize: "8px",
-                              fontWeight: 800,
-                            }}
-                          >
-                            {entry.count}
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })
+                  visibleMenuFilters.map((entry) => (
+                    <MenuFilterPill
+                      key={entry._id}
+                      entry={entry}
+                      isActive={
+                        entry.kind === "tag"
+                          ? selectedTagSet.has(entry._id)
+                          : entry.folderId != null &&
+                            entry.folderId === selectedFolderId
+                      }
+                      isExcluded={excludedFilterSet.has(entry._id)}
+                      showMinus={hoveredFilterId === entry._id}
+                      onHoverChange={(hovered) =>
+                        setHoveredFilterId((current) =>
+                          hovered ? entry._id : current === entry._id ? null : current,
+                        )
+                      }
+                      onSelect={() =>
+                        entry.kind === "tag"
+                          ? onTagToggle(entry._id)
+                          : entry.folderId && onCollectionToggle(entry.folderId)
+                      }
+                      onExclude={
+                        onFilterExcludeToggle
+                          ? () => onFilterExcludeToggle(entry._id)
+                          : undefined
+                      }
+                    />
+                  ))
                 ) : (
                   <div
                     className="px-3 py-2"
@@ -430,6 +405,145 @@ export function GalleryFilterBar({
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// A curated menu pill, three states: neutral, included (coral gradient) and
+// excluded (red, struck through). The minus sits on the pill's left edge and
+// fades in on hover/focus — clicking it flips the pill to the negative side,
+// clicking it again releases it. Clicking the pill BODY always means "include".
+function MenuFilterPill({
+  entry,
+  isActive,
+  isExcluded,
+  showMinus,
+  onHoverChange,
+  onSelect,
+  onExclude,
+}: {
+  entry: MenuFilterItem;
+  isActive: boolean;
+  isExcluded: boolean;
+  showMinus: boolean;
+  onHoverChange: (hovered: boolean) => void;
+  onSelect: () => void;
+  onExclude?: () => void;
+}) {
+  const minusVisible = Boolean(onExclude) && (showMinus || isExcluded);
+
+  return (
+    <div
+      style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}
+      onMouseEnter={() => onHoverChange(true)}
+      onMouseLeave={() => onHoverChange(false)}
+      onFocus={() => onHoverChange(true)}
+      onBlur={() => onHoverChange(false)}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        title={
+          isExcluded
+            ? `Excluding ${entry.label} — click to bring it back`
+            : entry.kind === "collection"
+              ? `Show the ${entry.label} collection`
+              : undefined
+        }
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          padding: "4px 11px",
+          paddingLeft: minusVisible ? "16px" : "11px",
+          fontFamily: "var(--lm-font)",
+          fontSize: "10px",
+          fontWeight: isActive ? 700 : 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.10em",
+          border: isExcluded
+            ? "2px solid color-mix(in srgb, var(--status-error) 70%, transparent)"
+            : isActive
+              ? "2px solid var(--gradient-3)"
+              : "2px solid var(--lm-border)",
+          color: isExcluded
+            ? "var(--status-error)"
+            : isActive
+              ? "#fff"
+              : "var(--lm-text-secondary)",
+          background: isExcluded
+            ? "color-mix(in srgb, var(--status-error) 12%, var(--lm-surface-1))"
+            : isActive
+              ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
+              : "var(--lm-surface-1)",
+          textDecoration: isExcluded ? "line-through" : "none",
+          cursor: "pointer",
+          transition: "all var(--lm-duration-fast)",
+          borderRadius: "999px",
+          boxShadow: isExcluded
+            ? "0 0 10px color-mix(in srgb, var(--status-error) 22%, transparent)"
+            : isActive
+              ? "0 0 10px rgba(255, 122, 100, 0.2)"
+              : "none",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {entry.kind === "collection" ? (
+          <FolderOpen className="h-2.5 w-2.5" aria-hidden />
+        ) : null}
+        {entry.label}
+        {entry.count > 0 ? (
+          <span style={{ opacity: 0.5, fontSize: "8px", fontWeight: 800 }}>
+            {entry.count}
+          </span>
+        ) : null}
+      </button>
+
+      {onExclude ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onExclude();
+          }}
+          aria-label={
+            isExcluded ? `Stop excluding ${entry.label}` : `Exclude ${entry.label}`
+          }
+          aria-pressed={isExcluded}
+          title={
+            isExcluded ? `Stop excluding ${entry.label}` : `Exclude ${entry.label}`
+          }
+          style={{
+            position: "absolute",
+            left: "-6px",
+            top: "50%",
+            transform: `translateY(-50%) scale(${minusVisible ? 1 : 0.6})`,
+            opacity: minusVisible ? 1 : 0,
+            pointerEvents: minusVisible ? "auto" : "none",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "16px",
+            height: "16px",
+            borderRadius: "999px",
+            border: "1.5px solid color-mix(in srgb, var(--status-error) 80%, transparent)",
+            background: isExcluded
+              ? "var(--status-error)"
+              : "color-mix(in srgb, var(--status-error) 18%, var(--lm-surface-1))",
+            color: isExcluded
+              ? "#fff"
+              : "var(--status-error)",
+            boxShadow:
+              "0 0 8px color-mix(in srgb, var(--status-error) 35%, transparent)",
+            transition: "all var(--lm-duration-fast)",
+            cursor: "pointer",
+            zIndex: 1,
+          }}
+        >
+          <Minus className="h-2.5 w-2.5" strokeWidth={3} aria-hidden />
+        </button>
+      ) : null}
     </div>
   );
 }

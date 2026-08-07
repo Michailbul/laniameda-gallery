@@ -1449,6 +1449,106 @@ const isHiddenWorkflowStepAsset = (
   asset.assetRole === WORKFLOW_STEP_ROLE &&
   requestedAssetRole !== WORKFLOW_STEP_ROLE;
 
+// ---------------------------------------------------------------------------
+// Curated menu-filter predicate (the gallery's filter pills).
+//
+// `tagIds` is ONE pill's tag set: the asset matches if it carries any of them
+// (a pill may name several duplicate tag docs). `tagIdGroups` is the multi-pill
+// form — one group per selected pill — and an asset must satisfy EVERY group.
+// Locations + Live Action means "locations that are live action". The flat
+// union that came before ANDed nothing, so a second pill only ever widened the
+// grid and read as the filter being ignored.
+//
+// `excludeTagIds` / `excludeFolderIds` are the negative side: an asset carrying
+// an excluded tag, or filed in an excluded collection, is dropped no matter what
+// else matches. Collection membership is read from the assetFolders links only,
+// same as every other membership read.
+// ---------------------------------------------------------------------------
+interface MenuFilterArgs {
+  tagIds?: Id<"tags">[];
+  tagIdGroups?: Id<"tags">[][];
+  excludeTagIds?: Id<"tags">[];
+  excludeFolderIds?: Id<"folders">[];
+}
+
+interface MenuFilterPredicate {
+  groups: Set<Id<"tags">>[];
+  excludedTagIds: Set<Id<"tags">> | null;
+  excludedAssetIds: Set<Id<"assets">> | null;
+}
+
+const collectAllAssetIdsForFolder = async (
+  ctx: QueryCtx,
+  folderId: Id<"folders">,
+) => {
+  const links = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", folderId).gte("createdAt", 0),
+    )
+    .collect();
+  return links.map((link) => link.assetId);
+};
+
+const buildMenuFilterPredicate = async (
+  ctx: QueryCtx,
+  args: MenuFilterArgs,
+): Promise<MenuFilterPredicate | null> => {
+  const groups: Set<Id<"tags">>[] = [];
+  if (args.tagIds && args.tagIds.length > 0) {
+    groups.push(new Set(args.tagIds));
+  }
+  for (const group of args.tagIdGroups ?? []) {
+    if (group.length > 0) groups.push(new Set(group));
+  }
+
+  const excludedTagIds =
+    args.excludeTagIds && args.excludeTagIds.length > 0
+      ? new Set(args.excludeTagIds)
+      : null;
+
+  // An exclusion must see the folder's WHOLE membership — a capped read would
+  // silently let members past the cap back into the grid.
+  let excludedAssetIds: Set<Id<"assets">> | null = null;
+  for (const folderId of args.excludeFolderIds ?? []) {
+    const memberIds = await collectAllAssetIdsForFolder(ctx, folderId);
+    excludedAssetIds ??= new Set<Id<"assets">>();
+    for (const assetId of memberIds) {
+      excludedAssetIds.add(assetId);
+    }
+  }
+
+  if (groups.length === 0 && !excludedTagIds && !excludedAssetIds) {
+    return null;
+  }
+  return { groups, excludedTagIds, excludedAssetIds };
+};
+
+const matchesMenuFilters = (
+  predicate: MenuFilterPredicate | null,
+  asset: Doc<"assets">,
+) => {
+  if (!predicate) return true;
+  if (predicate.excludedAssetIds?.has(asset._id)) return false;
+  if (
+    predicate.excludedTagIds &&
+    asset.tagIds.some((tagId) => predicate.excludedTagIds!.has(tagId))
+  ) {
+    return false;
+  }
+  return predicate.groups.every((group) =>
+    asset.tagIds.some((tagId) => group.has(tagId)),
+  );
+};
+
+const hasMenuFilterArgs = (args: MenuFilterArgs) =>
+  Boolean(
+    (args.tagIds && args.tagIds.length > 0) ||
+      (args.tagIdGroups && args.tagIdGroups.some((group) => group.length > 0)) ||
+      (args.excludeTagIds && args.excludeTagIds.length > 0) ||
+      (args.excludeFolderIds && args.excludeFolderIds.length > 0),
+  );
+
 // The starred assets in the current view, newest star first.
 //
 // Read on its own rather than sorted out of the main grid query: browse is
@@ -1519,6 +1619,11 @@ export const listGalleryAssets = query({
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    // One group per selected filter pill — the asset must match every group
+    // (AND across pills, OR inside one). See buildMenuFilterPredicate.
+    tagIdGroups: v.optional(v.array(v.array(v.id("tags")))),
+    excludeTagIds: v.optional(v.array(v.id("tags"))),
+    excludeFolderIds: v.optional(v.array(v.id("folders"))),
     folderId: v.optional(v.id("folders")),
     // With folderId: also include the folder's sub-collections, so browsing a
     // world shows its Characters / Locations / Scenes too, not just the loose
@@ -1550,7 +1655,7 @@ export const listGalleryAssets = query({
     const limit = Math.min(args.limit ?? 100, 2000);
     const scopedToSet = args.projectId ?? args.folderId;
     const hasPostQueryFilters = Boolean(
-      (args.tagIds && args.tagIds.length > 0) ||
+      hasMenuFilterArgs(args) ||
         (scopedToSet && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
         (args.modelName && (args.pillar || scopedToSet || args.assetRole || args.kind)) ||
         (args.pillar && (scopedToSet || args.modelName || args.kind)) ||
@@ -1562,8 +1667,7 @@ export const listGalleryAssets = query({
     );
     const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 2000) : limit;
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const tagFilter =
-      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const menuFilters = await buildMenuFilterPredicate(ctx, args);
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
@@ -1668,7 +1772,7 @@ export const listGalleryAssets = query({
       if (isHiddenWorkflowStepAsset(asset, assetRole)) {
         return false;
       }
-      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+      if (!matchesMenuFilters(menuFilters, asset)) {
         return false;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
@@ -1793,6 +1897,9 @@ export const listPublicGalleryAssets = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    tagIdGroups: v.optional(v.array(v.array(v.id("tags")))),
+    excludeTagIds: v.optional(v.array(v.id("tags"))),
+    excludeFolderIds: v.optional(v.array(v.id("folders"))),
     folderId: v.optional(v.id("folders")),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
@@ -1804,8 +1911,7 @@ export const listPublicGalleryAssets = query({
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 100, 2000);
     const queryTake = Math.min(limit * 3, 2000);
-    const tagFilter =
-      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const menuFilters = await buildMenuFilterPredicate(ctx, args);
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
@@ -1838,7 +1944,7 @@ export const listPublicGalleryAssets = query({
       : null;
 
     const filteredAssets = baseAssets.filter((asset) => {
-      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+      if (!matchesMenuFilters(menuFilters, asset)) {
         return false;
       }
       if (folderAssetIds && !folderAssetIds.has(asset._id)) {

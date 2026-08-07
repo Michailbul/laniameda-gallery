@@ -139,6 +139,104 @@ describe("gallery asset queries", () => {
     expect(results[0]?.sourceUrl).toBe("https://example.com/public.jpg");
   });
 
+  test("tagIdGroups ANDs the pills instead of unioning them", async () => {
+    const locationTagId = await harness.db.insert("tags", {
+      name: "Location",
+      normalized: "location",
+      usageCount: 2,
+    });
+    const liveActionTagId = await harness.db.insert("tags", {
+      name: "Live Action",
+      normalized: "live action",
+      usageCount: 2,
+    });
+    const characterTagId = await harness.db.insert("tags", {
+      name: "Character",
+      normalized: "character",
+      usageCount: 1,
+    });
+
+    const insertAsset = async (tagIds: string[], createdAt: number) =>
+      await harness.db.insert("assets", {
+        ownerUserId: "278674008",
+        kind: "image",
+        sourceUrl: `https://example.com/${createdAt}.jpg`,
+        tagIds,
+        isPublic: false,
+        createdAt,
+      });
+
+    const bothId = await insertAsset([locationTagId, liveActionTagId], 300);
+    await insertAsset([locationTagId], 200);
+    await insertAsset([liveActionTagId, characterTagId], 100);
+
+    const ctx = {
+      ...harness.ctx,
+      storage: { getUrl: async (_storageId: string) => null },
+    };
+
+    const results = await listGalleryAssets._handler(ctx as never, {
+      ownerUserId: "278674008",
+      tagIdGroups: [[locationTagId], [liveActionTagId]],
+      limit: 20,
+    });
+
+    expect(results.map((asset) => asset._id)).toEqual([bothId]);
+  });
+
+  test("excludeTagIds and excludeFolderIds drop matching assets", async () => {
+    const keepTagId = await harness.db.insert("tags", {
+      name: "Cinematic",
+      normalized: "cinematic",
+      usageCount: 3,
+    });
+    const animationTagId = await harness.db.insert("tags", {
+      name: "Animation",
+      normalized: "animation",
+      usageCount: 1,
+    });
+    const folderId = await harness.db.insert("folders", {
+      ownerUserId: "278674008",
+      name: "Characters",
+      createdAt: 1,
+    });
+
+    const insertAsset = async (tagIds: string[], createdAt: number) =>
+      await harness.db.insert("assets", {
+        ownerUserId: "278674008",
+        kind: "image",
+        sourceUrl: `https://example.com/${createdAt}.jpg`,
+        tagIds,
+        isPublic: false,
+        createdAt,
+      });
+
+    const keptId = await insertAsset([keepTagId], 300);
+    await insertAsset([keepTagId, animationTagId], 200);
+    const filedId = await insertAsset([keepTagId], 100);
+    await harness.db.insert("assetFolders", {
+      ownerUserId: "278674008",
+      assetId: filedId,
+      folderId,
+      createdAt: 10,
+    });
+
+    const ctx = {
+      ...harness.ctx,
+      storage: { getUrl: async (_storageId: string) => null },
+    };
+
+    const results = await listGalleryAssets._handler(ctx as never, {
+      ownerUserId: "278674008",
+      tagIdGroups: [[keepTagId]],
+      excludeTagIds: [animationTagId],
+      excludeFolderIds: [folderId],
+      limit: 20,
+    });
+
+    expect(results.map((asset) => asset._id)).toEqual([keptId]);
+  });
+
   test("galleryAssetFacets returns counts without hydrated gallery payloads", async () => {
     await harness.db.insert("assets", {
       ownerUserId: "278674008",

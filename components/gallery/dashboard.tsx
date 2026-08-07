@@ -370,6 +370,8 @@ export function GalleryDashboard({
   );
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  // Menu-filter ids the user pushed to the NEGATIVE side (minus on the pill).
+  const [excludedFilters, setExcludedFilters] = useState<string[]>([]);
   const [likedOnly, setLikedOnly] = useState<boolean>(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
@@ -1646,25 +1648,60 @@ export function GalleryDashboard({
     ? smartMenuFilterByFolderId.get(effectiveSelectedFolderId)
     : undefined;
 
-  // selectedTags holds the ids of selected tag-kind menu filters; the grid
-  // filter is the union of their resolved tagIds. A same-named collection
-  // backed by a curated tag filter is a smart collection: keep the folder
-  // selected for navigation, but use the exact tag predicate from the island.
-  const selectedTagIds = useMemo(() => {
+  // selectedTags holds the ids of selected tag-kind menu filters. Each pill
+  // becomes its OWN group: an asset has to match every selected pill (AND
+  // across pills), while a pill's own tag docs stay an OR. Selecting Locations
+  // + Live Action asks for live-action locations — the old flat union answered
+  // "locations OR live action" and looked like the filter did nothing.
+  // A same-named collection backed by a curated tag filter is a smart
+  // collection: keep the folder selected for navigation, but use the exact tag
+  // predicate from the island.
+  const selectedTagIdGroups = useMemo(() => {
     const selectedSet = new Set(selectedTags);
     if (activeSmartCollectionFilter) {
       selectedSet.add(activeSmartCollectionFilter._id);
     }
     if (selectedSet.size === 0) return undefined;
-    const ids = new Set<Id<"tags">>();
+    const groups: Id<"tags">[][] = [];
     for (const entry of menuFilterEntries) {
       if (entry.kind !== "tag" || !selectedSet.has(entry._id)) continue;
+      if (entry.tagIds.length > 0) groups.push(entry.tagIds);
+    }
+    return groups.length > 0 ? groups : undefined;
+  }, [activeSmartCollectionFilter, selectedTags, menuFilterEntries]);
+
+  // The negative side of the same pills (minus button on a pill's left edge).
+  // Tag pills exclude their tags; collection pills exclude the collection's
+  // members. Exclusion always wins over an include.
+  const excludedTagIds = useMemo(() => {
+    if (excludedFilters.length === 0) return undefined;
+    const excludedSet = new Set(excludedFilters);
+    const ids = new Set<Id<"tags">>();
+    for (const entry of menuFilterEntries) {
+      if (entry.kind !== "tag" || !excludedSet.has(entry._id)) continue;
       for (const id of entry.tagIds) {
         ids.add(id);
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [activeSmartCollectionFilter, selectedTags, menuFilterEntries]);
+  }, [excludedFilters, menuFilterEntries]);
+
+  const excludedFolderIds = useMemo(() => {
+    if (excludedFilters.length === 0) return undefined;
+    const excludedSet = new Set(excludedFilters);
+    const ids: Id<"folders">[] = [];
+    for (const entry of menuFilterEntries) {
+      if (entry.kind !== "collection" || !excludedSet.has(entry._id)) continue;
+      if (entry.folderId) ids.push(entry.folderId as Id<"folders">);
+    }
+    return ids.length > 0 ? ids : undefined;
+  }, [excludedFilters, menuFilterEntries]);
+
+  // Any curated pill predicate at all — positive or negative. Every read path
+  // that can't post-filter a cursor page cleanly keys off this.
+  const menuFilterActive = Boolean(
+    selectedTagIdGroups || excludedTagIds || excludedFolderIds,
+  );
   const selectedTagsForFilterBar = useMemo(() => {
     if (!activeSmartCollectionFilter) return selectedTags;
     return Array.from(
@@ -1738,16 +1775,16 @@ export function GalleryDashboard({
     viewMode,
   ]);
 
-  // Tag filters also take the one-shot path: the page query post-filters each
-  // 60-item page, so a sparse tag can hand the grid an empty first page (it
-  // reads as "no matches") even when hundreds match. The one-shot query
-  // returns the full filtered set, keeping the grid consistent with the menu
-  // pill counts.
+  // Menu-filter predicates also take the one-shot path: the page query
+  // post-filters each 60-item page, so a sparse tag can hand the grid an empty
+  // first page (it reads as "no matches") even when hundreds match. The
+  // one-shot query returns the full filtered set, keeping the grid consistent
+  // with the menu pill counts.
   const paginationActive =
     sortOrder === "newest" &&
     !effectiveSelectedFolderId &&
     !browseProject &&
-    !selectedTagIds;
+    !menuFilterActive;
 
   // Collection browsing gets its own cursor pagination over the membership
   // links, so a collection of ANY size streams fully (no 600-item cap).
@@ -1774,17 +1811,18 @@ export function GalleryDashboard({
     Boolean(effectiveSelectedFolderId) &&
     !browseProject &&
     sortOrder === "newest" &&
-    !selectedTagIds &&
+    !menuFilterActive &&
     !selectedModelName &&
     !mediaKind &&
     !likedOnly;
 
+  // Both paged reads only run while no menu filter is set (see above), so they
+  // never carry a tag predicate.
   const minePagedAssets = usePaginatedQuery(
     api.assets.listGalleryAssetsPage,
     paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
-          tagIds: selectedTagIds,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
@@ -1796,7 +1834,6 @@ export function GalleryDashboard({
     api.assets.listPublicGalleryAssetsPage,
     paginationActive && galleryScope === "public"
       ? {
-          tagIds: selectedTagIds,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
         }
@@ -1844,7 +1881,7 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    selectedTags.length === 0 &&
+    !menuFilterActive &&
     !semanticMode &&
     !assetSearchQuery.trim();
 
@@ -1860,7 +1897,7 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    selectedTags.length === 0 &&
+    !menuFilterActive &&
     !semanticMode &&
     !assetSearchQuery.trim();
 
@@ -1874,7 +1911,9 @@ export function GalleryDashboard({
       canAccessMyGallery
       ? {
           ownerUserId,
-          tagIds: selectedTagIds,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
           // Inside a beat, that one beat IS the scope — it wins over the
           // project pool so the grid shows only the beat's own media.
           folderId: browseBeat
@@ -1997,7 +2036,9 @@ export function GalleryDashboard({
     api.assets.listPublicGalleryAssets,
     !paginationActive && galleryScope === "public"
       ? {
-          tagIds: selectedTagIds,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
           folderId:
             effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? (effectiveSelectedFolderId as Id<"folders">)
@@ -2018,9 +2059,46 @@ export function GalleryDashboard({
     const base = galleryAssets ?? [];
     if (!starredAssets || starredAssets.length === 0) return base;
     const present = new Set(base.map((asset) => asset._id));
-    const missing = starredAssets.filter((asset) => !present.has(asset._id));
+    // The starred read is scoped by folder/project only — it knows nothing
+    // about the menu pills, so its rows have to clear the same predicate here
+    // or a starred piece would lead the grid on a filter it doesn't match.
+    const missing = starredAssets.filter((asset) => {
+      if (present.has(asset._id)) return false;
+      if (
+        selectedTagIdGroups &&
+        !selectedTagIdGroups.every((group) =>
+          asset.tagIds.some((tagId) => group.includes(tagId)),
+        )
+      ) {
+        return false;
+      }
+      if (
+        excludedTagIds &&
+        asset.tagIds.some((tagId) => excludedTagIds.includes(tagId))
+      ) {
+        return false;
+      }
+      if (excludedFolderIds) {
+        const folderIds: string[] =
+          asset.folderIds ?? (asset.folderId ? [asset.folderId] : []);
+        if (
+          folderIds.some((folderId) =>
+            excludedFolderIds.includes(folderId as Id<"folders">),
+          )
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
     return missing.length > 0 ? [...missing, ...base] : base;
-  }, [galleryAssets, starredAssets]);
+  }, [
+    excludedFolderIds,
+    excludedTagIds,
+    galleryAssets,
+    selectedTagIdGroups,
+    starredAssets,
+  ]);
   const isSimilarMode = semanticMode?.kind === "similar";
 
   useEffect(() => {
@@ -2128,6 +2206,9 @@ export function GalleryDashboard({
   }, []);
 
   const handleTagToggle = (tag: string) => {
+    // A pill is either included or excluded, never both — picking one side
+    // releases the other.
+    setExcludedFilters((prev) => prev.filter((entry) => entry !== tag));
     if (activeSmartCollectionFilter?._id === tag) {
       setSelectedFolderId(null);
       setSelectedTags((prev) => prev.filter((entry) => entry !== tag));
@@ -2140,19 +2221,60 @@ export function GalleryDashboard({
     );
   };
 
+  // The minus on a pill's left edge: push it to the negative side (or release
+  // it). Works for both kinds — a tag pill excludes its tags, a collection pill
+  // excludes that collection's members.
+  const handleFilterExcludeToggle = useCallback(
+    (filterId: string) => {
+      setSelectedTags((prev) => prev.filter((entry) => entry !== filterId));
+      const excludedCollection = (menuFilters ?? []).find(
+        (entry) => entry._id === filterId && entry.kind === "collection",
+      );
+      if (excludedCollection?.folderId) {
+        // Browsing the very collection being excluded would leave an empty
+        // grid with no way to read why.
+        setSelectedFolderId((current) =>
+          current === excludedCollection.folderId ? null : current,
+        );
+      }
+      setExcludedFilters((prev) =>
+        prev.includes(filterId)
+          ? prev.filter((entry) => entry !== filterId)
+          : [...prev, filterId],
+      );
+    },
+    [menuFilters],
+  );
+
   // Collection-kind menu pill: behaves like picking the collection in the
   // sidebar — single-select folder filter, click again to clear.
-  const handleMenuCollectionToggle = useCallback((folderId: string) => {
-    setBrowseProject(null);
-    setSelectedFolderId((current) => (current === folderId ? null : folderId));
-  }, []);
+  const handleMenuCollectionToggle = useCallback(
+    (folderId: string) => {
+      setBrowseProject(null);
+      // Browsing a collection releases it from the negative side.
+      const pillIds = new Set(
+        (menuFilters ?? [])
+          .filter((entry) => entry.folderId === folderId)
+          .map((entry) => entry._id as string),
+      );
+      if (pillIds.size > 0) {
+        setExcludedFilters((prev) => prev.filter((entry) => !pillIds.has(entry)));
+      }
+      setSelectedFolderId((current) => (current === folderId ? null : folderId));
+    },
+    [menuFilters],
+  );
 
-  const handleClearAll = () => setSelectedTags([]);
+  const handleClearAll = () => {
+    setSelectedTags([]);
+    setExcludedFilters([]);
+  };
   // Clears EVERYTHING hasFilters counts — including the search/semantic mode.
   // (The empty state's "clear all filters" used to leave the search active,
   // so the button appeared broken on zero-result searches.)
   const handleClearFilters = () => {
     setSelectedTags([]);
+    setExcludedFilters([]);
     setSelectedFolderId(null);
     setBrowseProject(null);
     setSelectedModelName(null);
@@ -2213,21 +2335,44 @@ export function GalleryDashboard({
       if (mediaKind && asset.kind !== mediaKind) {
         return false;
       }
+      // Same predicate the grid queries run: every selected pill must match,
+      // and nothing excluded may survive.
       if (
-        selectedTagIds &&
-        !asset.tagIds.some((tagId: Id<"tags">) => selectedTagIds.includes(tagId))
+        selectedTagIdGroups &&
+        !selectedTagIdGroups.every((group) =>
+          asset.tagIds.some((tagId: Id<"tags">) => group.includes(tagId)),
+        )
       ) {
         return false;
+      }
+      if (
+        excludedTagIds &&
+        asset.tagIds.some((tagId: Id<"tags">) => excludedTagIds.includes(tagId))
+      ) {
+        return false;
+      }
+      if (excludedFolderIds) {
+        const folderIds: string[] =
+          asset.folderIds ?? (asset.folderId ? [asset.folderId] : []);
+        if (
+          folderIds.some((folderId) =>
+            excludedFolderIds.includes(folderId as Id<"folders">),
+          )
+        ) {
+          return false;
+        }
       }
       return true;
     });
   }, [
     activeSmartCollectionFilter,
     effectiveSelectedFolderId,
+    excludedFolderIds,
+    excludedTagIds,
     galleryScope,
     mediaKind,
     selectedModelName,
-    selectedTagIds,
+    selectedTagIdGroups,
     semanticResults,
   ]);
 
@@ -2274,7 +2419,7 @@ export function GalleryDashboard({
     !selectedModelName &&
     !mediaKind &&
     !likedOnly &&
-    selectedTags.length === 0 &&
+    !menuFilterActive &&
     !semanticMode &&
     !assetSearchQuery.trim();
 
@@ -3929,6 +4074,7 @@ export function GalleryDashboard({
           : publicGalleryAssets === undefined;
   const hasFilters =
     selectedTags.length > 0 ||
+    excludedFilters.length > 0 ||
     likedOnly ||
     effectiveSelectedFolderId !== null ||
     browseProject !== null ||
@@ -4640,6 +4786,8 @@ export function GalleryDashboard({
                 menuFilters={menuFilterEntries}
                 selectedTags={selectedTagsForFilterBar}
                 onTagToggle={handleTagToggle}
+                excludedFilters={excludedFilters}
+                onFilterExcludeToggle={handleFilterExcludeToggle}
                 selectedFolderId={effectiveSelectedFolderId}
                 onCollectionToggle={handleMenuCollectionToggle}
                 onClearAllTags={handleClearAll}
