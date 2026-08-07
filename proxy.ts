@@ -6,7 +6,7 @@ import {
   signSession,
   verifySession,
 } from "@/lib/session-jwt";
-import { TASTE_PROFILE_PATH } from "@/lib/routes";
+import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
 
 const FALLBACK_CANONICAL_HOST = "gallery.laniameda.space";
 
@@ -67,7 +67,9 @@ const isSignedOutRoot = async (request: NextRequest) => {
 
 const tasteProfileRedirect = (request: NextRequest) => {
   const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = TASTE_PROFILE_PATH;
+  // Straight to the Featured view, not the bare path — that would only redirect
+  // again, costing the visitor a second round trip on their first page load.
+  redirectUrl.pathname = PUBLIC_HOME_PATH;
   // 307, not 308: whether `/` belongs to the visitor or the owner depends on a
   // cookie, so this hop must never be cached as permanent.
   return NextResponse.redirect(redirectUrl, 307);

@@ -1,23 +1,24 @@
-import type { Metadata } from "next";
-import "@/app/tokens.css";
-import { TasteProfileClient } from "./taste-profile-client";
+import { redirect } from "next/navigation";
+import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
 
-// Public, shareable surface — its own link-preview identity, separate from the
-// gallery home at `/`.
-export const metadata: Metadata = {
-  title: "Misha Buloy — Taste Profile · Laniameda",
-  description:
-    "Taste, and the work it makes. AI filmmaker and image-maker — story sets, stills, and locations.",
-};
+// The bare taste-profile path is the surface's name, not one of its views.
+// Featured lives at its own URL like the other two, so this forwards there
+// rather than rendering the same page under a second address.
+//
+// The query is carried across by hand — `redirect()` takes a literal location
+// and would otherwise drop it, breaking every `?asset=<id>` share link that was
+// copied from this path before the views had their own URLs.
+export default async function TasteProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams)) {
+    if (Array.isArray(value)) value.forEach((entry) => params.append(key, entry));
+    else if (value !== undefined) params.set(key, value);
+  }
 
-export default function TasteProfilePage() {
-  // Follows the viewer's theme from <html data-theme>, same as the rest of the
-  // site. This used to pin data-theme="dark", which silently won over the root
-  // attribute and made the theme toggle in the public nav look broken here.
-  // Every color in the client comes from tokens, so both themes render.
-  return (
-    <div style={{ background: "var(--lm-paper)" }}>
-      <TasteProfileClient />
-    </div>
-  );
+  const query = params.toString();
+  redirect(query ? `${PUBLIC_HOME_PATH}?${query}` : PUBLIC_HOME_PATH);
 }

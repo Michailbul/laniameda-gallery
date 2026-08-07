@@ -2,43 +2,22 @@
 
 import Link from "next/link";
 import { Moon, Sun } from "lucide-react";
-import { OWNER_HANDLE, OWNER_SITE_URL, TASTE_PROFILE_PATH } from "@/lib/routes";
+import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
+import { PUBLIC_HOME_PATH, PUBLIC_MODES, publicModePath } from "@/lib/public-modes";
+import type { PublicMode } from "@/lib/public-modes";
 import { useTheme } from "@/lib/use-theme";
 
-// The public surface has exactly three modes. This toggle IS the navigation —
-// no sidebar, no filter bar, nothing else to learn.
-export const PUBLIC_MODES = [
-  {
-    id: "featured",
-    label: "Featured work",
-    title: "Start here.",
-    blurb: "The pieces I'd show you first.",
-  },
-  {
-    id: "worlds",
-    label: "Worlds",
-    title: "Explore the worlds I'm building.",
-    blurb:
-      "Each world is a story universe — its scenes, its characters, its locations.",
-  },
-  {
-    id: "browse",
-    label: "Browse",
-    title: "Everything else.",
-    blurb: "The working archive. Filter it, or just scroll.",
-  },
-] as const;
-
-export type PublicMode = (typeof PUBLIC_MODES)[number]["id"];
+// Re-exported so the existing `from "./public-nav"` imports keep working; the
+// list itself moved to lib/public-modes.ts, which the route segment also reads.
+export { PUBLIC_MODES };
+export type { PublicMode };
 
 export function PublicNav({
   mode,
-  onModeChange,
   backHref,
   backLabel,
 }: {
   mode?: PublicMode;
-  onModeChange?: (mode: PublicMode) => void;
   backHref?: string;
   backLabel?: string;
 }) {
@@ -67,7 +46,7 @@ export function PublicNav({
         }}
       >
         <Link
-          href={TASTE_PROFILE_PATH}
+          href={PUBLIC_HOME_PATH}
           style={{
             fontFamily: "var(--lm-font)",
             fontSize: 11,
@@ -95,33 +74,23 @@ export function PublicNav({
               ← {backLabel ?? "Back"}
             </Link>
           ) : (
+            // Links, not buttons: each mode is its own URL, so these have to be
+            // openable in a new tab and reachable by the back button.
             <div
-              role="tablist"
               aria-label="View"
               style={{ display: "flex", gap: "clamp(14px, 3vw, 30px)" }}
             >
               {PUBLIC_MODES.map((entry) => {
                 const active = entry.id === mode;
                 return (
-                  <button
+                  <Link
                     key={entry.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => onModeChange?.(entry.id)}
-                    // No `border` shorthand here — itemStyle already sets
-                    // borderBottom, and mixing the two warns in React.
-                    style={{
-                      ...itemStyle(active),
-                      background: "none",
-                      borderTop: "none",
-                      borderLeft: "none",
-                      borderRight: "none",
-                      cursor: "pointer",
-                    }}
+                    href={publicModePath(entry.id)}
+                    aria-current={active ? "page" : undefined}
+                    style={itemStyle(active)}
                   >
                     {entry.label}
-                  </button>
+                  </Link>
                 );
               })}
             </div>

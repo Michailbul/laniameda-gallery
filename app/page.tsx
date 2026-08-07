@@ -3,7 +3,7 @@ import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { GalleryDashboard } from "@/components/gallery/dashboard";
-import { TASTE_PROFILE_PATH } from "@/lib/routes";
+import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
 
 function PageInner() {
   const { user, isLoading, signOut } = useCurrentUser();
@@ -18,7 +18,7 @@ function PageInner() {
   // so the vault shell can't sit here empty for someone with no session.
   const leaveRoot = !isLoading && (!user || previewVisitor);
   useEffect(() => {
-    if (leaveRoot) router.replace(TASTE_PROFILE_PATH);
+    if (leaveRoot) router.replace(PUBLIC_HOME_PATH);
   }, [leaveRoot, router]);
 
   // Wait for auth to resolve so the owner never flashes the public gallery

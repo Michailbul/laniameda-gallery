@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { PublicNav, PUBLIC_MODES, type PublicMode } from "./public-nav";
+import { PublicNav } from "./public-nav";
+import { PUBLIC_MODES, type PublicMode } from "@/lib/public-modes";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
@@ -22,8 +23,15 @@ const OWNER_LOGIN_LINK = OWNER_LOGIN_BOT
   ? `https://t.me/${OWNER_LOGIN_BOT}?start=login`
   : null;
 
-export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean }) {
-  const [mode, setMode] = useState<PublicMode>("featured");
+// `mode` comes from the URL segment, not from state — each view is its own
+// page, so switching views is a navigation and survives refresh and sharing.
+export function PublicHome({
+  mode = "featured",
+  previewAuthed = false,
+}: {
+  mode?: PublicMode;
+  previewAuthed?: boolean;
+}) {
   const data = useQuery(api.showcase.getShowcaseHome, {});
 
   // ── Shared deep link ────────────────────────────────────────────────────
@@ -111,7 +119,7 @@ export function PublicHome({ previewAuthed = false }: { previewAuthed?: boolean 
       }}
     >
       {previewAuthed && <PreviewBanner />}
-      <PublicNav mode={mode} onModeChange={setMode} />
+      <PublicNav mode={mode} />
 
       {/* One heading, driven by the active mode. Switching modes rewrites the
           statement instead of scrolling the visitor somewhere new. */}
