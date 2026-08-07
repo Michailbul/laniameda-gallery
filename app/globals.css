@@ -1632,6 +1632,27 @@
    (portrait slots, compact mode) the hover toolbar scales down so the two
    button clusters never collide or clip the card edge. Unlayered on purpose:
    it must override Tailwind's h-8/w-8 utility layer. */
+/* A collection browse adds the exclude button, so the row carries one more
+   than it was sized for — crowded toolbars compact at a wider tile to stay on
+   a single row. Every other card keeps its full-size buttons down to 260px. */
+@container (max-width: 340px) {
+  .card-toolbar[data-crowded] {
+    gap: 4px;
+  }
+  .card-toolbar[data-crowded] .card-icon-btn {
+    height: 26px;
+    width: 26px;
+    border-radius: 8px;
+  }
+  .card-toolbar[data-crowded] .card-icon-btn svg {
+    height: 12px;
+    width: 12px;
+  }
+  .card-toolbar[data-crowded] .card-icon-btn > span {
+    height: 10px;
+    width: 10px;
+  }
+}
 @container (max-width: 260px) {
   .card-toolbar {
     gap: 4px;

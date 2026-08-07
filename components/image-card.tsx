@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Copy, Download, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { downloadAssetFile } from "@/lib/download-image";
@@ -160,6 +160,16 @@ interface ImageCardProps {
   /** Owner-only: hover surfaces the asset's tags as chips; clicking one
       removes that tag from the asset. */
   onRemoveTag?: (imageId: string, tagName: string) => void;
+  /** One-click "not relevant here" — drops the asset from whatever the grid is
+      currently scoped to. Set together with excludeLabel; leave undefined
+      outside a scoped browse (the flat gallery has nothing to exclude from). */
+  onExcludeFromView?: (imageId: string) => Promise<void> | void;
+  /** Name of that scope — the button's tooltip says where the piece leaves. */
+  excludeLabel?: string;
+  /** The scope's folder, when it is one: the button only shows on tiles that
+      are actually filed there, so a click always does something. Omitted for
+      project browse, where membership spans the project's whole pool. */
+  excludeFolderId?: string;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -209,6 +219,9 @@ export const ImageCard = memo(function ImageCard({
   projects,
   onAddToProject,
   onRemoveTag,
+  onExcludeFromView,
+  excludeLabel,
+  excludeFolderId,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -221,6 +234,7 @@ export const ImageCard = memo(function ImageCard({
   const [previewCycling, setPreviewCycling] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [excluding, setExcluding] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
 
@@ -502,6 +516,31 @@ export const ImageCard = memo(function ImageCard({
     if (deleting) return;
     onDelete?.(image.id);
   };
+
+  // One click drops the piece from the collection being browsed. The tile is
+  // usually gone before this resolves (the grid re-reads without it), so the
+  // spinner only shows on a slow round trip.
+  const handleExclude = useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!onExcludeFromView || excluding) return;
+      setExcluding(true);
+      try {
+        await onExcludeFromView(image.id);
+      } finally {
+        setExcluding(false);
+      }
+    },
+    [excluding, image.id, onExcludeFromView],
+  );
+
+  const memberFolderIds =
+    image.folderIds ?? (image.folderId ? [image.folderId] : []);
+  const canExclude =
+    Boolean(onExcludeFromView) &&
+    Boolean(excludeLabel) &&
+    (!excludeFolderId || memberFolderIds.includes(excludeFolderId));
 
   const handlePromptCopy = useCallback(
     async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -866,8 +905,14 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Top-left action cluster — flex keeps the gaps uniform no matter which
           buttons are present. pointer-events-none on the wrapper leaves the
-          gaps between buttons click-through to the card underneath. */}
-      <div className="card-toolbar pointer-events-none absolute left-2 top-2 z-30 flex items-center gap-1.5">
+          gaps between buttons click-through to the card underneath. Each
+          cluster is capped at half the tile and wraps: on a narrow tile the
+          two clusters would otherwise grow into each other and the top one
+          would swallow clicks meant for the button underneath it. */}
+      <div
+        className="card-toolbar pointer-events-none absolute left-2 top-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center gap-1.5"
+        data-crowded={canExclude ? "true" : undefined}
+      >
         {selectable && (
           <button
             type="button"
@@ -1234,8 +1279,37 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Top-right action cluster — destructive/curation actions kept apart
           from the left cluster; flex keeps the buttons evenly spaced. */}
-      {(canDelete || likeable || starrable) && (
-        <div className="card-toolbar pointer-events-none absolute right-2 top-2 z-30 flex items-center gap-1.5">
+      {(canDelete || likeable || starrable || canExclude) && (
+        <div
+          className="card-toolbar pointer-events-none absolute right-2 top-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center justify-end gap-1.5"
+          data-crowded={canExclude ? "true" : undefined}
+        >
+          {/* Exclude — leads the cluster so star and like keep the positions
+              they have everywhere else (the row is right-anchored, so adding
+              here doesn't move them). */}
+          {canExclude && (
+            <button
+              type="button"
+              onClick={(event) => {
+                void handleExclude(event);
+              }}
+              disabled={excluding}
+              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
+                excluding
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              aria-label={`Remove from ${excludeLabel}`}
+              title={`Not relevant — remove from ${excludeLabel}`}
+            >
+              {excluding ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FolderMinus className="h-4 w-4" strokeWidth={2.25} />
+              )}
+            </button>
+          )}
+
           {canDelete && (
             <button
               type="button"

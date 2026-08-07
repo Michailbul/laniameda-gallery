@@ -852,6 +852,71 @@ export const addAssetFolders = mutation({
   },
 });
 
+// Drop ONE membership and leave every other one alone — the card's one-click
+// "not relevant here". Idempotent: removing a collection the asset was never
+// in reports removed: false instead of throwing, so a double click, a stale
+// tile, or a retry is harmless.
+export const removeAssetFolder = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    folderId: v.id("folders"),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    removed: v.boolean(),
+    folderId: v.optional(v.id("folders")),
+    folderIds: v.array(v.id("folders")),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
+
+    const existingLinks = await getAssetFolderLinks(ctx, args.assetId);
+    const removedLinks = existingLinks.filter(
+      (link) => link.folderId === args.folderId,
+    );
+    for (const link of removedLinks) {
+      await ctx.db.delete(link._id);
+    }
+    if (removedLinks.length > 0) {
+      await recountFolderMembers(ctx, [args.folderId]);
+    }
+
+    const remainingFolderIds = dedupeFolderIds(
+      existingLinks
+        .filter((link) => link.folderId !== args.folderId)
+        .map((link) => link.folderId),
+    );
+
+    // The primary pointer can't keep naming a collection the asset just left.
+    let primaryFolderId = asset.folderId;
+    const primaryWasRemoved = primaryFolderId === args.folderId;
+    if (primaryWasRemoved) {
+      primaryFolderId = remainingFolderIds[0];
+      await ctx.db.patch(args.assetId, { folderId: primaryFolderId });
+    }
+
+    return {
+      assetId: args.assetId,
+      removed: removedLinks.length > 0 || primaryWasRemoved,
+      folderId: primaryFolderId,
+      folderIds: dedupeFolderIds([primaryFolderId, ...remainingFolderIds]),
+    };
+  },
+});
+
 export const updateAssetMetadata = mutation({
   args: {
     ownerUserId: v.string(),
