@@ -32,6 +32,7 @@
   // Hosts where the extension should NEVER run (our own app — packs/assets
   // aren't saveable via the extension overlay).
   const BUILTIN_DISABLED_HOSTS = [
+    "gallery.laniameda.space",
     "laniameda.gallery",
     "laniameda-galery.vercel.app",
     "localhost",

@@ -7,7 +7,7 @@ import {
   verifySession,
 } from "@/lib/session-jwt";
 
-const FALLBACK_CANONICAL_HOST = "laniameda-galery.vercel.app";
+const FALLBACK_CANONICAL_HOST = "gallery.laniameda.space";
 
 const resolveCanonicalHost = () => {
   const configuredHost =

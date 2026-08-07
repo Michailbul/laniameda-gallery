@@ -18,7 +18,7 @@ function getWebhookSecret(): string | null {
 function getHost(): string {
   return (
     process.env.APP_CANONICAL_HOST?.trim() ||
-    "laniameda-galery.vercel.app"
+    "gallery.laniameda.space"
   );
 }
 

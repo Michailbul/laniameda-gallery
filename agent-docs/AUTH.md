@@ -75,10 +75,11 @@ DEV_AUTH_FIRST_NAME=Michael
 Optional host config:
 
 ```bash
-APP_CANONICAL_HOST=laniameda-galery.vercel.app
+APP_CANONICAL_HOST=gallery.laniameda.space
 ```
 
 - Use this when production can be reached from multiple Vercel aliases. Telegram auth is origin-bound, so unregistered aliases should 308-redirect to the canonical host before rendering the widget.
+- The domain registered in BotFather (`/setdomain`) must match this host exactly. A bot accepts only one login domain, so changing the canonical host means changing both together — the old host keeps serving via the 308 in `proxy.ts`, but login only works on the canonical one.
 
 ## Key files
 

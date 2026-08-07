@@ -1,12 +1,17 @@
 // Save to Gallery — Background service worker
 
-const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
+const CANONICAL_API_HOST = "gallery.laniameda.space";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
-const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
+// Installs that stored an older host rewrite themselves to CANONICAL_API_HOST on
+// the next call, so nobody has to re-enter the API URL after a domain move.
+const LEGACY_API_HOSTS = new Set([
+  "laniameda.gallery",
+  "laniameda-galery.vercel.app",
+]);
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
 const LAST_FOLDER_ID_KEY = "lastFolderId";
 // Written by content.js on every save. See readSavePreset there — the presence
@@ -15,6 +20,7 @@ const LAST_FOLDER_IDS_KEY = "lastFolderIds";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const BUILTIN_DISABLED_HOSTS = [
+  "gallery.laniameda.space",
   "laniameda.gallery",
   "laniameda-galery.vercel.app",
   "localhost",

@@ -23,14 +23,19 @@ describe("extension endpoint defaults", () => {
       "utf8",
     );
 
-    expect(popupScript).toContain("laniameda-galery.vercel.app");
-    expect(backgroundScript).toContain("laniameda-galery.vercel.app");
+    expect(popupScript).toContain("gallery.laniameda.space");
+    expect(backgroundScript).toContain("gallery.laniameda.space");
     expect(popupScript).toContain("LEGACY_API_HOSTS");
     expect(backgroundScript).toContain("LEGACY_API_HOSTS");
-    // The previous canonical host stays on the legacy list so old
-    // configurations still get rewritten.
-    expect(popupScript).toContain('"laniameda.gallery"');
-    expect(backgroundScript).toContain('"laniameda.gallery"');
+    // Every previous canonical host stays on the legacy list so installs that
+    // stored one keep working without the user re-entering the API URL.
+    for (const legacyHost of [
+      '"laniameda.gallery"',
+      '"laniameda-galery.vercel.app"',
+    ]) {
+      expect(popupScript).toContain(legacyHost);
+      expect(backgroundScript).toContain(legacyHost);
+    }
     expect(popupScript).toContain("DEFAULT_FOLDER_ID_KEY");
     expect(manifest.permissions).toContain("contextMenus");
     expect(backgroundScript).toContain("SAVE_IMAGE_CONTEXT_MENU_ID");

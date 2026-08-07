@@ -7,7 +7,7 @@
  * Reads from .env / .env.local:
  *   TELEGRAM_LOGIN_BOT_TOKEN (or TELEGRAM_BOT_TOKEN)
  *   TELEGRAM_WEBHOOK_SECRET
- *   APP_CANONICAL_HOST (optional, defaults to laniameda-galery.vercel.app)
+ *   APP_CANONICAL_HOST (optional, defaults to gallery.laniameda.space)
  */
 
 import { config } from "dotenv";
@@ -24,7 +24,7 @@ if (!botToken) {
 }
 
 const host =
-  process.env.APP_CANONICAL_HOST?.trim() || "laniameda-galery.vercel.app";
+  process.env.APP_CANONICAL_HOST?.trim() || "gallery.laniameda.space";
 const webhookUrl = `https://${host}/api/telegram/webhook`;
 const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
 

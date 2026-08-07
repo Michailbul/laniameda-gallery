@@ -14,7 +14,7 @@ const bookmarkSaveBtn = document.getElementById("bookmarkSave");
 const bookmarkStatusEl = document.getElementById("bookmarkStatus");
 
 const SAVE_ROUTE_PATH = "/api/extension/save";
-const CANONICAL_API_HOST = "laniameda-galery.vercel.app";
+const CANONICAL_API_HOST = "gallery.laniameda.space";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
@@ -23,7 +23,11 @@ const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
 const LAST_FOLDER_ID_KEY = "lastFolderId";
 const LAST_COLLECTION_PILLAR_KEY = "lastCollectionPillar";
-const LEGACY_API_HOSTS = new Set(["laniameda.gallery"]);
+// Keep in sync with background.js — both rewrite stored URLs off older hosts.
+const LEGACY_API_HOSTS = new Set([
+  "laniameda.gallery",
+  "laniameda-galery.vercel.app",
+]);
 
 let currentSiteHost = "";
 let currentTabId = null;
