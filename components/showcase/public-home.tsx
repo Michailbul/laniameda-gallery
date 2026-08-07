@@ -13,15 +13,7 @@ import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
 import { BrowseBand } from "./browse-band";
 import { assetThumb } from "./types";
 import type { ShowcaseAsset } from "./types";
-import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
-
-const OWNER_LOGIN_BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim().replace(
-  /^@+/,
-  "",
-);
-const OWNER_LOGIN_LINK = OWNER_LOGIN_BOT
-  ? `https://t.me/${OWNER_LOGIN_BOT}?start=login`
-  : null;
+import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 
 // `mode` comes from the URL segment, not from state — each view is its own
 // page, so switching views is a navigation and survives refresh and sharing.
@@ -202,9 +194,13 @@ export function PublicHome({
       >
         <span>● LANIAMEDA</span>
         <span style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          {!previewAuthed && OWNER_LOGIN_LINK && (
+          {/* Points at /admin rather than straight out to the Telegram deep
+              link: that page renders the auth panel, which reports what went
+              wrong when a login fails, and it still works for someone without
+              Telegram installed. */}
+          {!previewAuthed && (
             <a
-              href={OWNER_LOGIN_LINK}
+              href={ADMIN_PATH}
               style={{ color: "var(--lm-text-ghost)", textDecoration: "none" }}
             >
               Owner sign-in
