@@ -656,6 +656,9 @@ export function GalleryDashboard({
   const addAssetFoldersMutation = useMutation(
     api.assets.addAssetFolders,
   );
+  const removeAssetFolderMutation = useMutation(
+    api.assets.removeAssetFolder,
+  );
   const setAssetLikedMutation = useMutation(api.assets.setAssetLiked);
   const setAssetStarredMutation = useMutation(api.assets.setAssetStarred);
   const setAssetStarNoteMutation = useMutation(api.assets.setAssetStarNote);
@@ -2949,6 +2952,104 @@ export function GalleryDashboard({
     [folderNameById, images, ownerUserId, setAssetFoldersMutation],
   );
 
+  // ── One-click exclude ──
+  // What "exclude" means depends on where the grid is pointed: inside a beat
+  // it's that beat, inside a collection that collection, inside a project the
+  // whole pool. The flat gallery has no scope to leave, so no button there.
+  const excludeScope = useMemo<
+    | { kind: "folder"; folderId: string; label: string }
+    | { kind: "project"; projectId: string; label: string }
+    | null
+  >(() => {
+    if (!canManageFoldersInCurrentView) return null;
+    if (browseBeat) {
+      return { kind: "folder", folderId: browseBeat.id, label: browseBeat.name };
+    }
+    if (effectiveSelectedFolderId && !activeSmartCollectionFilter) {
+      return {
+        kind: "folder",
+        folderId: effectiveSelectedFolderId,
+        label:
+          folderNameById.get(effectiveSelectedFolderId) ?? "this collection",
+      };
+    }
+    if (browseProject) {
+      return {
+        kind: "project",
+        projectId: browseProject.id,
+        label: browseProject.name,
+      };
+    }
+    return null;
+  }, [
+    activeSmartCollectionFilter,
+    browseBeat,
+    browseProject,
+    canManageFoldersInCurrentView,
+    effectiveSelectedFolderId,
+    folderNameById,
+  ]);
+
+  const excludeAssetFromCurrentView = useCallback(
+    async (imageId: string) => {
+      if (!excludeScope) return;
+
+      // Fade the tile first, then mutate — by the time the mutation resolves
+      // the grid has already re-read without it, so the card leaves cleanly
+      // instead of popping out mid-animation.
+      setExitingAssetIds((previous) => {
+        const next = new Set(previous);
+        next.add(imageId);
+        return next;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 240));
+
+      try {
+        if (excludeScope.kind === "project") {
+          await removeAssetsFromProjectMutation({
+            ownerUserId,
+            projectId: excludeScope.projectId as Id<"folders">,
+            assetIds: [imageId as Id<"assets">],
+          });
+        } else {
+          await removeAssetFolderMutation({
+            ownerUserId,
+            assetId: imageId as Id<"assets">,
+            folderId: excludeScope.folderId as Id<"folders">,
+          });
+        }
+        setSelectedImage((current) =>
+          current?.id === imageId ? null : current,
+        );
+        setSelectedAssetIds((current) => {
+          if (!current.has(imageId)) return current;
+          const next = new Set(current);
+          next.delete(imageId);
+          return next;
+        });
+        setMoveStatus({ text: `Removed from ${excludeScope.label}` });
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Remove failed.",
+          error: true,
+        });
+      } finally {
+        setExitingAssetIds((previous) => {
+          if (!previous.has(imageId)) return previous;
+          const next = new Set(previous);
+          next.delete(imageId);
+          return next;
+        });
+      }
+    },
+    [
+      excludeScope,
+      ownerUserId,
+      removeAssetFolderMutation,
+      removeAssetsFromProjectMutation,
+    ],
+  );
+
   // Per-card menu targets: plain collections (Move/Add) plus storybooks
   // (always additive). Projects group collections, not assets, so they are
   // never asset-membership targets and are excluded.
@@ -5171,6 +5272,17 @@ export function GalleryDashboard({
                     onRemoveAssetTag={
                       canManageFoldersInCurrentView
                         ? handleCardRemoveTag
+                        : undefined
+                    }
+                    // One click on hover drops the piece from whatever the
+                    // grid is scoped to — "not relevant here".
+                    onExcludeAssetFromView={
+                      excludeScope ? excludeAssetFromCurrentView : undefined
+                    }
+                    excludeLabel={excludeScope?.label}
+                    excludeFolderId={
+                      excludeScope?.kind === "folder"
+                        ? excludeScope.folderId
                         : undefined
                     }
                     onStorybookOpen={setOpenStorybookId}
