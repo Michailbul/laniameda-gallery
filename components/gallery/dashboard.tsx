@@ -35,7 +35,13 @@ import {
   appendImageUploadFields,
   uploadImageToR2,
 } from "@/lib/image-ingest";
-import { isZipFile, readDroppedFiles, resolveMedia } from "@/lib/bulk-upload";
+import {
+  type RawFile,
+  isZipFile,
+  readDroppedFiles,
+  resolveMedia,
+} from "@/lib/bulk-upload";
+import { quickIngestFile } from "@/lib/quick-ingest";
 import { TASTE_PROFILE_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
@@ -177,6 +183,31 @@ const PROJECT_SECTION_TABS: {
   // Custom project folders and never-filed members both land here.
   { key: "unsorted", label: "More", onlyWhenPresent: true },
 ];
+
+// What a piece IS. These three tags are the ground truth for the type badge
+// and for the Characters / Locations menu pills — see lib/collection-sections.
+// The bulk toolbar stamps them across a selection; the detail panel still
+// toggles one asset at a time.
+const STATICS_TAGS = [
+  { tag: "character", label: "Character" },
+  { tag: "location", label: "Location" },
+  { tag: "scene", label: "Scene" },
+] as const;
+
+type StaticsTagName = (typeof STATICS_TAGS)[number]["tag"];
+
+// Filing one of those three into a world means filing it into that world's
+// section pool. The section enum still says "stills" where the tag says
+// "scene" — same layer, older name.
+// Same parallelism the bulk uploader runs: enough to keep the R2 pipe busy
+// without stampeding the ingest action.
+const QUICK_DROP_CONCURRENCY = 3;
+
+const SECTION_POOL_BY_STATICS_TAG = {
+  character: "characters",
+  location: "locations",
+  scene: "stills",
+} as const satisfies Record<StaticsTagName, "characters" | "locations" | "stills">;
 
 // Text-only breadcrumb-row actions share one look.
 const quietActionStyle: React.CSSProperties = {
@@ -497,6 +528,10 @@ export function GalleryDashboard({
   >(undefined);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
+  // Which type bucket the cursor is over while dragging (see quickDropTarget).
+  const [hoveredDropTag, setHoveredDropTag] = useState<StaticsTagName | null>(
+    null,
+  );
   const [selectedCinemaAsset, setSelectedCinemaAsset] =
     useState<CinemaModalAsset | null>(null);
   const [isSeedanceOpen, setSeedanceOpen] = useState(false);
@@ -536,6 +571,9 @@ export function GalleryDashboard({
       if (!canAcceptShellDrop || !dragHasFiles(event)) return;
       event.preventDefault();
       dragDepthRef.current += 1;
+      // A fresh drag starts with no bucket lit — otherwise the last drag's
+      // hover would still be highlighted when the overlay comes back.
+      if (dragDepthRef.current === 1) setHoveredDropTag(null);
       setIsDraggingFiles(true);
     },
     [canAcceptShellDrop],
@@ -608,6 +646,9 @@ export function GalleryDashboard({
   const [bulkAddMenuOpen, setBulkAddMenuOpen] = useState(false);
   const [bulkAddDraft, setBulkAddDraft] = useState("");
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
+  // Which statics tag the bulk toolbar is currently writing, so only that
+  // button spins.
+  const [bulkTagBusy, setBulkTagBusy] = useState<StaticsTagName | null>(null);
   // Feedback chip for collection/project membership changes and drag & drop.
   const [moveStatus, setMoveStatus] = useState<{
     text: string;
@@ -663,6 +704,9 @@ export function GalleryDashboard({
   const setAssetStarredMutation = useMutation(api.assets.setAssetStarred);
   const setAssetStarNoteMutation = useMutation(api.assets.setAssetStarNote);
   const setAssetTagStateMutation = useMutation(api.assets.setAssetTagState);
+  const bulkSetAssetTagStateMutation = useMutation(
+    api.assets.bulkSetAssetTagState,
+  );
   const createFolderMutation = useMutation(
     api.folders.createFolder,
   );
@@ -2794,6 +2838,90 @@ export function GalleryDashboard({
     return counts;
   }, [selectedAssetMemberships]);
 
+  // Same checklist ergonomics for what the selection IS. Matching runs through
+  // sectionKeyForTagName so a legacy plural ("characters") still reads as a
+  // character — the write always lands on the singular tag.
+  const selectedAssetTypeTags = useMemo(() => {
+    const imageById = new Map(images.map((image) => [image.id, image]));
+    return Array.from(selectedAssetIds).flatMap((assetId) => {
+      const image = imageById.get(assetId);
+      if (
+        !image ||
+        (image.galleryItemType !== "asset" &&
+          image.galleryItemType !== undefined)
+      ) {
+        return [];
+      }
+      const sections = new Set<CollectionSectionKey>();
+      for (const tagName of image.tagNames ?? []) {
+        const section = sectionKeyForTagName(tagName);
+        if (section) sections.add(section);
+      }
+      return [{ assetId, sections }];
+    });
+  }, [images, selectedAssetIds]);
+
+  const selectedTypeTagCounts = useMemo(() => {
+    const counts = new Map<StaticsTagName, number>();
+    for (const { tag } of STATICS_TAGS) {
+      const section = sectionKeyForTagName(tag);
+      counts.set(
+        tag,
+        section
+          ? selectedAssetTypeTags.filter((asset) => asset.sections.has(section))
+              .length
+          : 0,
+      );
+    }
+    return counts;
+  }, [selectedAssetTypeTags]);
+
+  // Stamp (or strip) one statics tag across the whole selection. All selected
+  // already carry it → the click removes it; anything else → it adds.
+  const toggleSelectedTypeTag = useCallback(
+    async (tag: StaticsTagName) => {
+      if (bulkTagBusy || selectedAssetTypeTags.length === 0) return;
+      const section = sectionKeyForTagName(tag);
+      if (!section) return;
+      const count = selectedTypeTagCounts.get(tag) ?? 0;
+      const present = count !== selectedAssetTypeTags.length;
+      const targets = selectedAssetTypeTags.filter((asset) =>
+        present ? !asset.sections.has(section) : asset.sections.has(section),
+      );
+      if (targets.length === 0) return;
+
+      setBulkTagBusy(tag);
+      setBulkCurationError(undefined);
+      setBulkCurationStatus(undefined);
+      try {
+        const result = await bulkSetAssetTagStateMutation({
+          ownerUserId,
+          assetIds: targets.map((asset) => asset.assetId as Id<"assets">),
+          tagName: tag,
+          present,
+        });
+        setBulkCurationStatus(
+          `${present ? "Tagged" : "Untagged"} ${result.updatedCount} piece${
+            result.updatedCount === 1 ? "" : "s"
+          } as ${tag}.`,
+        );
+      } catch (error) {
+        setBulkCurationError(
+          error instanceof Error ? error.message : "Tagging failed.",
+        );
+      } finally {
+        setBulkTagBusy(null);
+      }
+    },
+    [
+      bulkSetAssetTagStateMutation,
+      bulkTagBusy,
+      ownerUserId,
+      selectedAssetTypeTags,
+      selectedTypeTagCounts,
+    ],
+  );
+
   const toggleSelectedFolder = useCallback(
     async (folderId: string, folderNameOverride?: string) => {
       if (selectedAssetMemberships.length === 0 || bulkAddBusy) return;
@@ -4324,6 +4452,173 @@ export function GalleryDashboard({
     ],
   );
 
+  // ── Type buckets: drop straight into the collection you're already in ──────
+  // Dropping media while a collection, world or beat is open already answers
+  // the two questions the upload form asks — where it goes, and what it IS —
+  // so the drag overlay offers the three type buckets instead of the form. The
+  // form stays one drop away: anywhere outside a bucket still opens it.
+  const quickDropTarget = useMemo<
+    | { kind: "beat" | "folder"; folderId: string; label: string }
+    | { kind: "project"; projectId: string; label: string }
+    | null
+  >(() => {
+    // Same gate as the breadcrumb: a bucket may only claim a destination the
+    // grid is actually showing. The collections landing, workflows and the
+    // storybook shelf all keep the plain "opens the form" drop.
+    if (!canAccessMyGallery || galleryScope !== "mine") return null;
+    if (viewMode !== "grid" || storybooksView) return null;
+    // A beat is the narrowest thing you can be standing in, so it wins — its
+    // own folder is the destination, no section pool involved.
+    if (browseBeat) {
+      return { kind: "beat", folderId: browseBeat.id, label: browseBeat.name };
+    }
+    if (browseProject) {
+      return {
+        kind: "project",
+        projectId: browseProject.id,
+        label: browseProject.name,
+      };
+    }
+    if (effectiveSelectedFolderId) {
+      const folder = foldersWithCounts.find(
+        (entry) => entry._id === effectiveSelectedFolderId,
+      );
+      if (!folder) return null;
+      return { kind: "folder", folderId: folder._id, label: folder.name };
+    }
+    return null;
+  }, [
+    browseBeat,
+    browseProject,
+    canAccessMyGallery,
+    effectiveSelectedFolderId,
+    foldersWithCounts,
+    galleryScope,
+    storybooksView,
+    viewMode,
+  ]);
+
+  // Which bucket is mid-upload. (Which one the cursor is over lives with the
+  // rest of the drag state, up where the shell handlers can clear it.)
+  const [quickDropBusy, setQuickDropBusy] = useState<StaticsTagName | null>(
+    null,
+  );
+
+  const runQuickDrop = useCallback(
+    async (tag: StaticsTagName, dropped: RawFile[]) => {
+      if (!quickDropTarget || !ownerUserId || quickDropBusy) return;
+      const files = dropped
+        .map((entry) => entry.file)
+        .filter((file) => resolveMedia(file.name, file.type) !== null);
+      if (files.length === 0) return;
+
+      setQuickDropBusy(tag);
+      setMoveStatus({
+        text: `Saving ${files.length} ${tag}${files.length === 1 ? "" : "s"} to ${quickDropTarget.label}…`,
+      });
+      try {
+        // A world holds collections, not assets, so a bucket drop lands in that
+        // world's section pool — the same folder the Add-to panel and the bulk
+        // uploader file into, which is what the section switcher reads.
+        let folderId: string;
+        if (quickDropTarget.kind === "project") {
+          const pool = await ensureSectionPoolMutation({
+            ownerUserId,
+            projectId: quickDropTarget.projectId as Id<"folders">,
+            section: SECTION_POOL_BY_STATICS_TAG[tag],
+          });
+          folderId = pool.folderId as string;
+        } else {
+          folderId = quickDropTarget.folderId;
+        }
+
+        let saved = 0;
+        let duplicates = 0;
+        const failures: string[] = [];
+        for (
+          let index = 0;
+          index < files.length;
+          index += QUICK_DROP_CONCURRENCY
+        ) {
+          const batch = files.slice(index, index + QUICK_DROP_CONCURRENCY);
+          const results = await Promise.allSettled(
+            batch.map((file) =>
+              quickIngestFile({ file, folderId, tags: [tag], uploadToR2 }),
+            ),
+          );
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              saved += 1;
+              if (result.value.duplicate) duplicates += 1;
+            } else {
+              failures.push(
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : "Upload failed.",
+              );
+            }
+          }
+        }
+
+        if (saved === 0) {
+          setMoveStatus({
+            text: failures[0] ?? "Nothing saved.",
+            error: true,
+          });
+          return;
+        }
+        const notes = [
+          `${saved} ${tag}${saved === 1 ? "" : "s"} → ${quickDropTarget.label}`,
+        ];
+        if (duplicates > 0) {
+          notes.push(`${duplicates} already in your vault (filed, not copied)`);
+        }
+        if (failures.length > 0) notes.push(`${failures.length} failed`);
+        setMoveStatus({ text: notes.join(" · "), error: failures.length > 0 });
+      } catch (error) {
+        setMoveStatus({
+          text: error instanceof Error ? error.message : "Drop failed.",
+          error: true,
+        });
+      } finally {
+        setQuickDropBusy(null);
+      }
+    },
+    [
+      ensureSectionPoolMutation,
+      ownerUserId,
+      quickDropBusy,
+      quickDropTarget,
+      uploadToR2,
+    ],
+  );
+
+  const handleBucketDrop = useCallback(
+    (tag: StaticsTagName, event: React.DragEvent) => {
+      event.preventDefault();
+      // Without this the shell's own drop handler also fires and opens the
+      // upload form on top of the save.
+      event.stopPropagation();
+      dragDepthRef.current = 0;
+      setIsDraggingFiles(false);
+      setHoveredDropTag(null);
+      const dataTransfer = event.dataTransfer;
+      if (!dataTransfer) return;
+      // Entries have to be read before the first await or the DataTransfer is
+      // already drained — readDroppedFiles captures them synchronously.
+      void readDroppedFiles(dataTransfer).then((dropped) => {
+        // A zip needs staging and per-file review, which is the bulk panel's
+        // job — hand the whole drop to the form rather than half-saving it.
+        if (dropped.some((entry) => isZipFile(entry.file))) {
+          openUploadWithFiles(dropped.map((entry) => entry.file));
+          return;
+        }
+        void runQuickDrop(tag, dropped);
+      });
+    },
+    [openUploadWithFiles, runQuickDrop],
+  );
+
   // ── The open asset's filing model ──────────────────────────────────────────
   // The detail panel needs three things the raw folder list can't answer:
   // which folders this asset is actually in, which world each of those sits
@@ -4622,7 +4917,9 @@ export function GalleryDashboard({
       onDragLeave={handleShellDragLeave}
       onDrop={handleShellDrop}
     >
-      {/* Drag-and-drop overlay — drop media anywhere to open the upload modal */}
+      {/* Drag-and-drop overlay. Inside an open collection it offers the three
+          type buckets, which save on release; everywhere else (and anywhere
+          outside a bucket) the drop opens the upload form. */}
       {isDraggingFiles && (
         <div
           className="pointer-events-none fixed inset-0 z-[90] flex items-center justify-center p-8 lm-animate-fade-in"
@@ -4633,45 +4930,160 @@ export function GalleryDashboard({
           }}
           aria-hidden
         >
-          <div
-            className="flex flex-col items-center gap-4 px-12 py-10 text-center"
-            style={{
-              border: "3px dashed var(--lm-coral)",
-              borderRadius: "24px",
-              backgroundColor: "var(--lm-accent-dim)",
-            }}
-          >
-            <Upload
-              className="h-10 w-10"
-              style={{ color: "var(--lm-coral)" }}
-              strokeWidth={2}
-            />
-            <div className="flex flex-col gap-1.5">
+          {quickDropTarget ? (
+            <div className="flex w-full max-w-[900px] flex-col items-center gap-7 text-center">
+              <div className="flex flex-col gap-1.5">
+                <span
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "18px",
+                    fontWeight: 900,
+                    letterSpacing: "0.04em",
+                    color: "var(--lm-text-primary)",
+                  }}
+                >
+                  Drop into {quickDropTarget.label}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.16em",
+                    color: "var(--lm-text-tertiary)",
+                  }}
+                >
+                  Pick what it is · saves on release
+                </span>
+              </div>
+              <div className="flex w-full flex-wrap items-stretch justify-center gap-4">
+                {STATICS_TAGS.map(({ tag, label }) => {
+                  const isHovered = hoveredDropTag === tag;
+                  return (
+                    <div
+                      key={tag}
+                      className="pointer-events-auto flex h-[190px] flex-1 basis-[200px] flex-col items-center justify-center gap-2 transition-colors"
+                      style={{
+                        maxWidth: "260px",
+                        border: `2px dashed ${
+                          isHovered
+                            ? "var(--lm-coral)"
+                            : "var(--lm-border-strong)"
+                        }`,
+                        borderRadius: "20px",
+                        backgroundColor: isHovered
+                          ? "var(--lm-accent-dim)"
+                          : "transparent",
+                      }}
+                      onDragEnter={(event) => {
+                        if (!dragHasFiles(event)) return;
+                        event.preventDefault();
+                        setHoveredDropTag(tag);
+                      }}
+                      onDragOver={(event) => {
+                        if (!dragHasFiles(event)) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "copy";
+                        if (hoveredDropTag !== tag) setHoveredDropTag(tag);
+                      }}
+                      onDragLeave={(event) => {
+                        if (!dragHasFiles(event)) return;
+                        setHoveredDropTag((current) =>
+                          current === tag ? null : current,
+                        );
+                      }}
+                      onDrop={(event) => handleBucketDrop(tag, event)}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "var(--lm-font)",
+                          fontSize: "15px",
+                          fontWeight: 900,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.16em",
+                          color: isHovered
+                            ? "var(--lm-coral)"
+                            : "var(--lm-text-primary)",
+                        }}
+                      >
+                        {label}
+                      </span>
+                      {/* A world files into its section pool, so name the layer
+                          it lands in. A collection IS the destination — the
+                          header already said which one. */}
+                      {quickDropTarget.kind === "project" && (
+                        <span
+                          style={{
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.14em",
+                            color: "var(--lm-text-ghost)",
+                          }}
+                        >
+                          {label}s pool
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
               <span
                 style={{
                   fontFamily: "var(--lm-font)",
-                  fontSize: "18px",
-                  fontWeight: 900,
-                  letterSpacing: "0.04em",
-                  color: "var(--lm-text-primary)",
-                }}
-              >
-                Drop to add to your gallery
-              </span>
-              <span
-                style={{
-                  fontFamily: "var(--lm-font)",
-                  fontSize: "11px",
+                  fontSize: "10px",
                   fontWeight: 600,
                   textTransform: "uppercase",
-                  letterSpacing: "0.16em",
-                  color: "var(--lm-text-tertiary)",
+                  letterSpacing: "0.14em",
+                  color: "var(--lm-text-ghost)",
                 }}
               >
-                Images &amp; video · opens the upload form
+                Drop anywhere else for the full form
               </span>
             </div>
-          </div>
+          ) : (
+            <div
+              className="flex flex-col items-center gap-4 px-12 py-10 text-center"
+              style={{
+                border: "3px dashed var(--lm-coral)",
+                borderRadius: "24px",
+                backgroundColor: "var(--lm-accent-dim)",
+              }}
+            >
+              <Upload
+                className="h-10 w-10"
+                style={{ color: "var(--lm-coral)" }}
+                strokeWidth={2}
+              />
+              <div className="flex flex-col gap-1.5">
+                <span
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "18px",
+                    fontWeight: 900,
+                    letterSpacing: "0.04em",
+                    color: "var(--lm-text-primary)",
+                  }}
+                >
+                  Drop to add to your gallery
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.16em",
+                    color: "var(--lm-text-tertiary)",
+                  }}
+                >
+                  Images &amp; video · opens the upload form
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {/* Admin mode badge — fixed top-center, unmistakable indicator */}
@@ -6027,6 +6439,75 @@ export function GalleryDashboard({
                   )}
                 </div>
               )}
+              {/* What the selection IS. Character / Location / Scene are
+                  tags, so this is the only place a batch can be typed at
+                  once — the card menu still does one piece at a time. */}
+              {canManageFoldersInCurrentView &&
+                selectedAssetTypeTags.length > 0 &&
+                STATICS_TAGS.map(({ tag, label }) => {
+                  const count = selectedTypeTagCounts.get(tag) ?? 0;
+                  const total = selectedAssetTypeTags.length;
+                  const all = count === total;
+                  const busy = bulkTagBusy === tag;
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={bulkMembershipAriaState(count, total)}
+                      onClick={() => {
+                        void toggleSelectedTypeTag(tag);
+                      }}
+                      disabled={bulkTagBusy !== null || bulkCurationLoading}
+                      className="lm-btn-ghost inline-flex items-center gap-1.5"
+                      style={{
+                        border: `2px solid ${
+                          count > 0
+                            ? "var(--lm-coral)"
+                            : "var(--lm-border-strong)"
+                        }`,
+                        borderRadius: "10px",
+                        padding: "6px 12px",
+                        fontSize: "11px",
+                        color: all ? "var(--lm-coral)" : undefined,
+                        opacity:
+                          bulkTagBusy !== null || bulkCurationLoading ? 0.55 : 1,
+                        cursor:
+                          bulkTagBusy !== null || bulkCurationLoading
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                      title={
+                        all
+                          ? `Remove the ${tag} tag from all ${total} selected`
+                          : `Tag all ${total} selected as ${tag}`
+                      }
+                      aria-label={`Tag selected assets as ${tag} (${count} of ${total} already tagged)`}
+                    >
+                      {busy ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : all ? (
+                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                      ) : count > 0 ? (
+                        <Minus className="h-3.5 w-3.5" strokeWidth={3} />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" strokeWidth={3} />
+                      )}
+                      {label.toUpperCase()}
+                      {count > 0 && !all && (
+                        <span
+                          style={{
+                            fontSize: "9px",
+                            fontVariantNumeric: "tabular-nums",
+                            color: "var(--lm-text-tertiary)",
+                          }}
+                        >
+                          {count}/{total}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               {canCuratePublic && (
               <>
               <button
