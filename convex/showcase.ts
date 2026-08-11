@@ -833,3 +833,49 @@ export const getPublicAsset = query({
     return hydrated ?? null;
   },
 });
+
+/**
+ * Download payload for one public asset — the authless twin of
+ * `assets.getAssetDownload`, so the download control on a public tile streams
+ * through the same same-origin proxy instead of falling back to opening the
+ * raw R2 URL in a tab.
+ *
+ * Same guard as getPublicAsset: individually `isPublic` and owned by the
+ * showcase owner. Nothing is exposed that the public surface doesn't already
+ * render.
+ */
+export const getPublicAssetDownload = query({
+  args: { assetId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      url: v.string(),
+      fileName: v.optional(v.string()),
+      contentType: v.optional(v.string()),
+      kind: v.union(v.literal("image"), v.literal("video")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const raw = args.assetId.trim();
+    if (!raw) return null;
+
+    let asset: Doc<"assets"> | null = null;
+    try {
+      asset = await ctx.db.get(raw as Id<"assets">);
+    } catch {
+      return null;
+    }
+    if (!asset) return null;
+    if (asset.isPublic !== true) return null;
+    if (!isShowcaseOwner(asset.ownerUserId)) return null;
+
+    const url = await resolveAssetUrl(ctx, asset);
+    if (!url) return null;
+    return {
+      url,
+      fileName: asset.fileName,
+      contentType: asset.contentType,
+      kind: asset.kind,
+    };
+  },
+});

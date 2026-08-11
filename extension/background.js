@@ -1,5 +1,8 @@
 // Save to Gallery — Background service worker
 
+// Capture-time WebP → JPEG re-encoding, shared with the content script.
+importScripts("image-convert.js");
+
 const CANONICAL_API_HOST = "gallery.laniameda.space";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
@@ -246,12 +249,18 @@ async function fetchImageBytes(payload) {
 
   try {
     const blob = await response.blob();
-    const contentType = blob.type || response.headers.get("content-type") || "image/jpeg";
-    const base64 = arrayBufferToBase64(await blob.arrayBuffer());
+    const sourceType = blob.type || response.headers.get("content-type") || "image/jpeg";
+    // WebP/AVIF captures are re-encoded to JPEG here, while the browser still
+    // has the decoder. See image-convert.js.
+    const media = await SaveToGalleryImageConvert.convertCapturedBlob(
+      blob,
+      sourceType,
+    );
+    const base64 = arrayBufferToBase64(await media.blob.arrayBuffer());
     if (!base64) {
       return { ok: false, error: "Empty image payload." };
     }
-    return { ok: true, base64, contentType };
+    return { ok: true, base64, contentType: media.contentType };
   } catch (err) {
     return { ok: false, error: `Decode error: ${err.message}` };
   }

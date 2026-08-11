@@ -40,6 +40,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { buildUploadFormData } from "@/lib/upload-form";
 import { buildIngestKey } from "@/lib/ingest";
+import { triggerAssetDownload } from "@/lib/download-image";
 import { uploadVideoToR2 } from "@/lib/video-ingest";
 import {
   hasAssetDragPayload,
@@ -74,20 +75,6 @@ const byPriority = (a: ReviewAsset, b: ReviewAsset) =>
   (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) ||
   (b.orderPriority ?? 0) - (a.orderPriority ?? 0);
 
-// R2's public domain has no CORS headers, so downloads stream through a
-// same-origin proxy with an attachment header. Owners hit the auth-gated asset
-// route; public board viewers hit the token-gated board proxy (pass `token`).
-const triggerAssetDownload = (assetId: string, token?: string) => {
-  const anchor = document.createElement("a");
-  anchor.href = token
-    ? `/api/board/download?token=${encodeURIComponent(
-        token,
-      )}&assetId=${encodeURIComponent(assetId)}`
-    : `/api/assets/${encodeURIComponent(assetId)}/download`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-};
 
 type CollectionOption = { id: string; name: string; count?: number };
 

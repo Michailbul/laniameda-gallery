@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
-import { downloadAssetFile } from "@/lib/download-image";
+import { triggerAssetDownload } from "@/lib/download-image";
 import { hasMeaningfulPrompt } from "@/lib/prompt";
 import {
   CardCollectionButton,
@@ -233,7 +233,6 @@ export const ImageCard = memo(function ImageCard({
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
   const [previewCycling, setPreviewCycling] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [excluding, setExcluding] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
@@ -318,6 +317,36 @@ export const ImageCard = memo(function ImageCard({
       onLoad?.(image.id);
     }
   };
+
+  // A cached image can finish decoding before React's onLoad is wired up, so
+  // the event never arrives and the tile sits at opacity-0 behind its
+  // placeholder forever. Setting a filter re-mounts every card over bytes the
+  // unfiltered pass already cached, which is exactly when this hits — the grid
+  // read as empty even though all the tiles were there.
+  //
+  // Trust the element instead of the event: check `complete` the moment the
+  // node lands, again next frame, and keep a native `load` listener as the
+  // backstop. Any one of the three settles the fade-in gate.
+  const settleLoaded = useCallback(() => {
+    setIsLoading(false);
+    setHasError(false);
+  }, []);
+  const attachImageNode = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (!node) return;
+      const check = () => {
+        if (node.complete && node.naturalWidth > 0) settleLoaded();
+      };
+      check();
+      const frame = requestAnimationFrame(check);
+      node.addEventListener("load", check);
+      return () => {
+        cancelAnimationFrame(frame);
+        node.removeEventListener("load", check);
+      };
+    },
+    [settleLoaded],
+  );
 
   const handleImageError = () => {
     if (currentSrc !== activePreview.fullSrc) {
@@ -488,26 +517,17 @@ export const ImageCard = memo(function ImageCard({
     onToggleStar?.(image.id, !isStarred);
   };
 
+  // One click, one file: the same-origin proxy sets the attachment header and
+  // hands back a JPEG for stored WebP, so nothing has to be fetched, decoded,
+  // or re-encoded here first.
   const handleDownload = useCallback(
-    async (event: React.MouseEvent<HTMLButtonElement>) => {
+    (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      if (downloading) return;
-      setDownloading(true);
-      try {
-        const ok = await downloadAssetFile({
-          url: image.fullSrc || image.src,
-          baseName: image.id,
-          isImage: !isVideo,
-        });
-        if (ok) {
-          toastFn?.("Downloaded", isVideo ? "FILE SAVED" : "JPG SAVED", "success");
-        }
-      } finally {
-        setDownloading(false);
-      }
+      triggerAssetDownload(image.id);
+      toastFn?.("Downloading", isVideo ? "FILE" : "JPG", "success");
     },
-    [downloading, image.fullSrc, image.src, image.id, isVideo, toastFn],
+    [image.id, isVideo, toastFn],
   );
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -684,6 +704,7 @@ export const ImageCard = memo(function ImageCard({
               style={{
                 transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
               }}
+              ref={attachImageNode}
               onLoad={handleImageLoad}
               onError={handleImageError}
               unoptimized
@@ -878,6 +899,7 @@ export const ImageCard = memo(function ImageCard({
             style={{
               transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
             }}
+            ref={attachImageNode}
             onLoad={handleImageLoad}
             onError={handleImageError}
             unoptimized
@@ -956,19 +978,12 @@ export const ImageCard = memo(function ImageCard({
         {/* One-click download — appears on hover. Images save as JPG. */}
         <button
           type="button"
-          onClick={(event) => {
-            void handleDownload(event);
-          }}
-          disabled={downloading}
-          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed"
+          onClick={handleDownload}
+          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           aria-label={isVideo ? "Download file" : "Download as JPG"}
           title={isVideo ? "Download file" : "Download as JPG"}
         >
-          {downloading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
+          <Download className="h-3.5 w-3.5" />
         </button>
 
         {/* Move/copy to collection — hover control with a floating menu. */}

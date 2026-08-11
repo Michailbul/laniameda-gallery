@@ -24,6 +24,30 @@ function triggerBlobDownload(blob: Blob, name: string) {
   URL.revokeObjectURL(blobUrl);
 }
 
+/**
+ * Same-origin href for an asset's bytes. R2's public domain sends no CORS
+ * headers and ignores the `download` attribute cross-origin, so every download
+ * goes through the proxy: it sets Content-Disposition and re-encodes stored
+ * WebP to JPEG. Board viewers pass their share `token`.
+ */
+export function assetDownloadHref(assetId: string, token?: string) {
+  return token
+    ? `/api/board/download?token=${encodeURIComponent(
+        token,
+      )}&assetId=${encodeURIComponent(assetId)}`
+    : `/api/assets/${encodeURIComponent(assetId)}/download`;
+}
+
+/** One click, one file. No fetch, no blob, no new tab. */
+export function triggerAssetDownload(assetId: string, token?: string) {
+  const anchor = document.createElement("a");
+  anchor.href = assetDownloadHref(assetId, token);
+  anchor.download = "";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 const stripExtension = (name: string) => name.replace(/\.[^./\\]+$/, "");
 
 // Re-encode an image blob to JPEG via canvas. Transparency is flattened onto a
@@ -46,38 +70,6 @@ async function blobToJpeg(blob: Blob, quality = 0.92): Promise<Blob> {
     return out;
   } finally {
     bitmap.close();
-  }
-}
-
-/**
- * One-click download of a single asset. Images are re-encoded to JPEG (matching
- * the bulk export); non-images (video) download as their original bytes. Falls
- * back to opening the URL in a new tab when the fetch is blocked by CORS.
- */
-export async function downloadAssetFile({
-  url,
-  baseName,
-  isImage,
-}: {
-  url: string;
-  baseName: string;
-  isImage?: boolean;
-}): Promise<boolean> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("fetch failed");
-    const raw = await res.blob();
-    const treatAsImage = isImage ?? raw.type.startsWith("image/");
-    if (treatAsImage) {
-      const jpeg = await blobToJpeg(raw);
-      triggerBlobDownload(jpeg, `${stripExtension(baseName)}.jpg`);
-    } else {
-      triggerBlobDownload(raw, baseName);
-    }
-    return true;
-  } catch {
-    window.open(url, "_blank");
-    return false;
   }
 }
 

@@ -499,18 +499,16 @@
       const response = await fetch(url);
       if (!response.ok) return null;
       const blob = await response.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          // Strip the data:...;base64, prefix
-          const dataUrl = reader.result;
-          const base64 = dataUrl.split(",")[1];
-          const contentType = blob.type || "image/webp";
-          resolve({ base64, contentType });
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
+      // Midjourney serves WebP. Re-encode to JPEG before the bytes leave the
+      // browser — it is the only place with a WebP decoder. See
+      // image-convert.js.
+      const media = await SaveToGalleryImageConvert.convertCapturedBlob(
+        blob,
+        blob.type || "image/webp",
+      );
+      const base64 = await SaveToGalleryImageConvert.base64FromBlob(media.blob);
+      if (!base64) return null;
+      return { base64, contentType: media.contentType };
     } catch {
       return null;
     }

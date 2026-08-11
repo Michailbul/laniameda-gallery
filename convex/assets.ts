@@ -406,6 +406,13 @@ export const collectAssetsForFolder = async (
  *
  * Nesting is capped at one level (see folders.assertValidParent), so this is
  * a single extra fan-out, never a recursive walk.
+ *
+ * A child PROJECT is the exception to the folder walk: a project holds no
+ * membership links of its own, its assets live in the member collections it
+ * joins through `projectCollections` ("Dari — Locations", each beat), and those
+ * are not child folders. Walking children alone therefore skipped a world's
+ * whole project pool — Dear Annete's 27 Dari locations were invisible under the
+ * world's Locations filter even though they carry the tag.
  */
 export const collectAssetsForFolderTree = async (
   ctx: QueryCtx,
@@ -423,6 +430,12 @@ export const collectAssetsForFolderTree = async (
   for (const id of folderIds) {
     collected.push(
       ...(await collectAssetsForFolder(ctx, ownerUserIds, id, limit)),
+    );
+  }
+  for (const child of children) {
+    if (child.kind !== "project") continue;
+    collected.push(
+      ...(await collectAssetsForProject(ctx, ownerUserIds, child._id, limit)),
     );
   }
   return dedupeAssetIds(collected)
@@ -1478,7 +1491,17 @@ const resolveScopeFolderIds = async (
         .query("folders")
         .withIndex("by_parent", (q) => q.eq("parentFolderId", args.folderId!))
         .collect();
-      for (const child of children) scoped.add(child._id as string);
+      for (const child of children) {
+        scoped.add(child._id as string);
+        // Same reason as collectAssetsForFolderTree: a child project's assets
+        // sit in its projectCollections members, not in the project folder.
+        if (child.kind !== "project") continue;
+        const projectLinks = await ctx.db
+          .query("projectCollections")
+          .withIndex("by_project", (q) => q.eq("projectId", child._id))
+          .collect();
+        for (const link of projectLinks) scoped.add(link.folderId as string);
+      }
     }
     return scoped;
   }
@@ -3073,6 +3096,61 @@ export const setAssetTagState = mutation({
       args.present,
     );
     return { assetId, present: args.present };
+  },
+});
+
+// Bulk twin of setAssetTagState: stamp one statics tag (character / location /
+// scene) across a whole selection. Backs the gallery's bulk toolbar — before
+// this the only way to type a piece was one asset at a time in the detail
+// panel. Idempotent per asset; missing ids are skipped, not fatal.
+const BULK_TAG_MAX = 500;
+
+export const bulkSetAssetTagState = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetIds: v.array(v.id("assets")),
+    tagName: v.string(),
+    present: v.boolean(),
+  },
+  returns: v.object({
+    updatedCount: v.number(),
+    skippedCount: v.number(),
+    tagName: v.string(),
+    present: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const tagName = args.tagName.trim();
+    if (!tagName) {
+      throw new ConvexError("Tag name is required.");
+    }
+    const uniqueAssetIds = Array.from(new Set(args.assetIds));
+    if (uniqueAssetIds.length === 0) {
+      throw new ConvexError("At least one assetId is required.");
+    }
+    if (uniqueAssetIds.length > BULK_TAG_MAX) {
+      throw new ConvexError(
+        `Bulk tagging is limited to ${BULK_TAG_MAX} assets per request.`,
+      );
+    }
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+    for (const assetId of uniqueAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        skippedCount += 1;
+        continue;
+      }
+      await setTagPresenceOnAsset(
+        ctx,
+        { ownerUserId: args.ownerUserId, assetId },
+        tagName,
+        args.present,
+      );
+      updatedCount += 1;
+    }
+
+    return { updatedCount, skippedCount, tagName, present: args.present };
   },
 });
 
