@@ -2,11 +2,15 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-07-27
+Last updated: 2026-08-12
 
 ---
 
 ## ✔ Shipped
+
+### 2026-08-12
+- Parent collection views now offer `Expand all` / `Show folders`, letting the owner switch between child stack cards and the collection's complete flat asset view
+- Parent collection views now expose an inline `New folder` action for arbitrary user-defined child folders alongside Characters, Locations, Scenes, and Inspirations
 
 ### 2026-07-27
 - Standardized nested collection pillars now render in the fixed order `Characters` → `Locations` → `Scenes` → `Inspirations`; categorized members collapse behind their stack cards in an unfiltered parent view

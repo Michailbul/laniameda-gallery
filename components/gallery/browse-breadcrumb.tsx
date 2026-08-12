@@ -25,7 +25,7 @@ export function BrowseBreadcrumb({
   return (
     <nav
       aria-label="Gallery location"
-      className="flex items-center gap-1 px-4 pb-1 pt-2 md:px-6"
+      className="flex flex-wrap items-center gap-x-1 gap-y-2 px-4 pb-1 pt-2 md:px-6"
       style={{ fontFamily: "var(--lm-font)" }}
     >
       {segments.map((segment, i) => {
@@ -74,7 +74,9 @@ export function BrowseBreadcrumb({
           </span>
         );
       })}
-      {trailing && <span className="ml-auto flex items-center">{trailing}</span>}
+      {trailing && (
+        <span className="ml-auto flex min-w-0 items-center pl-3">{trailing}</span>
+      )}
     </nav>
   );
 }

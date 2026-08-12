@@ -59,6 +59,7 @@ import {
   BrowseBreadcrumb,
   type BreadcrumbSegment,
 } from "./browse-breadcrumb";
+import { CollectionViewActions } from "./collection-view-actions";
 import { ProjectSectionTabs } from "./project-section-tabs";
 import { FeaturedPanel } from "./featured-panel";
 import {
@@ -431,6 +432,12 @@ export function GalleryDashboard({
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
+    string | null
+  >(null);
+  // The root collection whose child stacks have been flattened into assets.
+  // Keying the preference by id means navigating elsewhere resets naturally,
+  // while returning to the same collection keeps the user's chosen view.
+  const [expandedCollectionId, setExpandedCollectionId] = useState<
     string | null
   >(null);
   const [selectedModelName, setSelectedModelName] = useState<
@@ -1850,6 +1857,32 @@ export function GalleryDashboard({
   const browsingWorldFolder =
     Boolean(effectiveSelectedFolderId) &&
     childFolderParentIds.has(effectiveSelectedFolderId as string);
+  const activeCollectionFolder = effectiveSelectedFolderId
+    ? collectionFoldersWithCounts.find(
+        (folder) => folder._id === effectiveSelectedFolderId,
+      )
+    : undefined;
+  const activeChildCollectionCount = activeCollectionFolder
+    ? collectionFoldersWithCounts.filter(
+        (folder) => folder.parentFolderId === activeCollectionFolder._id,
+      ).length
+    : 0;
+  const collectionAssetsExpanded =
+    browsingWorldFolder &&
+    !activeSmartCollectionFilter &&
+    expandedCollectionId === effectiveSelectedFolderId;
+  const collectionStackViewAvailable =
+    Boolean(effectiveSelectedFolderId) &&
+    !activeSmartCollectionFilter &&
+    !browseProject &&
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly &&
+    !menuFilterActive &&
+    !semanticMode &&
+    !assetSearchQuery.trim();
 
   const folderPaginationActive =
     !browsingWorldFolder &&
@@ -1936,17 +1969,7 @@ export function GalleryDashboard({
   // beats (e.g. a collection mirroring a project's pool): those beats lead
   // the grid as stacks and their members collapse out of the flat tiles.
   const showCollectionBeatStacks =
-    Boolean(effectiveSelectedFolderId) &&
-    !activeSmartCollectionFilter &&
-    !browseProject &&
-    galleryScope === "mine" &&
-    viewMode === "grid" &&
-    !selectedModelName &&
-    !mediaKind &&
-    !likedOnly &&
-    !menuFilterActive &&
-    !semanticMode &&
-    !assetSearchQuery.trim();
+    collectionStackViewAvailable && !collectionAssetsExpanded;
 
   const showChildCollectionStacks = showCollectionBeatStacks;
 
@@ -1983,7 +2006,10 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          limit: 600,
+          // A flattened world is explicitly an "all assets" view. The backend
+          // caps this query at 2,000, which covers the full current vault and
+          // avoids preserving the overview's older 600-item ceiling.
+          limit: collectionAssetsExpanded ? 2000 : 600,
         }
       : "skip",
   );
@@ -3957,6 +3983,28 @@ export function GalleryDashboard({
     ownerUserId,
   ]);
 
+  const createFolderInActiveCollection = useCallback(
+    async (name: string): Promise<boolean> => {
+      if (!activeCollectionFolder || activeCollectionFolder.parentFolderId) {
+        return false;
+      }
+      const folderId = await createSubCollection(
+        activeCollectionFolder._id,
+        name,
+      );
+      if (!folderId) return false;
+
+      // An empty folder has no asset tile in the flattened view, so return to
+      // the overview where its new stack is immediately visible.
+      setExpandedCollectionId(null);
+      setMoveStatus({
+        text: `Folder “${name.trim()}” added to ${activeCollectionFolder.name}`,
+      });
+      return true;
+    },
+    [activeCollectionFolder, createSubCollection],
+  );
+
   // Navigation helpers
   const currentImageIndex = useMemo(() => {
     if (!selectedImage) return -1;
@@ -5520,6 +5568,26 @@ export function GalleryDashboard({
                               : "Upload thumbnail"}
                         </button>
                       </span>
+                    ) : activeCollectionFolder &&
+                      !activeCollectionFolder.parentFolderId &&
+                      !activeSmartCollectionFilter ? (
+                      <CollectionViewActions
+                        key={activeCollectionFolder._id}
+                        collectionName={activeCollectionFolder.name}
+                        childCount={
+                          collectionStackViewAvailable
+                            ? activeChildCollectionCount
+                            : 0
+                        }
+                        expanded={collectionAssetsExpanded}
+                        canCreateFolder={canManageFoldersInCurrentView}
+                        onExpandedChange={(expanded) =>
+                          setExpandedCollectionId(
+                            expanded ? activeCollectionFolder._id : null,
+                          )
+                        }
+                        onCreateFolder={createFolderInActiveCollection}
+                      />
                     ) : undefined
                   }
                 />
