@@ -27,8 +27,14 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    [hidden] { display: none !important; }
+
     body {
-      width: 340px;
+      width: 100%;
+      min-width: 320px;
+      max-width: 480px;
+      min-height: 100vh;
+      margin: 0 auto;
       background: var(--paper);
       color: var(--ink);
       font-family: var(--sans);
@@ -74,6 +80,41 @@
       letter-spacing: 0.02em;
     }
 
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin: 12px 20px 0;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface);
+    }
+
+    .mode-tab {
+      padding: 9px 10px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text-3);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms, color 120ms, box-shadow 120ms;
+    }
+
+    .mode-tab[aria-selected="true"] {
+      background: white;
+      color: var(--ink);
+      box-shadow: 0 2px 8px rgba(32, 23, 16, 0.07);
+    }
+
+    .mode-tab:focus-visible {
+      outline: 2px solid var(--coral);
+      outline-offset: 1px;
+    }
+
     /* ── Delimiter ── */
 
     .sep {
@@ -96,6 +137,369 @@
       letter-spacing: 0.04em;
       margin-bottom: 10px;
     }
+
+    /* ── Drop desk ── */
+
+    .drop-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .drop-heading .section-label { margin-bottom: 0; }
+
+    .queue-count {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    .collection-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .upload-field-label {
+      display: block;
+      margin: 10px 0 5px;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-3);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .selected-asset {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 11px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid color-mix(in srgb, var(--coral) 45%, var(--border));
+      border-radius: 12px;
+      background: white;
+    }
+
+    .selected-asset__preview {
+      width: 72px;
+      height: 88px;
+      border-radius: 8px;
+      background: var(--surface);
+      object-fit: cover;
+    }
+
+    .selected-asset__body {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .selected-asset__eyebrow {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--coral);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .selected-asset__title {
+      margin-top: 4px;
+      font-family: Georgia, serif;
+      font-size: 16px;
+      font-style: italic;
+    }
+
+    .selected-asset__hint {
+      margin: 4px 0 9px;
+      color: var(--text-3);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .selected-asset__hint kbd {
+      padding: 1px 4px;
+      border: 1px solid var(--border-focus);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text-2);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .selected-asset .primary-btn { padding: 8px 12px; }
+
+    .selected-empty {
+      margin-top: 12px;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text-3);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .local-divider {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 15px 0 2px;
+      color: var(--text-3);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .local-divider::before,
+    .local-divider::after {
+      content: "";
+      height: 1px;
+      flex: 1;
+      background: var(--border);
+    }
+
+    .mini-btn {
+      padding: 9px 10px;
+      border: 1px solid var(--border-focus);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .mini-btn:hover { background: var(--surface); }
+    .mini-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+
+    .new-collection-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7px;
+      margin-top: 7px;
+    }
+
+    .drop-zone {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 150px;
+      margin-top: 10px;
+      padding: 22px 18px;
+      overflow: hidden;
+      border: 1.5px dashed color-mix(in srgb, var(--coral) 55%, var(--border-focus));
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 85% 12%, rgba(255, 122, 100, 0.13), transparent 34%),
+        linear-gradient(145deg, white, var(--paper));
+      cursor: pointer;
+      transition: border-color 150ms, background 150ms, transform 150ms;
+    }
+
+    .drop-zone::before {
+      content: "";
+      position: absolute;
+      inset: 9px;
+      border: 1px solid rgba(32, 23, 16, 0.04);
+      border-radius: 10px;
+      pointer-events: none;
+    }
+
+    .drop-zone:hover,
+    .drop-zone:focus-visible,
+    .drop-zone[data-dragging="true"] {
+      outline: none;
+      border-color: var(--coral);
+      background:
+        radial-gradient(circle at 78% 8%, rgba(255, 122, 100, 0.22), transparent 38%),
+        linear-gradient(145deg, white, #fff4ee);
+    }
+
+    .drop-zone[data-dragging="true"] { transform: scale(0.992); }
+
+    .drop-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 10px;
+      border-radius: 50%;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: Georgia, serif;
+      font-size: 22px;
+      font-style: italic;
+      line-height: 1;
+      box-shadow: 0 8px 22px rgba(32, 23, 16, 0.13);
+    }
+
+    .drop-title {
+      position: relative;
+      font-family: Georgia, serif;
+      font-size: 18px;
+      font-style: italic;
+      color: var(--ink);
+    }
+
+    .drop-copy {
+      position: relative;
+      max-width: 260px;
+      margin-top: 5px;
+      color: var(--text-3);
+      font-size: 11px;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    .drop-actions {
+      position: relative;
+      display: flex;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .queue-shell {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: white;
+      overflow: hidden;
+    }
+
+    .queue-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .queue-topbar span {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    .queue-clear {
+      border: 0;
+      background: transparent;
+      color: var(--text-2);
+      font-family: var(--mono);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .queue-list {
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .queue-item {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .queue-item:last-child { border-bottom: 0; }
+
+    .queue-thumb {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      overflow: hidden;
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text-3);
+      font-family: var(--mono);
+      font-size: 8px;
+    }
+
+    .queue-thumb img,
+    .queue-thumb video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .queue-name {
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .queue-meta {
+      margin-top: 2px;
+      overflow: hidden;
+      color: var(--text-3);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .queue-progress {
+      display: block;
+      width: 100%;
+      height: 3px;
+      margin-top: 6px;
+      border: 0;
+      border-radius: 999px;
+      overflow: hidden;
+      accent-color: var(--coral);
+    }
+
+    .queue-remove {
+      width: 25px;
+      height: 25px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-3);
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    .queue-remove:hover { background: var(--surface); color: var(--ink); }
+    .queue-item[data-status="saved"] .queue-name { color: var(--c-dump); }
+    .queue-item[data-status="error"] .queue-name { color: var(--c-cars); }
+
+    .upload-footer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .upload-footer .primary-btn { padding-inline: 14px; }
+
+    .upload-summary {
+      min-height: 16px;
+      margin-top: 7px;
+      color: var(--text-3);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .upload-summary[data-tone="success"] { color: var(--c-dump); }
+    .upload-summary[data-tone="error"] { color: var(--c-cars); }
 
     /* ── Inputs ── */
 
@@ -467,12 +871,118 @@
         <span class="logo-dot"></span>
         <span>meda</span>
       </div>
-      <span class="badge">clipper v1</span>
+      <span id="modeBadge" class="badge">add mode · v0.10</span>
     </div>
 
     <div class="sep"></div>
 
-    <div class="section">
+    <div class="mode-switch" role="tablist" aria-label="Extension mode">
+      <button
+        id="addModeTab"
+        class="mode-tab"
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="addModePanel"
+      >Add to gallery</button>
+      <button
+        id="bookmarkModeTab"
+        class="mode-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="bookmarkModePanel"
+      >Bookmark</button>
+    </div>
+
+    <section id="addModePanel" class="section" role="tabpanel" aria-labelledby="addModeTab">
+      <div class="drop-heading">
+        <p id="dropDeskLabel" class="section-label">drop desk</p>
+        <span id="queueCount" class="queue-count">empty</span>
+      </div>
+
+      <label class="upload-field-label" for="uploadCollection">collection · optional</label>
+      <div class="collection-toolbar">
+        <select id="uploadCollection" class="field-select" aria-label="Upload collection">
+          <option value="">Loading collections…</option>
+        </select>
+        <button id="newCollectionToggle" class="mini-btn" type="button">New</button>
+      </div>
+      <div id="newCollectionRow" class="new-collection-row" hidden>
+        <input
+          id="newCollectionName"
+          class="field-input"
+          type="text"
+          maxlength="120"
+          placeholder="Collection name"
+          spellcheck="false"
+        >
+        <button id="newCollectionSave" class="mini-btn" type="button">Create</button>
+      </div>
+
+      <label class="upload-field-label" for="uploadTags">descriptive tags · optional</label>
+      <input
+        id="uploadTags"
+        class="field-input"
+        type="text"
+        placeholder="cinematic, live action"
+        spellcheck="false"
+      >
+
+      <div id="midjourneySelection" class="selected-asset" hidden>
+        <img id="midjourneyPreview" class="selected-asset__preview" alt="Selected Midjourney image">
+        <div class="selected-asset__body">
+          <p class="selected-asset__eyebrow">selected on Midjourney</p>
+          <p id="midjourneySelectionTitle" class="selected-asset__title">Current image</p>
+          <p class="selected-asset__hint">
+            Original PNG only. Shortcut: <kbd>⌘⇧L</kbd>
+          </p>
+          <button id="addSelectedAsset" class="primary-btn" type="button">Add</button>
+          <p id="addSelectedStatus" class="status-msg" aria-live="polite"></p>
+        </div>
+      </div>
+      <p id="midjourneySelectionEmpty" class="selected-empty" hidden></p>
+
+      <p class="local-divider">or add local assets</p>
+
+      <div
+        id="dropZone"
+        class="drop-zone"
+        role="button"
+        tabindex="0"
+        aria-describedby="dropHelp"
+      >
+        <span class="drop-mark" aria-hidden="true">↓</span>
+        <p class="drop-title">Put it in the vault</p>
+        <p id="dropHelp" class="drop-copy">
+          Drop images, videos, or an entire folder. Collection and tags apply to the whole batch — both can stay empty.
+        </p>
+        <div class="drop-actions">
+          <button id="chooseFiles" class="mini-btn" type="button">Choose files</button>
+          <button id="chooseFolder" class="mini-btn" type="button">Choose folder</button>
+        </div>
+      </div>
+      <input id="fileInput" type="file" accept="image/*,video/*" multiple hidden>
+      <input id="folderInput" type="file" accept="image/*,video/*" webkitdirectory directory multiple hidden>
+
+      <div id="queueShell" class="queue-shell" hidden>
+        <div class="queue-topbar">
+          <span>ready to upload</span>
+          <button id="clearQueue" class="queue-clear" type="button">Clear</button>
+        </div>
+        <div id="queueList" class="queue-list"></div>
+      </div>
+
+      <div class="upload-footer">
+        <button id="uploadQueue" class="primary-btn" type="button" disabled>Upload assets</button>
+        <button id="retryFailed" class="mini-btn" type="button" hidden>Retry</button>
+      </div>
+      <p id="uploadStatus" class="upload-summary" aria-live="polite"></p>
+    </section>
+
+    <div class="sep"></div>
+
+    <div id="bookmarkModePanel" class="section" role="tabpanel" aria-labelledby="bookmarkModeTab" hidden>
       <p class="section-label">bookmark this page</p>
       <div class="field-stack">
         <div id="bookmarkUrl" class="field-readonly">Loading current tab…</div>
@@ -550,11 +1060,11 @@
     <footer class="how">
       <div class="how-step">
         <span class="how-num">01</span>
-        <span class="how-text">Hover image, hit save</span>
+        <span class="how-text">Drop local assets</span>
       </div>
       <div class="how-step">
         <span class="how-num">02</span>
-        <span class="how-text">Or bookmark whole page</span>
+        <span class="how-text">Save from the web</span>
       </div>
       <div class="how-step">
         <span class="how-num">03</span>
@@ -563,6 +1073,7 @@
     </footer>
   </main>
 
+  <script src="drop-upload.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

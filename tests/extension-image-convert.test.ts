@@ -2,9 +2,12 @@ import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
 type ImageConvertApi = {
   shouldConvertToJpeg: (contentType?: string) => boolean;
+  shouldConvertToPng: (contentType?: string) => boolean;
+  hasPngSignature: (blob: Blob) => Promise<boolean>;
   convertCapturedBlob: (
     blob: Blob,
     contentType?: string,
+    preferredContentType?: string,
   ) => Promise<{ blob: Blob; contentType: string; converted: boolean }>;
   base64FromBlob: (blob: Blob) => Promise<string>;
 };
@@ -25,7 +28,7 @@ type Stubbed = typeof globalThis & {
   OffscreenCanvas?: unknown;
 };
 
-const stubCanvasPipeline = (jpegBytes: Uint8Array) => {
+const stubCanvasPipeline = (encodedBytes: Uint8Array) => {
   const scope = globalThis as Stubbed;
   scope.createImageBitmap = async () => ({ width: 4, height: 4, close() {} });
   scope.OffscreenCanvas = class {
@@ -39,7 +42,7 @@ const stubCanvasPipeline = (jpegBytes: Uint8Array) => {
       return { fillStyle: "", fillRect() {}, drawImage() {} };
     }
     async convertToBlob({ type }: { type: string }) {
-      return new Blob([jpegBytes], { type });
+      return new Blob([encodedBytes], { type });
     }
   };
 };
@@ -67,6 +70,36 @@ describe("shouldConvertToJpeg", () => {
   });
 });
 
+describe("shouldConvertToPng", () => {
+  test("converts browser raster formats but leaves PNG and non-raster media alone", () => {
+    const { shouldConvertToPng } = getApi();
+
+    expect(shouldConvertToPng("image/webp")).toBe(true);
+    expect(shouldConvertToPng("image/jpeg")).toBe(true);
+    expect(shouldConvertToPng("image/avif")).toBe(true);
+
+    expect(shouldConvertToPng("image/png")).toBe(false);
+    expect(shouldConvertToPng("image/gif")).toBe(false);
+    expect(shouldConvertToPng("image/svg+xml")).toBe(false);
+    expect(shouldConvertToPng("video/mp4")).toBe(false);
+  });
+});
+
+describe("hasPngSignature", () => {
+  test("accepts real PNG bytes and rejects a WebP labeled as PNG", async () => {
+    const { hasPngSignature } = getApi();
+    const png = new Blob([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+    ], { type: "image/png" });
+    const mislabeledWebp = new Blob([
+      new TextEncoder().encode("RIFF1234WEBP"),
+    ], { type: "image/png" });
+
+    expect(await hasPngSignature(png)).toBe(true);
+    expect(await hasPngSignature(mislabeledWebp)).toBe(false);
+  });
+});
+
 describe("convertCapturedBlob", () => {
   test("re-encodes a WebP capture to JPEG", async () => {
     const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x01]);
@@ -80,6 +113,39 @@ describe("convertCapturedBlob", () => {
     expect(result.converted).toBe(true);
     expect(result.contentType).toBe("image/jpeg");
     expect(new Uint8Array(await result.blob.arrayBuffer())).toEqual(jpegBytes);
+  });
+
+  test("re-encodes Midjourney WebP and JPEG captures to PNG", async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d]);
+    stubCanvasPipeline(pngBytes);
+
+    for (const contentType of ["image/webp", "image/jpeg"]) {
+      const result = await getApi().convertCapturedBlob(
+        new Blob([new Uint8Array([1, 2, 3])], { type: contentType }),
+        contentType,
+        "image/png",
+      );
+
+      expect(result.converted).toBe(true);
+      expect(result.contentType).toBe("image/png");
+      expect(new Uint8Array(await result.blob.arrayBuffer())).toEqual(pngBytes);
+    }
+  });
+
+  test("leaves an existing Midjourney PNG capture untouched", async () => {
+    const original = new Blob([new Uint8Array([7, 8, 9])], {
+      type: "image/png",
+    });
+
+    const result = await getApi().convertCapturedBlob(
+      original,
+      "image/png",
+      "image/png",
+    );
+
+    expect(result.converted).toBe(false);
+    expect(result.contentType).toBe("image/png");
+    expect(result.blob).toBe(original);
   });
 
   test("leaves a JPEG capture untouched", async () => {

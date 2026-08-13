@@ -93,6 +93,91 @@ describe("ingest management backend", () => {
     expect(updatedAsset?.ingestSource).toBe("agent");
   });
 
+  test("repeated media saves update tags and collection membership without another asset", async () => {
+    const firstFolder = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "First collection",
+    });
+    const secondFolder = await createFolder._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "Second collection",
+    });
+    const characterTagId = await harness.db.insert("tags", {
+      name: "character",
+      normalized: "character",
+      canonicalKey: "character",
+      usageCount: 0,
+    });
+    const locationTagId = await harness.db.insert("tags", {
+      name: "location",
+      normalized: "location",
+      canonicalKey: "location",
+      usageCount: 0,
+    });
+    const sceneTagId = await harness.db.insert("tags", {
+      name: "scene",
+      normalized: "scene",
+      canonicalKey: "scene",
+      usageCount: 0,
+    });
+
+    const first = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [characterTagId],
+      folderId: firstFolder.folderId,
+      ingestKey: "extension-upload:same-bytes",
+      contentHash: "same-bytes",
+    });
+    const retried = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [locationTagId],
+      folderId: secondFolder.folderId,
+      ingestKey: "extension-upload:same-bytes",
+      contentHash: "same-bytes",
+    });
+    const renamedTwin = await createAsset._handler(harness.ctx as never, {
+      ownerUserId: "user-1",
+      kind: "image",
+      tagIds: [sceneTagId],
+      ingestKey: "extension-upload:renamed-copy",
+      contentHash: "same-bytes",
+    });
+
+    expect(first.created).toBe(true);
+    expect(retried).toEqual({
+      assetId: first.assetId,
+      created: false,
+      duplicate: true,
+    });
+    expect(renamedTwin).toEqual({
+      assetId: first.assetId,
+      created: false,
+      duplicate: true,
+    });
+    expect(harness.db.getTableDocs("assets")).toHaveLength(1);
+
+    const stored = await harness.db.get<{
+      tagIds: string[];
+      folderId?: string;
+    }>(first.assetId);
+    expect(stored?.tagIds).toEqual([
+      characterTagId,
+      locationTagId,
+      sceneTagId,
+    ]);
+    // The original primary stays stable while the repeated save gains the new
+    // collection through the join table.
+    expect(stored?.folderId).toBe(firstFolder.folderId);
+    expect(
+      harness.db
+        .getTableDocs("assetFolders")
+        .map((link) => link.folderId)
+        .sort(),
+    ).toEqual([firstFolder.folderId, secondFolder.folderId].sort());
+  });
+
   test("adminUpdateAsset edits prompt, description, tags, and model metadata", async () => {
     const previousSecret = process.env.CURATION_ADMIN_SECRET;
     const previousAdmins = process.env.CURATION_ADMIN_USER_IDS;

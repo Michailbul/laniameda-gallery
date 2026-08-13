@@ -124,6 +124,17 @@ const SECTION_OPTIONS = [
   { value: "beats", label: "Beats — one beat per asset" },
 ] as const;
 
+const BATCH_TYPE_TAGS = [
+  { value: "character", label: "Character" },
+  { value: "location", label: "Location" },
+  { value: "scene", label: "Scene" },
+  { value: "inspiration", label: "Inspiration" },
+] as const;
+
+const BATCH_TYPE_TAG_KEYS = new Set<string>(
+  BATCH_TYPE_TAGS.map((option) => option.value),
+);
+
 type SectionValue = (typeof SECTION_OPTIONS)[number]["value"];
 
 const chunk = <T,>(items: T[], size: number) => {
@@ -166,6 +177,13 @@ export function BulkUploadPanel({
   const [modelNameSelection, setModelNameSelection] = useState(NO_VALUE);
   const [modelNameCustom, setModelNameCustom] = useState("");
   const [isMetaOpen, setIsMetaOpen] = useState(false);
+
+  // A half-typed final tag still counts when Upload is clicked; requiring an
+  // extra Enter before a long batch starts is an easy way to lose metadata.
+  const tagsForUpload = useMemo(
+    () => parseTagNames([...tags, ...tagInput.split(",")]),
+    [tagInput, tags],
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -385,10 +403,20 @@ export function BulkUploadPanel({
 
   const toggleDestination = (folderId: string) => {
     setFolderIds((previous) =>
-      previous.includes(folderId)
-        ? previous.filter((id) => id !== folderId)
-        : [...previous, folderId],
+      previous.includes(folderId) ? [] : [folderId],
     );
+  };
+
+  const toggleBatchTypeTag = (tagName: string) => {
+    setTags((previous) => {
+      const isSelected = previous.some(
+        (tag) => tag.toLowerCase() === tagName,
+      );
+      const withoutTypeTag = previous.filter(
+        (tag) => !BATCH_TYPE_TAG_KEYS.has(tag.toLowerCase()),
+      );
+      return isSelected ? withoutTypeTag : [...withoutTypeTag, tagName];
+    });
   };
 
   const handleCreateFolder = async (rawName: string) => {
@@ -412,11 +440,7 @@ export function BulkUploadPanel({
         ...previous.filter((folder) => folder._id !== result.folder._id),
         { _id: result.folder._id, name },
       ]);
-      setFolderIds((previous) =>
-        previous.includes(result.folder._id)
-          ? previous
-          : [...previous, result.folder._id],
-      );
+      setFolderIds([result.folder._id]);
       setStatus({
         type: "success",
         message: result.created ? "Collection created." : "Using existing collection.",
@@ -454,7 +478,7 @@ export function BulkUploadPanel({
       const formData = buildUploadFormData({
         promptText: sharedPrompt,
         folderId: destinationFolderId,
-        tags,
+        tags: tagsForUpload,
         file: viaR2 ? null : item.file,
         modelName: resolvedModelName,
         generationType: isVideo ? "video_gen" : "image_gen",
@@ -509,7 +533,7 @@ export function BulkUploadPanel({
         duplicate: Boolean(body?.result?.duplicateMedia),
       };
     },
-    [modelNameCustom, modelNameSelection, sharedPrompt, tags, uploadToR2],
+    [modelNameCustom, modelNameSelection, sharedPrompt, tagsForUpload, uploadToR2],
   );
 
   /** File the finished batch into a project — Inbox, a section pool, or beats. */
@@ -622,9 +646,9 @@ export function BulkUploadPanel({
     setIsUploading(true);
     setStatus(null);
 
-    // The first collection rides along on each ingest; any others attach after,
-    // so a batch can land in several collections at once.
-    const [destinationFolderId, ...extraFolderIds] = folderIds;
+    // A folder batch intentionally targets zero or one collection. Existing
+    // duplicates keep their older memberships and gain this one additively.
+    const [destinationFolderId] = folderIds;
     const projectId = projectSelection === NO_VALUE ? undefined : projectSelection;
     const section =
       sectionSelection === NO_VALUE ? undefined : (sectionSelection as SectionValue);
@@ -684,20 +708,6 @@ export function BulkUploadPanel({
         );
       }
       if (failed > 0) notes.push(`${failed} failed`);
-
-      if (extraFolderIds.length > 0 && saved.length > 0 && ownerUserId) {
-        try {
-          for (const { assetId } of saved) {
-            await addAssetFolders({
-              ownerUserId,
-              assetId: assetId as Id<"assets">,
-              folderIds: extraFolderIds as Id<"folders">[],
-            });
-          }
-        } catch {
-          notes.push("couldn’t file into every collection");
-        }
-      }
 
       if (projectId && saved.length > 0) {
         try {
@@ -1229,7 +1239,7 @@ export function BulkUploadPanel({
                     )}
                   >
                     {folderIds.length > 0
-                      ? `${folderIds.length} picked`
+                      ? "1 picked"
                       : "Uncategorized"}
                   </span>
                 </div>
@@ -1242,6 +1252,9 @@ export function BulkUploadPanel({
                   creating={creatingFolder}
                   disabled={isUploading}
                 />
+                <p className="text-[11px] leading-snug text-[var(--lm-text-ghost)]">
+                  Optional. Pick one collection, or leave the batch uncategorized.
+                </p>
               </div>
 
               <div className="flex flex-col gap-2.5">
@@ -1387,10 +1400,43 @@ export function BulkUploadPanel({
 
             {/* Tags */}
             <section className="flex flex-col gap-2.5">
-              <SectionRule>Tags</SectionRule>
+              <SectionRule
+                trailing={
+                  <span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>
+                    Optional · applies to all
+                  </span>
+                }
+              >
+                Tags
+              </SectionRule>
+              <div className="flex flex-wrap gap-2 pb-1">
+                {BATCH_TYPE_TAGS.map((option) => {
+                  const selected = tags.some(
+                    (tag) => tag.toLowerCase() === option.value,
+                  );
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleBatchTypeTag(option.value)}
+                      disabled={isUploading}
+                      className={cn(
+                        mono,
+                        "rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors disabled:opacity-40",
+                        selected
+                          ? "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)] text-[var(--lm-coral)]"
+                          : "border-[var(--lm-border)] text-[var(--lm-text-tertiary)] hover:border-[var(--lm-border-strong)] hover:text-[var(--lm-text-primary)]",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
               <Input
                 id="bulk-tag-input"
-                placeholder="Applied to every asset — Enter to add"
+                placeholder="Other tags for every asset — Enter to add"
                 value={tagInput}
                 onChange={(event) => setTagInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -1401,6 +1447,11 @@ export function BulkUploadPanel({
                 }}
                 className={underlineField}
               />
+              {tagsForUpload.length === 0 && (
+                <p className="text-[11px] leading-snug text-[var(--lm-text-ghost)]">
+                  Leave this empty to upload without adding tags.
+                </p>
+              )}
               {tags.length > 0 && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
                   {tags.map((tag) => (

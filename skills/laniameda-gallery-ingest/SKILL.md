@@ -205,7 +205,11 @@ Collections are owner-scoped groupings stored in `folders`; "collection" is the 
 - Use raw IDs returned by `list_collections` / `create_collection`, never `folders:<id>` typed tokens.
 - Create or reuse collections with `create_collection`, which is idempotent by normalized name.
 - Leave assets uncategorized when no collection is requested or confidently resolved.
+- Tags and collections are both optional. An asset save with neither is valid and remains uncategorized.
 - Treat `folderId` as the primary/backward-compatible alias. Treat `folderIds` as the current asset collection contract.
+- A repeated asset create (same ingest key or identical content hash) reuses the
+  original asset row and additively merges newly requested tags and collection
+  membership. It never creates a second asset or removes earlier organization.
 
 The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
 
@@ -539,7 +543,10 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
 - Reusing one `promptIngestKey` across multiple media ingests still creates or updates an `assetPack` automatically, but **packs no longer have a browse surface** — the Packs view became the Workflows view. Packs are now an internal grouping only; to give a multi-media prompt a card the user can open, save it as a workflow.
 - Keep `ownerUserId` env-driven; callers never pass it directly.
-- `ingestKey` is only an idempotency key for `create`; it does not patch existing records.
+- `ingestKey` is only an idempotency key for `create`; it is not a general
+  metadata patch key. A repeated create only performs the safe additive
+  tag/collection merge described above. Use `update` for replacements or other
+  metadata changes.
 - For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
 - Design inspiration create/update payloads may include `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`, and `status` when the source carries that metadata.
 - `update` supports media attachment for prompts (`target: "prompt"` + `imagePath`/`filePath`) and media replacement for assets (`target: "asset"` + `imagePath`/`filePath`).

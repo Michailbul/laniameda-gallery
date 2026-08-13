@@ -16,7 +16,10 @@ export function writeAssetDragPayload(
 ): void {
   const payload: AssetDragPayload = { assetIds };
   dataTransfer.setData(ASSET_DRAG_MIME, JSON.stringify(payload));
-  dataTransfer.effectAllowed = "move";
+  // Sorting can either replace a classification (asset type) or add a
+  // membership (collection / world). Advertising both keeps the source and
+  // each destination's requested dropEffect compatible across browsers.
+  dataTransfer.effectAllowed = "copyMove";
 }
 
 export function hasAssetDragPayload(dataTransfer: DataTransfer): boolean {

@@ -4,7 +4,9 @@ type MidjourneyAdapterApi = {
   extractUrlsFromCssImage: (value: string) => string[];
   findJobObject: (el: unknown) => unknown;
   getBestSrcFromSrcset: (srcset: string) => string;
+  getJobPageSelection: (pageUrl: string) => { jobId: string; index: number } | null;
   getMediaUrl: (el: unknown) => string;
+  getOriginalImageUrl: (mediaUrl: string, pageUrl: string) => string;
   isQualifiedMediaElement: (
     el: unknown,
     options?: { badgeAttr?: string },
@@ -54,6 +56,32 @@ describe("Midjourney extension adapter", () => {
         "https://cdn.midjourney.com/job/0_1_384_N.webp 384w, https://cdn.midjourney.com/job/0_1_640_N.webp 640w",
       ),
     ).toBe("https://cdn.midjourney.com/job/0_1_640_N.webp");
+  });
+
+  test("resolves a job page selection to the canonical original PNG", () => {
+    const api = getApi();
+    const jobId = "5d5b10a7-653a-4214-90ce-fb299c22a8d0";
+    const pageUrl = `https://www.midjourney.com/jobs/${jobId}?index=2`;
+
+    expect(api.getJobPageSelection(pageUrl)).toEqual({ jobId, index: 2 });
+    expect(
+      api.getOriginalImageUrl(
+        `https://cdn.midjourney.com/${jobId}/0_2_1024_N.webp?method=shortest`,
+        pageUrl,
+      ),
+    ).toBe(`https://cdn.midjourney.com/${jobId}/0_2.png`);
+  });
+
+  test("derives the original PNG from a Midjourney derivative without a job page", () => {
+    const api = getApi();
+    const jobId = "5d5b10a7-653a-4214-90ce-fb299c22a8d0";
+
+    expect(
+      api.getOriginalImageUrl(
+        `https://cdn.midjourney.com/${jobId}/0_3_640_N.webp`,
+        "https://www.midjourney.com/imagine",
+      ),
+    ).toBe(`https://cdn.midjourney.com/${jobId}/0_3.png`);
   });
 
   test("extracts css image urls and prefers the final image-set candidate", () => {

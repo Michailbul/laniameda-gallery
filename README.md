@@ -28,7 +28,7 @@ Two repo-local agent skills handle the read/write paths:
 
 - **Next.js** (App Router) + TypeScript
 - **Convex** — realtime DB, file storage, ingest actions, vector search
-- **Cloudflare R2** — video object storage (images stay on Convex)
+- **Cloudflare R2** — image/video object storage for new uploads
 - **Telegram auth** — login + ingest delivery channel
 - **Bun** — package manager and runtime
 
@@ -38,7 +38,7 @@ You'll need:
 - A Convex deployment ([convex.dev](https://convex.dev))
 - A Telegram bot (`@BotFather`) for login
 - (Optional) A second Telegram bot for "Saved" notifications after ingest
-- (Optional) Cloudflare R2 bucket for video storage
+- A Cloudflare R2 bucket for media uploads (required for the extension drop desk)
 - (Optional) Gemini API key for semantic search embeddings
 
 ### Setup
@@ -82,6 +82,16 @@ bun run dev
 
 App listens on `http://localhost:3317` by default.
 
+### Browser extension
+
+Set `EXTENSION_API_TOKEN` and `EXTENSION_OWNER_USER_ID` in the app environment,
+then load `extension/` with **Load unpacked** from `chrome://extensions` (Chrome
+114 or newer). Click the toolbar icon to open the persistent upload desk, enter
+the gallery origin and the same extension token under **Workspace**, and save
+the settings. You can then choose a collection and drop images, videos, or an
+entire folder into the panel; supported media inside folders is queued
+recursively before upload.
+
 See [`agent-docs/ENV_MATRIX.md`](agent-docs/ENV_MATRIX.md) for the complete env reference
 and [`agent-docs/AUTH.md`](agent-docs/AUTH.md) for the full Telegram login setup.
 
@@ -103,7 +113,7 @@ This is enforced both server-side (Convex mutations require `CURATION_ADMIN_SECR
 ```bash
 bun run dev          # Start Next.js
 bun run lint         # Lint
-bun test             # Run tests (157 tests across the backend)
+bun test             # Run the complete backend, UI-helper, and extension suite
 bun run typecheck    # Type check
 bunx convex dev      # Convex local dev (run separately)
 bunx convex codegen  # Regenerate Convex types after schema changes

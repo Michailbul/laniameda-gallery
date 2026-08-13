@@ -6,7 +6,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -459,6 +459,48 @@ const collectAssetIdsForFolder = async (
   return new Set<Id<"assets">>(links.map((link) => link.assetId));
 };
 
+/**
+ * A repeated save is an update to the asset's organization, not a no-op.
+ *
+ * Both ingest-key retries and byte-hash twins land here so they behave the
+ * same: keep the original row/media, add the newly requested collection, and
+ * union in any newly selected tags. Nothing is removed because a repeated
+ * save must not erase organization applied in an earlier gallery session.
+ */
+const mergeRepeatedSaveMetadata = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  asset: Doc<"assets">,
+  input: {
+    folderId?: Id<"folders">;
+    tagIds: Id<"tags">[];
+  },
+) => {
+  if (input.folderId) {
+    await addAssetFolderLink(ctx, ownerUserId, asset._id, input.folderId);
+    if (!asset.folderId) {
+      await ctx.db.patch(asset._id, { folderId: input.folderId });
+    }
+  }
+
+  const extraTagIds = dedupeIds(input.tagIds).filter(
+    (tagId) => !asset.tagIds.includes(tagId),
+  );
+  if (extraTagIds.length === 0) return;
+
+  await ctx.db.patch(asset._id, {
+    tagIds: dedupeIds([...asset.tagIds, ...extraTagIds]),
+  });
+  for (const tagId of extraTagIds) {
+    await ctx.db.insert("assetTags", {
+      assetId: asset._id,
+      tagId,
+      createdAt: asset.createdAt,
+    });
+  }
+  await bumpTagUsage(ctx, extraTagIds, 1);
+};
+
 export const createAsset = mutation({
   args: {
     ownerUserId: v.string(),
@@ -514,13 +556,16 @@ export const createAsset = mutation({
         )
         .unique();
       if (existing) {
-        if (args.folderId) {
-          await addAssetFolderLink(ctx, ownerUserId, existing._id, args.folderId);
-          if (!existing.folderId) {
-            await ctx.db.patch(existing._id, { folderId: args.folderId });
-          }
-        }
-        return { assetId: existing._id, created: false };
+        await mergeRepeatedSaveMetadata(ctx, ownerUserId, existing, args);
+        // When the retry includes the same digest, expose it as a media
+        // duplicate to upload UIs as well. A reused ingest key with different
+        // bytes remains an idempotency hit, not a content-duplicate claim.
+        const duplicate = Boolean(
+          args.contentHash && existing.contentHash === args.contentHash,
+        );
+        return duplicate
+          ? { assetId: existing._id, created: false, duplicate: true }
+          : { assetId: existing._id, created: false };
       }
     }
 
@@ -535,29 +580,7 @@ export const createAsset = mutation({
         )
         .first();
       if (twin) {
-        if (args.folderId) {
-          await addAssetFolderLink(ctx, ownerUserId, twin._id, args.folderId);
-          if (!twin.folderId) {
-            await ctx.db.patch(twin._id, { folderId: args.folderId });
-          }
-        }
-        // Tags are additive here: a second save often carries better tags than
-        // the first, and dropping them would lose the only new information.
-        const extraTagIds = dedupeIds(args.tagIds).filter(
-          (tagId) => !twin.tagIds.includes(tagId),
-        );
-        if (extraTagIds.length > 0) {
-          const nextTagIds = dedupeIds([...twin.tagIds, ...extraTagIds]);
-          await ctx.db.patch(twin._id, { tagIds: nextTagIds });
-          for (const tagId of extraTagIds) {
-            await ctx.db.insert("assetTags", {
-              assetId: twin._id,
-              tagId,
-              createdAt: twin.createdAt ?? Date.now(),
-            });
-          }
-          await bumpTagUsage(ctx, extraTagIds, 1);
-        }
+        await mergeRepeatedSaveMetadata(ctx, ownerUserId, twin, args);
         return { assetId: twin._id, created: false, duplicate: true };
       }
     }
@@ -3040,11 +3063,11 @@ const setTagPresenceOnAsset = async (
     }
     await ctx.db.patch(asset._id, { tagIds: [...asset.tagIds, tag._id] });
     await bumpTagUsage(ctx, [tag._id], 1);
-    const existingLink = await ctx.db
+    const existingLinks = await ctx.db
       .query("assetTags")
       .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
-      .filter((q) => q.eq(q.field("tagId"), tag!._id))
-      .unique();
+      .collect();
+    const existingLink = existingLinks.find((link) => link.tagId === tag!._id);
     if (!existingLink) {
       await ctx.db.insert("assetTags", {
         assetId: asset._id,
@@ -3063,11 +3086,11 @@ const setTagPresenceOnAsset = async (
     tagIds: asset.tagIds.filter((id) => id !== tag!._id),
   });
   await bumpTagUsage(ctx, [tag._id], -1);
-  const links = await ctx.db
+  const assetLinks = await ctx.db
     .query("assetTags")
     .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
-    .filter((q) => q.eq(q.field("tagId"), tag!._id))
     .collect();
+  const links = assetLinks.filter((link) => link.tagId === tag!._id);
   for (const link of links) {
     await ctx.db.delete(link._id);
   }
@@ -3104,6 +3127,23 @@ export const setAssetTagState = mutation({
 // this the only way to type a piece was one asset at a time in the detail
 // panel. Idempotent per asset; missing ids are skipped, not fatal.
 const BULK_TAG_MAX = 500;
+
+const assetTypeValidator = v.union(
+  v.literal("character"),
+  v.literal("location"),
+  v.literal("scene"),
+);
+
+type AssetType = Infer<typeof assetTypeValidator>;
+
+// Older saves may carry plural/stills aliases. Assigning a type is a
+// normalization boundary: remove every type alias, then write one canonical
+// singular tag so a piece cannot remain in two sorting buckets at once.
+const ASSET_TYPE_TAG_ALIASES: Record<AssetType, readonly string[]> = {
+  character: ["character", "characters"],
+  location: ["location", "locations"],
+  scene: ["scene", "scenes", "still", "stills"],
+};
 
 export const bulkSetAssetTagState = mutation({
   args: {
@@ -3151,6 +3191,84 @@ export const bulkSetAssetTagState = mutation({
     }
 
     return { updatedCount, skippedCount, tagName, present: args.present };
+  },
+});
+
+export const bulkAssignAssetType = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetIds: v.array(v.id("assets")),
+    assetType: assetTypeValidator,
+  },
+  returns: v.object({
+    updatedCount: v.number(),
+    skippedCount: v.number(),
+    assetType: assetTypeValidator,
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+
+    const uniqueAssetIds = Array.from(new Set(args.assetIds));
+    if (uniqueAssetIds.length === 0) {
+      throw new ConvexError("At least one assetId is required.");
+    }
+    if (uniqueAssetIds.length > BULK_TAG_MAX) {
+      throw new ConvexError(
+        `Bulk type assignment is limited to ${BULK_TAG_MAX} assets per request.`,
+      );
+    }
+
+    const aliases = Object.values(ASSET_TYPE_TAG_ALIASES).flat();
+    const tagByAlias = new Map<string, Doc<"tags">>();
+    for (const alias of aliases) {
+      const tag = await ctx.db
+        .query("tags")
+        .withIndex("by_normalized", (q) =>
+          q.eq("normalized", normalizeTagName(alias)),
+        )
+        .unique();
+      if (tag) tagByAlias.set(alias, tag);
+    }
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+    for (const assetId of uniqueAssetIds) {
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        skippedCount += 1;
+        continue;
+      }
+      if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+        throw new ConvexError("Asset does not belong to this user.");
+      }
+
+      // Only call the shared tag engine for aliases actually present. It
+      // re-reads after each write, keeping tagIds, join rows, and usage counts
+      // consistent while avoiding eight no-op reads per asset.
+      for (const alias of aliases) {
+        const tag = tagByAlias.get(alias);
+        if (!tag || !asset.tagIds.includes(tag._id)) continue;
+        if (alias === args.assetType) continue;
+        await setTagPresenceOnAsset(
+          ctx,
+          { ownerUserId, assetId },
+          alias,
+          false,
+        );
+      }
+      await setTagPresenceOnAsset(
+        ctx,
+        { ownerUserId, assetId },
+        args.assetType,
+        true,
+      );
+      updatedCount += 1;
+    }
+
+    return { updatedCount, skippedCount, assetType: args.assetType };
   },
 });
 

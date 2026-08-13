@@ -2,11 +2,17 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ---
 
 ## ✔ Shipped
+
+### 2026-08-13
+- Browser extension v0.10 now has focused Add to gallery and Bookmark modes in the persistent Chrome side panel. Add mode accepts local image/video files or recursively dropped folders, uses one optional collection plus freeform descriptive tags (without duplicating collection pillars as tags), and exposes the selected Midjourney job image through a one-click Add card.
+- Midjourney job-page Add resolves the selected job/index to the canonical CDN PNG and verifies its PNG signature before saving; a missing original aborts instead of silently re-encoding the compressed WebP preview.
+- The extension's `Command+Shift+L` (`Ctrl+Shift+L` elsewhere) command adds the active Midjourney job image with Add mode's remembered collection and descriptive tags, with in-page success/error feedback.
+- Local extension uploads stream directly to R2 with previews, content hashes, per-item progress, duplicate-aware results, and retryable save failures instead of sending large media through the Next.js route; repeated assets update tag/collection organization on the original row
 
 ### 2026-08-12
 - Parent collection views now offer `Expand all` / `Show folders`, letting the owner switch between child stack cards and the collection's complete flat asset view

@@ -494,17 +494,17 @@
 
   // ── Image-to-base64 (for CDNs behind Cloudflare like Midjourney) ──
 
-  async function imageToBase64(url) {
+  async function imageToBase64(url, preferredContentType) {
     try {
       const response = await fetch(url);
       if (!response.ok) return null;
       const blob = await response.blob();
-      // Midjourney serves WebP. Re-encode to JPEG before the bytes leave the
-      // browser — it is the only place with a WebP decoder. See
-      // image-convert.js.
+      // Midjourney serves WebP/JPEG previews but gallery captures should remain
+      // PNG. Conversion happens here while the browser still has the decoder.
       const media = await SaveToGalleryImageConvert.convertCapturedBlob(
         blob,
         blob.type || "image/webp",
+        preferredContentType,
       );
       const base64 = await SaveToGalleryImageConvert.base64FromBlob(media.blob);
       if (!base64) return null;
@@ -517,11 +517,12 @@
   // Capture bytes via the background service worker, which bypasses page CORS
   // through `<all_urls>` host permissions. Used for non-Midjourney sites (Krea,
   // Recraft, etc.) whose CDN images a server-side refetch can't read.
-  async function requestImageBytes(url) {
+  async function requestImageBytes(url, preferredContentType) {
     try {
       const response = await sendRuntimeMessage({
         action: "fetchImageBytes",
         imageUrl: url,
+        preferredContentType,
       });
       if (response?.ok && response.base64) {
         return { base64: response.base64, contentType: response.contentType };
@@ -533,13 +534,37 @@
   }
 
   async function captureImageBytesForSave(url) {
-    const captured = await requestImageBytes(url);
+    const preferredContentType = midjourneyAdapter?.isMidjourneyMediaUrl?.(url)
+      ? "image/png"
+      : undefined;
+    const captured = await requestImageBytes(url, preferredContentType);
     if (captured) return captured;
 
-    const pageFetched = await imageToBase64(url);
+    const pageFetched = await imageToBase64(url, preferredContentType);
     if (pageFetched) return pageFetched;
 
     return undefined;
+  }
+
+  async function captureOriginalMidjourneyPng(url) {
+    let response;
+    try {
+      response = await sendRuntimeMessage({
+        action: "fetchImageBytes",
+        imageUrl: url,
+        preferredContentType: "image/png",
+        requiredContentType: "image/png",
+      });
+    } catch (err) {
+      throw new Error(`Could not fetch the original Midjourney PNG: ${err.message}`);
+    }
+
+    if (!response?.ok || !response.base64) {
+      throw new Error(
+        response?.error || "The original Midjourney PNG is unavailable; nothing was saved.",
+      );
+    }
+    return { base64: response.base64, contentType: response.contentType };
   }
 
   // ── Helpers ──
@@ -2577,6 +2602,102 @@
     };
   }
 
+  function getActiveMidjourneyPanelSelection() {
+    if (!isMidjourneyPage() || !isMidjourneyJobPage()) {
+      return { available: false };
+    }
+
+    const target = getMidjourneyViewerMedia();
+    const saveContext = target ? getMidjourneySaveContext(target) : null;
+    if (!target || !saveContext) {
+      return {
+        available: false,
+        isMidjourneyJob: true,
+        error: "The selected Midjourney image is still loading.",
+      };
+    }
+
+    const originalImageUrl = midjourneyAdapter?.getOriginalImageUrl?.(
+      saveContext.imageUrl,
+      location.href,
+    );
+    if (!originalImageUrl) {
+      return {
+        available: false,
+        isMidjourneyJob: true,
+        error: "Could not resolve this job to its original image.",
+      };
+    }
+
+    const selectedJob = midjourneyAdapter?.getJobPageSelection?.(location.href);
+    return {
+      available: true,
+      isMidjourneyJob: true,
+      previewUrl: saveContext.imageUrl,
+      originalImageUrl,
+      selectedIndex: selectedJob ? selectedJob.index + 1 : undefined,
+    };
+  }
+
+  function mergeTagNames(...groups) {
+    const seen = new Set();
+    const tags = [];
+    for (const group of groups) {
+      for (const value of Array.isArray(group) ? group : []) {
+        const tag = String(value || "").trim();
+        const key = tag.toLowerCase();
+        if (!tag || seen.has(key)) continue;
+        seen.add(key);
+        tags.push(tag);
+      }
+    }
+    return tags;
+  }
+
+  async function saveActiveMidjourneyPanelSelection(message) {
+    const selection = getActiveMidjourneyPanelSelection();
+    if (!selection.available) {
+      return {
+        ok: false,
+        error: selection.error || "No selected Midjourney image is available.",
+      };
+    }
+
+    const target = getMidjourneyViewerMedia();
+    const saveContext = target ? getMidjourneySaveContext(target) : null;
+    if (!target || !saveContext) {
+      return { ok: false, error: "The selected Midjourney image changed. Try Add again." };
+    }
+
+    const file = await captureOriginalMidjourneyPng(selection.originalImageUrl);
+    const folderIds = normalizeFolderIdList(message.folderIds);
+    const response = await sendRuntimeMessage({
+      action: "saveImage",
+      imageUrl: selection.originalImageUrl,
+      sourceUrl: location.href,
+      pageTitle: document.title,
+      promptText: saveContext.promptText || undefined,
+      modelName: saveContext.modelName,
+      folderId: folderIds[0] || undefined,
+      folderIds,
+      tagNames: mergeTagNames(saveContext.tagNames, message.tagNames),
+      file,
+    });
+
+    if (!response?.ok) {
+      return { ok: false, error: response?.error || "Gallery save failed." };
+    }
+
+    markImageSavedInGallery(selection.originalImageUrl);
+    markImageSavedInGallery(saveContext.imageUrl);
+    return {
+      ok: true,
+      result: response.result,
+      contentType: file.contentType,
+      originalImageUrl: selection.originalImageUrl,
+    };
+  }
+
   // ── Krea adapter glue ──
 
   function isQualifiedKreaMediaTarget(target) {
@@ -4550,6 +4671,36 @@
               ok: false,
               error: err?.message || "Save failed.",
             });
+          });
+        return true;
+      }
+
+      if (message?.action === "getActiveMidjourneyAsset") {
+        sendResponse(getActiveMidjourneyPanelSelection());
+        return false;
+      }
+
+      if (message?.action === "saveActiveMidjourneyAsset") {
+        if (message.triggeredByShortcut) {
+          showContextToast("saving", "Adding original PNG…");
+        }
+        saveActiveMidjourneyPanelSelection(message)
+          .then((response) => {
+            if (message.triggeredByShortcut) {
+              showContextToast(
+                response?.ok ? "saved" : "error",
+                response?.ok
+                  ? "Added to laniameda"
+                  : String(response?.error || "Save failed.").slice(0, 90),
+              );
+            }
+            sendResponse(response);
+          })
+          .catch((err) => {
+            if (message.triggeredByShortcut) {
+              showContextToast("error", String(err?.message || "Save failed.").slice(0, 90));
+            }
+            sendResponse({ ok: false, error: err?.message || "Save failed." });
           });
         return true;
       }

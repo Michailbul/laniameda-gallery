@@ -17,12 +17,12 @@ import {
 import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
 
 /**
- * "Add to" — the one place assets get filed.
+ * "Move to" — the one place assets get sorted.
  *
- * A right-hand DRAWER, not a modal: the gallery stays scrollable and
- * drag-and-drop keeps working while it's open. Every destination is both a
- * click target (files the current selection) and a drop target, and there is
- * exactly one verb — ADD. Nothing here moves or removes.
+ * A floating, non-modal panel: the gallery stays scrollable and drag-and-drop
+ * keeps working while it's open. Every destination is both a click target
+ * (files the current selection) and a drop target. Asset type is exclusive;
+ * collection membership is additive and multi-select.
  *
  * Two views:
  *   Folders — big cover tiles, sized for dropping onto. The default.
@@ -32,6 +32,7 @@ import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
  */
 
 export type PanelSection = "beats" | "characters" | "locations" | "stills";
+export type PanelAssetType = "character" | "location" | "scene";
 
 export type PanelPreview = { thumbUrl?: string; url?: string };
 
@@ -55,7 +56,19 @@ export type PanelCollection = {
   count?: number;
   parentId?: string;
   previews?: PanelPreview[];
+  /** How many assets in the current selection already belong here. */
+  selectedCount?: number;
 };
+
+const ASSET_TYPES: {
+  key: PanelAssetType;
+  label: string;
+  icon: typeof Users;
+}[] = [
+  { key: "character", label: "Character", icon: Users },
+  { key: "location", label: "Location", icon: MapPin },
+  { key: "scene", label: "Scene", icon: Clapperboard },
+];
 
 const SECTIONS: { key: PanelSection; label: string; icon: typeof Users }[] = [
   { key: "beats", label: "Beats", icon: Clapperboard },
@@ -70,9 +83,12 @@ export function AddToPanel({
   open,
   onClose,
   selectedAssetIds,
+  assetTypeCounts,
   worlds,
   collections,
+  onAssignAssetType,
   onAddToFolder,
+  onToggleFolder,
   onAddToSection,
   onCreateBeat,
   onAddAsBeats,
@@ -83,9 +99,15 @@ export function AddToPanel({
   open: boolean;
   onClose: () => void;
   selectedAssetIds: string[];
+  assetTypeCounts: Record<PanelAssetType, number>;
   worlds: PanelWorld[];
   collections: PanelCollection[];
+  onAssignAssetType: (
+    assetType: PanelAssetType,
+    assetIds: string[],
+  ) => Promise<void> | void;
   onAddToFolder: (folderId: string, assetIds: string[]) => Promise<void> | void;
+  onToggleFolder: (folderId: string) => Promise<void> | void;
   onAddToSection: (
     worldId: string,
     section: PanelSection,
@@ -122,11 +144,15 @@ export function AddToPanel({
   );
 
   const run = useCallback(
-    async (key: string, label: string, action: () => Promise<void> | void) => {
+    async (key: string, message: string, action: () => Promise<void> | void) => {
       setBusyKey(key);
       try {
         await action();
-        setFlash(`Added to ${label}`);
+        setFlash(message);
+      } catch (error) {
+        setFlash(
+          error instanceof Error ? error.message : "Could not update selection",
+        );
       } finally {
         setBusyKey(null);
       }
@@ -160,19 +186,24 @@ export function AddToPanel({
 
   return (
     <aside
-      aria-label="Add assets to"
+      role="dialog"
+      aria-modal="false"
+      aria-label="Move selected assets"
+      className="lm-animate-slide-right"
       style={{
         position: "fixed",
-        top: topOffset,
-        right: 0,
-        bottom: 0,
-        width: "min(520px, 96vw)",
-        zIndex: 45,
+        top: `max(${topOffset + 16}px, env(safe-area-inset-top))`,
+        right: 16,
+        bottom: 16,
+        width: "min(440px, calc(100vw - 32px))",
+        zIndex: 65,
         display: "flex",
         flexDirection: "column",
         background: "var(--lm-sidebar-bg)",
-        borderLeft: "1px solid var(--lm-border)",
-        boxShadow: "-22px 0 60px -34px rgba(0,0,0,0.85)",
+        border: "2px solid var(--lm-ink)",
+        borderRadius: 18,
+        overflow: "hidden",
+        boxShadow: "-18px 22px 64px -26px rgba(0,0,0,0.72)",
       }}
     >
       <header
@@ -190,7 +221,7 @@ export function AddToPanel({
           }}
         >
           <div>
-            <p style={kickerStyle}>Add to</p>
+            <p style={kickerStyle}>Move to</p>
             <p
               style={{
                 margin: "4px 0 0",
@@ -203,7 +234,7 @@ export function AddToPanel({
               {flash ??
                 (count > 0
                   ? `${count} selected`
-                  : "Select assets, or drag them onto a folder")}
+                  : "Select assets, or drag them into a bin")}
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -211,7 +242,7 @@ export function AddToPanel({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close add-to panel"
+              aria-label="Close move-to panel"
               style={iconButtonStyle}
             >
               <X size={15} />
@@ -252,7 +283,7 @@ export function AddToPanel({
                   onActivate={(ids) =>
                     run(
                       `${drilled.id}:${section.key}`,
-                      `${drilled.name} · ${section.label}`,
+                      `Added to ${drilled.name} · ${section.label}`,
                       () =>
                         // A beat is one video plus its characters/locations, so
                         // Beats is not a pool: each asset becomes its own beat.
@@ -277,7 +308,7 @@ export function AddToPanel({
                     previews={beat.previews}
                     busy={busyKey === beat.folderId}
                     onActivate={(ids) =>
-                      run(beat.folderId, beat.name, () =>
+                      run(beat.folderId, `Added to ${beat.name}`, () =>
                         onAddToFolder(beat.folderId, resolveIds(ids)),
                       )
                     }
@@ -303,7 +334,7 @@ export function AddToPanel({
                 onSubmit={async () => {
                   const name = beatName.trim();
                   if (!name) return;
-                  await run(`new-beat:${drilled.id}`, name, () =>
+                  await run(`new-beat:${drilled.id}`, `Created ${name}`, () =>
                     onCreateBeat(drilled.id, name, selectedAssetIds),
                   );
                   setBeatDrafting(false);
@@ -314,28 +345,31 @@ export function AddToPanel({
           </>
         ) : (
           <>
-            <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Worlds</p>
-            {worlds.length === 0 && <Hint>No worlds yet.</Hint>}
-            <Grid view={view}>
-              {worlds.map((world) => (
+            <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Asset type</p>
+            <p style={helperStyle}>
+              Pick one type, then any collections. Drop a selected group onto
+              a type to classify the whole group.
+            </p>
+            <Grid view={view} compact>
+              {ASSET_TYPES.map((assetType) => (
                 <Target
-                  key={world.id}
+                  key={assetType.key}
                   view={view}
-                  icon={Globe2}
-                  label={world.name}
-                  previews={world.previews}
-                  emphasis
-                  hint="Open"
-                  busy={busyKey === world.id}
+                  icon={assetType.icon}
+                  label={assetType.label}
+                  busy={busyKey === `type:${assetType.key}`}
+                  selectedCount={assetTypeCounts[assetType.key]}
+                  selectionTotal={count}
+                  selectionKind="checkbox"
+                  hint="Assign type"
                   onActivate={(ids) => {
-                    // A drop on the world itself files into Stills; a click
-                    // drills in so you can pick a section or a beat.
-                    if (ids && ids.length > 0) {
-                      return run(world.id, `${world.name} · Stills`, () =>
-                        onAddToSection(world.id, "stills", ids),
-                      );
-                    }
-                    setDrillWorldId(world.id);
+                    const assetIds = resolveIds(ids);
+                    if (assetIds.length === 0) return;
+                    void run(
+                      `type:${assetType.key}`,
+                      `Filed ${assetIds.length} as ${assetType.label}`,
+                      () => onAssignAssetType(assetType.key, assetIds),
+                    );
                   }}
                 />
               ))}
@@ -353,11 +387,20 @@ export function AddToPanel({
                   count={entry.count}
                   previews={entry.previews}
                   busy={busyKey === entry.id}
-                  onActivate={(ids) =>
-                    run(entry.id, entry.name, () =>
-                      onAddToFolder(entry.id, resolveIds(ids)),
-                    )
-                  }
+                  selectedCount={entry.selectedCount}
+                  selectionTotal={count}
+                  selectionKind="checkbox"
+                  onActivate={(ids) => {
+                    if (ids && ids.length > 0) {
+                      return run(entry.id, `Added to ${entry.name}`, () =>
+                        onAddToFolder(entry.id, ids),
+                      );
+                    }
+                    if (count === 0) return;
+                    return run(entry.id, `Updated ${entry.name}`, () =>
+                      onToggleFolder(entry.id),
+                    );
+                  }}
                 />
               ))}
               <Target
@@ -380,7 +423,7 @@ export function AddToPanel({
                 onSubmit={async () => {
                   const name = collectionName.trim();
                   if (!name) return;
-                  await run("new-collection", name, () =>
+                  await run("new-collection", `Created ${name}`, () =>
                     onCreateCollection(name, selectedAssetIds),
                   );
                   setCollectionDrafting(false);
@@ -405,17 +448,53 @@ export function AddToPanel({
                         count={child.count}
                         previews={child.previews}
                         busy={busyKey === child.id}
-                        onActivate={(ids) =>
-                          run(child.id, child.name, () =>
-                            onAddToFolder(child.id, resolveIds(ids)),
-                          )
-                        }
+                        selectedCount={child.selectedCount}
+                        selectionTotal={count}
+                        selectionKind="checkbox"
+                        onActivate={(ids) => {
+                          if (ids && ids.length > 0) {
+                            return run(child.id, `Added to ${child.name}`, () =>
+                              onAddToFolder(child.id, ids),
+                            );
+                          }
+                          if (count === 0) return;
+                          return run(child.id, `Updated ${child.name}`, () =>
+                            onToggleFolder(child.id),
+                          );
+                        }}
                       />
                     )),
                   )}
                 </Grid>
               </>
             )}
+
+            <p style={{ ...kickerStyle, margin: "18px 0 8px" }}>Worlds</p>
+            {worlds.length === 0 && <Hint>No worlds yet.</Hint>}
+            <Grid view={view}>
+              {worlds.map((world) => (
+                <Target
+                  key={world.id}
+                  view={view}
+                  icon={Globe2}
+                  label={world.name}
+                  previews={world.previews}
+                  emphasis
+                  hint="Open"
+                  busy={busyKey === world.id}
+                  onActivate={(ids) => {
+                    // A drop on the world itself files into Stills; a click
+                    // drills in so you can pick a section or a beat.
+                    if (ids && ids.length > 0) {
+                      return run(world.id, `Added to ${world.name} · Stills`, () =>
+                        onAddToSection(world.id, "stills", ids),
+                      );
+                    }
+                    setDrillWorldId(world.id);
+                  }}
+                />
+              ))}
+            </Grid>
           </>
         )}
       </div>
@@ -425,9 +504,11 @@ export function AddToPanel({
 
 function Grid({
   view,
+  compact = false,
   children,
 }: {
   view: View;
+  compact?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -436,7 +517,7 @@ function Grid({
         view === "folders"
           ? {
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+              gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 104 : 140}px, 1fr))`,
               gap: 10,
             }
           : { display: "flex", flexDirection: "column", gap: 2 }
@@ -463,6 +544,9 @@ function Target({
   emphasis = false,
   busy = false,
   hint,
+  selectedCount = 0,
+  selectionTotal = 0,
+  selectionKind,
 }: {
   view: View;
   icon?: typeof Users;
@@ -474,9 +558,20 @@ function Target({
   emphasis?: boolean;
   busy?: boolean;
   hint?: string;
+  selectedCount?: number;
+  selectionTotal?: number;
+  selectionKind?: "checkbox" | "radio";
 }) {
   const [over, setOver] = useState(false);
   const cover = previews?.[0]?.thumbUrl ?? previews?.[0]?.url;
+  const selectionMarked = selectionTotal > 0 && selectedCount > 0;
+  const selectionComplete =
+    selectionTotal > 0 && selectedCount === selectionTotal;
+  const selectionState = selectionComplete
+    ? true
+    : selectionMarked
+      ? "mixed"
+      : false;
 
   const dropProps = {
     onDragOver: (event: React.DragEvent) => {
@@ -498,6 +593,8 @@ function Target({
     return (
       <button
         type="button"
+        role={selectionKind ?? undefined}
+        aria-checked={selectionKind ? selectionState : undefined}
         onClick={() => onActivate()}
         disabled={busy}
         {...dropProps}
@@ -509,7 +606,8 @@ function Target({
           textAlign: "left",
           padding: "8px 10px",
           border: "1px solid",
-          borderColor: over ? "var(--lm-coral)" : "transparent",
+          borderColor:
+            over || selectionMarked ? "var(--lm-coral)" : "transparent",
           borderRadius: 8,
           background: over ? "var(--lm-sidebar-active-fill)" : "transparent",
           color: accent ? "var(--lm-coral)" : "var(--lm-sidebar-text)",
@@ -523,6 +621,9 @@ function Target({
         {Icon && <Icon size={14} style={{ flexShrink: 0 }} aria-hidden />}
         <span style={ellipsis}>{label}</span>
         {count !== undefined && <span style={countStyle}>{count}</span>}
+        {selectionKind && (
+          <SelectionMark count={selectedCount} total={selectionTotal} />
+        )}
       </button>
     );
   }
@@ -530,6 +631,8 @@ function Target({
   return (
     <button
       type="button"
+      role={selectionKind ?? undefined}
+      aria-checked={selectionKind ? selectionState : undefined}
       onClick={() => onActivate()}
       disabled={busy}
       {...dropProps}
@@ -544,13 +647,13 @@ function Target({
         padding: 0,
         overflow: "hidden",
         border: "2px solid",
-        borderColor: over
+        borderColor: over || selectionMarked
           ? "var(--lm-coral)"
           : accent
             ? "color-mix(in srgb, var(--lm-coral) 45%, transparent)"
             : "var(--lm-sidebar-border)",
         borderRadius: 10,
-        background: over
+        background: over || selectionComplete
           ? "var(--lm-sidebar-active-fill)"
           : "var(--lm-sidebar-hover-fill)",
         cursor: "pointer",
@@ -598,7 +701,11 @@ function Target({
           }}
         />
       )}
-      {count !== undefined && (
+      {selectionKind ? (
+        <span style={{ position: "absolute", top: 8, right: 9, zIndex: 2 }}>
+          <SelectionMark count={selectedCount} total={selectionTotal} />
+        </span>
+      ) : count !== undefined ? (
         <span
           style={{
             position: "absolute",
@@ -609,7 +716,7 @@ function Target({
         >
           {count}
         </span>
-      )}
+      ) : null}
       <span
         style={{
           position: "relative",
@@ -650,6 +757,35 @@ function Target({
         )}
       </span>
     </button>
+  );
+}
+
+function SelectionMark({ count, total }: { count: number; total: number }) {
+  const complete = total > 0 && count === total;
+  const mixed = count > 0 && !complete;
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-flex",
+        minWidth: 22,
+        height: 22,
+        alignItems: "center",
+        justifyContent: "center",
+        border: `1.5px solid ${
+          complete || mixed ? "var(--lm-coral)" : "var(--lm-sidebar-border)"
+        }`,
+        borderRadius: 7,
+        background: complete ? "var(--lm-coral)" : "rgba(0,0,0,0.42)",
+        color: complete ? "#000" : "var(--lm-coral)",
+        fontFamily: "var(--lm-font)",
+        fontSize: 9,
+        fontWeight: 800,
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {complete ? "✓" : mixed ? `${count}/${total}` : ""}
+    </span>
   );
 }
 
@@ -864,4 +1000,12 @@ const kickerStyle = {
   letterSpacing: "0.18em",
   textTransform: "uppercase" as const,
   color: "var(--lm-sidebar-text-ghost)",
+};
+
+const helperStyle = {
+  margin: "0 0 10px",
+  fontFamily: "var(--lm-font)",
+  fontSize: 11,
+  lineHeight: 1.45,
+  color: "var(--lm-sidebar-text-muted)",
 };
