@@ -1,6 +1,6 @@
 // Save to Gallery — Background service worker
 
-// Capture-time WebP → JPEG re-encoding, shared with the content script.
+// Capture-time image re-encoding, shared with the content script.
 importScripts("image-convert.js");
 
 const CANONICAL_API_HOST = "gallery.laniameda.space";
@@ -8,6 +8,7 @@ const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
+const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 // Installs that stored an older host rewrite themselves to CANONICAL_API_HOST on
 // the next call, so nobody has to re-enter the API URL after a domain move.
@@ -20,6 +21,9 @@ const LAST_FOLDER_ID_KEY = "lastFolderId";
 // Written by content.js on every save. See readSavePreset there — the presence
 // of the array (not its length) marks an explicit "no collection" save.
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
+const UPLOAD_FOLDER_ID_KEY = "uploadFolderId";
+const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
+const ADD_SELECTED_COMMAND = "add-selected-asset";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const BUILTIN_DISABLED_HOSTS = [
@@ -159,6 +163,35 @@ async function getSavePresetFolderIds() {
   return seed ? [seed] : [];
 }
 
+async function addSelectedMidjourneyFromShortcut() {
+  const [tabs, syncCfg, localCfg] = await Promise.all([
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }),
+    chrome.storage.sync.get([UPLOAD_FOLDER_ID_KEY]),
+    chrome.storage.local.get([UPLOAD_TAG_NAMES_KEY]),
+  ]);
+  const tab = tabs[0];
+  if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
+    return { ok: false, error: "Open a Midjourney job page first." };
+  }
+
+  const folderId = String(syncCfg[UPLOAD_FOLDER_ID_KEY] || "").trim();
+  const tagNames = Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
+    ? [...new Set(
+        localCfg[UPLOAD_TAG_NAMES_KEY]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      )]
+    : [];
+
+  return chrome.tabs.sendMessage(tab.id, {
+    action: "saveActiveMidjourneyAsset",
+    folderId: folderId || undefined,
+    folderIds: folderId ? [folderId] : [],
+    tagNames,
+    triggeredByShortcut: true,
+  });
+}
+
 async function saveToGallery(payload) {
   const config = await getConfig();
   const folderIds = normalizeFolderIds(payload.folderIds);
@@ -180,6 +213,13 @@ async function saveToGallery(payload) {
         modelName: payload.modelName || undefined,
         tagNames: payload.tagNames || [],
         file: payload.file || undefined,
+        ingestKey: payload.ingestKey || undefined,
+        r2Key: payload.r2Key || undefined,
+        mediaContentHash: payload.mediaContentHash || undefined,
+        mediaContentType: payload.mediaContentType || undefined,
+        mediaSize: payload.mediaSize || undefined,
+        mediaFileName: payload.mediaFileName || undefined,
+        posterFile: payload.posterFile || undefined,
         imageWidth: payload.imageWidth || undefined,
         imageHeight: payload.imageHeight || undefined,
         mediaType: payload.mediaType || undefined,
@@ -232,13 +272,20 @@ function arrayBufferToBase64(buffer) {
 // server-side refetch that those CDNs would reject.
 async function fetchImageBytes(payload) {
   const imageUrl = typeof payload.imageUrl === "string" ? payload.imageUrl : "";
+  const preferredContentType =
+    payload.preferredContentType === "image/png" ? "image/png" : undefined;
+  const requiredContentType =
+    payload.requiredContentType === "image/png" ? "image/png" : undefined;
   if (!imageUrl) {
     return { ok: false, error: "imageUrl is required." };
   }
 
   let response;
   try {
-    response = await fetch(imageUrl);
+    response = await fetch(imageUrl, {
+      cache: "no-store",
+      credentials: "include",
+    });
   } catch (err) {
     return { ok: false, error: `Network error: ${err.message}` };
   }
@@ -249,12 +296,23 @@ async function fetchImageBytes(payload) {
 
   try {
     const blob = await response.blob();
-    const sourceType = blob.type || response.headers.get("content-type") || "image/jpeg";
-    // WebP/AVIF captures are re-encoded to JPEG here, while the browser still
-    // has the decoder. See image-convert.js.
+    let sourceType = blob.type || response.headers.get("content-type") || "image/jpeg";
+    if (requiredContentType === "image/png") {
+      const isPng = await SaveToGalleryImageConvert.hasPngSignature(blob);
+      if (!isPng) {
+        return {
+          ok: false,
+          error: "Midjourney did not return the original PNG; nothing was saved.",
+        };
+      }
+      sourceType = "image/png";
+    }
+    // Midjourney captures request PNG. Other WebP/AVIF captures are re-encoded
+    // to JPEG while the browser still has the decoder. See image-convert.js.
     const media = await SaveToGalleryImageConvert.convertCapturedBlob(
       blob,
       sourceType,
+      preferredContentType,
     );
     const base64 = arrayBufferToBase64(await media.blob.arrayBuffer());
     if (!base64) {
@@ -637,6 +695,53 @@ async function createFolder(payload) {
   };
 }
 
+// The extension panel sends local files directly to R2 so large images and
+// videos never cross Next.js or Convex as base64. This token-authenticated
+// handshake only mints/finalizes the short-lived signed upload session.
+async function requestUploadSession(payload) {
+  const config = await getConfig();
+  const uploadUrl = normalizeRouteUrl(config.apiUrl, UPLOAD_ROUTE_PATH);
+
+  let response;
+  try {
+    response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify({
+        action: payload.action,
+        key: payload.key || undefined,
+      }),
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}`, apiUrl: uploadUrl };
+  }
+
+  let rawText = "";
+  let data = null;
+  try {
+    rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    // body wasn't JSON
+  }
+
+  if (!response.ok) {
+    const detail = data?.error || rawText.slice(0, 500) || "(empty body)";
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
+      apiUrl: uploadUrl,
+      status: response.status,
+    };
+  }
+
+  return {
+    ok: true,
+    key: typeof data?.key === "string" ? data.key : undefined,
+    url: typeof data?.url === "string" ? data.url : undefined,
+  };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "saveImage") {
     saveToGallery({
@@ -654,6 +759,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       mediaType: message.mediaType,
       inputImages: message.inputImages,
     })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "saveDroppedAsset") {
+    saveToGallery({
+      folderId: message.folderId,
+      folderIds: message.folderIds,
+      ingestKey: message.ingestKey,
+      r2Key: message.r2Key,
+      mediaContentHash: message.mediaContentHash,
+      mediaContentType: message.mediaContentType,
+      mediaSize: message.mediaSize,
+      mediaFileName: message.mediaFileName,
+      imageWidth: message.imageWidth,
+      imageHeight: message.imageHeight,
+      mediaType: message.mediaType,
+      posterFile: message.posterFile,
+    })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "prepareAssetUpload") {
+    requestUploadSession({ action: "prepare" })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "completeAssetUpload") {
+    requestUploadSession({ action: "complete", key: message.key })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -685,7 +824,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "fetchImageBytes") {
-    fetchImageBytes({ imageUrl: message.imageUrl })
+    fetchImageBytes({
+      imageUrl: message.imageUrl,
+      preferredContentType: message.preferredContentType,
+      requiredContentType: message.requiredContentType,
+    })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -717,14 +860,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 installContextMenus();
+async function configureSidePanel() {
+  if (!chrome.sidePanel?.setPanelBehavior) return;
+  try {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  } catch (err) {
+    console.warn("[Save to Gallery] could not enable the upload side panel:", err);
+  }
+}
+
+void configureSidePanel();
 chrome.runtime.onInstalled.addListener(() => {
   installContextMenus();
+  void configureSidePanel();
   void reinjectContentScripts();
 });
-chrome.runtime.onStartup.addListener(installContextMenus);
+chrome.runtime.onStartup.addListener(() => {
+  installContextMenus();
+  void configureSidePanel();
+});
 chrome.contextMenus.onShown?.addListener(updateContextMenuVisibility);
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   handleImageContextMenuClick(info, tab).catch((err) => {
     console.warn("[Save to Gallery] context menu handler failed:", err);
+  });
+});
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== ADD_SELECTED_COMMAND) return;
+  addSelectedMidjourneyFromShortcut().catch((err) => {
+    console.warn("[Save to Gallery] add shortcut failed:", err);
   });
 });

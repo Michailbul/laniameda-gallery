@@ -3,7 +3,7 @@
 > Single source of truth for all work items.
 > Statuses: `🔥 active` | `✅ ready` | `📋 backlog` | `🧊 icebox` | `✔ done`
 
-Last updated: 2026-03-17
+Last updated: 2026-08-13
 
 ---
 
@@ -93,7 +93,6 @@ No queued ready items. Promote from backlog after the production hardening pass 
 | ICE-01 | Video media support | Separate UX from image-specific behaviors |
 | ICE-02 | Public gallery share links | Per-pillar or per-tag public URL |
 | ICE-03 | Collections / manual curation folders | Beyond auto-pillars |
-| ICE-04 | Browser extension for one-click save | Companion to Telegram ingest |
 
 ---
 
@@ -101,6 +100,7 @@ No queued ready items. Promote from backlog after the production hardening pass 
 
 | ID | Title | Shipped |
 |----|-------|---------|
+| EXT-01 | Browser extension: web saves + persistent local file/folder drop desk | 2026-08-13 |
 | IFM-01–06 | Image Focus Mode Phase 1 (all tickets) | 2026-02-27 · `features/image-focus-mode/TICKETS-PHASE1.md` |
 | — | 4-pillar system (creators/cars/designs/dump) — schema + UI | 2026-02 |
 | — | Model name filter chips in TopFilterBar | 2026-02 |

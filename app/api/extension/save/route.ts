@@ -184,6 +184,10 @@ export async function POST(request: Request) {
     const data = await request.json();
     const mode = typeof data.mode === "string" ? data.mode : "save";
     const imageUrl = typeof data.imageUrl === "string" ? data.imageUrl : undefined;
+    const r2Key =
+      typeof data.r2Key === "string" && data.r2Key.trim()
+        ? data.r2Key.trim().slice(0, 500)
+        : undefined;
     const promptText = typeof data.promptText === "string" ? data.promptText.trim() : undefined;
     const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : undefined;
     const modelName = typeof data.modelName === "string" ? data.modelName : undefined;
@@ -197,6 +201,37 @@ export async function POST(request: Request) {
         : undefined;
     const imageWidth = toPositiveInt(data.imageWidth);
     const imageHeight = toPositiveInt(data.imageHeight);
+    const mediaSize = toPositiveInt(data.mediaSize);
+    const mediaFileName =
+      typeof data.mediaFileName === "string" && data.mediaFileName.trim()
+        ? data.mediaFileName.trim().slice(0, 500)
+        : undefined;
+    const mediaContentType =
+      typeof data.mediaContentType === "string" && data.mediaContentType.trim()
+        ? data.mediaContentType.trim().slice(0, 200)
+        : undefined;
+    const mediaContentHash =
+      typeof data.mediaContentHash === "string" &&
+      /^[a-f\d]{64}$/i.test(data.mediaContentHash.trim())
+        ? data.mediaContentHash.trim().toLowerCase()
+        : undefined;
+    const rawPosterFile =
+      data.posterFile && typeof data.posterFile === "object"
+        ? (data.posterFile as Record<string, unknown>)
+        : undefined;
+    const posterFile =
+      rawPosterFile && typeof rawPosterFile.base64 === "string"
+        ? {
+            base64: rawPosterFile.base64,
+            contentType:
+              typeof rawPosterFile.contentType === "string"
+                ? rawPosterFile.contentType.slice(0, 200)
+                : undefined,
+            width: toPositiveInt(rawPosterFile.width),
+            height: toPositiveInt(rawPosterFile.height),
+            size: toPositiveInt(rawPosterFile.size),
+          }
+        : undefined;
     // Collections are owner-scoped `folders` rows. `folderId` remains the
     // primary/back-compat field; `folderIds` can attach the asset to many.
     const requestedFolderIds = normalizeFolderIds(data);
@@ -221,6 +256,10 @@ export async function POST(request: Request) {
       file = {
         base64: data.file.base64,
         contentType: typeof data.file.contentType === "string" ? data.file.contentType : undefined,
+        fileName:
+          typeof data.file.fileName === "string"
+            ? data.file.fileName.trim().slice(0, 500) || undefined
+            : undefined,
       };
     }
     const inputImages = Array.isArray(data.inputImages)
@@ -251,13 +290,14 @@ export async function POST(request: Request) {
         })
       : [];
 
-    if (!imageUrl && !file) {
-      return corsJson({ error: "imageUrl or file is required." }, 400);
+    if (!imageUrl && !file && !r2Key) {
+      return corsJson({ error: "imageUrl, file, or r2Key is required." }, 400);
     }
 
     const ingestKey = buildIngestKey({
+      ingestKey: typeof data.ingestKey === "string" ? data.ingestKey : undefined,
       url: imageUrl ?? sourceUrl,
-      fileName: file?.fileName,
+      fileName: file?.fileName ?? mediaFileName ?? r2Key,
     });
     if (!ingestKey) {
       return corsJson({ error: "Could not derive ingest key." }, 400);
@@ -332,6 +372,7 @@ export async function POST(request: Request) {
         : undefined;
     const isVideoSave =
       mediaType === "video" ||
+      mediaContentType?.toLowerCase().startsWith("video/") ||
       file?.contentType?.toLowerCase().startsWith("video/") ||
       /\.(mp4|webm|mov)(?:[?#]|$)/i.test(imageUrl || "");
     const effectiveGenerationType = isVideoSave ? "video_gen" : "image_gen";
@@ -434,6 +475,14 @@ export async function POST(request: Request) {
       ownerUserId,
       url: imageUrl,
       file: file || undefined,
+      r2Key,
+      mediaContentHash,
+      mediaContentType,
+      mediaSize,
+      mediaWidth: imageWidth,
+      mediaHeight: imageHeight,
+      mediaFileName,
+      posterFile,
       promptText: promptText || undefined,
       allowPromptOnly: false,
       ingestKey,
@@ -441,8 +490,6 @@ export async function POST(request: Request) {
       modelName: effectiveModelName,
       modelProvider: effectiveModelProvider,
       folderId: folderId || undefined,
-      mediaWidth: imageWidth,
-      mediaHeight: imageHeight,
       generationType: effectiveGenerationType,
       promptType: isVideoSave ? "video_gen" : "image_gen",
       assetRole: isVideoSave ? "generated_output" : "inspiration_capture",

@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "114",
   "name": "Save to Gallery",
-  "description": "One-click save images and videos to gallery.laniameda.space",
-  "version": "0.8.0",
+  "description": "Save web captures or drop local files and folders into your laniameda collections",
+  "version": "0.10.1",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage", "activeTab", "contextMenus", "scripting"],
+  "permissions": ["storage", "activeTab", "contextMenus", "scripting", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
@@ -22,10 +23,22 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "Open laniameda upload desk",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png"
     }
+  },
+  "commands": {
+    "add-selected-asset": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Add the selected Midjourney image to the gallery"
+    }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   }
 }

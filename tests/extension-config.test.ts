@@ -5,9 +5,21 @@ describe("extension endpoint defaults", () => {
   test("popup and background use the canonical gallery domain", () => {
     const manifest = JSON.parse(
       readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"),
-    ) as { permissions?: string[] };
+    ) as {
+      permissions?: string[];
+      action?: { default_popup?: string };
+      side_panel?: { default_path?: string };
+      commands?: Record<string, {
+        suggested_key?: { default?: string; mac?: string };
+        description?: string;
+      }>;
+    };
     const popupScript = readFileSync(
       new URL("../extension/popup.js", import.meta.url),
+      "utf8",
+    );
+    const popupHtml = readFileSync(
+      new URL("../extension/popup.html", import.meta.url),
       "utf8",
     );
     const backgroundScript = readFileSync(
@@ -38,6 +50,30 @@ describe("extension endpoint defaults", () => {
     }
     expect(popupScript).toContain("DEFAULT_FOLDER_ID_KEY");
     expect(manifest.permissions).toContain("contextMenus");
+    expect(manifest.permissions).toContain("sidePanel");
+    expect(manifest.action?.default_popup).toBeUndefined();
+    expect(manifest.side_panel?.default_path).toBe("popup.html");
+    expect(manifest.commands?.["add-selected-asset"]?.suggested_key?.mac).toBe(
+      "Command+Shift+L",
+    );
+    expect(manifest.commands?.["add-selected-asset"]?.suggested_key?.default).toBe(
+      "Ctrl+Shift+L",
+    );
+    expect(backgroundScript).toContain("openPanelOnActionClick");
+    expect(backgroundScript).toContain("prepareAssetUpload");
+    expect(backgroundScript).toContain("saveDroppedAsset");
+    expect(popupHtml).not.toContain('id="uploadTypeTag"');
+    expect(popupHtml).toContain('id="uploadTags"');
+    expect(popupHtml).toContain('id="addModeTab"');
+    expect(popupHtml).toContain('id="bookmarkModeTab"');
+    expect(popupHtml).toContain('id="addSelectedAsset"');
+    expect(popupScript).toContain('"extensionMode"');
+    expect(popupScript).toContain('action: "saveActiveMidjourneyAsset"');
+    expect(popupScript).toContain('"uploadTagNames"');
+    expect(popupScript).toContain("chrome.storage.local.set");
+    expect(popupScript).toContain("No collection (uncategorized)");
+    expect(popupScript).toContain("readUploadTagNames");
+    expect(popupScript).not.toContain("Choose the destination collection first.");
     expect(backgroundScript).toContain("SAVE_IMAGE_CONTEXT_MENU_ID");
     expect(backgroundScript).toContain('contexts: ["image"]');
     expect(backgroundScript).toContain("Save to laniameda");
@@ -78,6 +114,18 @@ describe("extension endpoint defaults", () => {
     expect(contentScript).toContain("hasMidjourneyHistoryText");
     expect(contentScript).toContain("data-stg-mj-liked-filter-hidden");
     expect(contentScript).toContain("Liked only");
+    expect(contentScript).toContain("midjourneyAdapter?.isMidjourneyMediaUrl?.(url)");
+    expect(contentScript).toContain('? "image/png"');
+    expect(contentScript).toContain('action === "getActiveMidjourneyAsset"');
+    expect(contentScript).toContain('action === "saveActiveMidjourneyAsset"');
+    expect(contentScript).toContain('requiredContentType: "image/png"');
+    expect(backgroundScript).toContain("preferredContentType");
+    expect(backgroundScript).toContain("requiredContentType");
+    expect(backgroundScript).toContain("original PNG; nothing was saved");
+    expect(backgroundScript).toContain("chrome.commands.onCommand");
+    expect(backgroundScript).toContain("addSelectedMidjourneyFromShortcut");
+    expect(backgroundScript).toContain('triggeredByShortcut: true');
+    expect(contentScript).toContain("Adding original PNG…");
     expect(contentScript).not.toContain("MJ likes");
     expect(contentScript).not.toContain("Next liked");
     expect(contentScript).not.toContain("data-stg-mj-liked-sort");

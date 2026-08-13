@@ -1,6 +1,6 @@
 # Design Extension Save — Backend Done / Frontend Handoff
 
-Last updated: 2026-03-31
+Last updated: 2026-08-13
 
 ## Status
 
@@ -14,6 +14,7 @@ Done:
 - app-facing template CRUD route for authenticated users
 - design gallery backend filtering for explicit metadata
 - source fingerprint dedupe with image+source-page support
+- persistent extension side panel with a local file/folder drop queue, optional one-collection filing, optional batch tags, duplicate-update behavior, and direct-to-R2 uploads
 
 Still open:
 - finish the extension frontend flow so templates feel one-click and editable without friction

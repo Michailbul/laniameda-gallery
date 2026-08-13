@@ -7,6 +7,17 @@ const state = {
 
 const routePath = new URL("../app/api/extension/save/route.ts", import.meta.url)
   .pathname;
+const uploadRoutePath = new URL(
+  "../app/api/extension/upload/route.ts",
+  import.meta.url,
+).pathname;
+
+const getFunctionName = (reference: object) => {
+  const [symbol] = Object.getOwnPropertySymbols(reference);
+  return symbol
+    ? ((reference as Record<PropertyKey, string | undefined>)[symbol] ?? "")
+    : "";
+};
 
 mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
@@ -34,8 +45,15 @@ mock.module("@/lib/server/convex", () => ({
 
       return { assetId: "assets:1", promptId: "prompts:1" };
     },
-    mutation: async (_reference: unknown, payload: Record<string, unknown>) => {
+    mutation: async (reference: object, payload: Record<string, unknown>) => {
       state.mutationCalls.push(payload);
+      const functionName = getFunctionName(reference);
+      if (functionName === "r2:generateUploadUrl") {
+        return { key: "uploads/test-key", url: "https://r2.test/signed-put" };
+      }
+      if (functionName === "r2:syncMetadata") {
+        return null;
+      }
       if (payload.parentFolderId) {
         return { folderId: "folders:inspirations", created: true };
       }
@@ -272,6 +290,89 @@ describe("POST /api/extension/save", () => {
     ]);
   });
 
+  test("passes direct R2 upload metadata through to ingest", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
+        body: JSON.stringify({
+          r2Key: "uploads/local-asset",
+          ingestKey: `extension-upload:${"a".repeat(64)}`,
+          mediaContentHash: "a".repeat(64),
+          mediaContentType: "image/png",
+          mediaSize: 2048,
+          mediaFileName: "reference.png",
+          imageWidth: 1600,
+          imageHeight: 900,
+          folderIds: ["folders:one"],
+          posterFile: {
+            base64: "cHJldmlldw==",
+            contentType: "image/jpeg",
+            width: 800,
+            height: 450,
+            size: 7,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls[0]).toMatchObject({
+      r2Key: "uploads/local-asset",
+      ingestKey: `extension-upload:${"a".repeat(64)}`,
+      mediaContentHash: "a".repeat(64),
+      mediaContentType: "image/png",
+      mediaSize: 2048,
+      mediaWidth: 1600,
+      mediaHeight: 900,
+      mediaFileName: "reference.png",
+      folderId: "folders:one",
+      posterFile: {
+        base64: "cHJldmlldw==",
+        contentType: "image/jpeg",
+        width: 800,
+        height: 450,
+        size: 7,
+      },
+    });
+  });
+
+  test("allows an uncategorized local batch asset with optional tags", async () => {
+    const { POST } = await import(routePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/save", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
+        body: JSON.stringify({
+          r2Key: "uploads/uncategorized-local-asset",
+          ingestKey: `extension-upload:${"b".repeat(64)}`,
+          mediaContentHash: "b".repeat(64),
+          mediaContentType: "image/png",
+          mediaSize: 1024,
+          mediaFileName: "character.png",
+          imageWidth: 900,
+          imageHeight: 1200,
+          tagNames: ["character", "cinematic", "Character"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.actionCalls).toHaveLength(1);
+    expect(state.actionCalls[0]?.folderId).toBeUndefined();
+    expect(state.actionCalls[0]?.tagNames).toEqual(["character", "cinematic"]);
+    expect(state.mutationCalls).toEqual([]);
+  });
+
   test("saves Higgsfield video prompt and input images with lineage", async () => {
     const { POST } = await import(routePath);
 
@@ -365,5 +466,64 @@ describe("POST /api/extension/save", () => {
       error: "promptText is required for prompt updates.",
     });
     expect(state.actionCalls).toHaveLength(0);
+  });
+});
+
+describe("POST /api/extension/upload", () => {
+  test("mints and completes token-authenticated R2 upload sessions", async () => {
+    process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
+    process.env.EXTENSION_API_TOKEN = "test-extension-token";
+    state.mutationCalls = [];
+    const { POST } = await import(uploadRoutePath);
+
+    const prepareResponse = await POST(
+      new Request("http://localhost/api/extension/upload", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
+        body: JSON.stringify({ action: "prepare" }),
+      }),
+    );
+    expect(prepareResponse.status).toBe(200);
+    expect(await prepareResponse.json()).toEqual({
+      ok: true,
+      key: "uploads/test-key",
+      url: "https://r2.test/signed-put",
+    });
+
+    const completeResponse = await POST(
+      new Request("http://localhost/api/extension/upload", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-extension-token": "test-extension-token",
+        },
+        body: JSON.stringify({ action: "complete", key: "uploads/test-key" }),
+      }),
+    );
+    expect(completeResponse.status).toBe(200);
+    expect(await completeResponse.json()).toEqual({
+      ok: true,
+      key: "uploads/test-key",
+    });
+    expect(state.mutationCalls).toEqual([{}, { key: "uploads/test-key" }]);
+  });
+
+  test("rejects an upload session without the extension token", async () => {
+    process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
+    process.env.EXTENSION_API_TOKEN = "test-extension-token";
+    const { POST } = await import(uploadRoutePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/extension/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "prepare" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
   });
 });

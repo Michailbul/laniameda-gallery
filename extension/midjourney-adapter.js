@@ -101,6 +101,56 @@
     }
   }
 
+  function getJobPageSelection(rawPageUrl) {
+    try {
+      const url = new URL(
+        String(rawPageUrl || ""),
+        globalScope.location?.href || "https://www.midjourney.com/",
+      );
+      const match = url.pathname.match(/^\/jobs\/([0-9a-f-]{20,})(?:\/|$)/i);
+      if (!match) return null;
+
+      const parsedIndex = Number.parseInt(url.searchParams.get("index") || "0", 10);
+      return {
+        jobId: match[1],
+        index: Number.isInteger(parsedIndex) && parsedIndex >= 0
+          ? parsedIndex
+          : 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function getMediaSelection(rawMediaUrl) {
+    try {
+      const url = new URL(
+        normalizeUrlCandidate(rawMediaUrl),
+        globalScope.location?.href || "https://www.midjourney.com/",
+      );
+      const match = url.pathname.match(
+        /^\/([0-9a-f-]{20,})\/(?:\d+_)?(\d+)(?:[_\-.]|$)/i,
+      );
+      if (!match) return null;
+      const parsedIndex = Number.parseInt(match[2], 10);
+      if (!Number.isInteger(parsedIndex) || parsedIndex < 0) return null;
+      return { jobId: match[1], index: parsedIndex };
+    } catch {
+      return null;
+    }
+  }
+
+  // Midjourney's rendered <img> commonly points at a resized WebP derivative.
+  // The canonical job/index endpoint is the generated PNG, so saving that URL
+  // preserves the original pixels instead of merely re-encoding a preview.
+  function getOriginalImageUrl(rawMediaUrl, rawPageUrl) {
+    const selection =
+      getJobPageSelection(rawPageUrl) ||
+      getMediaSelection(rawMediaUrl);
+    if (!selection) return "";
+    return `https://cdn.midjourney.com/${selection.jobId}/0_${selection.index}.png`;
+  }
+
   function getImageUrlFromImage(img) {
     if (!img) return "";
     const fromSrcset = getBestSrcFromSrcset(img.srcset || "");
@@ -416,7 +466,9 @@
     extractUrlsFromCssImage,
     findJobObject,
     getBestSrcFromSrcset,
+    getJobPageSelection,
     getMediaUrl,
+    getOriginalImageUrl,
     getRenderedSize,
     isMidjourneyMediaUrl,
     isLikedGenerationElement,
