@@ -347,8 +347,8 @@ export function AddToPanel({
           <>
             <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Asset type</p>
             <p style={helperStyle}>
-              Pick one type, then any collections. Drop a selected group onto
-              a type to classify the whole group.
+              Only needed for general collections. Characters, Locations and
+              Scenes destinations classify automatically.
             </p>
             <Grid view={view} compact>
               {ASSET_TYPES.map((assetType) => (

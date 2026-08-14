@@ -9,6 +9,7 @@ Last updated: 2026-08-14
 ## ✔ Shipped
 
 ### 2026-08-14
+- Collection-aware asset typing removes duplicate classification controls across the app and extension: Characters, Locations, and Scenes/Stills destinations now supply their canonical type automatically during uploads, shortcuts, moves, copies, and drag filing, while general collections retain the manual choice.
 - Midjourney job-page Add now uploads the verified original PNG directly from the extension service worker to R2, then sends only its key and metadata through Next.js/Convex; multi-megabyte originals no longer fail at Vercel's request-body limit.
 - Midjourney Add now dispatches non-blockingly: the current image and Add settings are snapshotted, the button releases immediately, and original-PNG capture/save finishes with an in-page result toast while the user moves to the next image.
 - Add mode now carries two explicit, remembered classification axes—asset tag (`Character`, `Location`, `Scene`) and style tag (`Animation`, `Live action`, `Other`)—alongside freeform descriptive tags; the same combined tags apply to Midjourney Add, the keyboard shortcut, and local batches.

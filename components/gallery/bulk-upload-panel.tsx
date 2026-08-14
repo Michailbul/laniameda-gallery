@@ -46,6 +46,11 @@ import {
   stageBulkFiles,
 } from "@/lib/bulk-upload";
 import { cn } from "@/lib/utils";
+import {
+  applyImpliedAssetTypeTag,
+  assetTypeTagForCollectionName,
+  sectionKeyForTagName,
+} from "@/lib/collection-sections";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FolderOption } from "@/components/upload-panel";
@@ -178,11 +183,33 @@ export function BulkUploadPanel({
   const [modelNameCustom, setModelNameCustom] = useState("");
   const [isMetaOpen, setIsMetaOpen] = useState(false);
 
+  const selectedDestination = useMemo(() => {
+    const [folderId] = folderIds;
+    if (!folderId) return undefined;
+    return [...folders, ...createdFolders].find(
+      (folder) => folder._id === folderId,
+    );
+  }, [createdFolders, folderIds, folders]);
+  const impliedAssetTypeTag = assetTypeTagForCollectionName(
+    selectedDestination?.name,
+  );
+
   // A half-typed final tag still counts when Upload is clicked; requiring an
   // extra Enter before a long batch starts is an easy way to lose metadata.
   const tagsForUpload = useMemo(
-    () => parseTagNames([...tags, ...tagInput.split(",")]),
-    [tagInput, tags],
+    () =>
+      applyImpliedAssetTypeTag(
+        parseTagNames([...tags, ...tagInput.split(",")]),
+        impliedAssetTypeTag,
+      ),
+    [impliedAssetTypeTag, tagInput, tags],
+  );
+  const visibleTags = useMemo(
+    () =>
+      impliedAssetTypeTag
+        ? tags.filter((tagName) => sectionKeyForTagName(tagName) === null)
+        : tags,
+    [impliedAssetTypeTag, tags],
   );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -396,18 +423,31 @@ export function BulkUploadPanel({
   };
 
   const addTags = (value?: string) => {
-    const parsed = parseTagNames(value ?? "");
+    const parsed = parseTagNames(value ?? "").filter(
+      (tagName) =>
+        !impliedAssetTypeTag || sectionKeyForTagName(tagName) === null,
+    );
     if (parsed.length === 0) return;
     setTags((previous) => Array.from(new Set([...previous, ...parsed])));
   };
 
   const toggleDestination = (folderId: string) => {
-    setFolderIds((previous) =>
-      previous.includes(folderId) ? [] : [folderId],
-    );
+    setFolderIds((previous) => {
+      const next = previous.includes(folderId) ? [] : [folderId];
+      const nextFolder = [...folders, ...createdFolders].find(
+        (folder) => folder._id === next[0],
+      );
+      if (assetTypeTagForCollectionName(nextFolder?.name)) {
+        setTags((current) =>
+          current.filter((tagName) => sectionKeyForTagName(tagName) === null),
+        );
+      }
+      return next;
+    });
   };
 
   const toggleBatchTypeTag = (tagName: string) => {
+    if (impliedAssetTypeTag) return;
     setTags((previous) => {
       const isSelected = previous.some(
         (tag) => tag.toLowerCase() === tagName,
@@ -1409,31 +1449,38 @@ export function BulkUploadPanel({
               >
                 Tags
               </SectionRule>
-              <div className="flex flex-wrap gap-2 pb-1">
-                {BATCH_TYPE_TAGS.map((option) => {
-                  const selected = tags.some(
-                    (tag) => tag.toLowerCase() === option.value,
-                  );
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleBatchTypeTag(option.value)}
-                      disabled={isUploading}
-                      className={cn(
-                        mono,
-                        "rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors disabled:opacity-40",
-                        selected
-                          ? "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)] text-[var(--lm-coral)]"
-                          : "border-[var(--lm-border)] text-[var(--lm-text-tertiary)] hover:border-[var(--lm-border-strong)] hover:text-[var(--lm-text-primary)]",
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
+              {impliedAssetTypeTag ? (
+                <p className="text-[11px] leading-snug text-[var(--lm-coral)]">
+                  {impliedAssetTypeTag[0].toUpperCase() + impliedAssetTypeTag.slice(1)}
+                  {" comes from the selected collection."}
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2 pb-1">
+                  {BATCH_TYPE_TAGS.map((option) => {
+                    const selected = tags.some(
+                      (tag) => tag.toLowerCase() === option.value,
+                    );
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleBatchTypeTag(option.value)}
+                        disabled={isUploading}
+                        className={cn(
+                          mono,
+                          "rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors disabled:opacity-40",
+                          selected
+                            ? "border-[var(--lm-coral)] bg-[var(--lm-accent-dim)] text-[var(--lm-coral)]"
+                            : "border-[var(--lm-border)] text-[var(--lm-text-tertiary)] hover:border-[var(--lm-border-strong)] hover:text-[var(--lm-text-primary)]",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <Input
                 id="bulk-tag-input"
                 placeholder="Other tags for every asset — Enter to add"
@@ -1452,9 +1499,9 @@ export function BulkUploadPanel({
                   Leave this empty to upload without adding tags.
                 </p>
               )}
-              {tags.length > 0 && (
+              {visibleTags.length > 0 && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {tags.map((tag) => (
+                  {visibleTags.map((tag) => (
                     <button
                       key={tag}
                       type="button"
@@ -1479,7 +1526,14 @@ export function BulkUploadPanel({
               {availableTags.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                   <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
-                  {availableTags.slice(0, 6).map((suggestion) => (
+                  {availableTags
+                    .filter(
+                      (suggestion) =>
+                        !impliedAssetTypeTag ||
+                        sectionKeyForTagName(suggestion) === null,
+                    )
+                    .slice(0, 6)
+                    .map((suggestion) => (
                     <button
                       key={suggestion}
                       type="button"

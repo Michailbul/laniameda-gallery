@@ -62,7 +62,13 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript).toContain("openPanelOnActionClick");
     expect(backgroundScript).toContain("prepareAssetUpload");
     expect(backgroundScript).toContain("saveDroppedAsset");
+    expect(backgroundScript).toContain('"collection-classification.js"');
+    expect(backgroundScript).toContain("resolveFolderAssetTypeTag");
+    expect(backgroundScript).toContain("getFolders()");
+    expect(popupHtml).toContain('<script src="collection-classification.js"></script>');
     expect(popupHtml).not.toContain('id="uploadTypeTag"');
+    expect(popupHtml).toContain('id="uploadAssetTypeField"');
+    expect(popupHtml).toContain('id="collectionAssetTypeHint"');
     expect(popupHtml).toContain('id="uploadAssetTypeTag"');
     expect(popupHtml).toContain('id="uploadStyleTag"');
     for (const option of [
@@ -90,6 +96,9 @@ describe("extension endpoint defaults", () => {
     expect(popupScript).toContain('"uploadAssetTypeTag"');
     expect(popupScript).toContain('"uploadStyleTag"');
     expect(popupScript).toContain("readDescriptiveTagNames");
+    expect(popupScript).toContain("readCollectionAssetTypeTag");
+    expect(popupScript).toContain("renderCollectionAssetType");
+    expect(popupScript).toContain("applyImpliedAssetTypeTag");
     expect(popupScript).toContain("chrome.storage.local.set");
     expect(popupScript).toContain("No collection (uncategorized)");
     expect(popupScript).toContain("readUploadTagNames");

@@ -73,3 +73,59 @@ export const sectionKeyForTagName = (
   if (!normalized) return null;
   return SECTION_KEY_BY_TAG[normalized] ?? null;
 };
+
+export type CollectionAssetTypeTag =
+  | "character"
+  | "location"
+  | "scene";
+
+const ASSET_TYPE_TAG_BY_SECTION: Partial<Record<
+  CollectionSectionKey,
+  CollectionAssetTypeTag
+>> = {
+  characters: "character",
+  locations: "location",
+  scenes: "scene",
+};
+
+/**
+ * A destination named Characters/Locations/Scenes already says what its
+ * members are. This is the single inference rule used by upload and filing
+ * surfaces so they never ask for the same classification twice.
+ * `sectionKeyForTagName` keeps the older Stills project-section alias working.
+ */
+export const assetTypeTagForCollectionName = (
+  collectionName: string | null | undefined,
+): CollectionAssetTypeTag | null => {
+  const section =
+    normalizeCollectionSection(collectionName) ??
+    sectionKeyForTagName(collectionName);
+  return section ? ASSET_TYPE_TAG_BY_SECTION[section] ?? null : null;
+};
+
+export const resolveImpliedAssetTypeTag = (
+  collectionNames: Iterable<string | null | undefined>,
+): CollectionAssetTypeTag | null => {
+  const implied = new Set<CollectionAssetTypeTag>();
+  for (const name of collectionNames) {
+    const tag = assetTypeTagForCollectionName(name);
+    if (tag) implied.add(tag);
+  }
+  return implied.size === 1 ? Array.from(implied)[0] : null;
+};
+
+/**
+ * Typed destinations replace any manually-entered type alias with their own
+ * canonical singular tag. Other descriptive/style tags stay untouched.
+ */
+export const applyImpliedAssetTypeTag = (
+  tagNames: Iterable<string>,
+  impliedTag: CollectionAssetTypeTag | null,
+) => {
+  const tags = Array.from(tagNames);
+  if (!impliedTag) return tags;
+  return [
+    ...tags.filter((tagName) => sectionKeyForTagName(tagName) === null),
+    impliedTag,
+  ];
+};

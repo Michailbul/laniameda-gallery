@@ -35,6 +35,11 @@ import {
   uploadImageToR2,
 } from "@/lib/image-ingest";
 import { cn } from "@/lib/utils";
+import {
+  applyImpliedAssetTypeTag,
+  resolveImpliedAssetTypeTag,
+  sectionKeyForTagName,
+} from "@/lib/collection-sections";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -398,6 +403,28 @@ export function UploadPanel({
     return groups;
   }, [createdFolders, folders, selectedFiles, worldGroupSources, worldMemberIds]);
 
+  const impliedAssetTypeTag = useMemo(() => {
+    const destinationNames = destinationIds.flatMap((destinationId) => {
+      for (const group of destinationGroups) {
+        const option = group.options.find((entry) => entry.id === destinationId);
+        if (option) return [option.meta ?? option.name];
+      }
+      return [];
+    });
+    return resolveImpliedAssetTypeTag(destinationNames);
+  }, [destinationGroups, destinationIds]);
+  const tagsForSave = useMemo(
+    () => applyImpliedAssetTypeTag(tags, impliedAssetTypeTag),
+    [impliedAssetTypeTag, tags],
+  );
+  const visibleTags = useMemo(
+    () =>
+      impliedAssetTypeTag
+        ? tags.filter((tagName) => sectionKeyForTagName(tagName) === null)
+        : tags,
+    [impliedAssetTypeTag, tags],
+  );
+
   const handleIncomingFiles = (files: FileList | File[]) => {
     const added: File[] = Array.from(files).filter((file): file is File => file instanceof File);
     if (added.length === 0) return;
@@ -432,7 +459,10 @@ export function UploadPanel({
   };
 
   const addTags = (value?: string) => {
-    const parsed = parseTagNames(value?.toString() ?? "");
+    const parsed = parseTagNames(value?.toString() ?? "").filter(
+      (tagName) =>
+        !impliedAssetTypeTag || sectionKeyForTagName(tagName) === null,
+    );
     if (parsed.length === 0) return;
     setTags((previous) => Array.from(new Set([...previous, ...parsed])));
   };
@@ -630,7 +660,7 @@ export function UploadPanel({
         // Destinations are attached after the save. A new beat or pool is a real
         // folder, and creating one up front would litter the world with empties
         // every time an upload failed.
-        tags,
+        tags: tagsForSave,
         file: isVideoUpload || isLargeImageUpload ? null : candidateFile,
         modelName: resolvedModelName,
         generationType: resolvedGenerationType,
@@ -1234,6 +1264,12 @@ export function UploadPanel({
               {/* Tags */}
               <section className="flex flex-col gap-2.5">
                 <FieldLabel htmlFor="tag-input">Tags</FieldLabel>
+                {impliedAssetTypeTag && (
+                  <p className="text-[11px] leading-snug text-[var(--lm-coral)]">
+                    {impliedAssetTypeTag[0].toUpperCase() + impliedAssetTypeTag.slice(1)}
+                    {" comes from the selected collection."}
+                  </p>
+                )}
                 <Input
                   id="tag-input"
                   placeholder="Type a tag, press Enter or comma to add"
@@ -1243,9 +1279,9 @@ export function UploadPanel({
                   className={underlineField}
                 />
 
-                {tags.length > 0 && (
+                {visibleTags.length > 0 && (
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
-                    {tags.map((tag) => (
+                    {visibleTags.map((tag) => (
                       <button
                         key={tag}
                         type="button"
@@ -1267,7 +1303,13 @@ export function UploadPanel({
                 {tagSuggestions.length > 0 && (
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
                     <span className={cn(labelCls, "text-[9px]")}>Suggested</span>
-                    {tagSuggestions.map((suggestion) => (
+                    {tagSuggestions
+                      .filter(
+                        (suggestion) =>
+                          !impliedAssetTypeTag ||
+                          sectionKeyForTagName(suggestion) === null,
+                      )
+                      .map((suggestion) => (
                       <button
                         key={suggestion}
                         type="button"

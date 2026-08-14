@@ -1,7 +1,9 @@
 // Save to Gallery — Background service worker
 
-// Capture-time image re-encoding, shared with the content script.
-importScripts("image-convert.js");
+// Capture-time conversion plus collection-derived type classification.
+importScripts("image-convert.js", "collection-classification.js");
+
+const collectionClassification = globalThis.SaveToGalleryCollectionClassification;
 
 const CANONICAL_API_HOST = "gallery.laniameda.space";
 const SAVE_ROUTE_PATH = "/api/extension/save";
@@ -166,7 +168,7 @@ async function getSavePresetFolderIds() {
 }
 
 async function addSelectedMidjourneyFromShortcut() {
-  const [tabs, syncCfg, localCfg] = await Promise.all([
+  const [tabs, syncCfg, localCfg, folderResponse] = await Promise.all([
     chrome.tabs.query({ active: true, lastFocusedWindow: true }),
     chrome.storage.sync.get([UPLOAD_FOLDER_ID_KEY]),
     chrome.storage.local.get([
@@ -174,6 +176,7 @@ async function addSelectedMidjourneyFromShortcut() {
       UPLOAD_STYLE_TAG_KEY,
       UPLOAD_TAG_NAMES_KEY,
     ]),
+    getFolders(),
   ]);
   const tab = tabs[0];
   if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
@@ -181,14 +184,21 @@ async function addSelectedMidjourneyFromShortcut() {
   }
 
   const folderId = String(syncCfg[UPLOAD_FOLDER_ID_KEY] || "").trim();
+  const impliedAssetTypeTag = collectionClassification.resolveFolderAssetTypeTag(
+    folderId,
+    folderResponse?.folders,
+  );
   const seenTags = new Set();
-  const tagNames = [
-    localCfg[UPLOAD_ASSET_TYPE_TAG_KEY],
-    localCfg[UPLOAD_STYLE_TAG_KEY],
-    ...(Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
-      ? localCfg[UPLOAD_TAG_NAMES_KEY]
-      : []),
-  ].reduce((tags, value) => {
+  const tagNames = collectionClassification.applyImpliedAssetTypeTag(
+    [
+      impliedAssetTypeTag || localCfg[UPLOAD_ASSET_TYPE_TAG_KEY],
+      localCfg[UPLOAD_STYLE_TAG_KEY],
+      ...(Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
+        ? localCfg[UPLOAD_TAG_NAMES_KEY]
+        : []),
+    ],
+    impliedAssetTypeTag,
+  ).reduce((tags, value) => {
     const tag = String(value || "").trim();
     const key = tag.toLowerCase();
     if (!tag || seenTags.has(key)) return tags;

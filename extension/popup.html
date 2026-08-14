@@ -184,6 +184,17 @@
       margin-top: 10px;
     }
 
+    .classification-toolbar:has([hidden]) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .collection-type-hint {
+      margin: 8px 0 0;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--coral);
+    }
+
     .selected-asset {
       display: grid;
       grid-template-columns: 72px minmax(0, 1fr);
@@ -881,7 +892,7 @@
         <span class="logo-dot"></span>
         <span>meda</span>
       </div>
-      <span id="modeBadge" class="badge">add mode · v0.10.4</span>
+      <span id="modeBadge" class="badge">add mode · v0.10.5</span>
     </div>
 
     <div class="sep"></div>
@@ -931,7 +942,7 @@
       </div>
 
       <div class="classification-toolbar">
-        <label>
+        <label id="uploadAssetTypeField">
           <span class="upload-field-label">asset tag · optional</span>
           <select id="uploadAssetTypeTag" class="field-select" aria-label="Asset type tag">
             <option value="">No asset tag</option>
@@ -950,6 +961,7 @@
           </select>
         </label>
       </div>
+      <p id="collectionAssetTypeHint" class="collection-type-hint" hidden></p>
 
       <label class="upload-field-label" for="uploadTags">descriptive tags · optional</label>
       <input
@@ -1104,6 +1116,7 @@
     </footer>
   </main>
 
+  <script src="collection-classification.js"></script>
   <script src="drop-upload.js"></script>
   <script src="popup.js"></script>
 </body>

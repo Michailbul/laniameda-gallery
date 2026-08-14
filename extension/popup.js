@@ -1,4 +1,5 @@
 const dropUpload = globalThis.SaveToGalleryDropUpload;
+const collectionClassification = globalThis.SaveToGalleryCollectionClassification;
 
 const apiUrlInput = document.getElementById("apiUrl");
 const apiTokenInput = document.getElementById("apiToken");
@@ -21,7 +22,9 @@ const bookmarkSaveBtn = document.getElementById("bookmarkSave");
 const bookmarkStatusEl = document.getElementById("bookmarkStatus");
 
 const uploadCollectionEl = document.getElementById("uploadCollection");
+const uploadAssetTypeFieldEl = document.getElementById("uploadAssetTypeField");
 const uploadAssetTypeTagEl = document.getElementById("uploadAssetTypeTag");
+const collectionAssetTypeHintEl = document.getElementById("collectionAssetTypeHint");
 const uploadStyleTagEl = document.getElementById("uploadStyleTag");
 const uploadTagsEl = document.getElementById("uploadTags");
 const midjourneySelectionEl = document.getElementById("midjourneySelection");
@@ -139,7 +142,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
   addModePanelEl.hidden = !isAddMode;
   bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.10.4`;
+  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.10.5`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }
@@ -257,12 +260,29 @@ const normalizeTagNames = (values) => {
 const readDescriptiveTagNames = () =>
   normalizeTagNames(String(uploadTagsEl?.value || "").split(","));
 
-const readUploadTagNames = () =>
-  normalizeTagNames([
+const readCollectionAssetTypeTag = () =>
+  collectionClassification.resolveFolderAssetTypeTag(
+    uploadCollectionEl?.value,
+    loadedFolders,
+  );
+
+const readUploadTagNames = () => {
+  const impliedAssetTypeTag = readCollectionAssetTypeTag();
+  return normalizeTagNames(collectionClassification.applyImpliedAssetTypeTag([
     uploadAssetTypeTagEl?.value,
     uploadStyleTagEl?.value,
     ...readDescriptiveTagNames(),
-  ]);
+  ], impliedAssetTypeTag));
+};
+
+const renderCollectionAssetType = () => {
+  const impliedAssetTypeTag = readCollectionAssetTypeTag();
+  uploadAssetTypeFieldEl.hidden = Boolean(impliedAssetTypeTag);
+  collectionAssetTypeHintEl.hidden = !impliedAssetTypeTag;
+  collectionAssetTypeHintEl.textContent = impliedAssetTypeTag
+    ? `${impliedAssetTypeTag[0].toUpperCase()}${impliedAssetTypeTag.slice(1)} comes from the collection.`
+    : "";
+};
 
 const renderCollectionSelectors = ({ uploadFolderId } = {}) => {
   renderDefaultCollectionOptions(loadedFolders, storedDefaultFolderId);
@@ -270,6 +290,7 @@ const renderCollectionSelectors = ({ uploadFolderId } = {}) => {
     loadedFolders,
     uploadFolderId ?? uploadCollectionEl?.value ?? "",
   );
+  renderCollectionAssetType();
   renderQueue();
 };
 
@@ -907,6 +928,7 @@ siteToggleBtn?.addEventListener("click", async () => {
 
 uploadCollectionEl.addEventListener("change", async () => {
   await chrome.storage.sync.set({ [UPLOAD_FOLDER_ID_KEY]: uploadCollectionEl.value });
+  renderCollectionAssetType();
   renderQueue();
   setUploadStatus("");
 });

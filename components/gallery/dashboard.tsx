@@ -3,6 +3,7 @@
 import "@/app/tokens.css";
 import {
   type CollectionSectionKey,
+  assetTypeTagForCollectionName,
   collectionSectionBadgeLabel,
   normalizeCollectionSection,
   sectionKeyForTagName,
@@ -2742,6 +2743,18 @@ export function GalleryDashboard({
           moved += 1;
         }
         const destName = folderNameById.get(folderId) ?? "collection";
+        const impliedAssetType = assetTypeTagForCollectionName(destName);
+        if (
+          impliedAssetType === "character" ||
+          impliedAssetType === "location" ||
+          impliedAssetType === "scene"
+        ) {
+          await bulkAssignAssetTypeMutation({
+            ownerUserId,
+            assetIds: assetIds.map((assetId) => assetId as Id<"assets">),
+            assetType: impliedAssetType,
+          });
+        }
         setMoveStatus({
           text: `Moved ${moved} asset${moved === 1 ? "" : "s"} to ${destName}`,
         });
@@ -2762,6 +2775,7 @@ export function GalleryDashboard({
     },
     [
       bulkActionLoading,
+      bulkAssignAssetTypeMutation,
       collectionFoldersWithCounts,
       folderNameById,
       images,
@@ -2914,6 +2928,22 @@ export function GalleryDashboard({
               }),
             ),
           );
+          const impliedAssetType = assetTypeTagForCollectionName(
+            folderNameOverride ?? folderNameById.get(folderId),
+          );
+          if (
+            impliedAssetType === "character" ||
+            impliedAssetType === "location" ||
+            impliedAssetType === "scene"
+          ) {
+            await bulkAssignAssetTypeMutation({
+              ownerUserId,
+              assetIds: targets.map((target) =>
+                target.assetId as Id<"assets">,
+              ),
+              assetType: impliedAssetType,
+            });
+          }
         }
         const targetName =
           folderNameOverride ??
@@ -2941,6 +2971,7 @@ export function GalleryDashboard({
     [
       addAssetFoldersMutation,
       bulkAddBusy,
+      bulkAssignAssetTypeMutation,
       folderNameById,
       ownerUserId,
       selectedAssetMemberships,
@@ -2966,6 +2997,20 @@ export function GalleryDashboard({
           assetId: imageId as Id<"assets">,
           folderIds: [folderId as Id<"folders">],
         });
+        const impliedAssetType = assetTypeTagForCollectionName(
+          folderNameById.get(folderId),
+        );
+        if (
+          impliedAssetType === "character" ||
+          impliedAssetType === "location" ||
+          impliedAssetType === "scene"
+        ) {
+          await bulkAssignAssetTypeMutation({
+            ownerUserId,
+            assetIds: [imageId as Id<"assets">],
+            assetType: impliedAssetType,
+          });
+        }
         setMoveStatus({
           text: `Added to ${folderNameById.get(folderId) ?? "collection"}`,
         });
@@ -2976,7 +3021,12 @@ export function GalleryDashboard({
         });
       }
     },
-    [addAssetFoldersMutation, folderNameById, ownerUserId],
+    [
+      addAssetFoldersMutation,
+      bulkAssignAssetTypeMutation,
+      folderNameById,
+      ownerUserId,
+    ],
   );
 
   const removeAssetFromFolder = useCallback(
@@ -3221,7 +3271,11 @@ export function GalleryDashboard({
   // Moving (which removes other collection memberships) is only ever the
   // explicit Move action in the card menu, never a drag.
   const handleAssetsDropOnFolder = useCallback(
-    async (folderId: string, assetIds: string[]) => {
+    async (
+      folderId: string,
+      assetIds: string[],
+      classificationNameOverride?: string,
+    ) => {
       if (assetIds.length === 0) return;
       try {
         await Promise.all(
@@ -3233,6 +3287,20 @@ export function GalleryDashboard({
             }),
           ),
         );
+        const impliedAssetType = assetTypeTagForCollectionName(
+          classificationNameOverride ?? folderNameById.get(folderId),
+        );
+        if (
+          impliedAssetType === "character" ||
+          impliedAssetType === "location" ||
+          impliedAssetType === "scene"
+        ) {
+          await bulkAssignAssetTypeMutation({
+            ownerUserId,
+            assetIds: assetIds.map((assetId) => assetId as Id<"assets">),
+            assetType: impliedAssetType,
+          });
+        }
         setMoveStatus({
           text: `Added ${assetIds.length} asset${assetIds.length === 1 ? "" : "s"} to ${folderNameById.get(folderId) ?? "collection"}`,
         });
@@ -3246,7 +3314,12 @@ export function GalleryDashboard({
         });
       }
     },
-    [addAssetFoldersMutation, folderNameById, ownerUserId],
+    [
+      addAssetFoldersMutation,
+      bulkAssignAssetTypeMutation,
+      folderNameById,
+      ownerUserId,
+    ],
   );
 
   // Dropping on a storybook ADDS membership (keeps existing collections) —
@@ -3476,7 +3549,11 @@ export function GalleryDashboard({
           projectId: worldId as Id<"folders">,
           section,
         });
-        await handleAssetsDropOnFolder(pool.folderId as string, assetIds);
+        await handleAssetsDropOnFolder(
+          pool.folderId as string,
+          assetIds,
+          section,
+        );
       } catch (error) {
         setMoveStatus({
           text:
@@ -4362,6 +4439,20 @@ export function GalleryDashboard({
     storybooksView,
     viewMode,
   ]);
+  const quickDropImpliedTag = useMemo<StaticsTagName | null>(() => {
+    if (quickDropTarget?.kind !== "folder") return null;
+    const tag = assetTypeTagForCollectionName(quickDropTarget.label);
+    return tag === "character" || tag === "location" || tag === "scene"
+      ? tag
+      : null;
+  }, [quickDropTarget]);
+  const quickDropOptions = useMemo(
+    () =>
+      quickDropImpliedTag
+        ? STATICS_TAGS.filter((option) => option.tag === quickDropImpliedTag)
+        : STATICS_TAGS,
+    [quickDropImpliedTag],
+  );
 
   // Which bucket is mid-upload. (Which one the cursor is over lives with the
   // rest of the drag state, up where the shell handlers can clear it.)
@@ -4819,11 +4910,13 @@ export function GalleryDashboard({
                     color: "var(--lm-text-tertiary)",
                   }}
                 >
-                  Pick what it is · saves on release
+                  {quickDropImpliedTag
+                    ? "Type comes from this collection · saves on release"
+                    : "Pick what it is · saves on release"}
                 </span>
               </div>
               <div className="flex w-full flex-wrap items-stretch justify-center gap-4">
-                {STATICS_TAGS.map(({ tag, label }) => {
+                {quickDropOptions.map(({ tag, label }) => {
                   const isHovered = hoveredDropTag === tag;
                   return (
                     <div
