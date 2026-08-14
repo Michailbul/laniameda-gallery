@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
+import { resolveImpliedAssetTypeTag } from "@/lib/collection-sections";
 
 /**
  * "Move to" — the one place assets get sorted.
@@ -179,6 +180,16 @@ export function AddToPanel({
     }
     return map;
   }, [collections]);
+  const impliedAssetTypeTag = useMemo(() => {
+    if (selectedAssetIds.length === 0) return null;
+    return resolveImpliedAssetTypeTag(
+      collections
+        .filter(
+          (entry) => entry.selectedCount === selectedAssetIds.length,
+        )
+        .map((entry) => entry.name),
+    );
+  }, [collections, selectedAssetIds.length]);
 
   if (!open) return null;
 
@@ -345,37 +356,48 @@ export function AddToPanel({
           </>
         ) : (
           <>
-            <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Asset type</p>
-            <p style={helperStyle}>
-              Only needed for general collections. Characters, Locations and
-              Scenes destinations classify automatically.
-            </p>
-            <Grid view={view} compact>
-              {ASSET_TYPES.map((assetType) => (
-                <Target
-                  key={assetType.key}
-                  view={view}
-                  icon={assetType.icon}
-                  label={assetType.label}
-                  busy={busyKey === `type:${assetType.key}`}
-                  selectedCount={assetTypeCounts[assetType.key]}
-                  selectionTotal={count}
-                  selectionKind="checkbox"
-                  hint="Assign type"
-                  onActivate={(ids) => {
-                    const assetIds = resolveIds(ids);
-                    if (assetIds.length === 0) return;
-                    void run(
-                      `type:${assetType.key}`,
-                      `Filed ${assetIds.length} as ${assetType.label}`,
-                      () => onAssignAssetType(assetType.key, assetIds),
-                    );
-                  }}
-                />
-              ))}
-            </Grid>
+            {!impliedAssetTypeTag && (
+              <>
+                <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Asset type</p>
+                <p style={helperStyle}>
+                  Only needed for general collections. Characters, Locations
+                  and Scenes destinations classify automatically.
+                </p>
+                <Grid view={view} compact>
+                  {ASSET_TYPES.map((assetType) => (
+                    <Target
+                      key={assetType.key}
+                      view={view}
+                      icon={assetType.icon}
+                      label={assetType.label}
+                      busy={busyKey === `type:${assetType.key}`}
+                      selectedCount={assetTypeCounts[assetType.key]}
+                      selectionTotal={count}
+                      selectionKind="checkbox"
+                      hint="Assign type"
+                      onActivate={(ids) => {
+                        const assetIds = resolveIds(ids);
+                        if (assetIds.length === 0) return;
+                        void run(
+                          `type:${assetType.key}`,
+                          `Filed ${assetIds.length} as ${assetType.label}`,
+                          () => onAssignAssetType(assetType.key, assetIds),
+                        );
+                      }}
+                    />
+                  ))}
+                </Grid>
+              </>
+            )}
 
-            <p style={{ ...kickerStyle, margin: "18px 0 8px" }}>Collections</p>
+            <p
+              style={{
+                ...kickerStyle,
+                margin: impliedAssetTypeTag ? "0 0 8px" : "18px 0 8px",
+              }}
+            >
+              Collections
+            </p>
             {rootCollections.length === 0 && <Hint>No collections yet.</Hint>}
             <Grid view={view}>
               {rootCollections.map((entry) => (
