@@ -546,27 +546,6 @@
     return undefined;
   }
 
-  async function captureOriginalMidjourneyPng(url) {
-    let response;
-    try {
-      response = await sendRuntimeMessage({
-        action: "fetchImageBytes",
-        imageUrl: url,
-        preferredContentType: "image/png",
-        requiredContentType: "image/png",
-      });
-    } catch (err) {
-      throw new Error(`Could not fetch the original Midjourney PNG: ${err.message}`);
-    }
-
-    if (!response?.ok || !response.base64) {
-      throw new Error(
-        response?.error || "The original Midjourney PNG is unavailable; nothing was saved.",
-      );
-    }
-    return { base64: response.base64, contentType: response.contentType };
-  }
-
   // ── Helpers ──
 
   function isQualifiedImage(img) {
@@ -2669,10 +2648,9 @@
       return { ok: false, error: "The selected Midjourney image changed. Try Add again." };
     }
 
-    const file = await captureOriginalMidjourneyPng(selection.originalImageUrl);
     const folderIds = normalizeFolderIdList(message.folderIds);
     const response = await sendRuntimeMessage({
-      action: "saveImage",
+      action: "saveOriginalMidjourneyAsset",
       imageUrl: selection.originalImageUrl,
       sourceUrl: location.href,
       pageTitle: document.title,
@@ -2681,7 +2659,6 @@
       folderId: folderIds[0] || undefined,
       folderIds,
       tagNames: mergeTagNames(saveContext.tagNames, message.tagNames),
-      file,
     });
 
     if (!response?.ok) {
@@ -2693,7 +2670,7 @@
     return {
       ok: true,
       result: response.result,
-      contentType: file.contentType,
+      contentType: response.contentType,
       originalImageUrl: selection.originalImageUrl,
     };
   }
@@ -4681,24 +4658,37 @@
       }
 
       if (message?.action === "saveActiveMidjourneyAsset") {
-        if (message.triggeredByShortcut) {
-          showContextToast("saving", "Adding original PNG…");
+        const showAsyncProgress = message.triggeredByShortcut || message.continueImmediately;
+        const queuedSelection = getActiveMidjourneyPanelSelection();
+        const queuedLabel = queuedSelection.selectedIndex
+          ? `Image ${queuedSelection.selectedIndex}`
+          : "Image";
+        if (showAsyncProgress) {
+          showContextToast(
+            "saving",
+            message.continueImmediately
+              ? `${queuedLabel} queued — move to the next`
+              : `Adding ${queuedLabel.toLowerCase()}…`,
+          );
         }
         saveActiveMidjourneyPanelSelection(message)
           .then((response) => {
-            if (message.triggeredByShortcut) {
+            if (showAsyncProgress) {
               showContextToast(
                 response?.ok ? "saved" : "error",
                 response?.ok
-                  ? "Added to laniameda"
-                  : String(response?.error || "Save failed.").slice(0, 90),
+                  ? `${queuedLabel} added to laniameda`
+                  : `${queuedLabel} failed: ${response?.error || "Save failed."}`.slice(0, 90),
               );
             }
             sendResponse(response);
           })
           .catch((err) => {
-            if (message.triggeredByShortcut) {
-              showContextToast("error", String(err?.message || "Save failed.").slice(0, 90));
+            if (showAsyncProgress) {
+              showContextToast(
+                "error",
+                `${queuedLabel} failed: ${err?.message || "Save failed."}`.slice(0, 90),
+              );
             }
             sendResponse({ ok: false, error: err?.message || "Save failed." });
           });

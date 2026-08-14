@@ -21,6 +21,8 @@ const bookmarkSaveBtn = document.getElementById("bookmarkSave");
 const bookmarkStatusEl = document.getElementById("bookmarkStatus");
 
 const uploadCollectionEl = document.getElementById("uploadCollection");
+const uploadAssetTypeTagEl = document.getElementById("uploadAssetTypeTag");
+const uploadStyleTagEl = document.getElementById("uploadStyleTag");
 const uploadTagsEl = document.getElementById("uploadTags");
 const midjourneySelectionEl = document.getElementById("midjourneySelection");
 const midjourneyPreviewEl = document.getElementById("midjourneyPreview");
@@ -51,6 +53,8 @@ const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 const DISABLED_HOSTS_KEY = "disabledHosts";
 const DEFAULT_FOLDER_ID_KEY = "defaultFolderId";
 const UPLOAD_FOLDER_ID_KEY = "uploadFolderId";
+const UPLOAD_ASSET_TYPE_TAG_KEY = "uploadAssetTypeTag";
+const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
 const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
 const EXTENSION_MODE_KEY = "extensionMode";
 // The remembered "last save" preset (written by content.js) normally outranks
@@ -135,7 +139,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
   addModePanelEl.hidden = !isAddMode;
   bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.10`;
+  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.10.4`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }
@@ -237,20 +241,28 @@ const renderUploadCollectionOptions = (folders, selectedId) => {
   uploadCollectionEl.disabled = false;
 };
 
-const readUploadTagNames = () => {
+const normalizeTagNames = (values) => {
   const tagNames = [];
   const seen = new Set();
-  const add = (value) => {
+  for (const value of values) {
     const tagName = String(value || "").trim();
     const key = tagName.toLowerCase();
-    if (!tagName || seen.has(key)) return;
+    if (!tagName || seen.has(key)) continue;
     seen.add(key);
     tagNames.push(tagName);
-  };
-
-  for (const value of String(uploadTagsEl?.value || "").split(",")) add(value);
+  }
   return tagNames;
 };
+
+const readDescriptiveTagNames = () =>
+  normalizeTagNames(String(uploadTagsEl?.value || "").split(","));
+
+const readUploadTagNames = () =>
+  normalizeTagNames([
+    uploadAssetTypeTagEl?.value,
+    uploadStyleTagEl?.value,
+    ...readDescriptiveTagNames(),
+  ]);
 
 const renderCollectionSelectors = ({ uploadFolderId } = {}) => {
   renderDefaultCollectionOptions(loadedFolders, storedDefaultFolderId);
@@ -378,10 +390,16 @@ const loadPopupState = async () => {
       UPLOAD_FOLDER_ID_KEY,
       EXTENSION_MODE_KEY,
     ]),
-    chrome.storage.local.get([UPLOAD_TAG_NAMES_KEY]),
+    chrome.storage.local.get([
+      UPLOAD_ASSET_TYPE_TAG_KEY,
+      UPLOAD_STYLE_TAG_KEY,
+      UPLOAD_TAG_NAMES_KEY,
+    ]),
   ]);
 
   setExtensionMode(cfg[EXTENSION_MODE_KEY]);
+  uploadAssetTypeTagEl.value = String(localCfg[UPLOAD_ASSET_TYPE_TAG_KEY] || "");
+  uploadStyleTagEl.value = String(localCfg[UPLOAD_STYLE_TAG_KEY] || "");
   uploadTagsEl.value = Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
     ? localCfg[UPLOAD_TAG_NAMES_KEY].join(", ")
     : "";
@@ -534,6 +552,8 @@ function renderQueue() {
   retryFailedBtn.disabled = isUploading;
   retryFailedBtn.textContent = `Retry ${failedCount}`;
   clearQueueBtn.disabled = isUploading;
+  uploadAssetTypeTagEl.disabled = isUploading;
+  uploadStyleTagEl.disabled = isUploading;
   uploadTagsEl.disabled = isUploading;
 }
 
@@ -810,42 +830,50 @@ bookmarkModeTabEl.addEventListener("click", () => {
   setExtensionMode("bookmark", { persist: true });
 });
 
-addSelectedAssetBtn.addEventListener("click", async () => {
+addSelectedAssetBtn.addEventListener("click", () => {
   if (currentTabId === null || !activeMidjourneySelection) {
     setAddSelectedStatus("No selected image is ready.", "error");
     return;
   }
 
+  // Snapshot the destination settings at click time and dispatch the save
+  // without awaiting it. Midjourney can move to the next image immediately;
+  // the content script already captured the current job/index before its first
+  // network await and reports eventual completion on the page.
+  const tabId = currentTabId;
   const folderId = uploadCollectionEl.value;
-  addSelectedAssetBtn.disabled = true;
-  addSelectedAssetBtn.textContent = "Adding…";
-  setAddSelectedStatus("Fetching original PNG…");
-  try {
-    const response = await chrome.tabs.sendMessage(currentTabId, {
-      action: "saveActiveMidjourneyAsset",
-      folderId: folderId || undefined,
-      folderIds: folderId ? [folderId] : [],
-      tagNames: readUploadTagNames(),
-    });
-    if (!response?.ok) {
-      throw new Error(response?.error || "Gallery save failed.");
-    }
+  const selectedLabel = activeMidjourneySelection.selectedIndex
+    ? `Image ${activeMidjourneySelection.selectedIndex}`
+    : "Image";
+  const savePromise = chrome.tabs.sendMessage(tabId, {
+    action: "saveActiveMidjourneyAsset",
+    folderId: folderId || undefined,
+    folderIds: folderId ? [folderId] : [],
+    tagNames: readUploadTagNames(),
+    continueImmediately: true,
+  });
 
-    const wasDuplicate = Boolean(response.result?.duplicateMedia);
-    addSelectedAssetBtn.textContent = "Added";
-    setAddSelectedStatus(
-      wasDuplicate ? "Existing original updated." : "Original PNG added.",
-      "success",
-    );
-    window.setTimeout(() => {
-      addSelectedAssetBtn.textContent = "Add";
-      addSelectedAssetBtn.disabled = false;
-    }, 1600);
-  } catch (error) {
-    setAddSelectedStatus(error?.message || "Could not add this image.", "error");
-    addSelectedAssetBtn.textContent = "Try again";
+  addSelectedAssetBtn.disabled = true;
+  addSelectedAssetBtn.textContent = "Queued ✓";
+  setAddSelectedStatus(`${selectedLabel} is saving — move to the next.`, "success");
+  window.setTimeout(() => {
+    addSelectedAssetBtn.textContent = "Add";
     addSelectedAssetBtn.disabled = false;
-  }
+  }, 300);
+
+  void savePromise.then((response) => {
+    if (!response?.ok) {
+      setAddSelectedStatus(
+        `${selectedLabel} failed: ${response?.error || "Gallery save failed."}`.slice(0, 240),
+        "error",
+      );
+    }
+  }).catch((error) => {
+    setAddSelectedStatus(
+      `${selectedLabel} failed: ${error?.message || "Could not start the save."}`.slice(0, 240),
+      "error",
+    );
+  });
 });
 
 siteToggleBtn?.addEventListener("click", async () => {
@@ -883,11 +911,17 @@ uploadCollectionEl.addEventListener("change", async () => {
   setUploadStatus("");
 });
 
-uploadTagsEl.addEventListener("input", () => {
+const persistUploadTagSettings = () => {
   void chrome.storage.local.set({
-    [UPLOAD_TAG_NAMES_KEY]: readUploadTagNames(),
+    [UPLOAD_ASSET_TYPE_TAG_KEY]: uploadAssetTypeTagEl.value,
+    [UPLOAD_STYLE_TAG_KEY]: uploadStyleTagEl.value,
+    [UPLOAD_TAG_NAMES_KEY]: readDescriptiveTagNames(),
   });
-});
+};
+
+uploadAssetTypeTagEl.addEventListener("change", persistUploadTagSettings);
+uploadStyleTagEl.addEventListener("change", persistUploadTagSettings);
+uploadTagsEl.addEventListener("input", persistUploadTagSettings);
 
 newCollectionToggleBtn.addEventListener("click", () => {
   newCollectionRowEl.hidden = !newCollectionRowEl.hidden;

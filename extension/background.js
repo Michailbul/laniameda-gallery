@@ -22,6 +22,8 @@ const LAST_FOLDER_ID_KEY = "lastFolderId";
 // of the array (not its length) marks an explicit "no collection" save.
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
 const UPLOAD_FOLDER_ID_KEY = "uploadFolderId";
+const UPLOAD_ASSET_TYPE_TAG_KEY = "uploadAssetTypeTag";
+const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
 const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
 const ADD_SELECTED_COMMAND = "add-selected-asset";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
@@ -167,7 +169,11 @@ async function addSelectedMidjourneyFromShortcut() {
   const [tabs, syncCfg, localCfg] = await Promise.all([
     chrome.tabs.query({ active: true, lastFocusedWindow: true }),
     chrome.storage.sync.get([UPLOAD_FOLDER_ID_KEY]),
-    chrome.storage.local.get([UPLOAD_TAG_NAMES_KEY]),
+    chrome.storage.local.get([
+      UPLOAD_ASSET_TYPE_TAG_KEY,
+      UPLOAD_STYLE_TAG_KEY,
+      UPLOAD_TAG_NAMES_KEY,
+    ]),
   ]);
   const tab = tabs[0];
   if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
@@ -175,13 +181,21 @@ async function addSelectedMidjourneyFromShortcut() {
   }
 
   const folderId = String(syncCfg[UPLOAD_FOLDER_ID_KEY] || "").trim();
-  const tagNames = Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
-    ? [...new Set(
-        localCfg[UPLOAD_TAG_NAMES_KEY]
-          .map((value) => String(value || "").trim())
-          .filter(Boolean),
-      )]
-    : [];
+  const seenTags = new Set();
+  const tagNames = [
+    localCfg[UPLOAD_ASSET_TYPE_TAG_KEY],
+    localCfg[UPLOAD_STYLE_TAG_KEY],
+    ...(Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
+      ? localCfg[UPLOAD_TAG_NAMES_KEY]
+      : []),
+  ].reduce((tags, value) => {
+    const tag = String(value || "").trim();
+    const key = tag.toLowerCase();
+    if (!tag || seenTags.has(key)) return tags;
+    seenTags.add(key);
+    tags.push(tag);
+    return tags;
+  }, []);
 
   return chrome.tabs.sendMessage(tab.id, {
     action: "saveActiveMidjourneyAsset",
@@ -266,11 +280,48 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+async function hashBlob(blob) {
+  if (!globalThis.crypto?.subtle) return undefined;
+  try {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return Array.from(
+      new Uint8Array(digest),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+  } catch {
+    return undefined;
+  }
+}
+
+async function readImageDimensions(blob) {
+  if (typeof createImageBitmap !== "function") return {};
+  try {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      return { width: bitmap.width, height: bitmap.height };
+    } finally {
+      bitmap.close?.();
+    }
+  } catch {
+    return {};
+  }
+}
+
+function fileNameFromImageUrl(imageUrl, contentType) {
+  try {
+    const fileName = decodeURIComponent(new URL(imageUrl).pathname.split("/").pop() || "").trim();
+    if (fileName) return fileName.slice(0, 500);
+  } catch {
+    // Fall through to a content-type-aware name.
+  }
+  return contentType === "image/png" ? "midjourney-original.png" : "captured-image";
+}
+
 // Fetch image bytes from the service worker. With `<all_urls>` host permissions
 // the worker bypasses page CORS, so signed/CORS-locked CDN images (Krea,
 // Recraft, etc.) can be captured client-side instead of relying on a
 // server-side refetch that those CDNs would reject.
-async function fetchImageBytes(payload) {
+async function fetchCapturedImage(payload) {
   const imageUrl = typeof payload.imageUrl === "string" ? payload.imageUrl : "";
   const preferredContentType =
     payload.preferredContentType === "image/png" ? "image/png" : undefined;
@@ -314,14 +365,94 @@ async function fetchImageBytes(payload) {
       sourceType,
       preferredContentType,
     );
-    const base64 = arrayBufferToBase64(await media.blob.arrayBuffer());
-    if (!base64) {
-      return { ok: false, error: "Empty image payload." };
-    }
-    return { ok: true, base64, contentType: media.contentType };
+    return { ok: true, blob: media.blob, contentType: media.contentType };
   } catch (err) {
     return { ok: false, error: `Decode error: ${err.message}` };
   }
+}
+
+async function fetchImageBytes(payload) {
+  const captured = await fetchCapturedImage(payload);
+  if (!captured.ok) return captured;
+
+  try {
+    const base64 = arrayBufferToBase64(await captured.blob.arrayBuffer());
+    if (!base64) {
+      return { ok: false, error: "Empty image payload." };
+    }
+    return { ok: true, base64, contentType: captured.contentType };
+  } catch (err) {
+    return { ok: false, error: `Decode error: ${err.message}` };
+  }
+}
+
+async function uploadCapturedImageToR2(imageUrl, captured) {
+  const [session, contentHash, dimensions] = await Promise.all([
+    requestUploadSession({ action: "prepare" }),
+    hashBlob(captured.blob),
+    readImageDimensions(captured.blob),
+  ]);
+  if (!session?.ok || !session.key || !session.url) {
+    return { ok: false, error: session?.error || "Could not prepare the R2 upload." };
+  }
+
+  let uploadResponse;
+  try {
+    uploadResponse = await fetch(session.url, {
+      method: "PUT",
+      headers: { "Content-Type": captured.contentType || "application/octet-stream" },
+      body: captured.blob,
+    });
+  } catch (err) {
+    return { ok: false, error: `R2 upload failed: ${err.message}` };
+  }
+  if (!uploadResponse.ok) {
+    return {
+      ok: false,
+      error: `R2 upload failed (${uploadResponse.status} ${uploadResponse.statusText}).`,
+    };
+  }
+
+  const completed = await requestUploadSession({ action: "complete", key: session.key });
+  if (!completed?.ok) {
+    return { ok: false, error: completed?.error || "Could not finalize the R2 upload." };
+  }
+
+  return {
+    ok: true,
+    r2Key: session.key,
+    mediaContentHash: contentHash,
+    mediaContentType: captured.contentType,
+    mediaSize: captured.blob.size,
+    mediaFileName: fileNameFromImageUrl(imageUrl, captured.contentType),
+    imageWidth: dimensions.width,
+    imageHeight: dimensions.height,
+  };
+}
+
+async function saveOriginalMidjourneyAsset(payload) {
+  const captured = await fetchCapturedImage({
+    imageUrl: payload.imageUrl,
+    preferredContentType: "image/png",
+    requiredContentType: "image/png",
+  });
+  if (!captured.ok) return captured;
+
+  const uploaded = await uploadCapturedImageToR2(payload.imageUrl, captured);
+  if (!uploaded.ok) return uploaded;
+
+  const response = await saveToGallery({
+    ...payload,
+    r2Key: uploaded.r2Key,
+    mediaContentHash: uploaded.mediaContentHash,
+    mediaContentType: uploaded.mediaContentType,
+    mediaSize: uploaded.mediaSize,
+    mediaFileName: uploaded.mediaFileName,
+    imageWidth: uploaded.imageWidth,
+    imageHeight: uploaded.imageHeight,
+    mediaType: "image",
+  });
+  return { ...response, contentType: uploaded.mediaContentType };
 }
 
 async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderIds }) {
@@ -743,6 +874,21 @@ async function requestUploadSession(payload) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === "saveOriginalMidjourneyAsset") {
+    saveOriginalMidjourneyAsset({
+      imageUrl: message.imageUrl,
+      sourceUrl: message.sourceUrl,
+      promptText: message.promptText,
+      modelName: message.modelName,
+      folderId: message.folderId,
+      folderIds: message.folderIds,
+      tagNames: message.tagNames,
+    })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (message.action === "saveImage") {
     saveToGallery({
       imageUrl: message.imageUrl,
@@ -768,6 +914,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     saveToGallery({
       folderId: message.folderId,
       folderIds: message.folderIds,
+      tagNames: message.tagNames,
       ingestKey: message.ingestKey,
       r2Key: message.r2Key,
       mediaContentHash: message.mediaContentHash,

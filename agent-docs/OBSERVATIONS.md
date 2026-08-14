@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -27,6 +27,7 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Browser-reserved shortcuts such as `Command+L` cannot be claimed by an extension. Use a manifest `commands` binding such as `Command+Shift+L` and let users remap it from Chrome's extension shortcuts page if desired.
 - Local extension files use a token-authenticated `/api/extension/upload` handshake for a signed browser-to-R2 PUT, then `/api/extension/save` receives only the R2 key, media metadata, content hash, and small preview. Keep large bytes out of Next.js/Convex action arguments.
 - Folder/drop uploads may omit both collection and tags. When either an ingest-key retry or a content-hash twin is found, reuse the original asset and additively merge only the newly selected tags/collection; never create another asset or erase its prior organization.
+- Extension classification uses two independent tag axes: subject role (`character`, `location`, `scene`) and visual treatment (`animation`, `live-action`, `other`). Persist them separately from freeform tags, then merge/dedupe all three sources at save time so panel Add, shortcuts, and local batches stay consistent.
 - Standard collection child pillars are name-based and ordered as `Characters`, `Locations`, `Scenes`, `Inspirations`; use `compareCollectionPillarNames` instead of alphabetical sorting so Inspirations stays last.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
@@ -35,6 +36,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Midjourney's `/create` detail panel may not expose a stable `role="dialog"` or close-button signal. Extension save-widget suppression also checks visible detail-panel labels such as `Creation Actions` to avoid injecting save buttons across the dimmed background grid.
 - Midjourney direct job routes (`/jobs/<id>?index=...`) render the same detail-view surface as Create and must also suppress background grid save widgets.
 - Midjourney CDN media elements commonly render resized WebP/JPEG derivatives. Re-encoding those bytes as PNG changes the container but cannot restore the original pixels. On direct job pages, resolve `/jobs/<id>?index=<n>` to `https://cdn.midjourney.com/<id>/0_<n>.png`, require a valid PNG signature, and fail without saving if the original cannot be fetched.
+- Sequential Midjourney curation must not hold the side-panel Add button for the network round trip. Snapshot the current job/index and selected settings at dispatch, release the control immediately, and surface eventual success/failure through the content-script toast so navigation can continue while the save runs.
+- Original Midjourney PNGs can exceed Vercel's function request-body limit after base64 expansion. Fetch and signature-check them in the extension service worker, upload the Blob through the signed R2 handshake, and pass only the R2 key plus media metadata into `/api/extension/save`.
 - Midjourney Create history is virtualized: rendered generation rows are absolutely positioned with inline `top`/`height` values, and only nearby rows exist in the DOM. Do not sort/reorder the feed; the extension's `Liked only` mode can only hide currently rendered unliked cards while preserving Midjourney's original spacing.
 - `bun run build` may fail due to Turbopack font download issues (Nunito Sans) on restricted networks — run from a network-accessible machine.
 - ESLint ignores `convex/_generated/**` — those are generated files; real lint signal comes from app code only.

@@ -63,13 +63,33 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript).toContain("prepareAssetUpload");
     expect(backgroundScript).toContain("saveDroppedAsset");
     expect(popupHtml).not.toContain('id="uploadTypeTag"');
+    expect(popupHtml).toContain('id="uploadAssetTypeTag"');
+    expect(popupHtml).toContain('id="uploadStyleTag"');
+    for (const option of [
+      '<option value="character">Character</option>',
+      '<option value="location">Location</option>',
+      '<option value="scene">Scene</option>',
+      '<option value="animation">Animation</option>',
+      '<option value="live-action">Live action</option>',
+      '<option value="other">Other</option>',
+    ]) {
+      expect(popupHtml).toContain(option);
+    }
     expect(popupHtml).toContain('id="uploadTags"');
     expect(popupHtml).toContain('id="addModeTab"');
     expect(popupHtml).toContain('id="bookmarkModeTab"');
     expect(popupHtml).toContain('id="addSelectedAsset"');
     expect(popupScript).toContain('"extensionMode"');
     expect(popupScript).toContain('action: "saveActiveMidjourneyAsset"');
+    expect(popupScript).toContain('continueImmediately: true');
+    expect(popupScript).toContain("void savePromise.then");
+    expect(popupScript).not.toContain(
+      'addSelectedAssetBtn.addEventListener("click", async',
+    );
     expect(popupScript).toContain('"uploadTagNames"');
+    expect(popupScript).toContain('"uploadAssetTypeTag"');
+    expect(popupScript).toContain('"uploadStyleTag"');
+    expect(popupScript).toContain("readDescriptiveTagNames");
     expect(popupScript).toContain("chrome.storage.local.set");
     expect(popupScript).toContain("No collection (uncategorized)");
     expect(popupScript).toContain("readUploadTagNames");
@@ -118,14 +138,47 @@ describe("extension endpoint defaults", () => {
     expect(contentScript).toContain('? "image/png"');
     expect(contentScript).toContain('action === "getActiveMidjourneyAsset"');
     expect(contentScript).toContain('action === "saveActiveMidjourneyAsset"');
-    expect(contentScript).toContain('requiredContentType: "image/png"');
+    expect(contentScript).toContain('action: "saveOriginalMidjourneyAsset"');
+    expect(contentScript).not.toContain("captureOriginalMidjourneyPng");
+    const panelSaveStart = contentScript.indexOf(
+      "async function saveActiveMidjourneyPanelSelection",
+    );
+    const panelSaveEnd = contentScript.indexOf("// ── Krea adapter glue", panelSaveStart);
+    const panelSaveSource = contentScript.slice(panelSaveStart, panelSaveEnd);
+    expect(panelSaveSource).not.toContain("base64");
+    expect(panelSaveSource).not.toContain("file:");
+    const directUploadStart = backgroundScript.indexOf(
+      "async function uploadCapturedImageToR2",
+    );
+    const directUploadEnd = backgroundScript.indexOf(
+      "async function saveContextMenuImageInBackground",
+      directUploadStart,
+    );
+    const directUploadSource = backgroundScript.slice(directUploadStart, directUploadEnd);
+    expect(directUploadSource).toContain('requiredContentType: "image/png"');
+    expect(directUploadSource).toContain('method: "PUT"');
+    expect(directUploadSource).toContain("r2Key: uploaded.r2Key");
+    expect(directUploadSource).not.toContain("base64");
+    const droppedSaveStart = backgroundScript.indexOf(
+      'if (message.action === "saveDroppedAsset")',
+    );
+    const droppedSaveEnd = backgroundScript.indexOf(
+      'if (message.action === "prepareAssetUpload")',
+      droppedSaveStart,
+    );
+    expect(backgroundScript.slice(droppedSaveStart, droppedSaveEnd)).toContain(
+      "tagNames: message.tagNames",
+    );
     expect(backgroundScript).toContain("preferredContentType");
     expect(backgroundScript).toContain("requiredContentType");
     expect(backgroundScript).toContain("original PNG; nothing was saved");
     expect(backgroundScript).toContain("chrome.commands.onCommand");
     expect(backgroundScript).toContain("addSelectedMidjourneyFromShortcut");
+    expect(backgroundScript).toContain("UPLOAD_ASSET_TYPE_TAG_KEY");
+    expect(backgroundScript).toContain("UPLOAD_STYLE_TAG_KEY");
     expect(backgroundScript).toContain('triggeredByShortcut: true');
-    expect(contentScript).toContain("Adding original PNG…");
+    expect(contentScript).toContain("showAsyncProgress");
+    expect(contentScript).toContain("queued — move to the next");
     expect(contentScript).not.toContain("MJ likes");
     expect(contentScript).not.toContain("Next liked");
     expect(contentScript).not.toContain("data-stg-mj-liked-sort");
