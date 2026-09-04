@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import sharp from "sharp";
+import { assetDownloadHref } from "../lib/download-image";
 import { streamAssetDownload } from "../lib/server/asset-download";
 
 const realFetch = globalThis.fetch;
@@ -35,6 +36,15 @@ const fileNameOf = (response: Response) =>
   /filename="([^"]+)"/.exec(
     response.headers.get("content-disposition") ?? "",
   )?.[1];
+
+test("workspace and board downloads use same-origin proxy URLs", () => {
+  expect(assetDownloadHref("assets_abc/123")).toBe(
+    "/api/assets/assets_abc%2F123/download",
+  );
+  expect(assetDownloadHref("assets_abc/123", "share token")).toBe(
+    "/api/board/download?token=share%20token&assetId=assets_abc%2F123",
+  );
+});
 
 test("a stored WebP downloads as a JPEG", async () => {
   const webp = await solidImage("webp");

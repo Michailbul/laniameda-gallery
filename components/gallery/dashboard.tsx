@@ -27,7 +27,10 @@ import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Download, Eye, EyeOff, FolderPlus, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
 import { useUploadFile } from "@convex-dev/r2/react";
-import { downloadImagesAsZip } from "@/lib/download-image";
+import {
+  assetDownloadHref,
+  downloadImagesAsZip,
+} from "@/lib/download-image";
 import { buildUploadFormData } from "@/lib/upload-form";
 import { buildIngestKey } from "@/lib/ingest";
 import {
@@ -2667,8 +2670,6 @@ export function GalleryDashboard({
 
     const zipItems = targets
       .map((image) => {
-        const url = image.fullSrc || image.src;
-        if (!url) return null;
         const kind = "kind" in image ? image.kind : undefined;
         const contentType =
           "contentType" in image && typeof image.contentType === "string"
@@ -2676,7 +2677,14 @@ export function GalleryDashboard({
             : undefined;
         const isImage =
           kind === "video" || contentType?.startsWith("video/") ? false : true;
-        return { url, name: image.id, isImage };
+        return {
+          // Fetch through the authenticated same-origin proxy. R2/CDN URLs do
+          // not expose CORS headers, so fetching image.fullSrc directly makes
+          // every item in a browser-created ZIP fail.
+          url: assetDownloadHref(image.id),
+          name: image.id,
+          isImage,
+        };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
