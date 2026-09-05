@@ -73,6 +73,18 @@ async function blobToJpeg(blob: Blob, quality = 0.92): Promise<Blob> {
   }
 }
 
+function zipFailureMessage(status?: number, reason?: string) {
+  if (status === 401) {
+    return "Your session expired — sign in again, then retry the download.";
+  }
+  if (status === 404) {
+    return "Could not fetch any of the selected files — they are no longer available.";
+  }
+  return reason
+    ? `Could not fetch any of the selected files (${reason}).`
+    : "Could not fetch any of the selected files.";
+}
+
 export type ZipDownloadItem = {
   /** Source URL to fetch the bytes from. */
   url: string;
@@ -118,10 +130,19 @@ export async function downloadImagesAsZip(
     return candidate;
   };
 
+  // Keep the first failure so a total wipeout can say WHY. A blanket "could
+  // not fetch" hides the common case: the session expired while the tab stayed
+  // open, so every proxied request comes back 401.
+  let firstStatus: number | undefined;
+  let firstReason: string | undefined;
+
   for (const item of items) {
     try {
       const res = await fetch(item.url);
-      if (!res.ok) throw new Error(`fetch failed (${res.status})`);
+      if (!res.ok) {
+        firstStatus ??= res.status;
+        throw new Error(`request failed (${res.status})`);
+      }
       const raw = await res.blob();
       const isImage = item.isImage ?? raw.type.startsWith("image/");
       if (isImage) {
@@ -131,13 +152,15 @@ export async function downloadImagesAsZip(
         zip.file(uniqueName(item.name), raw);
       }
       zipped += 1;
-    } catch {
+    } catch (error) {
       failed += 1;
+      firstReason ??=
+        error instanceof Error ? error.message : "unknown error";
     }
   }
 
   if (zipped === 0) {
-    throw new Error("Could not fetch any of the selected files.");
+    throw new Error(zipFailureMessage(firstStatus, firstReason));
   }
 
   const archive = await zip.generateAsync({ type: "blob" });
