@@ -179,7 +179,11 @@
 
 .stg-mj-quick-save {
   position: absolute;
-  z-index: 30;
+  /* Sites reveal their own controls over the media on hover — Pinterest stacks
+     a Save button, a share button and a visual-search button above the card.
+     At a low z-index our control is painted over and reads as "disappeared on
+     hover", so it sits above site chrome but below our own fixed bars. */
+  z-index: 2147483000;
   display: flex;
   align-items: stretch;
   overflow: visible;
@@ -1531,4 +1535,174 @@ img[src*="spacer"] {
   opacity: 0;
   transform: translateX(-50%) translateY(-6px);
   transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+/* ── Bulk selection (grid sites) ──
+   A floating toggle enters select mode; clicking pins picks them instead of
+   opening them, and one action bar saves the whole set. Flat surfaces and
+   hairlines only — no cards, no filled chips. */
+.stg-bulk-toggle {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 244, 234, 0.22);
+  border-radius: 19px;
+  background: #191919;
+  color: #fff4ea;
+  font: 500 13px/1 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.34);
+}
+
+.stg-bulk-toggle:hover {
+  border-color: rgba(255, 244, 234, 0.42);
+}
+
+.stg-bulk-toggle--active {
+  background: #f26157;
+  border-color: #f26157;
+  color: #fff4ea;
+}
+
+.stg-bulk-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.stg-bulk-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 46px;
+  padding: 0 8px 0 18px;
+  border: 1px solid rgba(255, 244, 234, 0.22);
+  border-radius: 23px;
+  background: #191919;
+  color: #fff4ea;
+  font: 500 13px/1 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  box-shadow: 0 6px 26px rgba(0, 0, 0, 0.42);
+}
+
+.stg-bulk-count {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.stg-bulk-clear,
+.stg-bulk-pick,
+.stg-bulk-save {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stg-bulk-clear:hover,
+.stg-bulk-pick:hover {
+  border-color: rgba(255, 244, 234, 0.32);
+}
+
+.stg-bulk-collections {
+  position: relative;
+}
+
+.stg-bulk-pick {
+  border-color: rgba(255, 244, 234, 0.22);
+}
+
+.stg-bulk-pick svg {
+  width: 12px;
+  height: 12px;
+}
+
+.stg-bulk-save {
+  background: #f26157;
+  color: #fff4ea;
+  font-weight: 600;
+}
+
+.stg-bulk-save:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.stg-bulk-status {
+  min-width: 0;
+  padding-right: 8px;
+  opacity: 0.72;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The action bar is pinned to the bottom of the viewport, so this menu must
+   open UPWARD. The shared .stg-mj-menu sets `top`/`right` for its drop-down
+   use; both have to be cleared or `top` wins over `bottom` on an auto-height
+   box and the list renders off the bottom of the screen. */
+.stg-bulk-menu {
+  position: absolute;
+  top: auto;
+  right: auto;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  max-height: min(420px, calc(100vh - 120px));
+  overflow-y: auto;
+}
+
+/* Selection state on the media itself. A negative outline offset draws the
+   ring inside the image box so an ancestor with overflow:hidden cannot clip
+   it away. */
+.stg-bulk-mode [data-stg-bulk-selected="1"] {
+  outline: 3px solid #f26157;
+  outline-offset: -3px;
+}
+
+.stg-bulk-mode [data-stg-mj-host-prepared] {
+  cursor: pointer;
+}
+
+.stg-bulk-mode .stg-mj-quick-save {
+  display: none !important;
+}
+
+.stg-bulk-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f26157;
+  color: #fff4ea;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.34);
+}
+
+.stg-bulk-check svg {
+  width: 14px;
+  height: 14px;
 }

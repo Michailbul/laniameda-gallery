@@ -390,7 +390,18 @@ async function fetchImageBytes(payload) {
     if (!base64) {
       return { ok: false, error: "Empty image payload." };
     }
-    return { ok: true, base64, contentType: captured.contentType };
+    // Dimensions of the bytes actually captured — the calling page usually
+    // started from a small CDN variant, so its element size is not the file's.
+    const measured = await SaveToGalleryImageConvert.measureBlobDimensions(
+      captured.blob,
+    );
+    return {
+      ok: true,
+      base64,
+      contentType: captured.contentType,
+      width: measured?.width,
+      height: measured?.height,
+    };
   } catch (err) {
     return { ok: false, error: `Decode error: ${err.message}` };
   }
@@ -530,6 +541,7 @@ async function handleImageContextMenuClick(info, tab) {
 
 // Keep in sync with manifest.json content_scripts.
 const CONTENT_SCRIPT_JS_FILES = [
+  "image-convert.js",
   "image-qualification.js",
   "midjourney-adapter.js",
   "krea-adapter.js",

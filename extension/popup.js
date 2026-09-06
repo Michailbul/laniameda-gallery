@@ -28,6 +28,10 @@ const collectionAssetTypeHintEl = document.getElementById("collectionAssetTypeHi
 const uploadStyleTagEl = document.getElementById("uploadStyleTag");
 const uploadTagsEl = document.getElementById("uploadTags");
 const midjourneySelectionEl = document.getElementById("midjourneySelection");
+const bulkSelectRowEl = document.getElementById("bulkSelectRow");
+const bulkSelectToggleEl = document.getElementById("bulkSelectToggle");
+const bulkSelectStatusEl = document.getElementById("bulkSelectStatus");
+const bulkSelectTitleEl = document.getElementById("bulkSelectTitle");
 const midjourneyPreviewEl = document.getElementById("midjourneyPreview");
 const midjourneySelectionTitleEl = document.getElementById("midjourneySelectionTitle");
 const midjourneySelectionEmptyEl = document.getElementById("midjourneySelectionEmpty");
@@ -142,7 +146,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
   addModePanelEl.hidden = !isAddMode;
   bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.10.5`;
+  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.11.0`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }
@@ -371,6 +375,74 @@ const clearMidjourneySelection = () => {
   setAddSelectedStatus("");
 };
 
+// ── Bulk select (grid sites) ──
+// The page owns the selection; the popup is just the switch. Pinterest replaces
+// our per-pin control with its own hover chrome, so starting a bulk pass from
+// the extension menu is the reliable entry point.
+let bulkSelectActive = false;
+
+const renderBulkSelectRow = (state) => {
+  if (!bulkSelectRowEl) return;
+  if (!state?.supported) {
+    bulkSelectRowEl.hidden = true;
+    return;
+  }
+  bulkSelectRowEl.hidden = false;
+  bulkSelectActive = Boolean(state.active);
+  bulkSelectToggleEl.textContent = bulkSelectActive
+    ? "Stop selecting"
+    : "Select assets";
+  bulkSelectTitleEl.textContent = bulkSelectActive
+    ? `${state.selected || 0} selected`
+    : "Select assets on the page";
+  bulkSelectStatusEl.textContent = bulkSelectActive
+    ? "Click assets on the page, then save from the bar at the bottom."
+    : "";
+};
+
+const refreshBulkSelectRow = async () => {
+  if (currentTabId === null) {
+    renderBulkSelectRow(null);
+    return;
+  }
+  try {
+    const state = await chrome.tabs.sendMessage(currentTabId, {
+      action: "getBulkSelectState",
+    });
+    renderBulkSelectRow(state);
+  } catch {
+    // No content script on this tab (or it needs a reload) — stay hidden
+    // rather than offering a button that cannot work.
+    renderBulkSelectRow(null);
+  }
+};
+
+const toggleBulkSelect = async () => {
+  if (currentTabId === null) return;
+  bulkSelectToggleEl.disabled = true;
+  try {
+    const response = await chrome.tabs.sendMessage(currentTabId, {
+      action: "setBulkSelectMode",
+      enabled: !bulkSelectActive,
+    });
+    if (!response?.ok) {
+      bulkSelectStatusEl.textContent =
+        response?.error || "Could not start select mode.";
+      return;
+    }
+    renderBulkSelectRow({ supported: true, ...response });
+    if (response.active) window.close();
+  } catch {
+    bulkSelectStatusEl.textContent = "Reload this tab, then try again.";
+  } finally {
+    bulkSelectToggleEl.disabled = false;
+  }
+};
+
+bulkSelectToggleEl?.addEventListener("click", () => {
+  void toggleBulkSelect();
+});
+
 const refreshMidjourneySelection = async () => {
   clearMidjourneySelection();
   if (currentTabId === null || !isMidjourneyJobUrl(currentTabUrl)) return;
@@ -445,6 +517,7 @@ const loadPopupState = async () => {
   });
   setBookmarkFormState({ tab: currentTab, resetFields: true });
   await refreshMidjourneySelection();
+  await refreshBulkSelectRow();
 
   storedDefaultFolderId = String(cfg[DEFAULT_FOLDER_ID_KEY] || "").trim();
   const hasStoredUploadFolderId = Object.prototype.hasOwnProperty.call(
@@ -488,6 +561,7 @@ const refreshCurrentTabContext = async () => {
   });
   setBookmarkFormState({ tab: currentTab, resetFields: true });
   await refreshMidjourneySelection();
+  await refreshBulkSelectRow();
 };
 
 const queueStatusText = (item) => {

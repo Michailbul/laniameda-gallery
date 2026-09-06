@@ -12,6 +12,7 @@ type PinterestAdapterApi = {
     options?: { badgeAttr?: string },
   ) => boolean;
   isSaveableMediaUrl: (url: string) => boolean;
+  isBoardSuggestionMedia: (el: unknown) => boolean;
   looksLikeDescription: (value: string) => boolean;
 };
 
@@ -189,5 +190,29 @@ describe("Pinterest extension adapter", () => {
   test("tags saves with pinterest", () => {
     const api = getApi();
     expect(api.getTagNames()).toEqual(["pinterest"]);
+  });
+
+  test("refuses Pinterest's injected board-suggestion cards", () => {
+    const api = getApi();
+    // These are not the user's pins: no /pin/ permalink, and the srcset tops
+    // out at a small variant, so a save would store a low-res non-pin.
+    const suggestion = createImage({
+      src: "https://i.pinimg.com/236x/ab/cd/ef/abcdef.jpg",
+      alt: "Board suggestion image",
+      naturalWidth: 236,
+      naturalHeight: 354,
+    });
+    expect(api.isBoardSuggestionMedia(suggestion)).toBe(true);
+    expect(api.isQualifiedMediaElement(suggestion)).toBe(false);
+
+    // A real pin with the same geometry still qualifies.
+    const realPin = createImage({
+      src: "https://i.pinimg.com/236x/ab/cd/ef/abcdef.jpg",
+      alt: "This contains an image of: a red porsche",
+      naturalWidth: 236,
+      naturalHeight: 354,
+    });
+    expect(api.isBoardSuggestionMedia(realPin)).toBe(false);
+    expect(api.isQualifiedMediaElement(realPin)).toBe(true);
   });
 });

@@ -137,6 +137,23 @@
     return err;
   }
 
+  // Distinct from the orphaned-context case above: the extension is alive, the
+  // MV3 service worker just did not answer. Reloading the page fixes nothing
+  // here, so do not tell the user to.
+  function createBackgroundUnreachableError(action, cause) {
+    const err = new Error(
+      "Background worker did not respond. Try again in a moment.",
+    );
+    err.action = action;
+    err.backgroundUnreachable = true;
+    if (cause) err.cause = cause;
+    return err;
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   function removeExtensionReloadBanner() {
     for (const node of document.querySelectorAll(".stg-reload-banner")) {
       node.remove();
@@ -189,25 +206,34 @@
     }, RELOAD_BANNER_AUTO_HIDE_MS);
   }
 
-  async function sendRuntimeMessage(message) {
-    const runtime = getExtensionRuntime();
-    if (!runtime) {
-      notifyExtensionReloadNeeded();
-      throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
-    }
-    try {
-      return await runtime.sendMessage(message);
-    } catch (err) {
-      // "message port closed" / "receiving end does not exist" also happens when
-      // the MV3 service worker was asleep and lost the message — a transient
-      // failure, not a dead context. Treating it as a reload signal used to kill
-      // the media scan for the rest of the page's life. The runtime id is the
-      // only reliable liveness check, so re-probe it before giving up.
-      if (isContextInvalidatedError(err)) {
-        if (!isExtensionContextValid()) notifyExtensionReloadNeeded();
-        throw createExtensionRuntimeUnavailableError(message?.action || "sendMessage");
+  // An MV3 service worker is evicted after ~30s idle. The first sendMessage is
+  // supposed to wake it, but while it is booting (or right after a crash) the
+  // call rejects with "Could not establish connection. Receiving end does not
+  // exist." — transient, and the retry lands on the woken worker. The runtime
+  // id is the only reliable liveness check: if it is gone the script is
+  // orphaned and no retry will ever succeed.
+  const RUNTIME_MESSAGE_RETRIES = 3;
+  const RUNTIME_RETRY_BASE_MS = 150;
+
+  async function sendRuntimeMessage(message, { retries = RUNTIME_MESSAGE_RETRIES } = {}) {
+    const action = message?.action || "sendMessage";
+    for (let attempt = 0; ; attempt += 1) {
+      const runtime = getExtensionRuntime();
+      if (!runtime) {
+        notifyExtensionReloadNeeded();
+        throw createExtensionRuntimeUnavailableError(action);
       }
-      throw err;
+      try {
+        return await runtime.sendMessage(message);
+      } catch (err) {
+        if (!isContextInvalidatedError(err)) throw err;
+        if (!isExtensionContextValid()) {
+          notifyExtensionReloadNeeded();
+          throw createExtensionRuntimeUnavailableError(action);
+        }
+        if (attempt >= retries) throw createBackgroundUnreachableError(action, err);
+        await wait(RUNTIME_RETRY_BASE_MS * 2 ** attempt);
+      }
     }
   }
 
@@ -288,6 +314,9 @@
     ".stg-mj-quick-save",
     ".stg-mj-notes",
     ".stg-mj-notes-layer",
+    ".stg-bulk-toggle",
+    ".stg-bulk-bar",
+    ".stg-bulk-check",
   ].join(",");
   const PAGE_CONTROL_SELECTOR = [
     "button",
@@ -508,7 +537,14 @@
       );
       const base64 = await SaveToGalleryImageConvert.base64FromBlob(media.blob);
       if (!base64) return null;
-      return { base64, contentType: media.contentType };
+      const measured =
+        await SaveToGalleryImageConvert.measureBlobDimensions(media.blob);
+      return {
+        base64,
+        contentType: media.contentType,
+        width: measured?.width,
+        height: measured?.height,
+      };
     } catch {
       return null;
     }
@@ -525,7 +561,12 @@
         preferredContentType,
       });
       if (response?.ok && response.base64) {
-        return { base64: response.base64, contentType: response.contentType };
+        return {
+          base64: response.base64,
+          contentType: response.contentType,
+          width: response.width,
+          height: response.height,
+        };
       }
     } catch (err) {
       console.warn("[Save to Gallery] background image fetch failed:", err);
@@ -544,6 +585,29 @@
     if (pageFetched) return pageFetched;
 
     return undefined;
+  }
+
+  // The gallery API runs as a serverless function with a hard request-body
+  // limit (Vercel answers HTTP 413 FUNCTION_PAYLOAD_TOO_LARGE above ~4.5MB), and
+  // base64 inflates bytes by 4/3. A big original therefore cannot ride inline.
+  // When the URL is publicly fetchable the backend can pull the very same file
+  // itself, so dropping the inline copy costs nothing in quality — it is only a
+  // transport choice. blob:/data: media has no server-reachable URL, so it is
+  // sent inline regardless and fails loudly rather than saving nothing.
+  const MAX_INLINE_FILE_BASE64 = 3_000_000;
+
+  function buildInlineFilePayload(fileData, imageUrl) {
+    if (!fileData?.base64) return undefined;
+    const tooLarge = fileData.base64.length > MAX_INLINE_FILE_BASE64;
+    const serverCanFetch = /^https?:/i.test(String(imageUrl || ""));
+    if (tooLarge && serverCanFetch) {
+      console.debug(
+        "[Save to Gallery] payload too large to inline; letting the gallery fetch it",
+        { imageUrl, base64Length: fileData.base64.length },
+      );
+      return undefined;
+    }
+    return { base64: fileData.base64, contentType: fileData.contentType };
   }
 
   // ── Helpers ──
@@ -1716,6 +1780,13 @@
     badge.classList.add("stg-badge--saving");
     if (topRight) badge.classList.add("stg-badge--top-right");
 
+    // The captured bytes are the source of truth for size: the element the save
+    // started from is often a small CDN variant of a much larger original.
+    const measuredWidth = Number(fileData?.width) || 0;
+    const measuredHeight = Number(fileData?.height) || 0;
+    const effectiveWidth = measuredWidth || imageWidth;
+    const effectiveHeight = measuredHeight || imageHeight;
+
     try {
       let response;
       try {
@@ -1731,9 +1802,9 @@
           folderIds: normalizeFolderIdList(folderIds),
           collectionPillar: collectionPillar || undefined,
           tagNames: Array.isArray(tagNames) ? tagNames : undefined,
-          file: fileData || undefined,
-          imageWidth: imageWidth || undefined,
-          imageHeight: imageHeight || undefined,
+          file: buildInlineFilePayload(fileData, imageUrl),
+          imageWidth: effectiveWidth || undefined,
+          imageHeight: effectiveHeight || undefined,
           mediaType: mediaType || undefined,
           inputImages: Array.isArray(inputImages) ? inputImages : undefined,
         });
@@ -1976,7 +2047,7 @@
     hideMjGridBadge();
 
     for (const node of document.querySelectorAll(
-      ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer",
+      ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer, .stg-bulk-toggle, .stg-bulk-bar, .stg-bulk-check",
     )) {
       if (keep && (node === keep || keep.contains(node))) continue;
       node.remove();
@@ -4377,6 +4448,7 @@
     updateMidjourneyWidgetPositions();
     updateMidjourneyLikedNavigation();
     syncMidjourneyNotesPresence();
+    ensureBulkSelectUi();
   }
 
   // The site's own framework can remove our widget along with the card subtree
@@ -4652,6 +4724,34 @@
         return true;
       }
 
+      // Bulk select is driven from the extension popup: the popup is the menu
+      // the user already reaches for, and on a grid site the floating toggle
+      // competes with the site's own hover controls.
+      if (message?.action === "getBulkSelectState") {
+        sendResponse({
+          ok: true,
+          supported: isBulkSelectSupportedSite(),
+          active: bulkSelectMode,
+          selected: bulkSelection.size,
+        });
+        return false;
+      }
+
+      if (message?.action === "setBulkSelectMode") {
+        if (!isBulkSelectSupportedSite()) {
+          sendResponse({ ok: false, error: "Bulk select is not available here." });
+          return false;
+        }
+        ensureBulkSelectUi();
+        setBulkSelectMode(Boolean(message.enabled));
+        sendResponse({
+          ok: true,
+          active: bulkSelectMode,
+          selected: bulkSelection.size,
+        });
+        return false;
+      }
+
       if (message?.action === "getActiveMidjourneyAsset") {
         sendResponse(getActiveMidjourneyPanelSelection());
         return false;
@@ -4710,6 +4810,574 @@
       setExtensionEnabled(!isHostDisabled(disabledHosts, currentHost));
       configLoaded = true;
     });
+  }
+
+  // ── Bulk selection (grid sites) ──
+  //
+  // Saving a board one pin at a time is the slow path. In select mode a click
+  // picks a pin instead of opening it, and one Save writes the whole set to the
+  // chosen collections. Selection is keyed by the media element itself, so a
+  // feed re-render that swaps DOM nodes drops stale entries on the next sync
+  // rather than saving something the user can no longer see.
+
+  const BULK_SELECTED_ATTR = "data-stg-bulk-selected";
+  const BULK_SAVE_CONCURRENCY = 2;
+  const bulkSelection = new Set();
+  let bulkSelectMode = false;
+  let bulkBar = null;
+  let bulkToggle = null;
+  let bulkFolderIds = [];
+  let bulkSaving = false;
+  let bulkListenersBound = false;
+  let bulkStatusText = "";
+
+  function isBulkSelectSupportedSite() {
+    return isPinterestPage();
+  }
+
+  // Already-injected media carries the badge attribute, which makes the plain
+  // qualification check reject it — so presence of that attribute is itself the
+  // positive signal here.
+  function isBulkEligibleMedia(el) {
+    if (!el) return false;
+    if (el.hasAttribute?.(MJ_MEDIA_BADGE_ATTR)) return true;
+    return isQualifiedSiteMediaTarget(el);
+  }
+
+  function findBulkTargetFromNode(node) {
+    if (!node || typeof node.closest !== "function") return null;
+    const host = node.closest("[data-stg-mj-host-prepared]");
+    if (host) {
+      const widget = host.querySelector(".stg-mj-quick-save");
+      if (widget?.__stgTarget && isBulkEligibleMedia(widget.__stgTarget)) {
+        return widget.__stgTarget;
+      }
+      const media = host.querySelector("img, video");
+      if (isBulkEligibleMedia(media)) return media;
+    }
+    const media = node.closest("img, video");
+    return isBulkEligibleMedia(media) ? media : null;
+  }
+
+  // Grid sites layer a transparent anchor or overlay above the thumbnail to
+  // capture the click, and that node is not always inside the container our
+  // widget was mounted on — an ancestor walk from event.target then finds
+  // nothing and the click falls through to the site's navigation. Hit-testing
+  // the pointer position sees every layer stacked under the cursor, including
+  // the image beneath the overlay.
+  function findBulkTargetFromEvent(event) {
+    const direct = findBulkTargetFromNode(event.target);
+    if (direct) return direct;
+    if (typeof document.elementsFromPoint !== "function") return null;
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) {
+      return null;
+    }
+    for (const node of document.elementsFromPoint(event.clientX, event.clientY)) {
+      if (node.closest?.(EXTENSION_UI_SELECTOR)) continue;
+      const found = findBulkTargetFromNode(node);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function setBulkSelectMode(enabled) {
+    if (bulkSelectMode === enabled) return;
+    bulkSelectMode = enabled;
+    document.body?.classList.toggle("stg-bulk-mode", enabled);
+    if (!enabled) clearBulkSelection();
+    bulkStatusText = "";
+    updateBulkToggle();
+    refreshBulkBar();
+  }
+
+  function clearBulkSelection() {
+    for (const target of bulkSelection) markBulkTarget(target, false);
+    bulkSelection.clear();
+  }
+
+  function markBulkTarget(target, selected) {
+    if (!target?.isConnected) return;
+    if (selected) target.setAttribute(BULK_SELECTED_ATTR, "1");
+    else target.removeAttribute(BULK_SELECTED_ATTR);
+
+    const host =
+      target.closest?.("[data-stg-mj-host-prepared]") || target.parentElement;
+    if (!host) return;
+    let check = host.querySelector(":scope > .stg-bulk-check");
+    if (selected && !check) {
+      check = document.createElement("div");
+      check.className = "stg-bulk-check";
+      check.innerHTML = CHECK_ICON;
+      bindExtensionUiEventShield(check);
+      host.appendChild(check);
+    } else if (!selected && check) {
+      check.remove();
+    }
+  }
+
+  function toggleBulkSelection(target) {
+    if (bulkSelection.has(target)) {
+      bulkSelection.delete(target);
+      markBulkTarget(target, false);
+    } else {
+      bulkSelection.add(target);
+      markBulkTarget(target, true);
+    }
+    bulkStatusText = "";
+    refreshBulkBar();
+  }
+
+  // Nodes the feed has recycled are no longer savable — drop them and re-apply
+  // the marker to the ones that survived a re-render.
+  function syncBulkSelectionMarkers() {
+    if (!bulkSelectMode) return;
+    for (const target of [...bulkSelection]) {
+      if (!target.isConnected) {
+        bulkSelection.delete(target);
+        continue;
+      }
+      markBulkTarget(target, true);
+    }
+  }
+
+  function onBulkPointerCapture(event) {
+    if (!bulkSelectMode || bulkSaving) return;
+    if (event.target?.closest?.(EXTENSION_UI_SELECTOR)) return;
+    if (!findBulkTargetFromEvent(event)) return;
+    // Pinterest opens a pin on mousedown as well as click, so both are stopped.
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+  }
+
+  function onBulkClickCapture(event) {
+    if (!bulkSelectMode || bulkSaving) return;
+    if (event.target?.closest?.(EXTENSION_UI_SELECTOR)) return;
+    const target = findBulkTargetFromEvent(event);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    toggleBulkSelection(target);
+  }
+
+  function bindBulkListeners() {
+    if (bulkListenersBound) return;
+    bulkListenersBound = true;
+    document.addEventListener("mousedown", onBulkPointerCapture, true);
+    document.addEventListener("click", onBulkClickCapture, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && bulkSelectMode && !bulkSaving) {
+        setBulkSelectMode(false);
+      }
+    }, true);
+  }
+
+  function ensureBulkSelectUi() {
+    if (!isBulkSelectSupportedSite() || !extensionEnabled) {
+      bulkToggle?.remove();
+      bulkToggle = null;
+      bulkBar?.remove();
+      bulkBar = null;
+      if (bulkSelectMode) setBulkSelectMode(false);
+      return;
+    }
+    bindBulkListeners();
+
+    if (!bulkToggle || !bulkToggle.isConnected) {
+      bulkToggle = document.createElement("button");
+      bulkToggle.type = "button";
+      bulkToggle.className = "stg-bulk-toggle";
+      bindExtensionUiEventShield(bulkToggle);
+      bulkToggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setBulkSelectMode(!bulkSelectMode);
+      }, true);
+      document.body.appendChild(bulkToggle);
+    }
+    updateBulkToggle();
+    refreshBulkBar();
+    syncBulkSelectionMarkers();
+  }
+
+  // The media scan re-runs several times a second on an infinite feed, and it
+  // calls straight through to here. Rewriting innerHTML on every tick swaps the
+  // nodes under the pointer, and a mousedown/mouseup that land on different
+  // nodes never become a click — the control looks dead. So every write below
+  // is conditional on the rendered value actually changing.
+  function setTextIfChanged(el, value) {
+    if (el && el.textContent !== value) el.textContent = value;
+  }
+
+  function setHtmlIfChanged(el, value) {
+    if (el && el.innerHTML !== value) el.innerHTML = value;
+  }
+
+  function updateBulkToggle() {
+    if (!bulkToggle) return;
+    bulkToggle.classList.toggle("stg-bulk-toggle--active", bulkSelectMode);
+    setHtmlIfChanged(
+      bulkToggle,
+      bulkSelectMode
+        ? `${CHECK_ICON}<span>Done</span>`
+        : `${SAVE_ICON}<span>Select</span>`,
+    );
+    const title = bulkSelectMode
+      ? "Leave select mode (Esc)"
+      : "Select several pins and save them at once";
+    if (bulkToggle.title !== title) bulkToggle.title = title;
+  }
+
+  function ensureBulkBar() {
+    if (bulkBar && bulkBar.isConnected) return bulkBar;
+    bulkBar = document.createElement("div");
+    bulkBar.className = "stg-bulk-bar";
+    bulkBar.innerHTML = `
+      <span class="stg-bulk-count"></span>
+      <button class="stg-bulk-clear" type="button">Clear</button>
+      <div class="stg-bulk-collections">
+        <button class="stg-bulk-pick" type="button">Collections${CHEVRON_ICON}</button>
+        <div class="stg-mj-menu stg-bulk-menu" role="listbox" aria-multiselectable="true" hidden></div>
+      </div>
+      <button class="stg-bulk-save" type="button">Save</button>
+      <span class="stg-bulk-status"></span>
+    `;
+    bindExtensionUiEventShield(bulkBar);
+
+    bulkBar.querySelector(".stg-bulk-clear").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (bulkSaving) return;
+      clearBulkSelection();
+      bulkStatusText = "";
+      refreshBulkBar();
+    }, true);
+
+    const menu = bulkBar.querySelector(".stg-bulk-menu");
+    bulkBar.querySelector(".stg-bulk-pick").addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (menu.hidden) {
+        // Open first, populate second. The collection fetch can take seconds on
+        // a cold gallery route, and a button that looks inert until it returns
+        // reads as broken.
+        menu.innerHTML =
+          '<div class="stg-mj-menu__error"><span class="stg-mj-menu__error-label">Loading collections…</span></div>';
+        menu.hidden = false;
+        await renderBulkMenu(menu);
+      } else {
+        menu.hidden = true;
+      }
+    }, true);
+
+    menu.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      if (!e.target.closest?.(".stg-mj-menu__new-input")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void submitBulkNewCollection(menu);
+    }, true);
+
+    menu.addEventListener("click", (e) => {
+      if (e.target.closest?.("[data-bulk-create-submit]")) {
+        e.preventDefault();
+        e.stopPropagation();
+        void submitBulkNewCollection(menu);
+        return;
+      }
+
+      const item = e.target.closest?.(".stg-mj-menu__item");
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (item.dataset.createCollection === "1") {
+        const row = menu.querySelector(".stg-mj-menu__new");
+        const input = menu.querySelector(".stg-mj-menu__new-input");
+        if (row) row.hidden = !row.hidden;
+        if (row && !row.hidden && input) input.focus();
+        return;
+      }
+
+      const folderId = item.dataset.folderId || "";
+      if (!folderId) return;
+      bulkFolderIds = bulkFolderIds.includes(folderId)
+        ? bulkFolderIds.filter((id) => id !== folderId)
+        : [...bulkFolderIds, folderId];
+      updateBulkMenuSelection(menu);
+      refreshBulkBar();
+    }, true);
+
+    bulkBar.querySelector(".stg-bulk-save").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void runBulkSave();
+    }, true);
+
+    document.body.appendChild(bulkBar);
+    return bulkBar;
+  }
+
+  async function renderBulkMenu(menu) {
+    menu.innerHTML = "";
+    const { folders, error } = await loadFoldersCached();
+
+    if (error) {
+      const errorRow = document.createElement("div");
+      errorRow.className = "stg-mj-menu__error";
+      const label = document.createElement("span");
+      label.className = "stg-mj-menu__error-label";
+      label.textContent = error;
+      errorRow.appendChild(label);
+      menu.appendChild(errorRow);
+    }
+
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    for (const folder of folders) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "stg-mj-menu__item";
+      item.setAttribute("role", "option");
+      item.dataset.folderId = folder.id;
+
+      const eyebrow = document.createElement("span");
+      eyebrow.className = "stg-mj-menu__eyebrow";
+      const parent = folder.parentFolderId ? byId.get(folder.parentFolderId) : null;
+      eyebrow.textContent = parent ? parent.name : "Collection";
+
+      const label = document.createElement("span");
+      label.className = "stg-mj-menu__label";
+      label.textContent = folder.name;
+
+      item.append(eyebrow, label);
+      menu.appendChild(item);
+    }
+
+    // Same create affordance as the per-pin menu, so a collection can be made
+    // without leaving the board mid-selection.
+    const createItem = document.createElement("button");
+    createItem.className = "stg-mj-menu__item stg-mj-menu__item--create";
+    createItem.type = "button";
+    createItem.dataset.createCollection = "1";
+
+    const createEyebrow = document.createElement("span");
+    createEyebrow.className = "stg-mj-menu__eyebrow";
+    createEyebrow.textContent = "Create";
+
+    const createLabel = document.createElement("span");
+    createLabel.className = "stg-mj-menu__label";
+    createLabel.textContent = "New collection";
+
+    createItem.append(createEyebrow, createLabel);
+    menu.appendChild(createItem);
+
+    const newRow = document.createElement("div");
+    newRow.className = "stg-mj-menu__new";
+    newRow.hidden = true;
+
+    const input = document.createElement("input");
+    input.className = "stg-mj-menu__new-input";
+    input.type = "text";
+    input.placeholder = "Collection name";
+
+    const add = document.createElement("button");
+    add.className = "stg-mj-menu__new-create";
+    add.type = "button";
+    add.dataset.bulkCreateSubmit = "1";
+    add.textContent = "Add";
+
+    newRow.append(input, add);
+    menu.appendChild(newRow);
+
+    const errorRow = document.createElement("div");
+    errorRow.className = "stg-mj-menu__error stg-bulk-menu__create-error";
+    errorRow.hidden = true;
+    menu.appendChild(errorRow);
+
+    updateBulkMenuSelection(menu);
+  }
+
+  async function submitBulkNewCollection(menu) {
+    const input = menu.querySelector(".stg-mj-menu__new-input");
+    const add = menu.querySelector(".stg-mj-menu__new-create");
+    const errorRow = menu.querySelector(".stg-bulk-menu__create-error");
+    if (!input || !add) return;
+
+    const name = input.value.trim();
+    if (!name) {
+      input.focus();
+      return;
+    }
+
+    add.disabled = true;
+    add.textContent = "…";
+    const result = await createFolderRemote(name);
+    add.disabled = false;
+    add.textContent = "Add";
+
+    if (!result.ok) {
+      if (errorRow) {
+        errorRow.textContent = result.error;
+        errorRow.hidden = false;
+      }
+      return;
+    }
+
+    // Select the new collection straight away — creating one mid-flow means
+    // you intend to save into it.
+    const newId = result.id || findFolderIdByName(result.folders, name);
+    if (newId && !bulkFolderIds.includes(newId)) bulkFolderIds.push(newId);
+    await renderBulkMenu(menu);
+    refreshBulkBar();
+  }
+
+  function updateBulkMenuSelection(menu) {
+    const offered = new Set(
+      [...menu.querySelectorAll(".stg-mj-menu__item")]
+        .map((item) => item.dataset.folderId || "")
+        .filter(Boolean),
+    );
+    bulkFolderIds = bulkFolderIds.filter((id) => offered.has(id));
+    for (const item of menu.querySelectorAll(".stg-mj-menu__item")) {
+      const selected = bulkFolderIds.includes(item.dataset.folderId || "");
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+      item.classList.toggle("stg-mj-menu__item--selected", selected);
+    }
+  }
+
+  function refreshBulkBar() {
+    if (!bulkSelectMode) {
+      bulkBar?.remove();
+      bulkBar = null;
+      return;
+    }
+    const bar = ensureBulkBar();
+    const count = bulkSelection.size;
+    setTextIfChanged(
+      bar.querySelector(".stg-bulk-count"),
+      count === 1 ? "1 selected" : `${count} selected`,
+    );
+
+    setHtmlIfChanged(
+      bar.querySelector(".stg-bulk-pick"),
+      `${
+        bulkFolderIds.length
+          ? `${bulkFolderIds.length} collection${bulkFolderIds.length > 1 ? "s" : ""}`
+          : "Collections"
+      }${CHEVRON_ICON}`,
+    );
+
+    const save = bar.querySelector(".stg-bulk-save");
+    setTextIfChanged(
+      save,
+      bulkSaving ? "Saving…" : count ? `Save ${count}` : "Save",
+    );
+    const disabled = bulkSaving || count === 0;
+    if (save.disabled !== disabled) save.disabled = disabled;
+
+    setTextIfChanged(bar.querySelector(".stg-bulk-status"), bulkStatusText);
+    bar.classList.toggle("stg-bulk-bar--busy", bulkSaving);
+  }
+
+  async function bulkSaveOne(target, { folderIds, collectionPillar, styleTag }) {
+    const ctx = getSiteSaveContext(target);
+    if (!ctx?.imageUrl) return { ok: false, error: "No media URL" };
+
+    const shouldCaptureBytes =
+      ctx.mediaType !== "video" || /^(blob:|data:)/i.test(ctx.imageUrl);
+    const fileData = shouldCaptureBytes
+      ? await captureImageBytesForSave(ctx.imageUrl)
+      : undefined;
+
+    try {
+      const response = await sendRuntimeMessage({
+        action: "saveImage",
+        imageUrl: ctx.imageUrl,
+        sourceUrl: ctx.sourceUrl || location.href,
+        pageTitle: document.title,
+        promptText: ctx.promptText || undefined,
+        modelName: ctx.modelName || undefined,
+        folderId: folderIds[0] || undefined,
+        folderIds: normalizeFolderIdList(folderIds),
+        collectionPillar: collectionPillar || undefined,
+        tagNames: withStyleTag(ctx.tagNames, styleTag),
+        file: buildInlineFilePayload(fileData, ctx.imageUrl),
+        imageWidth: Number(fileData?.width) || ctx.imageWidth || undefined,
+        imageHeight: Number(fileData?.height) || ctx.imageHeight || undefined,
+        mediaType: ctx.mediaType || undefined,
+      });
+      if (!response?.ok) {
+        return { ok: false, error: response?.error || "Save failed" };
+      }
+      markImageSavedInGallery(ctx.imageUrl);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Save failed" };
+    }
+  }
+
+  async function runBulkSave() {
+    if (bulkSaving) return;
+    const targets = [...bulkSelection].filter((el) => el.isConnected);
+    if (targets.length === 0) return;
+
+    bulkSaving = true;
+    bulkStatusText = "";
+    refreshBulkBar();
+
+    const preset = await readSavePreset();
+    const folderIds = bulkFolderIds.length ? bulkFolderIds : preset.folderIds;
+    const styleTag = await readStyleTag();
+    const collectionPillar =
+      inferCollectionPillar(["pinterest"]) || preset.collectionPillar;
+
+    let done = 0;
+    let failed = 0;
+    let lastError = "";
+    const queue = [...targets];
+
+    const worker = async () => {
+      while (queue.length) {
+        const target = queue.shift();
+        const result = await bulkSaveOne(target, {
+          folderIds,
+          collectionPillar,
+          styleTag,
+        });
+        done += 1;
+        if (result.ok) {
+          bulkSelection.delete(target);
+          markBulkTarget(target, false);
+        } else {
+          failed += 1;
+          lastError = result.error;
+        }
+        bulkStatusText = `${done}/${targets.length}`;
+        refreshBulkBar();
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(BULK_SAVE_CONCURRENCY, queue.length) }, worker),
+    );
+
+    if (folderIds.length) {
+      rememberSavePreset({ folderIds, collectionPillar });
+    }
+
+    bulkSaving = false;
+    const saved = targets.length - failed;
+    bulkStatusText = failed
+      ? `Saved ${saved}, ${failed} failed — ${lastError}`.slice(0, 90)
+      : `Saved ${saved}`;
+    refreshBulkBar();
+    showContextToast(
+      failed ? "error" : "saved",
+      failed
+        ? `${saved} saved, ${failed} failed`
+        : `${saved} saved to laniameda`,
+    );
   }
 
   // Take over from any previous copy of this script (extension reloaded while

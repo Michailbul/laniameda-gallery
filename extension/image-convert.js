@@ -130,6 +130,29 @@
     }
   }
 
+  /**
+   * True pixel size of the bytes being stored. The DOM element a save starts
+   * from is usually a small CDN variant (Pinterest renders a 236px thumb of a
+   * 642px original), so its naturalWidth/Height describe the thumbnail, not the
+   * file. Measuring the captured blob keeps the gallery's recorded dimensions
+   * honest. Returns null when the blob cannot be decoded (video, SVG, garbage).
+   */
+  async function measureBlobDimensions(blob) {
+    if (!blob || typeof createImageBitmap !== "function") return null;
+    try {
+      const bitmap = await createImageBitmap(blob);
+      try {
+        const width = Number(bitmap.width) || 0;
+        const height = Number(bitmap.height) || 0;
+        return width > 0 && height > 0 ? { width, height } : null;
+      } finally {
+        if (typeof bitmap.close === "function") bitmap.close();
+      }
+    } catch {
+      return null;
+    }
+  }
+
   // Chunked so a multi-megabyte image doesn't blow the argument limit of
   // String.fromCharCode.apply.
   async function base64FromBlob(blob) {
@@ -149,6 +172,7 @@
     blobToJpegBlob,
     blobToImageBlob,
     convertCapturedBlob,
+    measureBlobDimensions,
     base64FromBlob,
   };
 })();

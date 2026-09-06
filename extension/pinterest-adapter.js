@@ -29,6 +29,22 @@
   // Square avatar/profile crops served from pinimg — never pin media.
   const AVATAR_PATH_PATTERN = /\/(?:30|60|75|140|280)x(?:30|60|75|140|280)(?:_RS)?\//i;
 
+  // Pinterest seeds profile and board grids with "more ideas" suggestion cards.
+  // They are not the user's pins, they carry no /pin/ permalink, and their
+  // srcset tops out at a small variant — so a save stores a low-res non-pin.
+  // The alt text is Pinterest's own label for them and is the reliable signal.
+  const SUGGESTION_ALT_LABELS = new Set([
+    "board suggestion image",
+    "board suggestion",
+    "idea for you",
+  ]);
+
+  function isBoardSuggestionMedia(el) {
+    if (!el || typeof el.getAttribute !== "function") return false;
+    const alt = String(el.getAttribute("alt") || "").trim().toLowerCase();
+    return SUGGESTION_ALT_LABELS.has(alt);
+  }
+
   function isPinterestPage(hostname) {
     const host = String(
       hostname || globalScope.location?.hostname || "",
@@ -136,6 +152,7 @@
     const tagName = String(el.tagName || "").toLowerCase();
     if (tagName !== "img" && tagName !== "video") return false;
 
+    if (isBoardSuggestionMedia(el)) return false;
     if (!isSaveableMediaUrl(getMediaUrl(el))) return false;
 
     const rendered = getRenderedSize(el);
@@ -238,6 +255,7 @@
     MIN_SOURCE_EDGE,
     extractDescription,
     getBestSrcFromSrcset,
+    isBoardSuggestionMedia,
     getMediaUrl,
     getPinUrl,
     getRenderedSize,
