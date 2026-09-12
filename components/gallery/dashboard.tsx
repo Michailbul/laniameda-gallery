@@ -6064,7 +6064,7 @@ export function GalleryDashboard({
                   color: "var(--lm-text-ghost)",
                 }}
               >
-                Shift-click a range · drag empty space to box · Esc to clear
+                Shift-click a range · shift-drag to box · ⌘A all · Esc to clear
               </span>
               {selectedAssetIds.size < allVisibleAssetIds.length && (
                 <button

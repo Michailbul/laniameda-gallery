@@ -249,6 +249,28 @@ function useColumnCount(compact: boolean): number {
 /* ── Grid sizing ── */
 const DEFAULT_GAP_PX = 12;
 const PADDING_PX = 12;
+// Box-select auto-scroll: how close to the viewport edge the pointer has to
+// get before the page starts moving under it, and the fastest it may move.
+const AUTO_SCROLL_EDGE_PX = 80;
+// How far a press has to travel before it counts as a box and not a click.
+const DRAG_THRESHOLD_PX = 4;
+const AUTO_SCROLL_MAX_PX = 28;
+
+/** Nearest ancestor that actually scrolls — the window when nothing else does. */
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let el = node?.parentElement ?? null;
+  while (el) {
+    const overflowY = getComputedStyle(el).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      el.scrollHeight > el.clientHeight
+    ) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
 
 function resolveGridLayoutInput(image: GalleryImage): LayoutInput {
   const preview = image.previewImages[0];
@@ -348,11 +370,25 @@ export function MasonryGrid({
 
   const [gridRef, contentWidth] = useContentWidth();
 
-  // ── Shift+drag box (marquee) selection ──
+  // ── Box (marquee) selection ──
   // The layout is absolutely positioned, so each tile carries exact
   // top/left/width/height in the container's coordinate space — intersection
   // testing against a drag rectangle is direct.
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // A press that may or may not become a box. Nothing happens on pointerdown
+  // itself: taking pointer capture there makes Chrome retarget the trailing
+  // click to the capturing element, and a shift-click on a card would never
+  // reach the card. The box starts on the first move past the threshold.
+  const pendingRef = useRef<{
+    x0: number;
+    y0: number;
+    clientX: number;
+    clientY: number;
+    additive: boolean;
+    pointerId: number;
+    onEmptySpace: boolean;
+  } | null>(null);
   const [marquee, setMarquee] = useState<{
     left: number;
     top: number;
@@ -360,9 +396,11 @@ export function MasonryGrid({
     height: number;
   } | null>(null);
   // Live drag state kept in a ref so pointer handlers don't need re-binding.
-  const marqueeRef = useRef<{ x0: number; y0: number; base: Set<string>; moved: boolean } | null>(
-    null,
-  );
+  const marqueeRef = useRef<{
+    x0: number;
+    y0: number;
+    base: Set<string>;
+  } | null>(null);
   // Set after a real drag so the trailing click doesn't also toggle a card.
   const didMarqueeRef = useRef(false);
 
@@ -411,6 +449,15 @@ export function MasonryGrid({
     return { mounted, mountedHeight, hasMore: cutoff < images.length };
   }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom]);
 
+  // The mounted tiles' rects, mirrored into a ref. A drag holds its handlers
+  // for the whole gesture, and auto-scroll mounts fresh rows underneath it —
+  // hit-testing the closure's copy would ignore everything that arrived after
+  // the press.
+  const tilesRef = useRef(mounted);
+  useEffect(() => {
+    tilesRef.current = mounted;
+  }, [mounted]);
+
   // Load-more driver. The container height is only as tall as MOUNTED content,
   // so the sentinel sits just under the last mounted row. On a fast scroll or
   // scrollbar drag it can be far above the viewport bottom — an
@@ -458,57 +505,84 @@ export function MasonryGrid({
 
   const marqueeEnabled = selectable && Boolean(onReplaceSelection);
 
-  const beginMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
-    // Any fresh press ends the previous gesture's grace period. Without this
-    // the click-swallow below outlives its drag and eats the next real click
-    // on a card — box-select once, and the card after it refuses to open.
-    didMarqueeRef.current = false;
-    if (!marqueeEnabled || event.button !== 0) return;
-    const el = containerRef.current;
-    if (!el) return;
-    // Two ways in. Shift+drag boxes from anywhere and ADDS to the selection —
-    // it has to be shift there, because a plain drag on a card is the filing
-    // drag. A drag that starts on empty grid (the event target IS the
-    // container, since every tile is an absolutely-positioned child) needs no
-    // modifier and REPLACES, which is what every file manager does.
-    const onEmptySpace = event.target === el;
-    if (!event.shiftKey && !onEmptySpace) return;
-    const rect = el.getBoundingClientRect();
-    const x0 = event.clientX - rect.left;
-    const y0 = event.clientY - rect.top;
-    marqueeRef.current = {
-      x0,
-      y0,
-      base: event.shiftKey ? new Set(selectedAssetIds ?? []) : new Set(),
-      moved: false,
+  // Is a box modifier down right now? While one is, tiles stop being
+  // draggable, so the browser can't win the race and start the filing drag
+  // before the box does. preventDefault on dragstart is not enough — by then
+  // the press has already been claimed.
+  const [boxModifierHeld, setBoxModifierHeld] = useState(false);
+  useEffect(() => {
+    if (!marqueeEnabled) return;
+    const sync = (event: KeyboardEvent) =>
+      setBoxModifierHeld(event.shiftKey || event.metaKey || event.ctrlKey);
+    const clear = () => setBoxModifierHeld(false);
+    window.addEventListener("keydown", sync);
+    window.addEventListener("keyup", sync);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", sync);
+      window.removeEventListener("keyup", sync);
+      window.removeEventListener("blur", clear);
     };
-    setMarquee({ left: x0, top: y0, width: 0, height: 0 });
-    try {
-      el.setPointerCapture(event.pointerId);
-    } catch {
-      /* capture is best-effort */
-    }
-    event.preventDefault();
-  };
+  }, [marqueeEnabled]);
 
-  const updateMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+  // Cmd/Ctrl+A takes the whole grid, the way it does in a file manager.
+  useEffect(() => {
+    if (!marqueeEnabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "a" && event.key !== "A") return;
+      if (!event.metaKey && !event.ctrlKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      onReplaceSelection?.(
+        images
+          .filter(
+            (image) =>
+              image.galleryItemType === "asset" ||
+              image.galleryItemType === undefined,
+          )
+          .map((image) => image.id),
+      );
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [marqueeEnabled, images, onReplaceSelection]);
+
+  // Where the pointer is right now, in client space. Auto-scroll re-runs the
+  // hit test between moves, so it needs a position of its own to read.
+  const pointerRef = useRef({ clientX: 0, clientY: 0 });
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const autoScrollRef = useRef<number | null>(null);
+
+  const applyMarquee = useCallback(() => {
     const state = marqueeRef.current;
     const el = containerRef.current;
     if (!state || !el) return;
     const rect = el.getBoundingClientRect();
-    const x1 = Math.max(0, Math.min(event.clientX - rect.left, el.clientWidth));
-    const y1 = Math.max(0, event.clientY - rect.top);
+    const x1 = Math.max(
+      0,
+      Math.min(pointerRef.current.clientX - rect.left, el.clientWidth),
+    );
+    const y1 = Math.max(
+      0,
+      Math.min(pointerRef.current.clientY - rect.top, el.clientHeight),
+    );
     const left = Math.min(state.x0, x1);
     const top = Math.min(state.y0, y1);
     const width = Math.abs(x1 - state.x0);
     const height = Math.abs(y1 - state.y0);
-    if (width > 3 || height > 3) state.moved = true;
     setMarquee({ left, top, width, height });
 
     const right = left + width;
     const bottom = top + height;
     const hit = new Set(state.base);
-    for (const { image, tile } of mounted) {
+    for (const { image, tile } of tilesRef.current) {
       if (!tile) continue;
       const isAsset =
         image.galleryItemType === "asset" || image.galleryItemType === undefined;
@@ -521,20 +595,153 @@ export function MasonryGrid({
       if (intersects) hit.add(image.id);
     }
     onReplaceSelection?.(Array.from(hit));
+  }, [onReplaceSelection]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRef.current === null) return;
+    cancelAnimationFrame(autoScrollRef.current);
+    autoScrollRef.current = null;
+  }, []);
+
+  // Drag past the top or bottom edge and the page follows, so a box can run
+  // longer than one screen. Speed ramps with how far past the edge you are.
+  const startAutoScroll = useCallback(() => {
+    const step = () => {
+      autoScrollRef.current = null;
+      if (!marqueeRef.current) return;
+      const { clientY } = pointerRef.current;
+      const above = clientY - AUTO_SCROLL_EDGE_PX;
+      const below = clientY - (window.innerHeight - AUTO_SCROLL_EDGE_PX);
+      let delta = 0;
+      if (above < 0) delta = Math.max(-AUTO_SCROLL_MAX_PX, above / 3);
+      else if (below > 0) delta = Math.min(AUTO_SCROLL_MAX_PX, below / 3);
+      if (delta !== 0) {
+        const scroller = scrollerRef.current;
+        if (scroller) scroller.scrollTop += delta;
+        else window.scrollBy(0, delta);
+        applyMarquee();
+      }
+      autoScrollRef.current = requestAnimationFrame(step);
+    };
+    stopAutoScroll();
+    autoScrollRef.current = requestAnimationFrame(step);
+  }, [applyMarquee, stopAutoScroll]);
+
+  // A wheel scroll mid-drag moves the tiles under a box anchored to the grid,
+  // not to the viewport — re-run the hit test so what is inside it is true.
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (!dragging) return;
+    const onScroll = () => applyMarquee();
+    window.addEventListener("scroll", onScroll, {
+      capture: true,
+      passive: true,
+    });
+    return () =>
+      window.removeEventListener("scroll", onScroll, { capture: true });
+  }, [dragging, applyMarquee]);
+
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
+
+  const beginMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    // Any fresh press ends the previous gesture's grace period. Without this
+    // the click-swallow below outlives its drag and eats the next real click
+    // on a card — box-select once, and the card after it refuses to open.
+    didMarqueeRef.current = false;
+    pendingRef.current = null;
+    if (!marqueeEnabled || event.button !== 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+    // Two ways in, both a plain left drag:
+    //   · shift or cmd/ctrl held — boxes from anywhere, cards included, and
+    //     ADDS to the selection. It needs the modifier there because a bare
+    //     drag off a card is the filing drag.
+    //   · a press on empty grid — the gutters, the gaps between tiles, the
+    //     margin around the whole thing — needs no modifier and REPLACES,
+    //     which is what every file manager does.
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+    // Empty space is decided by the layout, not by what the press landed on:
+    // a hovered card scales past its tile and its image covers the gutter, so
+    // asking the DOM what is under the cursor there answers "a card" for a
+    // pixel that belongs to nobody.
+    const rect = el.getBoundingClientRect();
+    const rawX = event.clientX - rect.left;
+    const rawY = event.clientY - rect.top;
+    const onEmptySpace = !tilesRef.current.some(
+      ({ tile }) =>
+        tile &&
+        rawX >= tile.left &&
+        rawX <= tile.left + tile.width &&
+        rawY >= tile.top &&
+        rawY <= tile.top + tile.height,
+    );
+    if (!additive && !onEmptySpace) return;
+    pendingRef.current = {
+      x0: Math.max(0, Math.min(rawX, el.clientWidth)),
+      y0: Math.max(0, Math.min(rawY, el.clientHeight)),
+      clientX: event.clientX,
+      clientY: event.clientY,
+      additive,
+      pointerId: event.pointerId,
+      onEmptySpace,
+    };
+  };
+
+  const updateMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
+    pointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+    if (marqueeRef.current) {
+      applyMarquee();
+      return;
+    }
+    // Still deciding. A press that never travels stays a click.
+    const pending = pendingRef.current;
+    if (!pending) return;
+    if (
+      Math.abs(event.clientX - pending.clientX) < DRAG_THRESHOLD_PX &&
+      Math.abs(event.clientY - pending.clientY) < DRAG_THRESHOLD_PX
+    ) {
+      return;
+    }
+    marqueeRef.current = {
+      x0: pending.x0,
+      y0: pending.y0,
+      base: pending.additive ? new Set(selectedAssetIds ?? []) : new Set(),
+    };
+    scrollerRef.current = findScrollParent(containerRef.current);
+    try {
+      wrapperRef.current?.setPointerCapture(pending.pointerId);
+    } catch {
+      /* capture is best-effort */
+    }
+    setDragging(true);
+    startAutoScroll();
+    applyMarquee();
+    event.preventDefault();
   };
 
   const endMarquee = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = marqueeRef.current;
-    if (!state) return;
-    if (state.moved) didMarqueeRef.current = true;
-    else if (!event.shiftKey && (selectedAssetIds?.size ?? 0) > 0) {
-      // Clicked empty space without dragging: drop the selection.
-      onReplaceSelection?.([]);
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    stopAutoScroll();
+    if (!state) {
+      // A press on empty space that never became a box: drop the selection,
+      // the way clicking the background of a file manager does.
+      if (
+        pending?.onEmptySpace &&
+        !pending.additive &&
+        (selectedAssetIds?.size ?? 0) > 0
+      ) {
+        onReplaceSelection?.([]);
+      }
+      return;
     }
+    didMarqueeRef.current = true;
     marqueeRef.current = null;
     setMarquee(null);
+    setDragging(false);
     try {
-      containerRef.current?.releasePointerCapture(event.pointerId);
+      wrapperRef.current?.releasePointerCapture(event.pointerId);
     } catch {
       /* release is best-effort */
     }
@@ -545,36 +752,44 @@ export function MasonryGrid({
   }
 
   return (
-    <div style={{ padding: `${PADDING_PX}px` }}>
+    // The gesture lives on the padded wrapper, not just the tile plane, so the
+    // margin around the grid is draggable empty space too — otherwise the only
+    // no-modifier way in is the 12px gaps between tiles.
+    <div
+      ref={wrapperRef}
+      style={{ padding: `${PADDING_PX}px` }}
+      onPointerDown={marqueeEnabled ? beginMarquee : undefined}
+      onPointerMove={marqueeEnabled ? updateMarquee : undefined}
+      onPointerUp={marqueeEnabled ? endMarquee : undefined}
+      onPointerCancel={marqueeEnabled ? endMarquee : undefined}
+      // A modifier means box-select — never start a native card drag under it.
+      onDragStartCapture={
+        marqueeEnabled
+          ? (event) => {
+              if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                event.preventDefault();
+              }
+            }
+          : undefined
+      }
+      // Swallow the click that ends a real drag so it doesn't toggle a card.
+      onClickCapture={
+        marqueeEnabled
+          ? (event) => {
+              if (didMarqueeRef.current) {
+                event.preventDefault();
+                event.stopPropagation();
+                didMarqueeRef.current = false;
+              }
+            }
+          : undefined
+      }
+    >
       <div
         ref={(node) => {
           gridRef(node);
           containerRef.current = node;
         }}
-        onPointerDown={marqueeEnabled ? beginMarquee : undefined}
-        onPointerMove={marqueeEnabled ? updateMarquee : undefined}
-        onPointerUp={marqueeEnabled ? endMarquee : undefined}
-        onPointerCancel={marqueeEnabled ? endMarquee : undefined}
-        // Shift is reserved for box-select — never start a native card drag.
-        onDragStartCapture={
-          marqueeEnabled
-            ? (event) => {
-                if (event.shiftKey) event.preventDefault();
-              }
-            : undefined
-        }
-        // Swallow the click that ends a real drag so it doesn't toggle a card.
-        onClickCapture={
-          marqueeEnabled
-            ? (event) => {
-                if (didMarqueeRef.current) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  didMarqueeRef.current = false;
-                }
-              }
-            : undefined
-        }
         style={{
           position: "relative",
           width: "100%",
@@ -672,7 +887,7 @@ export function MasonryGrid({
           return (
             <div
               key={image.id}
-              draggable={canDrag || undefined}
+              draggable={(canDrag && !boxModifierHeld) || undefined}
               onDragStart={
                 canDrag
                   ? (event) => onAssetDragStart!(event, image.id)
