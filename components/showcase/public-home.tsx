@@ -270,6 +270,8 @@ function FeaturedMode({
             labels={labels}
             loading={loading}
             zoom={zoom}
+            // The lead pieces run half again as large as the Browse grid.
+            baseScale={1.5}
             compact={false}
           />
         )}

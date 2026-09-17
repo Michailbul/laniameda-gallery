@@ -197,6 +197,12 @@ interface MasonryGridProps {
    * so the whole grid zooms; 1 (the default) is the current full size.
    */
   zoom?: number;
+  /**
+   * Multiplies the full size that `zoom` scales down from. A surface that wants
+   * bigger tiles at rest sets this, and the viewer's zoom still ranges 0.4–1 of
+   * it — so the stored zoom preference stays meaningful across surfaces.
+   */
+  baseScale?: number;
 }
 
 const BATCH_SIZE = 18;
@@ -344,6 +350,7 @@ export function MasonryGrid({
   showPublicBadge = false,
   onEndReached,
   zoom = 1,
+  baseScale = 1,
 }: MasonryGridProps) {
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
@@ -423,7 +430,9 @@ export function MasonryGrid({
     // scales it directly — smaller rows, more tiles per row, whole grid zooms.
     const effectiveZoom = Math.min(1, Math.max(0.4, zoom));
     const targetRowHeight =
-      ((contentWidth - gap * (columnCount - 1)) / columnCount) * effectiveZoom;
+      ((contentWidth - gap * (columnCount - 1)) / columnCount) *
+      effectiveZoom *
+      baseScale;
     const { tiles } = layoutJustified(images.map(resolveGridLayoutInput), {
       containerWidth: contentWidth,
       gap,
@@ -447,7 +456,7 @@ export function MasonryGrid({
       if (tile) mountedHeight = Math.max(mountedHeight, tile.top + tile.height);
     }
     return { mounted, mountedHeight, hasMore: cutoff < images.length };
-  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom]);
+  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom, baseScale]);
 
   // The mounted tiles' rects, mirrored into a ref. A drag holds its handlers
   // for the whole gesture, and auto-scroll mounts fresh rows underneath it —

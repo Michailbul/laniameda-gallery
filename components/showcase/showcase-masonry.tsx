@@ -21,6 +21,7 @@ export function ShowcaseMasonry({
   onEndReached,
   compact = true,
   zoom = 1,
+  baseScale = 1,
   labels,
   onSetCover,
   coverAssetId,
@@ -32,6 +33,8 @@ export function ShowcaseMasonry({
   compact?: boolean;
   /** Tile size factor, 0.4–1 — the grid's own zoom. */
   zoom?: number;
+  /** Multiplies the full size `zoom` scales from. */
+  baseScale?: number;
   /** assetId → caption shown on card hover (e.g. the world it belongs to). */
   labels?: Map<string, string>;
   /** Owner-only: make the open piece this set's thumbnail. */
@@ -82,6 +85,7 @@ export function ShowcaseMasonry({
         images={images}
         compactColumns={compact}
         zoom={zoom}
+        baseScale={baseScale}
         loading={loading}
         onImageSelect={openFromCard}
         onEndReached={onEndReached}
