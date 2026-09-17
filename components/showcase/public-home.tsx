@@ -10,7 +10,7 @@ import { PUBLIC_MODES, type PublicMode } from "@/lib/public-modes";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
-import { BrowseBand } from "./browse-band";
+import { BrowseBand, TileSizeSlider, useZoomPreference } from "./browse-band";
 import { assetThumb } from "./types";
 import type { ShowcaseAsset } from "./types";
 import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
@@ -110,7 +110,6 @@ export function PublicHome({
         color: "var(--lm-text-primary)",
       }}
     >
-      {previewAuthed && <PreviewBanner />}
       <PublicNav mode={mode} />
 
       {/* One heading, driven by the active mode. Switching modes rewrites the
@@ -192,7 +191,7 @@ export function PublicHome({
           flexWrap: "wrap",
         }}
       >
-        <span>● LANIAMEDA</span>
+        <span>● MISHA BULOICHYK</span>
         <span style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
           {/* Points at /admin rather than straight out to the Telegram deep
               link: that page renders the auth panel, which reports what went
@@ -244,15 +243,35 @@ function FeaturedMode({
   labels: Map<string, string>;
   loading: boolean;
 }) {
+  // Same preference the Browse view and the vault write, so a size picked in
+  // one place holds in the others.
+  const [zoom, setZoom] = useZoomPreference();
   return (
     <section style={{ padding: "0 clamp(16px, 3vw, 32px) clamp(40px, 8vh, 80px)" }}>
       <div>
+        {assets.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              paddingBottom: 16,
+            }}
+          >
+            <TileSizeSlider value={zoom} onChange={setZoom} />
+          </div>
+        )}
         {!loading && assets.length === 0 ? (
           <EmptyNote>
             No featured work yet — mark a few pieces featured in the vault.
           </EmptyNote>
         ) : (
-          <ShowcaseMasonry assets={assets} labels={labels} loading={loading} />
+          <ShowcaseMasonry
+            assets={assets}
+            labels={labels}
+            loading={loading}
+            zoom={zoom}
+            compact={false}
+          />
         )}
       </div>
     </section>
@@ -450,23 +469,3 @@ const coverStyle = {
   height: "100%",
   objectFit: "cover" as const,
 };
-
-function PreviewBanner() {
-  return (
-    <div
-      style={{
-        background: "var(--lm-coral)",
-        color: "#1a1008",
-        fontFamily: "var(--lm-font)",
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: "0.14em",
-        textTransform: "uppercase",
-        textAlign: "center",
-        padding: "8px 16px",
-      }}
-    >
-      Visitor preview — this is what an anonymous visitor sees
-    </div>
-  );
-}

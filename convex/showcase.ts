@@ -49,8 +49,9 @@ const SELECTED_WORKS_LIMIT = 120;
 // Membership reads over-fetch by this factor before the isPublic filter, so a
 // set whose recent members are private still fills its limit.
 const PUBLIC_OVERFETCH = 3;
-// How many pieces lead the public home.
-const FEATURED_REEL_LIMIT = 24;
+// Public assets read to find the featured ones. The reel itself is uncapped:
+// every piece the owner featured is on the page, in their order.
+const FEATURED_SCAN_LIMIT = 2000;
 
 const previewAssetValidator = v.object({
   assetId: v.id("assets"),
@@ -580,7 +581,7 @@ export const getShowcaseHome = query({
           q.eq("isPublic", true).gte("createdAt", 0),
         )
         .order("desc")
-        .take(SELECTED_WORKS_LIMIT * PUBLIC_OVERFETCH)
+        .take(FEATURED_SCAN_LIMIT)
     )
       .filter((a) => a.isFeatured === true && isShowcaseOwner(a.ownerUserId))
       .sort((a, b) => {
@@ -597,8 +598,7 @@ export const getShowcaseHome = query({
         const bv = b.kind === "video" ? 0 : 1;
         if (av !== bv) return av - bv;
         return (b.createdAt ?? 0) - (a.createdAt ?? 0);
-      })
-      .slice(0, FEATURED_REEL_LIMIT);
+      });
     const hydratedReel = await hydrateGalleryAssetResults(
       ctx,
       featuredReelAssets,

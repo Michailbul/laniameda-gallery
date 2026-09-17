@@ -9,16 +9,12 @@ import { ArrowDown, ArrowUp, Star, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-/** Must match convex/showcase.ts FEATURED_REEL_LIMIT. */
-const PUBLIC_REEL_CAP = 24;
-
 /**
  * The featured shelf — the owner's control over what leads the public home, in
  * the exact order the page will show it.
  *
  * Flat and boxless: rows on hairlines, the order carried by a number rather
- * than a card. The cut line is the one piece of chrome, because "featured but
- * not actually out front" is invisible everywhere else.
+ * than a card. The public reel is uncapped, so every row here is on the page.
  */
 export function FeaturedPanel({
   ownerUserId,
@@ -34,7 +30,7 @@ export function FeaturedPanel({
 }) {
   const rows = useQuery(
     api.assets.listFeaturedAssets,
-    open ? { ownerUserId, publicCap: PUBLIC_REEL_CAP } : "skip",
+    open ? { ownerUserId } : "skip",
   );
   const reorder = useMutation(api.assets.reorderFeaturedAssets);
   const setDescription = useMutation(api.assets.setAssetDescription);
@@ -140,7 +136,7 @@ export function FeaturedPanel({
           <p style={{ fontSize: "11.5px", color: "var(--lm-text-tertiary)" }}>
             {rows === undefined
               ? "Loading…"
-              : `${rows.length} featured · top ${PUBLIC_REEL_CAP} lead the public home`}
+              : `${rows.length} featured · all of them lead the public home`}
           </p>
           <p style={{ fontSize: "11px", color: "var(--lm-text-ghost)" }}>
             Title and description are what visitors read.
@@ -193,31 +189,12 @@ export function FeaturedPanel({
             // The public title. Unnamed pieces fall back to the upload's file
             // name, which is what visitors would otherwise read — "hf_2026…mp4".
             const publicName = asset.name?.trim();
-            // The row where the public reel stops carrying pieces.
-            const cutHere =
-              index === PUBLIC_REEL_CAP && rows.length > PUBLIC_REEL_CAP;
             return (
               <div key={id}>
-                {cutHere && (
-                  <p
-                    className="px-5 pb-2 pt-4"
-                    style={{
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                      color: "var(--lm-coral)",
-                      borderTop: "1px solid var(--lm-coral)",
-                    }}
-                  >
-                    Below the cut — featured, but not on the home
-                  </p>
-                )}
                 <div
                   className="flex items-start gap-3 px-5 py-3"
                   style={{
                     borderBottom: "1px solid var(--lm-border-subtle)",
-                    opacity: row.onPublicHome ? 1 : 0.55,
                   }}
                 >
                   <span

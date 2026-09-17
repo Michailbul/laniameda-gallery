@@ -198,7 +198,7 @@ function subscribeZoom(onChange: () => void) {
   };
 }
 
-function useZoomPreference(): [number, (next: number) => void] {
+export function useZoomPreference(): [number, (next: number) => void] {
   const zoom = useSyncExternalStore(subscribeZoom, readZoom, () => 1);
 
   const setZoom = useCallback((next: number) => {
@@ -214,7 +214,7 @@ function useZoomPreference(): [number, (next: number) => void] {
   return [zoom, setZoom];
 }
 
-function TileSizeSlider({
+export function TileSizeSlider({
   value,
   onChange,
 }: {

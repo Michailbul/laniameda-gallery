@@ -20,7 +20,7 @@ export async function generateMetadata({
   if (!entry) return {};
 
   return {
-    title: `${entry.label} — Misha Buloy · Laniameda`,
+    title: `${entry.label} — Misha Buloichyk`,
     description: entry.blurb,
   };
 }

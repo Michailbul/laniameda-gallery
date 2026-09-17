@@ -58,7 +58,7 @@ export function PublicNav({
             whiteSpace: "nowrap",
           }}
         >
-          <span style={{ color: "var(--lm-coral)" }}>●</span> LANIAMEDA
+          <span style={{ color: "var(--lm-coral)" }}>●</span> MISHA BULOICHYK
         </Link>
 
         <div

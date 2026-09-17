@@ -3736,10 +3736,8 @@ export const wipeAllAssets = internalMutation({
 
 // ── Featured shelf (owner admin) ────────────────────────────────────────────
 // The pieces that lead the public home, as the owner manages them. The public
-// reel is capped, so this deliberately returns MORE than that cap and marks
-// which rows actually make the cut — a piece you featured but can't see out
-// front should be visible here, not silently missing.
-const FEATURED_SHELF_LIMIT = 60;
+// reel is uncapped, so every row here is on the page. `publicCap` survives for
+// callers that want to mark a cut line of their own.
 // Public assets read to find the featured ones. Public is a curated subset of
 // the vault, so this stays far below the vault size.
 const FEATURED_SHELF_SCAN_LIMIT = 2000;
@@ -3761,7 +3759,7 @@ export const listFeaturedAssets = query({
       throw new ConvexError("ownerUserId is required.");
     }
     const ownerUserIds = new Set(resolveUserIdCandidates(ownerUserId));
-    const cap = args.publicCap ?? 24;
+    const cap = args.publicCap ?? Number.POSITIVE_INFINITY;
 
     // isFeatured is force-ANDed with isPublic, so the public index holds every
     // featured piece. Scanning the owner's newest N assets instead hid older
@@ -3798,8 +3796,7 @@ export const listFeaturedAssets = query({
       return (b.createdAt ?? 0) - (a.createdAt ?? 0);
     });
 
-    const capped = featured.slice(0, FEATURED_SHELF_LIMIT);
-    const hydrated = await hydrateGalleryAssetResults(ctx, capped);
+    const hydrated = await hydrateGalleryAssetResults(ctx, featured);
     return hydrated.map((asset, index) => ({
       asset,
       position: index + 1,
