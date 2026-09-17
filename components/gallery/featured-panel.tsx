@@ -10,7 +10,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /** Must match convex/showcase.ts FEATURED_REEL_LIMIT. */
-const PUBLIC_REEL_CAP = 12;
+const PUBLIC_REEL_CAP = 24;
 
 /**
  * The featured shelf — the owner's control over what leads the public home, in

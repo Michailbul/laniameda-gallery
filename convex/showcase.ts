@@ -50,7 +50,7 @@ const SELECTED_WORKS_LIMIT = 120;
 // set whose recent members are private still fills its limit.
 const PUBLIC_OVERFETCH = 3;
 // How many pieces lead the public home.
-const FEATURED_REEL_LIMIT = 12;
+const FEATURED_REEL_LIMIT = 24;
 
 const previewAssetValidator = v.object({
   assetId: v.id("assets"),

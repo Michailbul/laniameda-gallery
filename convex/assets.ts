@@ -3740,6 +3740,9 @@ export const wipeAllAssets = internalMutation({
 // which rows actually make the cut — a piece you featured but can't see out
 // front should be visible here, not silently missing.
 const FEATURED_SHELF_LIMIT = 60;
+// Public assets read to find the featured ones. Public is a curated subset of
+// the vault, so this stays far below the vault size.
+const FEATURED_SHELF_SCAN_LIMIT = 2000;
 
 export const listFeaturedAssets = query({
   args: { ownerUserId: v.string(), publicCap: v.optional(v.number()) },
@@ -3757,21 +3760,25 @@ export const listFeaturedAssets = query({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
-    const ownerUserIds = resolveUserIdCandidates(ownerUserId);
-    const cap = args.publicCap ?? 12;
+    const ownerUserIds = new Set(resolveUserIdCandidates(ownerUserId));
+    const cap = args.publicCap ?? 24;
 
-    const rows: Doc<"assets">[] = [];
-    for (const ownerCandidate of ownerUserIds) {
-      rows.push(
-        ...(await ctx.db
-          .query("assets")
-          .withIndex("by_owner_createdAt", (q) =>
-            q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-          )
-          .order("desc")
-          .take(1200)),
-      );
-    }
+    // isFeatured is force-ANDed with isPublic, so the public index holds every
+    // featured piece. Scanning the owner's newest N assets instead hid older
+    // featured clips once the vault outgrew N: they stayed on the public reel
+    // with a priority this panel could neither show nor rewrite.
+    const rows = (
+      await ctx.db
+        .query("assets")
+        .withIndex("by_isPublic_createdAt", (q) =>
+          q.eq("isPublic", true).gte("createdAt", 0),
+        )
+        .order("desc")
+        .take(FEATURED_SHELF_SCAN_LIMIT)
+    ).filter(
+      (asset) =>
+        asset.ownerUserId !== undefined && ownerUserIds.has(asset.ownerUserId),
+    );
     const seen = new Set<string>();
     const featured = rows.filter((asset) => {
       if (asset.isFeatured !== true || seen.has(asset._id)) return false;
