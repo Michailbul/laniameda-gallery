@@ -6,6 +6,7 @@ type PinterestAdapterApi = {
   getMediaUrl: (el: unknown) => string;
   getPinUrl: (el: unknown) => string;
   getTagNames: () => string[];
+  getWidgetHost: (el: unknown) => unknown;
   isPinterestPage: (hostname?: string) => boolean;
   isQualifiedMediaElement: (
     el: unknown,
@@ -57,6 +58,38 @@ const createImage = ({
     selector.includes("/pin/") && closestPinHref
       ? { getAttribute: () => closestPinHref }
       : null,
+});
+
+describe("Pinterest widget host", () => {
+  const createNode = ({
+    pinLink = null as unknown,
+    cardRoot = null as unknown,
+    parentElement = null as unknown,
+  } = {}) => ({
+    parentElement,
+    closest: (selector: string) =>
+      selector.includes("/pin/") ? pinLink : selector.includes("pinWrapper") ? cardRoot : null,
+  });
+
+  test("mounts on the card root when it sits outside the pin link", () => {
+    const cardRoot = { name: "card" };
+    const pinLink = { parentElement: { name: "link-parent" }, contains: () => false };
+    const img = createNode({ pinLink, cardRoot, parentElement: { name: "img-parent" } });
+    expect(getApi().getWidgetHost(img)).toBe(cardRoot);
+  });
+
+  test("steps out of the pin link when the card root is inside it", () => {
+    const cardRoot = { name: "card" };
+    const linkParent = { name: "link-parent" };
+    const pinLink = { parentElement: linkParent, contains: (node: unknown) => node === cardRoot };
+    const img = createNode({ pinLink, cardRoot, parentElement: { name: "img-parent" } });
+    expect(getApi().getWidgetHost(img)).toBe(linkParent);
+  });
+
+  test("falls back to the image parent with no card or link", () => {
+    const imgParent = { name: "img-parent" };
+    expect(getApi().getWidgetHost(createNode({ parentElement: imgParent }))).toBe(imgParent);
+  });
 });
 
 describe("Pinterest extension adapter", () => {

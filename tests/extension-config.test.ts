@@ -108,6 +108,12 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript).toContain("Save to laniameda");
     expect(backgroundScript).toContain("saveImageFromContextMenu");
     expect(backgroundScript).toContain("contextMenus.onShown");
+    expect(backgroundScript).toContain("OPEN_SAVE_MENU_CONTEXT_MENU_ID");
+    expect(backgroundScript).toContain("Save to gallery…");
+    expect(backgroundScript).toContain("openSaveMenuFromContextMenu");
+    expect(contentScript).toContain("openSaveMenuFromContextMenu");
+    expect(contentScript).toContain("stg-mj-quick-save--bottom-left");
+    expect(contentScript).toContain("stg-mj-quick-save--floating");
     expect(backgroundScript).toContain("folderIds");
     expect(contentScript).toContain("handleContextMenuImageSave");
     expect(contentScript).toContain("stg-context-toast");
@@ -160,14 +166,23 @@ describe("extension endpoint defaults", () => {
       "async function uploadCapturedImageToR2",
     );
     const directUploadEnd = backgroundScript.indexOf(
-      "async function saveContextMenuImageInBackground",
+      "// The ingest contract carries a thumbnail",
       directUploadStart,
     );
     const directUploadSource = backgroundScript.slice(directUploadStart, directUploadEnd);
-    expect(directUploadSource).toContain('requiredContentType: "image/png"');
     expect(directUploadSource).toContain('method: "PUT"');
-    expect(directUploadSource).toContain("r2Key: uploaded.r2Key");
+    expect(directUploadSource).toContain("session.key");
+    // The original goes browser → R2 and must never be inlined into the save
+    // request; only the 1024px preview beside it rides as base64.
     expect(directUploadSource).not.toContain("base64");
+    expect(directUploadSource).toContain("buildThumbnailBlob");
+    expect(backgroundScript).toContain('requiredContentType: "image/png"');
+    expect(backgroundScript).toContain("r2Key: uploaded.r2Key");
+    expect(backgroundScript).toContain("posterFile: uploaded.posterFile");
+    // A capture too large to inline uploads to R2 instead of asking the gallery
+    // to refetch a URL that hotlink-protected CDNs refuse.
+    expect(backgroundScript).toContain("MAX_INLINE_CAPTURE_BYTES");
+    expect(backgroundScript).toContain("r2Key: uploaded.r2Key,");
     const droppedSaveStart = backgroundScript.indexOf(
       'if (message.action === "saveDroppedAsset")',
     );
@@ -178,6 +193,25 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript.slice(droppedSaveStart, droppedSaveEnd)).toContain(
       "tagNames: message.tagNames",
     );
+    // An oversized capture must arrive as an R2 key, never be silently dropped
+    // back to "let the gallery refetch this URL" — the failure mode that made
+    // Pinterest originals die on "Failed to fetch remote media".
+    expect(contentScript).toContain("buildUploadedMediaPayload");
+    expect(contentScript).toContain("r2Key: fileData.r2Key");
+    // The page-side capture fallback never reached the worker's size check, so
+    // an oversized one is handed over explicitly instead of being inlined.
+    expect(contentScript).toContain("offloadOversizedCapture");
+    expect(contentScript).toContain('action: "uploadCapturedBytes"');
+    expect(backgroundScript).toContain('message.action === "uploadCapturedBytes"');
+    expect(backgroundScript).toContain("uploadCapturedBytesToR2");
+    expect(contentScript).not.toContain("MAX_INLINE_FILE_BASE64");
+    // An error report outlives the control it was raised from: feeds re-render
+    // constantly, and the report is the only place the reason is shown.
+    expect(contentScript).toContain('pop.dataset.stgPersistent = "1"');
+    expect(contentScript).toContain('node.dataset?.stgPersistent === "1"');
+    expect(contentScript).toContain("widget.__stgPopoverOpen");
+    expect(contentScript).toContain('popover.dataset.stgPositioned === "1"');
+    expect(contentScript).toContain("stg-context-toast--copyable");
     expect(backgroundScript).toContain("preferredContentType");
     expect(backgroundScript).toContain("requiredContentType");
     expect(backgroundScript).toContain("original PNG; nothing was saved");

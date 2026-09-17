@@ -10,6 +10,12 @@ type ImageConvertApi = {
     preferredContentType?: string,
   ) => Promise<{ blob: Blob; contentType: string; converted: boolean }>;
   base64FromBlob: (blob: Blob) => Promise<string>;
+  buildThumbnailBlob: (
+    blob: Blob,
+    maxWidth?: number,
+  ) => Promise<
+    { blob: Blob; contentType: string; width: number; height: number } | null
+  >;
 };
 
 const getApi = () =>
@@ -184,4 +190,69 @@ test("base64FromBlob round-trips the bytes", async () => {
   const base64 = await getApi().base64FromBlob(new Blob([bytes]));
 
   expect(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))).toEqual(bytes);
+});
+
+describe("buildThumbnailBlob", () => {
+  // Records the canvas the thumbnail is drawn onto, so the assertions can read
+  // the size the encoder was actually handed.
+  const stubDecodedImage = (width: number, height: number) => {
+    const drawn: { width: number; height: number }[] = [];
+    const scope = globalThis as Stubbed;
+    scope.createImageBitmap = async () => ({ width, height, close() {} });
+    scope.OffscreenCanvas = class {
+      width: number;
+      height: number;
+      constructor(w: number, h: number) {
+        this.width = w;
+        this.height = h;
+        drawn.push({ width: w, height: h });
+      }
+      getContext() {
+        return { fillStyle: "", fillRect() {}, drawImage() {} };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([new Uint8Array([1, 2, 3])], { type });
+      }
+    };
+    return drawn;
+  };
+
+  test("caps a large original at 1024px wide and keeps its aspect", async () => {
+    const drawn = stubDecodedImage(4096, 2048);
+
+    const thumb = await getApi().buildThumbnailBlob(
+      new Blob([new Uint8Array([0])], { type: "image/jpeg" }),
+    );
+
+    expect(drawn[0]).toEqual({ width: 1024, height: 512 });
+    expect(thumb?.width).toBe(1024);
+    expect(thumb?.height).toBe(512);
+    expect(thumb?.contentType).toBe("image/jpeg");
+  });
+
+  test("never upscales — a small original is its own best thumbnail", async () => {
+    const drawn = stubDecodedImage(320, 480);
+
+    const thumb = await getApi().buildThumbnailBlob(
+      new Blob([new Uint8Array([0])], { type: "image/png" }),
+    );
+
+    expect(drawn[0]).toEqual({ width: 320, height: 480 });
+    expect(thumb?.width).toBe(320);
+  });
+
+  test("returns null when the bytes cannot be decoded", async () => {
+    const scope = globalThis as Stubbed;
+    scope.createImageBitmap = async () => {
+      throw new Error("not an image");
+    };
+
+    // Video and SVG captures land here. The save still goes through; the entry
+    // just carries no separate preview.
+    expect(
+      await getApi().buildThumbnailBlob(
+        new Blob([new Uint8Array([0])], { type: "video/mp4" }),
+      ),
+    ).toBeNull();
+  });
 });

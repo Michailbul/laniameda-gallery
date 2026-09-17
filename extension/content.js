@@ -560,9 +560,16 @@
         imageUrl: url,
         preferredContentType,
       });
-      if (response?.ok && response.base64) {
+      // Either inline bytes or, for a capture too large to ride in the save
+      // request, the R2 key those bytes were uploaded under.
+      if (response?.ok && (response.base64 || response.r2Key)) {
         return {
           base64: response.base64,
+          r2Key: response.r2Key,
+          mediaContentHash: response.mediaContentHash,
+          mediaSize: response.mediaSize,
+          mediaFileName: response.mediaFileName,
+          posterFile: response.posterFile,
           contentType: response.contentType,
           width: response.width,
           height: response.height,
@@ -574,6 +581,49 @@
     return null;
   }
 
+  // Base64 inflates bytes by 4/3 and the save route is a serverless function
+  // with a ~4.5MB body limit, so this is roughly where an inline capture stops
+  // fitting. The worker applies the same ceiling to its own captures.
+  const MAX_INLINE_CAPTURE_BASE64 = 3_000_000;
+
+  // Midjourney captures are re-encoded to PNG, which routinely triples the
+  // WebP the CDN served — most full-size saves land over the limit. Hand those
+  // bytes to the worker to put in R2 rather than letting the request 413.
+  async function offloadOversizedCapture(fileData, url) {
+    if (!fileData?.base64 || fileData.base64.length <= MAX_INLINE_CAPTURE_BASE64) {
+      return fileData;
+    }
+    try {
+      const response = await sendRuntimeMessage({
+        action: "uploadCapturedBytes",
+        imageUrl: url,
+        base64: fileData.base64,
+        contentType: fileData.contentType,
+      });
+      if (response?.ok && response.r2Key) {
+        return {
+          r2Key: response.r2Key,
+          mediaContentHash: response.mediaContentHash,
+          mediaSize: response.mediaSize,
+          mediaFileName: response.mediaFileName,
+          posterFile: response.posterFile,
+          contentType: response.mediaContentType,
+          width: response.imageWidth ?? fileData.width,
+          height: response.imageHeight ?? fileData.height,
+        };
+      }
+      console.warn(
+        "[Save to Gallery] could not offload an oversized capture to R2:",
+        response?.error,
+      );
+    } catch (err) {
+      console.warn("[Save to Gallery] oversized capture offload failed:", err);
+    }
+    // Inline anyway — a 413 names the real problem; dropping the bytes and
+    // asking the gallery to refetch a Cloudflare-protected CDN does not.
+    return fileData;
+  }
+
   async function captureImageBytesForSave(url) {
     const preferredContentType = midjourneyAdapter?.isMidjourneyMediaUrl?.(url)
       ? "image/png"
@@ -581,8 +631,10 @@
     const captured = await requestImageBytes(url, preferredContentType);
     if (captured) return captured;
 
+    // Last resort: the page's own fetch. Those bytes never passed through the
+    // worker, so the size check it does has not happened yet.
     const pageFetched = await imageToBase64(url, preferredContentType);
-    if (pageFetched) return pageFetched;
+    if (pageFetched) return offloadOversizedCapture(pageFetched, url);
 
     return undefined;
   }
@@ -590,24 +642,28 @@
   // The gallery API runs as a serverless function with a hard request-body
   // limit (Vercel answers HTTP 413 FUNCTION_PAYLOAD_TOO_LARGE above ~4.5MB), and
   // base64 inflates bytes by 4/3. A big original therefore cannot ride inline.
-  // When the URL is publicly fetchable the backend can pull the very same file
-  // itself, so dropping the inline copy costs nothing in quality — it is only a
-  // transport choice. blob:/data: media has no server-reachable URL, so it is
-  // sent inline regardless and fails loudly rather than saving nothing.
-  const MAX_INLINE_FILE_BASE64 = 3_000_000;
-
-  function buildInlineFilePayload(fileData, imageUrl) {
+  // The background worker sees that first and uploads those bytes straight to
+  // R2, so the save carries a key instead of a file. Handing the gallery the
+  // source URL to refetch was the old answer and it is not a real one: CDNs
+  // that reject a server-side read (Pinterest among them) turn it into
+  // "Failed to fetch remote media" and the save is lost.
+  function buildInlineFilePayload(fileData) {
     if (!fileData?.base64) return undefined;
-    const tooLarge = fileData.base64.length > MAX_INLINE_FILE_BASE64;
-    const serverCanFetch = /^https?:/i.test(String(imageUrl || ""));
-    if (tooLarge && serverCanFetch) {
-      console.debug(
-        "[Save to Gallery] payload too large to inline; letting the gallery fetch it",
-        { imageUrl, base64Length: fileData.base64.length },
-      );
-      return undefined;
-    }
     return { base64: fileData.base64, contentType: fileData.contentType };
+  }
+
+  // Save fields for bytes the background worker already put in R2. Empty for an
+  // inline capture, so it always spreads safely.
+  function buildUploadedMediaPayload(fileData) {
+    if (!fileData?.r2Key) return {};
+    return {
+      r2Key: fileData.r2Key,
+      mediaContentHash: fileData.mediaContentHash,
+      mediaContentType: fileData.contentType,
+      mediaSize: fileData.mediaSize,
+      mediaFileName: fileData.mediaFileName,
+      posterFile: fileData.posterFile,
+    };
   }
 
   // ── Helpers ──
@@ -793,7 +849,9 @@
     const gap = SAVE_CONTROL_GAP;
     const maxLeft = Math.max(gap, hostRect.width + scrollLeft - width - gap);
     const centeredLeft = targetLeft + (targetRect.width - width) / 2;
-    const placements = options.centered
+    const placements = options.anchor === "bottom-left"
+      ? ["inside-bottom-left"]
+      : options.centered
       ? ["inside-top-center", "inside-bottom-center", "inside-top-right", "inside-top-left", "outside-above-center", "outside-below-center"]
       : ["inside-top-right", "inside-top-left", "inside-bottom-right", "inside-bottom-left", "outside-above-right", "outside-below-right"];
 
@@ -867,7 +925,7 @@
   // Midjourney grid of near-viewport-height images. These instead sit in the
   // visible slice of the media, so the control stays reachable for as long as
   // any usable part of the image is on screen.
-  function buildClampedSaveControlCandidates(targetRect, host, width, height) {
+  function buildClampedSaveControlCandidates(targetRect, host, width, height, anchor) {
     const gap = SAVE_CONTROL_GAP;
     const visible = {
       left: Math.max(targetRect.left, 0),
@@ -882,20 +940,24 @@
       return [];
     }
 
-    const left = visible.right - width - gap;
+    const alignLeft = anchor === "bottom-left";
+    const side = alignLeft ? "left" : "right";
+    const left = alignLeft ? visible.left + gap : visible.right - width - gap;
     const topEdge = visible.top + gap;
     const bottomEdge = visible.bottom - height - gap;
     // When the media is cut off at the top, the page's own header/toolbar sits
     // right where the top candidate would go — try the bottom of the visible
-    // slice first in that case.
-    const order = targetRect.top < 0
+    // slice first in that case. A bottom anchor only ever uses the bottom.
+    const order = alignLeft
+      ? [{ placement: `clamped-bottom-${side}`, viewportTop: bottomEdge }]
+      : targetRect.top < 0
       ? [
-          { placement: "clamped-bottom-right", viewportTop: bottomEdge },
-          { placement: "clamped-top-right", viewportTop: topEdge },
+          { placement: `clamped-bottom-${side}`, viewportTop: bottomEdge },
+          { placement: `clamped-top-${side}`, viewportTop: topEdge },
         ]
       : [
-          { placement: "clamped-top-right", viewportTop: topEdge },
-          { placement: "clamped-bottom-right", viewportTop: bottomEdge },
+          { placement: `clamped-top-${side}`, viewportTop: topEdge },
+          { placement: `clamped-bottom-${side}`, viewportTop: bottomEdge },
         ];
 
     return order.map(({ placement, viewportTop }) => ({
@@ -931,9 +993,12 @@
     const height = control.offsetHeight || options.fallbackHeight || 34;
     const candidates = buildSaveControlCandidates(targetRect, hostRect, width, height, {
       centered: options.centered,
+      anchor: options.anchor,
       host,
     });
-    const pageControlRects = getNearbyPageControlRects(target);
+    // A pinned anchor is a fixed spot the user relies on (Pinterest: bottom-left,
+    // away from Pinterest's own Save), so it never hops corners to dodge controls.
+    const pageControlRects = options.anchor ? [] : getNearbyPageControlRects(target);
     const viewportBounds = {
       left: 0,
       top: 0,
@@ -953,7 +1018,7 @@
       }))
       .filter((candidate) => rectFitsInside(candidate.viewportRect, viewportBounds, 1));
 
-    const clamped = buildClampedSaveControlCandidates(targetRect, host, width, height);
+    const clamped = buildClampedSaveControlCandidates(targetRect, host, width, height, options.anchor);
 
     // Preference order: a corner placement that clears the page's own controls,
     // then a corner placement that doesn't, then the visible-slice fallback.
@@ -981,13 +1046,26 @@
   // container bounds. Prefers opening above the badge with right edges aligned,
   // flips below when there isn't room, and clamps to the viewport on all sides.
   function positionFloatingPopover(popover, anchor) {
-    if (!popover || !anchor) return;
+    if (!popover) return;
     const margin = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const rect = anchor.getBoundingClientRect();
+    const rect = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
     const width = popover.offsetWidth || 278;
     const height = popover.offsetHeight || 0;
+
+    // Feeds re-render under us, and the badge a popover hangs off can be gone
+    // a tick later — its rect then reads 0x0 at the origin, which would fling
+    // an open error report into the top-left corner while it is being read.
+    // Hold the last good position instead; centre it only if the anchor died
+    // before the popover was ever placed.
+    if (!rect || (rect.width === 0 && rect.height === 0)) {
+      if (popover.dataset.stgPositioned === "1") return;
+      popover.style.left = `${Math.round(Math.max(margin, (vw - width) / 2))}px`;
+      popover.style.top = `${Math.round(Math.max(margin, (vh - height) / 2))}px`;
+      popover.dataset.stgPositioned = "1";
+      return;
+    }
 
     // Right-align the popover with the badge (matches the old bottom-right anchor).
     let left = rect.right - width;
@@ -1004,6 +1082,7 @@
 
     popover.style.left = `${Math.round(left)}px`;
     popover.style.top = `${Math.round(top)}px`;
+    popover.dataset.stgPositioned = "1";
   }
 
   // Mount a popover as a viewport-fixed layer on <body> (escaping the image
@@ -1659,6 +1738,10 @@
   function createErrorPopover(message, onClose) {
     const pop = document.createElement("div");
     pop.className = "stg-popover stg-popover--error";
+    // The only place the failure reason is shown. A UI sweep — a site-state
+    // change, a viewer opening, a reloaded extension taking over — must not
+    // clear it out from under someone reading or copying it.
+    pop.dataset.stgPersistent = "1";
     pop.innerHTML = `
       <button class="stg-popover__close" title="Close">&times;</button>
       <div class="stg-popover__title stg-popover__title--error">⚠ Save failed</div>
@@ -1707,11 +1790,16 @@
 
   function showErrorPopover(badge, message, opts = {}) {
     const { topRight = false } = opts;
-    if (!badge.isConnected) return;
 
     badge.classList.remove("stg-badge--visible");
 
+    // Pin the control the report is anchored to, so the feed's next re-render
+    // pass leaves it alone until the report is dismissed.
+    const widget = badge.closest?.(".stg-mj-quick-save") || null;
+    if (widget) widget.__stgPopoverOpen = true;
+
     const popover = createErrorPopover(message, () => {
+      if (widget) widget.__stgPopoverOpen = false;
       popover.classList.remove("stg-popover--visible");
       popover.__stgCleanupFloating?.();
       setTimeout(() => {
@@ -1728,7 +1816,12 @@
     mountFloatingPopover(popover, badge);
   }
 
-  function showContextToast(kind, message) {
+  // A confirmation is read at a glance; a failure has to be read, and often
+  // copied, so it stays up long enough to reach and holds while the pointer is
+  // on it.
+  const CONTEXT_TOAST_MS = { saved: 2200, error: 9000 };
+
+  function showContextToast(kind, message, detail) {
     if (contextToastTimer) {
       clearTimeout(contextToastTimer);
       contextToastTimer = null;
@@ -1740,21 +1833,47 @@
       document.body.appendChild(contextToast);
     }
 
-    contextToast.className = `stg-context-toast stg-context-toast--${kind}`;
-    contextToast.textContent = message;
+    const toast = contextToast;
+    toast.className = `stg-context-toast stg-context-toast--${kind}`;
+    toast.textContent = message;
     requestAnimationFrame(() => {
-      contextToast?.classList.add("stg-context-toast--visible");
+      toast.classList.add("stg-context-toast--visible");
     });
 
-    if (kind !== "saving") {
-      contextToastTimer = setTimeout(() => {
-        contextToast?.classList.remove("stg-context-toast--visible");
-        setTimeout(() => {
-          contextToast?.remove();
-          contextToast = null;
-        }, 180);
-      }, 2200);
+    if (kind === "saving") return;
+
+    const dismiss = () => {
+      contextToastTimer = null;
+      toast.classList.remove("stg-context-toast--visible");
+      setTimeout(() => {
+        toast.remove();
+        if (contextToast === toast) contextToast = null;
+      }, 180);
+    };
+    const scheduleDismiss = () => {
+      clearTimeout(contextToastTimer);
+      contextToastTimer = setTimeout(dismiss, CONTEXT_TOAST_MS[kind] ?? 2200);
+    };
+
+    if (kind === "error") {
+      toast.classList.add("stg-context-toast--copyable");
+      toast.title = "Click to copy";
+      // The line on screen is trimmed to fit; the copy carries the whole thing.
+      const copyText = detail || message;
+      toast.addEventListener("pointerenter", () => clearTimeout(contextToastTimer));
+      toast.addEventListener("pointerleave", scheduleDismiss);
+      toast.addEventListener("click", () => {
+        void navigator.clipboard.writeText(copyText).then(
+          () => {
+            toast.textContent = "Copied ✓";
+            scheduleDismiss();
+          },
+          () => {},
+        );
+      });
     }
+
+    scheduleDismiss();
   }
 
   // ── Save logic ──
@@ -1802,7 +1921,8 @@
           folderIds: normalizeFolderIdList(folderIds),
           collectionPillar: collectionPillar || undefined,
           tagNames: Array.isArray(tagNames) ? tagNames : undefined,
-          file: buildInlineFilePayload(fileData, imageUrl),
+          file: buildInlineFilePayload(fileData),
+          ...buildUploadedMediaPayload(fileData),
           imageWidth: effectiveWidth || undefined,
           imageHeight: effectiveHeight || undefined,
           mediaType: mediaType || undefined,
@@ -2006,7 +2126,10 @@
         folderIds,
         collectionPillar: collectionPillar || undefined,
         tagNames: styleTag ? [styleTag] : undefined,
-        file: fileData || undefined,
+        file: buildInlineFilePayload(fileData),
+        ...buildUploadedMediaPayload(fileData),
+        imageWidth: fileData?.width || undefined,
+        imageHeight: fileData?.height || undefined,
       });
     } catch (err) {
       response = { ok: false, error: err?.message || "Save failed." };
@@ -2019,12 +2142,107 @@
         imageUrl,
         sourceUrl,
       });
-      showContextToast("error", error.slice(0, 90));
+      showContextToast("error", error.slice(0, 90), error);
       return { handled: true, ok: false, error };
     }
 
     showContextToast("saved", "Saved to laniameda");
     return { handled: true, ok: true, result: response.result };
+  }
+
+  // Right-click → "Save to gallery…" opens the collection menu on the media that
+  // was under the cursor. Chrome only reports srcUrl when the click landed on the
+  // <img> itself, and Pinterest's hover layer usually covers it, so the pointer
+  // position from the contextmenu event is the primary lookup.
+  let lastContextMenuPoint = null;
+
+  document.addEventListener("contextmenu", (event) => {
+    lastContextMenuPoint = {
+      target: event.target,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+  }, true);
+
+  function findContextMenuMediaTarget(srcUrl) {
+    if (lastContextMenuPoint) {
+      const fromPoint = findBulkTargetFromEvent(lastContextMenuPoint);
+      if (fromPoint) return fromPoint;
+    }
+    if (!srcUrl) return null;
+    for (const media of document.querySelectorAll("img, video")) {
+      const urls = [media.currentSrc, media.src, media.poster].filter(Boolean);
+      if (!urls.includes(srcUrl) && !String(media.srcset || "").includes(srcUrl)) continue;
+      if (isBulkEligibleMedia(media)) return media;
+    }
+    return null;
+  }
+
+  function getMediaWidget(target) {
+    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+      if (widget.__stgTarget === target) return widget;
+    }
+    return null;
+  }
+
+  // A menu opened from the context menu was never hovered, so the widget's
+  // pointerleave close never arms. Close it on the next press outside or Escape.
+  function closeMenuOnOutsidePress(widget) {
+    const cleanup = () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+    const onPointerDown = (event) => {
+      if (widget.contains(event.target)) return;
+      cleanup();
+      closeMidjourneyCollectionMenu(widget);
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      cleanup();
+      closeMidjourneyCollectionMenu(widget);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+  }
+
+  async function openSaveMenuFromContextMenu(message) {
+    const isEnabled = await ensureSiteStateLoaded();
+    if (!isEnabled) {
+      showContextToast("error", "Save disabled on this site");
+      return { handled: true, ok: false, error: "Save to laniameda is disabled on this site." };
+    }
+    if (!isPersistentSaveSite()) {
+      showContextToast("error", "Save menu is not available here");
+      return { handled: true, ok: false, error: "Save menu is not available here." };
+    }
+    if (bulkSelectMode) {
+      showContextToast("error", "Finish bulk select first");
+      return { handled: true, ok: false, error: "Bulk select is active." };
+    }
+
+    const target = findContextMenuMediaTarget(message?.srcUrl || "");
+    if (!target) {
+      showContextToast("error", "No saveable image under the cursor");
+      return { handled: true, ok: false, error: "No saveable image under the cursor." };
+    }
+
+    let widget = getMediaWidget(target);
+    if (!widget) {
+      // An orphaned badge attribute would make the inject skip this media.
+      target.removeAttribute(MJ_MEDIA_BADGE_ATTR);
+      injectMidjourneyMediaBadge(target);
+      widget = getMediaWidget(target);
+    }
+    if (!widget) {
+      showContextToast("error", "This image can't be saved");
+      return { handled: true, ok: false, error: "No save control for this image." };
+    }
+
+    positionMidjourneyWidget(widget, target);
+    await openMidjourneyCollectionMenu(widget);
+    closeMenuOnOutsidePress(widget);
+    return { handled: true, ok: true };
   }
 
   function resetBadge(badge) {
@@ -2050,6 +2268,7 @@
       ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer, .stg-bulk-toggle, .stg-bulk-bar, .stg-bulk-check",
     )) {
       if (keep && (node === keep || keep.contains(node))) continue;
+      if (node.dataset?.stgPersistent === "1") continue;
       node.remove();
     }
 
@@ -2881,6 +3100,11 @@
   function getMidjourneyWidgetHost(target) {
     if (!target) return null;
 
+    if (isPinterestPage() && pinterestAdapter?.getWidgetHost) {
+      const pinterestHost = pinterestAdapter.getWidgetHost(target);
+      if (pinterestHost) return pinterestHost;
+    }
+
     const tagName = target.tagName?.toLowerCase();
     if (tagName === "a" && target.parentElement) {
       return target.parentElement;
@@ -3709,12 +3933,15 @@
   // only way back is toggling the extension off and on for the site.
   function discardMidjourneyWidget(widget) {
     if (!widget) return;
+    // An open error report hangs off this control. Removing it while the feed
+    // re-renders is what made the report look like it vanished on its own.
+    if (widget.__stgPopoverOpen) return;
     widget.__stgTarget?.removeAttribute?.(MJ_MEDIA_BADGE_ATTR);
     widget.__stgTarget = null;
     widget.remove();
   }
 
-  function positionMidjourneyWidget(widget, target) {
+  function positionMidjourneyWidget(widget, target, options = {}) {
     if (widget.classList.contains("stg-mj-quick-save--viewer")) {
       positionMidjourneyViewerWidget(widget, target);
       return;
@@ -3729,10 +3956,13 @@
     // menu). MJ mutates the feed constantly, so the scan keeps firing during
     // hover — repositioning/reparenting mid-approach resets the CSS hover
     // reveal and yanks the widget away from the cursor.
+    // `force` is the return trip from a floated menu: the cursor is usually still
+    // on the widget, and skipping would strand it on <body>.
     const interacting =
-      widget.classList.contains("stg-mj-quick-save--menu-open") ||
-      (widget.isConnected && widget.matches(":hover")) ||
-      Boolean(widget.parentElement?.matches?.(":hover"));
+      !options.force &&
+      (widget.classList.contains("stg-mj-quick-save--menu-open") ||
+        (widget.isConnected && widget.matches(":hover")) ||
+        Boolean(widget.parentElement?.matches?.(":hover")));
     if (interacting) return;
 
     const host = getMidjourneyWidgetHost(target);
@@ -3765,8 +3995,12 @@
       isShotdeckPage();
     widget.classList.toggle("stg-mj-quick-save--centered", isCentered);
     widget.classList.toggle("stg-mj-quick-save--hover-reveal", hoverReveal);
+    // Pinterest reveals its own red Save top-right on hover — ours sits bottom-left.
+    const anchor = isPinterestPage() ? "bottom-left" : undefined;
+    widget.classList.toggle("stg-mj-quick-save--bottom-left", anchor === "bottom-left");
     const placed = positionSaveControlAvoidingPageUi(widget, target, host, {
       centered: isCentered,
+      anchor,
       display: "flex",
       fallbackWidth: 98,
       fallbackHeight: 36,
@@ -3901,7 +4135,9 @@
       (saveContext.inputImages || []).slice(0, 6).map(async (input) => ({
         url: input.url,
         role: input.role,
-        file: await captureImageBytesForSave(input.url),
+        // Upstream references ride inline only — the ingest contract has no R2
+        // key for them, so an oversized one is dropped rather than mis-sent.
+        file: buildInlineFilePayload(await captureImageBytesForSave(input.url)),
       })),
     );
 
@@ -4215,12 +4451,54 @@
     );
   }
 
+  // Every Pinterest grid cell is its own stacking context, so a menu inside one
+  // card is painted under the next card no matter its z-index. While the menu is
+  // open the whole widget moves to <body> as position: fixed, at the exact spot
+  // it occupied, and goes back to its card when the menu closes. Scrolling the
+  // page closes it, since a fixed widget would drift off its pin.
+  function floatMidjourneyWidget(widget) {
+    if (widget.classList.contains("stg-mj-quick-save--floating")) return;
+    const rect = widget.getBoundingClientRect();
+    widget.classList.add("stg-mj-quick-save--floating");
+    if (widget.parentElement !== document.body) document.body.appendChild(widget);
+    widget.style.left = `${Math.round(rect.left)}px`;
+    widget.style.top = `${Math.round(rect.top)}px`;
+
+    const onScroll = (event) => {
+      if (widget.contains(event.target)) return; // scrolling the menu itself
+      closeMidjourneyCollectionMenu(widget);
+    };
+    window.addEventListener("scroll", onScroll, true);
+    widget.__stgUnfloat = () => {
+      window.removeEventListener("scroll", onScroll, true);
+      widget.__stgUnfloat = null;
+      widget.classList.remove("stg-mj-quick-save--floating");
+      positionMidjourneyWidget(widget, widget.__stgTarget, { force: true });
+    };
+  }
+
+  // A bottom-anchored control opens its menu upward. A pin near the top of the
+  // viewport has no room for that (Pinterest's sticky header eats ~80px), so
+  // flip it below when there is more space there.
+  function liftMidjourneyMenu(widget) {
+    if (!widget.classList.contains("stg-mj-quick-save--bottom-left")) return;
+    floatMidjourneyWidget(widget);
+    const rect = widget.getBoundingClientRect();
+    const roomAbove = rect.top - 80;
+    const roomBelow = window.innerHeight - rect.bottom;
+    widget.classList.toggle(
+      "stg-mj-quick-save--menu-below",
+      roomAbove < 350 && roomBelow > roomAbove,
+    );
+  }
+
   async function openMidjourneyCollectionMenu(widget) {
     const menu = widget.querySelector(".stg-mj-menu");
     if (!menu) return;
     if (menu.dataset.ready === "1") {
       menu.hidden = false;
       widget.classList.add("stg-mj-quick-save--menu-open");
+      liftMidjourneyMenu(widget);
       // Re-sync against storage — another widget or the popover may have saved
       // (and so moved the preset) since this menu was built.
       void Promise.all([readStyleTag(), readSavePreset()]).then(
@@ -4238,6 +4516,7 @@
 
     menu.hidden = false;
     widget.classList.add("stg-mj-quick-save--menu-open");
+    liftMidjourneyMenu(widget);
     menu.innerHTML = `<div class="stg-mj-menu__loading">Loading collections…</div>`;
     const [preset, { folders, error }, styleTag] = await Promise.all([
       readSavePreset(),
@@ -4261,6 +4540,7 @@
     const menu = widget.querySelector(".stg-mj-menu");
     if (menu) menu.hidden = true;
     widget.classList.remove("stg-mj-quick-save--menu-open");
+    widget.__stgUnfloat?.();
   }
 
   function createMidjourneyMediaWidget(target) {
@@ -4701,6 +4981,18 @@
     }, 200);
   }, { passive: true });
 
+  // Pinterest opens a pin on press (see bulk select). A root- or document-level
+  // listener sees that press before the widget's bubble-phase shield does, so
+  // stop presses on the widget at window capture. Clicks are left alone — the
+  // widget's buttons act on click and stop it themselves.
+  for (const eventName of ["pointerdown", "mousedown", "pointerup", "mouseup", "touchstart", "touchend"]) {
+    window.addEventListener(eventName, (event) => {
+      if (!isPinterestPage()) return;
+      if (!event.target?.closest?.(".stg-mj-quick-save")) return;
+      event.stopImmediatePropagation();
+    }, true);
+  }
+
   const runtimeMessageApi = globalThis.chrome?.runtime?.onMessage;
   if (runtimeMessageApi && typeof runtimeMessageApi.addListener === "function") {
     runtimeMessageApi.addListener((message, _sender, sendResponse) => {
@@ -4709,6 +5001,19 @@
         configLoaded = true;
         sendResponse({ ok: true });
         return false;
+      }
+
+      if (message?.action === "openSaveMenuFromContextMenu") {
+        openSaveMenuFromContextMenu(message)
+          .then(sendResponse)
+          .catch((err) => {
+            sendResponse({
+              handled: true,
+              ok: false,
+              error: err?.message || "Could not open the save menu.",
+            });
+          });
+        return true;
       }
 
       if (message?.action === "saveImageFromContextMenu") {
@@ -5302,7 +5607,8 @@
         folderIds: normalizeFolderIdList(folderIds),
         collectionPillar: collectionPillar || undefined,
         tagNames: withStyleTag(ctx.tagNames, styleTag),
-        file: buildInlineFilePayload(fileData, ctx.imageUrl),
+        file: buildInlineFilePayload(fileData),
+        ...buildUploadedMediaPayload(fileData),
         imageWidth: Number(fileData?.width) || ctx.imageWidth || undefined,
         imageHeight: Number(fileData?.height) || ctx.imageHeight || undefined,
         mediaType: ctx.mediaType || undefined,
@@ -5377,6 +5683,7 @@
       failed
         ? `${saved} saved, ${failed} failed`
         : `${saved} saved to laniameda`,
+      failed ? `${saved} saved, ${failed} failed — ${lastError}` : undefined,
     );
   }
 

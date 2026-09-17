@@ -87,6 +87,10 @@
   border-color: rgba(46, 184, 180, 0.30);
 }
 
+.stg-context-toast--copyable {
+  cursor: pointer;
+}
+
 .stg-context-toast--error {
   background: rgba(255, 238, 232, 0.96);
   color: #7b2418;
@@ -306,6 +310,25 @@
   right: auto;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* Pinterest: the control sits bottom-left of the pin, so its menu opens upward
+   and left-aligned to stay over the pin. Flipped below near the viewport top. */
+/* Menu open: lifted onto <body> so the next pin's card can't paint over it. */
+.stg-mj-quick-save--floating {
+  position: fixed;
+}
+
+.stg-mj-quick-save--bottom-left .stg-mj-menu {
+  top: auto;
+  bottom: calc(100% + 7px);
+  left: 0;
+  right: auto;
+}
+
+.stg-mj-quick-save--bottom-left.stg-mj-quick-save--menu-below .stg-mj-menu {
+  top: calc(100% + 7px);
+  bottom: auto;
 }
 
 .stg-mj-menu {

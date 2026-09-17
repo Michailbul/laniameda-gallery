@@ -130,6 +130,48 @@
     }
   }
 
+  // Widest the gallery masonry ever renders a card at 2x. Matches the
+  // server-side thumbnail width so R2-uploaded and server-processed assets
+  // produce the same preview.
+  const THUMB_WIDTH = 1024;
+
+  /**
+   * Downscaled JPEG preview of a captured image. Oversized captures upload
+   * straight to R2 and never touch the server's image pipeline, so this is the
+   * only chance to produce the thumbnail the gallery loads in a grid. Returns
+   * null when the blob can't be decoded — the entry then falls back to the
+   * full file, exactly as before.
+   */
+  async function buildThumbnailBlob(blob, maxWidth = THUMB_WIDTH) {
+    if (!blob || typeof createImageBitmap !== "function") return null;
+    try {
+      const bitmap = await createImageBitmap(blob);
+      try {
+        const sourceWidth = Number(bitmap.width) || 0;
+        const sourceHeight = Number(bitmap.height) || 0;
+        if (!sourceWidth || !sourceHeight) return null;
+        // Never upscale — a small original is its own best thumbnail.
+        const width = Math.min(maxWidth, sourceWidth);
+        const height = Math.max(1, Math.round((width * sourceHeight) / sourceWidth));
+        const canvas = createCanvas(width, height);
+        if (!canvas) return null;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        // JPEG has no alpha; flatten onto white rather than black.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        const thumbBlob = await canvasToImageBlob(canvas, "image/jpeg");
+        return { blob: thumbBlob, contentType: "image/jpeg", width, height };
+      } finally {
+        if (typeof bitmap.close === "function") bitmap.close();
+      }
+    } catch (err) {
+      console.warn("[Save to Gallery] thumbnail generation failed:", err);
+      return null;
+    }
+  }
+
   /**
    * True pixel size of the bytes being stored. The DOM element a save starts
    * from is usually a small CDN variant (Pinterest renders a 236px thumb of a
@@ -172,6 +214,7 @@
     blobToJpegBlob,
     blobToImageBlob,
     convertCapturedBlob,
+    buildThumbnailBlob,
     measureBlobDimensions,
     base64FromBlob,
   };

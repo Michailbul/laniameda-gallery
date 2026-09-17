@@ -146,7 +146,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
   addModePanelEl.hidden = !isAddMode;
   bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.11.0`;
+  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.11.3`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }

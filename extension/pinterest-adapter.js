@@ -245,6 +245,27 @@
     return "";
   }
 
+  // Where the Save widget mounts. Pinterest paints its hover layer (red Save,
+  // share, visual search) as a sibling of the image container, so a widget
+  // mounted beside the <img> sits under that layer and never sees :hover. The
+  // card root holds both, and it lives outside the /pin/ link, so a press on
+  // the widget can never turn into opening the pin.
+  const CARD_ROOT_SELECTOR = [
+    '[data-test-id="pinWrapper"]',
+    '[data-test-id="pin"]',
+    "[data-grid-item]",
+    '[data-test-id="closeup-image"]',
+  ].join(", ");
+
+  function getWidgetHost(el) {
+    if (!el) return null;
+    const pinLink = el.closest?.('a[href*="/pin/"]') || null;
+    const cardRoot = el.closest?.(CARD_ROOT_SELECTOR) || null;
+    if (cardRoot && !(pinLink && pinLink.contains?.(cardRoot))) return cardRoot;
+    if (pinLink?.parentElement) return pinLink.parentElement;
+    return el.parentElement || null;
+  }
+
   function getTagNames() {
     return ["pinterest"];
   }
@@ -260,6 +281,7 @@
     getPinUrl,
     getRenderedSize,
     getTagNames,
+    getWidgetHost,
     isPinimgUrl,
     isPinterestPage,
     isQualifiedMediaElement,

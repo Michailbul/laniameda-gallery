@@ -437,9 +437,28 @@ const processMediaInput = async (
   if (input.file) {
     blob = blobFromBase64(input.file.base64, contentType);
   } else if (input.url) {
-    const response = await fetch(input.url);
+    // A bare fetch identifies as the Convex runtime, which several image CDNs
+    // answer with 403. Ask the way a browser does before giving up.
+    const response = await fetch(input.url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Accept: "image/avif,image/webp,image/apng,image/*,video/*,*/*;q=0.8",
+      },
+    });
     if (!response.ok) {
-      throw new ConvexError("Failed to fetch remote media.");
+      // The host is the useful half — it says which CDN refused the read —
+      // and the full URL is often a signed blob that would swamp the message.
+      const host = (() => {
+        try {
+          return new URL(input.url).host;
+        } catch {
+          return "the source";
+        }
+      })();
+      throw new ConvexError(
+        `Failed to fetch remote media: ${host} answered HTTP ${response.status}.`,
+      );
     }
     contentType = response.headers.get("content-type") || undefined;
     blob = await response.blob();

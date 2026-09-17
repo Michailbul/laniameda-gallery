@@ -29,7 +29,22 @@ const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
 const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
 const ADD_SELECTED_COMMAND = "add-selected-asset";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
+const OPEN_SAVE_MENU_CONTEXT_MENU_ID = "open-save-menu-laniameda";
+// Pinterest's hover layer covers the <img>, so a right-click on a pin rarely
+// gets Chrome's "image" context. The menu-opening item therefore shows on every
+// context, limited to Pinterest pages. Match patterns can't wildcard a TLD.
+const OPEN_SAVE_MENU_URL_PATTERNS = [
+  "com", "co.uk", "de", "fr", "es", "it", "ca", "com.au", "com.mx", "jp",
+  "ch", "at", "nz", "ie", "pt", "se", "dk", "cl", "ph", "co.kr", "ru",
+].map((tld) => `*://*.pinterest.${tld}/*`);
 const DISABLED_HOSTS_KEY = "disabledHosts";
+// The save route is a serverless function with a hard request-body limit
+// (Vercel answers HTTP 413 above ~4.5MB) and base64 inflates bytes by 4/3, so a
+// capture over this size cannot ride inline. Those bytes go straight to R2 from
+// here instead. Handing the gallery the URL to refetch was the old answer and
+// it does not work: Pinterest's CDN rejects a server-side read, which surfaced
+// as "Failed to fetch remote media".
+const MAX_INLINE_CAPTURE_BYTES = 2_200_000;
 const BUILTIN_DISABLED_HOSTS = [
   "gallery.laniameda.space",
   "laniameda.gallery",
@@ -385,6 +400,29 @@ async function fetchImageBytes(payload) {
   const captured = await fetchCapturedImage(payload);
   if (!captured.ok) return captured;
 
+  if (captured.blob.size > MAX_INLINE_CAPTURE_BYTES) {
+    const uploaded = await uploadCapturedImageToR2(payload.imageUrl, captured);
+    if (uploaded.ok) {
+      return {
+        ok: true,
+        r2Key: uploaded.r2Key,
+        mediaContentHash: uploaded.mediaContentHash,
+        contentType: uploaded.mediaContentType,
+        mediaSize: uploaded.mediaSize,
+        mediaFileName: uploaded.mediaFileName,
+        posterFile: uploaded.posterFile,
+        width: uploaded.imageWidth,
+        height: uploaded.imageHeight,
+      };
+    }
+    // Inline is still worth trying — the save route may accept it, and a 413
+    // there is a clearer failure than losing the capture here.
+    console.warn(
+      "[Save to Gallery] R2 upload of an oversized capture failed:",
+      uploaded.error,
+    );
+  }
+
   try {
     const base64 = arrayBufferToBase64(await captured.blob.arrayBuffer());
     if (!base64) {
@@ -407,11 +445,37 @@ async function fetchImageBytes(payload) {
   }
 }
 
+function blobFromBase64(base64, contentType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: contentType || "application/octet-stream" });
+}
+
+// The page-side capture fallback (content.js, for CDNs the worker fetch loses
+// to) holds bytes this worker never saw. Oversized, they cannot ride in the
+// save request either, so they take the same R2 route.
+async function uploadCapturedBytesToR2({ imageUrl, base64, contentType }) {
+  if (typeof base64 !== "string" || !base64) {
+    return { ok: false, error: "No captured bytes to upload." };
+  }
+  let blob;
+  try {
+    blob = blobFromBase64(base64, contentType);
+  } catch (err) {
+    return { ok: false, error: `Could not decode the capture: ${err.message}` };
+  }
+  return uploadCapturedImageToR2(imageUrl, { blob, contentType: blob.type });
+}
+
 async function uploadCapturedImageToR2(imageUrl, captured) {
-  const [session, contentHash, dimensions] = await Promise.all([
+  const [session, contentHash, dimensions, thumb] = await Promise.all([
     requestUploadSession({ action: "prepare" }),
     hashBlob(captured.blob),
     readImageDimensions(captured.blob),
+    // Bytes that go browser → R2 skip the server image pipeline entirely, so
+    // nothing else would ever build the preview the masonry loads.
+    SaveToGalleryImageConvert.buildThumbnailBlob(captured.blob),
   ]);
   if (!session?.ok || !session.key || !session.url) {
     return { ok: false, error: session?.error || "Could not prepare the R2 upload." };
@@ -446,9 +510,31 @@ async function uploadCapturedImageToR2(imageUrl, captured) {
     mediaContentType: captured.contentType,
     mediaSize: captured.blob.size,
     mediaFileName: fileNameFromImageUrl(imageUrl, captured.contentType),
+    posterFile: await posterFileFromThumbnail(thumb),
     imageWidth: dimensions.width,
     imageHeight: dimensions.height,
   };
+}
+
+// The ingest contract carries a thumbnail for R2-hosted media as `posterFile`,
+// inline base64. It is a 1024px JPEG, so it stays far below the body limit that
+// forced the original out of the request in the first place.
+async function posterFileFromThumbnail(thumb) {
+  if (!thumb?.blob) return undefined;
+  try {
+    const base64 = arrayBufferToBase64(await thumb.blob.arrayBuffer());
+    if (!base64) return undefined;
+    return {
+      base64,
+      contentType: thumb.contentType,
+      width: thumb.width,
+      height: thumb.height,
+      size: thumb.blob.size,
+    };
+  } catch (err) {
+    console.warn("[Save to Gallery] could not encode the thumbnail:", err);
+    return undefined;
+  }
 }
 
 async function saveOriginalMidjourneyAsset(payload) {
@@ -469,11 +555,32 @@ async function saveOriginalMidjourneyAsset(payload) {
     mediaContentType: uploaded.mediaContentType,
     mediaSize: uploaded.mediaSize,
     mediaFileName: uploaded.mediaFileName,
+    posterFile: uploaded.posterFile,
     imageWidth: uploaded.imageWidth,
     imageHeight: uploaded.imageHeight,
     mediaType: "image",
   });
   return { ...response, contentType: uploaded.mediaContentType };
+}
+
+// A capture comes back either as inline base64 or, when it was too large for
+// the request body, as an R2 key the bytes were already uploaded under. Both
+// shapes map onto the same save fields.
+function capturedMediaFields(captured) {
+  if (!captured?.ok) return {};
+  if (captured.r2Key) {
+    return {
+      r2Key: captured.r2Key,
+      mediaContentHash: captured.mediaContentHash,
+      mediaContentType: captured.contentType,
+      mediaSize: captured.mediaSize,
+      mediaFileName: captured.mediaFileName,
+      posterFile: captured.posterFile,
+    };
+  }
+  return captured.base64
+    ? { file: { base64: captured.base64, contentType: captured.contentType } }
+    : {};
 }
 
 async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderIds }) {
@@ -482,12 +589,9 @@ async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderIds
     imageUrl,
     sourceUrl,
     folderIds,
-    file: captured?.ok
-      ? {
-          base64: captured.base64,
-          contentType: captured.contentType,
-        }
-      : undefined,
+    ...capturedMediaFields(captured),
+    imageWidth: captured?.width,
+    imageHeight: captured?.height,
   });
   return {
     ...response,
@@ -495,7 +599,32 @@ async function saveContextMenuImageInBackground({ imageUrl, sourceUrl, folderIds
   };
 }
 
+async function handleOpenSaveMenuContextMenuClick(info, tab) {
+  const sourceUrl =
+    (typeof info.pageUrl === "string" && info.pageUrl) || tab?.url || "";
+  if (typeof tab?.id !== "number" || !isTabMessageUrl(sourceUrl)) return;
+  if (!(await isContextMenuSaveAllowed(sourceUrl))) return;
+
+  try {
+    await chrome.tabs.sendMessage(
+      tab.id,
+      {
+        action: "openSaveMenuFromContextMenu",
+        srcUrl: typeof info.srcUrl === "string" ? info.srcUrl : "",
+      },
+      { frameId: typeof info.frameId === "number" ? info.frameId : 0 },
+    );
+  } catch (err) {
+    // The menu lives in the page — with no content script there is nothing to open.
+    console.warn("[Save to Gallery] could not open the save menu:", err);
+  }
+}
+
 async function handleImageContextMenuClick(info, tab) {
+  if (info.menuItemId === OPEN_SAVE_MENU_CONTEXT_MENU_ID) {
+    await handleOpenSaveMenuContextMenuClick(info, tab);
+    return;
+  }
   if (info.menuItemId !== SAVE_IMAGE_CONTEXT_MENU_ID) return;
 
   const imageUrl = typeof info.srcUrl === "string" ? info.srcUrl : "";
@@ -598,6 +727,17 @@ function installContextMenus() {
         void chrome.runtime.lastError;
       },
     );
+    chrome.contextMenus.create(
+      {
+        id: OPEN_SAVE_MENU_CONTEXT_MENU_ID,
+        title: "Save to gallery…",
+        contexts: ["image", "video", "link", "page"],
+        documentUrlPatterns: OPEN_SAVE_MENU_URL_PATTERNS,
+      },
+      () => {
+        void chrome.runtime.lastError;
+      },
+    );
   });
 }
 
@@ -609,14 +749,16 @@ function updateContextMenuVisibility(info, tab) {
     "";
 
   isContextMenuSaveAllowed(sourceUrl).then((isAllowed) => {
-    chrome.contextMenus.update(
-      SAVE_IMAGE_CONTEXT_MENU_ID,
-      { visible: Boolean(isAllowed) },
-      () => {
-        void chrome.runtime.lastError;
-        chrome.contextMenus.refresh?.();
-      },
-    );
+    for (const menuId of [SAVE_IMAGE_CONTEXT_MENU_ID, OPEN_SAVE_MENU_CONTEXT_MENU_ID]) {
+      chrome.contextMenus.update(
+        menuId,
+        { visible: Boolean(isAllowed) },
+        () => {
+          void chrome.runtime.lastError;
+        },
+      );
+    }
+    chrome.contextMenus.refresh?.();
   }).catch(() => {});
 }
 
@@ -922,6 +1064,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       collectionPillar: message.collectionPillar,
       tagNames: message.tagNames,
       file: message.file,
+      // Set instead of `file` when the capture was too large to inline and the
+      // bytes went straight to R2.
+      r2Key: message.r2Key,
+      mediaContentHash: message.mediaContentHash,
+      mediaContentType: message.mediaContentType,
+      mediaSize: message.mediaSize,
+      mediaFileName: message.mediaFileName,
+      posterFile: message.posterFile,
       imageWidth: message.imageWidth,
       imageHeight: message.imageHeight,
       mediaType: message.mediaType,
@@ -947,6 +1097,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       imageHeight: message.imageHeight,
       mediaType: message.mediaType,
       posterFile: message.posterFile,
+    })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "uploadCapturedBytes") {
+    uploadCapturedBytesToR2({
+      imageUrl: message.imageUrl,
+      base64: message.base64,
+      contentType: message.contentType,
     })
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
