@@ -7,6 +7,12 @@ import { Copy, Download, Loader2, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import {
+  PromptSections,
+  promptSectionsToText,
+  stripLeadingIndex,
+  toPromptSections,
+} from "./prompt-sections";
 
 interface WorkflowModalProps {
   workflowId: string | null;
@@ -34,12 +40,26 @@ const buildWorkflowText = (workflow: WorkflowResult): string => {
     lines.push("", `> ${workflow.agentInstructions.trim()}`);
   }
   workflow.steps.forEach((step, index) => {
-    const label = step.stepLabel?.trim() || `Step ${index + 1}`;
+    const label = step.stepLabel?.trim()
+      ? stripLeadingIndex(step.stepLabel)
+      : `Step ${index + 1}`;
     lines.push("", `## ${padIndex(index + 1)} · ${label}`);
     if (step.modelName) lines.push("", `Model — ${step.modelName}`);
     lines.push("", stepFinalPrompt(step));
     if (step.promptSections?.negativePrompt) {
       lines.push("", `Negative — ${step.promptSections.negativePrompt.trim()}`);
+    }
+    if (step.promptSections?.generationNotes) {
+      lines.push("", `Notes — ${step.promptSections.generationNotes.trim()}`);
+    }
+    const captioned = step.media.filter((item) => item.description?.trim());
+    if (captioned.length > 0) {
+      lines.push("");
+      captioned.forEach((item, mediaIndex) => {
+        lines.push(
+          `${item.kind === "video" ? "Video" : "Image"} ${mediaIndex + 1} — ${item.description!.trim()}`,
+        );
+      });
     }
   });
   return lines.join("\n");
@@ -49,10 +69,13 @@ function CinematicFigure({
   item,
   alt,
   caption,
+  note,
 }: {
   item: StepMedia;
   alt: string;
   caption?: string;
+  /** The per-file caption from ingest — what this render is within the step. */
+  note?: string;
 }) {
   if (!item.url) return null;
 
@@ -84,12 +107,15 @@ function CinematicFigure({
         <span aria-hidden className="md-figure-bracket md-figure-bracket--br" />
         <span className="md-figure-kind">{item.kind === "video" ? "MOV" : "IMG"}</span>
       </div>
+      {note ? <figcaption className="md-figure-note">{note}</figcaption> : null}
       {caption ? <figcaption className="md-figure-caption">{caption}</figcaption> : null}
     </figure>
   );
 }
 
-function StepMediaGrid({ step }: { step: WorkflowStep }) {
+// Every file of the step, stacked, each with its own caption. Sits beside the
+// prompt so a render and the words that made it share one line of sight.
+function StepMediaColumn({ step }: { step: WorkflowStep }) {
   const media = step.media.filter((item) => item.url);
   if (media.length === 0) {
     return (
@@ -99,21 +125,15 @@ function StepMediaGrid({ step }: { step: WorkflowStep }) {
       </div>
     );
   }
-  if (media.length === 1) {
-    return (
-      <CinematicFigure
-        item={media[0]}
-        alt={step.stepLabel ?? "Workflow asset"}
-      />
-    );
-  }
   return (
-    <div className="md-figure-grid">
+    <div className="md-step-figures">
       {media.map((item, i) => (
         <CinematicFigure
           key={item.id}
           item={item}
-          alt={`${step.stepLabel ?? "Workflow asset"} ${i + 1}`}
+          alt={`${step.stepLabel ?? "Workflow asset"} ${media.length > 1 ? i + 1 : ""}`.trim()}
+          note={item.description?.trim() || undefined}
+          caption={media.length > 1 ? `${padIndex(i + 1)} / ${padIndex(media.length)}` : undefined}
         />
       ))}
     </div>
@@ -125,51 +145,34 @@ function PromptBlock({
   onCopy,
 }: {
   step: WorkflowStep;
-  onCopy: (text: string, kind: "prompt" | "negative") => void;
+  onCopy: (text: string, label: string) => void;
 }) {
-  const text = stepFinalPrompt(step);
-  const negative = step.promptSections?.negativePrompt?.trim();
+  const sections = toPromptSections(step.promptText, step.promptSections);
+  if (!sections) return null;
+  const mediaCount = step.media.filter((item) => item.url).length;
 
   return (
-    <div className="md-prompt-card">
+    <div className="md-prompt-module">
       <div className="md-prompt-header">
         <span className="md-prompt-eyebrow">{"// GENERATION"}</span>
         <span aria-hidden className="md-prompt-divider" />
         <span className="md-prompt-model">{step.modelName ?? "Model unspecified"}</span>
+        {mediaCount > 1 ? (
+          <span className="md-prompt-count">{padIndex(mediaCount)} files</span>
+        ) : null}
         <button
           type="button"
-          onClick={() => onCopy(text, "prompt")}
+          onClick={() => onCopy(promptSectionsToText(sections), "PROMPT COPIED")}
           className="md-prompt-copy"
-          title="Copy prompt"
+          title="Copy the whole prompt module"
         >
           <Copy className="h-3 w-3" />
-          <span>Copy prompt</span>
+          <span>Copy all</span>
         </button>
       </div>
-
-      <div className="md-prompt-body">
-        <span aria-hidden className="md-prompt-rail" />
-        <p className="md-prompt-label">Prompt</p>
-        <pre className="md-prompt-text">{text}</pre>
+      <div className="md-prompt-sections">
+        <PromptSections sections={sections} onCopy={onCopy} size="doc" />
       </div>
-
-      {negative ? (
-        <div className="md-prompt-negative">
-          <div className="md-prompt-negative-head">
-            <span className="md-prompt-eyebrow md-prompt-eyebrow--coral">{"// NEGATIVE"}</span>
-            <button
-              type="button"
-              onClick={() => onCopy(negative, "negative")}
-              className="md-prompt-copy md-prompt-copy--ghost"
-              title="Copy negative prompt"
-            >
-              <Copy className="h-3 w-3" />
-              <span>Copy</span>
-            </button>
-          </div>
-          <p className="md-prompt-negative-text">{negative}</p>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -215,13 +218,9 @@ export function WorkflowModal({
   }, [workflow, toast]);
 
   const copyStepText = useCallback(
-    async (text: string, kind: "prompt" | "negative") => {
+    async (text: string, label: string) => {
       await navigator.clipboard.writeText(text);
-      toast?.(
-        "Copied",
-        kind === "negative" ? "NEGATIVE COPIED" : "PROMPT COPIED",
-        "success",
-      );
+      toast?.("Copied", label, "success");
     },
     [toast],
   );
@@ -393,7 +392,9 @@ export function WorkflowModal({
 
                 {/* Steps */}
                 {workflow.steps.map((step, index) => {
-                  const label = step.stepLabel?.trim() || `Step ${index + 1}`;
+                  const label = step.stepLabel?.trim()
+                    ? stripLeadingIndex(step.stepLabel)
+                    : `Step ${index + 1}`;
                   const idx = padIndex(index + 1);
                   return (
                     <section key={step.promptId} className="md-section">
@@ -417,9 +418,14 @@ export function WorkflowModal({
                         </div>
                       </div>
 
-                      <StepMediaGrid step={step} />
-
-                      <PromptBlock step={step} onCopy={copyStepText} />
+                      <div className="md-step-body">
+                        <div className="md-step-media">
+                          <StepMediaColumn step={step} />
+                        </div>
+                        <div className="md-step-prompt">
+                          <PromptBlock step={step} onCopy={copyStepText} />
+                        </div>
+                      </div>
                     </section>
                   );
                 })}
@@ -456,7 +462,7 @@ export function WorkflowModal({
           position: relative;
           margin: auto 0;
           width: 100%;
-          max-width: 1040px;
+          max-width: 1280px;
           overflow: hidden;
           border-radius: 18px;
           background: var(--surface-0);
@@ -466,7 +472,7 @@ export function WorkflowModal({
 
         .md-modal-state {
           display: flex;
-          flex-beat: column;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
           gap: 0.85rem;
@@ -603,7 +609,7 @@ export function WorkflowModal({
         }
 
         .md-doc {
-          max-width: 760px;
+          max-width: 1160px;
           margin: 0 auto;
           padding: 3rem 1.5rem 4.5rem;
           color: var(--text-primary);
@@ -614,6 +620,7 @@ export function WorkflowModal({
 
         /* === HERO ========================================================== */
         .md-hero {
+          max-width: 760px;
           padding-bottom: 2.25rem;
           border-bottom: 1px solid var(--border-subtle);
           margin-bottom: 3rem;
@@ -708,6 +715,7 @@ export function WorkflowModal({
           display: flex;
           gap: 1rem;
           align-items: flex-start;
+          max-width: 760px;
           margin: 0 0 2.5rem;
           padding: 1.05rem 1.2rem;
           border-radius: 12px;
@@ -817,6 +825,41 @@ export function WorkflowModal({
           margin: 0;
         }
 
+        /* === STEP BODY — media beside its prompt =========================== */
+        .md-step-body {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 1.75rem;
+          align-items: start;
+        }
+        @media (min-width: 960px) {
+          .md-step-body {
+            grid-template-columns: minmax(0, 11fr) minmax(360px, 9fr);
+            gap: 2.5rem;
+          }
+          .md-step-media {
+            position: sticky;
+            top: 5rem;
+            /* A step with several tall files scrolls inside its own column
+               rather than pinning its bottom half out of reach. */
+            max-height: calc(100vh - 8rem);
+            overflow-y: auto;
+            scrollbar-width: thin;
+          }
+        }
+        .md-step-figures {
+          display: flex;
+          flex-direction: column;
+          gap: 1.1rem;
+        }
+        .md-step-figures .md-figure { margin: 0; }
+        .md-figure-note {
+          margin-top: 0.55rem;
+          font-size: 12px;
+          line-height: 1.5;
+          color: var(--text-secondary);
+        }
+
         /* === FIGURES ======================================================= */
         .md-figure {
           margin: 0 0 2rem;
@@ -897,7 +940,7 @@ export function WorkflowModal({
         }
         .md-figure-empty {
           display: flex;
-          flex-beat: column;
+          flex-direction: column;
           align-items: flex-start;
           gap: 0.4rem;
           padding: 1.2rem 1.4rem;
@@ -909,22 +952,27 @@ export function WorkflowModal({
           color: var(--text-tertiary);
         }
 
-        /* === PROMPT CARD =================================================== */
-        .md-prompt-card {
+        /* === PROMPT MODULE ================================================= */
+        .md-prompt-module {
           margin: 0 0 1.25rem;
-          border-radius: 14px;
-          border: 1px solid var(--border-subtle);
-          background: color-mix(in srgb, var(--surface-1) 92%, transparent);
-          overflow: hidden;
         }
         .md-prompt-header {
           display: flex;
           align-items: center;
           gap: 0.65rem;
-          padding: 0.7rem 1rem;
+          padding: 0 0 0.8rem;
           border-bottom: 1px solid var(--border-subtle);
-          background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+          margin-bottom: 1rem;
         }
+        .md-prompt-count {
+          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 10px;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+          color: var(--text-ghost);
+          white-space: nowrap;
+        }
+        .md-prompt-sections { min-width: 0; }
         .md-prompt-eyebrow {
           font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
           font-size: 10px;
@@ -971,68 +1019,10 @@ export function WorkflowModal({
           background: color-mix(in srgb, var(--text-primary) 6%, transparent);
           color: var(--text-primary);
         }
-        .md-prompt-copy--ghost {
-          border: none;
-          padding: 0.25rem 0.55rem;
-        }
-
-        .md-prompt-body {
-          position: relative;
-          padding: 1.05rem 1.1rem 1.1rem 1.4rem;
-        }
-        .md-prompt-rail {
-          position: absolute;
-          left: 0.85rem;
-          top: 1.05rem;
-          bottom: 1.05rem;
-          width: 1px;
-          background: color-mix(in srgb, var(--text-primary) 12%, transparent);
-        }
-        .md-prompt-label {
-          margin: 0 0 0.55rem;
-          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-          font-size: 9.5px;
-          letter-spacing: 0.24em;
-          text-transform: uppercase;
-          color: var(--text-ghost);
-        }
-        .md-prompt-text {
-          margin: 0;
-          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-          font-size: 12.5px;
-          line-height: 1.65;
-          color: var(--text-primary);
-          white-space: pre-wrap;
-          word-break: break-word;
-          overflow-x: auto;
-        }
-
-        .md-prompt-negative {
-          padding: 0.9rem 1.1rem 1rem;
-          background: color-mix(in srgb, var(--coral) 5%, transparent);
-          border-top: 1px solid color-mix(in srgb, var(--coral) 18%, transparent);
-        }
-        .md-prompt-negative-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.6rem;
-          margin-bottom: 0.4rem;
-        }
-        .md-prompt-negative-text {
-          margin: 0;
-          font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-          font-size: 11.5px;
-          line-height: 1.6;
-          color: var(--text-secondary);
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-
         /* === DOC END ======================================================= */
         .md-doc-end {
           display: flex;
-          flex-beat: column;
+          flex-direction: column;
           align-items: center;
           gap: 0.85rem;
           padding-top: 4rem;

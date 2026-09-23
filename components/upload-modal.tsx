@@ -15,8 +15,6 @@ type UploadModalProps = {
   UploadPanelProps,
   | "availableTags"
   | "folders"
-  | "projects"
-  | "worlds"
   | "ownerUserId"
   | "canPromoteToPublic"
   | "onDataChanged"
@@ -28,8 +26,6 @@ export function UploadModal({
   onClose,
   availableTags,
   folders,
-  projects,
-  worlds,
   ownerUserId,
   canPromoteToPublic,
   onDataChanged,
@@ -202,8 +198,6 @@ export function UploadModal({
             <UploadPanel
               availableTags={availableTags}
               folders={folders}
-              projects={projects}
-              worlds={worlds}
               ownerUserId={ownerUserId}
               canPromoteToPublic={canPromoteToPublic}
               onDataChanged={onDataChanged}
@@ -219,7 +213,6 @@ export function UploadModal({
             <BulkUploadPanel
               availableTags={availableTags}
               folders={folders}
-              projects={projects}
               ownerUserId={ownerUserId}
               canPromoteToPublic={canPromoteToPublic}
               onDataChanged={onDataChanged}

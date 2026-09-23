@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useMemo, useState } from "react";
-import { FolderOpen, Layers, Pencil } from "lucide-react";
+import { FolderOpen, Pencil } from "lucide-react";
 import { compareCollectionSectionNames } from "@/lib/collection-sections";
 
 // A collection card's data: summary from folders.listCollectionSummaries
@@ -21,28 +21,12 @@ export interface CollectionCardData {
   }>;
 }
 
-// A project card: same visual as a collection card, from listProjects.
-export interface ProjectCardData {
-  _id: string;
-  name: string;
-  count: number;
-  previewAssets: Array<{
-    assetId: string;
-    kind: "image" | "video";
-    url?: string;
-    thumbUrl?: string;
-  }>;
-}
-
 interface CollectionsGridProps {
   collections: CollectionCardData[];
   /** Opens a collection: filters the asset grid to it. */
   onOpenCollection: (folderId: string) => void;
   /** When set, cards grow a hover pencil for inline renaming. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
-  /** Projects lead the browse view; opening one expands its whole pool. */
-  projects?: ProjectCardData[];
-  onOpenProject?: (projectId: string, name: string) => void;
   loading?: boolean;
 }
 
@@ -56,8 +40,6 @@ export function CollectionsGrid({
   collections,
   onOpenCollection,
   onRenameCollection,
-  projects = [],
-  onOpenProject,
   loading = false,
 }: CollectionsGridProps) {
   const { roots, childrenByParent } = useMemo(() => {
@@ -98,7 +80,7 @@ export function CollectionsGrid({
     );
   }
 
-  if (roots.length === 0 && projects.length === 0) {
+  if (roots.length === 0) {
     return (
       <div
         className="flex min-h-[40vh] flex-col items-center justify-center gap-3 px-8 text-center"
@@ -127,33 +109,8 @@ export function CollectionsGrid({
 
   return (
     <div className="px-4 pb-24 pt-2 md:px-6">
-      {/* Projects lead — they're the packaged, presentable work. */}
-      {projects.length > 0 && onOpenProject && (
-        <>
-          <SectionLabel label="Projects" count={projects.length} />
-          <div
-            className="grid gap-6"
-            style={{
-              gridTemplateColumns:
-                "repeat(auto-fill, minmax(min(100%, 300px), 1fr))",
-            }}
-          >
-            {projects.map((project) => (
-              <ProjectCard
-                key={project._id}
-                project={project}
-                onOpen={onOpenProject}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
       {roots.length > 0 && (
         <>
-          {projects.length > 0 && (
-            <SectionLabel label="Collections" count={roots.length} topGap />
-          )}
           <div
             className="grid gap-6"
             style={{
@@ -178,145 +135,6 @@ export function CollectionsGrid({
         </>
       )}
     </div>
-  );
-}
-
-function SectionLabel({
-  label,
-  count,
-  topGap = false,
-}: {
-  label: string;
-  count: number;
-  topGap?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-baseline gap-2 pb-3 ${topGap ? "pt-8" : "pt-1"}`}
-      style={{ fontFamily: "var(--lm-font)" }}
-    >
-      <span
-        style={{
-          fontSize: "10px",
-          fontWeight: 800,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: "var(--lm-text-ghost)",
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ fontSize: "10px", color: "var(--lm-text-ghost)" }}>
-        {count}
-      </span>
-    </div>
-  );
-}
-
-function ProjectCard({
-  project,
-  onOpen,
-}: {
-  project: ProjectCardData;
-  onOpen: (projectId: string, name: string) => void;
-}) {
-  const [cover, ...rest] = project.previewAssets;
-  const coverSrc = cover ? (cover.thumbUrl ?? cover.url) : undefined;
-  const layers = rest.slice(0, 2);
-
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(project._id, project.name)}
-      className="group/collection block w-full cursor-pointer border-none bg-transparent p-0 text-left"
-      aria-label={`Open project ${project.name}`}
-    >
-      <div className="relative pt-2.5">
-        {layers.map((layer, i) => {
-          const src = layer.thumbUrl ?? layer.url;
-          return (
-            <div
-              key={layer.assetId}
-              aria-hidden
-              className="absolute inset-x-0 top-2.5 bottom-0 overflow-hidden"
-              style={{
-                borderRadius: "10px",
-                transform: `rotate(${i === 0 ? -2.2 : 1.8}deg) translateY(${i === 0 ? -7 : -4}px) scale(${i === 0 ? 0.94 : 0.97})`,
-                transformOrigin: "50% 100%",
-                opacity: 0.5,
-                backgroundColor: "var(--lm-surface-2)",
-              }}
-            >
-              {src && (
-                <img
-                  src={src}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-              )}
-            </div>
-          );
-        })}
-        <div
-          className="relative overflow-hidden transition-transform duration-200 group-hover/collection:-translate-y-0.5"
-          style={{
-            aspectRatio: "4 / 3",
-            borderRadius: "10px",
-            backgroundColor: "var(--lm-surface-2)",
-            border: "1px solid var(--lm-border-strong)",
-          }}
-        >
-          {coverSrc ? (
-            <img
-              src={coverSrc}
-              alt={project.name}
-              loading="lazy"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="grid h-full w-full place-items-center">
-              <Layers
-                className="h-6 w-6"
-                style={{ color: "var(--lm-text-ghost)" }}
-              />
-            </div>
-          )}
-          <span
-            className="absolute bottom-2.5 right-2.5 rounded px-2 py-0.5 backdrop-blur-sm"
-            style={{
-              fontFamily: "var(--lm-font)",
-              fontSize: "10px",
-              fontWeight: 800,
-              letterSpacing: "0.08em",
-              backgroundColor: "var(--image-card-badge-bg)",
-              color: "var(--image-card-badge-text)",
-            }}
-          >
-            {project.count}
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 px-0.5 pt-3">
-        <Layers
-          className="h-3 w-3 flex-shrink-0"
-          style={{ color: "var(--lm-coral)" }}
-        />
-        <h3
-          style={{
-            fontFamily: "var(--lm-font)",
-            fontSize: "13px",
-            fontWeight: 800,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "var(--lm-text-primary)",
-            margin: 0,
-          }}
-        >
-          {project.name}
-        </h3>
-      </div>
-    </button>
   );
 }
 

@@ -22,6 +22,13 @@ Do not overbuild generic abstractions before the product earns them.
 - Keep contracts extensible.
 - Separate V1 explicit user metadata from future agent-derived metadata.
 
+## Content model (since 22 Sep 2026)
+
+- A folder is a collection. `kind` is undefined or `"storybook"`. There are no projects, beats or episodes any more; the beat board and review workspace were retired and their data folded into collections.
+- Nesting is one level deep: a root collection holds sub-collections (`parentFolderId`); a sub-collection holds none. A former project is a root collection and its beats are its sub-collections.
+- What a piece IS is a tag: `character`, `location`, `scene`, `inspiration`. The island bar's menu-filter pills toggle those tags inside any collection. Do not create sub-collections named Characters / Locations / Scenes / Inspirations; `convex/collectionCleanup.ts` flattens them back into tags.
+- Public worlds (`/w/<slug>`) are showcased root collections with sub-collections or a storybook. Sections come from tags and from section-named sub-collections.
+
 ## Backend bias
 
 For gallery save flows:

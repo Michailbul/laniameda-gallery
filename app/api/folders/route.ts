@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { requireAppUser } from "@/lib/server/app-user";
 import { getServerConvexClient } from "@/lib/server/convex";
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireAppUser();
     const body = (await request.json().catch(() => null)) as
-      | { name?: string; description?: string }
+      | { name?: string; description?: string; parentFolderId?: string }
       | null;
     if (!body || typeof body.name !== "string" || body.name.trim().length === 0) {
       return badRequest("name is required.");
@@ -43,6 +44,11 @@ export async function POST(request: Request) {
       name: body.name,
       description:
         typeof body.description === "string" ? body.description : undefined,
+      // One level deep: a folder inside a root collection.
+      parentFolderId:
+        typeof body.parentFolderId === "string" && body.parentFolderId
+          ? (body.parentFolderId as Id<"folders">)
+          : undefined,
     });
 
     return NextResponse.json({

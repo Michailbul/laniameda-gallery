@@ -1,13 +1,21 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import type { ShowcaseAsset } from "./types";
 
-const PAGE_SIZE = 48;
+const PAGE_SIZE = 72;
+
+type BrowseScope = "published" | "everything";
 
 // Built-in medium pills always lead the row; the owner's curated menu filters
 // (Animation, Live action, …) follow. Everything the public can filter by is
@@ -19,7 +27,42 @@ type Pill =
   | { id: string; label: string; type: "tag"; tagIds: Id<"tags">[] }
   | { id: string; label: string; type: "collection"; folderId: Id<"folders"> };
 
-export function BrowseBand() {
+// The Browse view. What it walks — the published slice or the whole vault —
+// is the owner's setting on the backend (convex/publicSurface.ts). The grid
+// only reads it, and re-keys on it so a flip restarts the scroll from the top
+// instead of handing the next page a cursor from the other slice.
+export function BrowseBand({
+  ownerControls = false,
+}: {
+  /** Signed-in owner: show the scope control. Visitors never get it. */
+  ownerControls?: boolean;
+}) {
+  const settings = useQuery(api.publicSurface.getPublicSurfaceSettings, {});
+  const browseScope: BrowseScope = settings?.browseScope ?? "published";
+
+  return (
+    <BrowseArchive
+      key={browseScope}
+      browseScope={browseScope}
+      ownerControl={
+        ownerControls ? (
+          <BrowseScopeControl
+            value={browseScope}
+            pending={settings === undefined}
+          />
+        ) : null
+      }
+    />
+  );
+}
+
+function BrowseArchive({
+  browseScope,
+  ownerControl,
+}: {
+  browseScope: BrowseScope;
+  ownerControl: ReactNode;
+}) {
   const [activeId, setActiveId] = useState("all");
   const [zoom, setZoom] = useZoomPreference();
 
@@ -82,7 +125,7 @@ export function BrowseBand() {
     // Full-bleed: the grid runs the whole page width, only the gutter is held
     // back. No max-width container here.
     <section style={{ padding: "0 clamp(16px, 3vw, 32px) 40px" }}>
-      {/* Filter row: pills on the left, tile size on the right. */}
+      {/* Filter row: pills on the left, owner control and tile size on the right. */}
       <div
         style={{
           display: "flex",
@@ -113,22 +156,7 @@ export function BrowseBand() {
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => setActiveId(pill.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: "4px 0",
-                  cursor: "pointer",
-                  fontFamily: "var(--lm-font)",
-                  fontSize: 11.5,
-                  fontWeight: isActive ? 700 : 500,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  color: isActive ? "var(--lm-coral)" : "var(--lm-text-tertiary)",
-                  borderBottom: isActive
-                    ? "2px solid var(--lm-coral)"
-                    : "2px solid transparent",
-                  transition: "color 150ms ease",
-                }}
+                style={pillStyle(isActive)}
               >
                 {pill.label}
               </button>
@@ -136,7 +164,17 @@ export function BrowseBand() {
           })}
         </div>
 
-        <TileSizeSlider value={zoom} onChange={setZoom} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 28,
+            flexWrap: "wrap",
+          }}
+        >
+          {ownerControl}
+          <TileSizeSlider value={zoom} onChange={setZoom} />
+        </div>
       </div>
 
       {assets.length === 0 && paged.status !== "LoadingFirstPage" ? (
@@ -150,7 +188,9 @@ export function BrowseBand() {
             padding: "40px 0",
           }}
         >
-          Nothing published here yet.
+          {browseScope === "everything"
+            ? "Nothing here yet."
+            : "Nothing published here yet."}
         </p>
       ) : (
         // The grid owns its own frontier callback, so no sentinel here.
@@ -165,6 +205,128 @@ export function BrowseBand() {
     </section>
   );
 }
+
+// Owner-only: which slice Browse shows. Two words in the pill language, the
+// active one coral. Writes go through the app's own server route, which checks
+// the session against the curator list before touching the backend.
+function BrowseScopeControl({
+  value,
+  pending,
+}: {
+  value: BrowseScope;
+  pending: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const choose = useCallback(
+    async (next: BrowseScope) => {
+      if (next === value || busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/admin/public-surface", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ browseScope: next }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error ?? `Request failed (${res.status})`);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "That didn't work.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [value, busy],
+  );
+
+  return (
+    <div
+      role="group"
+      aria-label="What Browse shows"
+      title="Owner only — visitors never see this"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 14,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--lm-font)",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        Browse shows
+      </span>
+      {SCOPE_OPTIONS.map((option) => {
+        const isActive = option.id === value;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={isActive}
+            disabled={busy || pending}
+            onClick={() => void choose(option.id)}
+            style={{
+              ...pillStyle(isActive),
+              cursor: busy || pending ? "wait" : "pointer",
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+      {error && (
+        <span
+          role="alert"
+          style={{
+            fontFamily: "var(--lm-font)",
+            fontSize: 10,
+            letterSpacing: "0.06em",
+            color: "var(--lm-coral)",
+          }}
+        >
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const SCOPE_OPTIONS: ReadonlyArray<{ id: BrowseScope; label: string }> = [
+  { id: "published", label: "Published only" },
+  { id: "everything", label: "Everything" },
+];
+
+// One text-only control style for pills and the scope toggle: the active word
+// is coral on a hairline, the rest sit quiet.
+const pillStyle = (isActive: boolean): React.CSSProperties => ({
+  background: "none",
+  border: "none",
+  padding: "4px 0",
+  cursor: "pointer",
+  fontFamily: "var(--lm-font)",
+  fontSize: 11.5,
+  fontWeight: isActive ? 700 : 500,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: isActive ? "var(--lm-coral)" : "var(--lm-text-tertiary)",
+  borderBottom: isActive
+    ? "2px solid var(--lm-coral)"
+    : "2px solid transparent",
+  transition: "color 150ms ease",
+});
 
 // Tile size, mirroring the vault's grid-zoom control (0.4–1) and sharing its
 // stored value, so the size you like carries between the two surfaces.

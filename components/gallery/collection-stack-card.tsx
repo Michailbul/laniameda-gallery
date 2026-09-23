@@ -26,7 +26,7 @@ interface CollectionStackCardProps {
 
 /**
  * A child collection represented in the media grid as a visual stack. It is
- * intentionally parallel to storybook and beat cards: the entry opens the
+ * intentionally parallel to storybook cards: the entry opens the
  * child collection instead of the asset detail panel.
  */
 export const CollectionStackCard = memo(function CollectionStackCard({

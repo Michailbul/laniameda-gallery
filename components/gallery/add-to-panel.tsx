@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Clapperboard,
   FolderClosed,
-  Globe2,
   LayoutGrid,
   List as ListIcon,
   MapPin,
@@ -28,32 +27,19 @@ import { resolveImpliedAssetTypeTag } from "@/lib/collection-sections";
  * Two views:
  *   Folders — big cover tiles, sized for dropping onto. The default.
  *   List    — dense rows, for when you know the name.
- * Worlds drill IN (rather than nesting) so a world's sections get the same
- * full-size tiles as everything else.
+ * A collection's folders drill IN (rather than nesting): the corner arrow on a
+ * collection tile opens it, where its folders get the same full-size tiles and
+ * a New folder tile files the selection straight into a fresh sub-collection.
  */
 
-export type PanelSection = "beats" | "characters" | "locations" | "stills";
 export type PanelAssetType = "character" | "location" | "scene";
 
 export type PanelPreview = { thumbUrl?: string; url?: string };
 
-export type PanelWorld = {
-  id: string;
-  name: string;
-  description?: string;
-  previews?: PanelPreview[];
-  /** Member collections, so named beats can be offered individually. */
-  members: {
-    folderId: string;
-    name: string;
-    section?: PanelSection;
-    previews?: PanelPreview[];
-  }[];
-};
-
 export type PanelCollection = {
   id: string;
   name: string;
+  description?: string;
   count?: number;
   parentId?: string;
   previews?: PanelPreview[];
@@ -71,13 +57,6 @@ const ASSET_TYPES: {
   { key: "scene", label: "Scene", icon: Clapperboard },
 ];
 
-const SECTIONS: { key: PanelSection; label: string; icon: typeof Users }[] = [
-  { key: "beats", label: "Beats", icon: Clapperboard },
-  { key: "characters", label: "Characters", icon: Users },
-  { key: "locations", label: "Locations", icon: MapPin },
-  { key: "stills", label: "Stills", icon: FolderClosed },
-];
-
 type View = "folders" | "list";
 
 export function AddToPanel({
@@ -85,15 +64,12 @@ export function AddToPanel({
   onClose,
   selectedAssetIds,
   assetTypeCounts,
-  worlds,
   collections,
   onAssignAssetType,
   onAddToFolder,
   onToggleFolder,
-  onAddToSection,
-  onCreateBeat,
-  onAddAsBeats,
   onCreateCollection,
+  onCreateSubCollection,
   onUpdateDescription,
   topOffset = 0,
 }: {
@@ -101,7 +77,6 @@ export function AddToPanel({
   onClose: () => void;
   selectedAssetIds: string[];
   assetTypeCounts: Record<PanelAssetType, number>;
-  worlds: PanelWorld[];
   collections: PanelCollection[];
   onAssignAssetType: (
     assetType: PanelAssetType,
@@ -109,19 +84,13 @@ export function AddToPanel({
   ) => Promise<void> | void;
   onAddToFolder: (folderId: string, assetIds: string[]) => Promise<void> | void;
   onToggleFolder: (folderId: string) => Promise<void> | void;
-  onAddToSection: (
-    worldId: string,
-    section: PanelSection,
-    assetIds: string[],
-  ) => Promise<void> | void;
-  onCreateBeat: (
-    worldId: string,
+  onCreateCollection: (name: string, assetIds: string[]) => Promise<void> | void;
+  /** Creates a folder inside a root collection and files the ids into it. */
+  onCreateSubCollection: (
+    parentId: string,
     name: string,
     assetIds: string[],
   ) => Promise<void> | void;
-  /** Beats are never pooled — filing onto "Beats" makes ONE beat per asset. */
-  onAddAsBeats: (worldId: string, assetIds: string[]) => Promise<void> | void;
-  onCreateCollection: (name: string, assetIds: string[]) => Promise<void> | void;
   onUpdateDescription: (
     folderId: string,
     description: string,
@@ -129,9 +98,9 @@ export function AddToPanel({
   topOffset?: number;
 }) {
   const [view, setView] = useState<View>("folders");
-  const [drillWorldId, setDrillWorldId] = useState<string | null>(null);
-  const [beatDrafting, setBeatDrafting] = useState(false);
-  const [beatName, setBeatName] = useState("");
+  const [drillId, setDrillId] = useState<string | null>(null);
+  const [folderDrafting, setFolderDrafting] = useState(false);
+  const [folderName, setFolderName] = useState("");
   const [collectionDrafting, setCollectionDrafting] = useState(false);
   const [collectionName, setCollectionName] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -162,8 +131,10 @@ export function AddToPanel({
   );
 
   const drilled = useMemo(
-    () => worlds.find((world) => world.id === drillWorldId) ?? null,
-    [worlds, drillWorldId],
+    () =>
+      collections.find((entry) => entry.id === drillId && !entry.parentId) ??
+      null,
+    [collections, drillId],
   );
 
   const rootCollections = useMemo(
@@ -268,8 +239,8 @@ export function AddToPanel({
             <button
               type="button"
               onClick={() => {
-                setDrillWorldId(null);
-                setBeatDrafting(false);
+                setDrillId(null);
+                setFolderDrafting(false);
               }}
               style={backButtonStyle}
             >
@@ -281,75 +252,58 @@ export function AddToPanel({
               onSave={(text) => onUpdateDescription(drilled.id, text)}
             />
 
-            <p style={{ ...kickerStyle, margin: "14px 0 8px" }}>Sections</p>
+            <p style={{ ...kickerStyle, margin: "14px 0 8px" }}>Folders</p>
             <Grid view={view}>
-              {SECTIONS.map((section) => (
+              {(childrenByParent.get(drilled.id) ?? []).map((child) => (
                 <Target
-                  key={section.key}
+                  key={child.id}
                   view={view}
-                  icon={section.icon}
-                  label={section.label}
-                  busy={busyKey === `${drilled.id}:${section.key}`}
-                  hint={section.key === "beats" ? "One beat each" : undefined}
-                  onActivate={(ids) =>
-                    run(
-                      `${drilled.id}:${section.key}`,
-                      `Added to ${drilled.name} · ${section.label}`,
-                      () =>
-                        // A beat is one video plus its characters/locations, so
-                        // Beats is not a pool: each asset becomes its own beat.
-                        section.key === "beats"
-                          ? onAddAsBeats(drilled.id, resolveIds(ids))
-                          : onAddToSection(drilled.id, section.key, resolveIds(ids)),
-                    )
-                  }
+                  icon={FolderClosed}
+                  label={child.name}
+                  count={child.count}
+                  previews={child.previews}
+                  busy={busyKey === child.id}
+                  selectedCount={child.selectedCount}
+                  selectionTotal={count}
+                  selectionKind="checkbox"
+                  onActivate={(ids) => {
+                    if (ids && ids.length > 0) {
+                      return run(child.id, `Added to ${child.name}`, () =>
+                        onAddToFolder(child.id, ids),
+                      );
+                    }
+                    if (count === 0) return;
+                    return run(child.id, `Updated ${child.name}`, () =>
+                      onToggleFolder(child.id),
+                    );
+                  }}
                 />
               ))}
-            </Grid>
-
-            <p style={{ ...kickerStyle, margin: "18px 0 8px" }}>Beats</p>
-            <Grid view={view}>
-              {drilled.members
-                .filter((member) => member.section === "beats")
-                .map((beat) => (
-                  <Target
-                    key={beat.folderId}
-                    view={view}
-                    label={beat.name}
-                    previews={beat.previews}
-                    busy={busyKey === beat.folderId}
-                    onActivate={(ids) =>
-                      run(beat.folderId, `Added to ${beat.name}`, () =>
-                        onAddToFolder(beat.folderId, resolveIds(ids)),
-                      )
-                    }
-                  />
-                ))}
               <Target
                 view={view}
                 icon={Plus}
-                label="New beat"
+                label="New folder"
                 accent
                 onActivate={() => {
-                  setBeatDrafting(true);
-                  setBeatName("");
+                  setFolderDrafting(true);
+                  setFolderName("");
                 }}
               />
             </Grid>
-            {beatDrafting && (
+            {folderDrafting && (
               <InlineCreate
-                placeholder="Beat name…"
-                value={beatName}
-                onChange={setBeatName}
-                onCancel={() => setBeatDrafting(false)}
+                placeholder={`Folder in ${drilled.name}…`}
+                value={folderName}
+                onChange={setFolderName}
+                onCancel={() => setFolderDrafting(false)}
                 onSubmit={async () => {
-                  const name = beatName.trim();
+                  const name = folderName.trim();
                   if (!name) return;
-                  await run(`new-beat:${drilled.id}`, `Created ${name}`, () =>
-                    onCreateBeat(drilled.id, name, selectedAssetIds),
+                  await run(`new-folder:${drilled.id}`, `Created ${name}`, () =>
+                    onCreateSubCollection(drilled.id, name, selectedAssetIds),
                   );
-                  setBeatDrafting(false);
-                  setBeatName("");
+                  setFolderDrafting(false);
+                  setFolderName("");
                 }}
               />
             )}
@@ -412,6 +366,12 @@ export function AddToPanel({
                   selectedCount={entry.selectedCount}
                   selectionTotal={count}
                   selectionKind="checkbox"
+                  openLabel={
+                    childrenByParent.has(entry.id)
+                      ? `${childrenByParent.get(entry.id)!.length} folders`
+                      : "Folders"
+                  }
+                  onOpen={() => setDrillId(entry.id)}
                   onActivate={(ids) => {
                     if (ids && ids.length > 0) {
                       return run(entry.id, `Added to ${entry.name}`, () =>
@@ -453,70 +413,6 @@ export function AddToPanel({
                 }}
               />
             )}
-
-            {/* Sub-collections stay reachable without cluttering the grid. */}
-            {rootCollections.some((entry) => childrenByParent.has(entry.id)) && (
-              <>
-                <p style={{ ...kickerStyle, margin: "18px 0 8px" }}>
-                  Sub-collections
-                </p>
-                <Grid view={view}>
-                  {rootCollections.flatMap((entry) =>
-                    (childrenByParent.get(entry.id) ?? []).map((child) => (
-                      <Target
-                        key={child.id}
-                        view={view}
-                        label={`${entry.name} › ${child.name}`}
-                        count={child.count}
-                        previews={child.previews}
-                        busy={busyKey === child.id}
-                        selectedCount={child.selectedCount}
-                        selectionTotal={count}
-                        selectionKind="checkbox"
-                        onActivate={(ids) => {
-                          if (ids && ids.length > 0) {
-                            return run(child.id, `Added to ${child.name}`, () =>
-                              onAddToFolder(child.id, ids),
-                            );
-                          }
-                          if (count === 0) return;
-                          return run(child.id, `Updated ${child.name}`, () =>
-                            onToggleFolder(child.id),
-                          );
-                        }}
-                      />
-                    )),
-                  )}
-                </Grid>
-              </>
-            )}
-
-            <p style={{ ...kickerStyle, margin: "18px 0 8px" }}>Worlds</p>
-            {worlds.length === 0 && <Hint>No worlds yet.</Hint>}
-            <Grid view={view}>
-              {worlds.map((world) => (
-                <Target
-                  key={world.id}
-                  view={view}
-                  icon={Globe2}
-                  label={world.name}
-                  previews={world.previews}
-                  emphasis
-                  hint="Open"
-                  busy={busyKey === world.id}
-                  onActivate={(ids) => {
-                    // A drop on the world itself files into Stills; a click
-                    // drills in so you can pick a section or a beat.
-                    if (ids && ids.length > 0) {
-                      return run(world.id, `Added to ${world.name} · Stills`, () =>
-                        onAddToSection(world.id, "stills", ids),
-                      );
-                    }
-                    setDrillWorldId(world.id);
-                  }}
-                />
-              ))}
-            </Grid>
           </>
         )}
       </div>
@@ -569,6 +465,8 @@ function Target({
   selectedCount = 0,
   selectionTotal = 0,
   selectionKind,
+  onOpen,
+  openLabel,
 }: {
   view: View;
   icon?: typeof Users;
@@ -583,8 +481,33 @@ function Target({
   selectedCount?: number;
   selectionTotal?: number;
   selectionKind?: "checkbox" | "radio";
+  /** Secondary action: drill into this destination's folders. */
+  onOpen?: () => void;
+  openLabel?: string;
 }) {
   const [over, setOver] = useState(false);
+  const openControl = onOpen ? (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen();
+        }
+      }}
+      aria-label={`Open ${label}`}
+      title={`Open ${label} — its folders`}
+      style={openControlStyle}
+    >
+      {openLabel ?? "Open"} ›
+    </span>
+  ) : null;
   const cover = previews?.[0]?.thumbUrl ?? previews?.[0]?.url;
   const selectionMarked = selectionTotal > 0 && selectedCount > 0;
   const selectionComplete =
@@ -642,6 +565,7 @@ function Target({
       >
         {Icon && <Icon size={14} style={{ flexShrink: 0 }} aria-hidden />}
         <span style={ellipsis}>{label}</span>
+        {openControl}
         {count !== undefined && <span style={countStyle}>{count}</span>}
         {selectionKind && (
           <SelectionMark count={selectedCount} total={selectionTotal} />
@@ -778,6 +702,11 @@ function Target({
           </span>
         )}
       </span>
+      {openControl && (
+        <span style={{ position: "absolute", top: 7, left: Icon ? 30 : 8, zIndex: 2 }}>
+          {openControl}
+        </span>
+      )}
     </button>
   );
 }
@@ -1030,4 +959,18 @@ const helperStyle = {
   fontSize: 11,
   lineHeight: 1.45,
   color: "var(--lm-sidebar-text-muted)",
+};
+
+const openControlStyle = {
+  flexShrink: 0,
+  padding: "1px 6px",
+  borderRadius: 6,
+  fontFamily: "var(--lm-font)",
+  fontSize: 9.5,
+  fontWeight: 700,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase" as const,
+  color: "var(--lm-coral)",
+  background: "color-mix(in srgb, var(--lm-sidebar-bg) 72%, transparent)",
+  cursor: "pointer",
 };

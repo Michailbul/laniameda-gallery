@@ -25,6 +25,11 @@ import { meaningfulPrompt } from "@/lib/prompt";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  PromptSections,
+  stripLeadingIndex,
+  toPromptSections,
+} from "./prompt-sections";
 
 interface CarouselImage {
   id: string;
@@ -33,31 +38,33 @@ interface CarouselImage {
   width?: number;
   height?: number;
   prompt?: string;
+  promptId?: string;
   kind?: "image" | "video";
   contentType?: string;
 }
+
+const padIndex = (n: number) => String(n).padStart(2, "0");
 
 /** One place this asset already lives, as the Manage tab lists it. */
 export type AssetMembership = {
   folderId: string;
   label: string;
-  /** The world a section or beat belongs to, shown as a quiet prefix. */
+  /** The parent collection, shown as a quiet prefix. */
   context?: string;
   /** True when this asset is the folder's cover. */
   isCover: boolean;
-  /** Worlds hold collections rather than assets — no × on those rows. */
+  /** False hides the × on a row the asset can't be removed from. */
   canRemove: boolean;
 };
 
 /** Somewhere this asset could be filed, flattened for one searchable list. */
 export type AssetFilingTarget = {
-  /** Stable key — a folder id, or `world:section` for on-demand pools. */
+  /** Stable key — the folder id. */
   key: string;
   label: string;
+  /** The parent collection, for a folder inside one. */
   context?: string;
-  folderId?: string;
-  worldId?: string;
-  section?: "beats" | "characters" | "locations" | "stills";
+  folderId: string;
 };
 
 interface GalleryDetailPanelProps {
@@ -65,7 +72,8 @@ interface GalleryDetailPanelProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    promptId?: string;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -100,6 +108,10 @@ interface GalleryDetailPanelProps {
     userNote?: string;
   };
   carouselImages?: CarouselImage[];
+  /** Who is looking — scopes the prompt-context read to the owner's rows. */
+  ownerUserId?: string;
+  /** Opens the workflow document this asset's prompt is a step of. */
+  onOpenWorkflow?: (workflowId: string) => void;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -169,6 +181,8 @@ type DetailTab = (typeof DETAIL_TABS)[number];
 export function GalleryDetailPanel({
   image,
   carouselImages,
+  ownerUserId,
+  onOpenWorkflow,
   onClose,
   onPrev,
   onNext,
@@ -400,6 +414,24 @@ export function GalleryDetailPanel({
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
   const canEditThis = Boolean(canEditDetails && !isDesignView);
 
+  // The prompt as a module: sections, the files that share it, and the
+  // workflow around it. Follows the carousel slide, so a pack's members each
+  // resolve their own prompt when they differ.
+  const activePromptId = currentSlide.promptId ?? image.promptId;
+  const promptContext = useQuery(
+    api.prompts.getPromptContext,
+    activePromptId && !isDesignView
+      ? { id: activePromptId as Id<"prompts">, ownerUserId }
+      : "skip",
+  );
+  const promptSections = useMemo(
+    () =>
+      promptContext
+        ? toPromptSections(promptContext.text, promptContext.promptSections)
+        : null,
+    [promptContext],
+  );
+
   const isStarred = Boolean(image.starredAt);
 
   // The note draft follows whichever asset is open. Keyed on the stored note
@@ -457,6 +489,11 @@ export function GalleryDetailPanel({
     const content = text ?? activePrompt;
     await navigator.clipboard.writeText(content);
     showToast(text && text !== activePrompt ? "URL COPIED" : "PROMPT COPIED");
+  };
+
+  const copySection = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    showToast(label);
   };
 
   const handleCopyUrl = async () => {
@@ -1194,9 +1231,18 @@ export function GalleryDetailPanel({
                 </>
               ) : (
                 <>
-                  {/* Prompt — only when a real prompt exists (placeholder
-                      fallbacks like "Untitled prompt" are suppressed). */}
-                  {promptForDisplay && (
+                  {/* Prompt — as sections when the prompt row is known, else
+                      the flat text. Placeholder fallbacks like "Untitled
+                      prompt" stay hidden either way. */}
+                  {promptSections ? (
+                    <div className="pb-3 pt-2.5 first:pt-0">
+                      <PromptSections
+                        sections={promptSections}
+                        onCopy={copySection}
+                        maxBodyHeight={260}
+                      />
+                    </div>
+                  ) : promptForDisplay ? (
                     <Field
                       label="Prompt"
                       action={
@@ -1216,6 +1262,213 @@ export function GalleryDetailPanel({
                       >
                         {promptForDisplay}
                       </p>
+                    </Field>
+                  ) : null}
+
+                  {/* Every file generated from this prompt — a still and the
+                      cut it came from, the variations of a pack. Clicking one
+                      that is in the carousel jumps to it. */}
+                  {promptContext && promptContext.media.length > 1 && (
+                    <Field label={`Files with this prompt · ${padIndex(promptContext.media.length)}`}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {promptContext.media.map((file) => {
+                          const slideIndex = allSlides.findIndex(
+                            (slide) => slide.id === file.id,
+                          );
+                          const active = file.id === currentAssetId;
+                          return (
+                            <button
+                              key={file.id}
+                              type="button"
+                              disabled={slideIndex < 0}
+                              onClick={() => {
+                                if (slideIndex >= 0) setCarouselIndex(slideIndex);
+                              }}
+                              title={file.description ?? undefined}
+                              className="relative overflow-hidden p-0"
+                              style={{
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "4px",
+                                border: active
+                                  ? "1.5px solid var(--lm-coral)"
+                                  : "1px solid var(--lm-border-subtle)",
+                                backgroundColor: "var(--lm-surface-3)",
+                                cursor: slideIndex >= 0 ? "pointer" : "default",
+                              }}
+                            >
+                              {file.thumbUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={file.thumbUrl}
+                                  alt={file.description ?? ""}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : null}
+                              {file.kind === "video" && (
+                                <span
+                                  className="absolute"
+                                  style={{
+                                    left: "3px",
+                                    bottom: "3px",
+                                    padding: "1px 4px",
+                                    borderRadius: "3px",
+                                    backgroundColor: "rgba(0,0,0,0.7)",
+                                    color: "#fff",
+                                    fontSize: "8px",
+                                    letterSpacing: "0.12em",
+                                  }}
+                                >
+                                  MOV
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Field>
+                  )}
+
+                  {/* The workflow this prompt is a step of, with every
+                      sibling step's prompt one tap away — the image prompts
+                      that fed a video live right under the video. */}
+                  {promptContext?.workflow && (
+                    <Field
+                      label="Workflow"
+                      action={
+                        onOpenWorkflow ? (
+                          <TextAction
+                            label="Open"
+                            onClick={() =>
+                              onOpenWorkflow(promptContext.workflow!._id)
+                            }
+                          />
+                        ) : undefined
+                      }
+                    >
+                      <p
+                        style={{
+                          ...bodyStyle,
+                          color: "var(--lm-text-primary)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {promptContext.workflow.title}
+                      </p>
+                      <p
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--lm-text-ghost)",
+                          marginTop: "2px",
+                        }}
+                      >
+                        Step {padIndex(promptContext.workflow.stepOrder + 1)} of{" "}
+                        {padIndex(promptContext.workflow.stepCount)}
+                        {promptContext.workflow.stepLabel
+                          ? ` · ${stripLeadingIndex(promptContext.workflow.stepLabel)}`
+                          : ""}
+                      </p>
+                      <div className="mt-2 flex flex-col">
+                        {promptContext.workflow.steps.map((step) => {
+                          const current = step.promptId === promptContext._id;
+                          const label = step.stepLabel?.trim()
+                            ? stripLeadingIndex(step.stepLabel)
+                            : `Step ${step.stepOrder + 1}`;
+                          return (
+                            <div
+                              key={step.promptId}
+                              className="flex items-center gap-2 py-1.5"
+                              style={{
+                                borderTop: "1px solid var(--lm-border-subtle)",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: "18px",
+                                  flexShrink: 0,
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  letterSpacing: "0.08em",
+                                  color: current
+                                    ? "var(--lm-coral)"
+                                    : "var(--lm-text-ghost)",
+                                }}
+                              >
+                                {padIndex(step.stepOrder + 1)}
+                              </span>
+                              <span
+                                className="relative shrink-0 overflow-hidden"
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  borderRadius: "4px",
+                                  backgroundColor: "var(--lm-surface-3)",
+                                  border: step.coverThumbUrl
+                                    ? "none"
+                                    : "1px dashed var(--lm-border)",
+                                }}
+                              >
+                                {step.coverThumbUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={step.coverThumbUrl}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : null}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenWorkflow?.(promptContext.workflow!._id)
+                                }
+                                className="min-w-0 flex-1 border-none bg-transparent p-0 text-left"
+                                style={{
+                                  cursor: onOpenWorkflow ? "pointer" : "default",
+                                }}
+                              >
+                                <span
+                                  className="block truncate"
+                                  style={{
+                                    fontSize: "12px",
+                                    fontWeight: current ? 650 : 500,
+                                    color: current
+                                      ? "var(--lm-text-primary)"
+                                      : "var(--lm-text-secondary)",
+                                  }}
+                                >
+                                  {label}
+                                </span>
+                                <span
+                                  className="block truncate"
+                                  style={{
+                                    fontSize: "10.5px",
+                                    color: "var(--lm-text-ghost)",
+                                  }}
+                                >
+                                  {[
+                                    step.modelName,
+                                    step.mediaCount > 1
+                                      ? `${step.mediaCount} files`
+                                      : undefined,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </span>
+                              </button>
+                              <TextAction
+                                label="Copy"
+                                title={`Copy the ${label} prompt`}
+                                onClick={() =>
+                                  void copySection(step.finalPrompt, "PROMPT COPIED")
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </Field>
                   )}
 

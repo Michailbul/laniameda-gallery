@@ -7,7 +7,7 @@ import { useCurrentUser } from "@/lib/use-current-user";
 import { PublicHome } from "@/components/showcase/public-home";
 import type { PublicMode } from "@/lib/public-modes";
 
-export function TasteProfileClient({ mode }: { mode: PublicMode }) {
+export function SelectedWorkClient({ mode }: { mode: PublicMode }) {
   const { user, isLoading } = useCurrentUser();
 
   // Hold the splash until auth resolves so the owner-preview banner (and the

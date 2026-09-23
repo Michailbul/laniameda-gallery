@@ -10,7 +10,7 @@ export interface BreadcrumbSegment {
 
 /**
  * Path strip above the asset grid when browsing inside a set:
- * PROJECTS / CASSANDRA, or COLLECTIONS / DEAR ANNETE / CHARACTERS.
+ * COLLECTIONS / DEAR ANNETE, or COLLECTIONS / DEAR ANNETE / EP01.
  * The roots return to the browse (landing) view.
  */
 export function BrowseBreadcrumb({

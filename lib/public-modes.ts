@@ -1,4 +1,4 @@
-import { TASTE_PROFILE_PATH } from "./routes";
+import { SELECTED_WORK_PATH } from "./routes";
 
 // The public surface has exactly three modes. This toggle IS the navigation —
 // no sidebar, no filter bar, nothing else to learn.
@@ -24,7 +24,8 @@ export const PUBLIC_MODES = [
     id: "browse",
     label: "Browse",
     title: "Everything else.",
-    blurb: "The working archive. Filter it, or just scroll.",
+    // No blurb: the filter row under the title says what this view is.
+    blurb: "",
   },
 ] as const;
 
@@ -35,8 +36,8 @@ export const isPublicMode = (value: string): value is PublicMode =>
 
 /** Every mode is a real URL, so a view can be linked, bookmarked and shared. */
 export const publicModePath = (mode: PublicMode) =>
-  `${TASTE_PROFILE_PATH}/${mode}`;
+  `${SELECTED_WORK_PATH}/${mode}`;
 
-/** Where the public surface starts. The bare taste-profile path redirects here
+/** Where the public surface starts. The bare selected-work path redirects here
  *  so each view has exactly one canonical URL instead of Featured having two. */
 export const PUBLIC_HOME_PATH = publicModePath("featured");

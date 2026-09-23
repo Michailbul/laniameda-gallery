@@ -1,7 +1,7 @@
 /**
  * Shareable deep links to a single public asset.
  *
- * A link keeps whatever page it was copied from (`/` or the taste-profile URL)
+ * A link keeps whatever page it was copied from (`/` or the selected-work URL)
  * and adds `?asset=<id>`, so the recipient lands on the same surface with the
  * same piece already open. Resolved server-side by `showcase.getPublicAsset`,
  * which only ever returns individually-public assets.

@@ -4,11 +4,12 @@ description: >-
   This skill should be used when the user asks to "add this to my gallery",
   "save this in my gallery", "put this in the Love collection", "ingest this
   prompt and video", "add these statics to the DADDY ISSUES world", "sort these
-  into characters and locations", "make this a beat", or update/delete an
-  existing gallery item. It resolves the authenticated user's collections,
-  worlds, projects, and beats, and saves prompts, files, URLs, and visual
-  references through the current gallery contract.
-version: 0.3.0
+  into characters and locations", "put this in the Balcony folder of CASSANDRA",
+  or update/delete an existing gallery item. It resolves the authenticated
+  user's collections and the folders inside them, tags what each piece is, and
+  saves prompts, files, URLs, and visual references through the current
+  gallery contract.
+version: 0.4.0
 ---
 
 # laniameda-gallery-ingest
@@ -21,11 +22,15 @@ The skill now supports explicit `create`, `update`, and `delete` operations thro
 
 - Interpret **"my gallery"** as the authenticated user's whole gallery, not a collection or legacy pillar named `creators`.
 - Treat **collections** as the primary user-facing organization.
-- **"World"** means the showcased top tier — the published story universe at
-  `/w/<slug>`. Never showcase a project that sits inside one.
-- **"Project"** groups a world's sectioned member collections and holds no
-  assets itself. **"Beat"** is one video plus the statics it uses.
-  **"Statics"** are the characters / locations / stills.
+- **"World"** means a showcased root collection — the published story
+  universe at `/w/<slug>`.
+- **"Folder"** is a sub-collection inside a root collection ("CASSANDRA ›
+  Balcony"). What used to be a project's beat is now a folder.
+- **"Statics"** are characters / locations / scenes. They are TAGS
+  (`character`, `location`, `scene`), plus `inspiration` — never folders.
+- There are no projects, beats or episodes any more. The tier was retired on
+  22 Sep 2026: projects became root collections, beats became their folders,
+  section pools became tags.
 - Treat tags as descriptive classification, not navigation destinations.
 - Leave the dormant `pillar` field unset on ordinary new saves. Use a specialized internal pillar only when its dedicated backend contract explicitly requires one, such as `cinema-inspiration`.
 
@@ -40,69 +45,48 @@ The skill now supports explicit `create`, `update`, and `delete` operations thro
 
 When no collection is named, save uncategorized unless an obvious existing collection can be resolved with high confidence from the user's wording. Do not silently substitute a tag or pillar for a collection.
 
-## Content hierarchy — worlds, projects, episodes, beats, statics
+## Content hierarchy — collections, folders, tags
 
-Everything in the vault is a `folders` row. There is no `worlds`, `beats`, or
-`collections` table. The tiers are expressed with `folders.kind`,
-`folders.parentFolderId`, and the `projectCollections` join table:
+Everything in the vault is a `folders` row. `folders.kind` is undefined (a
+collection) or `"storybook"`. Nesting is one level deep through
+`folders.parentFolderId`:
 
 ```
-world      showcased root collection or root project — publishes /w/<slug>
-└─ project kind:"project"        groups sectioned member collections
-   ├─ episodes  kind:"episode"   chapters that group beats; hold no assets
-   ├─ beats     one folder per video + its statics
-   ├─ characters │
-   ├─ locations  │ section pools of statics
-   └─ stills     │
+collection   root folder — a world when showcased (/w/<slug>)
+└─ folder    sub-collection: one shot, a set of options, an inbox, drafts
 ```
 
-- **world** — the story universe and the ONLY tier that publishes.
-  `folders:setFolderShowcased` allocates the stable `/w/<slug>` on first
-  showcase. Two shapes coexist: a plain root collection with sub-collections
-  (`Dear Annete`), and a root `kind:"project"` that is itself showcased
-  (`CASSANDRA`, `DADDY ISSUES`, `LIZ`). Both are "the world" in conversation.
-- **project** — `kind:"project"`. Holds no assets itself; groups member
-  collections through `projectCollections`. A project nested under a world via
-  `parentFolderId` cannot be showcased ("a project publishes inside its world").
-- **episode** — `kind:"episode"`, filed in the project's `episodes` layer.
-  Beats point at it via `projectCollections.episodeFolderId`. Holds no assets.
-- **beat** — one video plus the statics it uses. Beats are **never pooled**:
-  each beat is its own `kind:"direction"` folder linked at `section: "beats"`.
-- **statics** — characters / locations / stills. These DO pool: one shared
-  folder per section per project, named `"<PROJECT> — Characters"` etc.
+- **collection** — a root folder. Showcasing it with
+  `folders:setFolderShowcased` makes it a world and allocates `/w/<slug>`.
+- **folder** — a sub-collection with `parentFolderId` set to a root
+  collection. A folder never holds folders, and a storybook never nests.
+- **what a piece IS** — a tag: `character`, `location`, `scene`,
+  `inspiration`. Tag the asset; do not create a "Characters" folder.
+  `collectionCleanup:flattenSectionCollections` folds section-named folders
+  back into tags.
 
-`projectCollections` columns: `{ownerUserId, projectId, folderId, section,
-episodeFolderId?, episodeOrder?, beatCharacterFolderIds?,
-beatLocationFolderIds?}`. The two `beat*FolderIds` arrays link a beat to the
-character/location directions it uses; they are read-side today with no
-ingest-facing write API.
+The public world page sections a collection's pieces by those tags
+(Characters, Locations, Beats for `scene`) and treats a folder named for a
+section as that section.
 
-Naming convention: projects/worlds are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
-Section pools and episodes are namespaced `"<PROJECT> — <Label>"` so the same
-label can exist in every project without colliding on `normalizedName`.
+Naming convention: world collections are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
+Folder names are scoped to their parent, so "Balcony" can exist under several
+collections.
 
-## Filing into a world
+## Filing into a collection or a folder
 
 Resolve or create the destination BEFORE ingesting, then pass the resulting
-`folderId` on each save. Direct-Convex mutations (admin/agent path):
+`folderId` on each save:
 
 ```bash
-# 1. statics — idempotent, returns the shared pool for that section
-projects:ensureSectionPool {ownerUserId, projectId, section}
-#    section is characters | locations | stills — NOT beats
-
-# 2. a beat — one folder per video, then link it into the beats layer
-folders:createFolder      {ownerUserId, name: "<PROJECT> — <Beat>", kind: "direction"}
-projects:addCollectionToProject {ownerUserId, projectId, folderId, section: "beats"}
-
-# 3. optional: file the beat under an episode
-projects:createEpisode  {ownerUserId, projectId, name}
-projects:setBeatEpisode {ownerUserId, projectId, beatFolderId, episodeFolderId, order?}
+# a folder inside a collection — idempotent on (parent, name)
+folders:createFolder {ownerUserId, name: "Balcony", parentFolderId: "<collection id>"}
 ```
 
-Then ingest with `folderId` set to the pool / beat folder. `createAsset` writes
-the `assetFolders` link from `folderId`, so one `folderId` is enough — do not
-also call an add-membership mutation.
+Then ingest with `folderId` (or `folderIds`) set to the collection or folder,
+and put the type in `tags` (`character` / `location` / `scene`). `createAsset`
+writes the `assetFolders` link from `folderId`, so one `folderId` is enough —
+do not also call an add-membership mutation.
 
 ### Publishing — showcasing is not enough
 
@@ -149,7 +133,7 @@ Before constructing payloads or changing the ingest script, read these repo file
 When the save targets a world, also read:
 
 - `convex/folders.ts` — kinds, `parentFolderId` nesting rules, `setFolderShowcased`
-- `convex/projects.ts` — `projectCollections`, section pools, episodes, beats
+- `lib/collection-sections.ts` — the section names and their tags
 - `convex/showcase.ts` — what the public `/w/<slug>` page actually reads
 - `lib/video-ingest.ts` — the browser upload path that the large-video script mirrors
 
@@ -329,9 +313,10 @@ with that instruction rather than ingesting a dimensionless, posterless asset.
 the server decodes them and builds the thumbnail. Oversized images fail with a
 "compress to JPEG first" error instead of a cryptic argument-size failure.
 
-**No R2 branch on `update` or workflow steps.** `updateFromApi` and
-`workflows:ingestWorkflowFromApi` accept base64 only. To attach a large video,
-ingest it as its own `create` and link it with `upstreamInputs`.
+**No R2 branch on `update`.** `updateFromApi` accepts base64 only, so replace a
+large video by ingesting it as a new `create`. Workflow steps DO take video
+(see "Workflows" below) — the script prepares each step's video exactly as it
+prepares a standalone one.
 
 Verifying an upload by hand: `r2.dev` public URLs reject `HEAD` with 403. That is
 not a broken upload — use a range GET:
@@ -500,17 +485,35 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
       "generationType": "video_gen",
       "modelName": "Seedance 2.0",
       "modelProvider": "other",
-      "media": [{ "filePath": "/path/to/output.mp4" }]
+      "media": [
+        { "filePath": "/path/to/start-frame.png", "description": "Start frame handed to Seedance" },
+        { "filePath": "/path/to/output.mp4", "description": "Final 5s cut", "posterAtSeconds": 2 }
+      ]
     }
   ]
 }'
 ```
 
+How it reads back: a step's prompt is one `prompts` row with `workflowId` and
+`workflowStepOrder`; each file is an `assets` row pointing at it. The detail
+panel resolves everything through `prompts:getPromptContext {id, ownerUserId}`
+— sections (final / negative / notes), every file sharing the prompt with its
+caption, and the workflow with all sibling steps' prompts — so opening the
+video shows the image prompts that made its references.
+
 Rules:
 
 - `title` is required; provide at least one step.
 - Each step is one prompt. `media` is an array — multiple images in a step all attach to that step's prompt. A step with several images is `media: [{...}, {...}]`.
-- Step media accepts `filePath`/`imagePath` (read to base64) or `url`. Videos work the same way (`.mp4`/`.mov`/`.webm`).
+- Step media accepts `filePath`/`imagePath` or `url`. Images ride base64; a video
+  (`.mp4`/`.mov`/`.webm`) goes through the same remux → probe → poster → R2
+  pipeline as a standalone create, so a 30 s cut sits in the same step as the
+  stills that fed it. `posterAtSeconds` picks the poster frame.
+- Give every media entry a `description` — the caption for THAT file within the
+  step ("start frame", "stand-in crop, not the real render", "final cut"). It
+  lands on the asset and prints under the figure in the workflow document and
+  in the detail panel's file strip. A step with several files and no captions
+  is a row of unlabelled thumbnails.
 - A prompt-only step needs `allowPromptOnly: true` on that step — same hard rule as elsewhere.
 - `ingestKey` makes the whole workflow idempotent; per-step `promptIngestKey` and per-media `ingestKey` are derived from it when omitted, so re-running is safe.
 - The workflow's cover thumbnail is auto-pinned from the first step's media.
@@ -595,15 +598,11 @@ These are the valid enum values the Convex schema enforces — use these or inge
 **`promptSections` fields:** `finalPrompt` (required), `generationNotes` (optional), `negativePrompt` (optional)
 → No other keys — extra fields cause validation errors.
 
-**`folders.kind`:** `storybook`, `project`, `direction`, `episode`
-→ Undefined = a plain collection. A beat is a `direction`.
-
-**`projectCollections.section`:** `characters`, `locations`, `stills`, `beats`, `episodes`
-→ Undefined = unsorted. `ensureSectionPool` accepts only the first three.
+**`folders.kind`:** `storybook`
+→ Undefined = a plain collection.
 
 **`parentFolderId` nesting:** only a plain root collection may be a parent, and
-only plain collections and projects may be children. One level deep — anything
-deeper is expressed through join tables, never by chaining `parentFolderId`.
+only plain collections may be children. One level deep.
 
 ## Update workflow (important)
 

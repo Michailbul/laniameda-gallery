@@ -23,9 +23,6 @@ import { compareCollectionSectionNames } from "../lib/collection-sections";
 export const folderKindValidator = v.optional(
   v.union(
     v.literal("storybook"),
-    v.literal("project"),
-    v.literal("beat"),
-    v.literal("episode"),
   ),
 );
 
@@ -38,7 +35,6 @@ const folderReturnValidator = v.object({
   description: v.optional(v.string()),
   kind: folderKindValidator,
   parentFolderId: v.optional(v.id("folders")),
-  shareToken: v.optional(v.string()),
   coverAssetId: v.optional(v.id("assets")),
   pinnedAt: v.optional(v.number()),
   showcased: v.optional(v.boolean()),
@@ -64,36 +60,15 @@ const scopedNormalizedName = (
     : canonicalFolderName(name);
 
 // Guard shared by createFolder / setFolderParent: a valid parent is an owned,
-// plain, root-level collection. Keeps nesting to exactly one level.
-// The tiers of the content hierarchy, top down:
-//
-//   world      a plain ROOT collection — the story universe ("Dear Annete").
-//              The only tier that publishes to /w/<slug>.
-//   project    a kind:"project" folder parented to a world ("Dari"). Groups
-//              its own sectioned member collections; holds no assets itself.
-//   beats      a project member collection filed under section "beats".
-//   statics    the characters / locations / stills a beat draws on — reached
-//              from the beat's projectCollections row via
-//              beatCharacterFolderIds / beatLocationFolderIds.
-//
-// A world may also hold plain sub-collections directly, which is the older
-// shape ("Dear Annete" > "Characters") and still supported.
-//
-// Only these kinds may sit inside a world. A storybook IS its own set, and a
-// beat belongs to a project through projectCollections rather than by
-// parentage, so neither nests here.
+// plain, root-level collection. Nesting is exactly one level deep: a root
+// collection ("Dear Annete") holds sub-collections ("Dari", a beat, an inbox);
+// a sub-collection holds none. Storybooks never nest either way. What a piece
+// IS (character / location / scene) is a tag, not a folder.
 type FolderKind = Doc<"folders">["kind"];
 
-const WORLD_CHILD_KINDS: ReadonlySet<FolderKind> = new Set<FolderKind>([
-  undefined,
-  "project",
-]);
-
 const assertNestableKind = (kind: FolderKind) => {
-  if (!WORLD_CHILD_KINDS.has(kind)) {
-    throw new ConvexError(
-      "Only plain collections and projects can sit inside a world.",
-    );
+  if (kind !== undefined) {
+    throw new ConvexError("Only plain collections can sit inside another collection.");
   }
 };
 
@@ -109,13 +84,11 @@ const assertValidParent = async (
   if (!canActorAccessOwnerUserId(ownerUserId, parent.ownerUserId)) {
     throw new ConvexError("Parent collection does not belong to this user.");
   }
-  // Worlds are plain collections. A project can't hold another project by
-  // parentage — its members ride the projectCollections join instead.
+  // Only plain collections nest; storybooks are leaves.
   if (parent.kind !== undefined) {
     throw new ConvexError("Only plain collections can contain sub-collections.");
   }
-  // Depth stops at the project tier: a world's child is never itself nested,
-  // so the tree can't grow past world > project > (beats > statics via links).
+  // One level deep: a sub-collection never holds sub-collections.
   if (parent.parentFolderId !== undefined) {
     throw new ConvexError("Sub-collections can't be nested further.");
   }
@@ -179,8 +152,7 @@ export const createFolder = mutation({
       }
     }
     if (existing) {
-      // Upsert never converts kinds: turning a collection into a project (or
-      // any other flavor) in place would silently re-interpret its whole
+      // Upsert never converts kinds: turning a collection into a storybook in place would silently re-interpret its whole
       // membership. Same name + different kind = a real conflict.
       if ((existing.kind ?? undefined) !== (args.kind ?? undefined)) {
         throw new ConvexError(
@@ -258,8 +230,8 @@ export const updateFolder = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     // Re-file this folder in the hierarchy. Omit to leave parentage alone;
-    // pass null to lift it back to root. Lets an existing project be moved
-    // into a world without recreating it.
+    // pass null to lift it back to root. Lets an existing collection be moved
+    // inside another without recreating it.
     parentFolderId: v.optional(v.union(v.id("folders"), v.null())),
   },
   returns: v.id("folders"),
@@ -344,8 +316,7 @@ export const updateFolder = mutation({
   },
 });
 
-// Pin/unpin a beat (beat/stack) in the project workspace — pinned
-// cards float first in their mode.
+// Pin/unpin a collection — pinned rows float first.
 export const setFolderPinned = mutation({
   args: {
     ownerUserId: v.string(),
@@ -373,8 +344,8 @@ export const setFolderPinned = mutation({
   },
 });
 
-// Toggle a collection, storybook, or project ("world") onto the public home.
-// Beats can never be showcased — they are internal scaffolding, surfaced
+// Toggle a collection or storybook onto the public home.
+// Sub-collections can never be showcased — they are
 // publicly only as the sections of a showcased world.
 //
 // Showcasing publishes the SET, not its members: every public read filters to
@@ -399,16 +370,9 @@ export const setFolderShowcased = mutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
-    if (folder.kind === "beat" || folder.kind === "episode") {
-      throw new ConvexError(
-        "Beats and episodes are shown inside their world — showcase the project instead.",
-      );
-    }
     if (folder.parentFolderId !== undefined) {
       throw new ConvexError(
-        folder.kind === "project"
-          ? "A project publishes inside its world — showcase the world instead."
-          : "Sub-collections are shown inside their parent — showcase the parent collection instead.",
+        "Sub-collections are shown inside their parent — showcase the parent collection instead.",
       );
     }
     await ctx.db.patch(args.folderId, {
@@ -432,7 +396,7 @@ export const setFolderShowcased = mutation({
 });
 
 // URL-safe slug for a showcased world, unique across the folders table.
-// Collides only on same-named projects, which get a -2, -3, … suffix.
+// Collides only on same-named collections, which get a -2, -3, … suffix.
 const allocateWorldSlug = async (ctx: MutationCtx, name: string) => {
   const base =
     name
@@ -473,9 +437,6 @@ export const setFolderFeatured = mutation({
     }
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
-    }
-    if (folder.kind === "beat" || folder.kind === "episode") {
-      throw new ConvexError("Beats and episodes can't be featured publicly.");
     }
     if (folder.parentFolderId !== undefined) {
       throw new ConvexError(
@@ -541,6 +502,98 @@ export const setTasteCollection = mutation({
   },
 });
 
+// Deletes a folder and everything that points at it: membership links, the
+// legacy assets.folderId / prompts.folderId pointers. Sub-collections are promoted to root rather than deleted. Shared by
+// the owner-facing mutation and the collection cleanup migration.
+export const cascadeDeleteFolder = async (
+  ctx: MutationCtx,
+  folderId: Id<"folders">,
+  ownerUserIds: string[],
+) => {
+  const assets = [];
+  const assetFolderLinks = [];
+  for (const ownerCandidate of ownerUserIds) {
+    const assetsForOwner = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .collect();
+    assets.push(...assetsForOwner);
+
+    const linksForOwner = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .collect();
+    assetFolderLinks.push(...linksForOwner);
+    for (const link of linksForOwner) {
+      const asset = await ctx.db.get(link.assetId);
+      if (asset) {
+        assets.push(asset);
+      }
+    }
+  }
+  for (const asset of dedupeById(assets)) {
+    if (asset.folderId === folderId) {
+      await ctx.db.patch(asset._id, { folderId: undefined });
+    }
+  }
+  for (const link of dedupeById(assetFolderLinks)) {
+    await ctx.db.delete(link._id);
+  }
+
+  const prompts = [];
+  for (const ownerCandidate of ownerUserIds) {
+    const promptsForOwner = await ctx.db
+      .query("prompts")
+      .withIndex("by_owner_folder_createdAt", (q) =>
+        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+      )
+      .collect();
+    prompts.push(...promptsForOwner);
+  }
+  for (const prompt of prompts) {
+    await ctx.db.patch(prompt._id, { folderId: undefined });
+  }
+
+  // Promote sub-collections to root instead of orphaning them. Their
+  // canonical name is re-scoped; on a rare root-level name collision the
+  // old (parent-prefixed) normalizedName is kept — still unique, and only
+  // used for dedupe/sort.
+  const children = await ctx.db
+    .query("folders")
+    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
+    .collect();
+  for (const child of children) {
+    const rootName = canonicalFolderName(child.name);
+    let collision = null;
+    for (const ownerCandidate of ownerUserIds) {
+      collision = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_normalizedName", (q) =>
+          q.eq("ownerUserId", ownerCandidate).eq("normalizedName", rootName),
+        )
+        .unique();
+      if (collision) break;
+    }
+    await ctx.db.patch(child._id, {
+      parentFolderId: undefined,
+      ...(collision && collision._id !== child._id
+        ? {}
+        : { normalizedName: rootName }),
+      updatedAt: Date.now(),
+    });
+  }
+
+  await ctx.db.delete(folderId);
+  return {
+    assetsUpdated: dedupeById(assets).length,
+    promptsUpdated: dedupeById(prompts).length,
+  };
+};
+
 export const deleteFolder = mutation({
   args: {
     ownerUserId: v.string(),
@@ -572,107 +625,8 @@ export const deleteFolder = mutation({
       throw new ConvexError("Folder does not belong to this user.");
     }
 
-    const assets = [];
-    const assetFolderLinks = [];
-    for (const ownerCandidate of ownerUserIds) {
-      const assetsForOwner = await ctx.db
-        .query("assets")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
-        )
-        .collect();
-      assets.push(...assetsForOwner);
-
-      const linksForOwner = await ctx.db
-        .query("assetFolders")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
-        )
-        .collect();
-      assetFolderLinks.push(...linksForOwner);
-      for (const link of linksForOwner) {
-        const asset = await ctx.db.get(link.assetId);
-        if (asset) {
-          assets.push(asset);
-        }
-      }
-    }
-    for (const asset of dedupeById(assets)) {
-      if (asset.folderId === args.folderId) {
-        await ctx.db.patch(asset._id, { folderId: undefined });
-      }
-    }
-    for (const link of dedupeById(assetFolderLinks)) {
-      await ctx.db.delete(link._id);
-    }
-
-    const prompts = [];
-    for (const ownerCandidate of ownerUserIds) {
-      const promptsForOwner = await ctx.db
-        .query("prompts")
-        .withIndex("by_owner_folder_createdAt", (q) =>
-          q.eq("ownerUserId", ownerCandidate).eq("folderId", args.folderId).gte("createdAt", 0),
-        )
-        .collect();
-      prompts.push(...promptsForOwner);
-    }
-    for (const prompt of prompts) {
-      await ctx.db.patch(prompt._id, { folderId: undefined });
-    }
-
-    // Clear projectCollections rows both ways: this folder as the project
-    // being deleted, and this folder as a member collection of any project.
-    const projectLinks = [
-      ...(await ctx.db
-        .query("projectCollections")
-        .withIndex("by_project", (q) => q.eq("projectId", args.folderId))
-        .collect()),
-      ...(await ctx.db
-        .query("projectCollections")
-        .withIndex("by_folder", (q) => q.eq("folderId", args.folderId))
-        .collect()),
-    ];
-    for (const link of dedupeById(projectLinks)) {
-      await ctx.db.delete(link._id);
-    }
-
-    // Promote sub-collections to root instead of orphaning them. Their
-    // canonical name is re-scoped; on a rare root-level name collision the
-    // old (parent-prefixed) normalizedName is kept — still unique, and only
-    // used for dedupe/sort.
-    const children = await ctx.db
-      .query("folders")
-      .withIndex("by_parent", (q) => q.eq("parentFolderId", args.folderId))
-      .collect();
-    for (const child of children) {
-      const rootName = canonicalFolderName(child.name);
-      let collision = null;
-      for (const ownerCandidate of ownerUserIds) {
-        collision = await ctx.db
-          .query("folders")
-          .withIndex("by_owner_normalizedName", (q) =>
-            q.eq("ownerUserId", ownerCandidate).eq("normalizedName", rootName),
-          )
-          .unique();
-        if (collision) break;
-      }
-      await ctx.db.patch(child._id, {
-        parentFolderId: undefined,
-        ...(collision && collision._id !== child._id
-          ? {}
-          : { normalizedName: rootName }),
-        updatedAt: Date.now(),
-      });
-    }
-
-    await ctx.db.delete(args.folderId);
-
-    return {
-      folderId: args.folderId,
-      deleted: true,
-      assetsUpdated: dedupeById(assets).length,
-      promptsUpdated: dedupeById(prompts).length,
-    };
+    const result = await cascadeDeleteFolder(ctx, args.folderId, ownerUserIds);
+    return { folderId: args.folderId, deleted: true, ...result };
   },
 });
 
@@ -946,9 +900,6 @@ export const listChildCollectionEntries = query({
 
 // Every folder an asset could count as "inside" when the target is a
 // container rather than a leaf collection:
-//   project  — its member collections (beats, section pools) plus the statics
-//              a beat row points at. A project holds no assets itself, so
-//              without this a world could never take a cover.
 //   world    — a plain root collection's direct children ("Characters", …),
 //              which the public set read already folds in as chapters.
 const containerMemberFolderIds = async (
@@ -956,18 +907,6 @@ const containerMemberFolderIds = async (
   folder: Doc<"folders">,
 ): Promise<Set<string>> => {
   const ids = new Set<string>();
-  if (folder.kind === "project") {
-    const rows = await ctx.db
-      .query("projectCollections")
-      .withIndex("by_project", (q) => q.eq("projectId", folder._id))
-      .collect();
-    for (const row of rows) {
-      ids.add(row.folderId);
-      for (const id of row.beatCharacterFolderIds ?? []) ids.add(id);
-      for (const id of row.beatLocationFolderIds ?? []) ids.add(id);
-    }
-    return ids;
-  }
   if (folder.kind === undefined) {
     const children = await ctx.db
       .query("folders")
@@ -979,7 +918,7 @@ const containerMemberFolderIds = async (
 };
 
 // Set or clear the MASTER option (cover asset) of a collection — the
-// thumbnail used when the collection is browsed as a "beat" (a set of
+// thumbnail used when the collection is shown as a stack (a set of
 // similar options), and the card image when it is published as a world.
 // The asset must actually be inside, via the primary folderId, an
 // assetFolders link, or — for a container — one of its member folders.

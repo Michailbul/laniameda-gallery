@@ -138,7 +138,7 @@ describe("POST /api/extension/save", () => {
     ]);
   });
 
-  test("creates and assigns a collection pillar for extension saves", async () => {
+  test("tags a collection pillar instead of creating a sub-collection", async () => {
     const { POST } = await import(routePath);
 
     const response = await POST(
@@ -158,18 +158,9 @@ describe("POST /api/extension/save", () => {
 
     expect(response.status).toBe(200);
     expect(state.actionCalls[0]?.folderId).toBe("folders:one");
-    expect(state.mutationCalls).toEqual([
-      {
-        ownerUserId: "telegram:278674008",
-        name: "Inspirations",
-        parentFolderId: "folders:one",
-      },
-      {
-        ownerUserId: "telegram:278674008",
-        assetId: "assets:1",
-        folderIds: ["folders:one", "folders:inspirations"],
-      },
-    ]);
+    expect(state.actionCalls[0]?.tagNames).toContain("inspiration");
+    // Sections are tags: no "Inspirations" folder is created, no extra filing.
+    expect(state.mutationCalls).toEqual([]);
   });
 
   test("adds filterable Midjourney teach page tags", async () => {
@@ -200,6 +191,7 @@ describe("POST /api/extension/save", () => {
       "midjourney-web",
       "midjourney-teach",
       "personalize",
+      "inspiration",
     ]);
   });
 
@@ -254,11 +246,10 @@ describe("POST /api/extension/save", () => {
       "midjourney",
       "midjourney-web",
       "midjourney-profile",
+      "inspiration",
     ]);
-    expect(state.mutationCalls.at(-1)).toMatchObject({
-      assetId: "assets:1",
-      folderIds: ["folders:one", "folders:inspirations"],
-    });
+    expect(state.actionCalls[0]?.folderId).toBe("folders:one");
+    expect(state.mutationCalls).toEqual([]);
   });
 
   test("adds saved image to multiple collections", async () => {

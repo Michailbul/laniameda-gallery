@@ -54,7 +54,10 @@ export type GalleryAssetRecord = {
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  /** The prompt row this file was generated from — the detail panel reads
+   *  its sections and workflow context through `prompts.getPromptContext`. */
+  promptId?: string;
   src: string;
   fullSrc: string;
   prompt: string;
@@ -68,7 +71,8 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  promptId?: string;
   src: string;
   fullSrc: string;
   prompt: string;
@@ -107,10 +111,10 @@ export type GalleryEntry = {
   /** Optional owner note on a starred piece, shown on the card. */
   starNote?: string;
   packMemberCount?: number;
-  /** Member count for stack entries (galleryItemType "storybook" / "beat"). */
+  /** Member count for stack entries (galleryItemType "storybook"). */
   storybookCount?: number;
-  /** Beat entries: every member thumb (cover first) for the hover peek fan. */
-  peekThumbs?: string[];
+  /** Step count for workflow entries (galleryItemType "workflow"). */
+  stepCount?: number;
   size?: number;
   totalSize?: number;
   cinemaMetadata?: CinemaMetadata | null;
@@ -219,6 +223,7 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
   galleryItemId: asset._id,
   galleryItemType: "asset",
+  promptId: asset.promptId ?? undefined,
   src: displaySrc(asset),
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
@@ -257,6 +262,7 @@ const buildEntry = (
     packId: cover.assetPackId ?? undefined,
     galleryItemId: cover.assetPackId ?? cover._id,
     galleryItemType: cover.assetPackId ? "pack" : "asset",
+    promptId: cover.promptId ?? undefined,
     src: displaySrc(cover),
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",

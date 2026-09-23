@@ -41,7 +41,8 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    promptId?: string;
     src: string;
     fullSrc: string;
     prompt: string;
@@ -77,7 +78,8 @@ interface ImageCardProps {
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+      promptId?: string;
       src: string;
       fullSrc: string;
       prompt: string;
@@ -88,11 +90,16 @@ interface ImageCardProps {
     }>;
   };
   eager?: boolean;
+  /** Native `loading` for the tile's <img>. The masonry grid windows its own
+      rows, so it asks for "eager": a mounted tile should fetch at once
+      instead of waiting for the browser's lazy threshold. */
+  mediaLoading?: "eager" | "lazy";
   onSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    promptId?: string;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -116,7 +123,8 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+        promptId?: string;
         src: string;
         fullSrc: string;
         prompt: string;
@@ -147,6 +155,15 @@ interface ImageCardProps {
   starrable?: boolean;
   onToggleStar?: (imageId: string, nextStarred: boolean) => void;
   showPublicBadge?: boolean;
+  /** Hide the hover "Prompt" chip and its sheet. The public surface keeps
+      prompts to the lightbox. */
+  showPromptChip?: boolean;
+  /** How long the pointer rests on a video tile before it plays. 0 plays on
+      hover; the vault's default waits out a swept cursor. */
+  videoHoverDelayMs?: number;
+  /** Keep the <video> element mounted while idle (metadata preloaded), so a
+      hover starts playback without a mount and a fetch first. */
+  mountVideoAtRest?: boolean;
   collections?: CollectionOption[];
   onMoveToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
   onCopyToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
@@ -154,9 +171,6 @@ interface ImageCardProps {
   onCreateCollection?: (name: string) => Promise<string | null>;
   /** Rename a collection from the card's collection menu. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
-  /** Projects the asset can be sent to via the collection menu (→ Inbox). */
-  projects?: CollectionOption[];
-  onAddToProject?: (imageId: string, projectId: string) => Promise<void> | void;
   /** Owner-only: hover surfaces the asset's tags as chips; clicking one
       removes that tag from the asset. */
   onRemoveTag?: (imageId: string, tagName: string) => void;
@@ -167,8 +181,7 @@ interface ImageCardProps {
   /** Name of that scope — the button's tooltip says where the piece leaves. */
   excludeLabel?: string;
   /** The scope's folder, when it is one: the button only shows on tiles that
-      are actually filed there, so a click always does something. Omitted for
-      project browse, where membership spans the project's whole pool. */
+      are actually filed there, so a click always does something. */
   excludeFolderId?: string;
 }
 
@@ -191,6 +204,7 @@ function claimActiveHoverVideo(next: HTMLVideoElement | null) {
 export const ImageCard = memo(function ImageCard({
   image,
   eager = false,
+  mediaLoading = "lazy",
   onSelect,
   selectedId,
   initiallyLoaded = false,
@@ -210,14 +224,15 @@ export const ImageCard = memo(function ImageCard({
   starrable = false,
   onToggleStar,
   showPublicBadge = false,
+  showPromptChip = true,
+  videoHoverDelayMs = VIDEO_HOVER_DELAY_MS,
+  mountVideoAtRest = false,
   collections,
   onMoveToCollection,
   onCopyToCollection,
   onRemoveFromCollection,
   onCreateCollection,
   onRenameCollection,
-  projects,
-  onAddToProject,
   onRemoveTag,
   onExcludeFromView,
   excludeLabel,
@@ -363,6 +378,8 @@ export const ImageCard = memo(function ImageCard({
     setIsLoading(false);
   };
 
+  // `priority` already implies eager; passing both trips a Next warning.
+  const imgLoading = eager ? undefined : mediaLoading;
   const responsiveSizes = isVideo
     ? "(max-width: 640px) 100vw, (max-width: 1024px) 66vw, (max-width: 1280px) 50vw, 40vw"
     : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
@@ -442,6 +459,7 @@ export const ImageCard = memo(function ImageCard({
       packId: image.packId,
       galleryItemId,
       galleryItemType,
+      promptId: image.promptId,
       thumbSrc: image.src,
       fullSrc: image.fullSrc,
       prompt: image.prompt,
@@ -698,6 +716,7 @@ export const ImageCard = memo(function ImageCard({
               fill
               sizes={responsiveSizes}
               priority={eager}
+              loading={imgLoading}
               className={`object-cover transition-transform duration-200 group-hover:scale-[1.02] ${
                 isLoading ? "opacity-0" : "opacity-100"
               }`}
@@ -773,10 +792,14 @@ export const ImageCard = memo(function ImageCard({
         }
         if (isVideo && ENABLE_VIDEO_HOVER_PLAYBACK) {
           clearVideoHoverTimer();
-          videoHoverTimerRef.current = window.setTimeout(() => {
+          if (videoHoverDelayMs <= 0) {
             setVideoActive(true);
-            videoHoverTimerRef.current = null;
-          }, VIDEO_HOVER_DELAY_MS);
+          } else {
+            videoHoverTimerRef.current = window.setTimeout(() => {
+              setVideoActive(true);
+              videoHoverTimerRef.current = null;
+            }, videoHoverDelayMs);
+          }
         }
       }}
       onMouseLeave={() => {
@@ -847,6 +870,7 @@ export const ImageCard = memo(function ImageCard({
                 fill
                 sizes={responsiveSizes}
                 priority={eager}
+                loading={imgLoading}
                 className={`object-contain transition-opacity duration-150 ${
                   isLoading ? "opacity-0" : "opacity-100"
                 }`}
@@ -855,7 +879,7 @@ export const ImageCard = memo(function ImageCard({
                 unoptimized
               />
             )}
-            {(videoActive || !hasThumb) && (
+            {(videoActive || !hasThumb || mountVideoAtRest) && (
               <video
                 ref={videoRef}
                 src={activeFullSrc}
@@ -893,6 +917,7 @@ export const ImageCard = memo(function ImageCard({
             fill
             sizes={responsiveSizes}
             priority={eager}
+            loading={imgLoading}
             className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
               isLoading ? "opacity-0" : "opacity-100"
             }`}
@@ -999,8 +1024,6 @@ export const ImageCard = memo(function ImageCard({
             onRemove={onRemoveFromCollection}
             onCreate={onCreateCollection}
             onRename={onRenameCollection}
-            projects={projects}
-            onAddToProject={onAddToProject}
             positionClassName="pointer-events-auto z-20"
           />
         )}
@@ -1039,15 +1062,17 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model + filing badges — bottom-left, always visible. Suppressed on cinema-inspiration. */}
+      {/* Model + filing badges — bottom-left, revealed on hover so the tile
+          reads clean at rest. When a Prompt chip renders in the same corner
+          the row sits to its right. Suppressed on cinema-inspiration. */}
       {!isCinema &&
         (image.modelName ||
           image.typeLabel ||
           (image.collectionLabels?.length ?? 0) > 0 ||
           (showPublicBadge && image.isPublic)) && (
         <div
-          className={`absolute left-2 z-10 flex max-w-[85%] flex-wrap items-center gap-1.5 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0 ${
-            starNote ? "bottom-9" : "bottom-2"
+          className={`absolute bottom-2 z-10 flex max-w-[70%] flex-wrap items-center gap-1.5 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 ${
+            hasPrompt && showPromptChip ? "left-[5.75rem]" : "left-2"
           }`}
         >
           {/* What the piece IS — character / location / scene. Coral so it
@@ -1200,7 +1225,7 @@ export const ImageCard = memo(function ImageCard({
 
       {/* "Prompt" chip — bottom-left on card hover. Hovering it reveals the
           prompt sheet; clicking copies the prompt. */}
-      {!isCinema && hasPrompt && (
+      {!isCinema && hasPrompt && showPromptChip && (
         <button
           type="button"
           onClick={(event) => {
@@ -1225,7 +1250,7 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Prompt sheet — feathered blur panel, shown only while hovering the
           chip or the sheet itself. Click anywhere on the text copies. */}
-      {!isCinema && hasPrompt && promptOpen && (
+      {!isCinema && hasPrompt && showPromptChip && promptOpen && (
         <div
           className="absolute inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden p-3 pb-11 pt-5 lm-animate-fade-in"
           style={{ maxHeight: isVideo ? "40%" : "62%" }}

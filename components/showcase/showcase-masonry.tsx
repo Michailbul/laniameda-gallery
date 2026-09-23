@@ -25,6 +25,7 @@ export function ShowcaseMasonry({
   labels,
   onSetCover,
   coverAssetId,
+  preloadVideos = false,
 }: {
   assets: ShowcaseAsset[];
   loading?: boolean;
@@ -40,6 +41,9 @@ export function ShowcaseMasonry({
   /** Owner-only: make the open piece this set's thumbnail. */
   onSetCover?: (asset: ShowcaseAsset) => Promise<void> | void;
   coverAssetId?: string;
+  /** Keep video tiles mounted at rest and play on hover without a delay —
+      for a grid that is mostly motion. */
+  preloadVideos?: boolean;
 }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -89,6 +93,8 @@ export function ShowcaseMasonry({
         loading={loading}
         onImageSelect={openFromCard}
         onEndReached={onEndReached}
+        mountVideoAtRest={preloadVideos}
+        videoHoverDelayMs={preloadVideos ? 0 : undefined}
       />
       {lightboxIndex !== null && (
         <ShowcaseLightbox

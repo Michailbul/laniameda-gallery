@@ -6,6 +6,7 @@ import { syncPromptAssetPack } from "./assetPackHelpers";
 import { bumpTagUsage, dedupeIds } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   modelProviderValidator,
   optionalPillarValidator,
@@ -329,6 +330,160 @@ export const getPrompt = query({
       return null;
     }
     return prompt;
+  },
+});
+
+const promptContextMediaValidator = v.object({
+  id: v.id("assets"),
+  kind: v.union(v.literal("image"), v.literal("video")),
+  url: v.optional(v.string()),
+  thumbUrl: v.optional(v.string()),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  description: v.optional(v.string()),
+  createdAt: v.number(),
+});
+
+const promptContextStepValidator = v.object({
+  promptId: v.id("prompts"),
+  stepOrder: v.number(),
+  stepLabel: v.optional(v.string()),
+  modelName: v.optional(v.string()),
+  promptType: promptTypeValidator,
+  finalPrompt: v.string(),
+  mediaCount: v.number(),
+  coverThumbUrl: v.optional(v.string()),
+  coverKind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+});
+
+// Everything the detail panel needs to show a prompt as a MODULE rather than
+// a flat string: its sections, every file that shares it (a still and the cut
+// it came from, the four variations of a pack), and — when the prompt is a
+// workflow step — the workflow around it with every sibling step's prompt,
+// so the image prompts that fed a video are one click away from the video.
+//
+// Deliberately a separate query from the grid read: the list path stays a
+// flat `promptText`, and this only runs for the one open asset.
+export const getPromptContext = query({
+  args: {
+    id: v.id("prompts"),
+    ownerUserId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("prompts"),
+      text: v.string(),
+      promptSections: promptSectionsValidator,
+      promptType: promptTypeValidator,
+      modelName: v.optional(v.string()),
+      modelProvider: modelProviderValidator,
+      createdAt: v.number(),
+      media: v.array(promptContextMediaValidator),
+      workflow: v.optional(
+        v.object({
+          _id: v.id("workflows"),
+          title: v.string(),
+          stepCount: v.number(),
+          stepOrder: v.number(),
+          stepLabel: v.optional(v.string()),
+          isPublic: v.optional(v.boolean()),
+          steps: v.array(promptContextStepValidator),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const prompt = await ctx.db.get(args.id);
+    if (!prompt) return null;
+
+    const workflow = prompt.workflowId
+      ? await ctx.db.get(prompt.workflowId)
+      : null;
+    const isOwner =
+      Boolean(args.ownerUserId) &&
+      canActorAccessOwnerUserId(args.ownerUserId!, prompt.ownerUserId);
+    // A public workflow's steps read like the workflow itself; anything else
+    // is the owner's alone.
+    if (!isOwner && !workflow?.isPublic) return null;
+
+    const assets = await ctx.db
+      .query("assets")
+      .withIndex("by_prompt_createdAt", (q) =>
+        q.eq("promptId", prompt._id).gte("createdAt", 0),
+      )
+      .collect();
+    assets.sort((a, b) => a.createdAt - b.createdAt);
+
+    const media = [];
+    for (const asset of assets) {
+      media.push({
+        id: asset._id,
+        kind: asset.kind,
+        url: await resolveAssetUrl(ctx, asset),
+        thumbUrl: await resolveAssetThumbUrl(ctx, asset),
+        width: asset.width,
+        height: asset.height,
+        description: asset.description,
+        createdAt: asset.createdAt,
+      });
+    }
+
+    let workflowContext;
+    if (workflow) {
+      const stepPrompts = await ctx.db
+        .query("prompts")
+        .withIndex("by_workflow_stepOrder", (q) =>
+          q.eq("workflowId", workflow._id),
+        )
+        .order("asc")
+        .collect();
+
+      const steps = [];
+      for (const step of stepPrompts) {
+        const stepAssets = await ctx.db
+          .query("assets")
+          .withIndex("by_prompt_createdAt", (q) =>
+            q.eq("promptId", step._id).gte("createdAt", 0),
+          )
+          .collect();
+        stepAssets.sort((a, b) => a.createdAt - b.createdAt);
+        const cover = stepAssets[0];
+        steps.push({
+          promptId: step._id,
+          stepOrder: step.workflowStepOrder ?? 0,
+          stepLabel: step.workflowStepLabel,
+          modelName: step.modelName,
+          promptType: step.promptType,
+          finalPrompt: step.promptSections?.finalPrompt?.trim() || step.text,
+          mediaCount: stepAssets.length,
+          coverThumbUrl: cover ? await resolveAssetThumbUrl(ctx, cover) : undefined,
+          coverKind: cover?.kind,
+        });
+      }
+
+      workflowContext = {
+        _id: workflow._id,
+        title: workflow.title,
+        stepCount: workflow.stepCount,
+        stepOrder: prompt.workflowStepOrder ?? 0,
+        stepLabel: prompt.workflowStepLabel,
+        isPublic: workflow.isPublic,
+        steps,
+      };
+    }
+
+    return {
+      _id: prompt._id,
+      text: prompt.text,
+      promptSections: prompt.promptSections,
+      promptType: prompt.promptType,
+      modelName: prompt.modelName,
+      modelProvider: prompt.modelProvider,
+      createdAt: prompt.createdAt,
+      media,
+      workflow: workflowContext,
+    };
   },
 });
 

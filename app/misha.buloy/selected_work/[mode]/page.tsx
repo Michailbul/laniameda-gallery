@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import "@/app/tokens.css";
 import { PUBLIC_MODES, isPublicMode } from "@/lib/public-modes";
-import { TasteProfileClient } from "../taste-profile-client";
+import { SelectedWorkClient } from "../selected-work-client";
 
 // One page per view. The segment is validated against PUBLIC_MODES, so an
 // invented URL 404s instead of quietly rendering Featured.
@@ -21,11 +21,12 @@ export async function generateMetadata({
 
   return {
     title: `${entry.label} — Misha Buloichyk`,
-    description: entry.blurb,
+    // A view without a blurb falls back to its title rather than an empty tag.
+    description: entry.blurb || entry.title,
   };
 }
 
-export default async function TasteProfileModePage({
+export default async function SelectedWorkModePage({
   params,
 }: {
   params: Promise<{ mode: string }>;
@@ -35,7 +36,7 @@ export default async function TasteProfileModePage({
 
   return (
     <div style={{ background: "var(--lm-paper)" }}>
-      <TasteProfileClient mode={mode} />
+      <SelectedWorkClient mode={mode} />
     </div>
   );
 }

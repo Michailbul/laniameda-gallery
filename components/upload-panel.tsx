@@ -47,16 +47,10 @@ export type FolderOption = {
   _id: string;
   name: string;
   description?: string | null;
-  /** Undefined = a plain collection; projects/beats/storybooks are typed. */
-  kind?: "storybook" | "project" | "beat" | "episode";
+  /** Undefined = a plain collection; storybooks are typed. */
+  kind?: "storybook";
+  /** Set on a folder inside a root collection (one level deep). */
   parentFolderId?: string;
-};
-
-/** A world (showcased project) plus the section folders it already owns. */
-export type UploadWorld = {
-  _id: string;
-  name: string;
-  members: { folderId: string; name: string; section?: string }[];
 };
 
 type StatusMessage = {
@@ -67,10 +61,6 @@ type StatusMessage = {
 export type UploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
-  /** Projects (folders with kind:"project") the asset can be filed into. */
-  projects?: FolderOption[];
-  /** Worlds with their existing sections — offered as destinations by name. */
-  worlds?: UploadWorld[];
   ownerUserId?: string;
   /** Whether this user may promote saves straight into the public gallery. */
   canPromoteToPublic?: boolean;
@@ -88,28 +78,6 @@ type FilePreview = {
 };
 
 const NO_VALUE = "__none";
-
-/**
- * Destinations that don't exist yet are picked as intent and resolved on save:
- * a section pool is created on demand, a beat is created and linked, and the
- * project inbox needs no folder at all.
- */
-const NEW_POOL_PREFIX = "new-pool:";
-const NEW_BEAT_PREFIX = "new-beat:";
-const INBOX_PREFIX = "inbox:";
-
-const POOL_SECTIONS = [
-  { section: "characters", label: "Characters" },
-  { section: "locations", label: "Locations" },
-  { section: "stills", label: "Stills" },
-] as const;
-
-const SECTION_META: Record<string, string> = {
-  beats: "beat",
-  characters: "character",
-  locations: "location",
-  stills: "still",
-};
 
 const MODEL_NAME_OPTIONS = [
   // Image models
@@ -171,14 +139,9 @@ const ASSET_ROLE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
-const beatNameFromFile = (fileName: string) =>
-  fileName.replace(/\.[^.]+$/, "").slice(0, 60) || "Beat";
-
 export function UploadPanel({
   availableTags = [],
   folders = [],
-  projects = [],
-  worlds = [],
   ownerUserId,
   canPromoteToPublic = false,
   onDataChanged,
@@ -311,103 +274,67 @@ export function UploadPanel({
     return unique.slice(0, 6);
   }, [availableTags]);
 
-  // Folders that are really a world's section are reachable under their world
-  // below — listing them flat as "collections" is what made the old drop list
-  // 76 rows of "DADDY ISSUES — Characters".
-  // Worlds carry their sections; a plain project with none still deserves an
-  // inbox row, so fall back to the project list when no world was passed.
-  const worldGroupSources = useMemo<UploadWorld[]>(
-    () =>
-      worlds.length > 0
-        ? worlds
-        : projects.map((project) => ({
-            _id: project._id,
-            name: project.name,
-            members: [],
-          })),
-    [projects, worlds],
-  );
-
-  const worldMemberIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const world of worldGroupSources) {
-      for (const member of world.members) ids.add(member.folderId);
-    }
-    return ids;
-  }, [worldGroupSources]);
-
+  // Root collections first; a collection with folders inside gets its own
+  // group (the collection itself, then its folders), so filing into a folder
+  // reads as "CASSANDRA › Balcony" rather than one flat alphabetical list.
   const destinationGroups = useMemo<DestinationGroup[]>(() => {
     const known = new Set(folders.map((folder) => folder._id));
-    const collections = [
-      ...folders.filter(
-        (folder) => !folder.kind && !worldMemberIds.has(folder._id),
-      ),
+    const all = [
+      ...folders.filter((folder) => !folder.kind),
       ...createdFolders.filter((folder) => !known.has(folder._id)),
-    ].sort((left, right) => left.name.localeCompare(right.name));
+    ];
+    const children = new Map<string, FolderOption[]>();
+    for (const folder of all) {
+      if (!folder.parentFolderId) continue;
+      const list = children.get(folder.parentFolderId) ?? [];
+      list.push(folder);
+      children.set(folder.parentFolderId, list);
+    }
+    const byName = (left: FolderOption, right: FolderOption) =>
+      left.name.localeCompare(right.name);
+    const roots = all.filter((folder) => !folder.parentFolderId).sort(byName);
 
     const groups: DestinationGroup[] = [];
-    if (collections.length > 0 || createdFolders.length > 0) {
+    const flat = roots.filter((root) => !children.has(root._id));
+    if (flat.length > 0) {
       groups.push({
         key: "collections",
         label: "Collections",
-        options: collections.map((folder) => ({
-          id: folder._id,
-          name: folder.name,
-        })),
+        options: flat.map((folder) => ({ id: folder._id, name: folder.name })),
       });
     }
-
-    for (const world of worldGroupSources) {
-      const existingSections = new Set(
-        world.members
-          .map((member) => member.section)
-          .filter((section): section is string => Boolean(section)),
-      );
+    for (const root of roots) {
+      const inside = children.get(root._id);
+      if (!inside) continue;
       groups.push({
-        key: world._id,
-        label: `${world.name} · world`,
+        key: root._id,
+        label: root.name,
         options: [
-          // Existing sections and named beats, by name. Episodes group beats
-          // and hold no assets, so they are never a destination.
-          ...world.members
-            .filter((member) => member.section !== "episodes")
-            .map((member) => ({
-              id: member.folderId,
-              name: member.name,
-              meta: member.section ? SECTION_META[member.section] : undefined,
-            })),
-          // Pools this world hasn't opened yet — created on save.
-          ...POOL_SECTIONS.filter(
-            (pool) => !existingSections.has(pool.section),
-          ).map((pool) => ({
-            id: `${NEW_POOL_PREFIX}${world._id}:${pool.section}`,
-            name: pool.label,
-            meta: "new pool",
+          { id: root._id, name: root.name, meta: "collection" },
+          ...inside.sort(byName).map((child) => ({
+            id: child._id,
+            name: child.name,
+            meta: "folder",
           })),
-          {
-            id: `${NEW_BEAT_PREFIX}${world._id}`,
-            name: selectedFiles[0]
-              ? `New beat — ${beatNameFromFile(selectedFiles[0].name)}`
-              : "New beat",
-            meta: "new beat",
-          },
-          {
-            id: `${INBOX_PREFIX}${world._id}`,
-            name: "Inbox — sort later",
-            meta: "inbox",
-          },
         ],
       });
     }
-
     return groups;
-  }, [createdFolders, folders, selectedFiles, worldGroupSources, worldMemberIds]);
+  }, [createdFolders, folders]);
+
+  const destinationParents = useMemo(
+    () =>
+      folders
+        .filter((folder) => !folder.kind && !folder.parentFolderId)
+        .map((folder) => ({ id: folder._id, name: folder.name })),
+    [folders],
+  );
 
   const impliedAssetTypeTag = useMemo(() => {
     const destinationNames = destinationIds.flatMap((destinationId) => {
       for (const group of destinationGroups) {
         const option = group.options.find((entry) => entry.id === destinationId);
-        if (option) return [option.meta ?? option.name];
+        if (option) return [option.name];
       }
       return [];
     });
@@ -497,7 +424,7 @@ export function UploadPanel({
     setStatus(null);
   };
 
-  const handleCreateFolder = async (name: string) => {
+  const handleCreateFolder = async (name: string, parentFolderId?: string) => {
     const normalizedOwnerUserId = ownerUserId?.trim();
     if (!normalizedOwnerUserId) {
       setStatus({ type: "error", message: "Sign in to create collections." });
@@ -514,11 +441,11 @@ export function UploadPanel({
       }>("/api/folders", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: name.trim(), parentFolderId }),
       });
       setCreatedFolders((previous) => [
         ...previous.filter((folder) => folder._id !== result.folder._id),
-        { _id: result.folder._id, name: name.trim() },
+        { _id: result.folder._id, name: name.trim(), parentFolderId },
       ]);
       setDestinationIds((previous) =>
         previous.includes(result.folder._id)
@@ -527,7 +454,11 @@ export function UploadPanel({
       );
       setStatus({
         type: "success",
-        message: result.created ? "Collection created." : "Using existing collection.",
+        message: result.created
+          ? parentFolderId
+            ? "Folder created."
+            : "Collection created."
+          : "Using existing collection.",
       });
       onDataChanged?.();
     } catch (error) {
@@ -540,59 +471,7 @@ export function UploadPanel({
   };
 
   const uploadVideo = useUploadFile(api.r2);
-  const addAssetsToProject = useMutation(api.projects.addAssetsToProject);
   const addAssetFolders = useMutation(api.assets.addAssetFolders);
-  const createFolder = useMutation(api.folders.createFolder);
-  const addCollectionToProject = useMutation(api.projects.addCollectionToProject);
-  const ensureSectionPool = useMutation(api.projects.ensureSectionPool);
-
-  /**
-   * Turn the picked destinations into real folder ids, creating pools and beats
-   * on the way. Returns the project ids that only wanted the inbox separately —
-   * those file the asset without a folder of their own.
-   */
-  const resolveDestinations = async (fileName: string) => {
-    const folderIds: string[] = [];
-    const inboxProjectIds: string[] = [];
-    if (!ownerUserId) return { folderIds, inboxProjectIds };
-
-    for (const id of destinationIds) {
-      if (id.startsWith(INBOX_PREFIX)) {
-        inboxProjectIds.push(id.slice(INBOX_PREFIX.length));
-        continue;
-      }
-      if (id.startsWith(NEW_POOL_PREFIX)) {
-        const [projectId, section] = id
-          .slice(NEW_POOL_PREFIX.length)
-          .split(":");
-        const pool = await ensureSectionPool({
-          ownerUserId,
-          projectId: projectId as Id<"folders">,
-          section: section as "characters" | "locations" | "stills",
-        });
-        folderIds.push(pool.folderId as string);
-        continue;
-      }
-      if (id.startsWith(NEW_BEAT_PREFIX)) {
-        const projectId = id.slice(NEW_BEAT_PREFIX.length);
-        const created = await createFolder({
-          ownerUserId,
-          name: beatNameFromFile(fileName),
-          kind: "beat",
-        });
-        await addCollectionToProject({
-          ownerUserId,
-          projectId: projectId as Id<"folders">,
-          folderId: created.folderId,
-          section: "beats",
-        });
-        folderIds.push(created.folderId as string);
-        continue;
-      }
-      folderIds.push(id);
-    }
-    return { folderIds, inboxProjectIds };
-  };
 
   const handleSubmit = async () => {
     if (isUploading) return;
@@ -657,9 +536,7 @@ export function UploadPanel({
         promptText,
         allowPromptOnly: isPromptOnlyDraft && saveAsTextOnlyPrompt,
         url: urlInput,
-        // Destinations are attached after the save. A new beat or pool is a real
-        // folder, and creating one up front would litter the world with empties
-        // every time an upload failed.
+        // Destinations are attached after the save, through addAssetFolders.
         tags: tagsForSave,
         file: isVideoUpload || isLargeImageUpload ? null : candidateFile,
         modelName: resolvedModelName,
@@ -731,7 +608,7 @@ export function UploadPanel({
       }
 
       // Ingest is synchronous and returns the freshly-created asset id — chain
-      // the extra destinations, project filing and curation off it. All are
+      // the extra destinations and curation off it. All are
       // best-effort: the asset is already saved, so a follow-up failure
       // downgrades to a warning rather than losing the save.
       const savedAssetId =
@@ -745,23 +622,11 @@ export function UploadPanel({
 
       if (savedAssetId && destinationIds.length > 0 && ownerUserId?.trim()) {
         try {
-          const { folderIds, inboxProjectIds } = await resolveDestinations(
-            candidateFile?.name || promptText.trim().slice(0, 60) || "Beat",
-          );
-          if (folderIds.length > 0) {
-            await addAssetFolders({
-              ownerUserId,
-              assetId: savedAssetId as Id<"assets">,
-              folderIds: folderIds as Id<"folders">[],
-            });
-          }
-          for (const projectId of inboxProjectIds) {
-            await addAssetsToProject({
-              ownerUserId,
-              projectId: projectId as Id<"folders">,
-              assetIds: [savedAssetId as Id<"assets">],
-            });
-          }
+          await addAssetFolders({
+            ownerUserId,
+            assetId: savedAssetId as Id<"assets">,
+            folderIds: destinationIds as Id<"folders">[],
+          });
         } catch {
           followupNotes.push("couldn’t file it into every destination");
         }
@@ -1357,7 +1222,13 @@ export function UploadPanel({
                   groups={destinationGroups}
                   selectedIds={destinationIds}
                   onToggle={toggleDestination}
-                  onCreate={canCreateFolders ? handleCreateFolder : undefined}
+                  onCreate={canCreateFolders ? (name) => handleCreateFolder(name) : undefined}
+                  parents={destinationParents}
+                  onCreateInside={
+                    canCreateFolders
+                      ? (parentId, name) => handleCreateFolder(name, parentId)
+                      : undefined
+                  }
                   creating={creatingFolder}
                   disabled={isUploading}
                 />

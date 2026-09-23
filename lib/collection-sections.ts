@@ -92,7 +92,7 @@ const ASSET_TYPE_TAG_BY_SECTION: Partial<Record<
  * A destination named Characters/Locations/Scenes already says what its
  * members are. This is the single inference rule used by upload and filing
  * surfaces so they never ask for the same classification twice.
- * `sectionKeyForTagName` keeps the older Stills project-section alias working.
+ * `sectionKeyForTagName` keeps the older Stills alias working.
  */
 export const assetTypeTagForCollectionName = (
   collectionName: string | null | undefined,

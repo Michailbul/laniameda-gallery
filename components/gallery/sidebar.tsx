@@ -12,17 +12,13 @@ import {
   FolderOpen,
   Globe,
   Home,
-  Layers,
-  Maximize2,
   Moon,
   Pencil,
   Plus,
-  Search,
   Sparkles,
   Star,
   Sun,
   Trash2,
-  LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -34,11 +30,6 @@ import {
   readAssetDragPayload,
 } from "@/lib/asset-drag";
 import { compareCollectionSectionNames } from "@/lib/collection-sections";
-
-interface ModelTag {
-  name: string;
-  usageCount: number;
-}
 
 interface User {
   email?: string | null;
@@ -56,10 +47,6 @@ interface Folder {
 }
 
 interface GallerySidebarProps {
-  modelTags: ModelTag[];
-  hideModelsSection?: boolean;
-  selectedModelName: string | null;
-  onModelSelect: (name: string | null) => void;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   onUploadClick: () => void;
@@ -74,7 +61,6 @@ interface GallerySidebarProps {
   onGalleryHome?: () => void;
   user?: User | null;
   onSignOut?: () => void;
-  imageCount?: number;
   folders?: Folder[];
   selectedFolderId?: string | null;
   onFolderSelect?: (folderId: string | null) => void;
@@ -86,21 +72,7 @@ interface GallerySidebarProps {
   onCreateStorybook?: (name: string) => Promise<string | null>;
   /** Dropping assets on a storybook ADDS them (keeps existing collections). */
   onAssetsDropOnStorybook?: (storybookId: string, assetIds: string[]) => void;
-  /** Projects — rows open the fullscreen review workspace. */
-  projects?: ProjectEntry[];
-  /** The project whose review workspace is currently open, if any. */
-  activeProjectId?: string | null;
-  onProjectOpen?: (projectId: string) => void;
-  /** Expands the project's assets in the main gallery grid (breadcrumb view).
-   * When set, it's the row's primary click; the review workspace moves to a
-   * hover control. */
-  onProjectBrowse?: (projectId: string) => void;
-  onCreateProject?: (name: string) => Promise<string | null>;
-  /** Dropping assets on a project files them into its Inbox beat. */
-  onAssetsDropOnProject?: (projectId: string, assetIds: string[]) => void;
-  /** Dropping assets on a beat ADDS them to that collection. */
-  onAssetsDropOnBeat?: (beatId: string, assetIds: string[]) => void;
-  /** Manage any folder-backed row (collection / storybook / project). */
+  /** Manage any folder-backed row (collection / storybook). */
   onRenameFolder?: (folderId: string, name: string) => Promise<void> | void;
   /** Deletes the folder; its assets stay in the gallery. */
   onDeleteFolder?: (folderId: string) => Promise<void> | void;
@@ -131,19 +103,7 @@ interface GallerySidebarProps {
   onToggleFolderPublic?: (folderId: string, next: boolean) => void;
 }
 
-interface ProjectEntry extends Folder {
-  /** Member beats (collections), for expandable drop targets. */
-  beats?: { id: string; name: string }[];
-  /** The world this project sits inside, when it's been filed into one.
-   * Shown as a ghost prefix so the world > project tier reads at a glance. */
-  worldName?: string;
-}
-
 export function GallerySidebar({
-  modelTags,
-  hideModelsSection = false,
-  selectedModelName,
-  onModelSelect,
   collapsed,
   onCollapsedChange,
   onUploadClick,
@@ -155,7 +115,6 @@ export function GallerySidebar({
   onGalleryHome,
   user,
   onSignOut,
-  imageCount,
   folders = [],
   selectedFolderId,
   onFolderSelect,
@@ -164,13 +123,6 @@ export function GallerySidebar({
   onStorybookOpen,
   onCreateStorybook,
   onAssetsDropOnStorybook,
-  projects = [],
-  activeProjectId,
-  onProjectOpen,
-  onProjectBrowse,
-  onCreateProject,
-  onAssetsDropOnProject,
-  onAssetsDropOnBeat,
   onRenameFolder,
   onDeleteFolder,
   showcasedFolderIds,
@@ -208,9 +160,18 @@ export function GallerySidebar({
     }
   };
 
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [projectDraft, setProjectDraft] = useState("");
-  const [projectBusy, setProjectBusy] = useState(false);
+  // Root collections whose sub-collections are showing. The selected one
+  // (or the parent of a selected sub-collection) is always open.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (folderId: string, next?: boolean) =>
+    setExpandedIds((prev) => {
+      const open = next ?? !prev.has(folderId);
+      if (open === prev.has(folderId)) return prev;
+      const copy = new Set(prev);
+      if (open) copy.add(folderId);
+      else copy.delete(folderId);
+      return copy;
+    });
 
   // Inline root-collection create (COLLECTIONS header "+").
   const [creatingCollection, setCreatingCollection] = useState(false);
@@ -276,45 +237,9 @@ export function GallerySidebar({
     return { rootFolders: roots, childrenByParent: children };
   }, [folders]);
 
-  const submitProjectDraft = async () => {
-    const name = projectDraft.trim();
-    if (!name || !onCreateProject || projectBusy) return;
-    setProjectBusy(true);
-    try {
-      // createProject opens the review workspace itself.
-      const projectId = await onCreateProject(name);
-      if (projectId) {
-        setCreatingProject(false);
-        setProjectDraft("");
-      }
-    } finally {
-      setProjectBusy(false);
-    }
-  };
-
   const sidebarWidth = collapsed
     ? "var(--lm-sidebar-collapsed)"
     : "var(--lm-sidebar-width)";
-
-  const sortedModels = useMemo(
-    () =>
-      [...modelTags].sort((a, b) => {
-        const usageDiff = b.usageCount - a.usageCount;
-        if (usageDiff !== 0) return usageDiff;
-        return a.name.localeCompare(b.name);
-      }),
-    [modelTags],
-  );
-
-  const focusFilterBar = () => {
-    if (typeof window === "undefined") return;
-    const target = document.getElementById("gallery-filter-bar");
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      return;
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
   return (
     <aside
@@ -409,14 +334,6 @@ export function GallerySidebar({
           active={isGalleryActive && !storybooksTabActive}
           collapsed={collapsed}
           onClick={onGalleryHome}
-        />
-        <NavItem
-          icon={Search}
-          label="Search"
-          href="#"
-          active={false}
-          collapsed={collapsed}
-          onClick={focusFilterBar}
         />
         <NavItem
           icon={Plus}
@@ -586,110 +503,6 @@ export function GallerySidebar({
                 </div>
               )}
 
-            {/* Projects — every project doubles as a collection: clicking a
-                row expands its whole asset pool in the main gallery grid
-                (breadcrumb view). The review workspace stays a separate view,
-                opened from the row's hover control. */}
-            {onProjectOpen &&
-              (projects.length > 0 || Boolean(onCreateProject)) && (
-                <div
-                  style={{
-                    borderBottom: "1px solid var(--lm-sidebar-divider)",
-                  }}
-                >
-                  <div className="flex items-center justify-between px-4 py-2.5">
-                    <span
-                      style={{
-                        fontSize: "8px",
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.20em",
-                        color: "var(--lm-sidebar-text-ghost)",
-                      }}
-                    >
-                      PROJECTS
-                    </span>
-                    {onCreateProject && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCreatingProject((prev) => !prev);
-                          setProjectDraft("");
-                        }}
-                        aria-label="New project"
-                        title="New project"
-                        style={{ color: "var(--lm-coral)" }}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                  {creatingProject && (
-                    <div className="px-4 pb-2.5">
-                      <input
-                        autoFocus
-                        value={projectDraft}
-                        disabled={projectBusy}
-                        onChange={(event) =>
-                          setProjectDraft(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            void submitProjectDraft();
-                          }
-                          if (event.key === "Escape") {
-                            setCreatingProject(false);
-                            setProjectDraft("");
-                          }
-                        }}
-                        placeholder="Project name"
-                        className="w-full bg-transparent pb-1 outline-none"
-                        style={{
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.10em",
-                          color: "var(--lm-sidebar-text)",
-                          borderBottom: "1px solid var(--lm-coral)",
-                          caretColor: "var(--lm-coral)",
-                          opacity: projectBusy ? 0.5 : 1,
-                        }}
-                      />
-                    </div>
-                  )}
-                  {projects.map((project) => (
-                    <ProjectRow
-                      key={project._id}
-                      project={project}
-                      active={project._id === activeProjectId}
-                      onOpen={() => onProjectOpen(project._id)}
-                      onBrowse={
-                        onProjectBrowse
-                          ? () => onProjectBrowse(project._id)
-                          : undefined
-                      }
-                      onDropAssets={
-                        onAssetsDropOnProject
-                          ? (assetIds) =>
-                              onAssetsDropOnProject(project._id, assetIds)
-                          : undefined
-                      }
-                      onDropAssetsOnBeat={onAssetsDropOnBeat}
-                      onRename={
-                        onRenameFolder
-                          ? (name) => onRenameFolder(project._id, name)
-                          : undefined
-                      }
-                      onDelete={
-                        onDeleteFolder
-                          ? () => onDeleteFolder(project._id)
-                          : undefined
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-
             {/* Folders — dashboard.tsx controls which folders are passed in
                 per scope (all owned collections for "mine", a curated
                 public-facing allowlist for "public"), so no scope gate here. */}
@@ -783,11 +596,28 @@ export function GallerySidebar({
                   }
                   onClick={() => onFolderSelect(null)}
                 />
-                {rootFolders.map((folder) => (
+                {rootFolders.map((folder) => {
+                  const children = childrenByParent.get(folder._id) ?? [];
+                  const open =
+                    expandedIds.has(folder._id) ||
+                    selectedFolderId === folder._id ||
+                    children.some((child) => child._id === selectedFolderId);
+                  return (
                   <div key={folder._id}>
                     <FilterRow
                       label={folder.name}
                       count={folder.count}
+                      expanded={children.length > 0 ? open : undefined}
+                      onToggleExpand={
+                        children.length > 0
+                          ? () => toggleExpanded(folder._id, !open)
+                          : undefined
+                      }
+                      onDragEnterRow={
+                        children.length > 0
+                          ? () => toggleExpanded(folder._id, true)
+                          : undefined
+                      }
                       active={selectedFolderId === folder._id}
                       onClick={() =>
                         onFolderSelect(
@@ -840,6 +670,7 @@ export function GallerySidebar({
                               setSubCreateFor((prev) =>
                                 prev === folder._id ? null : folder._id,
                               );
+                              toggleExpanded(folder._id, true);
                               setSubDraft("");
                             }
                           : undefined
@@ -877,7 +708,7 @@ export function GallerySidebar({
                         />
                       </div>
                     )}
-                    {(childrenByParent.get(folder._id) ?? []).map((child) => (
+                    {open && children.map((child) => (
                       <FilterRow
                         key={child._id}
                         indent
@@ -914,162 +745,17 @@ export function GallerySidebar({
                       />
                     ))}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* Models — suppressed entirely when hideModelsSection (e.g. cinema pillar) */}
-            {!hideModelsSection && sortedModels.length > 0 && (
-              <div style={{ borderBottom: "1px solid var(--lm-sidebar-divider)" }}>
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <span
-                    style={{
-                      fontSize: "8px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.20em",
-                      color: "var(--lm-sidebar-text-ghost)",
-                    }}
-                  >
-                    MODELS
-                  </span>
-                  {selectedModelName && (
-                    <button
-                      type="button"
-                      onClick={() => onModelSelect(null)}
-                      style={{
-                        fontSize: "8px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--lm-coral)",
-                      }}
-                    >
-                      CLEAR
-                    </button>
-                  )}
-                </div>
-                <FilterRow
-                  icon={LayoutGrid}
-                  label="All models"
-                  active={selectedModelName === null}
-                  onClick={() => onModelSelect(null)}
-                />
-                {sortedModels.map((model) => (
-                  <FilterRow
-                    key={model.name}
-                    label={model.name}
-                    count={model.usageCount}
-                    active={selectedModelName === model.name}
-                    onClick={() =>
-                      onModelSelect(
-                        selectedModelName === model.name ? null : model.name,
-                      )
-                    }
-                  />
-                ))}
-              </div>
-            )}
           </div>
         )}
       </ScrollArea>
 
-      {/* Bottom: Stats + Profile */}
+      {/* Bottom: Profile */}
       <div className="flex flex-col mt-auto">
-        {/* Stats grid */}
-        {!collapsed && (
-          <div
-            className="grid grid-cols-2"
-            style={{ borderTop: "1px solid var(--lm-sidebar-divider)" }}
-          >
-            <div
-              className="px-4 py-3"
-              style={{ borderRight: "1px solid var(--lm-sidebar-divider)" }}
-            >
-              <p
-                style={{
-                  fontSize: "28px",
-                  fontWeight: 900,
-                  color: "var(--lm-sidebar-text)",
-                  lineHeight: 1,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {imageCount != null ? imageCount : "--"}
-              </p>
-              <p
-                className="mt-1"
-                style={{
-                  fontSize: "8px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.20em",
-                  color: "var(--lm-sidebar-text-ghost)",
-                }}
-              >
-                IMAGES
-              </p>
-            </div>
-            <div className="px-4 py-3">
-              <p
-                style={{
-                  fontSize: "28px",
-                  fontWeight: 900,
-                  color: "var(--lm-sidebar-text)",
-                  lineHeight: 1,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {modelTags.length}
-              </p>
-              <p
-                className="mt-1"
-                style={{
-                  fontSize: "8px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.20em",
-                  color: "var(--lm-sidebar-text-ghost)",
-                }}
-              >
-                MODELS
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Collapsed stats */}
-        {collapsed && (
-          <div
-            className="flex flex-col items-center px-1 py-3"
-            style={{ borderTop: "1px solid var(--lm-sidebar-divider)" }}
-          >
-            <p
-              style={{
-                fontSize: "18px",
-                fontWeight: 900,
-                color: "var(--lm-sidebar-text)",
-                lineHeight: 1,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {imageCount != null ? imageCount : "--"}
-            </p>
-            <p
-              className="mt-0.5"
-              style={{
-                fontSize: "7px",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
-                color: "var(--lm-sidebar-text-ghost)",
-              }}
-            >
-              IMG
-            </p>
-          </div>
-        )}
-
         {/* Appearance */}
         <div
           className="px-3 py-2"
@@ -1313,353 +999,6 @@ function NavItem({
   );
 }
 
-/* Project row — expandable, with per-beat drop targets. Dropping on the
-   project itself files assets into its Inbox beat; hovering a drag over
-   the row auto-expands it so a beat can be targeted directly. */
-
-function ProjectRow({
-  project,
-  active = false,
-  onOpen,
-  onBrowse,
-  onDropAssets,
-  onDropAssetsOnBeat,
-  onRename,
-  onDelete,
-}: {
-  project: ProjectEntry;
-  /** True while this project's review workspace is open. */
-  active?: boolean;
-  onOpen: () => void;
-  /** Expand the project's assets in the main gallery grid. When set it's the
-   * row's primary click and onOpen moves to a hover control. */
-  onBrowse?: () => void;
-  onDropAssets?: (assetIds: string[]) => void;
-  onDropAssetsOnBeat?: (beatId: string, assetIds: string[]) => void;
-  onRename?: (name: string) => Promise<void> | void;
-  onDelete?: () => Promise<void> | void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [renameDraft, setRenameDraft] = useState<string | null>(null);
-  const [deleteArmed, setDeleteArmed] = useState(false);
-  const beats = project.beats ?? [];
-  const droppable = Boolean(onDropAssets);
-
-  const commitRename = () => {
-    const name = (renameDraft ?? "").trim();
-    setRenameDraft(null);
-    if (!name || name === project.name || !onRename) return;
-    void onRename(name);
-  };
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={renameDraft !== null ? undefined : (onBrowse ?? onOpen)}
-        className="group lm-glass-filter-row cursor-pointer"
-        data-active={active ? "true" : "false"}
-        onPointerLeave={() => setDeleteArmed(false)}
-        onDragOver={
-          droppable
-            ? (event) => {
-                if (!hasAssetDragPayload(event.dataTransfer)) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
-                setDragOver(true);
-                if (beats.length > 0) setExpanded(true);
-              }
-            : undefined
-        }
-        onDragLeave={droppable ? () => setDragOver(false) : undefined}
-        onDrop={
-          droppable
-            ? (event) => {
-                setDragOver(false);
-                if (!hasAssetDragPayload(event.dataTransfer)) return;
-                event.preventDefault();
-                const assetIds = readAssetDragPayload(event.dataTransfer);
-                if (assetIds.length > 0) onDropAssets!(assetIds);
-              }
-            : undefined
-        }
-        style={
-          dragOver
-            ? {
-                backgroundColor: "rgba(255, 122, 100, 0.14)",
-                boxShadow: "inset 0 0 0 2px var(--lm-coral)",
-                borderRadius: "8px",
-              }
-            : undefined
-        }
-        title={
-          droppable
-            ? onBrowse
-              ? "Browse the project's assets in the gallery — drop assets to file them into this project's Inbox"
-              : "Open review — drop assets to file them into this project's Inbox"
-            : onBrowse
-              ? "Browse the project's assets in the gallery"
-              : "Open review"
-        }
-      >
-        <Layers
-          className="h-3 w-3 flex-shrink-0"
-          style={{
-            color: active ? "var(--lm-coral)" : "var(--lm-sidebar-text-ghost)",
-            transition: "color var(--lm-duration-fast)",
-          }}
-        />
-        {renameDraft !== null ? (
-          <input
-            autoFocus
-            value={renameDraft}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setRenameDraft(e.target.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitRename();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                setRenameDraft(null);
-              }
-            }}
-            onBlur={commitRename}
-            className="min-w-0 flex-1 bg-transparent text-left outline-none"
-            style={{
-              fontSize: "10px",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.10em",
-              color: "var(--lm-sidebar-text)",
-              borderBottom: "1px solid var(--lm-coral)",
-              caretColor: "var(--lm-coral)",
-            }}
-            aria-label={`Rename ${project.name}`}
-          />
-        ) : (
-          <span
-            className="min-w-0 flex-1 truncate text-left"
-            style={{
-              fontSize: "10px",
-              fontWeight: active ? 700 : 500,
-              textTransform: "uppercase",
-              letterSpacing: "0.10em",
-            }}
-          >
-            {project.worldName && (
-              <span style={{ color: "var(--lm-sidebar-text-ghost)" }}>
-                {project.worldName}
-                {" / "}
-              </span>
-            )}
-            {project.name}
-          </span>
-        )}
-        {project.count !== undefined && renameDraft === null && (
-          <span
-            className={
-              onBrowse || onRename || onDelete
-                ? "group-hover:hidden"
-                : undefined
-            }
-            style={{
-              fontSize: "9px",
-              fontVariantNumeric: "tabular-nums",
-              color: "var(--lm-sidebar-text-ghost)",
-            }}
-          >
-            {project.count}
-          </span>
-        )}
-        {(onBrowse || onRename || onDelete) && renameDraft === null && (
-          <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-            {onBrowse && (
-              <span
-                role="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpen();
-                }}
-                className="flex h-4 w-4 items-center justify-center"
-                style={{ color: "var(--lm-sidebar-text-ghost)" }}
-                aria-label={`Open ${project.name} review workspace`}
-                title="Open review workspace"
-              >
-                <Maximize2 className="h-2.5 w-2.5" />
-              </span>
-            )}
-            {onRename && (
-              <span
-                role="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRenameDraft(project.name);
-                }}
-                className="flex h-4 w-4 items-center justify-center"
-                style={{ color: "var(--lm-sidebar-text-ghost)" }}
-                aria-label={`Rename ${project.name}`}
-                title="Rename project"
-              >
-                <Pencil className="h-2.5 w-2.5" />
-              </span>
-            )}
-            {onDelete && (
-              <span
-                role="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!deleteArmed) {
-                    setDeleteArmed(true);
-                    return;
-                  }
-                  setDeleteArmed(false);
-                  void onDelete();
-                }}
-                className="flex h-4 items-center justify-center gap-0.5 px-0.5"
-                style={{
-                  color: deleteArmed
-                    ? "var(--lm-coral)"
-                    : "var(--lm-sidebar-text-ghost)",
-                }}
-                aria-label={
-                  deleteArmed
-                    ? `Confirm delete ${project.name}`
-                    : `Delete ${project.name}`
-                }
-                title={
-                  deleteArmed
-                    ? "Click again to delete — beats and assets survive"
-                    : "Delete project (beats and assets survive)"
-                }
-              >
-                <Trash2 className="h-2.5 w-2.5" />
-                {deleteArmed && (
-                  <span
-                    style={{
-                      fontSize: "8px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.08em",
-                    }}
-                  >
-                    sure?
-                  </span>
-                )}
-              </span>
-            )}
-          </span>
-        )}
-        {beats.length > 0 && (
-          <span
-            role="button"
-            tabIndex={-1}
-            onClick={(event) => {
-              event.stopPropagation();
-              setExpanded((prev) => !prev);
-            }}
-            aria-label={expanded ? "Collapse beats" : "Expand beats"}
-            className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
-            style={{ color: "var(--lm-sidebar-text-ghost)" }}
-          >
-            <ChevronRight
-              className="h-3 w-3 transition-transform"
-              style={{ transform: expanded ? "rotate(90deg)" : undefined }}
-            />
-          </span>
-        )}
-      </button>
-
-      {expanded &&
-        beats.map((beat) => (
-          <BeatDropRow
-            key={beat.id}
-            name={beat.name}
-            onClick={onOpen}
-            onDropAssets={
-              onDropAssetsOnBeat
-                ? (assetIds) => onDropAssetsOnBeat(beat.id, assetIds)
-                : undefined
-            }
-          />
-        ))}
-    </div>
-  );
-}
-
-function BeatDropRow({
-  name,
-  onClick,
-  onDropAssets,
-}: {
-  name: string;
-  onClick: () => void;
-  onDropAssets?: (assetIds: string[]) => void;
-}) {
-  const [dragOver, setDragOver] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="lm-glass-filter-row cursor-pointer"
-      data-active="false"
-      onDragOver={
-        onDropAssets
-          ? (event) => {
-              if (!hasAssetDragPayload(event.dataTransfer)) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
-              setDragOver(true);
-            }
-          : undefined
-      }
-      onDragLeave={onDropAssets ? () => setDragOver(false) : undefined}
-      onDrop={
-        onDropAssets
-          ? (event) => {
-              setDragOver(false);
-              if (!hasAssetDragPayload(event.dataTransfer)) return;
-              event.preventDefault();
-              const assetIds = readAssetDragPayload(event.dataTransfer);
-              if (assetIds.length > 0) onDropAssets(assetIds);
-            }
-          : undefined
-      }
-      style={{
-        paddingLeft: "26px",
-        ...(dragOver
-          ? {
-              backgroundColor: "rgba(255, 122, 100, 0.14)",
-              boxShadow: "inset 0 0 0 2px var(--lm-coral)",
-              borderRadius: "8px",
-            }
-          : {}),
-      }}
-      title={onDropAssets ? "Drop assets to add to this beat" : undefined}
-    >
-      <FolderOpen
-        className="h-3 w-3 flex-shrink-0"
-        style={{ color: "var(--lm-sidebar-text-ghost)" }}
-      />
-      <span
-        className="min-w-0 flex-1 truncate text-left"
-        style={{
-          fontSize: "10px",
-          fontWeight: 500,
-          letterSpacing: "0.06em",
-        }}
-      >
-        {name}
-      </span>
-    </button>
-  );
-}
-
 /* Filter Row */
 
 function FilterRow({
@@ -1681,6 +1020,9 @@ function FilterRow({
   onTogglePublish,
   onAddSub,
   indent = false,
+  expanded,
+  onToggleExpand,
+  onDragEnterRow,
 }: {
   icon?: React.ElementType;
   label: string;
@@ -1712,6 +1054,11 @@ function FilterRow({
   onAddSub?: () => void;
   /** Renders as a nested sub-collection row. */
   indent?: boolean;
+  /** Set on a collection that has sub-collections: shows a chevron. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  /** Fires when a drag first hovers the row (auto-expands a parent). */
+  onDragEnterRow?: () => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
@@ -1747,6 +1094,7 @@ function FilterRow({
               if (!hasAssetDragPayload(event.dataTransfer)) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy"; // every sidebar drop ADDS membership
+              if (!dragOver) onDragEnterRow?.();
               setDragOver(true);
             }
           : undefined
@@ -1774,6 +1122,28 @@ function FilterRow({
           : {}),
       }}
     >
+      {expanded !== undefined && onToggleExpand ? (
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleExpand();
+          }}
+          className="-ml-1 flex h-3 w-3 flex-shrink-0 items-center justify-center"
+          style={{ color: "var(--lm-sidebar-text-ghost)" }}
+          aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
+          aria-expanded={expanded}
+        >
+          <ChevronRight
+            className="h-3 w-3"
+            style={{
+              transform: expanded ? "rotate(90deg)" : undefined,
+              transition: "transform var(--lm-duration-fast)",
+            }}
+          />
+        </span>
+      ) : null}
       {Icon ? (
         <Icon
           className="h-3 w-3 flex-shrink-0"

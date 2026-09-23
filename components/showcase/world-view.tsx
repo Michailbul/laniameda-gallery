@@ -5,13 +5,13 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCurrentUser } from "@/lib/use-current-user";
-import { TASTE_PROFILE_PATH } from "@/lib/routes";
+import { publicModePath } from "@/lib/public-modes";
 import { PublicNav } from "./public-nav";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import type { ShowcaseAsset } from "./types";
 
-// One world: the project's public content, grouped into the sections the
-// vault already keeps it in — Scenes (beats), Characters, Locations, Stills.
+// One world: the collection's public content, grouped into the sections the
+// vault already keeps it in — Scenes, Characters, Locations, Stills.
 // A section tab filters; "All" shows the whole world in narrative order.
 export function WorldView({ slug }: { slug: string }) {
   const world = useQuery(api.showcase.getWorld, { slug });
@@ -194,7 +194,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         color: "var(--lm-text-primary)",
       }}
     >
-      <PublicNav backHref={TASTE_PROFILE_PATH} backLabel="All worlds" />
+      <PublicNav backHref={publicModePath("worlds")} backLabel="All worlds" />
       {children}
     </main>
   );

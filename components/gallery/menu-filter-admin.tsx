@@ -72,7 +72,7 @@ export function MenuFilterAdmin({
   const [saving, setSaving] = useState(false);
 
   // Only plain collections and storybooks can back a pill (matches the
-  // backend guard — projects and beats are workspace furniture).
+  // backend guard).
   const collectionOptions = useMemo(
     () =>
       (folders ?? [])

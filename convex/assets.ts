@@ -34,18 +34,9 @@ import {
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
-  projectSectionFilterValidator,
 } from "./validators";
 
 const pillarValidator = optionalPillarValidator;
-// Which project layer the grid is narrowed to; undefined = the "All" tab.
-type ProjectSectionFilter =
-  | "characters"
-  | "locations"
-  | "stills"
-  | "beats"
-  | "episodes"
-  | "unsorted";
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
@@ -406,13 +397,6 @@ export const collectAssetsForFolder = async (
  *
  * Nesting is capped at one level (see folders.assertValidParent), so this is
  * a single extra fan-out, never a recursive walk.
- *
- * A child PROJECT is the exception to the folder walk: a project holds no
- * membership links of its own, its assets live in the member collections it
- * joins through `projectCollections` ("Dari — Locations", each beat), and those
- * are not child folders. Walking children alone therefore skipped a world's
- * whole project pool — Dear Annete's 27 Dari locations were invisible under the
- * world's Locations filter even though they carry the tag.
  */
 export const collectAssetsForFolderTree = async (
   ctx: QueryCtx,
@@ -430,12 +414,6 @@ export const collectAssetsForFolderTree = async (
   for (const id of folderIds) {
     collected.push(
       ...(await collectAssetsForFolder(ctx, ownerUserIds, id, limit)),
-    );
-  }
-  for (const child of children) {
-    if (child.kind !== "project") continue;
-    collected.push(
-      ...(await collectAssetsForProject(ctx, ownerUserIds, child._id, limit)),
     );
   }
   return dedupeAssetIds(collected)
@@ -1437,45 +1415,6 @@ const galleryAssetFacetsValidator = v.object({
   modelCounts: v.array(v.object({ name: v.string(), count: v.number() })),
 });
 
-// A project's browseable asset pool: the union of all its member collections'
-// members (projects never hold assets directly). Capped per collection AND in
-// total by `limit`; the caller dedupes. `excludeBeats` drops member
-// collections filed under the "beats" section — the main gallery renders
-// those as stack cards instead, so their members must not double as tiles.
-const collectAssetsForProject = async (
-  ctx: QueryCtx,
-  ownerUserIds: string[],
-  projectId: Id<"folders">,
-  limit: number,
-  excludeBeats = false,
-  section?: ProjectSectionFilter,
-) => {
-  const links = await ctx.db
-    .query("projectCollections")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
-  const assets: Doc<"assets">[] = [];
-  for (const link of links) {
-    // A section tab narrows the pool to that layer. "unsorted" reaches the
-    // members that were never filed, which no named tab would otherwise show.
-    if (section !== undefined) {
-      const linkSection = link.section ?? "unsorted";
-      if (linkSection !== section) continue;
-    }
-    if (excludeBeats && link.section === "beats") continue;
-    if (assets.length >= limit) break;
-    assets.push(
-      ...(await collectAssetsForFolder(
-        ctx,
-        ownerUserIds,
-        link.folderId,
-        limit - assets.length,
-      )),
-    );
-  }
-  return assets;
-};
-
 // Which folders the current view is looking at, as a membership test for the
 // starred read. null = unscoped (plain browse), so every starred asset counts.
 const resolveScopeFolderIds = async (
@@ -1483,30 +1422,8 @@ const resolveScopeFolderIds = async (
   args: {
     folderId?: Id<"folders">;
     includeDescendants?: boolean;
-    projectId?: Id<"folders">;
-    projectSection?: ProjectSectionFilter;
-    excludeBeatAssets?: boolean;
   },
 ): Promise<Set<string> | null> => {
-  if (args.projectId) {
-    const links = await ctx.db
-      .query("projectCollections")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId!))
-      .collect();
-    const scoped = new Set<string>();
-    for (const link of links) {
-      if (
-        args.projectSection !== undefined &&
-        (link.section ?? "unsorted") !== args.projectSection
-      ) {
-        continue;
-      }
-      if (args.excludeBeatAssets && link.section === "beats") continue;
-      scoped.add(link.folderId as string);
-    }
-    return scoped;
-  }
-
   if (args.folderId) {
     const scoped = new Set<string>([args.folderId as string]);
     if (args.includeDescendants) {
@@ -1516,14 +1433,6 @@ const resolveScopeFolderIds = async (
         .collect();
       for (const child of children) {
         scoped.add(child._id as string);
-        // Same reason as collectAssetsForFolderTree: a child project's assets
-        // sit in its projectCollections members, not in the project folder.
-        if (child.kind !== "project") continue;
-        const projectLinks = await ctx.db
-          .query("projectCollections")
-          .withIndex("by_project", (q) => q.eq("projectId", child._id))
-          .collect();
-        for (const link of projectLinks) scoped.add(link.folderId as string);
       }
     }
     return scoped;
@@ -1672,9 +1581,6 @@ export const listStarredAssets = query({
     ownerUserId: v.string(),
     folderId: v.optional(v.id("folders")),
     includeDescendants: v.optional(v.boolean()),
-    projectId: v.optional(v.id("folders")),
-    projectSection: v.optional(projectSectionFilterValidator),
-    excludeBeatAssets: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
   returns: v.array(galleryAssetResultValidator),
@@ -1740,14 +1646,6 @@ export const listGalleryAssets = query({
     // world shows its Characters / Locations / Scenes too, not just the loose
     // assets sitting on the parent folder.
     includeDescendants: v.optional(v.boolean()),
-    // Browse a project's whole pool (union of its member collections).
-    projectId: v.optional(v.id("folders")),
-    // With projectId: skip members of "beats"-section collections — the
-    // caller shows those as beat stack cards, not flat tiles.
-    excludeBeatAssets: v.optional(v.boolean()),
-    // With projectId: narrow to one section tab (Beats / Characters /
-    // Locations / Stills / Unsorted). Omit for the "All" tab.
-    projectSection: v.optional(projectSectionFilterValidator),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -1764,7 +1662,7 @@ export const listGalleryAssets = query({
 
     const onlyLiked = args.onlyLiked === true;
     const limit = Math.min(args.limit ?? 100, 2000);
-    const scopedToSet = args.projectId ?? args.folderId;
+    const scopedToSet = args.folderId;
     const hasPostQueryFilters = Boolean(
       hasMenuFilterArgs(args) ||
         (scopedToSet && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
@@ -1784,16 +1682,7 @@ export const listGalleryAssets = query({
     const pillar = args.pillar;
     const assetRole = args.assetRole;
     const kind = args.kind;
-    const ownerScopedAssets = args.projectId
-      ? await collectAssetsForProject(
-          ctx,
-          ownerUserIds,
-          args.projectId,
-          queryTake,
-          args.excludeBeatAssets === true,
-          args.projectSection,
-        )
-      : args.folderId
+    const ownerScopedAssets = args.folderId
       ? args.includeDescendants
         ? await collectAssetsForFolderTree(
             ctx,
@@ -2902,7 +2791,7 @@ export const setAssetPinned = mutation({
   },
 });
 
-// Owner-side twin of beatBoard.getBoardAssetDownload: resolve one asset's
+// Owner-side download: resolve one asset's
 // bytes URL for the /api/assets/[assetId]/download proxy (R2's public domain
 // has no CORS headers, so downloads stream same-origin with an attachment
 // header). The route validates the session before calling this.
@@ -4191,14 +4080,6 @@ export const mergeDuplicateAssets = internalMutation({
         .collect();
       for (const workflow of coverWorkflows) {
         await ctx.db.patch(workflow._id, { coverAssetId: keeper.asset._id });
-        referencesRepointed += 1;
-      }
-      const likes = await ctx.db
-        .query("boardReactions")
-        .filter((q) => q.eq(q.field("assetId"), loser.asset._id))
-        .collect();
-      for (const like of likes) {
-        await ctx.db.patch(like._id, { assetId: keeper.asset._id });
         referencesRepointed += 1;
       }
 

@@ -13,7 +13,6 @@ import {
   Star,
   X,
 } from "lucide-react";
-import { useMutation } from "convex/react";
 import { useUploadFile } from "@convex-dev/r2/react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,7 +51,6 @@ import {
   sectionKeyForTagName,
 } from "@/lib/collection-sections";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import type { FolderOption } from "@/components/upload-panel";
 import {
   DestinationField,
@@ -73,7 +71,6 @@ import {
 export type BulkUploadPanelProps = {
   availableTags?: string[];
   folders?: FolderOption[];
-  projects?: FolderOption[];
   ownerUserId?: string;
   canPromoteToPublic?: boolean;
   onDataChanged?: () => void;
@@ -122,13 +119,6 @@ const MODEL_NAME_OPTIONS = [
   "Higgsfield",
 ] as const;
 
-const SECTION_OPTIONS = [
-  { value: "stills", label: "Stills" },
-  { value: "characters", label: "Characters" },
-  { value: "locations", label: "Locations" },
-  { value: "beats", label: "Beats — one beat per asset" },
-] as const;
-
 const BATCH_TYPE_TAGS = [
   { value: "character", label: "Character" },
   { value: "location", label: "Location" },
@@ -139,8 +129,6 @@ const BATCH_TYPE_TAGS = [
 const BATCH_TYPE_TAG_KEYS = new Set<string>(
   BATCH_TYPE_TAGS.map((option) => option.value),
 );
-
-type SectionValue = (typeof SECTION_OPTIONS)[number]["value"];
 
 const chunk = <T,>(items: T[], size: number) => {
   const out: T[][] = [];
@@ -153,7 +141,6 @@ const chunk = <T,>(items: T[], size: number) => {
 export function BulkUploadPanel({
   availableTags = [],
   folders = [],
-  projects = [],
   ownerUserId,
   canPromoteToPublic = false,
   onDataChanged,
@@ -173,8 +160,6 @@ export function BulkUploadPanel({
   // Collections created from this panel, held until the folders query catches
   // up — see destinationGroups.
   const [createdFolders, setCreatedFolders] = useState<FolderOption[]>([]);
-  const [projectSelection, setProjectSelection] = useState(NO_VALUE);
-  const [sectionSelection, setSectionSelection] = useState<string>(NO_VALUE);
   const [publishAll, setPublishAll] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -231,33 +216,67 @@ export function BulkUploadPanel({
   }, [featuredIds]);
 
   const uploadToR2 = useUploadFile(api.r2);
-  const addAssetsToProject = useMutation(api.projects.addAssetsToProject);
-  const addAssetFolders = useMutation(api.assets.addAssetFolders);
-  const ensureSectionPool = useMutation(api.projects.ensureSectionPool);
-  const createFolderMutation = useMutation(api.folders.createFolder);
-  const addCollectionToProject = useMutation(api.projects.addCollectionToProject);
 
   const canCreateFolders = Boolean(ownerUserId?.trim());
   // Featuring publishes, so without curation rights the star would be a lie.
   const canFeature = canPromoteToPublic;
 
-  // Only plain collections are sane bulk destinations — projects have their own
-  // picker below, and beats/episodes are reached through a project.
-  //
-  // A collection created here is selected the instant the API returns, which is
-  // before the folders query round-trips, so the created folder is carried
-  // locally to keep a row under the selection at all times.
+  // Collections and the folders inside them — a collection with folders gets
+  // its own group (itself, then its folders). A collection created here is
+  // selected the instant the API returns, before the folders query
+  // round-trips, so it is carried locally to keep a row under the selection.
   const destinationGroups = useMemo<DestinationGroup[]>(() => {
     const plain = folders.filter((folder) => !folder.kind);
     const known = new Set(plain.map((folder) => folder._id));
-    const options = [
+    const all = [
       ...plain,
       ...createdFolders.filter((folder) => !known.has(folder._id)),
-    ]
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map((folder) => ({ id: folder._id, name: folder.name }));
-    return [{ key: "collections", label: "Collections", options }];
+    ];
+    const children = new Map<string, FolderOption[]>();
+    for (const folder of all) {
+      if (!folder.parentFolderId) continue;
+      const list = children.get(folder.parentFolderId) ?? [];
+      list.push(folder);
+      children.set(folder.parentFolderId, list);
+    }
+    const byName = (left: FolderOption, right: FolderOption) =>
+      left.name.localeCompare(right.name);
+    const roots = all.filter((folder) => !folder.parentFolderId).sort(byName);
+    const groups: DestinationGroup[] = [
+      {
+        key: "collections",
+        label: "Collections",
+        options: roots
+          .filter((root) => !children.has(root._id))
+          .map((folder) => ({ id: folder._id, name: folder.name })),
+      },
+    ];
+    for (const root of roots) {
+      const inside = children.get(root._id);
+      if (!inside) continue;
+      groups.push({
+        key: root._id,
+        label: root.name,
+        options: [
+          { id: root._id, name: root.name, meta: "collection" },
+          ...inside.sort(byName).map((child) => ({
+            id: child._id,
+            name: child.name,
+            meta: "folder",
+          })),
+        ],
+      });
+    }
+    return groups.filter((group) => group.options.length > 0);
   }, [folders, createdFolders]);
+
+  const destinationParents = useMemo(
+    () =>
+      folders
+        .filter((folder) => !folder.kind && !folder.parentFolderId)
+        .map((folder) => ({ id: folder._id, name: folder.name })),
+    [folders],
+  );
 
   const totals = useMemo(() => {
     let bytes = 0;
@@ -459,7 +478,7 @@ export function BulkUploadPanel({
     });
   };
 
-  const handleCreateFolder = async (rawName: string) => {
+  const handleCreateFolder = async (rawName: string, parentFolderId?: string) => {
     const name = rawName.trim();
     if (!ownerUserId?.trim()) {
       setStatus({ type: "error", message: "Sign in to create collections." });
@@ -474,11 +493,11 @@ export function BulkUploadPanel({
       }>("/api/folders", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, parentFolderId }),
       });
       setCreatedFolders((previous) => [
         ...previous.filter((folder) => folder._id !== result.folder._id),
-        { _id: result.folder._id, name },
+        { _id: result.folder._id, name, parentFolderId },
       ]);
       setFolderIds([result.folder._id]);
       setStatus({
@@ -576,76 +595,6 @@ export function BulkUploadPanel({
     [modelNameCustom, modelNameSelection, sharedPrompt, tagsForUpload, uploadToR2],
   );
 
-  /** File the finished batch into a project — Inbox, a section pool, or beats. */
-  const fileIntoProject = useCallback(
-    async (
-      projectId: string,
-      section: SectionValue | undefined,
-      saved: { item: StagedFile; assetId: string }[],
-    ) => {
-      if (!ownerUserId || saved.length === 0) return;
-
-      if (!section) {
-        await addAssetsToProject({
-          ownerUserId,
-          projectId: projectId as Id<"folders">,
-          assetIds: saved.map((entry) => entry.assetId as Id<"assets">),
-        });
-        return;
-      }
-
-      if (section === "beats") {
-        // A beat is one video plus its characters/locations, so beats never
-        // pool: each asset becomes its own beat, named from its file.
-        for (const { item, assetId } of saved) {
-          const name = item.relativePath
-            .split("/")
-            .pop()!
-            .replace(/\.[^.]+$/, "")
-            .slice(0, 60);
-          const created = await createFolderMutation({
-            ownerUserId,
-            name: name || "Beat",
-            kind: "beat",
-          });
-          await addCollectionToProject({
-            ownerUserId,
-            projectId: projectId as Id<"folders">,
-            folderId: created.folderId,
-            section: "beats",
-          });
-          await addAssetFolders({
-            ownerUserId,
-            assetId: assetId as Id<"assets">,
-            folderIds: [created.folderId],
-          });
-        }
-        return;
-      }
-
-      const pool = await ensureSectionPool({
-        ownerUserId,
-        projectId: projectId as Id<"folders">,
-        section,
-      });
-      for (const { assetId } of saved) {
-        await addAssetFolders({
-          ownerUserId,
-          assetId: assetId as Id<"assets">,
-          folderIds: [pool.folderId],
-        });
-      }
-    },
-    [
-      addAssetFolders,
-      addAssetsToProject,
-      addCollectionToProject,
-      createFolderMutation,
-      ensureSectionPool,
-      ownerUserId,
-    ],
-  );
-
   /** Publish + feature. Featured implies public — the backend enforces it. */
   const curate = useCallback(
     async (featured: string[], plain: string[]) => {
@@ -689,14 +638,11 @@ export function BulkUploadPanel({
     // A folder batch intentionally targets zero or one collection. Existing
     // duplicates keep their older memberships and gain this one additively.
     const [destinationFolderId] = folderIds;
-    const projectId = projectSelection === NO_VALUE ? undefined : projectSelection;
-    const section =
-      sectionSelection === NO_VALUE ? undefined : (sectionSelection as SectionValue);
 
     const saved: { item: StagedFile; assetId: string }[] = [];
     let failed = 0;
     // Duplicates still count as saved — they were filed into the chosen
-    // collections/project, just onto the existing asset — so they ride along in
+    // collection, just onto the existing asset — so they ride along in
     // `saved` and are only broken out for the summary line.
     let duplicates = 0;
     let cursor = 0;
@@ -748,18 +694,6 @@ export function BulkUploadPanel({
         );
       }
       if (failed > 0) notes.push(`${failed} failed`);
-
-      if (projectId && saved.length > 0) {
-        try {
-          await fileIntoProject(projectId, section, saved);
-        } catch (error) {
-          notes.push(
-            error instanceof Error
-              ? `project filing failed (${error.message})`
-              : "project filing failed",
-          );
-        }
-      }
 
       const stillFeatured = featuredIdsRef.current;
       const featuredAssetIds = saved
@@ -1288,91 +1222,21 @@ export function BulkUploadPanel({
                   groups={destinationGroups}
                   selectedIds={folderIds}
                   onToggle={toggleDestination}
-                  onCreate={canCreateFolders ? handleCreateFolder : undefined}
+                  onCreate={canCreateFolders ? (name) => handleCreateFolder(name) : undefined}
+                  parents={destinationParents}
+                  onCreateInside={
+                    canCreateFolders
+                      ? (parentId, name) => handleCreateFolder(name, parentId)
+                      : undefined
+                  }
                   creating={creatingFolder}
                   disabled={isUploading}
                 />
                 <p className="text-[11px] leading-snug text-[var(--lm-text-ghost)]">
-                  Optional. Pick one collection, or leave the batch uncategorized.
+                  Optional. Pick one collection or folder, or leave the batch uncategorized.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="bulk-project-select" className={labelCls}>
-                    Project
-                  </Label>
-                  <span className={cn(labelCls, "text-[9px] text-[var(--lm-text-ghost)]")}>
-                    Optional
-                  </span>
-                </div>
-                <Select
-                  value={projectSelection}
-                  onValueChange={(value) => {
-                    setProjectSelection(value);
-                    if (value === NO_VALUE) setSectionSelection(NO_VALUE);
-                  }}
-                  disabled={projects.length === 0}
-                >
-                  <SelectTrigger
-                    id="bulk-project-select"
-                    className={cn(selectTriggerCls, projects.length === 0 && "opacity-50")}
-                  >
-                    <SelectValue
-                      placeholder={projects.length === 0 ? "No projects yet" : "No project"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent className={selectContentCls}>
-                    <SelectGroup>
-                      <SelectItem value={NO_VALUE} className={selectItemCls}>
-                        No project
-                      </SelectItem>
-                      {projects.map((project) => (
-                        <SelectItem
-                          key={project._id}
-                          value={project._id}
-                          className={selectItemCls}
-                        >
-                          {project.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {projectSelection !== NO_VALUE && (
-                <div className="flex flex-col gap-2.5 animate-fade-in">
-                  <Label htmlFor="bulk-section-select" className={labelCls}>
-                    Section
-                  </Label>
-                  <Select value={sectionSelection} onValueChange={setSectionSelection}>
-                    <SelectTrigger id="bulk-section-select" className={selectTriggerCls}>
-                      <SelectValue placeholder="Inbox — sort later" />
-                    </SelectTrigger>
-                    <SelectContent className={selectContentCls}>
-                      <SelectGroup>
-                        <SelectItem value={NO_VALUE} className={selectItemCls}>
-                          Inbox — sort later
-                        </SelectItem>
-                        {SECTION_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className={selectItemCls}
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] leading-snug text-[var(--lm-text-ghost)]">
-                    Section pools are created on demand. Beats never pool — each
-                    asset becomes its own beat, named from its file.
-                  </p>
-                </div>
-              )}
             </section>
 
             {/* Visibility */}

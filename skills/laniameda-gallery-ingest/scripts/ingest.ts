@@ -212,6 +212,11 @@ type WorkflowStepMedia = {
   ingestKey?: string;
   fileName?: string;
   contentType?: string;
+  /** Caption for THIS file within the step — "start frame", "stand-in crop",
+   *  "final cut". Lands on the asset's description and under the figure. */
+  description?: string;
+  /** Video only: where to grab the poster frame. */
+  posterAtSeconds?: number;
 };
 
 type WorkflowStepInput = {
@@ -640,8 +645,8 @@ async function uploadBytesToR2(
   return reserved.key;
 }
 
-// Only the create path has an R2 branch. updateFromApi and workflow step media
-// take base64 and nothing else, so oversized files there need a real explanation
+// Only the create and workflow paths have an R2 branch. updateFromApi takes
+// base64 and nothing else, so oversized files there need a real explanation
 // rather than a cryptic argument-size failure from Convex.
 export function assertBase64Ingestible(
   filePath: string,
@@ -663,14 +668,65 @@ export async function prepareMediaForCreate(
   convexUrl: string,
   warn: (message: string) => void = (message) => console.error(message),
 ): Promise<PreparedMedia | undefined> {
-  const filePath = item.filePath ?? item.imagePath;
+  return prepareLocalMedia(
+    {
+      filePath: item.filePath ?? item.imagePath,
+      fileName: item.fileName,
+      contentType: item.contentType,
+      posterAtSeconds: item.posterAtSeconds,
+    },
+    convexUrl,
+    warn,
+  );
+}
+
+// Workflow steps carry the same files a create does, so a step's video goes
+// through the identical remux → probe → poster → R2 pipeline. Keyed by
+// `${stepIndex}:${mediaIndex}` for buildWorkflowArgs to pick up.
+export type PreparedWorkflowMedia = Map<string, PreparedMedia>;
+
+export async function prepareWorkflowMedia(
+  item: WorkflowItem,
+  convexUrl: string,
+  warn: (message: string) => void = (message) => console.error(message),
+): Promise<PreparedWorkflowMedia> {
+  const prepared: PreparedWorkflowMedia = new Map();
+  for (const [stepIndex, step] of (item.steps ?? []).entries()) {
+    for (const [mediaIndex, entry] of (step.media ?? []).entries()) {
+      const result = await prepareLocalMedia(
+        {
+          filePath: entry.filePath ?? entry.imagePath,
+          fileName: entry.fileName,
+          contentType: entry.contentType,
+          posterAtSeconds: entry.posterAtSeconds,
+        },
+        convexUrl,
+        warn,
+      );
+      if (result) prepared.set(`${stepIndex}:${mediaIndex}`, result);
+    }
+  }
+  return prepared;
+}
+
+async function prepareLocalMedia(
+  source: {
+    filePath?: string;
+    fileName?: string;
+    contentType?: string;
+    posterAtSeconds?: number;
+  },
+  convexUrl: string,
+  warn: (message: string) => void,
+): Promise<PreparedMedia | undefined> {
+  const filePath = source.filePath;
   if (!filePath) return undefined;
   if (!existsSync(filePath)) {
     throw new Error(`File not found: ${filePath}`);
   }
 
-  const fileName = item.fileName ?? basename(filePath);
-  const contentType = item.contentType ?? guessMime(fileName);
+  const fileName = source.fileName ?? basename(filePath);
+  const contentType = source.contentType ?? guessMime(fileName);
 
   if (!contentType.startsWith("video/")) {
     assertBase64Ingestible(filePath, fileName);
@@ -700,7 +756,7 @@ export async function prepareMediaForCreate(
 
     const poster = extractPoster(
       uploadPath,
-      posterTimestamp(probe, item.posterAtSeconds),
+      posterTimestamp(probe, source.posterAtSeconds),
       workDir,
     );
     if (!poster) {
@@ -1024,6 +1080,7 @@ export function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<s
 export function buildWorkflowArgs(
   item: WorkflowItem,
   ownerUserId: string,
+  prepared?: PreparedWorkflowMedia,
 ): Record<string, unknown> {
   const title = item.title?.trim();
   if (!title) {
@@ -1036,26 +1093,39 @@ export function buildWorkflowArgs(
   }
 
   const steps = item.steps.map((step, index) => {
-    const media = (step.media ?? []).map((entry) => {
+    const media = (step.media ?? []).map((entry, mediaIndex) => {
       const filePath = entry.filePath ?? entry.imagePath;
       const url = entry.url ?? entry.imageUrl;
       const out: Record<string, unknown> = {};
       assignIfDefined(out, "ingestKey", entry.ingestKey);
-      if (filePath) {
+      assignIfDefined(out, "description", entry.description?.trim() || undefined);
+      const preparedEntry = prepared?.get(`${index}:${mediaIndex}`);
+      if (preparedEntry) {
+        // A video: already remuxed, postered and sitting in R2.
+        out.r2Key = preparedEntry.r2Key;
+        assignIfDefined(out, "mediaContentType", preparedEntry.mediaContentType);
+        assignIfDefined(out, "mediaSize", preparedEntry.mediaSize);
+        assignIfDefined(out, "mediaWidth", preparedEntry.mediaWidth);
+        assignIfDefined(out, "mediaHeight", preparedEntry.mediaHeight);
+        assignIfDefined(out, "mediaFileName", preparedEntry.mediaFileName);
+        assignIfDefined(out, "posterFile", preparedEntry.posterFile);
+      } else if (filePath) {
         if (!existsSync(filePath)) {
           throw new Error(`File not found: ${filePath}`);
         }
         const resolvedFileName = entry.fileName ?? basename(filePath);
-        assertBase64Ingestible(
-          filePath,
-          resolvedFileName,
-          "workflow step media has no R2 branch — ingest the video with its own create call and link it through upstreamInputs",
-        );
+        const resolvedContentType = entry.contentType ?? guessMime(resolvedFileName);
+        if (resolvedContentType.startsWith("video/")) {
+          throw new Error(
+            `Workflow step ${index + 1} media ${resolvedFileName} is a video — run it through prepareWorkflowMedia (mutateOne does) so it reaches R2 instead of the base64 argument.`,
+          );
+        }
+        assertBase64Ingestible(filePath, resolvedFileName);
         const fileBuffer = readFileSync(filePath);
         out.file = {
           base64: fileBuffer.toString("base64"),
           fileName: resolvedFileName,
-          contentType: entry.contentType ?? guessMime(resolvedFileName),
+          contentType: resolvedContentType,
         };
       } else if (url) {
         out.url = url;
@@ -1113,11 +1183,12 @@ export function buildActionRequest(
   item: SkillItem,
   ownerUserId: string,
   prepared?: PreparedMedia,
+  preparedWorkflow?: PreparedWorkflowMedia,
 ): { path: string; args: Record<string, unknown> } {
   if (isWorkflowItem(item)) {
     return {
       path: "workflows:ingestWorkflowFromApi",
-      args: buildWorkflowArgs(item, ownerUserId),
+      args: buildWorkflowArgs(item, ownerUserId, preparedWorkflow),
     };
   }
 
@@ -1185,7 +1256,10 @@ export async function mutateOne(
     const prepared = isCreateItem(item)
       ? await prepareMediaForCreate(item, convexUrl)
       : undefined;
-    const request = buildActionRequest(item, ownerUserId, prepared);
+    const preparedWorkflow = isWorkflowItem(item)
+      ? await prepareWorkflowMedia(item, convexUrl)
+      : undefined;
+    const request = buildActionRequest(item, ownerUserId, prepared, preparedWorkflow);
     const response = await fetchWithRetry(
       `${convexUrl}/api/action`,
       {

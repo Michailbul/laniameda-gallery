@@ -28,6 +28,9 @@ const stepMediaValidator = v.object({
   contentType: v.optional(v.string()),
   width: v.optional(v.number()),
   height: v.optional(v.number()),
+  /** Per-file caption — what THIS render is within the step ("start frame",
+   *  "stand-in crop", "final cut"). Stored on `assets.description`. */
+  description: v.optional(v.string()),
 });
 
 const workflowStepValidator = v.object({
@@ -101,6 +104,7 @@ const collectWorkflowSteps = async (
         contentType: asset.contentType,
         width: asset.width,
         height: asset.height,
+        description: asset.description,
       });
     }
 
@@ -161,6 +165,7 @@ const collectWorkflowPreviewMedia = async (
         contentType: asset.contentType,
         width: asset.width,
         height: asset.height,
+        description: asset.description,
       });
     }
   }
@@ -571,6 +576,33 @@ const stepFileValidator = v.object({
   contentType: v.optional(v.string()),
 });
 
+// One file inside a step. Three ways to hand over the bytes — a remote `url`,
+// an inline base64 `file` (images, capped by the Convex argument size), or an
+// `r2Key` the caller already uploaded (the only route for video, whose poster
+// rides along as `posterFile`). `description` is the per-file caption.
+const stepMediaInputValidator = v.object({
+  ingestKey: v.optional(v.string()),
+  url: v.optional(v.string()),
+  file: v.optional(stepFileValidator),
+  description: v.optional(v.string()),
+  r2Key: v.optional(v.string()),
+  mediaContentHash: v.optional(v.string()),
+  mediaContentType: v.optional(v.string()),
+  mediaSize: v.optional(v.number()),
+  mediaWidth: v.optional(v.number()),
+  mediaHeight: v.optional(v.number()),
+  mediaFileName: v.optional(v.string()),
+  posterFile: v.optional(
+    v.object({
+      base64: v.string(),
+      contentType: v.optional(v.string()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      size: v.optional(v.number()),
+    }),
+  ),
+});
+
 // Single-call workflow ingest: creates the workflow row, then ingests each
 // step's prompt + media through the canonical `ingest:ingestFromApi` path so
 // steps inherit R2 storage, thumbnails, tagging and semantic indexing.
@@ -598,15 +630,7 @@ export const ingestWorkflowFromApi = action({
         tagNames: v.optional(v.array(v.string())),
         promptIngestKey: v.optional(v.string()),
         allowPromptOnly: v.optional(v.boolean()),
-        media: v.optional(
-          v.array(
-            v.object({
-              ingestKey: v.optional(v.string()),
-              url: v.optional(v.string()),
-              file: v.optional(stepFileValidator),
-            }),
-          ),
-        ),
+        media: v.optional(v.array(stepMediaInputValidator)),
       }),
     ),
   },
@@ -684,6 +708,15 @@ export const ingestWorkflowFromApi = action({
             promptSections: step.promptSections,
             url: item.url,
             file: item.file,
+            description: item.description,
+            r2Key: item.r2Key,
+            mediaContentHash: item.mediaContentHash,
+            mediaContentType: item.mediaContentType,
+            mediaSize: item.mediaSize,
+            mediaWidth: item.mediaWidth,
+            mediaHeight: item.mediaHeight,
+            mediaFileName: item.mediaFileName,
+            posterFile: item.posterFile,
             pillar: args.pillar,
             promptType: step.promptType,
             generationType: step.generationType,

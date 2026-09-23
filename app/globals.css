@@ -575,18 +575,6 @@
   }
 }
 
-/* World cards: masonry, but only two columns — a world card carries a title,
-   logline and section counts, so it needs more room than an asset tile. */
-.lm-worlds-masonry {
-  column-count: 1;
-  column-gap: 22px;
-}
-@media (min-width: 900px) {
-  .lm-worlds-masonry {
-    column-count: 2;
-  }
-}
-
 /* Two-line clamp for loglines over world covers. */
 .lm-clamp-2 {
   display: -webkit-box;
@@ -632,8 +620,6 @@
   }
 }
 
-/* Project section switcher — labels only; the sliding hairline is the chrome.
-   Hover lifts an inactive label toward the primary text color. */
 /* A text-only control that stays out of the way until you go for it — used for
    per-location actions in the breadcrumb row. */
 .lm-quiet-action {
@@ -643,17 +629,6 @@
   color: var(--lm-coral);
 }
 
-.lm-section-tab[data-active="false"]:hover > span:first-child {
-  color: var(--lm-text-secondary);
-}
-.lm-section-tab {
-  /* No focus box — the hairline and color already say where you are. */
-  outline: none;
-}
-.lm-section-tab:focus-visible > span:first-child {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 /* Hide the horizontal scrollbar on the tab row (narrow screens). */
 [role="tablist"]::-webkit-scrollbar {
   display: none;
@@ -679,19 +654,6 @@
 .lm-owner-handle-link:hover,
 .lm-owner-handle-link:focus-visible {
   color: var(--lm-coral) !important;
-}
-
-/* Reveal-on-demand "+ New episode" — a word until you click it, so the
-   Episodes tab carries no idle input rule. */
-.lm-episode-add:hover {
-  color: var(--lm-coral);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lm-section-tab > span,
-  .lm-section-marker {
-    transition: none !important;
-  }
 }
 
 .lm-showcase-grid {
@@ -1686,38 +1648,3 @@
   }
 }
 
-/* ── Beat card hover peek deck ──
-   On card hover the beat's contents fan out as small stacked cards along the
-   bottom edge; hovering one scales it up in place. Pure CSS — no modal, the
-   grid never navigates. Rotation lives on the slot so the hover transform
-   can cleanly replace it. */
-.lm-beat-peek-slot {
-  position: relative;
-  z-index: 0;
-  margin-left: -12px;
-  transition: transform 160ms ease;
-  transform-origin: bottom center;
-}
-.lm-beat-peek-slot:first-child {
-  margin-left: 0;
-}
-.lm-beat-peek-slot:nth-child(odd) {
-  transform: rotate(-2.5deg);
-}
-.lm-beat-peek-slot:nth-child(even) {
-  transform: rotate(2.5deg) translateY(-2px);
-}
-.lm-beat-peek-slot:hover {
-  z-index: 60;
-  transform: rotate(0deg) scale(2.3) translateY(-6%);
-}
-.lm-beat-peek-thumb {
-  display: block;
-  width: 44px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2, #1f1e1c);
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
-}

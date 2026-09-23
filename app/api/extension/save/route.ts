@@ -6,19 +6,12 @@ import {
   resolveExtensionOwnerUserId,
   validateExtensionToken,
 } from "@/lib/server/extension-auth";
-import {
-  collectionSectionLabel,
-  normalizeCollectionSection,
-} from "@/lib/collection-sections";
+import { normalizeCollectionSection } from "@/lib/collection-sections";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
 const addAssetFoldersMutation = makeFunctionReference<"mutation">(
   "assets:addAssetFolders",
-);
-const listFoldersQuery = makeFunctionReference<"query">("folders:listFolders");
-const createFolderMutation = makeFunctionReference<"mutation">(
-  "folders:createFolder",
 );
 
 const CORS_HEADERS = {
@@ -98,77 +91,21 @@ function normalizeFolderIds(data: unknown) {
   return folderIds;
 }
 
-type ExtensionFolder = {
-  _id: string;
-  name: string;
-  kind?: string;
-  parentFolderId?: string;
+// The extension still sends `collectionPillar` ("characters", "inspirations",
+// …). Sections are tags now, not sub-collections: the piece is filed into the
+// collection that was picked and tagged with the singular section tag, so the
+// island bar's pills find it inside any collection.
+const SECTION_TAG: Record<string, string> = {
+  characters: "character",
+  locations: "location",
+  scenes: "scene",
+  inspirations: "inspiration",
 };
-
-async function resolveCollectionPillarFolders(
-  client: ReturnType<typeof getServerConvexClient>,
-  ownerUserId: string,
-  requestedFolderIds: string[],
-  rawPillar: unknown,
-) {
-  const pillar =
-    typeof rawPillar === "string"
-      ? normalizeCollectionSection(rawPillar)
-      : null;
-  if (!pillar || requestedFolderIds.length === 0) {
-    return requestedFolderIds;
-  }
-
-  const folders = (await client.query(listFoldersQuery, {
-    ownerUserId,
-  })) as ExtensionFolder[];
-  const folderById = new Map(folders.map((folder) => [folder._id, folder]));
-  const roots: ExtensionFolder[] = [];
-  const seenRootIds = new Set<string>();
-
-  for (const requestedFolderId of requestedFolderIds) {
-    const requested = folderById.get(requestedFolderId);
-    if (!requested || requested.kind) {
-      continue;
-    }
-    const root = requested.parentFolderId
-      ? folderById.get(requested.parentFolderId)
-      : requested;
-    if (!root || root.kind || root.parentFolderId || seenRootIds.has(root._id)) {
-      continue;
-    }
-    seenRootIds.add(root._id);
-    roots.push(root);
-  }
-
-  if (roots.length === 0) {
-    return requestedFolderIds;
-  }
-
-  const label = collectionSectionLabel(pillar);
-  const childFolderIds: string[] = [];
-  for (const root of roots) {
-    const existing = folders.find(
-      (folder) =>
-        !folder.kind &&
-        folder.parentFolderId === root._id &&
-        normalizeCollectionSection(folder.name) === pillar,
-    );
-    if (existing) {
-      childFolderIds.push(existing._id);
-      continue;
-    }
-
-    const result = (await client.mutation(createFolderMutation, {
-      ownerUserId,
-      name: label,
-      parentFolderId: root._id,
-    })) as { folderId: string };
-    childFolderIds.push(result.folderId);
-  }
-
-  return [...roots.map((folder) => folder._id), ...childFolderIds];
-}
+const sectionTagForPillar = (rawPillar: unknown) => {
+  const section =
+    typeof rawPillar === "string" ? normalizeCollectionSection(rawPillar) : null;
+  return section ? SECTION_TAG[section] : undefined;
+};
 
 // Auth note: validateExtensionToken enforces EXTENSION_API_TOKEN when set, and
 // fails OPEN (returns true) when it is unset. To actually protect this route,
@@ -242,10 +179,8 @@ export async function POST(request: Request) {
       (sourcePath.includes("/personalize/") && sourcePath.includes("/teach"))
         ? "inspirations"
         : undefined;
-    const folderIds = await resolveCollectionPillarFolders(
-      client,
-      ownerUserId,
-      requestedFolderIds,
+    const folderIds = requestedFolderIds;
+    const sectionTag = sectionTagForPillar(
       data.collectionPillar ?? inferredCollectionPillar,
     );
     const folderId = folderIds[0];
@@ -359,6 +294,8 @@ export async function POST(request: Request) {
       addTagName("higgsfield-web");
       addTagName("higgsfield-video");
     }
+    // What the piece IS, last, after the source tags.
+    addTagName(sectionTag);
 
     const effectiveModelName = isMidjourneySave
       ? "Midjourney"

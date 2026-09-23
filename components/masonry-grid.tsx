@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
 import { StorybookCard } from "@/components/gallery/storybook-card";
-import { BeatStackCard } from "@/components/gallery/beat-stack-card";
 import { CollectionStackCard } from "@/components/gallery/collection-stack-card";
 import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
@@ -34,7 +33,8 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  promptId?: string;
   src: string;
   fullSrc: string;
   prompt: string;
@@ -65,14 +65,15 @@ interface GalleryImage {
   starNote?: string;
   packMemberCount?: number;
   storybookCount?: number;
-  /** Beat entries: every member thumb (cover first) for the hover peek fan. */
+  /** Stack entries: every member thumb (cover first) for the hover peek. */
   peekThumbs?: string[];
   stepCount?: number;
   cinemaMetadata?: CinemaMetadataLite | null;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    promptId?: string;
     src: string;
     fullSrc: string;
     prompt: string;
@@ -122,33 +123,23 @@ interface MasonryGridProps {
   ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
-  /** Projects the asset can be sent to via the collection menu (→ Inbox). */
-  projects?: CollectionOption[];
-  onAddAssetToProject?: (
-    imageId: string,
-    projectId: string,
-  ) => Promise<void> | void;
   /** Owner-only: card hover surfaces tag chips; clicking one removes it. */
   onRemoveAssetTag?: (imageId: string, tagName: string) => void;
-  /** One-click exclude on card hover: drops the piece from the collection,
-      beat, or project the grid is scoped to. Unset on the flat gallery. */
+  /** One-click exclude on card hover: drops the piece from the collection
+      the grid is scoped to. Unset on the flat gallery. */
   onExcludeAssetFromView?: (imageId: string) => Promise<void> | void;
   excludeLabel?: string;
   excludeFolderId?: string;
   /** Opens the storybook modal for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
-  /** Opens a beat (beat folder) for entries with galleryItemType "beat". */
-  onBeatOpen?: (beatFolderId: string) => void;
-  /** Beat management — hover actions on the stack card. */
-  onBeatUnpack?: (beatFolderId: string) => void;
-  onBeatDelete?: (beatFolderId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    promptId?: string;
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
@@ -172,7 +163,8 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "beat" | "collection";
+        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+        promptId?: string;
         src: string;
         fullSrc: string;
         prompt: string;
@@ -185,6 +177,12 @@ interface MasonryGridProps {
   onImageLoad?: (imageId: string) => void;
   loading?: boolean;
   showPublicBadge?: boolean;
+  /** Card hover "Prompt" chip; off on the public surface. */
+  showPromptChip?: boolean;
+  /** Pointer rest before a video tile plays; 0 plays on hover. */
+  videoHoverDelayMs?: number;
+  /** Keep video elements mounted while idle so hover playback is instant. */
+  mountVideoAtRest?: boolean;
   /**
    * Called when the scroll frontier nears the end of the images already in
    * hand — the hook for cursor pagination to fetch the next page. Fired
@@ -205,12 +203,15 @@ interface MasonryGridProps {
   baseScale?: number;
 }
 
-const BATCH_SIZE = 18;
-const EAGER_IMAGE_COUNT = 6;
+// Rows mount in batches of this many tiles; every mounted tile fetches its
+// thumb at once (mediaLoading="eager"), so the window below is the only
+// throttle on how far ahead the grid loads.
+const BATCH_SIZE = 36;
+const EAGER_IMAGE_COUNT = 12;
 // Mount the next batch once the frontier sentinel is within this distance of
 // the viewport bottom — or anywhere above it (scrollbar drags can jump past
 // the frontier in one frame).
-const LOAD_MORE_MARGIN_PX = 800;
+const LOAD_MORE_MARGIN_PX = 2400;
 
 /* ── Responsive column count → target row height ── */
 
@@ -240,7 +241,7 @@ function getColumnCount(compact: boolean): number {
   return map.default;
 }
 
-function useColumnCount(compact: boolean): number {
+export function useColumnCount(compact: boolean): number {
   // SSR-safe: subscribe to resize events
   return useSyncExternalStore(
     (cb) => {
@@ -288,7 +289,7 @@ function resolveGridLayoutInput(image: GalleryImage): LayoutInput {
   };
 }
 
-function useContentWidth(): [
+export function useContentWidth(): [
   (el: HTMLDivElement | null) => void,
   number | null,
 ] {
@@ -336,18 +337,16 @@ export function MasonryGrid({
   onRemoveAssetFromCollection,
   onCreateCollection,
   onRenameCollection,
-  projects,
-  onAddAssetToProject,
   onRemoveAssetTag,
   onExcludeAssetFromView,
   excludeLabel,
   excludeFolderId,
   onStorybookOpen,
-  onBeatOpen,
-  onBeatUnpack,
-  onBeatDelete,
   onCollectionOpen,
   showPublicBadge = false,
+  showPromptChip = true,
+  videoHoverDelayMs,
+  mountVideoAtRest = false,
   onEndReached,
   zoom = 1,
   baseScale = 1,
@@ -826,27 +825,6 @@ export function MasonryGrid({
               }
             : { position: "relative", width: "100%", containerType: "inline-size" };
 
-          if (image.galleryItemType === "beat" && onBeatOpen) {
-            return (
-              <div key={image.id} style={tileStyle}>
-                <BeatStackCard
-                  beat={{
-                    id: image.id,
-                    beatFolderId: image.galleryItemId ?? image.id,
-                    name: image.prompt,
-                    count: image.storybookCount ?? image.previewImages.length,
-                    coverSrc: image.src !== "/placeholder.svg" ? image.src : undefined,
-                    coverKind: image.kind,
-                    peekThumbs: image.peekThumbs ?? [],
-                  }}
-                  eager={originalIndex < EAGER_IMAGE_COUNT}
-                  onOpen={onBeatOpen}
-                  onUnpack={onBeatUnpack}
-                  onDelete={onBeatDelete}
-                />
-              </div>
-            );
-          }
           if (image.galleryItemType === "storybook" && onStorybookOpen) {
             return (
               <div key={image.id} style={tileStyle}>
@@ -907,6 +885,10 @@ export function MasonryGrid({
               <ImageCard
                 image={image}
                 eager={originalIndex < EAGER_IMAGE_COUNT}
+                mediaLoading="eager"
+                showPromptChip={showPromptChip}
+                videoHoverDelayMs={videoHoverDelayMs}
+                mountVideoAtRest={mountVideoAtRest}
                 onSelect={onImageSelect}
                 canDelete={canDelete}
                 deleting={deletingImageId === image.id}
@@ -949,8 +931,6 @@ export function MasonryGrid({
                 onRenameCollection={
                   isAssetCard ? onRenameCollection : undefined
                 }
-                projects={isAssetCard ? projects : undefined}
-                onAddToProject={isAssetCard ? onAddAssetToProject : undefined}
                 onRemoveTag={isAssetCard ? onRemoveAssetTag : undefined}
                 onExcludeFromView={
                   isAssetCard ? onExcludeAssetFromView : undefined

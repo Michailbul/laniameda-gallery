@@ -1,8 +1,11 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  sectionKeyForTagName,
+  type CollectionSectionKey,
+} from "../lib/collection-sections";
 import { collectAssetsForFolder } from "./assets";
-import { collectProjectCollectionLinks } from "./projects";
 import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
@@ -18,7 +21,6 @@ import { resolveUserIdCandidates } from "./authz";
 //   - assets with isPublic=true      -> the "selected works" grid
 //   - folders (kind undefined) with showcased=true -> public collections
 //   - folders (kind "storybook") with showcased=true -> public storybooks
-// Projects are never exposed here (they are shared via /b/<token> only).
 //
 // A showcased collection/storybook exposes its WHOLE member set — the folder
 // is the curation unit, so members are not additionally filtered by isPublic.
@@ -65,8 +67,8 @@ const previewAssetValidator = v.object({
   thumbHeight: v.optional(v.number()),
 });
 
-// A "world" is a showcased project: a story universe grouping its member
-// collections as named sections (Characters, Locations, Stills, Beats).
+// A "world" is a showcased collection with structure: a story universe whose
+// pieces group into named sections (Characters, Locations, Stills, Beats).
 const worldSectionValidator = v.object({
   key: v.union(
     v.literal("beats"),
@@ -250,8 +252,8 @@ const collectSetMembers = async (
 
 const SECTION_LABELS = {
   beats: "Beats",
-  // Episode folders carry no assets themselves (their beats do), so this
-  // bucket stays empty in practice — it exists so the section union is total.
+  // Retired with the project tier; kept so older clients' section union
+  // stays total. Nothing files into it.
   episodes: "Episodes",
   characters: "Characters",
   locations: "Locations",
@@ -263,12 +265,11 @@ const SECTION_LABELS = {
 
 type WorldSectionKey = keyof typeof SECTION_LABELS;
 
-// A WORLD is the single public concept for "a story universe". Three vault
-// shapes produce one, so publishing never forces a restructure:
-//   - a project (kind:"project") whose member collections carry an explicit
-//     projectCollections.section
-//   - a plain collection with sub-collections ("Dear Annette" > Scenes,
-//     Characters, Locations), where the child's NAME names the section
+// A WORLD is the single public concept for "a story universe". Two vault
+// shapes produce one:
+//   - a plain collection with sub-collections ("Dear Annette" > "Dari"), where
+//     a child NAMED for a section is that section and any other child's
+//     members section by their statics tag
 //   - a storybook (kind:"storybook"), whose own frames are its one "Story"
 //     section — a storybook IS a world, just one without sub-structure
 // A childless plain collection is a plain set, not a world.
@@ -287,9 +288,42 @@ const sectionKeyForName = (name: string): WorldSectionKey => {
   return "other";
 };
 
-// A world's children: plain sub-collections AND nested projects. The project
-// tier is the second level of the hierarchy — world > project > beats >
-// statics — so a world that holds only a project is still a world.
+// Which section a piece belongs to, read off its statics tag. Sections are
+// tags now (a flat collection tagged character / location / scene reads
+// exactly like the old Characters / Locations / Scenes sub-collections).
+// Inspirations have no section of their own — they fall through to "More".
+const SECTION_KEY_BY_TAG_SECTION: Record<CollectionSectionKey, WorldSectionKey> = {
+  characters: "characters",
+  locations: "locations",
+  scenes: "beats",
+  inspirations: "other",
+};
+
+const sectionKeysByTag = async (
+  ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
+  assets: Doc<"assets">[],
+) => {
+  const tagNames = new Map<Id<"tags">, string | null>();
+  const keys = new Map<Id<"assets">, WorldSectionKey>();
+  for (const asset of assets) {
+    for (const tagId of asset.tagIds) {
+      let name = tagNames.get(tagId);
+      if (name === undefined) {
+        name = (await ctx.db.get(tagId))?.name ?? null;
+        tagNames.set(tagId, name);
+      }
+      const section = sectionKeyForTagName(name);
+      if (!section) continue;
+      const key = SECTION_KEY_BY_TAG_SECTION[section];
+      if (key === "other") continue;
+      keys.set(asset._id, key);
+      break;
+    }
+  }
+  return keys;
+};
+
+// A world's children: its plain sub-collections.
 const worldChildFolders = async (
   ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
   world: Doc<"folders">,
@@ -299,14 +333,14 @@ const worldChildFolders = async (
       .query("folders")
       .withIndex("by_parent", (q) => q.eq("parentFolderId", world._id))
       .collect()
-  ).filter((child) => child.kind === undefined || child.kind === "project");
+  ).filter((child) => child.kind === undefined);
 
 // Is this showcased folder a world (sectioned) rather than a flat set?
 const isWorldFolder = async (
   ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
   folder: Doc<"folders">,
 ) => {
-  if (folder.kind === "project" || folder.kind === "storybook") return true;
+  if (folder.kind === "storybook") return true;
   if (folder.kind !== undefined) return false;
   return (await worldChildFolders(ctx, folder)).length > 0;
 };
@@ -321,74 +355,58 @@ const collectWorldSections = async (
 ) => {
   const ownerUserIds = resolveUserIdCandidates(world.ownerUserId ?? "");
 
-  // Normalize every shape to (folderId, sectionKey) pairs before reading any
-  // membership, so the grouping below is shape-agnostic.
-  const members: Array<{ folderId: Id<"folders">; key: WorldSectionKey }> = [];
-
-  // A project's own member collections carry an explicit section.
-  const pushProjectMembers = async (projectId: Id<"folders">) => {
-    for (const link of await collectProjectCollectionLinks(
-      ctx,
-      ownerUserIds,
-      projectId,
-    )) {
-      members.push({ folderId: link.folderId, key: link.section ?? "other" });
-    }
-  };
-
-  if (world.kind === "project") {
-    await pushProjectMembers(world._id);
-  } else {
-    for (const child of await worldChildFolders(ctx, world)) {
-      if (child.kind === "project") {
-        // A project inside a world holds no assets itself — it contributes
-        // the sectioned collections filed under it.
-        await pushProjectMembers(child._id);
-      } else {
-        members.push({
-          folderId: child._id,
-          key: sectionKeyForName(child.name),
-        });
-      }
-    }
-  }
-
-  // Non-project worlds also show whatever sits directly on the folder itself:
-  // a storybook's frames ARE its story; a plain collection's loose members go
-  // under "More" so nothing published goes missing.
-  if (world.kind !== "project") {
-    members.push({
-      folderId: world._id,
-      key: world.kind === "storybook" ? "story" : "other",
-    });
-  }
-
   const seen = new Set<string>();
   const byKey = new Map<
     WorldSectionKey,
     { key: WorldSectionKey; label: string; assets: Doc<"assets">[] }
   >();
 
-  for (const member of members) {
-    const collectionMembers = await collectPublicAssetsForFolder(
-      ctx,
-      ownerUserIds,
-      member.folderId,
-    );
-    const fresh = collectionMembers.filter((asset) => {
-      if (seen.has(asset._id)) return false;
+  // Each asset lands in the first section that claims it.
+  const place = (
+    assets: Doc<"assets">[],
+    keyFor: (asset: Doc<"assets">) => WorldSectionKey,
+  ) => {
+    for (const asset of assets) {
+      if (seen.has(asset._id)) continue;
       seen.add(asset._id);
-      return true;
-    });
-    if (fresh.length === 0) continue;
-    const key = member.key;
-    const bucket = byKey.get(key) ?? {
-      key,
-      label: SECTION_LABELS[key],
-      assets: [],
-    };
-    bucket.assets.push(...fresh);
-    byKey.set(key, bucket);
+      const key = keyFor(asset);
+      const bucket = byKey.get(key) ?? {
+        key,
+        label: SECTION_LABELS[key],
+        assets: [],
+      };
+      bucket.assets.push(asset);
+      byKey.set(key, bucket);
+    }
+  };
+
+  // Sub-collections: a section-named child ("Characters") is that section
+  // wholesale; any other child ("Dari", a beat) sections its members by
+  // their statics tag, like the world's own members below.
+  for (const child of await worldChildFolders(ctx, world)) {
+    const assets = await collectPublicAssetsForFolder(ctx, ownerUserIds, child._id);
+    const named = sectionKeyForName(child.name);
+    if (named !== "other") {
+      place(assets, () => named);
+    } else {
+      const keys = await sectionKeysByTag(ctx, assets);
+      place(assets, (asset) => keys.get(asset._id) ?? "other");
+    }
+  }
+
+  // Whatever sits directly on the folder itself. A storybook's frames ARE
+  // its story. A plain collection's own
+  // members are sectioned by their statics tag — character / location /
+  // scene are tags, not sub-collections — and anything untagged goes under
+  // "More" so nothing published goes missing.
+  {
+    const own = await collectPublicAssetsForFolder(ctx, ownerUserIds, world._id);
+    if (world.kind === "storybook") {
+      place(own, () => "story");
+    } else {
+      const keys = await sectionKeysByTag(ctx, own);
+      place(own, (asset) => keys.get(asset._id) ?? "other");
+    }
   }
 
   // Stable, narrative order regardless of how the collections were linked.
@@ -495,7 +513,7 @@ export const getShowcaseHome = query({
       (f) => isShowcaseOwner(f.ownerUserId) && f.parentFolderId === undefined,
     );
 
-    // --- Worlds: showcased projects, plus showcased collections that carry
+    // --- Worlds: showcased collections that carry
     // sub-collections (Dear Annette > Scenes / Characters / Locations). Both
     // shapes present identically to a visitor.
     const worldFolders: Doc<"folders">[] = [];
@@ -585,8 +603,7 @@ export const getShowcaseHome = query({
     )
       .filter((a) => a.isFeatured === true && isShowcaseOwner(a.ownerUserId))
       .sort((a, b) => {
-        // HIGHER first — the same convention as the schema comment and the
-        // project workspace. This used to sort ascending, which silently
+        // HIGHER first — the same convention as the schema comment. This used to sort ascending, which silently
         // inverted the owner's intent: `setAssetOrderPriority("top")` writes
         // +Date.now(), so a piece sent to the top landed LAST out here. It went
         // unnoticed because nothing had a priority set, leaving every asset on
@@ -669,7 +686,7 @@ const worldViewValidator = v.union(
 
 /**
  * One world by slug (or raw folder id, for worlds published before slugs
- * existed). Returns null unless the project is currently showcased — revoking
+ * existed). Returns null unless the collection is currently showcased — revoking
  * the flag closes the public door immediately. Only isPublic members are ever
  * returned.
  */
@@ -760,7 +777,6 @@ const loadShowcaseSet = async (
   const folderKind = folder.kind === "storybook" ? "storybook" : "collection";
   if (folderKind !== expected) return null;
   // Guard: only plain collections and storybooks are ever public here.
-  if (folder.kind === "project" || folder.kind === "beat") return null;
 
   const { own, chapters } = await collectSetMembers(ctx, folder);
   const chapterAssetIds = new Set(

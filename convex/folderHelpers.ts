@@ -27,14 +27,6 @@ export const ensureFolderOwnership = async (
     throw new ConvexError("Folder does not belong to this user.");
   }
 
-  // Every caller of this guard is a filing path (assets/prompts/designs into
-  // a folder). Projects group collections, never content — a membership here
-  // would be invisible to every project query.
-  if (folder.kind === "project") {
-    throw new ConvexError(
-      "Content can't be filed into a project directly — file it into one of the project's collections.",
-    );
-  }
 };
 
 // Self-healing denormalized member count. Recounts a folder's assetFolders

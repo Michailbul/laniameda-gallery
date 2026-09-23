@@ -13,7 +13,7 @@ function PageInner() {
   const previewVisitor = useSearchParams().get("preview") === "visitor";
 
   // `/` is the gallery workbench, for the owner only. `proxy.ts` already bounces
-  // signed-out visitors to the taste profile at the edge; this covers the paths
+  // signed-out visitors to the public surface at the edge; this covers the paths
   // that never touch the edge (bfcache restores, a session that dies mid-visit)
   // so the vault shell can't sit here empty for someone with no session.
   const leaveRoot = !isLoading && (!user || previewVisitor);

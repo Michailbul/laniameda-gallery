@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -11,7 +9,7 @@ import { ShowcaseMasonry } from "./showcase-masonry";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
 import { BrowseBand, TileSizeSlider, useZoomPreference } from "./browse-band";
-import { assetThumb } from "./types";
+import { WorldsMasonry, type WorldSummary } from "./worlds-masonry";
 import type { ShowcaseAsset } from "./types";
 import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 
@@ -150,18 +148,20 @@ export function PublicHome({
         >
           {copy.title}
         </h1>
-        <p
-          style={{
-            fontFamily: "var(--lm-font)",
-            fontSize: "clamp(13px, 1.5vw, 15.5px)",
-            lineHeight: 1.65,
-            color: "var(--lm-text-secondary)",
-            maxWidth: 560,
-            margin: "18px 0 0",
-          }}
-        >
-          {copy.blurb}
-        </p>
+        {copy.blurb && (
+          <p
+            style={{
+              fontFamily: "var(--lm-font)",
+              fontSize: "clamp(13px, 1.5vw, 15.5px)",
+              lineHeight: 1.65,
+              color: "var(--lm-text-secondary)",
+              maxWidth: 560,
+              margin: "18px 0 0",
+            }}
+          >
+            {copy.blurb}
+          </p>
+        )}
       </header>
 
       {mode === "featured" && (
@@ -172,7 +172,9 @@ export function PublicHome({
         />
       )}
       {mode === "worlds" && <WorldsMode worlds={worlds} loading={loading} />}
-      {mode === "browse" && <BrowseBand />}
+      {/* The signed-in owner gets the Browse-scope control; visitors never
+          see it. The setting itself lives on the backend. */}
+      {mode === "browse" && <BrowseBand ownerControls={previewAuthed} />}
 
       <footer
         style={{
@@ -273,6 +275,9 @@ function FeaturedMode({
             // The lead pieces run half again as large as the Browse grid.
             baseScale={1.5}
             compact={false}
+            // Mostly motion: keep the video elements mounted so a hover plays
+            // at once instead of after a mount and a fetch.
+            preloadVideos
           />
         )}
       </div>
@@ -280,12 +285,9 @@ function FeaturedMode({
   );
 }
 
-type WorldSummary = NonNullable<
-  ReturnType<typeof useQuery<typeof api.showcase.getShowcaseHome>>
->["worlds"][number];
-
-// Mode 2 — the worlds. One wide card each: cover, name, logline, and the
-// section counts that say how much is behind it.
+// Mode 2 — the worlds, in the same justified masonry as Featured and Browse.
+// One wide card each: cover, name, logline, and the section counts that say
+// how much is behind it.
 function WorldsMode({
   worlds,
   loading,
@@ -293,17 +295,35 @@ function WorldsMode({
   worlds: WorldSummary[];
   loading: boolean;
 }) {
+  // Same stored size as the other two views and the vault.
+  const [zoom, setZoom] = useZoomPreference();
   return (
     <section style={{ padding: "0 clamp(16px, 3vw, 32px) clamp(40px, 8vh, 80px)" }}>
       <div>
+        {worlds.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              paddingBottom: 16,
+            }}
+          >
+            <TileSizeSlider value={zoom} onChange={setZoom} />
+          </div>
+        )}
         {loading ? (
-          <div className="lm-worlds-masonry" aria-hidden>
+          <div
+            aria-hidden
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 420px), 1fr))",
+              gap: 12,
+            }}
+          >
             {[0, 1].map((i) => (
               <div
                 key={i}
                 style={{
-                  breakInside: "avoid",
-                  marginBottom: 22,
                   aspectRatio: "3 / 2",
                   background: "var(--lm-surface-1)",
                   borderRadius: 8,
@@ -313,137 +333,15 @@ function WorldsMode({
           </div>
         ) : worlds.length === 0 ? (
           <EmptyNote>
-            No worlds published yet — showcase a project in the vault.
+            No worlds published yet — publish a collection from the vault.
           </EmptyNote>
         ) : (
-          // Masonry of cover tiles: each world keeps its cover's own aspect
-          // instead of being forced into one banner shape.
-          <div className="lm-worlds-masonry">
-            {worlds.map((world) => (
-              <div
-                key={world.folderId}
-                style={{ breakInside: "avoid", marginBottom: 22 }}
-              >
-                <WorldCard world={world} />
-              </div>
-            ))}
-          </div>
+          // Worlds run at the Featured size: they are the destination, not
+          // thumbnails of it.
+          <WorldsMasonry worlds={worlds} zoom={zoom} baseScale={1.5} />
         )}
       </div>
     </section>
-  );
-}
-
-function WorldCard({ world }: { world: WorldSummary }) {
-  const coverSrc = world.cover ? assetThumb(world.cover) : undefined;
-  // The cover's own shape, clamped so a very tall or very wide frame can't
-  // wreck the column rhythm.
-  const coverRatio = world.cover?.width && world.cover?.height
-    ? Math.min(2.2, Math.max(0.75, world.cover.width / world.cover.height))
-    : 3 / 2;
-  return (
-    <Link
-      href={`/w/${world.slug ?? world.folderId}`}
-      className="lm-world-card"
-      style={{
-        display: "block",
-        position: "relative",
-        borderRadius: 8,
-        overflow: "hidden",
-        background: "var(--lm-surface-2)",
-        aspectRatio: String(coverRatio),
-        textDecoration: "none",
-        // Card text always sits over the cover's dark gradient, never over the
-        // page background — so it stays light regardless of theme.
-        color: "#f5ede4",
-      }}
-    >
-      {coverSrc &&
-        (world.cover?.kind === "video" ? (
-          <video
-            src={world.cover.url}
-            poster={world.cover.thumbUrl}
-            muted
-            loop
-            playsInline
-            autoPlay
-            style={coverStyle}
-          />
-        ) : (
-          <img src={coverSrc} alt="" loading="lazy" style={coverStyle} />
-        ))}
-      {/* Keeps the title legible over any cover. */}
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          inset: 0,
-          background:
-            "linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.1) 100%)",
-        }}
-      />
-      <span
-        style={{
-          position: "absolute",
-          left: "clamp(18px, 3vw, 38px)",
-          right: "clamp(18px, 3vw, 38px)",
-          bottom: "clamp(18px, 3vw, 34px)",
-          display: "block",
-        }}
-      >
-        <span
-          style={{
-            display: "block",
-            fontFamily: "var(--lm-font-display)",
-            fontWeight: 800,
-            fontSize: "clamp(26px, 4.2vw, 56px)",
-            lineHeight: 1,
-            letterSpacing: "-0.03em",
-            color: "#f5ede4",
-            textShadow: "0 2px 24px rgba(0,0,0,0.6)",
-          }}
-        >
-          {world.name}
-        </span>
-        {world.logline && (
-          <span
-            className="lm-clamp-2"
-            style={{
-              marginTop: 10,
-              maxWidth: 560,
-              fontFamily: "var(--lm-font)",
-              fontSize: 13,
-              lineHeight: 1.55,
-              color: "rgba(240, 232, 224, 0.86)",
-              textShadow: "0 1px 12px rgba(0,0,0,0.6)",
-            }}
-          >
-            {world.logline}
-          </span>
-        )}
-        <span
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "4px 18px",
-            marginTop: 14,
-            fontFamily: "var(--lm-font)",
-            fontSize: 10.5,
-            fontWeight: 700,
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "rgba(240, 232, 224, 0.72)",
-          }}
-        >
-          {world.sections.map((section) => (
-            <span key={section.key}>
-              {section.count} {section.label}
-            </span>
-          ))}
-          <span style={{ color: "var(--lm-coral)" }}>Enter →</span>
-        </span>
-      </span>
-    </Link>
   );
 }
 
@@ -463,11 +361,3 @@ export function EmptyNote({ children }: { children: React.ReactNode }) {
     </p>
   );
 }
-
-const coverStyle = {
-  position: "absolute" as const,
-  inset: 0,
-  width: "100%",
-  height: "100%",
-  objectFit: "cover" as const,
-};

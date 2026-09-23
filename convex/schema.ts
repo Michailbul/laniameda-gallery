@@ -15,7 +15,6 @@ import {
   lineageRoleValidator,
   modelProviderValidator,
   optionalPillarValidator,
-  optionalProjectSectionValidator,
   promptProfileValidator,
   promptSectionsValidator,
   promptTypeValidator,
@@ -95,52 +94,24 @@ export default defineSchema({
     name: v.string(),
     normalizedName: v.optional(v.string()),
     description: v.optional(v.string()),
-    // Collection flavor. Undefined = standard collection. "storybook" =
-    // a narrative set of images; its story text lives in `description`.
-    // "project" = a review workspace that GROUPS other collections (its member
-    // collections live in the projectCollections join table); its brief lives
-    // in `description`.
-    kind: v.optional(
-      v.union(
-        v.literal("storybook"),
-        v.literal("project"),
-        // A beat: one shot of a project, created from the project view and
-        // hidden from the sidebar collections list.
-        v.literal("beat"),
-        // A chapter of a project that groups its beats ("Episode 1"). Holds no
-        // assets of its own; beats point at it via
-        // projectCollections.episodeFolderId.
-        v.literal("episode"),
-      ),
-    ),
-    // Unguessable token that makes a project's beat board publicly
-    // viewable at /b/<token>. Unset = sharing off.
-    shareToken: v.optional(v.string()),
-    // Parent collection for nesting. The hierarchy, top down:
-    //   world    a plain ROOT collection — the story universe ("Dear Annete");
-    //            the only tier that publishes to /w/<slug>
-    //   project  kind:"project" parented to a world ("Dari"); groups its own
-    //            sectioned member collections and holds no assets itself
-    //   beats    a project member (projectCollections.section = "beats")
-    //   statics  the characters/locations/stills a beat draws on, reached from
-    //            the beat's projectCollections row via beatCharacterFolderIds
-    //            / beatLocationFolderIds
-    // A world may also hold plain sub-collections directly ("Dear Annete" >
-    // "Characters") — the older shape, still supported.
-    // Only plain collections may be parents, and only at root, so parentage
-    // never exceeds world > child. Undefined = root-level.
+    // Collection flavor. Undefined = standard collection. "storybook" = a
+    // narrative set of images; its story text lives in `description`.
+    kind: v.optional(v.union(v.literal("storybook"))),
+    // Parent collection for nesting, one level deep: a root collection may
+    // hold sub-collections ("Dear Annete" > "Dari"); a sub-collection holds
+    // none. What a piece IS (character / location / scene) is a tag, not a
+    // folder.
     parentFolderId: v.optional(v.id("folders")),
-    // Public showcase flag. When true, a plain collection, a storybook, or a
-    // project ("world") is surfaced on the public home and becomes browsable
+    // Public showcase flag. When true, a plain collection or a storybook is
+    // surfaced on the public home and becomes browsable
     // by anonymous visitors. Only assets individually marked isPublic are ever
     // exposed — showcasing a set publishes the SET, never its private members.
-    // Beats are never showcased (internal scaffolding); a project is
-    // still shared privately via shareToken. Undefined = off.
+    // Undefined = off.
     // Sub-collections are never showcased directly; they ride along as
     // chapters of their showcased parent.
     showcased: v.optional(v.boolean()),
     // URL slug for a showcased world: /w/<slug>. Derived from the name when a
-    // project is first showcased; unique per owner. Undefined = address by id.
+    // collection is first showcased; unique per owner. Undefined = address by id.
     slug: v.optional(v.string()),
     // Featured on the public home: showcased sets with this flag get the
     // large hero treatment above the regular stacks. Implies showcased.
@@ -152,11 +123,10 @@ export default defineSchema({
     // exactly this collection's members (whole set, like showcased folders)
     // instead of auto-pulling individually-public assets.
     tasteCollection: v.optional(v.boolean()),
-    // MASTER option: the asset used as this collection's thumbnail when it is
-    // browsed as a beat (a set of similar options). Falls back to the first
+    // The asset used as this collection's thumbnail. Falls back to the first
     // asset when unset or dangling.
     coverAssetId: v.optional(v.id("assets")),
-    // Pinned in the project workspace (beat/stack cards float first).
+    // Pinned: floats first among its siblings.
     pinnedAt: v.optional(v.number()),
     // Denormalized count of assetFolders links pointing here. Maintained by
     // recountFolderMembers (self-healing recount after membership writes) —
@@ -168,42 +138,11 @@ export default defineSchema({
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_kind", ["ownerUserId", "kind"])
-    .index("by_shareToken", ["shareToken"])
     .index("by_showcased", ["showcased"])
     .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])
     .index("by_parent", ["parentFolderId"]),
 
-  // Which collections belong to a project (folder kind:"project"). A project
-  // aggregates the assets of all its member collections for review. Many-to-
-  // many so a collection (e.g. a recurring character set) can sit in several
-  // projects. Mirrors the assetFolders join pattern.
-  projectCollections: defineTable({
-    ownerUserId: v.string(),
-    projectId: v.id("folders"),
-    folderId: v.id("folders"),
-    // Which layer/tab of the project this collection is filed under
-    // (characters | locations | beats). Undefined = unsorted.
-    section: optionalProjectSectionValidator,
-    // For beat-layer rows only: which character / location collections this
-    // beat uses (member collections of the same project); the beat
-    // collection's own assets are the resulting media (videos/stills).
-    beatCharacterFolderIds: v.optional(v.array(v.id("folders"))),
-    beatLocationFolderIds: v.optional(v.array(v.id("folders"))),
-    // For beat-layer rows only: the episode this beat belongs to — a
-    // kind:"episode" folder filed in the same project's "episodes" layer. One
-    // episode holds many beats; a beat sits in at most one. Undefined = not yet
-    // filed into an episode, which the project view groups as "Unassigned".
-    episodeFolderId: v.optional(v.id("folders")),
-    // Sort key inside the episode, so beats play in story order rather than by
-    // creation time. Undefined sorts last.
-    episodeOrder: v.optional(v.number()),
-    createdAt: v.number(),
-  })
-    .index("by_project", ["projectId"])
-    .index("by_project_folder", ["projectId", "folderId"])
-    .index("by_folder", ["folderId"])
-    .index("by_episode", ["episodeFolderId"]),
   // Curated filter pills on the main gallery menu. The owner manages these
   // from the filter bar's admin panel — the raw tag cloud never surfaces
   // directly. An entry maps to either a set of tag names ("tag" kind, matched
@@ -222,27 +161,17 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_owner_sortOrder", ["ownerUserId", "sortOrder"]),
-  // Authless reactions from shared-board viewers (beta: the share token is
-  // the only capability; no viewer accounts). viewerKey is a random client id
-  // persisted in the viewer's localStorage so likes toggle per browser;
-  // viewerName is whatever they typed ("Lukas"), shown to the owner.
-  boardReactions: defineTable({
+  // Owner settings for the public surface. One row per showcase owner; the
+  // authless Browse queries read it (convex/publicSurface.ts). Absent row =
+  // the curated default, so nothing changes for a vault that never set it.
+  publicSurfaceSettings: defineTable({
     ownerUserId: v.string(),
-    projectId: v.id("folders"),
-    // Exactly one of assetId / folderId is set: a like on one asset, or on a
-    // whole beat (a beat card on the shared board).
-    assetId: v.optional(v.id("assets")),
-    folderId: v.optional(v.id("folders")),
-    viewerKey: v.string(),
-    viewerName: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_project", ["projectId"])
-    .index("by_project_asset", ["projectId", "assetId"])
-    .index("by_project_folder", ["projectId", "folderId"])
-    .index("by_project_viewer_asset", ["projectId", "viewerKey", "assetId"])
-    .index("by_project_viewer_folder", ["projectId", "viewerKey", "folderId"])
-    .index("by_project_viewer", ["projectId", "viewerKey"]),
+    // What the public Browse view walks: the isPublic slice, or the whole
+    // vault. Featured is curated regardless.
+    browseScope: v.union(v.literal("published"), v.literal("everything")),
+    updatedByUserId: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_owner", ["ownerUserId"]),
   prompts: defineTable({
     ownerUserId: v.optional(v.string()),
     text: v.string(),

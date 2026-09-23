@@ -13,7 +13,6 @@ import {
   listChildCollectionEntries,
   listFolders,
 } from "../convex/folders";
-import { removeAssetsFromProject } from "../convex/projects";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
@@ -282,88 +281,40 @@ describe("folders backend", () => {
     expect(harness.db.getTableDocs("assetFolders").length).toBe(3);
   });
 
-  test("removing assets from a project preserves outside collection memberships", async () => {
-    const project = await createFolder._handler(harness.ctx as never, {
+  test("nests folders one level inside a collection", async () => {
+    const collection = await createFolder._handler(harness.ctx as never, {
       ownerUserId: "user-1",
-      name: "Campaign",
-      kind: "project",
+      name: "Cassandra",
     });
-    const projectInbox = await createFolder._handler(harness.ctx as never, {
+    const folder = await createFolder._handler(harness.ctx as never, {
       ownerUserId: "user-1",
-      name: "Campaign Inbox",
+      name: "Balcony",
+      parentFolderId: collection.folderId,
     });
-    const outside = await createFolder._handler(harness.ctx as never, {
-      ownerUserId: "user-1",
-      name: "Favorites",
-    });
-    await harness.db.insert("projectCollections", {
-      ownerUserId: "user-1",
-      projectId: project.folderId,
-      folderId: projectInbox.folderId,
-      createdAt: Date.now(),
-    });
-    const asset = await createAsset._handler(harness.ctx as never, {
-      ownerUserId: "user-1",
-      kind: "image",
-      tagIds: [],
-      folderId: projectInbox.folderId,
-    });
-    await addAssetFolders._handler(harness.ctx as never, {
-      ownerUserId: "user-1",
-      assetId: asset.assetId,
-      folderIds: [outside.folderId],
-    });
-
-    const result = await removeAssetsFromProject._handler(
-      harness.ctx as never,
-      {
-        ownerUserId: "user-1",
-        projectId: project.folderId,
-        assetIds: [asset.assetId, asset.assetId],
-      },
+    expect(folder.created).toBe(true);
+    const stored = await harness.db.get<Record<string, unknown>>(
+      folder.folderId,
     );
+    expect(stored?.parentFolderId).toBe(collection.folderId);
 
-    expect(result).toEqual({ removed: 1, skipped: 0 });
-    const updatedAsset = await harness.db.get<Record<string, unknown>>(
-      asset.assetId,
-    );
-    expect(updatedAsset?.folderId).toBe(outside.folderId);
-    expect(
-      harness.db
-        .getTableDocs("assetFolders")
-        .map((link) => link.folderId),
-    ).toEqual([outside.folderId]);
-
-    const repeated = await removeAssetsFromProject._handler(
-      harness.ctx as never,
-      {
-        ownerUserId: "user-1",
-        projectId: project.folderId,
-        assetIds: [asset.assetId],
-      },
-    );
-    expect(repeated).toEqual({ removed: 0, skipped: 1 });
-  });
-
-  test("blocks removing another owner's assets from a project", async () => {
-    const project = await createFolder._handler(harness.ctx as never, {
-      ownerUserId: "user-1",
-      name: "Private Project",
-      kind: "project",
-    });
-    const asset = await createAsset._handler(harness.ctx as never, {
-      ownerUserId: "user-2",
-      kind: "image",
-      tagIds: [],
-    });
-
+    // A folder never holds folders of its own.
     await expect(
-      removeAssetsFromProject._handler(harness.ctx as never, {
+      createFolder._handler(harness.ctx as never, {
         ownerUserId: "user-1",
-        projectId: project.folderId,
-        assetIds: [asset.assetId],
+        name: "Too deep",
+        parentFolderId: folder.folderId,
       }),
-    ).rejects.toThrow("Asset does not belong to this user.");
+    ).rejects.toThrow("Sub-collections can't be nested further.");
+
+    // Storybooks stay leaves.
+    await expect(
+      createFolder._handler(harness.ctx as never, {
+        ownerUserId: "user-1",
+        name: "A story",
+        kind: "storybook",
+        parentFolderId: collection.folderId,
+      }),
+    ).rejects.toThrow("Only plain collections can sit inside another collection.");
   });
 
   test("deleteFolder clears related asset and prompt references", async () => {
