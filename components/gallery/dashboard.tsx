@@ -4011,15 +4011,6 @@ export function GalleryDashboard({
           });
         }
       : undefined,
-    onSetFeaturedState: canCuratePublic
-      ? (imageId: string, isFeatured: boolean) => {
-          void updateAssetCuration({
-            assetId: imageId,
-            isPublic: Boolean(selectedImageLive?.isPublic),
-            isFeatured,
-          });
-        }
-      : undefined,
     curationBusy:
       curationLoadingAssetId === selectedImage?.id,
     curationError:

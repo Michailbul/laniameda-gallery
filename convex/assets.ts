@@ -90,6 +90,20 @@ const getCuratorUserIdsFromEnv = () => {
   );
 };
 
+// The star IS the featured flag. The vault shows a star; the public featured
+// reel reads isFeatured. Keeping them as two flags let them drift (starred
+// pieces missing from the reel, reel pieces with no star in the vault), so
+// every write that changes one moves the other. Featured implies public; a
+// piece taken off the reel stays public.
+const starPatchForFeatured = (
+  asset: Doc<"assets">,
+  nextIsFeatured: boolean,
+  at: number,
+): { starredAt?: number } => {
+  if (nextIsFeatured) return asset.starredAt ? {} : { starredAt: at };
+  return asset.starredAt ? { starredAt: undefined } : {};
+};
+
 const assertCurationAdmin = (actorUserId: string, adminSecret: string) => {
   const expectedSecret = process.env.CURATION_ADMIN_SECRET;
   if (!expectedSecret || adminSecret !== expectedSecret) {
@@ -738,13 +752,33 @@ export const setAssetStarred = mutation({
   handler: async (ctx, args) => {
     const asset = await requireOwnedAsset(ctx, args.ownerUserId, args.assetId);
 
-    const starredAt = args.starred ? Date.now() : undefined;
+    const now = Date.now();
+    const starredAt = args.starred ? (asset.starredAt ?? now) : undefined;
     const starNote =
       args.note === undefined
         ? asset.starNote
         : args.note.trim().slice(0, STAR_NOTE_MAX_LENGTH) || undefined;
 
-    await ctx.db.patch(asset._id, { starredAt, starNote });
+    // For the curator the star is the featured flag (see starPatchForFeatured):
+    // starring publishes the piece onto the public featured reel, unstarring
+    // takes it off the reel and leaves it public. Anyone else's star stays a
+    // private marker.
+    const curator = canActorAccessByUserId(
+      args.ownerUserId.trim(),
+      getCuratorUserIdsFromEnv(),
+    );
+    const curation = curator
+      ? args.starred
+        ? { isPublic: true, isFeatured: true, curatedByUserId: args.ownerUserId.trim(), curatedAt: now }
+        : asset.isFeatured
+          ? { isFeatured: false, curatedByUserId: args.ownerUserId.trim(), curatedAt: now }
+          : {}
+      : {};
+
+    await ctx.db.patch(asset._id, { starredAt, starNote, ...curation });
+    if ("isFeatured" in curation) {
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    }
 
     return { assetId: asset._id, starredAt, starNote };
   },
@@ -2214,6 +2248,9 @@ export const listPublicGalleryAssetsPage = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     tagIds: v.optional(v.array(v.id("tags"))),
+    // Drop anything carrying one of these — the public Live action pill is
+    // "not animation", not "tagged live action".
+    excludeTagIds: v.optional(v.array(v.id("tags"))),
     modelName: v.optional(v.string()),
     // Restrict the public page to one collection's membership — what a
     // collection-kind menu filter pill selects.
@@ -2226,6 +2263,10 @@ export const listPublicGalleryAssetsPage = query({
   handler: async (ctx, args) => {
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
+    const excludeFilter =
+      args.excludeTagIds && args.excludeTagIds.length > 0
+        ? new Set(args.excludeTagIds)
+        : null;
     // Membership is a links-only read; the ids gate the page below so the
     // pagination cursor still walks the isPublic index.
     const folderFilter = args.folderId
@@ -2267,6 +2308,12 @@ export const listPublicGalleryAssetsPage = query({
 
     const filtered = result.page.filter((asset) => {
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
+        return false;
+      }
+      if (
+        excludeFilter &&
+        asset.tagIds.some((tagId) => excludeFilter.has(tagId))
+      ) {
         return false;
       }
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
@@ -2340,6 +2387,7 @@ export const setAssetCuration = mutation({
     await ctx.db.patch(args.assetId, {
       isPublic: nextIsPublic,
       isFeatured: nextIsFeatured,
+      ...starPatchForFeatured(asset, nextIsFeatured, curatedAt),
       curatedByUserId: actorUserId,
       curatedAt,
     });
@@ -2425,6 +2473,7 @@ export const bulkSetAssetCuration = mutation({
       await ctx.db.patch(assetId, {
         isPublic: nextIsPublic,
         isFeatured: nextIsFeatured,
+        ...starPatchForFeatured(asset, nextIsFeatured, curatedAt),
         curatedByUserId: actorUserId,
         curatedAt,
       });
@@ -2502,9 +2551,11 @@ export const bulkSetFolderCuration = mutation({
       if (!asset || Boolean(asset.isPublic) === nextIsPublic) {
         continue;
       }
+      const nextIsFeatured = Boolean(asset.isFeatured && nextIsPublic);
       await ctx.db.patch(assetId, {
         isPublic: nextIsPublic,
-        isFeatured: Boolean(asset.isFeatured && nextIsPublic),
+        isFeatured: nextIsFeatured,
+        ...starPatchForFeatured(asset, nextIsFeatured, curatedAt),
         curatedByUserId: actorUserId,
         curatedAt,
       });

@@ -126,7 +126,6 @@ interface GalleryDetailPanelProps {
   onSaveStarNote?: (imageId: string, note: string) => Promise<void> | void;
   canCuratePublic?: boolean;
   onSetPublicState?: (imageId: string, isPublic: boolean) => void;
-  onSetFeaturedState?: (imageId: string, isFeatured: boolean) => void;
   curationBusy?: boolean;
   curationError?: string;
   /** Filing — where the asset lives, and everywhere it could go. */
@@ -196,7 +195,6 @@ export function GalleryDetailPanel({
   onToggleStar,
   onSaveStarNote,
   onSetPublicState,
-  onSetFeaturedState,
   curationBusy = false,
   curationError,
   canManageFolder = false,
@@ -1882,15 +1880,20 @@ export function GalleryDetailPanel({
                 </Field>
               )}
 
-              {/* ── Promote ── star leads every grid, public opens the door,
-                  featured leads the public home. */}
+              {/* ── Promote ── for the curator the star IS featured: it leads
+                  every grid here and the featured reel on the taste profile.
+                  Public opens the door. */}
               {(onToggleStar || (canCuratePublic && onSetPublicState)) && (
                 <Field label="Promote">
                   <div className="flex flex-col">
                     {onToggleStar && (
                       <SwitchRow
-                        label="Highlighted"
-                        hint="Leads every grid it shows up in"
+                        label={canCuratePublic ? "Featured" : "Highlighted"}
+                        hint={
+                          canCuratePublic
+                            ? "On the taste profile and first in every grid"
+                            : "Leads every grid it shows up in"
+                        }
                         on={isStarred}
                         onClick={() => onToggleStar(image.id, !isStarred)}
                         icon={
@@ -1910,22 +1913,6 @@ export function GalleryDetailPanel({
                         busy={curationBusy}
                         onClick={() =>
                           onSetPublicState(image.id, !image.isPublic)
-                        }
-                      />
-                    )}
-                    {canCuratePublic && onSetFeaturedState && (
-                      <SwitchRow
-                        label="Featured"
-                        hint={
-                          image.isPublic
-                            ? "Leads the public home"
-                            : "Publish it first"
-                        }
-                        on={Boolean(image.isFeatured && image.isPublic)}
-                        busy={curationBusy}
-                        disabled={!image.isPublic}
-                        onClick={() =>
-                          onSetFeaturedState(image.id, !image.isFeatured)
                         }
                       />
                     )}

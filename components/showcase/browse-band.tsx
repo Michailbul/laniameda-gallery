@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import type { ShowcaseAsset } from "./types";
+import { isAnimationTag, isLiveActionLabel } from "@/lib/medium";
 
 const PAGE_SIZE = 72;
 
@@ -25,6 +26,8 @@ type Pill =
   | { id: string; label: string; type: "all" }
   | { id: string; label: string; type: "kind"; kind: "image" | "video" }
   | { id: string; label: string; type: "tag"; tagIds: Id<"tags">[] }
+  // Live action = everything not tagged animation.
+  | { id: string; label: string; type: "exclude"; excludeTagIds: Id<"tags">[] }
   | { id: string; label: string; type: "collection"; folderId: Id<"folders"> };
 
 // The Browse view. What it walks — the published slice or the whole vault —
@@ -74,11 +77,30 @@ function BrowseArchive({
       { id: "kind:video", label: "Video", type: "kind", kind: "video" },
       { id: "kind:image", label: "Stills", type: "kind", kind: "image" },
     ];
+    // The Animation pill's tags define what Live action leaves out.
+    const animationTagIds = (menuFilters ?? [])
+      .filter(
+        (entry) =>
+          entry.kind === "tag" &&
+          (isAnimationTag(entry.label) ||
+            (entry.tagNames ?? []).some(isAnimationTag)),
+      )
+      .flatMap((entry) => entry.tagIds);
     const curated = (menuFilters ?? [])
       // A pill that matches nothing public would dead-end the visitor.
       .filter((entry) => entry.count > 0)
       .map<Pill | null>((entry) =>
-        entry.kind === "tag"
+        entry.kind === "tag" &&
+        animationTagIds.length > 0 &&
+        (isLiveActionLabel(entry.label) ||
+          (entry.tagNames ?? []).some(isLiveActionLabel))
+          ? {
+              id: entry._id,
+              label: entry.label,
+              type: "exclude",
+              excludeTagIds: animationTagIds,
+            }
+          : entry.kind === "tag"
           ? {
               id: entry._id,
               label: entry.label,
@@ -105,6 +127,8 @@ function BrowseArchive({
     {
       kind: active?.type === "kind" ? active.kind : undefined,
       tagIds: active?.type === "tag" ? active.tagIds : undefined,
+      excludeTagIds:
+        active?.type === "exclude" ? active.excludeTagIds : undefined,
       folderId: active?.type === "collection" ? active.folderId : undefined,
     },
     { initialNumItems: PAGE_SIZE },
@@ -311,7 +335,7 @@ const SCOPE_OPTIONS: ReadonlyArray<{ id: BrowseScope; label: string }> = [
 
 // One text-only control style for pills and the scope toggle: the active word
 // is coral on a hairline, the rest sit quiet.
-const pillStyle = (isActive: boolean): React.CSSProperties => ({
+export const pillStyle = (isActive: boolean): React.CSSProperties => ({
   background: "none",
   border: "none",
   padding: "4px 0",

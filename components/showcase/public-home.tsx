@@ -8,7 +8,13 @@ import { PUBLIC_MODES, type PublicMode } from "@/lib/public-modes";
 import { ShowcaseMasonry } from "./showcase-masonry";
 import { ShowcaseLightbox } from "./showcase-lightbox";
 import { SHARED_ASSET_PARAM, sharedAssetHref } from "@/lib/shared-asset-link";
-import { BrowseBand, TileSizeSlider, useZoomPreference } from "./browse-band";
+import {
+  BrowseBand,
+  TileSizeSlider,
+  pillStyle,
+  useZoomPreference,
+} from "./browse-band";
+import { MEDIUM_OPTIONS, mediumOf, type Medium } from "@/lib/medium";
 import { WorldsMasonry, type WorldSummary } from "./worlds-masonry";
 import type { ShowcaseAsset } from "./types";
 import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
@@ -248,6 +254,15 @@ function FeaturedMode({
   // Same preference the Browse view and the vault write, so a size picked in
   // one place holds in the others.
   const [zoom, setZoom] = useZoomPreference();
+  // Animation vs Live action. Anything not tagged animation is live action.
+  const [medium, setMedium] = useState<"all" | Medium>("all");
+  const shown = useMemo(
+    () =>
+      medium === "all"
+        ? assets
+        : assets.filter((asset) => mediumOf(asset.tagNames) === medium),
+    [assets, medium],
+  );
   return (
     <section style={{ padding: "0 clamp(16px, 3vw, 32px) clamp(40px, 8vh, 80px)" }}>
       <div>
@@ -255,10 +270,31 @@ function FeaturedMode({
           <div
             style={{
               display: "flex",
-              justifyContent: "flex-end",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 24,
+              flexWrap: "wrap",
               paddingBottom: 16,
             }}
           >
+            <div
+              role="tablist"
+              aria-label="Medium"
+              style={{ display: "flex", flexWrap: "wrap", gap: "6px 20px" }}
+            >
+              {MEDIUM_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={medium === option.id}
+                  onClick={() => setMedium(option.id)}
+                  style={pillStyle(medium === option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <TileSizeSlider value={zoom} onChange={setZoom} />
           </div>
         )}
@@ -266,9 +302,16 @@ function FeaturedMode({
           <EmptyNote>
             No featured work yet — mark a few pieces featured in the vault.
           </EmptyNote>
+        ) : !loading && shown.length === 0 ? (
+          <EmptyNote>
+            {medium === "animation"
+              ? "No featured animation yet."
+              : "No featured live action yet."}
+          </EmptyNote>
         ) : (
           <ShowcaseMasonry
-            assets={assets}
+            key={medium}
+            assets={shown}
             labels={labels}
             loading={loading}
             zoom={zoom}

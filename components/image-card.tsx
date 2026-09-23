@@ -1394,9 +1394,13 @@ export const ImageCard = memo(function ImageCard({
                   : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               }`}
               data-active={isStarred ? "dark" : undefined}
-              aria-label={isStarred ? "Remove star" : "Star asset"}
+              aria-label={isStarred ? "Unfeature asset" : "Feature asset"}
               aria-pressed={isStarred}
-              title={isStarred ? "Starred — click to unstar" : "Star"}
+              title={
+                isStarred
+                  ? "Featured on the taste profile — click to take it off"
+                  : "Feature on the taste profile"
+              }
             >
               <Star
                 className="h-4 w-4"
