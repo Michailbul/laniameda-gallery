@@ -347,10 +347,9 @@ export const buildGalleryEntries = ({
     }),
   ];
 
-  // Starred pieces lead the grid in EVERY sort mode — that's the point of a
-  // star. The chosen sort still governs each group, so "newest" and "shuffle"
-  // behave normally below the starred band (and a shuffle re-deals the starred
-  // band too, it just keeps it on top).
+  // With promoteStarred, starred (featured) pieces lead as their own band and
+  // the chosen sort governs the rest. The vault turns it on only for the
+  // FEATURED sort; NEWEST and SHUFFLE keep starred pieces in place.
   const starred = promoteStarred
     ? entries.filter((entry) => Boolean(entry.starredAt))
     : [];

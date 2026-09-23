@@ -1679,8 +1679,12 @@ export function GalleryDashboard({
       : "skip",
   );
 
+  // Featured (starred) pieces lead the vault grid only under the FEATURED sort.
+  // NEWEST — the default — and SHUFFLE keep them in place with everything else.
+  const featuredFirst = sortOrder === "featured";
+
   // Starred assets in the CURRENT view, read on their own so they can lead the
-  // grid. Browse streams 60 rows at a time, so a starred piece sitting deep in
+  // grid under the FEATURED sort. Browse streams 60 rows at a time, so a starred piece sitting deep in
   // the gallery would otherwise not float to the top until the user scrolled
   // that far. Scoped with the same folder args as the grid query above
   // (independently of which read path is active — the folder-paginated path
@@ -1688,7 +1692,7 @@ export function GalleryDashboard({
   // so a starred asset is never exempt from a filter the user set.
   const starredAssets = useQuery(
     api.assets.listStarredAssets,
-    galleryScope === "mine" && canAccessMyGallery
+    galleryScope === "mine" && canAccessMyGallery && featuredFirst
       ? {
           ownerUserId,
           folderId:
@@ -2058,9 +2062,9 @@ export function GalleryDashboard({
       loadedAssetIds: loadedImageIdsRef.current,
       sortOrder,
       shuffleSeed,
-      // Semantic results are already ordered by score — that ranking is what
-      // the user asked for, so a star doesn't get to jump the queue there.
-      promoteStarred: filteredSemanticResults === null,
+      // Only the FEATURED sort floats starred pieces. Semantic results are
+      // already ordered by score, so a star never jumps the queue there.
+      promoteStarred: featuredFirst && filteredSemanticResults === null,
     });
     return entries.map((entry) => {
       const badges = resolveEntryBadges(entry);
@@ -2068,6 +2072,7 @@ export function GalleryDashboard({
     });
   }, [
     displayGalleryAssets,
+    featuredFirst,
     filteredSemanticResults,
     hiddenAssetIds,
     resolveEntryBadges,
@@ -2251,10 +2256,11 @@ export function GalleryDashboard({
     const leading = [...stacks, ...childCollections];
     const ordered =
       leading.length > 0 ? [...leading, ...mixed] : mixed;
-    // ...except a star outranks a shelf. Starring is a deliberate "this one
-    // first" on a specific piece, so it wins the very top of the grid — above
-    // the storybook/collection stacks, not just above the other tiles.
+    // Under the FEATURED sort a star outranks a shelf: featured pieces take
+    // the very top, above the storybook/collection stacks. Any other sort
+    // leaves them where the date puts them.
     // buildGalleryEntries already ordered the starred ones among themselves.
+    if (!featuredFirst) return ordered;
     const starredLead = ordered.filter((entry) => "starredAt" in entry && entry.starredAt);
     if (starredLead.length === 0) return ordered;
     return [
@@ -2263,6 +2269,7 @@ export function GalleryDashboard({
     ];
   }, [
     baseImages,
+    featuredFirst,
     showStorybookStacks,
     storybookEntries,
     showWorkflowCards,
