@@ -1998,7 +1998,7 @@ export function GalleryDashboard({
         effectiveSelectedFolderId &&
         !activeSmartCollectionFilter &&
         !(asset.folderIds ?? (asset.folderId ? [asset.folderId] : []))
-          .includes(effectiveSelectedFolderId)
+          .includes(effectiveSelectedFolderId as Id<"folders">)
       ) {
         return false;
       }

@@ -1,21 +1,14 @@
----
-name: laniameda-gallery-query
-description: >-
-  Query the laniameda-gallery to browse, search, retrieve, and download vault
-  content. Use when an agent needs to find assets, prompts, or references in
-  the gallery and pull them into the current task.
----
+# Query: browse, search, fetch, download
 
-# laniameda-gallery-query
 
-Use this skill to read from `laniameda.gallery`.
+The read path for `laniameda.gallery`. For how to search for Michael's taste (tags, piece types, medium, liked and starred), start with the query recipes in `SKILL.md`.
 
 It covers two read surfaces:
 
 - asset-centric reads: browse assets, semantic search, fetch one asset, download media
 - pack reads: fetch a saved asset pack and its member assets from a copied gallery ID
 
-Counterpart to `laniameda-gallery-ingest` (which writes).
+Counterpart to `references/ingest.md` (which writes).
 
 ## Runtime env
 
@@ -46,7 +39,7 @@ Best practice:
 
 ```bash
 cd ~/work/laniameda/laniameda.gallery
-bun run skills/laniameda-gallery-query/scripts/query.ts '<JSON>'
+bun run skills/laniameda-gallery/scripts/query.ts '<JSON>'
 ```
 
 ## Actions
@@ -99,6 +92,69 @@ Example:
   "scope": "mine",  "assetRole": "generated_output",
   "limit": 5
 }
+```
+
+### Filters shared by `list`, `search`, `similar` and `refs`
+
+| Field | Meaning |
+|---|---|
+| `tagNames` | every tag must be present |
+| `anyTagNames` | at least one must be present |
+| `excludeTagNames` | none may be present |
+| `pieceType` | `character` / `location` / `scene` / `inspiration` (plural and `still` spellings count) |
+| `medium` | `animation` (tagged animation) or `live-action` (everything else) |
+| `onlyLiked` | `isLiked` pieces only |
+| `onlyStarred` | starred = featured pieces only |
+| `folderId` | one collection; `list` also takes `includeDescendants` |
+
+Tag names match canonically: case, `-`, `_` and punctuation fold, plurals
+don't (except piece types). On `list`, a `tagNames` entry that isn't a tag at
+all returns nothing.
+
+### `search` modes
+
+`mode`: `hybrid` (default) runs the pixel lane and the text lane with one query
+embedding and merges them by rank; `visual` is pixels only (looks alike);
+`text` is words only (agent description, caption, prompt, tags, source).
+Without filters each lane keeps results close to its best match (pixels
+within 85%, words within 75%); with filters the cutoff is off so the best
+in-filter matches come back. Override with `minRelativeScore` (0–1).
+
+### `similar`
+
+More like one asset. `mode` defaults to `visual`; `hybrid` also weighs what the
+pieces are about.
+
+```json
+{ "action": "similar", "assetId": "asset:abc123", "medium": "animation", "limit": 8 }
+```
+
+### `refs`
+
+Search (with `query`) or list (without), download each match and write
+`refs.json` and `refs.md` into `outDir` (default
+`/tmp/laniameda-gallery/refs/<query-slug>`). `download: false` skips the bytes.
+
+```json
+{ "action": "refs", "query": "rainy neon alley at night", "pieceType": "location", "limit": 6, "outDir": "<scratchpad>/refs" }
+```
+
+### `sources`
+
+Which source URLs are already saved. Run it before an extraction pass.
+
+```json
+{ "action": "sources", "sourceUrls": ["https://x.com/a/status/1", "https://x.com/a/status/2"] }
+```
+
+Returns `alreadySaved`, `saved` (with asset IDs) and `notSaved`.
+
+### `tags`
+
+The tag vocabulary, most used first, with aliases. `search` narrows by name.
+
+```json
+{ "action": "tags", "search": "light" }
 ```
 
 ### `get`
@@ -188,6 +244,10 @@ Asset actions return compact asset objects with fields like:
 
 - `id`
 - `kind`
+- `agentDescription` / `agentDescriptionSource` (`agent` or `auto`) — read this first
+- `description` (Michael's caption)
+- `folderIds`, `isLiked`, `starred`
+- `score`, `visualScore`, `textScore` (search and similar)
 - `pillar`
 - `modelName`
 - `promptText`
@@ -237,3 +297,13 @@ Design actions return compact design objects with fields like:
 - The embedding model in this repo is `gemini-embedding-2-preview`.
 - `download` saves raw bytes; video assets are not transcoded.
 - Convex storage URLs are temporary. Download promptly after retrieval.
+
+## Semantic search
+
+All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).
+
+- **Image assets** are embedded as pure image data (no text metadata). A text query like "car" matches images that visually contain cars via cross-modal matching.
+- **Prompts** are embedded as prompt text only (no tags/pillar/model padding).
+- **Tags and metadata** are applied as post-filters, not included in embeddings.
+- Search via `semanticSearch:searchAssets` (text → assets) or `semanticSearch:findSimilarAssets` (image → similar images).
+- Backfill after schema changes: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`).

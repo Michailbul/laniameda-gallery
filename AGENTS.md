@@ -15,20 +15,30 @@ Read these files first:
 
 **laniameda.gallery** — a personal AI creatorship vault.
 
-Michael finds things he likes (screenshots, prompts, reference images, designs) and sends them via Telegram to OpenClaw. The `laniameda-gallery-ingest` OpenClaw skill extracts and ingests them into Convex. The gallery organizes everything into 3 content pillars.
+Michael keeps what he makes and what he likes here, structured so agents can
+save into it and query it back: the `skills/laniameda-gallery` skill is the
+agent contract for saving, finding, and extracting liked items (X bookmarks,
+Instagram, sites) into the vault.
 
-### 3 content pillars
-| Pillar | Description |
-|---|---|
-| **creators** | AI influencer / fashion / portrait style prompts |
-| **designs** | Website, UI, component, mobile design references |
-| **dump** | Catch-all — anything useful that doesn't fit above |
+### How the vault is organized (since 22 Sep 2026)
+- **Collections**, one level deep: a root collection holds folders. A showcased
+  root collection is a public world at `/w/<slug>`.
+- **Piece type is a tag**: `character`, `location`, `scene`, `inspiration`
+  (`lib/collection-sections.ts`). Never a folder.
+- **Medium**: the tag `animation`; everything else is Live action (`lib/medium.ts`).
+- **Typed tags** (`tags` / `userTags`) carry platform, content, style, model.
+  The island bar shows owner-curated `menuFilters`, never the raw tag cloud.
+- **Pillars are legacy.** The `pillar` column (`creators` / `designs` / `dump`
+  / `cinema-inspiration`) is dormant; only cinema frames and workflow ingest
+  still set it.
 
 ### How ingestion works
-1. Michael sends an image or prompt to OpenClaw via Telegram
-2. OpenClaw uses the `laniameda-gallery-ingest` skill to call the Convex ingest API
-3. Convex stores the prompt + asset with owner scoping
-4. Gallery displays it in the right pillar
+1. An agent (Claude Code, Codex, OpenClaw) or the browser extension sends
+   media + prompt + tags through the ingest contract (`convex/ingest.ts`,
+   `app/api/agent/*`, or the skill's direct Convex script).
+2. Convex stores the prompt and asset with owner scoping, links collections
+   and tags, and queues semantic indexing.
+3. The gallery shows it in its collections and under its tags and filters.
 
 ### Auth
 - **Telegram login** — user authenticates with Telegram
@@ -67,7 +77,7 @@ Michael finds things he likes (screenshots, prompts, reference images, designs) 
 - Use **indexes** for all queries that filter or sort
 - Queries and mutations **must not call external APIs** — use actions for that
 - Use actions to call external services, then store results via mutation
-- When backend schema or ingest contracts change (`convex/schema.ts`, `convex/validators.ts`, `convex/ingest.ts`, `convex/agent_ingest.ts`, `app/api/ingest/route.ts`), update `skills/laniameda-gallery-ingest/**` in the same change.
+- When backend schema or ingest contracts change (`convex/schema.ts`, `convex/validators.ts`, `convex/ingest.ts`, `convex/agent_ingest.ts`, `app/api/ingest/route.ts`), update `skills/laniameda-gallery/**` (at least `references/data-model.md`) in the same change.
 
 ## TypeScript & schema conventions
 - Use `v.*` validators for all Convex function args
@@ -115,7 +125,7 @@ scripts/         Dev utility scripts
 | `AUTH.md` | Telegram auth setup |
 | `DESIGN.md` | UI design system and visual direction |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
-| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the laniameda-gallery-ingest skill work |
+| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the (now merged) laniameda-gallery skill work |
 
 ## Feature PRD workflow
 - When starting a new feature on a new branch, do **not** add that feature's full PRD documents to `main`.

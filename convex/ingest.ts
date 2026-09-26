@@ -132,6 +132,7 @@ const updateArgsValidator = v.object({
   domain: v.optional(v.union(v.null(), v.string())),
   modelName: v.optional(v.union(v.null(), v.string())),
   description: v.optional(v.union(v.null(), v.string())),
+  agentDescription: v.optional(v.union(v.null(), v.string())),
   modelProvider: v.optional(v.union(v.null(), v.string())),
   workflowType: v.optional(v.union(v.null(), v.string())),
   promptSections: v.optional(v.union(v.null(), v.any())),
@@ -558,6 +559,12 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     promptIngestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
     description: v.optional(v.string()),
+    // Short agent-written description: what the piece shows and why it was
+    // kept. Feeds the text lane of semantic search.
+    agentDescription: v.optional(v.string()),
+    // Where the piece came from (post permalink, page URL). Defaults to `url`
+    // when the media itself was fetched from a URL.
+    sourceUrl: v.optional(v.string()),
     modelProvider: modelProviderValidator,
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -773,9 +780,10 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           r2Bucket: r2BucketForRow,
           thumbR2Key,
           thumbR2Bucket: r2BucketForRow,
-          sourceUrl: args.url,
+          sourceUrl: args.sourceUrl?.trim() || args.url,
           fileName,
           description: args.description,
+          agentDescription: args.agentDescription,
           contentType,
           size,
           width,
@@ -1007,10 +1015,13 @@ export const updateFromApi: ReturnType<typeof action> = action({
             thumbStorageId: media.thumbStorageId,
             r2Key: media.r2Key,
             thumbR2Key: media.thumbR2Key,
-            sourceUrl: args.url,
+            sourceUrl: normalizeOptionalString(args.sourceUrl) ?? args.url,
             fileName: media.fileName,
             description: hasOwn(args, "description")
               ? normalizeOptionalString(args.description)
+              : undefined,
+            agentDescription: hasOwn(args, "agentDescription")
+              ? normalizeOptionalString(args.agentDescription)
               : undefined,
             contentType: media.contentType,
             size: media.size,
@@ -1129,6 +1140,9 @@ export const updateFromApi: ReturnType<typeof action> = action({
           hasOwn(args, "ingestSource")
             ? ((args.ingestSource ?? undefined) as IngestSource)
             : existing.ingestSource,
+        ...(hasOwn(args, "agentDescription")
+          ? { agentDescription: args.agentDescription ?? null }
+          : {}),
       })) as Id<"assets">;
 
       const hasMediaInput = Boolean(args.file || args.url);

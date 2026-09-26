@@ -11,7 +11,7 @@ import {
   describeRemuxReason,
   posterTimestamp,
   probeVideo,
-} from "../skills/laniameda-gallery-ingest/scripts/ingest";
+} from "../skills/laniameda-gallery/scripts/ingest";
 
 const hasFfmpeg =
   spawnSync("ffmpeg", ["-version"], { encoding: "utf8" }).status === 0 &&

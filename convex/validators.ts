@@ -155,6 +155,13 @@ export const tagCategoryValidator = v.optional(v.union(
   v.literal("custom"),
 ));
 
+// Who wrote an asset's agentDescription: an agent at save time, or the
+// automatic enrichment pass (convex/agentDescriptions.ts).
+export const agentDescriptionSourceValidator = v.union(
+  v.literal("agent"),
+  v.literal("auto"),
+);
+
 export const tagSourceValidator = v.optional(v.union(
   v.literal("user"),
   v.literal("agent"),
@@ -311,6 +318,9 @@ export const assetDocValidator = v.object({
   sourceUrl: v.optional(v.string()),
   fileName: v.optional(v.string()),
   description: v.optional(v.string()),
+  agentDescription: v.optional(v.string()),
+  agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
+  agentDescribedAt: v.optional(v.number()),
   contentType: v.optional(v.string()),
   size: v.optional(v.number()),
   width: v.optional(v.number()),

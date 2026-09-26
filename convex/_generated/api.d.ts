@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as agentDescriptionText from "../agentDescriptionText.js";
+import type * as agentDescriptions from "../agentDescriptions.js";
 import type * as agentTokens from "../agentTokens.js";
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
@@ -43,6 +45,7 @@ import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as showcase from "../showcase.js";
 import type * as storybooks from "../storybooks.js";
+import type * as tagFilters from "../tagFilters.js";
 import type * as tags from "../tags.js";
 import type * as thumbnailBackfill from "../thumbnailBackfill.js";
 import type * as thumbnails from "../thumbnails.js";
@@ -58,6 +61,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentDescriptionText: typeof agentDescriptionText;
+  agentDescriptions: typeof agentDescriptions;
   agentTokens: typeof agentTokens;
   agent_ingest: typeof agent_ingest;
   assetPackHelpers: typeof assetPackHelpers;
@@ -93,6 +98,7 @@ declare const fullApi: ApiFromModules<{
   semanticSearch: typeof semanticSearch;
   showcase: typeof showcase;
   storybooks: typeof storybooks;
+  tagFilters: typeof tagFilters;
   tags: typeof tags;
   thumbnailBackfill: typeof thumbnailBackfill;
   thumbnails: typeof thumbnails;
