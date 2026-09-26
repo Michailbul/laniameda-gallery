@@ -247,4 +247,29 @@ describe("gallery entry builder", () => {
     expect(entries[0]?.starredAt).toBe(700);
     expect(entries[0]?.starNote).toBe("this frame is the one");
   });
+
+  test("relevance keeps the search ranking, with packs at their best member's rank", () => {
+    const asset = (id: string, createdAt: number, extra: Record<string, unknown> = {}) => ({
+      _id: id,
+      sourceUrl: `https://example.com/${id}.jpg`,
+      createdAt,
+      ...extra,
+    });
+    const assets = [
+      asset("asset:best-old", 100),
+      asset("asset:pack-b", 50, { assetPackId: "pack:1", packSlotIndex: 1 }),
+      asset("asset:newest", 900),
+      asset("asset:pack-a", 60, { assetPackId: "pack:1", packSlotIndex: 0 }),
+    ];
+
+    const relevance = buildGalleryEntries({ assets, sortOrder: "relevance", promoteStarred: false });
+    expect(relevance.map((entry) => entry.id)).toEqual([
+      "asset:best-old",
+      "asset:pack-a",
+      "asset:newest",
+    ]);
+
+    const newest = buildGalleryEntries({ assets, sortOrder: "newest", promoteStarred: false });
+    expect(newest[0]?.id).toBe("asset:newest");
+  });
 });

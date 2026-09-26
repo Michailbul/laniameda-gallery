@@ -2060,7 +2060,9 @@ export function GalleryDashboard({
       assets: displayGalleryAssets,
       hiddenAssetIds,
       loadedAssetIds: loadedImageIdsRef.current,
-      sortOrder,
+      // Search results arrive ranked by relevance; the NEWEST / FEATURED /
+      // SHUFFLE sorts apply to browsing, not to a search.
+      sortOrder: filteredSemanticResults !== null ? "relevance" : sortOrder,
       shuffleSeed,
       // Only the FEATURED sort floats starred pieces. Semantic results are
       // already ordered by score, so a star never jumps the queue there.

@@ -127,7 +127,9 @@ type BuildGalleryEntriesArgs = {
   assets: GalleryAssetRecord[];
   hiddenAssetIds?: Set<string>;
   loadedAssetIds?: Set<string>;
-  sortOrder: "newest" | "featured" | "shuffle";
+  /** "relevance" keeps the order the assets arrived in (semantic search
+   * ranks them); packs sit where their best-ranked member did. */
+  sortOrder: "newest" | "featured" | "shuffle" | "relevance";
   /** Deals the "shuffle" arrangement; same seed = same order, so the grid
    * stays put across re-renders until the user asks for a new deal. */
   shuffleSeed?: number;
@@ -319,9 +321,12 @@ export const buildGalleryEntries = ({
     (asset) => !hiddenAssetIds?.has(asset._id),
   );
   const packMembers = new Map<string, GalleryAssetRecord[]>();
+  const packRank = new Map<string, number>();
   const standaloneEntries: GalleryEntry[] = [];
+  // Arrival position of each entry, for the "relevance" order.
+  const entryRank = new Map<GalleryEntry, number>();
 
-  for (const asset of visibleAssets) {
+  for (const [index, asset] of visibleAssets.entries()) {
     const groupingKey = asset.assetPackId
       ? `pack:${asset.assetPackId}`
       : asset.promptId
@@ -329,20 +334,25 @@ export const buildGalleryEntries = ({
         : null;
 
     if (!groupingKey) {
-      standaloneEntries.push(buildEntry(asset, [asset], loadedAssetIds));
+      const entry = buildEntry(asset, [asset], loadedAssetIds);
+      entryRank.set(entry, index);
+      standaloneEntries.push(entry);
       continue;
     }
 
     const members = packMembers.get(groupingKey) ?? [];
     members.push(asset);
     packMembers.set(groupingKey, members);
+    if (!packRank.has(groupingKey)) packRank.set(groupingKey, index);
   }
 
   const entries = [
     ...standaloneEntries,
-    ...Array.from(packMembers.values()).map((members) => {
+    ...Array.from(packMembers.entries()).map(([groupingKey, members]) => {
       const orderedMembers = [...members].sort(sortPackMembers);
-      return buildEntry(orderedMembers[0]!, orderedMembers, loadedAssetIds);
+      const entry = buildEntry(orderedMembers[0]!, orderedMembers, loadedAssetIds);
+      entryRank.set(entry, packRank.get(groupingKey) ?? 0);
+      return entry;
     }),
   ];
 
@@ -372,6 +382,11 @@ export const buildGalleryEntries = ({
 
   if (sortOrder === "shuffle") {
     return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
+  }
+
+  if (sortOrder === "relevance") {
+    rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
+    return [...starred, ...rest];
   }
 
   rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
