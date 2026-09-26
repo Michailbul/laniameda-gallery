@@ -4,7 +4,13 @@ import { r2 } from "./r2";
 type StoreOptions = {
   key?: string;
   type?: string;
+  cacheControl?: string;
 };
+
+// Every object gets a fresh UUID key and is never rewritten in place (the R2
+// component refuses to store over an existing key), so the bytes behind a URL
+// never change. Browsers may keep them for a year without revalidating.
+const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 const hasR2Config = () =>
   Boolean(
@@ -33,5 +39,8 @@ export const storeBlobToR2 = async (
     );
   }
 
-  return await r2.store(ctx, blob, options);
+  return await r2.store(ctx, blob, {
+    cacheControl: IMMUTABLE_CACHE_CONTROL,
+    ...options,
+  });
 };

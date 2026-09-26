@@ -1,3 +1,5 @@
+import { isCardThumbSharp } from "./card-thumbnail";
+
 export type CinemaMetadata = {
   movieTitle: string;
   director?: string;
@@ -205,15 +207,12 @@ const resolvePreviewDimensions = (asset: GalleryAssetRecord) => {
   return thumbnailDimensions ?? originalDimensions ?? {};
 };
 
-// Thumbs narrower than this look visibly soft on modern masonry columns
-// (~450 CSS px at 2x DPR). Below it, serve the original instead: images
-// render the full file; videos drop the tiny poster so the card mounts the
-// real <video> and paints a native-resolution first frame.
-const SHARP_THUMB_MIN_WIDTH = 800;
-
+// A soft thumb gives way to the original: images render the full file;
+// videos drop the tiny poster so the card mounts the real <video> and paints
+// a native-resolution first frame. Portrait thumbs count by their height, so
+// a 576×1024 thumb no longer pulls a multi-megabyte original into the grid.
 const displaySrc = (asset: GalleryAssetRecord): string => {
-  const thumbIsSharp = (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
-  const sharp = thumbIsSharp ? asset.thumbUrl : undefined;
+  const sharp = isCardThumbSharp(asset) ? asset.thumbUrl : undefined;
   return (
     sharp ?? asset.url ?? asset.thumbUrl ?? asset.sourceUrl ?? FALLBACK_SRC
   );

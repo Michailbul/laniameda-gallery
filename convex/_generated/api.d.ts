@@ -44,6 +44,7 @@ import type * as semanticSearch from "../semanticSearch.js";
 import type * as showcase from "../showcase.js";
 import type * as storybooks from "../storybooks.js";
 import type * as tags from "../tags.js";
+import type * as thumbnailBackfill from "../thumbnailBackfill.js";
 import type * as thumbnails from "../thumbnails.js";
 import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   showcase: typeof showcase;
   storybooks: typeof storybooks;
   tags: typeof tags;
+  thumbnailBackfill: typeof thumbnailBackfill;
   thumbnails: typeof thumbnails;
   userTags: typeof userTags;
   users: typeof users;

@@ -59,6 +59,29 @@ export function ShowcaseLightbox({
     [index, assets.length, onIndexChange],
   );
 
+  // Paint the card thumb (already cached from the grid) the moment a slide
+  // opens, and swap in the original once it has decoded. A PNG original can
+  // run to several megabytes; the slide should not sit empty while it lands.
+  const fullImageSrc =
+    asset && asset.kind !== "video" ? assetSrc(asset) : undefined;
+  const [decodedSrc, setDecodedSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fullImageSrc) return;
+    let cancelled = false;
+    const probe = new window.Image();
+    probe.src = fullImageSrc;
+    // A failed decode leaves the thumb up rather than a broken image.
+    probe.decode().then(
+      () => {
+        if (!cancelled) setDecodedSrc(fullImageSrc);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [fullImageSrc]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -72,6 +95,7 @@ export function ShowcaseLightbox({
   if (!asset) return null;
 
   const src = assetSrc(asset);
+  const imageSrc = decodedSrc === src ? src : (asset.thumbUrl ?? src);
   const prompt = meaningfulPrompt(asset.promptText);
 
   const shareAsset = async () => {
@@ -264,7 +288,7 @@ export function ShowcaseLightbox({
             />
           ) : (
             <img
-              src={src}
+              src={imageSrc}
               alt={asset.name ?? asset.description ?? asset.fileName ?? "Work"}
               style={{
                 maxWidth: "100%",

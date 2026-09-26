@@ -9,7 +9,8 @@ import { hashFileContent } from "@/lib/content-hash";
 
 export const LARGE_IMAGE_BYTES = 3 * 1024 * 1024; // base64 ≈ 4 MiB < 5 MiB cap
 
-const THUMB_MAX_EDGE = 1024; // matches the server-side Jimp thumb target
+// The server re-encodes this into the WebP card thumb (lib/card-thumbnail.ts).
+const THUMB_MAX_EDGE = 1024;
 const THUMB_QUALITY = 0.85;
 
 export type ImageThumbResult = {

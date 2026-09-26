@@ -1,11 +1,11 @@
 "use node";
 
-import { Jimp, JimpMime } from "jimp";
 import { action, type ActionCtx } from "./_generated/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import { storeBlobToR2 } from "./r2_store";
+import { storeCardThumbnail } from "./thumbnails";
 
 import {
   buildDesignSourceFingerprint,
@@ -23,8 +23,6 @@ import {
   optionalPillarValidator,
   workflowTypeValidator,
 } from "./validators";
-
-const THUMB_WIDTH = 1024;
 
 const getDesignInspirationBySourceFingerprintQuery = makeFunctionReference<"query">(
   "designInspirations:getDesignInspirationIdForSourceFingerprint",
@@ -147,41 +145,18 @@ const buildPreviewFileName = (args: {
   return `${base || "saved-design-reference"}.${extension}`;
 };
 
-const createThumbMetadata = async (
-  ctx: ActionCtx,
-  fileBuffer: Buffer,
-  contentType: string,
-) => {
-  const originalImage = await Jimp.read(fileBuffer);
-  const originalWidth = originalImage.bitmap.width;
-  const originalHeight = originalImage.bitmap.height;
-  const generatedThumbHeight =
-    originalWidth && originalHeight
-      ? Math.max(1, Math.round((THUMB_WIDTH * originalHeight) / originalWidth))
-      : THUMB_WIDTH;
-  const thumb = originalImage.clone().resize({ w: THUMB_WIDTH, h: generatedThumbHeight });
-  const thumbMime =
-    contentType.includes("png") && contentType !== "image/jpeg"
-      ? JimpMime.png
-      : JimpMime.jpeg;
-  const thumbBuffer = await thumb.getBuffer(thumbMime);
-  const thumbBlob = new Blob(
-    [
-      thumbBuffer.buffer.slice(
-        thumbBuffer.byteOffset,
-        thumbBuffer.byteOffset + thumbBuffer.byteLength,
-      ) as ArrayBuffer,
-    ],
-    { type: thumbMime },
-  );
-
+const createThumbMetadata = async (ctx: ActionCtx, fileBuffer: Buffer) => {
+  const thumb = await storeCardThumbnail(ctx, fileBuffer);
+  if (!thumb) {
+    throw new ConvexError("Design save preview could not be decoded.");
+  }
   return {
-    width: originalWidth ?? undefined,
-    height: originalHeight ?? undefined,
-    thumbR2Key: await storeBlobToR2(ctx, thumbBlob, { type: thumbMime }),
-    thumbWidth: thumb.bitmap.width ?? undefined,
-    thumbHeight: thumb.bitmap.height ?? undefined,
-    thumbSize: thumbBuffer.byteLength,
+    width: thumb.sourceWidth,
+    height: thumb.sourceHeight,
+    thumbR2Key: thumb.r2Key,
+    thumbWidth: thumb.width,
+    thumbHeight: thumb.height,
+    thumbSize: thumb.size,
   };
 };
 
@@ -203,7 +178,7 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
   }
 
   const pillar = args.pillar ?? "designs";
-  const thumb = await createThumbMetadata(ctx, fileBuffer, contentType);
+  const thumb = await createThumbMetadata(ctx, fileBuffer);
   const storageBlob = new Blob([fileBuffer], { type: contentType });
   const result = (await ctx.runMutation(createAssetMutation, {
     ownerUserId: args.ownerUserId,

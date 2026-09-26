@@ -1,13 +1,13 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { Jimp, JimpMime } from "jimp";
 import { action, type ActionCtx } from "./_generated/server";
 import { v, ConvexError, type Infer } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
+import { encodeCardThumbnail, storeCardThumbnail } from "./thumbnails";
 import { readImageDimensions, readVideoDimensions } from "./imageDimensions";
 import {
   assetRoleValidator,
@@ -484,41 +484,18 @@ const processMediaInput = async (
   let height: number | undefined;
 
   if (normalizedContentType.startsWith("image/")) {
-    try {
-      const originalImage = await Jimp.read(fileBuffer);
-      width = originalImage.bitmap.width ?? undefined;
-      height = originalImage.bitmap.height ?? undefined;
-
-      // Wide enough for retina masonry columns; never upscale the original.
-      const thumbWidthTarget = width ? Math.min(1024, width) : 1024;
-      const generatedThumbHeight =
-        width && height
-          ? Math.max(1, Math.round((thumbWidthTarget * height) / width))
-          : thumbWidthTarget;
-      const thumb = originalImage
-        .clone()
-        .resize({ w: thumbWidthTarget, h: generatedThumbHeight });
-      const thumbMime =
-        normalizedContentType.includes("png") &&
-        normalizedContentType !== "image/jpeg"
-          ? JimpMime.png
-          : JimpMime.jpeg;
-      const thumbBuffer = await thumb.getBuffer(thumbMime);
-      thumbWidth = thumb.bitmap.width ?? undefined;
-      thumbHeight = thumb.bitmap.height ?? undefined;
-      thumbSize = thumbBuffer.byteLength;
-      const thumbArrayBuffer = (thumbBuffer.buffer.slice(
-        thumbBuffer.byteOffset,
-        thumbBuffer.byteOffset + thumbBuffer.byteLength,
-      ) as ArrayBuffer);
-      const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-      thumbR2Key = await storeBlobToR2(ctx, thumbBlob, { type: thumbMime });
-    } catch (error) {
-      console.warn("Thumbnail generation failed:", error);
+    const thumb = await storeCardThumbnail(ctx, fileBuffer);
+    if (thumb) {
+      width = thumb.sourceWidth;
+      height = thumb.sourceHeight;
+      thumbR2Key = thumb.r2Key;
+      thumbSize = thumb.size;
+      thumbWidth = thumb.width;
+      thumbHeight = thumb.height;
     }
 
-    // Jimp can't decode some formats (notably WebP), so width/height stay unset
-    // and the gallery masonry falls back to a 1:1 square. Parse the dimensions
+    // When no decoder can read the file, width/height stay unset and the
+    // gallery masonry falls back to a 1:1 square. Parse the dimensions
     // straight from the file header as a fallback — no full decode required.
     if (!width || !height) {
       const parsed = readImageDimensions(new Uint8Array(fileBuffer));
@@ -741,15 +718,26 @@ export const ingestFromApi: ReturnType<typeof action> = action({
 
           if (args.posterFile) {
             const posterBuffer = Buffer.from(args.posterFile.base64, "base64");
-            const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
-              type: args.posterFile.contentType ?? "image/jpeg",
-            });
-            thumbR2Key = await storeBlobToR2(ctx, posterBlob, {
-              type: args.posterFile.contentType ?? "image/jpeg",
-            });
-            thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
-            thumbWidth = args.posterFile.width;
-            thumbHeight = args.posterFile.height;
+            // The browser's JPEG re-encoded as a card thumb: same box, WebP.
+            const cardThumb = await encodeCardThumbnail(posterBuffer);
+            if (cardThumb) {
+              thumbR2Key = await storeBlobToR2(ctx, cardThumb.blob, {
+                type: cardThumb.contentType,
+              });
+              thumbSize = cardThumb.size;
+              thumbWidth = cardThumb.width;
+              thumbHeight = cardThumb.height;
+            } else {
+              const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
+                type: args.posterFile.contentType ?? "image/jpeg",
+              });
+              thumbR2Key = await storeBlobToR2(ctx, posterBlob, {
+                type: args.posterFile.contentType ?? "image/jpeg",
+              });
+              thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
+              thumbWidth = args.posterFile.width;
+              thumbHeight = args.posterFile.height;
+            }
           }
         } else {
           const media = await processMediaInput(ctx, {
