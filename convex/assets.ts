@@ -13,7 +13,14 @@ import {
   reconcileAssetPackMembership,
   syncPromptAssetPack,
 } from "./assetPackHelpers";
-import { bumpTagUsage, canonicalTagKey, dedupeIds, normalizeTagName } from "./helpers";
+import {
+  bumpTagUsage,
+  canonicalTagKey,
+  dedupeIds,
+  findTagIdsByCanonicalKeys,
+  normalizeTagName,
+} from "./helpers";
+import { ANIMATION_TAG_KEY, PIECE_TYPE_KEYS, type Medium, type PieceType } from "./tagFilters";
 import { ensureFolderOwnership, recountFolderMembers } from "./folderHelpers";
 import { r2 } from "./r2";
 import {
@@ -21,6 +28,7 @@ import {
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { normalizeAgentDescription } from "./agentDescriptionText";
 import {
   canActorAccessByUserId,
   canActorAccessOwnerUserId,
@@ -28,6 +36,7 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import {
+  agentDescriptionSourceValidator,
   assetDocValidator,
   assetRoleValidator,
   cinemaMetadataValidator,
@@ -43,6 +52,14 @@ const reindexAssetAction = makeFunctionReference<"action">(
 const reindexPromptAction = makeFunctionReference<"action">(
   "semanticIndex:reindexPrompt",
 );
+// Fills agentDescription for assets saved without one (extension, Telegram,
+// bulk upload). A no-op unless AGENT_DESCRIPTIONS_ENABLED=true on the deployment.
+const describeAssetAction = makeFunctionReference<"action">(
+  "agentDescriptions:describeAsset",
+);
+const DESCRIBE_DELAY_MS = 1_000;
+const autoDescriptionsEnabled = () =>
+  process.env.AGENT_DESCRIPTIONS_ENABLED?.trim().toLowerCase() === "true";
 
 const nullableStringValidator = v.optional(v.union(v.null(), v.string()));
 const assetKindValidator = v.union(v.literal("image"), v.literal("video"));
@@ -466,8 +483,28 @@ const mergeRepeatedSaveMetadata = async (
   input: {
     folderId?: Id<"folders">;
     tagIds: Id<"tags">[];
+    agentDescription?: string;
+    agentDescriptionSource?: "agent" | "auto";
+    sourceUrl?: string;
   },
 ) => {
+  // A repeat save can fill what the first save lacked, never overwrite it.
+  const fill: Partial<Doc<"assets">> = {};
+  const agentDescription = normalizeAgentDescription(input.agentDescription);
+  if (agentDescription && !asset.agentDescription) {
+    fill.agentDescription = agentDescription;
+    fill.agentDescriptionSource = input.agentDescriptionSource ?? "agent";
+    fill.agentDescribedAt = Date.now();
+  }
+  const sourceUrl = input.sourceUrl?.trim();
+  if (sourceUrl && !asset.sourceUrl) {
+    fill.sourceUrl = sourceUrl;
+  }
+  if (Object.keys(fill).length > 0) {
+    await ctx.db.patch(asset._id, fill);
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+  }
+
   if (input.folderId) {
     await addAssetFolderLink(ctx, ownerUserId, asset._id, input.folderId);
     if (!asset.folderId) {
@@ -526,6 +563,9 @@ export const createAsset = mutation({
     assetRole: assetRoleValidator,
     ingestSource: ingestSourceValidator,
     cinemaMetadata: cinemaMetadataValidator,
+    // Short agent-written description (see schema). Normalized to 400 chars.
+    agentDescription: v.optional(v.string()),
+    agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -579,6 +619,7 @@ export const createAsset = mutation({
 
     const createdAt = Date.now();
     const tagIds = dedupeIds(args.tagIds);
+    const agentDescription = normalizeAgentDescription(args.agentDescription);
     const assetId = await ctx.db.insert("assets", {
       ownerUserId,
       kind: args.kind,
@@ -613,6 +654,13 @@ export const createAsset = mutation({
       assetRole: args.assetRole,
       ingestSource: args.ingestSource,
       cinemaMetadata: args.cinemaMetadata,
+      ...(agentDescription
+        ? {
+            agentDescription,
+            agentDescriptionSource: args.agentDescriptionSource ?? "agent",
+            agentDescribedAt: createdAt,
+          }
+        : {}),
       createdAt,
     });
 
@@ -634,9 +682,136 @@ export const createAsset = mutation({
         promptId: args.promptId,
       });
     }
-    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+    // With automatic descriptions on, describe first and index once after, so
+    // a new asset costs one pass of embedding calls, not two.
+    if (!agentDescription && autoDescriptionsEnabled()) {
+      await ctx.scheduler.runAfter(DESCRIBE_DELAY_MS, describeAssetAction, {
+        assetId,
+        reindexAfter: true,
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+    }
 
     return { assetId, created: true };
+  },
+});
+
+// Patch fields for an agent-description write. `undefined` leaves the stored
+// value alone (Convex patch deletes fields set to undefined, so the keys must
+// be absent); `null` or an empty string clears it.
+const agentDescriptionPatch = (
+  value: string | null | undefined,
+  source?: "agent" | "auto",
+): Partial<Doc<"assets">> => {
+  if (value === undefined) {
+    return {};
+  }
+  const agentDescription = normalizeAgentDescription(value);
+  return agentDescription
+    ? {
+        agentDescription,
+        agentDescriptionSource: source ?? "agent",
+        agentDescribedAt: Date.now(),
+      }
+    : {
+        agentDescription: undefined,
+        agentDescriptionSource: undefined,
+        agentDescribedAt: undefined,
+      };
+};
+
+// Set or replace one asset's agent description without touching anything
+// else, then reindex so search picks it up.
+export const setAgentDescription = mutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    agentDescription: v.union(v.null(), v.string()),
+    source: v.optional(agentDescriptionSourceValidator),
+    // By default an agent never overwrites a description an agent already
+    // wrote at save time; pass overwrite to replace it.
+    overwrite: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    agentDescription: v.optional(v.string()),
+    updated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset does not belong to this user.");
+    }
+    if (
+      asset.agentDescription &&
+      asset.agentDescriptionSource === "agent" &&
+      args.overwrite !== true
+    ) {
+      return {
+        assetId: asset._id,
+        agentDescription: asset.agentDescription,
+        updated: false,
+      };
+    }
+
+    const patch = agentDescriptionPatch(args.agentDescription ?? "", args.source);
+    await ctx.db.patch(asset._id, patch);
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    return {
+      assetId: asset._id,
+      agentDescription: patch.agentDescription,
+      updated: true,
+    };
+  },
+});
+
+// "Did I already save this?" for extraction runs: which of these source URLs
+// (post permalinks, page URLs) already have assets in the owner's vault.
+export const findAssetsBySourceUrls = query({
+  args: {
+    ownerUserId: v.string(),
+    sourceUrls: v.array(v.string()),
+  },
+  returns: v.array(
+    v.object({
+      sourceUrl: v.string(),
+      assetIds: v.array(v.id("assets")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const ownerUserIds = resolveUserIdCandidates(args.ownerUserId.trim());
+    if (ownerUserIds.length === 0) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const urls = Array.from(
+      new Set(args.sourceUrls.map((url) => url.trim()).filter(Boolean)),
+    ).slice(0, 200);
+
+    return await Promise.all(
+      urls.map(async (sourceUrl) => {
+        const matches = (
+          await Promise.all(
+            ownerUserIds.map(async (ownerCandidate) =>
+              await ctx.db
+                .query("assets")
+                .withIndex("by_owner_sourceUrl", (q) =>
+                  q.eq("ownerUserId", ownerCandidate).eq("sourceUrl", sourceUrl),
+                )
+                .take(50),
+            ),
+          )
+        ).flat();
+        return { sourceUrl, assetIds: matches.map((asset) => asset._id) };
+      }),
+    );
   },
 });
 
@@ -981,6 +1156,9 @@ export const updateAssetMetadata = mutation({
     generationType: generationTypeValidator,
     assetRole: assetRoleValidator,
     ingestSource: ingestSourceValidator,
+    // Omit to keep the current agent description; null clears it.
+    agentDescription: v.optional(v.union(v.null(), v.string())),
+    agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
   },
   returns: v.id("assets"),
   handler: async (ctx, args) => {
@@ -1021,6 +1199,7 @@ export const updateAssetMetadata = mutation({
       generationType: args.generationType,
       assetRole: args.assetRole,
       ingestSource: args.ingestSource,
+      ...agentDescriptionPatch(args.agentDescription, args.agentDescriptionSource),
     });
     // Primary-collection move keeps the asset's other memberships intact
     // (previously this replaced/cleared the alias while links drifted).
@@ -1595,6 +1774,62 @@ const matchesMenuFilters = (
   );
 };
 
+type NamedTagFilterArgs = {
+  tagNames?: string[];
+  anyTagNames?: string[];
+  excludeTagNames?: string[];
+  pieceType?: PieceType;
+  medium?: Medium;
+};
+
+// Turn named filters into the tag-id groups the browse query already speaks:
+// each group must match (OR inside a group), excluded ids must not. Returns
+// null when a required tag doesn't exist at all, so the caller can answer
+// "nothing" without scanning.
+const resolveNamedTagFilters = async <T extends NamedTagFilterArgs & MenuFilterArgs>(
+  ctx: QueryCtx,
+  args: T,
+): Promise<T | null> => {
+  const keysOf = (names?: string[]) =>
+    (names ?? []).map((name) => canonicalTagKey(name)).filter(Boolean);
+  const allKeys = keysOf(args.tagNames);
+  const anyKeys = keysOf(args.anyTagNames);
+  const excludeKeys = keysOf(args.excludeTagNames);
+  const pieceKeys = args.pieceType ? PIECE_TYPE_KEYS[args.pieceType] : [];
+  const mediumKeys = args.medium ? [ANIMATION_TAG_KEY] : [];
+  const lookupKeys = [...allKeys, ...anyKeys, ...excludeKeys, ...pieceKeys, ...mediumKeys];
+  if (lookupKeys.length === 0) {
+    return args;
+  }
+
+  const idsByKey = await findTagIdsByCanonicalKeys(ctx, lookupKeys);
+  const idsFor = (keys: string[]) => keys.flatMap((key) => idsByKey.get(key) ?? []);
+  const groups = [...(args.tagIdGroups ?? [])];
+  const excluded = [...(args.excludeTagIds ?? [])];
+
+  for (const key of allKeys) {
+    const ids = idsByKey.get(key);
+    if (!ids) return null;
+    groups.push(ids);
+  }
+  for (const keys of [anyKeys, pieceKeys]) {
+    if (keys.length === 0) continue;
+    const ids = idsFor(keys);
+    if (ids.length === 0) return null;
+    groups.push(ids);
+  }
+  if (args.medium === "animation") {
+    const ids = idsFor(mediumKeys);
+    if (ids.length === 0) return null;
+    groups.push(ids);
+  } else if (args.medium === "live-action") {
+    excluded.push(...idsFor(mediumKeys));
+  }
+  excluded.push(...idsFor(excludeKeys));
+
+  return { ...args, tagIdGroups: groups, excludeTagIds: dedupeIds(excluded) };
+};
+
 const hasMenuFilterArgs = (args: MenuFilterArgs) =>
   Boolean(
     (args.tagIds && args.tagIds.length > 0) ||
@@ -1684,11 +1919,30 @@ export const listGalleryAssets = query({
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
     onlyLiked: v.optional(v.boolean()),
+    // Named filters for agents (resolved to tag ids canonically):
+    tagNames: v.optional(v.array(v.string())),
+    anyTagNames: v.optional(v.array(v.string())),
+    excludeTagNames: v.optional(v.array(v.string())),
+    pieceType: v.optional(
+      v.union(
+        v.literal("character"),
+        v.literal("location"),
+        v.literal("scene"),
+        v.literal("inspiration"),
+      ),
+    ),
+    medium: v.optional(v.union(v.literal("animation"), v.literal("live-action"))),
+    onlyStarred: v.optional(v.boolean()),
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   returns: v.array(galleryAssetResultValidator),
-  handler: async (ctx, args) => {
+  handler: async (ctx, rawArgs) => {
+    const args = await resolveNamedTagFilters(ctx, rawArgs);
+    if (!args) {
+      // A required tag doesn't exist, so nothing can match.
+      return [];
+    }
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
@@ -1706,9 +1960,26 @@ export const listGalleryAssets = query({
         // `onlyLiked` post-filters whenever it isn't served by its own index
         // (i.e. when combined with a set query), so widen the take then too.
         (onlyLiked && scopedToSet) ||
+        args.onlyStarred ||
         args.search,
     );
-    const queryTake = hasPostQueryFilters ? Math.min(limit * 4, 2000) : limit;
+    // Named filters come from agents asking for sparse slices ("animated
+    // characters I starred"), which a newest-first window of limit×4 rows would
+    // usually miss, so they scan deeper. The UI's pill filters keep the cheap
+    // window.
+    const namedFilterRequested = Boolean(
+      rawArgs.tagNames?.length ||
+        rawArgs.anyTagNames?.length ||
+        rawArgs.excludeTagNames?.length ||
+        rawArgs.pieceType ||
+        rawArgs.medium ||
+        rawArgs.onlyStarred,
+    );
+    const queryTake = namedFilterRequested
+      ? 2000
+      : hasPostQueryFilters
+        ? Math.min(limit * 4, 2000)
+        : limit;
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
     const menuFilters = await buildMenuFilterPredicate(ctx, args);
     const search = args.search?.trim().toLowerCase();
@@ -1853,10 +2124,13 @@ export const listGalleryAssets = query({
           .includes(search);
       });
     } else {
-      selectedAssets = filteredAssets.slice(0, limit);
+      selectedAssets = filteredAssets;
       promptTextById = new Map();
     }
 
+    if (args.onlyStarred) {
+      selectedAssets = selectedAssets.filter((asset) => Boolean(asset.starredAt));
+    }
     selectedAssets = selectedAssets.slice(0, limit);
     if (selectedAssets.length === 0) {
       return [];

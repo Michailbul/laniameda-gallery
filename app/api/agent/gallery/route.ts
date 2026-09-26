@@ -28,6 +28,39 @@ const stringArrayValue = (value: unknown) =>
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : undefined;
 
+const booleanValue = (value: unknown) => (value === true ? true : undefined);
+
+const PIECE_TYPES = new Set(["character", "location", "scene", "inspiration"]);
+const MEDIUMS = new Set(["animation", "live-action"]);
+const SEARCH_MODES = new Set(["hybrid", "visual", "text"]);
+
+const enumValue = <T extends string>(value: unknown, allowed: Set<string>) => {
+  const text = stringValue(value);
+  return text && allowed.has(text) ? (text as T) : undefined;
+};
+
+// Named filters shared by listAssets, searchAssets and findSimilar.
+const namedFilters = (data: Record<string, unknown>) => ({
+  tagNames: stringArrayValue(data.tagNames),
+  anyTagNames: stringArrayValue(data.anyTagNames),
+  excludeTagNames: stringArrayValue(data.excludeTagNames),
+  pieceType: enumValue<"character" | "location" | "scene" | "inspiration">(
+    data.pieceType,
+    PIECE_TYPES,
+  ),
+  medium: enumValue<"animation" | "live-action">(data.medium, MEDIUMS),
+  onlyLiked: booleanValue(data.onlyLiked),
+  onlyStarred: booleanValue(data.onlyStarred),
+});
+
+type AssetRoleValue =
+  | "generated_output"
+  | "reference"
+  | "inspiration_capture"
+  | "workflow_asset"
+  | "cinema_frame"
+  | "other";
+
 const normalizeGalleryIdKind = (kind: string): GalleryIdKind | null => {
   switch (kind) {
     case "asset":
@@ -96,14 +129,9 @@ export async function POST(request: Request) {
         folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
         modelName: stringValue(data.modelName),
         pillar: stringValue(data.pillar),
-        assetRole: stringValue(data.assetRole) as
-          | "generated_output"
-          | "reference"
-          | "inspiration_capture"
-          | "workflow_asset"
-          | "cinema_frame"
-          | "other"
-          | undefined,
+        assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
+        includeDescendants: booleanValue(data.includeDescendants),
+        ...namedFilters(data),
         search: stringValue(data.search),
         limit: numberValue(data.limit),
       });
@@ -123,17 +151,43 @@ export async function POST(request: Request) {
         folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
         kind: stringValue(data.kind) as "image" | "video" | undefined,
         modelName: stringValue(data.modelName),
-        assetRole: stringValue(data.assetRole) as
-          | "generated_output"
-          | "reference"
-          | "inspiration_capture"
-          | "workflow_asset"
-          | "cinema_frame"
-          | "other"
-          | undefined,
+        assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
+        mode: enumValue<"hybrid" | "visual" | "text">(data.mode, SEARCH_MODES),
+        ...namedFilters(data),
+        minRelativeScore: numberValue(data.minRelativeScore),
         limit: numberValue(data.limit),
       });
       return NextResponse.json({ results });
+    }
+
+    if (action === "findSimilar") {
+      const parsed = parseGalleryId(data.id ?? data.assetId, "asset");
+      const results = await client.action(api.semanticSearch.findSimilarAssets, {
+        ownerUserId: agent.ownerUserId,
+        scope: "mine",
+        assetId: parsed.id as Id<"assets">,
+        folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
+        kind: stringValue(data.kind) as "image" | "video" | undefined,
+        modelName: stringValue(data.modelName),
+        assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
+        mode: enumValue<"hybrid" | "visual" | "text">(data.mode, SEARCH_MODES),
+        ...namedFilters(data),
+        minRelativeScore: numberValue(data.minRelativeScore),
+        limit: numberValue(data.limit),
+      });
+      return NextResponse.json({ results });
+    }
+
+    if (action === "findBySourceUrls") {
+      const sourceUrls = stringArrayValue(data.sourceUrls);
+      if (!sourceUrls || sourceUrls.length === 0) {
+        return NextResponse.json({ error: "sourceUrls is required." }, { status: 400 });
+      }
+      const matches = await client.query(api.assets.findAssetsBySourceUrls, {
+        ownerUserId: agent.ownerUserId,
+        sourceUrls,
+      });
+      return NextResponse.json({ matches });
     }
 
     if (action === "getById") {

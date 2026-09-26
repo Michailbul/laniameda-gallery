@@ -16,6 +16,7 @@ import {
   semanticSourceTypeValidator,
 } from "./validators";
 import { resolveAssetUrl } from "./r2_url";
+import { buildAssetTextLane } from "./agentDescriptionText";
 
 const RETRY_DELAYS_MS = [30_000, 300_000, 1_800_000] as const;
 const MAX_QUERY_BATCH = 50;
@@ -74,7 +75,9 @@ const semanticDocumentValidator = v.object({
   contentHash: v.string(),
   embeddingModel: v.string(),
   embeddingDimensions: v.number(),
-  embedding: v.array(v.float64()),
+  embedding: v.optional(v.array(v.float64())),
+  textEmbedding: v.optional(v.array(v.float64())),
+  textContentHash: v.optional(v.string()),
   scopeKey: v.string(),
   scopePillarKey: v.optional(v.string()),
   publicScopeKey: v.optional(v.string()),
@@ -114,6 +117,8 @@ const assetSourceValidator = v.union(
     storageUrl: v.optional(v.string()),
     storageId: v.optional(v.string()),
     promptText: v.optional(v.string()),
+    agentDescription: v.optional(v.string()),
+    description: v.optional(v.string()),
     designTitle: v.optional(v.string()),
     designSummary: v.optional(v.string()),
     designSourceDomain: v.optional(v.string()),
@@ -357,6 +362,45 @@ const embedWithGemini = async (parts: Array<Record<string, unknown>>) => {
   };
 };
 
+// The text lane runs on its own embedding model. gemini-embedding-001 is
+// text-only with a far larger quota than the multimodal model, so indexing an
+// asset's words never competes with the pixel lane (or live search) for the
+// multimodal model's small per-minute budget.
+export const getTextEmbeddingModel = () =>
+  normalizeOptionalString(process.env.TEXT_EMBEDDING_MODEL) ?? "gemini-embedding-001";
+
+const embedTextLane = async (text: string) => {
+  const model = getTextEmbeddingModel();
+  const dimensions = getSemanticEmbeddingDimensions();
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": getGeminiApiKey(),
+      },
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+        taskType: "RETRIEVAL_DOCUMENT",
+        outputDimensionality: dimensions,
+      }),
+    },
+  );
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    throw new Error(
+      `Gemini text-lane embedding failed (${response.status}): ${bodyText || "unknown error"}`,
+    );
+  }
+  const payload = (await response.json()) as { embedding?: { values?: number[] } };
+  const values = payload.embedding?.values;
+  if (!values || values.length !== dimensions) {
+    throw new Error("Gemini text-lane embedding returned no or mis-sized values.");
+  }
+  return values;
+};
+
 const resolveTagNames = async (ctx: QueryCtx, tagIds: Id<"tags">[]) => {
   const uniqueTagIds = dedupeIds(tagIds);
   const tagEntries = await Promise.all(
@@ -451,6 +495,8 @@ export const getAssetSourceForReindex = internalQuery({
       storageUrl: storageUrl ?? undefined,
       storageId: asset.storageId,
       promptText: prompt?.text,
+      agentDescription: asset.agentDescription,
+      description: asset.description,
       designTitle: designInspiration?.title,
       designSummary: designInspiration?.summary,
       designSourceDomain: designInspiration?.sourceDomain,
@@ -592,6 +638,11 @@ export const upsertSemanticDocument = internalMutation({
     embeddingModel: v.string(),
     embeddingDimensions: v.number(),
     embedding: v.optional(v.array(v.float64())),
+    // Text lane. Omit both to leave the stored lane untouched; pass
+    // clearTextEmbedding to drop it (the asset lost all its text).
+    textEmbedding: v.optional(v.array(v.float64())),
+    textContentHash: v.optional(v.string()),
+    clearTextEmbedding: v.optional(v.boolean()),
     scopeKey: v.string(),
     scopePillarKey: v.optional(v.string()),
     publicScopeKey: v.optional(v.string()),
@@ -623,6 +674,12 @@ export const upsertSemanticDocument = internalMutation({
         embeddingModel: args.embeddingModel,
         embeddingDimensions: args.embeddingDimensions,
         embedding: args.embedding ?? existing.embedding,
+        textEmbedding: args.clearTextEmbedding
+          ? undefined
+          : (args.textEmbedding ?? existing.textEmbedding),
+        textContentHash: args.clearTextEmbedding
+          ? undefined
+          : (args.textContentHash ?? existing.textContentHash),
         scopeKey: args.scopeKey,
         scopePillarKey: args.scopePillarKey,
         publicScopeKey: args.publicScopeKey,
@@ -633,8 +690,8 @@ export const upsertSemanticDocument = internalMutation({
       return existing._id;
     }
 
-    if (!args.embedding) {
-      throw new ConvexError("New semantic documents require an embedding.");
+    if (!args.embedding && !args.textEmbedding) {
+      throw new ConvexError("New semantic documents require an embedding in at least one lane.");
     }
 
     return await ctx.db.insert("semanticDocuments", {
@@ -653,6 +710,8 @@ export const upsertSemanticDocument = internalMutation({
       embeddingModel: args.embeddingModel,
       embeddingDimensions: args.embeddingDimensions,
       embedding: args.embedding,
+      textEmbedding: args.clearTextEmbedding ? undefined : args.textEmbedding,
+      textContentHash: args.clearTextEmbedding ? undefined : args.textContentHash,
       scopeKey: args.scopeKey,
       scopePillarKey: args.scopePillarKey,
       publicScopeKey: args.publicScopeKey,
@@ -825,6 +884,9 @@ const reindexAssetSource = async (
   ctx: ActionCtx,
   assetId: Id<"assets">,
   attempt: number,
+  // Refresh the text lane only; never call the multimodal model. Used by
+  // backfills so they don't drain the pixel lane's small quota.
+  textOnly = false,
 ): Promise<ReindexResult> => {
   if (!isSemanticEmbeddingsEnabled()) {
     return {
@@ -851,15 +913,33 @@ const reindexAssetSource = async (
   }
 
   try {
-    // Pure embedding strategy: image-only for images, prompt-text-only fallback.
-    // Let Gemini's cross-modal matching do the work — no metadata dilution.
+    // Two lanes. The pixel lane (multimodal model) embeds image bytes only, so
+    // cross-modal matching finds what a picture looks like; imageless assets
+    // (video) embed a short text there, exactly as before. The text lane
+    // (getTextEmbeddingModel) embeds the asset's words: agent description,
+    // caption, prompt, tags, source. The text lane is written first and on its
+    // own quota, so a pixel-lane 429 never leaves an asset unsearchable.
     const shouldUseMultimodal =
       Boolean(source.storageUrl) &&
       normalizeOptionalString(source.contentType)?.startsWith("image/");
     const modality = shouldUseMultimodal ? "multimodal_image" : "text_only";
-    const searchText = shouldUseMultimodal
+    const textLane = buildAssetTextLane({
+      agentDescription: source.agentDescription,
+      description: source.description,
+      promptText: source.promptText,
+      tagNames: source.tagNames,
+      modelName: source.modelName,
+      designTitle: source.designTitle,
+      designSummary: source.designSummary,
+      designSourceDomain: source.designSourceDomain,
+      sourceUrl: source.sourceUrl,
+    });
+    // Pixel-lane input and hash are unchanged from pure-v1, so every existing
+    // pixel embedding stays valid.
+    const primaryText = shouldUseMultimodal
       ? "[image]"
       : compactSearchText([source.promptText ?? source.fileName ?? `asset`]);
+    const searchText = textLane || primaryText;
     const scopeFields = buildScopeFields(
       source.ownerUserId,
       "asset",
@@ -870,7 +950,7 @@ const reindexAssetSource = async (
       JSON.stringify({
         v: "pure-v1", // invalidates all prior embeddings on backfill
         modality,
-        searchText,
+        searchText: primaryText,
         storageId: source.storageId,
         storageUrl: source.storageUrl,
         isPublic: source.isPublic,
@@ -884,20 +964,57 @@ const reindexAssetSource = async (
     const model = getSemanticEmbeddingModel();
     const dimensions = getSemanticEmbeddingDimensions();
 
-    const shouldReuseEmbedding =
-      existing &&
-      existing.contentHash === contentHash &&
-      existing.embeddingModel === model &&
-      existing.embeddingDimensions === dimensions;
+    // Text lane first.
+    let textEmbedding: number[] | undefined;
+    let textContentHash: string | undefined;
+    const clearTextEmbedding = !textLane;
+    if (textLane) {
+      textContentHash = await sha256Hex(
+        JSON.stringify({
+          v: "text-lane-v2",
+          model: getTextEmbeddingModel(),
+          dimensions,
+          text: textLane,
+        }),
+      );
+      const textUnchanged =
+        existing?.textContentHash === textContentHash && Boolean(existing?.textEmbedding);
+      if (!textUnchanged) {
+        textEmbedding = await embedTextLane(textLane);
+      }
+    }
 
-    let embedding = existing?.embedding;
-    if (!shouldReuseEmbedding) {
-      // Image assets: embed image bytes only (no text). Text fallback: embed searchText.
-      const parts: Array<Record<string, unknown>> =
-        shouldUseMultimodal && source.storageUrl
-          ? [await fetchInlineImagePart(source.storageUrl, source.contentType)]
-          : [{ text: searchText }];
-      embedding = (await embedWithGemini(parts)).values;
+    // Pixel lane.
+    const shouldReuseEmbedding = Boolean(
+      existing?.embedding &&
+        existing.contentHash === contentHash &&
+        existing.embeddingModel === model &&
+        existing.embeddingDimensions === dimensions,
+    );
+    let embedding: number[] | undefined;
+    let pixelError: string | undefined;
+    if (!shouldReuseEmbedding && !textOnly) {
+      try {
+        const parts: Array<Record<string, unknown>> =
+          shouldUseMultimodal && source.storageUrl
+            ? [await fetchInlineImagePart(source.storageUrl, source.contentType)]
+            : [{ text: primaryText }];
+        embedding = (await embedWithGemini(parts)).values;
+      } catch (error) {
+        pixelError =
+          error instanceof Error ? error.message : "Unknown pixel-lane embedding error.";
+      }
+    }
+
+    const hasAnyLane =
+      Boolean(embedding) ||
+      shouldReuseEmbedding ||
+      Boolean(existing?.embedding) ||
+      Boolean(textEmbedding) ||
+      Boolean(existing?.textEmbedding && !clearTextEmbedding);
+    if (!hasAnyLane) {
+      if (pixelError) throw new Error(pixelError);
+      return { status: "skipped" as const, retryScheduled: false };
     }
 
     const semanticDocumentId = await ctx.runMutation(upsertSemanticDocumentMutationRef, {
@@ -911,17 +1028,37 @@ const reindexAssetSource = async (
       isPublic: source.isPublic,
       kind: source.kind,
       modality,
+      // A pending pixel lane keeps the previous hash, so the next reindex
+      // still sees it as stale and retries it.
       searchText,
-      contentHash,
+      contentHash: embedding ? contentHash : (existing?.contentHash ?? "pixel-pending"),
       embeddingModel: model,
       embeddingDimensions: dimensions,
-      embedding: shouldReuseEmbedding ? undefined : embedding,
+      embedding,
+      textEmbedding,
+      textContentHash: clearTextEmbedding ? undefined : textContentHash,
+      clearTextEmbedding,
       scopeKey: scopeFields.scopeKey,
       scopePillarKey: scopeFields.scopePillarKey,
       publicScopeKey: scopeFields.publicScopeKey,
       publicScopePillarKey: scopeFields.publicScopePillarKey,
       sourceUpdatedAt: source.sourceUpdatedAt,
     });
+
+    if (pixelError) {
+      // Text lane is saved; only the pixel lane waits for a retry.
+      await ctx.runMutation(recordFailureMutationRef, {
+        ownerUserId: source.ownerUserId,
+        sourceType: "asset",
+        sourceId,
+        errorMessage: `pixel lane: ${pixelError}`,
+      });
+      return {
+        status: "indexed" as const,
+        semanticDocumentId,
+        retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt),
+      };
+    }
     await ctx.runMutation(resolveFailureMutationRef, {
       sourceType: "asset",
       sourceId,
@@ -1186,10 +1323,16 @@ export const reindexAsset = internalAction({
   args: {
     assetId: v.id("assets"),
     attempt: v.optional(v.number()),
+    textOnly: v.optional(v.boolean()),
   },
   returns: reindexResultValidator,
   handler: async (ctx, args): Promise<ReindexResult> => {
-    return await reindexAssetSource(ctx, args.assetId, args.attempt ?? 0);
+    return await reindexAssetSource(
+      ctx,
+      args.assetId,
+      args.attempt ?? 0,
+      args.textOnly === true,
+    );
   },
 });
 
@@ -1224,6 +1367,8 @@ export const backfillBatch = internalAction({
     sourceType: semanticSourceTypeValidator,
     cursor: v.optional(v.string()),
     batchSize: v.optional(v.number()),
+    // Assets only: refresh text lanes without touching the multimodal model.
+    textOnly: v.optional(v.boolean()),
   },
   returns: v.object({
     sourceType: semanticSourceTypeValidator,
@@ -1245,7 +1390,7 @@ export const backfillBatch = internalAction({
     for (const id of batch.ids) {
       const result =
         args.sourceType === "asset"
-          ? await reindexAssetSource(ctx, id as Id<"assets">, 0)
+          ? await reindexAssetSource(ctx, id as Id<"assets">, 0, args.textOnly === true)
           : args.sourceType === "prompt"
             ? await reindexPromptSource(ctx, id as Id<"prompts">, 0)
             : await reindexDesignSource(ctx, id as Id<"designInspirations">, 0);

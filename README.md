@@ -20,9 +20,8 @@ write to and query the same vault via a documented ingest API.
 | **Designs** | Website, UI, component, mobile design references |
 | **Dump** | Anything useful that doesn't fit the others |
 
-Two repo-local agent skills handle the read/write paths:
-- `skills/laniameda-gallery-ingest` — save prompts, files, URLs into the gallery
-- `skills/laniameda-gallery-query` — browse, search, retrieve content
+One repo-local agent skill handles the read and write paths:
+- `skills/laniameda-gallery` — save, update, delete, search, retrieve, and extract liked items from X / Instagram / sites into the gallery
 
 ## Stack
 

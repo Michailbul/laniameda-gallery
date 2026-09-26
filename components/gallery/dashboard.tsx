@@ -1998,7 +1998,7 @@ export function GalleryDashboard({
         effectiveSelectedFolderId &&
         !activeSmartCollectionFilter &&
         !(asset.folderIds ?? (asset.folderId ? [asset.folderId] : []))
-          .includes(effectiveSelectedFolderId)
+          .includes(effectiveSelectedFolderId as Id<"folders">)
       ) {
         return false;
       }
@@ -2060,7 +2060,9 @@ export function GalleryDashboard({
       assets: displayGalleryAssets,
       hiddenAssetIds,
       loadedAssetIds: loadedImageIdsRef.current,
-      sortOrder,
+      // Search results arrive ranked by relevance; the NEWEST / FEATURED /
+      // SHUFFLE sorts apply to browsing, not to a search.
+      sortOrder: filteredSemanticResults !== null ? "relevance" : sortOrder,
       shuffleSeed,
       // Only the FEATURED sort floats starred pieces. Semantic results are
       // already ordered by score, so a star never jumps the queue there.

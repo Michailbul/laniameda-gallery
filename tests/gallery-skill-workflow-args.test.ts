@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   buildWorkflowArgs,
   type PreparedWorkflowMedia,
-} from "../skills/laniameda-gallery-ingest/scripts/ingest";
+} from "../skills/laniameda-gallery/scripts/ingest";
 
 describe("workflow ingest args", () => {
   test("step media carries its caption and an R2-prepared video", () => {

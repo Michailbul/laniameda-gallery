@@ -121,6 +121,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === "addTagAliases") {
+      const name = stringValue(data.name);
+      const aliases = tagNameArray(data.aliases);
+      if (!name || !aliases || aliases.length === 0) {
+        return NextResponse.json(
+          { error: "name and aliases are required." },
+          { status: 400 },
+        );
+      }
+      const result = await client.mutation(api.tags.addTagAliases, { name, aliases });
+      return NextResponse.json(result);
+    }
+
     if (action === "listFolders") {
       const folders = await client.query(api.folders.listFolders, {
         ownerUserId: agent.ownerUserId,
