@@ -16,7 +16,7 @@ import {
 } from "./browse-band";
 import { MEDIUM_OPTIONS, mediumOf, type Medium } from "@/lib/medium";
 import { WorldsMasonry, type WorldSummary } from "./worlds-masonry";
-import type { ShowcaseAsset } from "./types";
+import type { FirstScreenData, ShowcaseAsset } from "./types";
 import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 
 // `mode` comes from the URL segment, not from state — each view is its own
@@ -24,11 +24,21 @@ import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 export function PublicHome({
   mode = "featured",
   previewAuthed = false,
+  authPending = false,
+  firstScreen,
 }: {
   mode?: PublicMode;
   previewAuthed?: boolean;
+  /** Auth is still resolving: owner-only chrome stays hidden either way. */
+  authPending?: boolean;
+  /** Fetched on the server with the HTML; shown until the live query answers. */
+  firstScreen?: FirstScreenData;
 }) {
   const data = useQuery(api.showcase.getShowcaseHome, {});
+  // The server's copy is at most five minutes old, and the live subscription
+  // replaces it within a second or so of the page booting.
+  const worldsData = data?.worlds ?? firstScreen?.worlds;
+  const featuredReelData = data?.featuredReel ?? firstScreen?.featuredReel;
 
   // ── Shared deep link ────────────────────────────────────────────────────
   // `?asset=<id>` opens that one piece over whatever mode is showing. Resolved
@@ -60,18 +70,17 @@ export function PublicHome({
     window.history.replaceState(null, "", url.toString());
   }, []);
 
-  const worlds = data?.worlds ?? [];
-  const loading = data === undefined;
+  const worlds = worldsData ?? [];
 
   // The reel arrives as (asset, world?) pairs; split it into what the grid
   // renders and the hover captions that say where each piece comes from.
   const featuredReel = useMemo(
-    () => (data?.featuredReel ?? []).map((entry) => entry.asset as ShowcaseAsset),
-    [data],
+    () => (featuredReelData ?? []).map((entry) => entry.asset as ShowcaseAsset),
+    [featuredReelData],
   );
   const featuredWorldLabels = useMemo(() => {
     const labels = new Map<string, string>();
-    for (const entry of data?.featuredReel ?? []) {
+    for (const entry of featuredReelData ?? []) {
       // A piece titled from the featured shelf speaks for itself; only an
       // untitled one falls back to naming the world it came from.
       const title = entry.asset.name?.trim();
@@ -79,7 +88,7 @@ export function PublicHome({
       if (label) labels.set(entry.asset._id as string, label);
     }
     return labels;
-  }, [data]);
+  }, [featuredReelData]);
 
   // The shared piece leads; the rest of the reel follows so the filmstrip has
   // somewhere to go. Deduped — the shared asset is usually in the reel already.
@@ -174,13 +183,20 @@ export function PublicHome({
         <FeaturedMode
           assets={featuredReel}
           labels={featuredWorldLabels}
-          loading={loading}
+          loading={featuredReelData === undefined}
         />
       )}
-      {mode === "worlds" && <WorldsMode worlds={worlds} loading={loading} />}
+      {mode === "worlds" && (
+        <WorldsMode worlds={worlds} loading={worldsData === undefined} />
+      )}
       {/* The signed-in owner gets the Browse-scope control; visitors never
           see it. The setting itself lives on the backend. */}
-      {mode === "browse" && <BrowseBand ownerControls={previewAuthed} />}
+      {mode === "browse" && (
+        <BrowseBand
+          ownerControls={previewAuthed}
+          firstAssets={firstScreen?.browseAssets}
+        />
+      )}
 
       <footer
         style={{
@@ -205,7 +221,7 @@ export function PublicHome({
               link: that page renders the auth panel, which reports what went
               wrong when a login fails, and it still works for someone without
               Telegram installed. */}
-          {!previewAuthed && (
+          {!previewAuthed && !authPending && (
             <a
               href={ADMIN_PATH}
               style={{ color: "var(--lm-text-ghost)", textDecoration: "none" }}

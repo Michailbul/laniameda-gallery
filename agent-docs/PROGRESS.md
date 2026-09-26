@@ -10,6 +10,7 @@ Last updated: 2026-09-26
 
 ### 2026-09-26
 - Gallery tiles now load WebP card thumbnails instead of originals. Before: 1,810 of 2,427 image tiles pulled the full original (629 of them over 2 MB), 48 video tiles mounted the full video for want of a poster, and existing thumbs were quality-100 JPEG or PNG at a median of 500 KB. Scrolling the whole grid now costs 160 MB for images (was 4.5 GB) and 8 MB for video posters (was 670 MB); the median tile is 47 KB. All ingest paths (API, agent, cinema frames, design saves, browser posters) share one sharp encoder; `thumbnails:backfillCardThumbnails` rebuilt the existing thumbs and `scripts/backfill-video-posters.ts` gave 18 poster-less videos a poster via local ffmpeg.
+- Public pages (Featured, Worlds, Browse) render their first screen at hydration: the static page (rebuilt every 5 minutes) carries the first screen's data and preloads its thumbnails with the HTML, and the page no longer waits for `/api/auth/me` before querying. On a throttled first visit the first screen finishes in 0.7–1.0 s instead of about 2.1 s. Grid video tiles on Featured mount only after their poster has painted.
 - The tile rule counts portrait thumbs by height (`isCardThumbSharp`), so a 540×960 thumb no longer sends a 3 MB original into the grid. The public lightbox paints the cached thumb at once and swaps the original in after it decodes.
 
 ### 2026-08-14

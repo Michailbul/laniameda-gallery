@@ -374,8 +374,17 @@ export const ImageCard = memo(function ImageCard({
     setIsLoading(false);
   };
 
+  // An at-rest video mounts only once its poster has painted. A grid of
+  // motion pieces otherwise opens a dozen video fetches that race the posters
+  // for the same bandwidth, and the first screen stays blank for longer.
+  const [posterSettled, setPosterSettled] = useState(false);
+  const attachPosterNode = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete) setPosterSettled(true);
+  }, []);
+
   const handleVideoPosterError = () => {
     setIsLoading(false);
+    setPosterSettled(true);
   };
 
   // `priority` already implies eager; passing both trips a Next warning.
@@ -874,12 +883,16 @@ export const ImageCard = memo(function ImageCard({
                 className={`object-contain transition-opacity duration-150 ${
                   isLoading ? "opacity-0" : "opacity-100"
                 }`}
-                onLoad={handleImageLoad}
+                ref={attachPosterNode}
+                onLoad={(e) => {
+                  handleImageLoad(e);
+                  setPosterSettled(true);
+                }}
                 onError={handleVideoPosterError}
                 unoptimized
               />
             )}
-            {(videoActive || !hasThumb || mountVideoAtRest) && (
+            {(videoActive || !hasThumb || (mountVideoAtRest && posterSettled)) && (
               <video
                 ref={videoRef}
                 src={activeFullSrc}

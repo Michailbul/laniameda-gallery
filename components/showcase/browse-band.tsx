@@ -36,9 +36,12 @@ type Pill =
 // instead of handing the next page a cursor from the other slice.
 export function BrowseBand({
   ownerControls = false,
+  firstAssets,
 }: {
   /** Signed-in owner: show the scope control. Visitors never get it. */
   ownerControls?: boolean;
+  /** The unfiltered first page, fetched on the server with the HTML. */
+  firstAssets?: ShowcaseAsset[];
 }) {
   const settings = useQuery(api.publicSurface.getPublicSurfaceSettings, {});
   const browseScope: BrowseScope = settings?.browseScope ?? "published";
@@ -47,6 +50,7 @@ export function BrowseBand({
     <BrowseArchive
       key={browseScope}
       browseScope={browseScope}
+      firstAssets={firstAssets}
       ownerControl={
         ownerControls ? (
           <BrowseScopeControl
@@ -61,9 +65,11 @@ export function BrowseBand({
 
 function BrowseArchive({
   browseScope,
+  firstAssets,
   ownerControl,
 }: {
   browseScope: BrowseScope;
+  firstAssets?: ShowcaseAsset[];
   ownerControl: ReactNode;
 }) {
   const [activeId, setActiveId] = useState("all");
@@ -134,9 +140,16 @@ function BrowseArchive({
     { initialNumItems: PAGE_SIZE },
   );
 
+  // Until the live first page lands, the unfiltered view shows the server's
+  // copy of it: same query, same order, so the live page only extends it.
+  const waitingOnFirstPage = paged.status === "LoadingFirstPage";
+  const serverFirstPage =
+    waitingOnFirstPage && active?.id === "all" && firstAssets?.length
+      ? firstAssets
+      : undefined;
   const assets = useMemo(
-    () => (paged.results ?? []) as ShowcaseAsset[],
-    [paged.results],
+    () => serverFirstPage ?? ((paged.results ?? []) as ShowcaseAsset[]),
+    [serverFirstPage, paged.results],
   );
 
   // MasonryGrid fires this repeatedly while its frontier is exposed, so the
@@ -201,7 +214,7 @@ function BrowseArchive({
         </div>
       </div>
 
-      {assets.length === 0 && paged.status !== "LoadingFirstPage" ? (
+      {assets.length === 0 && !waitingOnFirstPage ? (
         <p
           style={{
             fontFamily: "var(--lm-font)",
@@ -222,7 +235,7 @@ function BrowseArchive({
           key={active?.id}
           assets={assets}
           zoom={zoom}
-          loading={paged.status === "LoadingFirstPage"}
+          loading={waitingOnFirstPage && !serverFirstPage}
           onEndReached={loadMore}
         />
       )}

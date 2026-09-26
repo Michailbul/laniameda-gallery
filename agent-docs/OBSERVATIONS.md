@@ -32,6 +32,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Standard collection child pillars are name-based and ordered as `Characters`, `Locations`, `Scenes`, `Inspirations`; use `compareCollectionPillarNames` instead of alphabetical sorting so Inspirations stays last.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- `MasonryGrid` mounts no tiles until it has measured its width; the server HTML shows the skeleton instead. Tiles laid out without a width would render as a full-width stack in server HTML, jump at hydration and fetch every image in it.
+- Public pages hand their first screen to the client from the server (`app/misha.buloy/selected_work/first-screen.ts`) and hint its thumbnails with `preload()`. Next prefetches the sibling public pages, and their hints fire too, so Chrome logs "preloaded but not used" for them; that is expected and makes switching views instant.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
 - Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
 - Midjourney's `/create` detail panel may not expose a stable `role="dialog"` or close-button signal. Extension save-widget suppression also checks visible detail-panel labels such as `Creation Actions` to avoid injecting save buttons across the dimmed background grid.

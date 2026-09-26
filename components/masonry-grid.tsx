@@ -415,13 +415,16 @@ export function MasonryGrid({
   // visible-count cutoff. Mounting whole rows means the frontier is always a
   // complete edge-to-edge row — no half-filled trailing row.
   const { mounted, mountedHeight, hasMore } = useMemo(() => {
+    // Unmeasured means server-rendered or the first client pass. The browser
+    // measures before it paints, so tiles laid out without a width would only
+    // ever show in server HTML, as a stack of full-width cards that jumps into
+    // rows at hydration and fetches every image in it. Mount nothing until the
+    // width is known; the page preloads the first screen's thumbs meanwhile.
     if (contentWidth === null) {
       return {
-        mounted: images
-          .slice(0, effectiveVisibleCount)
-          .map((image) => ({ image, tile: undefined as JustifiedTile | undefined })),
+        mounted: [] as Array<{ image: (typeof images)[number]; tile: JustifiedTile | undefined }>,
         mountedHeight: undefined as number | undefined,
-        hasMore: effectiveVisibleCount < images.length,
+        hasMore: false,
       };
     }
     // targetRowHeight ≈ the width one column would be, so squares land at about
@@ -807,6 +810,14 @@ export function MasonryGrid({
         aria-live="polite"
         aria-label={`Gallery showing ${images.length} image${images.length !== 1 ? "s" : ""}`}
       >
+        {/* Server HTML and the first client pass have no width to lay out
+            with; hold the space with the loading skeleton until they do. */}
+        {contentWidth === null && images.length > 0 && (
+          <SkeletonGrid
+            columnClasses={skeletonColumnClasses}
+            count={Math.min(images.length, 12)}
+          />
+        )}
         {mounted.map(({ image, tile }, originalIndex) => {
           const isAssetCard =
             image.galleryItemType === "asset" ||
