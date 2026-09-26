@@ -642,8 +642,47 @@
 .lm-lightbox-strip::-webkit-scrollbar {
   display: none;
 }
-.lm-lightbox-strip > button:hover {
+.lm-lightbox-strip > button:hover,
+.lm-lightbox-strip > div > button:hover {
   opacity: 0.85 !important;
+}
+
+/* Expanded pack view — slides fade up into place, arrows are glass rounds
+   out on the canvas (or small ones over the image in the mobile sheet). */
+.lm-carousel-slide {
+  animation: carousel-slide-in 280ms var(--ease-out) both;
+}
+.lm-carousel-arrow {
+  border: 1px solid var(--lm-border);
+  background: color-mix(in srgb, var(--lm-surface-2) 72%, transparent);
+  color: var(--lm-text-primary);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition:
+    background-color var(--lm-duration-fast, 150ms),
+    border-color var(--lm-duration-fast, 150ms),
+    color var(--lm-duration-fast, 150ms),
+    opacity var(--lm-duration-fast, 150ms),
+    scale var(--lm-duration-fast, 150ms);
+}
+.lm-carousel-arrow[data-compact] {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(8, 4, 2, 0.55);
+  color: #fff;
+}
+.lm-carousel-arrow:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--lm-coral) 70%, transparent);
+  color: var(--lm-coral);
+}
+.lm-carousel-arrow:active:not(:disabled) {
+  scale: 0.94;
+}
+
+@keyframes carousel-slide-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
 }
 
 /* The @handle on public surfaces links to the owner's site. Ghost until
@@ -744,6 +783,28 @@
 @keyframes float-gentle {
   0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.4; }
   50% { transform: translateY(-10px) rotate(2deg); opacity: 0.6; }
+}
+
+@keyframes pack-tab-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes pack-layer-in {
+  from {
+    opacity: 0;
+    transform: none;
+  }
+}
+
+@keyframes pack-layer-image-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes card-entrance {
@@ -1141,6 +1202,129 @@
   }
   .card-base.card-dimmed:hover {
     opacity: 0.85;
+  }
+
+  /* ── Pack deck — a pack is a stack of cards that rotates itself ── */
+  /* The cards behind the front one live outside it (its paint containment
+     would clip them) and peek into the grid gutter. Hover fans them out. */
+  .pack-deck-layer {
+    border-radius: 12px;
+    border: 1px solid var(--border-default);
+    background-color: var(--surface-3);
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform var(--duration-slow) var(--ease-out),
+      opacity var(--duration-normal);
+    animation: pack-layer-in var(--duration-slow) var(--ease-out) both;
+  }
+  .pack-deck-layer[data-depth="1"] {
+    transform: rotate(-2.4deg) translate(-6px, 6px) scale(0.975);
+  }
+  .pack-deck-layer[data-depth="2"] {
+    transform: rotate(3deg) translate(7px, 8px) scale(0.955);
+  }
+  .pack-deck:hover .pack-deck-layer[data-depth="1"] {
+    transform: rotate(-4deg) translate(-9px, 6px) scale(0.975);
+  }
+  .pack-deck:hover .pack-deck-layer[data-depth="2"] {
+    transform: rotate(4.8deg) translate(10px, 9px) scale(0.955);
+  }
+  .pack-deck-layer-image {
+    animation: pack-layer-image-in 480ms var(--ease-out) both;
+  }
+  .pack-deck[data-dimmed="true"] .pack-deck-layer {
+    opacity: 0.5;
+  }
+  .pack-deck[data-exiting="true"] .pack-deck-layer {
+    opacity: 0;
+  }
+
+  /* The front card's frames trade places: the current one slides off, the
+     next one (already decoded, invisible) slides in from the other side. */
+  .pack-deck-frame {
+    transition:
+      opacity 560ms var(--ease-out),
+      transform 720ms var(--ease-out);
+  }
+  .pack-deck-frame[data-role="active"] {
+    z-index: 2;
+    opacity: 1;
+    transform: none;
+  }
+  .pack-deck-frame[data-role="leaving"] {
+    z-index: 1;
+    opacity: 0;
+    transform: translateX(-7%) rotate(-1.5deg) scale(0.97);
+  }
+  .pack-deck-frame[data-role="next"] {
+    z-index: 0;
+    opacity: 0;
+    transform: translateX(7%) scale(1.03);
+    transition: none;
+  }
+  .pack-deck-frame img {
+    transition: transform 200ms var(--ease-out);
+  }
+  .group:hover .pack-deck-frame[data-role="active"] img {
+    transform: scale(1.03);
+  }
+
+  /* Carousel tabs — one sliver per frame, the current one filling up. */
+  .pack-deck-tabs {
+    position: absolute;
+    top: 7px;
+    left: 10px;
+    right: 10px;
+    z-index: 26;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .pack-deck-tab-hit {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    margin: -6px 0;
+    padding: 6px 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .pack-deck-tab {
+    position: relative;
+    display: block;
+    flex: 1 1 0;
+    width: 100%;
+    height: 2.5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.34);
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.35);
+  }
+  .pack-deck-tab-hit:hover .pack-deck-tab {
+    background: rgba(255, 255, 255, 0.55);
+  }
+  .pack-deck-tab-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: #fff;
+    transform: scaleX(0);
+    transform-origin: left center;
+  }
+  .pack-deck-tab-fill[data-running] {
+    animation-name: pack-tab-fill;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+  .pack-deck-counter {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
 
   /* ── Card action icons — shared hover treatment ── */

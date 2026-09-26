@@ -2,11 +2,16 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-08-14
+Last updated: 2026-09-26
 
 ---
 
 ## ✔ Shipped
+
+### 2026-09-26
+- Prompt families: the grid folds the same prompt saved as separate rows, and variations of one prompt (e.g. a Masa template with the spoken line rewritten), into one pack. Rules live in `lib/prompt-family.ts` (content-word similarity, generation params ignored, variations within 3 days, identical text at any distance); web bookmarks and cinema frames never fold.
+- Packs render as stacked, self-rotating decks: cards peek out behind the front one, the front frame flips on its own (staggered per card, held on hover, still when off-screen or under reduced motion), and carousel tabs across the top show progress and jump to a frame. Clicking opens the expanded view on the frame on show.
+- Expanded view for packs: glass arrows at the stage edges, a filmstrip of the pack's frames with a `Pack 02 / 05 · N prompt variations` line, ←/→ walking the pack before the next card (and never while typing), swipes on mobile doing the same. Every field and action (description, tags, star, public, filing, delete, download) now applies to the frame on show, not the cover.
 
 ### 2026-08-14
 - Collection-aware asset typing removes duplicate classification controls across the app and extension: Characters, Locations, and Scenes/Stills destinations now supply their canonical type automatically during uploads, shortcuts, moves, copies, and drag filing, while general collections retain the manual choice.

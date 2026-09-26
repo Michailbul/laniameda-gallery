@@ -2,9 +2,15 @@
 
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import {
+  PackDeckLayers,
+  PackDeckMedia,
+  PackDeckTabs,
+  usePackRotation,
+} from "@/components/gallery/pack-deck";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { triggerAssetDownload } from "@/lib/download-image";
 import { hasMeaningfulPrompt } from "@/lib/prompt";
@@ -82,6 +88,7 @@ interface ImageCardProps {
       promptId?: string;
       src: string;
       fullSrc: string;
+      posterSrc?: string;
       prompt: string;
       width?: number;
       height?: number;
@@ -120,6 +127,9 @@ interface ImageCardProps {
       isLiked?: boolean;
       starredAt?: number;
       starNote?: string;
+      /** The pack member on show when the card was clicked — the expanded
+          view opens on it rather than on the cover. */
+      activePreviewId?: string;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -127,6 +137,7 @@ interface ImageCardProps {
         promptId?: string;
         src: string;
         fullSrc: string;
+        posterSrc?: string;
         prompt: string;
         width?: number;
         height?: number;
@@ -268,8 +279,26 @@ export const ImageCard = memo(function ImageCard({
           contentType: image.contentType,
         },
       ];
+  // A pack renders as a self-rotating deck. Workflow cards keep their own
+  // look, and cinema frames keep the shared-layout popout animation.
+  const isPackDeck =
+    previewImages.length > 1 &&
+    image.galleryItemType !== "workflow" &&
+    !isCinema;
+  const [deckHovered, setDeckHovered] = useState(false);
+  const deckRef = useRef<HTMLDivElement | null>(null);
+  const reducedMotion = useReducedMotion();
+  const deck = usePackRotation({
+    id: image.id,
+    count: isPackDeck ? previewImages.length : 0,
+    paused: deckHovered,
+    reducedMotion: Boolean(reducedMotion),
+    containerRef: deckRef,
+  });
+
+  const shownPreviewIndex = isPackDeck ? deck.index : activePreviewIndex;
   const activePreview =
-    previewImages[activePreviewIndex] ?? previewImages[0]!;
+    previewImages[shownPreviewIndex] ?? previewImages[0]!;
   const layoutPreview = previewImages[0]!;
 
   const activeKind = activePreview.kind ?? image.kind;
@@ -305,16 +334,19 @@ export const ImageCard = memo(function ImageCard({
   ]);
 
   useEffect(() => {
+    // The deck loads and swaps its own frames; resetting the loading gate on
+    // every flip would flash the skeleton through the transition.
+    if (isPackDeck) return;
     const frame = requestAnimationFrame(() => {
       setCurrentSrc(activePreview.src);
       setIsLoading(!initiallyLoaded || activePreviewIndex > 0);
       setHasError(false);
     });
     return () => cancelAnimationFrame(frame);
-  }, [activePreview.src, activePreviewIndex, initiallyLoaded]);
+  }, [activePreview.src, activePreviewIndex, initiallyLoaded, isPackDeck]);
 
   useEffect(() => {
-    if (!previewCycling || previewImages.length <= 1) {
+    if (!previewCycling || previewImages.length <= 1 || isPackDeck) {
       return;
     }
 
@@ -323,7 +355,7 @@ export const ImageCard = memo(function ImageCard({
     }, 650);
 
     return () => window.clearInterval(interval);
-  }, [previewCycling, previewImages.length]);
+  }, [isPackDeck, previewCycling, previewImages.length]);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     if (e.currentTarget.naturalWidth > 0) {
@@ -478,6 +510,7 @@ export const ImageCard = memo(function ImageCard({
       isLiked: image.isLiked,
       starredAt: image.starredAt,
       starNote: image.starNote,
+      activePreviewId: isPackDeck ? activePreview.id : undefined,
       previewImages,
     });
 
@@ -505,6 +538,9 @@ export const ImageCard = memo(function ImageCard({
 
   const isStarred = Boolean(image.starredAt);
   const starNote = isStarred ? image.starNote?.trim() || undefined : undefined;
+
+  // A deck's tabs run along the top edge; its hover toolbars sit just below.
+  const toolbarTop = isPackDeck ? "top-5" : "top-2";
 
   const shouldAnimateEntrance = index < ENTRANCE_ANIMATION_LIMIT;
   const cardClasses = [
@@ -537,15 +573,16 @@ export const ImageCard = memo(function ImageCard({
 
   // One click, one file: the same-origin proxy sets the attachment header and
   // hands back a JPEG for stored WebP, so nothing has to be fetched, decoded,
-  // or re-encoded here first.
+  // or re-encoded here first. On a deck it's the frame on show.
+  const downloadAssetId = isPackDeck ? activePreview.id : image.id;
   const handleDownload = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      triggerAssetDownload(image.id);
+      triggerAssetDownload(downloadAssetId);
       toastFn?.("Downloading", isVideo ? "FILE" : "JPG", "success");
     },
-    [image.id, isVideo, toastFn],
+    [downloadAssetId, isVideo, toastFn],
   );
 
   const handleDelete = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -776,7 +813,7 @@ export const ImageCard = memo(function ImageCard({
     );
   }
 
-  return (
+  const card = (
     <motion.div
       layoutId={isCinema ? `cinema-${image.id}` : undefined}
       className={cardClasses}
@@ -787,6 +824,12 @@ export const ImageCard = memo(function ImageCard({
       }}
       onClick={handleCardClick}
       onMouseEnter={() => {
+        if (isPackDeck) {
+          // Hover holds the deck on the frame you're looking at; a video
+          // frame plays in place.
+          setDeckHovered(true);
+          return;
+        }
         if (previewImages.length > 1) {
           setPreviewCycling(true);
         }
@@ -803,6 +846,7 @@ export const ImageCard = memo(function ImageCard({
         }
       }}
       onMouseLeave={() => {
+        setDeckHovered(false);
         setPreviewCycling(false);
         setActivePreviewIndex(0);
         clearVideoHoverTimer();
@@ -861,7 +905,18 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Media */}
       <div className="relative h-full w-full">
-        {isVideo ? (
+        {isPackDeck ? (
+          <PackDeckMedia
+            frames={previewImages}
+            index={deck.index}
+            playing={deckHovered}
+            eager={eager || mediaLoading === "eager"}
+            onCoverLoad={() => {
+              settleLoaded();
+              onLoad?.(image.id);
+            }}
+          />
+        ) : isVideo ? (
           <>
             {hasThumb && (
               <Image
@@ -956,8 +1011,19 @@ export const ImageCard = memo(function ImageCard({
           cluster is capped at half the tile and wraps: on a narrow tile the
           two clusters would otherwise grow into each other and the top one
           would swallow clicks meant for the button underneath it. */}
+      {/* Pack deck tabs — one per frame, the current one filling up. */}
+      {isPackDeck && (
+        <PackDeckTabs
+          count={previewImages.length}
+          index={deck.index}
+          rotating={deck.rotating}
+          durationMs={deck.durationMs}
+          onJump={deck.jumpTo}
+        />
+      )}
+
       <div
-        className="card-toolbar pointer-events-none absolute left-2 top-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center gap-1.5"
+        className={`card-toolbar pointer-events-none absolute left-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center gap-1.5 ${toolbarTop}`}
         data-crowded={canExclude ? "true" : undefined}
       >
         {selectable && (
@@ -1029,8 +1095,10 @@ export const ImageCard = memo(function ImageCard({
         )}
       </div>
 
-      {/* Pack badge — top-right */}
-      {image.packMemberCount !== undefined && image.packMemberCount > 1 && (
+      {/* Pack badge — top-right. A deck says the same with its tabs. */}
+      {!isPackDeck &&
+        image.packMemberCount !== undefined &&
+        image.packMemberCount > 1 && (
         <div
           className="absolute right-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
           style={{
@@ -1049,7 +1117,7 @@ export const ImageCard = memo(function ImageCard({
           owner's delete/like cluster would be, so the two never both render. */}
       {image.overlayLabel && !canDelete && !likeable && (
         <div
-          className="pointer-events-none absolute right-2 top-2 z-20 max-w-[70%] truncate px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100"
+          className={`pointer-events-none absolute right-2 z-20 max-w-[70%] ${toolbarTop} truncate px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100`}
           style={{
             backgroundColor: "var(--image-card-badge-bg-soft)",
             backdropFilter: "blur(6px)",
@@ -1321,7 +1389,7 @@ export const ImageCard = memo(function ImageCard({
           from the left cluster; flex keeps the buttons evenly spaced. */}
       {(canDelete || likeable || starrable || canExclude) && (
         <div
-          className="card-toolbar pointer-events-none absolute right-2 top-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center justify-end gap-1.5"
+          className={`card-toolbar pointer-events-none absolute right-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center justify-end gap-1.5 ${toolbarTop}`}
           data-crowded={canExclude ? "true" : undefined}
         >
           {/* Exclude — leads the cluster so star and like keep the positions
@@ -1434,5 +1502,20 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
     </motion.div>
+  );
+
+  if (!isPackDeck) return card;
+
+  // The deck: the cards behind peek out of the tile around the front one.
+  return (
+    <div
+      ref={deckRef}
+      className="pack-deck relative h-full w-full"
+      data-dimmed={dimmed ? "true" : undefined}
+      data-exiting={exiting ? "true" : undefined}
+    >
+      <PackDeckLayers frames={previewImages} index={deck.index} />
+      {card}
+    </div>
   );
 });

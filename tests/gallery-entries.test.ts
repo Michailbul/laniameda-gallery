@@ -71,6 +71,116 @@ describe("gallery entry builder", () => {
     expect(entries[1]?.id).toBe("asset:c");
   });
 
+  test("folds prompt variations saved as separate prompts into one pack", () => {
+    const base =
+      "Masa, a 24 year old Japanese woman with a sharp black bob, oversized grey hoodie, " +
+      "sitting on her bed in a small Tokyo apartment, phone selfie, soft window light, text overlay reads";
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:part-of-something",
+          promptId: "prompt:1",
+          sourceUrl: "https://example.com/1.jpg",
+          promptText: `${base} "be part of something"`,
+          createdAt: 5_000,
+        },
+        {
+          _id: "asset:no-drama-a",
+          promptId: "prompt:2",
+          sourceUrl: "https://example.com/2.jpg",
+          promptText: `${base} "no drama"`,
+          createdAt: 4_000,
+        },
+        {
+          _id: "asset:no-drama-b",
+          promptId: "prompt:3",
+          sourceUrl: "https://example.com/3.jpg",
+          promptText: `${base} "no drama"`,
+          createdAt: 3_000,
+        },
+        {
+          _id: "asset:unrelated",
+          promptId: "prompt:4",
+          sourceUrl: "https://example.com/4.jpg",
+          promptText:
+            "Brutalist concrete villa on a cliff above the ocean, golden hour, architectural photography",
+          createdAt: 4_500,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "asset:part-of-something",
+      "asset:unrelated",
+    ]);
+    expect(entries[0]?.packMemberCount).toBe(3);
+    expect(entries[0]?.packPromptCount).toBe(3);
+    expect(entries[0]?.previewImages.map((image) => image.id)).toEqual([
+      "asset:part-of-something",
+      "asset:no-drama-a",
+      "asset:no-drama-b",
+    ]);
+  });
+
+  test("never folds design bookmarks or cinema frames by prompt text", () => {
+    const title = "Linear — plan and build products, the issue tracking tool you'll enjoy using";
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:design-a",
+          promptId: "prompt:a",
+          designInspirationId: "design:a",
+          sourceUrl: "https://example.com/a.jpg",
+          promptText: title,
+          createdAt: 200,
+        },
+        {
+          _id: "asset:design-b",
+          promptId: "prompt:b",
+          designInspirationId: "design:b",
+          sourceUrl: "https://example.com/b.jpg",
+          promptText: title,
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    expect(entries).toHaveLength(2);
+  });
+
+  test("video members carry their poster for the pack deck", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:still",
+          promptId: "prompt:shared",
+          kind: "image",
+          url: "https://example.com/still.jpg",
+          promptText: "Shared prompt",
+          createdAt: 200,
+        },
+        {
+          _id: "asset:cut",
+          promptId: "prompt:shared",
+          kind: "video",
+          url: "https://example.com/cut.mp4",
+          thumbUrl: "https://example.com/cut-poster.jpg",
+          thumbWidth: 320,
+          thumbHeight: 180,
+          promptText: "Shared prompt",
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+    });
+
+    const video = entries[0]?.previewImages.find((image) => image.id === "asset:cut");
+    expect(video?.src).toBe("https://example.com/cut.mp4");
+    expect(video?.posterSrc).toBe("https://example.com/cut-poster.jpg");
+  });
+
   test("uses original video dimensions before thumbnail dimensions", () => {
     const entries = buildGalleryEntries({
       assets: [
