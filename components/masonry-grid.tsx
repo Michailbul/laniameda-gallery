@@ -76,6 +76,7 @@ interface GalleryImage {
     promptId?: string;
     src: string;
     fullSrc: string;
+    posterSrc?: string;
     prompt: string;
     width?: number;
     height?: number;
@@ -160,6 +161,7 @@ interface MasonryGridProps {
       isLiked?: boolean;
       starredAt?: number;
       starNote?: string;
+      activePreviewId?: string;
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
@@ -167,6 +169,7 @@ interface MasonryGridProps {
         promptId?: string;
         src: string;
         fullSrc: string;
+        posterSrc?: string;
         prompt: string;
         width?: number;
         height?: number;
