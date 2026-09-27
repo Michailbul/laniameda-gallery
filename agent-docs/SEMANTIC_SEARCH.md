@@ -1,5 +1,15 @@
 # Semantic Search — Architecture & Implementation
 
+> **Updated 26 Sep 2026: two lanes.** Each asset now has a pixel lane
+> (`embedding`, gemini-embedding-2-preview) and a text lane (`textEmbedding`,
+> gemini-embedding-001: agent description, caption, prompt, tags, source).
+> `searchAssets` is hybrid by default (`mode`: hybrid / visual / text), merges
+> the lanes by reciprocal rank, and filters by tags, piece type, medium, liked
+> and starred. The text lane is written first so a pixel-lane 429 no longer
+> leaves an asset unsearchable. Full detail:
+> `skills/laniameda-gallery/references/data-model.md` ("Semantic search: two lanes").
+
+
 Last updated: 2026-03-26
 
 ## Overview

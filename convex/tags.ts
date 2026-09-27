@@ -36,6 +36,26 @@ const findByName = (
   return match ?? null;
 };
 
+// Index tags for name lookup: exact normalized name, then canonical key, then
+// aliases (tags.aliases). A real tag name always wins over an alias, so an
+// alias can only redirect spellings that aren't tags in their own right.
+const indexTagsForLookup = (allTags: TagDocLike[]) => {
+  const byNormalized = new Map<string, TagDocLike>();
+  const byCanonical = new Map<string, TagDocLike>();
+  for (const tag of allTags) {
+    byNormalized.set(tag.normalized, tag);
+    const canonical = canonicalTagKey(tag.name);
+    if (canonical) byCanonical.set(canonical, tag);
+  }
+  for (const tag of allTags) {
+    for (const alias of tag.aliases ?? []) {
+      const key = canonicalTagKey(alias);
+      if (key && !byCanonical.has(key)) byCanonical.set(key, tag);
+    }
+  }
+  return { byNormalized, byCanonical };
+};
+
 export const getOrCreateTags = mutation({
   args: { names: v.array(v.string()) },
   returns: v.array(v.id("tags")),
@@ -45,13 +65,7 @@ export const getOrCreateTags = mutation({
       .query("tags")
       .withIndex("by_normalized", (q) => q.gte("normalized", ""))
       .collect();
-    const byNormalized = new Map<string, TagDocLike>();
-    const byCanonical = new Map<string, TagDocLike>();
-    for (const tag of allTags) {
-      byNormalized.set(tag.normalized, tag);
-      const canonical = canonicalTagKey(tag.name);
-      if (canonical) byCanonical.set(canonical, tag);
-    }
+    const { byNormalized, byCanonical } = indexTagsForLookup(allTags);
 
     for (const raw of args.names) {
       const normalized = normalizeTagName(raw);
@@ -96,13 +110,7 @@ export const getOrCreateTagsWithMetadata = mutation({
       .query("tags")
       .withIndex("by_normalized", (q) => q.gte("normalized", ""))
       .collect();
-    const byNormalized = new Map<string, TagDocLike>();
-    const byCanonical = new Map<string, TagDocLike>();
-    for (const tag of allTags) {
-      byNormalized.set(tag.normalized, tag);
-      const canonical = canonicalTagKey(tag.name);
-      if (canonical) byCanonical.set(canonical, tag);
-    }
+    const { byNormalized, byCanonical } = indexTagsForLookup(allTags);
 
     for (const input of args.tags) {
       const normalized = normalizeTagName(input.name);
@@ -150,6 +158,59 @@ export const getOrCreateTagsWithMetadata = mutation({
     }
 
     return ids;
+  },
+});
+
+// Point alternate spellings at one canonical tag ("filmic" -> "cinematic"),
+// so future saves reuse it instead of minting a synonym. Aliases that are
+// already real tags are reported and ignored: merging two live tags is a
+// separate, deliberate operation.
+export const addTagAliases = mutation({
+  args: {
+    name: v.string(),
+    aliases: v.array(v.string()),
+  },
+  returns: v.object({
+    tagId: v.optional(v.id("tags")),
+    aliases: v.array(v.string()),
+    ignoredExistingTags: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const key = canonicalTagKey(args.name);
+    const tag = key
+      ? await ctx.db
+          .query("tags")
+          .withIndex("by_canonicalKey", (q) => q.eq("canonicalKey", key))
+          .first()
+      : null;
+    if (!tag) {
+      return { aliases: [], ignoredExistingTags: [] };
+    }
+
+    const current = tag.aliases ?? [];
+    const seen = new Set([key, ...current.map((alias) => canonicalTagKey(alias))]);
+    const added: string[] = [];
+    const ignored: string[] = [];
+    for (const raw of args.aliases) {
+      const alias = raw.trim();
+      const aliasKey = canonicalTagKey(alias);
+      if (!aliasKey || seen.has(aliasKey)) continue;
+      const clash = await ctx.db
+        .query("tags")
+        .withIndex("by_canonicalKey", (q) => q.eq("canonicalKey", aliasKey))
+        .first();
+      if (clash) {
+        ignored.push(alias);
+        continue;
+      }
+      seen.add(aliasKey);
+      added.push(alias);
+    }
+    const aliases = [...current, ...added];
+    if (added.length > 0) {
+      await ctx.db.patch(tag._id, { aliases });
+    }
+    return { tagId: tag._id, aliases, ignoredExistingTags: ignored };
   },
 });
 

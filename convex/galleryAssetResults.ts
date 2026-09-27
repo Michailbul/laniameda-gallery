@@ -5,6 +5,7 @@ import { dedupeIds } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
+  agentDescriptionSourceValidator,
   cinemaMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
@@ -28,6 +29,8 @@ export const galleryAssetResultValidator = v.object({
   sourceUrl: v.optional(v.string()),
   fileName: v.optional(v.string()),
   description: v.optional(v.string()),
+  agentDescription: v.optional(v.string()),
+  agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
   contentType: v.optional(v.string()),
   size: v.optional(v.number()),
   width: v.optional(v.number()),
@@ -65,6 +68,9 @@ export const galleryAssetResultValidator = v.object({
 export const scoredGalleryAssetResultValidator = v.object({
   ...galleryAssetResultValidator.fields,
   score: v.number(),
+  // Raw cosine similarity per search lane, when that lane matched.
+  visualScore: v.optional(v.number()),
+  textScore: v.optional(v.number()),
 });
 
 const resolvePromptTextMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
@@ -184,6 +190,8 @@ export const hydrateGalleryAssetResults = async (
         pinnedAt: asset.pinnedAt,
         fileName: asset.fileName,
         description: asset.description,
+        agentDescription: asset.agentDescription,
+        agentDescriptionSource: asset.agentDescriptionSource,
         contentType: asset.contentType,
         size: asset.size,
         width: asset.width,
@@ -223,7 +231,14 @@ export const hydrateGalleryAssetResults = async (
 
 export const listScoredGalleryAssetsByIds = internalQuery({
   args: {
-    items: v.array(v.object({ assetId: v.id("assets"), score: v.number() })),
+    items: v.array(
+      v.object({
+        assetId: v.id("assets"),
+        score: v.number(),
+        visualScore: v.optional(v.number()),
+        textScore: v.optional(v.number()),
+      }),
+    ),
   },
   returns: v.array(scoredGalleryAssetResultValidator),
   handler: async (ctx, args) => {
@@ -243,13 +258,18 @@ export const listScoredGalleryAssetsByIds = internalQuery({
       .filter((asset): asset is Doc<"assets"> => Boolean(asset));
 
     const hydrated = await hydrateGalleryAssetResults(ctx, orderedAssets);
-    const scoreById = new Map(args.items.map((item) => [item.assetId, item.score] as const));
+    const itemById = new Map(args.items.map((item) => [item.assetId, item] as const));
 
     return hydrated
-      .map((asset) => ({
-        ...asset,
-        score: scoreById.get(asset._id) ?? 0,
-      }))
+      .map((asset) => {
+        const item = itemById.get(asset._id);
+        return {
+          ...asset,
+          score: item?.score ?? 0,
+          ...(item?.visualScore !== undefined ? { visualScore: item.visualScore } : {}),
+          ...(item?.textScore !== undefined ? { textScore: item.textScore } : {}),
+        };
+      })
       .sort((left, right) => right.score - left.score);
   },
 });

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCreateArgs,
   buildUpdateArgs,
-} from "../skills/laniameda-gallery-ingest/scripts/ingest";
+} from "../skills/laniameda-gallery/scripts/ingest";
 import {
   handleGetDesign,
   handleGetById,
@@ -11,7 +11,7 @@ import {
   handleList,
   handleListDesigns,
   handleSearch,
-} from "../skills/laniameda-gallery-query/scripts/query";
+} from "../skills/laniameda-gallery/scripts/query";
 
 describe("gallery skill scripts", () => {
   test("ingest create args preserve extended design inspiration metadata", () => {

@@ -357,4 +357,64 @@ describe("gallery entry builder", () => {
     expect(entries[0]?.starredAt).toBe(700);
     expect(entries[0]?.starNote).toBe("this frame is the one");
   });
+
+  test("relevance keeps the search ranking, with packs at their best member's rank", () => {
+    const asset = (id: string, createdAt: number, extra: Record<string, unknown> = {}) => ({
+      _id: id,
+      sourceUrl: `https://example.com/${id}.jpg`,
+      createdAt,
+      ...extra,
+    });
+    const assets = [
+      asset("asset:best-old", 100),
+      asset("asset:pack-b", 50, { assetPackId: "pack:1", packSlotIndex: 1 }),
+      asset("asset:newest", 900),
+      asset("asset:pack-a", 60, { assetPackId: "pack:1", packSlotIndex: 0 }),
+    ];
+
+    const relevance = buildGalleryEntries({ assets, sortOrder: "relevance", promoteStarred: false });
+    expect(relevance.map((entry) => entry.id)).toEqual([
+      "asset:best-old",
+      "asset:pack-a",
+      "asset:newest",
+    ]);
+
+    const newest = buildGalleryEntries({ assets, sortOrder: "newest", promoteStarred: false });
+    expect(newest[0]?.id).toBe("asset:newest");
+  });
+
+  test("relevance puts a prompt family where its best-ranked variation was", () => {
+    const base =
+      "Masa, a 24 year old Japanese woman with a sharp black bob, oversized grey hoodie, " +
+      "sitting on her bed in a small Tokyo apartment, phone selfie, soft window light, text overlay reads";
+    const entries = buildGalleryEntries({
+      assets: [
+        { _id: "asset:top-hit", sourceUrl: "https://example.com/top.jpg", createdAt: 10 },
+        {
+          _id: "asset:no-drama",
+          promptId: "prompt:2",
+          sourceUrl: "https://example.com/2.jpg",
+          promptText: `${base} "no drama"`,
+          createdAt: 400,
+        },
+        { _id: "asset:third", sourceUrl: "https://example.com/third.jpg", createdAt: 20 },
+        {
+          _id: "asset:part-of-something",
+          promptId: "prompt:1",
+          sourceUrl: "https://example.com/1.jpg",
+          promptText: `${base} "be part of something"`,
+          createdAt: 500,
+        },
+      ],
+      sortOrder: "relevance",
+      promoteStarred: false,
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "asset:top-hit",
+      "asset:part-of-something",
+      "asset:third",
+    ]);
+    expect(entries[1]?.packMemberCount).toBe(2);
+  });
 });

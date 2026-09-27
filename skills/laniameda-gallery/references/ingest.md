@@ -1,38 +1,20 @@
----
-name: laniameda-gallery-ingest
-description: >-
-  This skill should be used when the user asks to "add this to my gallery",
-  "save this in my gallery", "put this in the Love collection", "ingest this
-  prompt and video", "add these statics to the DADDY ISSUES world", "sort these
-  into characters and locations", "put this in the Balcony folder of CASSANDRA",
-  or update/delete an existing gallery item. It resolves the authenticated
-  user's collections and the folders inside them, tags what each piece is, and
-  saves prompts, files, URLs, and visual references through the current
-  gallery contract.
-version: 0.4.0
----
+# Ingest: create, update, delete
 
-# laniameda-gallery-ingest
+**Agent fields on every create** (26 Sep 2026):
 
-Use this skill to ingest content into `laniameda.gallery` through the canonical backend contract in this repo.
+- `agentDescription`: one or two sentences, 45 words at most; see the contract
+  in `SKILL.md`. Normalized to 400 characters. Updates take it too (`null`
+  clears). For a quick fix on an existing asset: `assets:setAgentDescription
+  {ownerUserId, assetId, agentDescription, overwrite?}`.
+- `sourceUrl`: the post or page permalink. Separate from `url`, which is where
+  the media bytes are fetched; when only `url` is given it doubles as the
+  source.
+- `folderIds` (script and MCP): several collections, first is primary.
+- The script prints `[tags] new tags will be created: …` on stderr when a tag
+  doesn't exist yet. Reuse an existing tag or alias the synonym
+  (`tags:addTagAliases`). Silence with `LANIAMEDA_WARN_NEW_TAGS=0`.
 
-The skill now supports explicit `create`, `update`, and `delete` operations through the same script entrypoint.
-
-## Product language
-
-- Interpret **"my gallery"** as the authenticated user's whole gallery, not a collection or legacy pillar named `creators`.
-- Treat **collections** as the primary user-facing organization.
-- **"World"** means a showcased root collection — the published story
-  universe at `/w/<slug>`.
-- **"Folder"** is a sub-collection inside a root collection ("CASSANDRA ›
-  Balcony"). What used to be a project's beat is now a folder.
-- **"Statics"** are characters / locations / scenes. They are TAGS
-  (`character`, `location`, `scene`), plus `inspiration` — never folders.
-- There are no projects, beats or episodes any more. The tier was retired on
-  22 Sep 2026: projects became root collections, beats became their folders,
-  section pools became tags.
-- Treat tags as descriptive classification, not navigation destinations.
-- Leave the dormant `pillar` field unset on ordinary new saves. Use a specialized internal pillar only when its dedicated backend contract explicitly requires one, such as `cinema-inspiration`.
+The write path. Read `SKILL.md` first for the purpose, the tagging contract and the hard rules; this file is the payload-level detail. The data model it writes into is in `references/data-model.md`.
 
 ## Collection-first workflow
 
@@ -44,34 +26,6 @@ The skill now supports explicit `create`, `update`, and `delete` operations thro
 6. Verify the saved asset after ingest and confirm its collection names, not a legacy pillar label.
 
 When no collection is named, save uncategorized unless an obvious existing collection can be resolved with high confidence from the user's wording. Do not silently substitute a tag or pillar for a collection.
-
-## Content hierarchy — collections, folders, tags
-
-Everything in the vault is a `folders` row. `folders.kind` is undefined (a
-collection) or `"storybook"`. Nesting is one level deep through
-`folders.parentFolderId`:
-
-```
-collection   root folder — a world when showcased (/w/<slug>)
-└─ folder    sub-collection: one shot, a set of options, an inbox, drafts
-```
-
-- **collection** — a root folder. Showcasing it with
-  `folders:setFolderShowcased` makes it a world and allocates `/w/<slug>`.
-- **folder** — a sub-collection with `parentFolderId` set to a root
-  collection. A folder never holds folders, and a storybook never nests.
-- **what a piece IS** — a tag: `character`, `location`, `scene`,
-  `inspiration`. Tag the asset; do not create a "Characters" folder.
-  `collectionCleanup:flattenSectionCollections` folds section-named folders
-  back into tags.
-
-The public world page sections a collection's pieces by those tags
-(Characters, Locations, Beats for `scene`) and treats a folder named for a
-section as that section.
-
-Naming convention: world collections are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
-Folder names are scoped to their parent, so "Balcony" can exist under several
-collections.
 
 ## Filing into a collection or a folder
 
@@ -118,32 +72,6 @@ asset stays private, so re-running with the same `ingestKey` is safe.
 Verify with `showcase:getWorld {slug}` before reporting done — it returns the
 world's `sections` exactly as the public page will render them. For the public
 home reel, `showcase:getShowcaseHome {}` returns `featuredReel` in render order.
-
-## Read first
-
-Before constructing payloads or changing the ingest script, read these repo files:
-
-- `convex/schema.ts`
-- `convex/validators.ts`
-- `convex/ingest.ts`
-- `convex/agent_ingest.ts`
-- `convex/workflows.ts`
-- `app/api/ingest/route.ts`
-
-When the save targets a world, also read:
-
-- `convex/folders.ts` — kinds, `parentFolderId` nesting rules, `setFolderShowcased`
-- `lib/collection-sections.ts` — the section names and their tags
-- `convex/showcase.ts` — what the public `/w/<slug>` page actually reads
-- `lib/video-ingest.ts` — the browser upload path that the large-video script mirrors
-
-Use `references/schema-contract.md` for a quick map and `references/ingest-examples.md` for copy-ready examples.
-
-## Source of truth
-
-- Canonical skill source: `skills/laniameda-gallery-ingest/`
-- Installed copies under `~/.openclaw/skills/`, `~/.codex/skills/`, and `~/.agents/skills/` are disposable `bunx skills` installs.
-- When ingest contracts change, update this skill in the same commit.
 
 ## Runtime env
 
@@ -219,23 +147,13 @@ After you create or update an asset/prompt/pack/design, the user can copy its ID
 - **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/date badges and copies the same token
 - **Detail panel Copy dropdown** — "Copy asset/design ID" and "Copy pack ID" menu items
 
-When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Hand off to the `laniameda-gallery-query` skill:
+When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Switch to the read path in `references/query.md`:
 
 - `getById` accepts `asset:<id>` and `pack:<id>` and returns the hydrated record (prompt text, tag names, resolved media URL, thumbnail URL, model, pillar, folder, pack membership, etc.).
 - Use `get` / `getPack` when the ID type is already known.
 - Use `download` to pull raw bytes for local use.
 
-Agents should treat this as the canonical read path after an ingest. The ingest script intentionally exposes only create/update/delete — all reads live in `laniameda-gallery-query`.
-
-## Semantic search
-
-All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).
-
-- **Image assets** are embedded as pure image data (no text metadata). A text query like "car" matches images that visually contain cars via cross-modal matching.
-- **Prompts** are embedded as prompt text only (no tags/pillar/model padding).
-- **Tags and metadata** are applied as post-filters, not included in embeddings.
-- Search via `semanticSearch:searchAssets` (text → assets) or `semanticSearch:findSimilarAssets` (image → similar images).
-- Backfill after schema changes: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`).
+Agents should treat this as the canonical read path after an ingest. The ingest script intentionally exposes only create/update/delete — all reads live in `references/query.md`.
 
 ## CRITICAL: Screenshots and prompt images
 
@@ -271,7 +189,7 @@ Example:
 }
 ```
 
-Pass this payload to MCP `save_asset`. Use the legacy direct script only when a single `folderId` is sufficient.
+Pass this payload to MCP `save_asset` or the script; both take `folderIds`.
 
 Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
 
@@ -298,7 +216,7 @@ whole pipeline itself, so **do not hand-roll an R2 upload script**:
    never get a thumbnail.
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "filePath": "/path/to/episode1.mov",
   "folderId": "<collection-id>",
   "tagNames": ["cinematic"],
@@ -386,7 +304,7 @@ Pattern:
 
 ```bash
 # Step 1: save the GPT-Image-2 starting-frame prompt
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
   "promptType": "image_gen",
   "generationType": "image_gen",
   "modelName": "GPT-Image-2",
@@ -396,7 +314,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptT
 }'
 
 # Step 2: save the Seedance 2 prompt + video with upstream link
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
   "promptType": "video_gen",
   "generationType": "video_gen",
   "modelName": "Seedance 2.0",
@@ -462,7 +380,7 @@ Working pattern — ingest the video as its own `create`, sharing the step's pro
 Prompts dedupe on `promptIngestKey`, so the step resolves to the prompt the video is already attached to. No media is dropped — `allowPromptOnly` here is bookkeeping, not a missing asset, and is the one sanctioned use of that flag without asking the user.
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "workflow",
   "title": "Neon alley cinematic loop",
   "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",
@@ -557,122 +475,3 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - Re-uploading media with the same `assetIngestKey` replaces the existing asset's file rather than creating a duplicate.
 - Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
 - Existing packs are converted to single-step workflows with `workflows:backfillPacksAsWorkflows {ownerUserId, dryRun?}`. It skips packs whose prompt already belongs to a workflow, leaves the pack rows in place (reversible), and deliberately does not stamp `workflow_asset` on their assets — those images predate the workflow concept and stay visible in the grid.
-
-## Install/update workflow
-
-Repo-local development:
-
-```bash
-bun run skills:install:local
-```
-
-GitHub-backed install:
-
-```bash
-bun run skills:install:github
-```
-
-Refresh installed GitHub-backed skills:
-
-```bash
-bun run skills:update
-```
-
-These repo scripts now install/update both maintained gallery skills:
-
-- `laniameda-gallery-ingest`
-- `laniameda-gallery-query`
-
-## Validator quick reference
-
-These are the valid enum values the Convex schema enforces — use these or ingest will fail:
-
-**`modelProvider`:** `openai`, `anthropic`, `google`, `xai`, `meta`, `flux`, `midjourney`, `runway`, `other`
-→ Use `other` for Kora Reality / Enhancor and any non-listed providers.
-
-**`workflowType`:** `component_prompt`, `page_prompt`, `system_prompt`, `asset_recipe`, `other`
-
-**`typedTags[].category`:** `model_name`, `style`, `content_type`, `platform`, `color`, `camera_angle`, `lighting`, `composition`, `car_make`, `car_model`, `car_angle`, `environment`, `design_style`, `design_type`, `workflow_type`, `component_type`, `custom`
-→ No `subject` — use `content_type` instead.
-
-**`promptSections` fields:** `finalPrompt` (required), `generationNotes` (optional), `negativePrompt` (optional)
-→ No other keys — extra fields cause validation errors.
-
-**`folders.kind`:** `storybook`
-→ Undefined = a plain collection.
-
-**`parentFolderId` nesting:** only a plain root collection may be a parent, and
-only plain collections may be children. One level deep.
-
-## Update workflow (important)
-
-**Always edit the canonical source first:**
-
-```
-~/work/laniameda/laniameda.gallery/skills/laniameda-gallery-ingest/SKILL.md
-```
-
-Then push to GitHub:
-
-```bash
-cd ~/work/laniameda/laniameda.gallery
-git add skills/laniameda-gallery-ingest/
-git commit -m "update laniameda-gallery-ingest skill"
-git push
-```
-
-Then refresh installed copies across all agents:
-
-```bash
-bun run skills:update
-# or manually:
-bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-ingest -g -a openclaw -a codex -a cline -y
-bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery-query -g -a openclaw -a codex -a cline -y
-```
-
-**When Michael says he pushed updates to the gallery repo:**
-Run this immediately:
-```bash
-cd ~/work/laniameda/laniameda.gallery && git pull && bun run skills:update
-```
-No need to ask — just pull and update.
-
-Installed copies at `~/.openclaw/skills/`, `~/.codex/skills/`, `~/.agents/skills/` are **disposable** — source of truth is always the repo.
-
-## Script
-
-Legacy direct-Convex invocation:
-
-```bash
-CONVEX_URL=https://<your-laniameda-deployment>.convex.cloud KB_OWNER_USER_ID=<your_telegram_id> \
-  bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{"promptText":"cinematic portrait","allowPromptOnly":true}'
-```
-
-Preferred MCP invocation:
-
-```bash
-LANIAMEDA_GALLERY_API_URL=https://<app-host> LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_... \
-  bun run mcp:gallery
-```
-
-If the installed path is different for your agent runtime, use that runtime's installed `laniameda-gallery-ingest/scripts/ingest.ts` path instead.
-
-### Deployment ground truth (direct-Convex path only)
-
-One Convex deployment serves both local dev and production: `dev:perfect-buffalo-375`
-at `https://perfect-buffalo-375.convex.cloud`. There is no separate prod
-deployment — never pass `--prod`.
-
-The shell commonly inherits `CONVEX_DEPLOYMENT` pointing at a *different*
-project. `bunx convex run …` picks that up silently and resolves IDs against the
-wrong tables, returning plausible-looking wrong data. Always prefix CLI calls:
-
-```bash
-CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex run folders:listFolders '{"ownerUserId":"<id>"}'
-```
-
-Scripts that build their own `ConvexHttpClient` should hardcode the cloud URL
-rather than read `process.env.CONVEX_URL`, for the same reason. And source
-secrets from the repo's `.env.local` explicitly — `export $(grep … .env.local)`
-run from a scratch directory silently finds nothing and dumps the whole
-environment.

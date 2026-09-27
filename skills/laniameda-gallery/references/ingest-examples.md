@@ -27,7 +27,7 @@ Then save the asset to every requested collection:
 ## 1a) Legacy direct script call with prompt + local image
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "promptText": "cinematic fashion portrait in tokyo rain",
   "promptType": "image_gen",
   "generationType": "image_gen",
@@ -46,7 +46,7 @@ The legacy direct Convex script supports one `folderId`; prefer MCP for authenti
 ## 1b) Explicit prompt-only save
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "promptText": "cinematic fashion portrait in tokyo rain",
   "allowPromptOnly": true,
   "promptType": "image_gen"
@@ -114,39 +114,35 @@ Rules:
 - Image embedding still runs automatically — semantic search picks up the frame after ingest.
 - Codex agents must populate `agentDescription` with a full cinematographic read (lens, composition principle, lighting setup, color theory, implied movement) so the frame can be recreated. See `agent-docs/features/cinema-inspiration/CODEX_INGEST_PRD.md`.
 
-## 2) Design inspiration only
+## 2) A design / motion reference Michael liked
+
+Save it as an ordinary asset and let the tags carry the classification. The
+`designInspiration` payload is the browser extension's legacy shape; agents
+don't create new rows there (update/delete examples 8–9 still apply to old
+rows).
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "designs",
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
+  "filePath": "/path/to/scratchpad/stripe-pricing.png",
+  "sourceUrl": "https://example.com/pricing-reference",
+  "description": "Pricing page with restrained plan cards and a strong CTA order. Worth it for plan density.",
+  "assetRole": "inspiration_capture",
+  "ingestSource": "agent",
+  "tagNames": ["inspiration"],
   "typedTags": [
-    { "name": "saas", "category": "design_type", "pillar": "designs", "source": "agent" },
-    { "name": "editorial", "category": "design_style", "pillar": "designs", "source": "agent" }
+    { "name": "website", "category": "platform", "source": "agent" },
+    { "name": "pricing-page", "category": "design_type", "source": "agent" },
+    { "name": "editorial", "category": "design_style", "source": "agent" }
   ],
-  "designInspiration": {
-    "title": "Stripe pricing layout reference",
-    "summary": "Strong hierarchy with simple plan cards",
-    "sourceUrl": "https://example.com/pricing-reference",
-    "sourceTitle": "Stripe Pricing",
-    "userNote": "Strong spacing and restrained plan-card density",
-    "inspirationType": "website",
-    "platform": "web",
-    "workflowType": "page_prompt",
-    "captureKind": "website",
-    "saveIntent": "inspiration",
-    "templateKey": "design-default",
-    "sourceFingerprint": "website:https://example.com/pricing-reference",
-    "ingestKey": "design:stripe:pricing:v1"
-  }
+  "ingestKey": "web:example.com/pricing-reference:1"
 }'
 ```
 
 ## 3) Prompt variations sharing one prompt record
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '[
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '[
   {
-    "pillar": "creators",
     "promptText": "editorial portrait at golden hour, 35mm",
     "promptIngestKey": "creators:editorial-portrait:v1",
     "ingestKey": "creators:editorial-portrait:v1:a",
@@ -154,7 +150,6 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '[
     "tagNames": ["prompts", "portrait", "editorial"]
   },
   {
-    "pillar": "creators",
     "promptText": "editorial portrait at golden hour, 35mm",
     "promptIngestKey": "creators:editorial-portrait:v1",
     "ingestKey": "creators:editorial-portrait:v1:b",
@@ -169,8 +164,7 @@ These variations now auto-sync into an `assetPack` because they share the same `
 ## 4) Remote URL ingest with structured prompt sections
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
-  "pillar": "designs",
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "url": "https://example.com/reference.png",
   "promptSections": {
     "finalPrompt": "Warm editorial SaaS landing page with asymmetrical cards",
@@ -224,7 +218,7 @@ The authenticated `/api/agent/ingest` and MCP `save_asset` layers additionally a
 ## 6) Update a prompt by ingestKey
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
   "ingestKey": "creators:editorial-portrait:v1",
@@ -251,7 +245,7 @@ Pass `"folderIds": []` to clear all asset collections.
 Legacy direct-script single-folder update:
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "asset",
   "ingestKey": "creators:editorial-portrait:v1:a",
@@ -266,7 +260,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ## 8) Delete a design inspiration by ingestKey
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "delete",
   "target": "designInspiration",
   "ingestKey": "design:stripe:pricing:v1"
@@ -276,7 +270,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ## 9) Update a design inspiration with extension metadata
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "designInspiration",
   "ingestKey": "design:stripe:pricing:v1",
@@ -293,7 +287,7 @@ bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
 ## 10) Attach image to an existing prompt-only record
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
   "ingestKey": "creators:macro-lens-test:v1",
@@ -306,7 +300,7 @@ Creates an asset linked to the prompt. The asset's `ingestKey` defaults to `crea
 ## 11) Replace media on an existing asset
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "asset",
   "ingestKey": "creators:macro-lens-test:v1:img",
@@ -319,7 +313,7 @@ Replaces the stored file and thumbnail. Old storage blobs are cleaned up. Metada
 ## 12) Attach image via URL to a prompt
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "update",
   "target": "prompt",
   "ingestKey": "creators:portrait:v1",
@@ -354,7 +348,7 @@ bunx convex run assetPacks:consolidateOwnerPromptPacks '{"ownerUserId":"<your_te
 ## 14) Workflow (multi-step preset / tutorial)
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery-ingest/scripts/ingest.ts '{
+bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
   "operation": "workflow",
   "title": "Neon alley cinematic loop",
   "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",

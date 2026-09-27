@@ -6,17 +6,26 @@ import { useCurrentUser } from "@/lib/use-current-user";
 // into their own stacks; storybooks are worlds now.)
 import { PublicHome } from "@/components/showcase/public-home";
 import type { PublicMode } from "@/lib/public-modes";
+import type { FirstScreenData } from "@/components/showcase/types";
 
-export function SelectedWorkClient({ mode }: { mode: PublicMode }) {
+export function SelectedWorkClient({
+  mode,
+  firstScreen,
+}: {
+  mode: PublicMode;
+  firstScreen?: FirstScreenData;
+}) {
   const { user, isLoading } = useCurrentUser();
 
-  // Hold the splash until auth resolves so the owner-preview banner (and the
-  // hidden owner sign-in link) don't flash the wrong state on load.
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: "100vh", background: "var(--lm-paper)" }} />
-    );
-  }
-
-  return <PublicHome mode={mode} previewAuthed={Boolean(user)} />;
+  // The gallery renders at once, so its Convex queries run while auth is
+  // still resolving. Only the owner chrome (the Browse scope control and the
+  // footer sign-in link) waits for the answer, so neither flashes wrong.
+  return (
+    <PublicHome
+      mode={mode}
+      previewAuthed={Boolean(user)}
+      authPending={isLoading}
+      firstScreen={firstScreen}
+    />
+  );
 }

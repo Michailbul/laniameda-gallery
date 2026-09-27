@@ -116,6 +116,15 @@ type CreateItem = {
   tagNames?: string[];
   typedTags?: TypedTagInput[];
   folderId?: string;
+  // Several collections: the first is primary, the rest are linked after the
+  // asset exists (assets:addAssetFolders).
+  folderIds?: string[];
+  // One or two plain sentences on what the piece shows and why it was kept.
+  // Agents search and read this first — always write it on agent saves.
+  agentDescription?: string;
+  // Permalink of the post or page the piece came from (distinct from `url`,
+  // which is where the media bytes are fetched).
+  sourceUrl?: string;
   ingestKey?: string;
   promptIngestKey?: string;
   filePath?: string;
@@ -178,6 +187,7 @@ type UpdateItem = {
   promptProfile?: PromptProfileInput | null;
   promptId?: string | null;
   sourceUrl?: string | null;
+  agentDescription?: string | null;
   sourceTitle?: string | null;
   userNote?: string | null;
   fileName?: string | null;
@@ -259,6 +269,8 @@ type SkillActionResult = {
   stepCount?: number;
   isPublic?: boolean;
   isFeatured?: boolean;
+  duplicateMedia?: boolean;
+  folderIds?: string[];
 };
 
 type SkillResult = SkillActionResult & {
@@ -581,7 +593,7 @@ function extractPoster(
 
 async function callConvex(
   convexUrl: string,
-  kind: "mutation" | "action",
+  kind: "query" | "mutation" | "action",
   path: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
@@ -905,10 +917,13 @@ export function buildCreateArgs(
   if (item.allowPromptOnly) args.allowPromptOnly = true;
   if (item.tagNames?.length) args.tagNames = item.tagNames;
   if (item.typedTags?.length) args.typedTags = item.typedTags;
-  if (item.folderId) args.folderId = item.folderId;
+  const primaryFolderId = item.folderId ?? item.folderIds?.[0];
+  if (primaryFolderId) args.folderId = primaryFolderId;
   if (item.promptIngestKey) args.promptIngestKey = item.promptIngestKey;
   if (item.modelName) args.modelName = item.modelName;
   if (item.description) args.description = item.description;
+  if (item.agentDescription?.trim()) args.agentDescription = item.agentDescription.trim();
+  if (item.sourceUrl?.trim()) args.sourceUrl = item.sourceUrl.trim();
   if (item.modelProvider) args.modelProvider = item.modelProvider;
   if (pillar) args.pillar = pillar;
   if (item.generationType) args.generationType = item.generationType;
@@ -1034,6 +1049,7 @@ export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<s
     assignIfDefined(args, "contentType", item.contentType);
     assignIfDefined(args, "modelName", item.modelName);
     assignIfDefined(args, "description", item.description);
+    assignIfDefined(args, "agentDescription", item.agentDescription);
     assignIfDefined(args, "pillar", item.pillar);
     assignIfDefined(args, "generationType", item.generationType);
     assignIfDefined(args, "assetRole", item.assetRole);
@@ -1283,7 +1299,27 @@ export async function mutateOne(
       };
     }
 
-    const value = result.value ?? {};
+    const value: SkillActionResult = { ...(result.value ?? {}) };
+
+    // Extra collections ride a second call once the asset exists.
+    if (isCreateItem(item) && value.assetId && (item.folderIds?.length ?? 0) > 0) {
+      try {
+        const linked = (await callConvex(convexUrl, "mutation", "assets:addAssetFolders", {
+          ownerUserId,
+          assetId: value.assetId,
+          folderIds: item.folderIds,
+        })) as { folderIds?: string[] };
+        value.folderIds = linked.folderIds;
+      } catch (error) {
+        return {
+          ...value,
+          error: `Asset saved but linking collections failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          input: summarizeInput(item),
+        };
+      }
+    }
 
     // Curation is a second call, and a failure here must not read as a failed
     // ingest — the asset exists either way, just private.
@@ -1316,6 +1352,53 @@ export async function mutateOne(
   }
 }
 
+// Mirrors convex/helpers.ts canonicalTagKey — the key tags match on.
+export const canonicalTagKey = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/^#+/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+export const collectTagNames = (items: SkillItem[]) => {
+  const names: string[] = [];
+  for (const item of items) {
+    if (!isCreateItem(item) && !isUpdateItem(item)) continue;
+    names.push(...(item.tagNames ?? []));
+    names.push(...(item.typedTags ?? []).map((tag) => tag.name));
+  }
+  return names.filter((name) => typeof name === "string" && name.trim());
+};
+
+// Tags that don't exist yet, so a synonym ("filmic" when "cinematic" exists)
+// is caught before it becomes a second tag. Warns on stderr; never blocks.
+// Silence with LANIAMEDA_WARN_NEW_TAGS=0.
+async function warnAboutNewTags(items: SkillItem[], convexUrl: string) {
+  if (process.env.LANIAMEDA_WARN_NEW_TAGS === "0") return;
+  const names = collectTagNames(items);
+  if (names.length === 0) return;
+  try {
+    const tags = (await callConvex(convexUrl, "query", "tags:listTags", {})) as Array<{
+      name: string;
+    }>;
+    const known = new Set(tags.map((tag) => canonicalTagKey(tag.name)));
+    const fresh = Array.from(
+      new Set(names.filter((name) => !known.has(canonicalTagKey(name)))),
+    );
+    if (fresh.length > 0) {
+      process.stderr.write(
+        `[tags] new tags will be created: ${fresh.join(", ")}. ` +
+          `Reuse an existing tag if one means the same thing.\n`,
+      );
+    }
+  } catch {
+    // Advisory only.
+  }
+}
+
 export async function runIngestSkill(
   input: SkillItem | SkillItem[],
   runtime?: { convexUrl?: string; ownerUserId?: string },
@@ -1327,6 +1410,8 @@ export async function runIngestSkill(
   if (items.length === 0) {
     throw new Error("No items to process.");
   }
+
+  await warnAboutNewTags(items, convexUrl);
 
   const results: SkillResult[] = [];
   // Batches print nothing until the whole run resolves, which made a stalled

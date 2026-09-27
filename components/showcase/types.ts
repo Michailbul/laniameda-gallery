@@ -9,6 +9,14 @@ export type ShowcaseHomeData = FunctionReturnType<
 
 export type ShowcaseAsset = ShowcaseHomeData["inspiration"][number];
 
+/** What a public view shows before the client's own Convex queries answer:
+ *  fetched on the server with the HTML (see selected_work/first-screen.ts). */
+export type FirstScreenData = {
+  featuredReel?: ShowcaseHomeData["featuredReel"];
+  worlds?: ShowcaseHomeData["worlds"];
+  browseAssets?: ShowcaseAsset[];
+};
+
 export type ShowcaseSetSummary = ShowcaseHomeData["collections"][number];
 
 export type ShowcaseSet = NonNullable<

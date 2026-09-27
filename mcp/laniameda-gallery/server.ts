@@ -142,6 +142,17 @@ const commonIngestShape = {
   fileName: z.string().optional(),
   contentType: z.string().optional(),
   description: z.string().optional(),
+  agentDescription: z
+    .string()
+    .describe(
+      "One or two plain sentences (max ~45 words) on what the piece shows and why it was kept, plus 'by @handle' for someone else's work. Written for retrieval: future agents search and read this first.",
+    )
+    .optional(),
+  sourceUrl: z
+    .string()
+    .describe("Permalink of the post or page the piece came from.")
+    .optional(),
+  ingestSource: z.string().optional(),
   modelName: z.string().optional(),
   modelProvider: z.string().optional(),
   generationType: z.string().optional(),
@@ -168,6 +179,25 @@ const buildIngestBody = (input: JsonRecord) => {
     ...rest,
     ...(file ? { file } : {}),
   };
+};
+
+const namedFilterShape = {
+  tagNames: z
+    .array(z.string())
+    .describe("Every tag must be present (canonical match: case, '-', '_' fold).")
+    .optional(),
+  anyTagNames: z.array(z.string()).describe("At least one of these tags.").optional(),
+  excludeTagNames: z.array(z.string()).describe("None of these tags.").optional(),
+  pieceType: z
+    .enum(["character", "location", "scene", "inspiration"])
+    .describe("What the piece IS (one of the four section tags).")
+    .optional(),
+  medium: z
+    .enum(["animation", "live-action"])
+    .describe("animation = tagged animation; live-action = everything else.")
+    .optional(),
+  onlyLiked: z.boolean().optional(),
+  onlyStarred: z.boolean().describe("Starred = featured on the public reel.").optional(),
 };
 
 const server = new McpServer({
@@ -248,6 +278,12 @@ server.registerTool(
       folderId: z.union([z.string(), z.null()]).optional(),
       folderIds: z.array(z.string()).optional(),
       modelName: z.union([z.string(), z.null()]).optional(),
+      description: z.union([z.string(), z.null()]).optional(),
+      agentDescription: z
+        .union([z.string(), z.null()])
+        .describe("Replace the asset's agent description; null clears it.")
+        .optional(),
+      sourceUrl: z.union([z.string(), z.null()]).optional(),
       filePath: z.string().optional(),
       fileBase64: z.string().optional(),
       fileName: z.string().optional(),
@@ -286,8 +322,13 @@ server.registerTool(
     inputSchema: {
       kind: z.enum(["image", "video"]).optional(),
       folderId: z.string().optional(),
+      includeDescendants: z
+        .boolean()
+        .describe("With folderId: include the collection's folders too.")
+        .optional(),
       modelName: z.string().optional(),
       assetRole: z.string().optional(),
+      ...namedFilterShape,
       search: z.string().optional(),
       limit: z.number().optional(),
     },
@@ -305,13 +346,23 @@ server.registerTool(
   "search_gallery",
   {
     title: "Search Gallery",
-    description: "Semantic search over the authenticated user's gallery assets.",
+    description:
+      "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection filters. Results carry agentDescription, score, visualScore and textScore.",
     inputSchema: {
       query: z.string(),
+      mode: z
+        .enum(["hybrid", "visual", "text"])
+        .describe("hybrid (default), visual = looks alike, text = described alike.")
+        .optional(),
       kind: z.enum(["image", "video"]).optional(),
       folderId: z.string().optional(),
       modelName: z.string().optional(),
       assetRole: z.string().optional(),
+      ...namedFilterShape,
+      minRelativeScore: z
+        .number()
+        .describe("0–1 cutoff vs. the best match. Default 0.85 unfiltered, off when filtered.")
+        .optional(),
       limit: z.number().optional(),
     },
   },
@@ -319,6 +370,69 @@ server.registerTool(
     jsonText(
       await apiFetch("/api/agent/gallery", {
         action: "searchAssets",
+        ...input,
+      }),
+    ),
+);
+
+server.registerTool(
+  "find_similar",
+  {
+    title: "Find Similar",
+    description:
+      "More like this: pieces that look like (visual, default) or are about the same thing as (text / hybrid) a given asset. Takes the same filters as search_gallery.",
+    inputSchema: {
+      id: z.string().describe("asset:<id> or a raw asset id."),
+      mode: z.enum(["hybrid", "visual", "text"]).optional(),
+      kind: z.enum(["image", "video"]).optional(),
+      folderId: z.string().optional(),
+      ...namedFilterShape,
+      limit: z.number().optional(),
+    },
+  },
+  async (input) =>
+    jsonText(
+      await apiFetch("/api/agent/gallery", {
+        action: "findSimilar",
+        ...input,
+      }),
+    ),
+);
+
+server.registerTool(
+  "check_sources",
+  {
+    title: "Check Sources",
+    description:
+      "Which of these source URLs (post permalinks, page URLs) are already saved in the gallery. Use before an extraction run to skip what's already in.",
+    inputSchema: {
+      sourceUrls: z.array(z.string()),
+    },
+  },
+  async (input) =>
+    jsonText(
+      await apiFetch("/api/agent/gallery", {
+        action: "findBySourceUrls",
+        sourceUrls: input.sourceUrls,
+      }),
+    ),
+);
+
+server.registerTool(
+  "add_tag_aliases",
+  {
+    title: "Add Tag Aliases",
+    description:
+      "Point alternate spellings at one canonical tag (e.g. filmic -> cinematic) so future saves reuse it. Aliases that are already real tags are ignored and reported.",
+    inputSchema: {
+      name: z.string(),
+      aliases: z.array(z.string()),
+    },
+  },
+  async (input) =>
+    jsonText(
+      await apiFetch("/api/agent/customize", {
+        action: "addTagAliases",
         ...input,
       }),
     ),

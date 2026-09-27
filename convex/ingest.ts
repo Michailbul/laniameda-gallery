@@ -1,13 +1,13 @@
 "use node";
 
 import { createHash } from "node:crypto";
-import { Jimp, JimpMime } from "jimp";
 import { action, type ActionCtx } from "./_generated/server";
 import { v, ConvexError, type Infer } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
+import { encodeCardThumbnail, storeCardThumbnail } from "./thumbnails";
 import { readImageDimensions, readVideoDimensions } from "./imageDimensions";
 import {
   assetRoleValidator,
@@ -132,6 +132,7 @@ const updateArgsValidator = v.object({
   domain: v.optional(v.union(v.null(), v.string())),
   modelName: v.optional(v.union(v.null(), v.string())),
   description: v.optional(v.union(v.null(), v.string())),
+  agentDescription: v.optional(v.union(v.null(), v.string())),
   modelProvider: v.optional(v.union(v.null(), v.string())),
   workflowType: v.optional(v.union(v.null(), v.string())),
   promptSections: v.optional(v.union(v.null(), v.any())),
@@ -484,41 +485,18 @@ const processMediaInput = async (
   let height: number | undefined;
 
   if (normalizedContentType.startsWith("image/")) {
-    try {
-      const originalImage = await Jimp.read(fileBuffer);
-      width = originalImage.bitmap.width ?? undefined;
-      height = originalImage.bitmap.height ?? undefined;
-
-      // Wide enough for retina masonry columns; never upscale the original.
-      const thumbWidthTarget = width ? Math.min(1024, width) : 1024;
-      const generatedThumbHeight =
-        width && height
-          ? Math.max(1, Math.round((thumbWidthTarget * height) / width))
-          : thumbWidthTarget;
-      const thumb = originalImage
-        .clone()
-        .resize({ w: thumbWidthTarget, h: generatedThumbHeight });
-      const thumbMime =
-        normalizedContentType.includes("png") &&
-        normalizedContentType !== "image/jpeg"
-          ? JimpMime.png
-          : JimpMime.jpeg;
-      const thumbBuffer = await thumb.getBuffer(thumbMime);
-      thumbWidth = thumb.bitmap.width ?? undefined;
-      thumbHeight = thumb.bitmap.height ?? undefined;
-      thumbSize = thumbBuffer.byteLength;
-      const thumbArrayBuffer = (thumbBuffer.buffer.slice(
-        thumbBuffer.byteOffset,
-        thumbBuffer.byteOffset + thumbBuffer.byteLength,
-      ) as ArrayBuffer);
-      const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-      thumbR2Key = await storeBlobToR2(ctx, thumbBlob, { type: thumbMime });
-    } catch (error) {
-      console.warn("Thumbnail generation failed:", error);
+    const thumb = await storeCardThumbnail(ctx, fileBuffer);
+    if (thumb) {
+      width = thumb.sourceWidth;
+      height = thumb.sourceHeight;
+      thumbR2Key = thumb.r2Key;
+      thumbSize = thumb.size;
+      thumbWidth = thumb.width;
+      thumbHeight = thumb.height;
     }
 
-    // Jimp can't decode some formats (notably WebP), so width/height stay unset
-    // and the gallery masonry falls back to a 1:1 square. Parse the dimensions
+    // When no decoder can read the file, width/height stay unset and the
+    // gallery masonry falls back to a 1:1 square. Parse the dimensions
     // straight from the file header as a fallback — no full decode required.
     if (!width || !height) {
       const parsed = readImageDimensions(new Uint8Array(fileBuffer));
@@ -581,6 +559,12 @@ export const ingestFromApi: ReturnType<typeof action> = action({
     promptIngestKey: v.optional(v.string()),
     modelName: v.optional(v.string()),
     description: v.optional(v.string()),
+    // Short agent-written description: what the piece shows and why it was
+    // kept. Feeds the text lane of semantic search.
+    agentDescription: v.optional(v.string()),
+    // Where the piece came from (post permalink, page URL). Defaults to `url`
+    // when the media itself was fetched from a URL.
+    sourceUrl: v.optional(v.string()),
     modelProvider: modelProviderValidator,
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -741,15 +725,26 @@ export const ingestFromApi: ReturnType<typeof action> = action({
 
           if (args.posterFile) {
             const posterBuffer = Buffer.from(args.posterFile.base64, "base64");
-            const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
-              type: args.posterFile.contentType ?? "image/jpeg",
-            });
-            thumbR2Key = await storeBlobToR2(ctx, posterBlob, {
-              type: args.posterFile.contentType ?? "image/jpeg",
-            });
-            thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
-            thumbWidth = args.posterFile.width;
-            thumbHeight = args.posterFile.height;
+            // The browser's JPEG re-encoded as a card thumb: same box, WebP.
+            const cardThumb = await encodeCardThumbnail(posterBuffer);
+            if (cardThumb) {
+              thumbR2Key = await storeBlobToR2(ctx, cardThumb.blob, {
+                type: cardThumb.contentType,
+              });
+              thumbSize = cardThumb.size;
+              thumbWidth = cardThumb.width;
+              thumbHeight = cardThumb.height;
+            } else {
+              const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
+                type: args.posterFile.contentType ?? "image/jpeg",
+              });
+              thumbR2Key = await storeBlobToR2(ctx, posterBlob, {
+                type: args.posterFile.contentType ?? "image/jpeg",
+              });
+              thumbSize = args.posterFile.size ?? posterBuffer.byteLength;
+              thumbWidth = args.posterFile.width;
+              thumbHeight = args.posterFile.height;
+            }
           }
         } else {
           const media = await processMediaInput(ctx, {
@@ -785,9 +780,10 @@ export const ingestFromApi: ReturnType<typeof action> = action({
           r2Bucket: r2BucketForRow,
           thumbR2Key,
           thumbR2Bucket: r2BucketForRow,
-          sourceUrl: args.url,
+          sourceUrl: args.sourceUrl?.trim() || args.url,
           fileName,
           description: args.description,
+          agentDescription: args.agentDescription,
           contentType,
           size,
           width,
@@ -1019,10 +1015,13 @@ export const updateFromApi: ReturnType<typeof action> = action({
             thumbStorageId: media.thumbStorageId,
             r2Key: media.r2Key,
             thumbR2Key: media.thumbR2Key,
-            sourceUrl: args.url,
+            sourceUrl: normalizeOptionalString(args.sourceUrl) ?? args.url,
             fileName: media.fileName,
             description: hasOwn(args, "description")
               ? normalizeOptionalString(args.description)
+              : undefined,
+            agentDescription: hasOwn(args, "agentDescription")
+              ? normalizeOptionalString(args.agentDescription)
               : undefined,
             contentType: media.contentType,
             size: media.size,
@@ -1141,6 +1140,9 @@ export const updateFromApi: ReturnType<typeof action> = action({
           hasOwn(args, "ingestSource")
             ? ((args.ingestSource ?? undefined) as IngestSource)
             : existing.ingestSource,
+        ...(hasOwn(args, "agentDescription")
+          ? { agentDescription: args.agentDescription ?? null }
+          : {}),
       })) as Id<"assets">;
 
       const hasMediaInput = Boolean(args.file || args.url);

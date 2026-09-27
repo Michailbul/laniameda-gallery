@@ -1,12 +1,12 @@
 "use node";
 
-import { Jimp, JimpMime } from "jimp";
 import { ConvexError, v, type Infer } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
+import { storeCardThumbnail } from "./thumbnails";
 import {
   designInspirationTypeValidator,
   designPlatformValidator,
@@ -248,51 +248,16 @@ const createThumbnail = async (
     };
   }
 
-  try {
-    const originalImage = await Jimp.read(buffer);
-    const originalWidth = originalImage.bitmap.width;
-    const originalHeight = originalImage.bitmap.height;
-    // Wide enough for retina masonry columns; never upscale the original.
-    const thumbWidthTarget = originalWidth
-      ? Math.min(1024, originalWidth)
-      : 1024;
-    const generatedThumbHeight =
-      originalWidth && originalHeight
-        ? Math.max(1, Math.round((thumbWidthTarget * originalHeight) / originalWidth))
-        : thumbWidthTarget;
-    const thumb = originalImage.clone().resize({ w: thumbWidthTarget, h: generatedThumbHeight });
-    const thumbMime =
-      normalizedContentType.includes("png") && normalizedContentType !== "image/jpeg"
-        ? JimpMime.png
-        : JimpMime.jpeg;
-    const thumbBuffer = await thumb.getBuffer(thumbMime);
-    const thumbArrayBuffer = thumbBuffer.buffer.slice(
-      thumbBuffer.byteOffset,
-      thumbBuffer.byteOffset + thumbBuffer.byteLength,
-    ) as ArrayBuffer;
-    const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-
-    return {
-      thumbStorageId: undefined,
-      thumbR2Key: await storeBlobToR2(ctx, thumbBlob, { type: thumbMime }),
-      thumbSize: thumbBuffer.byteLength,
-      thumbWidth: thumb.bitmap.width ?? undefined,
-      thumbHeight: thumb.bitmap.height ?? undefined,
-      width: originalWidth ?? undefined,
-      height: originalHeight ?? undefined,
-    };
-  } catch (error) {
-    console.warn("Thumbnail generation failed during agent ingest:", error);
-    return {
-      thumbStorageId: undefined,
-      thumbR2Key: undefined,
-      thumbSize: undefined,
-      thumbWidth: undefined,
-      thumbHeight: undefined,
-      width: undefined,
-      height: undefined,
-    };
-  }
+  const thumb = await storeCardThumbnail(ctx, buffer);
+  return {
+    thumbStorageId: undefined,
+    thumbR2Key: thumb?.r2Key,
+    thumbSize: thumb?.size,
+    thumbWidth: thumb?.width,
+    thumbHeight: thumb?.height,
+    width: thumb?.sourceWidth,
+    height: thumb?.sourceHeight,
+  };
 };
 
 export const ingestFromAgentPayload = action({

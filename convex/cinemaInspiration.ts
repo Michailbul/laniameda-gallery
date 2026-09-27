@@ -1,14 +1,13 @@
 "use node";
 
-import { Jimp, JimpMime } from "jimp";
 import { ConvexError, v } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { storeBlobToR2 } from "./r2_store";
+import { encodeCardThumbnail } from "./thumbnails";
 
 const CINEMA_PILLAR_KEY = "cinema-inspiration";
-const THUMB_WIDTH_TARGET = 1024;
 
 const cinemaMetadataInputValidator = v.object({
   movieTitle: v.string(),
@@ -86,71 +85,14 @@ const toBlob = (buffer: Buffer, mimeType?: string) =>
     type: mimeType || "application/octet-stream",
   });
 
-type ThumbnailResult = {
-  width: number | undefined;
-  height: number | undefined;
-  thumbBlob: Blob | undefined;
-  thumbSize: number | undefined;
-  thumbWidth: number | undefined;
-  thumbHeight: number | undefined;
-  thumbMime: string | undefined;
-};
-
-const EMPTY_THUMBNAIL: ThumbnailResult = {
-  width: undefined,
-  height: undefined,
-  thumbBlob: undefined,
-  thumbSize: undefined,
-  thumbWidth: undefined,
-  thumbHeight: undefined,
-  thumbMime: undefined,
-};
-
-const generateThumbnail = async (
-  buffer: Buffer,
-  mimeType?: string,
-): Promise<ThumbnailResult> => {
+const generateThumbnail = async (buffer: Buffer, mimeType?: string) => {
   const contentType = mimeType || "image/jpeg";
   if (!contentType.startsWith("image/")) {
     throw new ConvexError("Cinema frames must be images.");
   }
-  // Jimp doesn't decode every image type (webp, avif). When that happens we
-  // still want to store the full-size original; the gallery falls back to
-  // the full URL when no thumbnail exists. Don't fail the whole ingest.
-  try {
-    const original = await Jimp.read(buffer);
-    const originalWidth = original.bitmap.width;
-    const originalHeight = original.bitmap.height;
-    const thumbHeight = originalWidth && originalHeight
-      ? Math.max(1, Math.round((THUMB_WIDTH_TARGET * originalHeight) / originalWidth))
-      : THUMB_WIDTH_TARGET;
-    const thumb = original.clone().resize({ w: THUMB_WIDTH_TARGET, h: thumbHeight });
-    const thumbMime =
-      contentType.includes("png") && contentType !== "image/jpeg"
-        ? JimpMime.png
-        : JimpMime.jpeg;
-    const thumbBuffer = await thumb.getBuffer(thumbMime);
-    const thumbArrayBuffer = thumbBuffer.buffer.slice(
-      thumbBuffer.byteOffset,
-      thumbBuffer.byteOffset + thumbBuffer.byteLength,
-    ) as ArrayBuffer;
-    const thumbBlob = new Blob([thumbArrayBuffer], { type: thumbMime });
-    return {
-      width: originalWidth ?? undefined,
-      height: originalHeight ?? undefined,
-      thumbBlob,
-      thumbSize: thumbBuffer.byteLength,
-      thumbWidth: thumb.bitmap.width ?? undefined,
-      thumbHeight: thumb.bitmap.height ?? undefined,
-      thumbMime,
-    };
-  } catch (error) {
-    console.warn(
-      `Cinema thumbnail generation skipped — Jimp couldn't decode ${contentType}:`,
-      error instanceof Error ? error.message : error,
-    );
-    return EMPTY_THUMBNAIL;
-  }
+  // An undecodable frame still stores its full-size original; the gallery
+  // falls back to the full URL when no thumbnail exists.
+  return await encodeCardThumbnail(buffer);
 };
 
 const storeFrameToR2 = async (
@@ -198,8 +140,8 @@ export const ingestCinemaFrame = action({
 
     const full = await storeFrameToR2(ctx, buffer, mimeType);
     const thumb = await generateThumbnail(buffer, mimeType);
-    const thumbR2Key = thumb.thumbBlob
-      ? await storeBlobToR2(ctx, thumb.thumbBlob, { type: thumb.thumbMime })
+    const thumbR2Key = thumb
+      ? await storeBlobToR2(ctx, thumb.blob, { type: thumb.contentType })
       : undefined;
 
     const assetRecord: { assetId: Id<"assets">; created: boolean } =
@@ -211,11 +153,11 @@ export const ingestCinemaFrame = action({
       fileName: args.fileName,
       contentType: mimeType,
       size: full.size,
-      width: thumb.width,
-      height: thumb.height,
-      thumbSize: thumb.thumbSize,
-      thumbWidth: thumb.thumbWidth,
-      thumbHeight: thumb.thumbHeight,
+      width: thumb?.sourceWidth,
+      height: thumb?.sourceHeight,
+      thumbSize: thumb?.size,
+      thumbWidth: thumb?.width,
+      thumbHeight: thumb?.height,
       tagIds: [],
       ingestKey: args.ingestKey,
       pillar: CINEMA_PILLAR_KEY,

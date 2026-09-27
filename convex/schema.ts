@@ -22,6 +22,7 @@ import {
   semanticModalityValidator,
   semanticSourceTypeValidator,
   tagCategoryValidator,
+  agentDescriptionSourceValidator,
   tagSourceValidator,
   workflowTypeValidator,
 } from "./validators";
@@ -272,11 +273,20 @@ export default defineSchema({
     assetPackId: v.optional(v.id("assetPacks")),
     packSlotIndex: v.optional(v.number()),
     cinemaMetadata: cinemaMetadataValidator,
+    // Agent-written description: one or two plain sentences on what the piece
+    // shows and why it was kept. Separate from `description` (Michael's own
+    // caption) so user metadata and agent-derived metadata never mix. Indexed
+    // into the text lane of semantic search. `agentDescriptionSource` says who
+    // wrote it: "agent" = an agent at save time, "auto" = the enrichment pass.
+    agentDescription: v.optional(v.string()),
+    agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
+    agentDescribedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_contentHash", ["ownerUserId", "contentHash"])
+    .index("by_owner_sourceUrl", ["ownerUserId", "sourceUrl"])
     .index("by_prompt_createdAt", ["promptId", "createdAt"])
     .index("by_owner_prompt_createdAt", ["ownerUserId", "promptId", "createdAt"])
     .index("by_folder_createdAt", ["folderId", "createdAt"])
@@ -465,7 +475,16 @@ export default defineSchema({
     contentHash: v.string(),
     embeddingModel: v.string(),
     embeddingDimensions: v.number(),
-    embedding: v.array(v.float64()),
+    // Pixel lane (image bytes; prompts/designs: their text). Optional since
+    // 26 Sep 2026: an asset whose pixel embedding is still pending (the
+    // multimodal model's quota is small) is indexed by its text lane alone.
+    embedding: v.optional(v.array(v.float64())),
+    // Text lane: an embedding of the asset's words (agent description,
+    // description, prompt, tags, source) kept beside the pixel embedding, so a
+    // search can match what a piece is about as well as what it looks like.
+    // Absent when the asset has no text yet.
+    textEmbedding: v.optional(v.array(v.float64())),
+    textContentHash: v.optional(v.string()),
     scopeKey: v.string(),
     scopePillarKey: v.optional(v.string()),
     publicScopeKey: v.optional(v.string()),
@@ -481,6 +500,20 @@ export default defineSchema({
     .searchIndex("search_text", { searchField: "searchText" })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
+      dimensions: 3072,
+      filterFields: [
+        "ownerUserId",
+        "sourceType",
+        "pillar",
+        "isPublic",
+        "scopeKey",
+        "scopePillarKey",
+        "publicScopeKey",
+        "publicScopePillarKey",
+      ],
+    })
+    .vectorIndex("by_text_embedding", {
+      vectorField: "textEmbedding",
       dimensions: 3072,
       filterFields: [
         "ownerUserId",

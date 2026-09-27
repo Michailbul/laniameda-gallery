@@ -1,3 +1,4 @@
+import { isCardThumbSharp } from "./card-thumbnail";
 import { clusterPromptFamilies } from "./prompt-family";
 
 export type CinemaMetadata = {
@@ -132,7 +133,9 @@ type BuildGalleryEntriesArgs = {
   assets: GalleryAssetRecord[];
   hiddenAssetIds?: Set<string>;
   loadedAssetIds?: Set<string>;
-  sortOrder: "newest" | "featured" | "shuffle";
+  /** "relevance" keeps the order the assets arrived in (semantic search
+   * ranks them); packs sit where their best-ranked member did. */
+  sortOrder: "newest" | "featured" | "shuffle" | "relevance";
   /** Deals the "shuffle" arrangement; same seed = same order, so the grid
    * stays put across re-renders until the user asks for a new deal. */
   shuffleSeed?: number;
@@ -212,15 +215,12 @@ const resolvePreviewDimensions = (asset: GalleryAssetRecord) => {
   return thumbnailDimensions ?? originalDimensions ?? {};
 };
 
-// Thumbs narrower than this look visibly soft on modern masonry columns
-// (~450 CSS px at 2x DPR). Below it, serve the original instead: images
-// render the full file; videos drop the tiny poster so the card mounts the
-// real <video> and paints a native-resolution first frame.
-const SHARP_THUMB_MIN_WIDTH = 800;
-
+// A soft thumb gives way to the original: images render the full file;
+// videos drop the tiny poster so the card mounts the real <video> and paints
+// a native-resolution first frame. Portrait thumbs count by their height, so
+// a 576×1024 thumb no longer pulls a multi-megabyte original into the grid.
 const displaySrc = (asset: GalleryAssetRecord): string => {
-  const thumbIsSharp = (asset.thumbWidth ?? 0) >= SHARP_THUMB_MIN_WIDTH;
-  const sharp = thumbIsSharp ? asset.thumbUrl : undefined;
+  const sharp = isCardThumbSharp(asset) ? asset.thumbUrl : undefined;
   return (
     sharp ?? asset.url ?? asset.thumbUrl ?? asset.sourceUrl ?? FALLBACK_SRC
   );
@@ -337,10 +337,12 @@ export const buildGalleryEntries = ({
     (asset) => !hiddenAssetIds?.has(asset._id),
   );
 
-  // First the explicit groups: a stored pack, else the prompt row.
+  // First the explicit groups: a stored pack, else the prompt row. Each group
+  // remembers where its first member arrived, for the "relevance" order.
   const groups: GalleryAssetRecord[][] = [];
+  const groupRank: number[] = [];
   const groupIndexByKey = new Map<string, number>();
-  for (const asset of visibleAssets) {
+  for (const [index, asset] of visibleAssets.entries()) {
     const groupingKey = asset.assetPackId
       ? `pack:${asset.assetPackId}`
       : asset.promptId
@@ -353,6 +355,7 @@ export const buildGalleryEntries = ({
     }
     if (groupingKey) groupIndexByKey.set(groupingKey, groups.length);
     groups.push([asset]);
+    groupRank.push(index);
   }
   const orderedGroups = groups.map((members) =>
     [...members].sort(sortPackMembers),
@@ -369,9 +372,17 @@ export const buildGalleryEntries = ({
     })),
   );
 
+  // Arrival position of each entry, for the "relevance" order: a pack sits
+  // where its best-ranked member did.
+  const entryRank = new Map<GalleryEntry, number>();
   const entries = families.map((groupIndices) => {
     const members = groupIndices.flatMap((index) => orderedGroups[index]!);
-    return buildEntry(members[0]!, members, loadedAssetIds);
+    const entry = buildEntry(members[0]!, members, loadedAssetIds);
+    entryRank.set(
+      entry,
+      Math.min(...groupIndices.map((index) => groupRank[index]!)),
+    );
+    return entry;
   });
 
   // With promoteStarred, starred (featured) pieces lead as their own band and
@@ -400,6 +411,11 @@ export const buildGalleryEntries = ({
 
   if (sortOrder === "shuffle") {
     return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
+  }
+
+  if (sortOrder === "relevance") {
+    rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
+    return [...starred, ...rest];
   }
 
   rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));

@@ -10,7 +10,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 - Adding new Convex tables/functions requires `bunx convex codegen` — otherwise `convex/_generated/*` drifts and breaks references.
 - Queries and mutations must NOT call external APIs; always use actions for that.
-- Jimp (not sharp) is used for thumbnail generation — keeps os-specific binaries out of the Convex action bundle (`linux-arm64` compatible).
+- Card thumbnails come from one encoder, `encodeCardThumbnail` in `convex/thumbnails.ts`: sharp, WebP q78, fit inside 1440×960, never upscaled. `convex.json` lists sharp under `node.externalPackages`, so Convex installs the right platform binary on the server rather than bundling the Mac one. Jimp stays only as a JPEG fallback if sharp fails to load. The contract (box, WebP, when a thumb is sharp enough for a tile) lives in `lib/card-thumbnail.ts` and is shared by the grid and the backfill.
+- Every server-side R2 write (`storeBlobToR2`) sets `Cache-Control: public, max-age=31536000, immutable`. Keys are fresh UUIDs and the R2 component refuses to store over an existing key, so this is safe. Objects uploaded straight from the browser via presigned PUT carry no Cache-Control.
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
 - `R2_PUBLIC_BASE_URL` is required for R2-backed assets to hydrate to public CDN URLs; without it, URL resolution intentionally falls back to legacy Convex storage or `sourceUrl`.
 - Pillars are no longer a closed enum for assets/prompts/tags. Keep default UI affordances for `creators`, `designs`, and `dump`, but backend filters and ingest paths must accept any non-empty custom pillar key.
@@ -31,6 +32,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Standard collection child pillars are name-based and ordered as `Characters`, `Locations`, `Scenes`, `Inspirations`; use `compareCollectionPillarNames` instead of alphabetical sorting so Inspirations stays last.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- `MasonryGrid` mounts no tiles until it has measured its width; the server HTML shows the skeleton instead. Tiles laid out without a width would render as a full-width stack in server HTML, jump at hydration and fetch every image in it.
+- Public pages hand their first screen to the client from the server (`app/misha.buloy/selected_work/first-screen.ts`) and hint its thumbnails with `preload()`. Next prefetches the sibling public pages, and their hints fire too, so Chrome logs "preloaded but not used" for them; that is expected and makes switching views instant.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
 - Folder filters are now scope-safe: treat `folderId` as `mine`-scope only and clear stale folder selections when switching to `public` or when folder IDs no longer exist.
 - Midjourney's `/create` detail panel may not expose a stable `role="dialog"` or close-button signal. Extension save-widget suppression also checks visible detail-panel labels such as `Creation Actions` to avoid injecting save buttons across the dimmed background grid.
