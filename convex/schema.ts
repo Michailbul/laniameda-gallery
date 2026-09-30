@@ -129,6 +129,11 @@ export default defineSchema({
     coverAssetId: v.optional(v.id("assets")),
     // Pinned: floats first among its siblings.
     pinnedAt: v.optional(v.number()),
+    // Hidden from the gallery: the collection's members drop out of the
+    // owner's main (unscoped) gallery grid. Opening the collection still shows
+    // everything, and search still finds its pieces. Hiding a root collection
+    // hides its sub-collections too. Undefined = shown.
+    hiddenFromGallery: v.optional(v.boolean()),
     // Denormalized count of assetFolders links pointing here. Maintained by
     // recountFolderMembers (self-healing recount after membership writes) —
     // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.
