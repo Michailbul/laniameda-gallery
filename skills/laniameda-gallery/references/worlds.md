@@ -110,6 +110,14 @@ oversized retro jackets), worn machines, desert outposts, cockpits and corridors
 5. Storybooks (`kind: storybook`) combine a world's characters, locations and beats; keep a
    storybook inside one world and one style.
 
+## Storybooks (30 Sep 2026)
+
+One world and one look each, named `<WORLD> · <Title>`; the description holds the logline and
+numbered beats. DEAR ANNETE: Lens Cap, Two Pears (Animation) · Past the Last Stop, Ten to Closing
+(Unreal Engine) · The Third String (Piazza Graphic 2D) · The Rose That Stays (Dari). DADDY ISSUES:
+Coffee for Two, The Brave One, The Top Button. ANDROMEDA — ANN: One Grain a Day, Two Sandwiches.
+ANDROMEDA — RETRO-FUTURE: The Chief's Chair. Source: `~/AI-video-work/gallery-art-direction-2026-09-26/stories-0930/`.
+
 ## History
 
 The 30 Sep 2026 reorganisation (audit, style clusters, rollback snapshot, apply log) lives in
