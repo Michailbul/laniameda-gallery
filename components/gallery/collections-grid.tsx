@@ -392,7 +392,17 @@ function SubCollectionChips({
     const observer = new ResizeObserver(fit);
     observer.observe(row);
     observer.observe(measure);
-    return () => observer.disconnect();
+    // A web font swapping in changes every chip's width without resizing the
+    // card, and the measure box stops growing once it is card-wide, so the
+    // observer alone would miss it.
+    let active = true;
+    void document.fonts?.ready.then(() => {
+      if (active) fit();
+    });
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
   }, [childCollections]);
 
   const hidden = childCollections.length - visibleCount;
