@@ -1,4 +1,5 @@
 import { isCardThumbSharp } from "./card-thumbnail";
+import { clusterPromptFamilies } from "./prompt-family";
 
 export type CinemaMetadata = {
   movieTitle: string;
@@ -62,6 +63,9 @@ export type GalleryEntryPreview = {
   promptId?: string;
   src: string;
   fullSrc: string;
+  /** A still for a video member, when one exists. `src` can be the video
+   *  file itself, which an <img> can't paint. */
+  posterSrc?: string;
   prompt: string;
   width?: number;
   height?: number;
@@ -113,6 +117,8 @@ export type GalleryEntry = {
   /** Optional owner note on a starred piece, shown on the card. */
   starNote?: string;
   packMemberCount?: number;
+  /** Distinct prompts behind a pack — above 1, the pack holds variations. */
+  packPromptCount?: number;
   /** Member count for stack entries (galleryItemType "storybook"). */
   storybookCount?: number;
   /** Step count for workflow entries (galleryItemType "workflow"). */
@@ -230,11 +236,17 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   promptId: asset.promptId ?? undefined,
   src: displaySrc(asset),
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
+  posterSrc: asset.kind === "video" ? asset.thumbUrl : undefined,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
   ...resolvePreviewDimensions(asset),
   kind: asset.kind,
   contentType: asset.contentType,
 });
+
+// Web bookmarks carry a page title as their "prompt", and cinema frames open
+// one by one in the cinema popout — neither is a generation prompt.
+const canJoinPromptFamily = (asset: GalleryAssetRecord) =>
+  !asset.designInspirationId && asset.pillar !== "cinema-inspiration";
 
 const sortPackMembers = (
   left: GalleryAssetRecord,
@@ -308,6 +320,10 @@ const buildEntry = (
       members.find((member) => member.starredAt && member.starNote)?.starNote ??
       undefined,
     packMemberCount: members.length > 1 ? members.length : undefined,
+    packPromptCount:
+      members.length > 1
+        ? new Set(members.map((member) => member.promptId ?? member._id)).size
+        : undefined,
     size: cover.size,
     totalSize: totalSize > 0 ? totalSize : undefined,
     cinemaMetadata: cover.cinemaMetadata ?? undefined,
@@ -327,77 +343,108 @@ export const buildGalleryEntries = ({
   const visibleAssets = assets.filter(
     (asset) => !hiddenAssetIds?.has(asset._id),
   );
-  const packMembers = new Map<string, GalleryAssetRecord[]>();
-  const packRank = new Map<string, number>();
-  const standaloneEntries: GalleryEntry[] = [];
-  // Arrival position of each entry, for the "relevance" order.
-  const entryRank = new Map<GalleryEntry, number>();
 
-  for (const [index, asset] of visibleAssets.entries()) {
-    const groupingKey = flattenStacks
-      ? null
-      : asset.assetPackId
-        ? `pack:${asset.assetPackId}`
-        : asset.promptId
-          ? `prompt:${asset.promptId}`
-          : null;
+  // Orders the finished entries: starred band first (when promoted), then the
+  // chosen sort. entryRank is each entry's arrival position, for "relevance".
+  const orderEntries = (
+    entries: GalleryEntry[],
+    entryRank: Map<GalleryEntry, number>,
+  ): GalleryEntry[] => {
+    // With promoteStarred, starred (featured) pieces lead as their own band and
+    // the chosen sort governs the rest. The vault turns it on only for the
+    // FEATURED sort; NEWEST and SHUFFLE keep starred pieces in place.
+    const starred = promoteStarred
+      ? entries.filter((entry) => Boolean(entry.starredAt))
+      : [];
+    const rest = promoteStarred
+      ? entries.filter((entry) => !entry.starredAt)
+      : entries;
+    starred.sort((left, right) => (right.starredAt ?? 0) - (left.starredAt ?? 0));
 
-    if (!groupingKey) {
-      const entry = buildEntry(asset, [asset], loadedAssetIds, flattenStacks);
-      entryRank.set(entry, index);
-      standaloneEntries.push(entry);
-      continue;
+    if (sortOrder === "featured") {
+      rest.sort((left, right) => {
+        const featuredDiff =
+          Number(Boolean(right.isFeatured)) -
+          Number(Boolean(left.isFeatured));
+        if (featuredDiff !== 0) {
+          return featuredDiff;
+        }
+        return (right.createdAt ?? 0) - (left.createdAt ?? 0);
+      });
+      return [...starred, ...rest];
     }
 
-    const members = packMembers.get(groupingKey) ?? [];
-    members.push(asset);
-    packMembers.set(groupingKey, members);
-    if (!packRank.has(groupingKey)) packRank.set(groupingKey, index);
-  }
+    if (sortOrder === "shuffle") {
+      return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
+    }
 
-  const entries = [
-    ...standaloneEntries,
-    ...Array.from(packMembers.entries()).map(([groupingKey, members]) => {
-      const orderedMembers = [...members].sort(sortPackMembers);
-      const entry = buildEntry(orderedMembers[0]!, orderedMembers, loadedAssetIds);
-      entryRank.set(entry, packRank.get(groupingKey) ?? 0);
+    if (sortOrder === "relevance") {
+      rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
+      return [...starred, ...rest];
+    }
+
+    rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
+    return [...starred, ...rest];
+  };
+
+  // Flatten mode: every asset is its own tile, no packs and no families.
+  if (flattenStacks) {
+    const entryRank = new Map<GalleryEntry, number>();
+    const entries = visibleAssets.map((asset, index) => {
+      const entry = buildEntry(asset, [asset], loadedAssetIds, true);
+      entryRank.set(entry, index);
       return entry;
-    }),
-  ];
-
-  // With promoteStarred, starred (featured) pieces lead as their own band and
-  // the chosen sort governs the rest. The vault turns it on only for the
-  // FEATURED sort; NEWEST and SHUFFLE keep starred pieces in place.
-  const starred = promoteStarred
-    ? entries.filter((entry) => Boolean(entry.starredAt))
-    : [];
-  const rest = promoteStarred
-    ? entries.filter((entry) => !entry.starredAt)
-    : entries;
-  starred.sort((left, right) => (right.starredAt ?? 0) - (left.starredAt ?? 0));
-
-  if (sortOrder === "featured") {
-    rest.sort((left, right) => {
-      const featuredDiff =
-        Number(Boolean(right.isFeatured)) -
-        Number(Boolean(left.isFeatured));
-      if (featuredDiff !== 0) {
-        return featuredDiff;
-      }
-      return (right.createdAt ?? 0) - (left.createdAt ?? 0);
     });
-    return [...starred, ...rest];
+    return orderEntries(entries, entryRank);
   }
 
-  if (sortOrder === "shuffle") {
-    return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
+  // First the explicit groups: a stored pack, else the prompt row. Each group
+  // remembers where its first member arrived, for the "relevance" order.
+  const groups: GalleryAssetRecord[][] = [];
+  const groupRank: number[] = [];
+  const groupIndexByKey = new Map<string, number>();
+  for (const [index, asset] of visibleAssets.entries()) {
+    const groupingKey = asset.assetPackId
+      ? `pack:${asset.assetPackId}`
+      : asset.promptId
+        ? `prompt:${asset.promptId}`
+        : null;
+    const existing = groupingKey ? groupIndexByKey.get(groupingKey) : undefined;
+    if (existing !== undefined) {
+      groups[existing]!.push(asset);
+      continue;
+    }
+    if (groupingKey) groupIndexByKey.set(groupingKey, groups.length);
+    groups.push([asset]);
+    groupRank.push(index);
   }
+  const orderedGroups = groups.map((members) =>
+    [...members].sort(sortPackMembers),
+  );
 
-  if (sortOrder === "relevance") {
-    rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
-    return [...starred, ...rest];
-  }
+  // Then the same prompt saved as separate rows, and its variations, fold
+  // into one pack: a family's newest group leads and supplies the cover.
+  const families = clusterPromptFamilies(
+    orderedGroups.map((members) => ({
+      createdAt: Math.max(...members.map((member) => member.createdAt)),
+      promptTexts: members
+        .filter(canJoinPromptFamily)
+        .map((member) => member.promptText),
+    })),
+  );
 
-  rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
-  return [...starred, ...rest];
+  // Arrival position of each entry, for the "relevance" order: a pack sits
+  // where its best-ranked member did.
+  const entryRank = new Map<GalleryEntry, number>();
+  const entries = families.map((groupIndices) => {
+    const members = groupIndices.flatMap((index) => orderedGroups[index]!);
+    const entry = buildEntry(members[0]!, members, loadedAssetIds);
+    entryRank.set(
+      entry,
+      Math.min(...groupIndices.map((index) => groupRank[index]!)),
+    );
+    return entry;
+  });
+
+  return orderEntries(entries, entryRank);
 };

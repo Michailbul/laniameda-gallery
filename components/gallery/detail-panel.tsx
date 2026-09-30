@@ -17,9 +17,11 @@ import {
   ImagePlus,
   Loader2,
   ExternalLink,
+  Play,
   Star,
 } from "lucide-react";
 import { useQuery } from "convex/react";
+import { PackDeckTabs } from "@/components/gallery/pack-deck";
 import { downloadImage } from "@/lib/download-image";
 import { meaningfulPrompt } from "@/lib/prompt";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
@@ -35,6 +37,8 @@ interface CarouselImage {
   id: string;
   thumbSrc: string;
   fullSrc: string;
+  /** A still for a video slide — `thumbSrc` can be the video file itself. */
+  posterSrc?: string;
   width?: number;
   height?: number;
   prompt?: string;
@@ -108,6 +112,13 @@ interface GalleryDetailPanelProps {
     userNote?: string;
   };
   carouselImages?: CarouselImage[];
+  /**
+   * The slide on show, when the owner keeps it (the dashboard does, so the
+   * keyboard and the live per-file data follow the same slide). Uncontrolled
+   * when omitted.
+   */
+  slideIndex?: number;
+  onSlideIndexChange?: (index: number) => void;
   /** Who is looking — scopes the prompt-context read to the owner's rows. */
   ownerUserId?: string;
   /** Opens the workflow document this asset's prompt is a step of. */
@@ -180,6 +191,8 @@ type DetailTab = (typeof DETAIL_TABS)[number];
 export function GalleryDetailPanel({
   image,
   carouselImages,
+  slideIndex,
+  onSlideIndexChange,
   ownerUserId,
   onOpenWorkflow,
   onClose,
@@ -229,7 +242,7 @@ export function GalleryDetailPanel({
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastExiting, setToastExiting] = useState(false);
-  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [internalSlideIndex, setInternalSlideIndex] = useState(0);
   const [showLivePreview, setShowLivePreview] = useState(true);
   // null = not editing. Drafts live per field so a blur can't leak into the other.
   const [descDraft, setDescDraft] = useState<string | null>(null);
@@ -241,8 +254,9 @@ export function GalleryDetailPanel({
   const [savingStarNote, setSavingStarNote] = useState(false);
   const [filingQuery, setFilingQuery] = useState("");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // Keyed by slide id, not position: deleting a pack member shifts positions.
   const [fullLoadedMap, setFullLoadedMap] = useState<
-    Record<number, boolean>
+    Record<string, boolean>
   >({});
   const panelRef = useRef<HTMLDivElement>(null);
   const copyMenuRef = useRef<HTMLDivElement>(null);
@@ -306,25 +320,6 @@ export function GalleryDetailPanel({
   );
   const isDesignView = Boolean(image.isDesignInspiration || designView);
 
-  const handleReplaceThumbnail = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !onReplaceThumbnail) return;
-    try {
-      await onReplaceThumbnail(image.id, file);
-      if (toastFn) {
-        toastFn("Thumbnail replaced", undefined, "success");
-      }
-    } catch {
-      if (toastFn) {
-        toastFn("Failed to replace thumbnail", undefined, "warning");
-      }
-    }
-    // Reset input so the same file can be re-selected
-    if (thumbInputRef.current) {
-      thumbInputRef.current.value = "";
-    }
-  }, [image.id, onReplaceThumbnail, toastFn]);
-
   const allSlides: CarouselImage[] = useMemo(
     () =>
       carouselImages && carouselImages.length > 0
@@ -351,11 +346,35 @@ export function GalleryDetailPanel({
       image.contentType,
     ],
   );
+  const isCarousel = allSlides.length > 1;
+  const carouselIndex = Math.min(
+    Math.max(slideIndex ?? internalSlideIndex, 0),
+    allSlides.length - 1,
+  );
+  const setCarouselIndex = (next: number) => {
+    const clamped = Math.min(Math.max(next, 0), allSlides.length - 1);
+    if (onSlideIndexChange) {
+      onSlideIndexChange(clamped);
+    } else {
+      setInternalSlideIndex(clamped);
+    }
+  };
   const currentSlide = allSlides[carouselIndex] ?? allSlides[0];
-  const currentFullLoaded = fullLoadedMap[carouselIndex] ?? false;
+  const currentFullLoaded = fullLoadedMap[currentSlide.id] ?? false;
+  const markFullLoaded = (slideId: string) =>
+    setFullLoadedMap((prev) =>
+      prev[slideId] ? prev : { ...prev, [slideId]: true },
+    );
+  // A pack of variations holds more than one prompt; say so, since the
+  // prompt below changes with the slide.
+  const carouselPromptCount = useMemo(
+    () =>
+      new Set(allSlides.map((slide) => slide.promptId ?? slide.id)).size,
+    [allSlides],
+  );
 
   useEffect(() => {
-    setCarouselIndex(0);
+    setInternalSlideIndex(0);
     setFullLoadedMap({});
     setCopyMenuOpen(false);
     setToastVisible(false);
@@ -521,9 +540,31 @@ export function GalleryDetailPanel({
     showToast("PACKAGE COPIED");
   };
 
+  const handleReplaceThumbnail = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file || !onReplaceThumbnail) return;
+    try {
+      await onReplaceThumbnail(currentAssetId, file);
+      if (toastFn) {
+        toastFn("Thumbnail replaced", undefined, "success");
+      }
+    } catch {
+      if (toastFn) {
+        toastFn("Failed to replace thumbnail", undefined, "warning");
+      }
+    }
+    // Reset input so the same file can be re-selected
+    if (thumbInputRef.current) {
+      thumbInputRef.current.value = "";
+    }
+  };
+
+  // Downloads the file on show — in a pack, that's the current slide.
   const handleDownload = async () => {
     setDownloadStarted(true);
-    await downloadImage(image.fullSrc, `laniameda-${image.id}`);
+    await downloadImage(currentSlide.fullSrc, `laniameda-${currentAssetId}`);
     setTimeout(() => setDownloadStarted(false), 1500);
   };
 
@@ -684,23 +725,28 @@ export function GalleryDetailPanel({
         }
       >
         {/* Media stage — modal lets the image float free on the dark canvas.
-            Clicking the empty canvas around it closes the view. */}
+            Clicking the empty canvas around it closes the view. A pack gets
+            arrows at the stage edges and a filmstrip of its frames below. */}
+        <div
+          className={isModal ? "flex min-h-0 flex-col md:flex-1" : "contents"}
+          onClick={isModal ? onClose : undefined}
+        >
         <div
           className={
             isModal
-              ? "flex min-h-0 items-center justify-center p-6 md:flex-1 md:p-10"
-              : "contents"
+              ? `relative flex min-h-0 flex-1 items-center justify-center p-6 ${
+                  isCarousel ? "md:px-20 md:pb-3 md:pt-8" : "md:p-10"
+                }`
+              : "relative"
           }
-          onClick={isModal ? onClose : undefined}
         >
         {/* Image — boxless: shown in its native aspect ratio, no frame */}
         <div
+          key={isCarousel ? currentSlide.id : undefined}
           onClick={isModal ? (event) => event.stopPropagation() : undefined}
-          className={
-            isModal
-              ? "relative mx-auto overflow-hidden"
-              : "relative overflow-hidden"
-          }
+          className={`${isModal ? "relative mx-auto overflow-hidden" : "relative overflow-hidden"}${
+            isCarousel ? " lm-carousel-slide" : ""
+          }`}
           style={
             isModal
               ? {
@@ -714,7 +760,7 @@ export function GalleryDetailPanel({
               : {
                   aspectRatio: `${currentSlide.width ?? 1} / ${currentSlide.height ?? 1}`,
                   border: "none",
-                  borderBottom: "1px solid var(--lm-border)",
+                  borderBottom: isCarousel ? "none" : "1px solid var(--lm-border)",
                 }
           }
         >
@@ -790,10 +836,11 @@ export function GalleryDetailPanel({
               key={currentSlide.id}
               src={currentSlide.fullSrc}
               poster={
-                currentSlide.thumbSrc &&
+                currentSlide.posterSrc ??
+                (currentSlide.thumbSrc &&
                 currentSlide.thumbSrc !== currentSlide.fullSrc
                   ? currentSlide.thumbSrc
-                  : undefined
+                  : undefined)
               }
               controls
               playsInline
@@ -805,7 +852,7 @@ export function GalleryDetailPanel({
             <>
               <Image
                 src={currentSlide.thumbSrc}
-                alt={image.prompt}
+                alt={currentSlide.prompt ?? image.prompt}
                 fill
                 sizes={isModal ? "(max-width: 768px) 100vw, 60vw" : "440px"}
                 className={isModal ? "object-contain" : "object-cover"}
@@ -815,7 +862,7 @@ export function GalleryDetailPanel({
               />
               <Image
                 src={currentSlide.fullSrc}
-                alt={image.prompt}
+                alt={currentSlide.prompt ?? image.prompt}
                 fill
                 sizes={isModal ? "(max-width: 768px) 100vw, 60vw" : "440px"}
                 className={`${isModal ? "object-contain" : "object-cover"} transition-opacity`}
@@ -830,104 +877,72 @@ export function GalleryDetailPanel({
                   // up — never leave the full layer invisible behind the
                   // compressed thumb.
                   if (node?.complete && node.naturalWidth > 0) {
-                    setFullLoadedMap((prev) =>
-                      prev[carouselIndex]
-                        ? prev
-                        : { ...prev, [carouselIndex]: true },
-                    );
+                    markFullLoaded(currentSlide.id);
                   }
                 }}
                 onLoad={(e) => {
                   if (e.currentTarget.naturalWidth > 0) {
-                    setFullLoadedMap((prev) => ({
-                      ...prev,
-                      [carouselIndex]: true,
-                    }));
+                    markFullLoaded(currentSlide.id);
                   }
                 }}
-                onError={() => {
-                  setFullLoadedMap((prev) => ({
-                    ...prev,
-                    [carouselIndex]: true,
-                  }));
-                }}
+                onError={() => markFullLoaded(currentSlide.id)}
                 unoptimized
               />
             </>
           )}
 
-          {/* Carousel dots */}
-          {allSlides.length > 1 && (
-            <div className="absolute bottom-2 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1">
-              {allSlides.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCarouselIndex(i);
-                  }}
-                  style={{
-                    width: i === carouselIndex ? "16px" : "6px",
-                    height: "6px",
-                    backgroundColor:
-                      i === carouselIndex
-                        ? "var(--lm-coral)"
-                        : "rgba(255,255,255,0.4)",
-                    borderRadius: "var(--lm-radius)",
-                    transition: "all 200ms",
-                  }}
-                  aria-label={`Image ${i + 1} of ${allSlides.length}`}
-                />
-              ))}
-            </div>
+          {/* Sidebar: the pack's tabs ride on the image, with small arrows. */}
+          {isCarousel && !isModal && (
+            <>
+              <PackDeckTabs
+                count={allSlides.length}
+                index={carouselIndex}
+                rotating={false}
+                durationMs={0}
+                onJump={setCarouselIndex}
+              />
+              <CarouselArrow
+                direction="previous"
+                compact
+                disabled={carouselIndex === 0}
+                onClick={() => setCarouselIndex(carouselIndex - 1)}
+              />
+              <CarouselArrow
+                direction="next"
+                compact
+                disabled={carouselIndex === allSlides.length - 1}
+                onClick={() => setCarouselIndex(carouselIndex + 1)}
+              />
+            </>
           )}
-
-          {/* Carousel arrows */}
-          {allSlides.length > 1 && carouselIndex > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCarouselIndex((i) => i - 1);
-              }}
-              className="absolute left-2 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center"
-              style={{
-                width: "28px",
-                height: "28px",
-                backgroundColor: "rgba(0, 0, 0, 0.8)",
-                color: "var(--lm-paper)",
-                border: "2px solid rgba(255,255,255,0.2)",
-                borderRadius: "var(--lm-radius)",
-              }}
-              aria-label="Previous carousel image"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          )}
-          {allSlides.length > 1 &&
-            carouselIndex < allSlides.length - 1 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCarouselIndex((i) => i + 1);
-                }}
-                className="absolute right-2 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center"
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  backgroundColor: "rgba(0, 0, 0, 0.8)",
-                  color: "var(--lm-paper)",
-                  border: "2px solid rgba(255,255,255,0.2)",
-                  borderRadius: "var(--lm-radius)",
-                }}
-                aria-label="Next carousel image"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
         </div>
+
+        {/* Modal: arrows sit out on the canvas, clear of the image. */}
+        {isCarousel && isModal && (
+          <>
+            <CarouselArrow
+              direction="previous"
+              disabled={carouselIndex === 0}
+              onClick={() => setCarouselIndex(carouselIndex - 1)}
+            />
+            <CarouselArrow
+              direction="next"
+              disabled={carouselIndex === allSlides.length - 1}
+              onClick={() => setCarouselIndex(carouselIndex + 1)}
+            />
+          </>
+        )}
+        </div>
+
+        {isCarousel && (
+          <CarouselFilmstrip
+            slides={allSlides}
+            index={carouselIndex}
+            promptCount={carouselPromptCount}
+            variant={isModal ? "modal" : "sidebar"}
+            onSelect={setCarouselIndex}
+          />
+        )}
         </div>
 
         {/* ── Details ── right pane in modal, inline column in sidebar ── */}
@@ -1265,8 +1280,13 @@ export function GalleryDetailPanel({
 
                   {/* Every file generated from this prompt — a still and the
                       cut it came from, the variations of a pack. Clicking one
-                      that is in the carousel jumps to it. */}
-                  {promptContext && promptContext.media.length > 1 && (
+                      that is in the carousel jumps to it. Left out when the
+                      filmstrip above already shows every one of them. */}
+                  {promptContext &&
+                    promptContext.media.length > 1 &&
+                    !promptContext.media.every((file) =>
+                      allSlides.some((slide) => slide.id === file.id),
+                    ) && (
                     <Field label={`Files with this prompt · ${padIndex(promptContext.media.length)}`}>
                       <div className="flex flex-wrap gap-1.5">
                         {promptContext.media.map((file) => {
@@ -1633,7 +1653,7 @@ export function GalleryDetailPanel({
                 <div className="pt-3">
                   <button
                     type="button"
-                    onClick={() => onFindSimilar(image.id)}
+                    onClick={() => onFindSimilar(currentAssetId)}
                     disabled={similarBusy}
                     className="flex w-full items-center gap-2 border-none bg-transparent p-0 disabled:opacity-50"
                     style={{
@@ -1735,7 +1755,7 @@ export function GalleryDetailPanel({
                                 onClick={() =>
                                   void runFiling(removeKey, () =>
                                     onRemoveMembership(
-                                      image.id,
+                                      currentAssetId,
                                       entry.folderId,
                                     ),
                                   )
@@ -1787,7 +1807,7 @@ export function GalleryDetailPanel({
                         onClick={() =>
                           onAddToTarget
                             ? void runFiling(`add:${target.key}`, async () => {
-                                await onAddToTarget(target, image.id);
+                                await onAddToTarget(target, currentAssetId);
                                 setFilingQuery("");
                               })
                             : undefined
@@ -1840,7 +1860,7 @@ export function GalleryDetailPanel({
                           void runFiling("create", async () => {
                             await onCreateCollection(
                               filingQuery.trim(),
-                              image.id,
+                              currentAssetId,
                             );
                             setFilingQuery("");
                           })
@@ -1895,7 +1915,7 @@ export function GalleryDetailPanel({
                             : "Leads every grid it shows up in"
                         }
                         on={isStarred}
-                        onClick={() => onToggleStar(image.id, !isStarred)}
+                        onClick={() => onToggleStar(currentAssetId, !isStarred)}
                         icon={
                           <Star
                             className="h-3.5 w-3.5"
@@ -1912,7 +1932,7 @@ export function GalleryDetailPanel({
                         on={Boolean(image.isPublic)}
                         busy={curationBusy}
                         onClick={() =>
-                          onSetPublicState(image.id, !image.isPublic)
+                          onSetPublicState(currentAssetId, !image.isPublic)
                         }
                       />
                     )}
@@ -1962,7 +1982,7 @@ export function GalleryDetailPanel({
                 <div className="pt-4">
                   <button
                     type="button"
-                    onClick={() => onDelete(image.id)}
+                    onClick={() => onDelete(currentAssetId)}
                     disabled={deleting}
                     className="flex items-center gap-2 border-none bg-transparent p-0 disabled:opacity-40"
                     aria-label="Delete asset"
@@ -2227,5 +2247,191 @@ function CopyMenuItem({
       />
       <span className="flex-1">{label}</span>
     </button>
+  );
+}
+
+/* ── Carousel: arrows and the filmstrip of a pack's frames ── */
+
+function CarouselArrow({
+  direction,
+  disabled,
+  compact = false,
+  onClick,
+}: {
+  direction: "previous" | "next";
+  disabled: boolean;
+  /** Over the image (sidebar) rather than out on the canvas (modal). */
+  compact?: boolean;
+  onClick: () => void;
+}) {
+  const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
+  const size = compact ? 30 : 44;
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      disabled={disabled}
+      className="lm-carousel-arrow absolute top-1/2 z-20 flex -translate-y-1/2 items-center justify-center rounded-full disabled:pointer-events-none"
+      data-compact={compact ? "true" : undefined}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        [direction === "previous" ? "left" : "right"]: compact ? "8px" : "20px",
+        opacity: disabled ? (compact ? 0 : 0.22) : 1,
+      }}
+      aria-label={direction === "previous" ? "Previous in pack" : "Next in pack"}
+    >
+      <Icon className={compact ? "h-4 w-4" : "h-5 w-5"} strokeWidth={2} />
+    </button>
+  );
+}
+
+function CarouselFilmstrip({
+  slides,
+  index,
+  promptCount,
+  variant,
+  onSelect,
+}: {
+  slides: CarouselImage[];
+  index: number;
+  promptCount: number;
+  variant: "modal" | "sidebar";
+  onSelect: (index: number) => void;
+}) {
+  const stripRef = useRef<HTMLDivElement>(null);
+  const isModal = variant === "modal";
+  const thumbHeight = isModal ? 56 : 44;
+
+  // Keep the current frame in view. Scrolls the strip only — scrollIntoView
+  // would also drag the sheet around it.
+  useEffect(() => {
+    const strip = stripRef.current;
+    const active = strip?.querySelector<HTMLElement>('[data-active="true"]');
+    if (!strip || !active) return;
+    const left =
+      active.offsetLeft - (strip.clientWidth - active.clientWidth) / 2;
+    strip.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+  }, [index]);
+
+  return (
+    <div
+      onClick={(event) => event.stopPropagation()}
+      className={isModal ? "shrink-0 px-6 pb-6 pt-2 md:px-10" : "px-3 pb-3 pt-2.5"}
+      style={{
+        borderBottom: isModal ? "none" : "1px solid var(--lm-border)",
+      }}
+    >
+      <div
+        className="flex items-baseline justify-between gap-3 pb-2"
+        style={{
+          fontSize: "10px",
+          fontWeight: 600,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--lm-text-ghost)",
+        }}
+      >
+        <span className="flex items-baseline gap-2">
+          <span>Pack</span>
+          <span
+            style={{
+              fontVariantNumeric: "tabular-nums",
+              color: "var(--lm-text-primary)",
+            }}
+          >
+            {padIndex(index + 1)}
+            <span style={{ color: "var(--lm-text-ghost)" }}>
+              {" "}/ {padIndex(slides.length)}
+            </span>
+          </span>
+          {promptCount > 1 && (
+            <span style={{ color: "var(--lm-coral)" }}>
+              · {promptCount} prompt variations
+            </span>
+          )}
+        </span>
+        {isModal && <span>← → to move</span>}
+      </div>
+      <div
+        ref={stripRef}
+        className="lm-lightbox-strip relative overflow-x-auto"
+        style={{ paddingTop: "3px", paddingBottom: "2px" }}
+      >
+        <div className="mx-auto flex w-max gap-2">
+          {slides.map((slide, slideIndex) => {
+            const active = slideIndex === index;
+            const aspect =
+              slide.width && slide.height ? slide.width / slide.height : 1;
+            const width = Math.round(
+              Math.min(Math.max(thumbHeight * aspect, thumbHeight * 0.62), thumbHeight * 1.78),
+            );
+            const isVideo = slide.kind === "video";
+            const still = isVideo
+              ? slide.posterSrc ??
+                (slide.thumbSrc !== slide.fullSrc ? slide.thumbSrc : undefined)
+              : slide.thumbSrc;
+            return (
+              <button
+                key={slide.id}
+                type="button"
+                data-active={active ? "true" : "false"}
+                aria-current={active ? "true" : undefined}
+                aria-label={`Show ${slideIndex + 1} of ${slides.length}`}
+                onClick={() => onSelect(slideIndex)}
+                className="relative shrink-0 overflow-hidden p-0"
+                style={{
+                  width: `${width}px`,
+                  height: `${thumbHeight}px`,
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  backgroundColor: "var(--media-stage-bg)",
+                  border: active
+                    ? "1.5px solid var(--lm-coral)"
+                    : "1.5px solid transparent",
+                  boxShadow: active
+                    ? "0 6px 18px -6px color-mix(in srgb, var(--lm-coral) 55%, transparent)"
+                    : "none",
+                  opacity: active ? 1 : 0.5,
+                  transform: active ? "translateY(-2px)" : "none",
+                  transition:
+                    "opacity var(--lm-duration-fast, 150ms), transform var(--lm-duration-fast, 150ms), border-color var(--lm-duration-fast, 150ms)",
+                }}
+              >
+                {still ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={still}
+                    alt=""
+                    loading="lazy"
+                    draggable={false}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+                {isVideo && (
+                  <span
+                    className="absolute inset-0 flex items-center justify-center"
+                    aria-hidden
+                  >
+                    <span
+                      className="flex h-5 w-5 items-center justify-center rounded-full"
+                      style={{
+                        backgroundColor: "rgba(0,0,0,0.6)",
+                        color: "#fff",
+                      }}
+                    >
+                      <Play className="ml-px h-2.5 w-2.5" fill="currentColor" />
+                    </span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }

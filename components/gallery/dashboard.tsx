@@ -135,6 +135,9 @@ type SelectedImage = {
   inspirationType?: string;
   userNote?: string;
   previewImages?: GalleryEntryPreview[];
+  /** The pack member a card was showing when clicked — the expanded view
+   *  opens on it. */
+  activePreviewId?: string;
 };
 
 type SemanticGalleryAsset = FunctionReturnType<
@@ -385,6 +388,14 @@ export function GalleryDashboard({
 
   const [selectedImage, setSelectedImage] =
     useState<SelectedImage | null>(null);
+  // Which frame of an open pack is on show. Held here, not in the panel: the
+  // desktop view and the mobile sheet are both mounted, the keyboard steps
+  // through frames, and the live per-file read follows the same frame. Tied
+  // to the entry it was set for, so opening another entry starts at 0.
+  const [slideState, setSlideState] = useState<{
+    entryId: string | null;
+    index: number;
+  }>({ entryId: null, index: 0 });
   const [sheetDismissing, setSheetDismissing] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
   const mobileDetailRef = useRef<HTMLDivElement>(null);
@@ -1017,9 +1028,34 @@ export function GalleryDashboard({
 
         loadedImageIdsRef.current.delete(assetId);
 
-        setSelectedImage((current) =>
-          current?.id === assetId ? null : current,
-        );
+        // A pack member leaves the pack, not the view: the rest of the pack
+        // stays open, and if the cover went the next frame takes its place.
+        setSelectedImage((current) => {
+          if (!current) return current;
+          const previews = current.previewImages ?? [];
+          if (!previews.some((preview) => preview.id === assetId)) {
+            return current.id === assetId ? null : current;
+          }
+          const remaining = previews.filter((preview) => preview.id !== assetId);
+          if (remaining.length === 0) return null;
+          if (current.id !== assetId) {
+            return { ...current, previewImages: remaining };
+          }
+          const next = remaining[0]!;
+          return {
+            ...current,
+            id: next.id,
+            promptId: next.promptId,
+            thumbSrc: next.src,
+            fullSrc: next.fullSrc,
+            prompt: next.prompt,
+            width: next.width,
+            height: next.height,
+            kind: next.kind,
+            contentType: next.contentType,
+            previewImages: remaining,
+          };
+        });
         setSelectedAssetIds((current) => {
           if (!current.has(assetId)) return current;
           const next = new Set(current);
@@ -3285,6 +3321,16 @@ export function GalleryDashboard({
         return;
       }
       setSelectedImage(img);
+      // A pack opens on the frame its deck was showing.
+      setSlideState({
+        entryId: img.id,
+        index: Math.max(
+          0,
+          (img.previewImages ?? []).findIndex(
+            (preview) => preview.id === img.activePreviewId,
+          ),
+        ),
+      });
     },
     [images],
   );
@@ -3389,6 +3435,44 @@ export function GalleryDashboard({
       ? `${currentImageIndex + 1}/${images.length}`
       : undefined;
 
+  // ── The open pack's frames ─────────────────────────────────────────────────
+  const carouselImages = useMemo(() => {
+    const previews = selectedImage?.previewImages ?? [];
+    if (!selectedImage || previews.length <= 1) {
+      return undefined;
+    }
+
+    return previews.map((preview) => ({
+      id: preview.id,
+      thumbSrc: preview.src,
+      fullSrc: preview.fullSrc,
+      posterSrc: preview.posterSrc,
+      width: preview.width,
+      height: preview.height,
+      prompt: preview.prompt,
+      promptId: preview.promptId,
+      kind: preview.kind,
+      contentType: preview.contentType,
+    }));
+  }, [selectedImage]);
+  const slideCount = carouselImages?.length ?? 1;
+  const slideIndex =
+    selectedImage && slideState.entryId === selectedImage.id
+      ? Math.min(slideState.index, slideCount - 1)
+      : 0;
+  const activeSlideId =
+    carouselImages?.[slideIndex]?.id ?? selectedImage?.id ?? null;
+  const setSlideIndex = useCallback(
+    (index: number) => {
+      if (!selectedImage) return;
+      setSlideState({
+        entryId: selectedImage.id,
+        index: Math.min(Math.max(index, 0), slideCount - 1),
+      });
+    },
+    [selectedImage, slideCount],
+  );
+
   const handleFindSimilar = useCallback(
     async (imageId: string) => {
       const image = images.find((candidate) => candidate.id === imageId);
@@ -3468,15 +3552,27 @@ export function GalleryDashboard({
   // Swipe gestures for mobile detail sheet
   const swipeHandlers = useMemo(
     () => ({
-      onSwipeLeft: goToNext,
-      onSwipeRight: goToPrev,
+      // Same order as the arrow keys: a pack's frames, then the next card.
+      onSwipeLeft: () =>
+        slideIndex < slideCount - 1
+          ? setSlideIndex(slideIndex + 1)
+          : goToNext(),
+      onSwipeRight: () =>
+        slideIndex > 0 ? setSlideIndex(slideIndex - 1) : goToPrev(),
       onSwipeDown: closeSelectedImage,
       onDrag: (_dx: number, dy: number) => {
         if (dy > 0) setSheetDragY(dy);
       },
       onDragCancel: () => setSheetDragY(0),
     }),
-    [goToNext, goToPrev, closeSelectedImage],
+    [
+      goToNext,
+      goToPrev,
+      closeSelectedImage,
+      setSlideIndex,
+      slideCount,
+      slideIndex,
+    ],
   );
   useSwipeGesture(mobileDetailRef, swipeHandlers);
 
@@ -3505,16 +3601,6 @@ export function GalleryDashboard({
       if (event.key === "Escape") {
         event.preventDefault();
         closeSelectedImage();
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        goToPrev();
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        goToNext();
         return;
       }
       if (!isMobile || event.key !== "Tab") return;
@@ -3554,8 +3640,43 @@ export function GalleryDashboard({
   }, [
     closeSelectedImage,
     selectedImage,
-    goToPrev,
+  ]);
+
+  // ArrowLeft/Right: in a pack, walk its frames first and only then step to
+  // the neighbouring card. Kept apart from the effect above so a slide change
+  // doesn't re-run its mobile focus handling.
+  useEffect(() => {
+    if (!selectedImage) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      // Arrows move the caret while editing a description or tags.
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (event.key === "ArrowLeft") {
+        if (slideIndex > 0) setSlideIndex(slideIndex - 1);
+        else goToPrev();
+        return;
+      }
+      if (slideIndex < slideCount - 1) setSlideIndex(slideIndex + 1);
+      else goToNext();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
     goToNext,
+    goToPrev,
+    selectedImage,
+    setSlideIndex,
+    slideCount,
+    slideIndex,
   ]);
 
   // Escape drops the selection when no overlay is up (the detail view has its
@@ -3606,50 +3727,52 @@ export function GalleryDashboard({
     ? "var(--lm-sidebar-collapsed)"
     : "var(--lm-sidebar-width)";
 
-  const carouselImages = useMemo(() => {
-    const previews = selectedImage?.previewImages ?? [];
-    if (!selectedImage || previews.length <= 1) {
-      return undefined;
-    }
-
-    return previews.map((preview) => ({
-      id: preview.id,
-      thumbSrc: preview.src,
-      fullSrc: preview.fullSrc,
-      width: preview.width,
-      height: preview.height,
-      prompt: preview.prompt,
-      promptId: preview.promptId,
-      kind: preview.kind,
-      contentType: preview.contentType,
-    }));
-  }, [selectedImage]);
-
-  // The open asset, live. `selectedImage` is a snapshot taken on click, so
+  // The open file, live. `selectedImage` is a snapshot taken on click, so
   // anything written from the panel — a description, tags, filing, a cover —
   // would leave the panel showing its own stale copy. Subscribing to the one
-  // asset keeps the panel honest without re-fetching the grid.
+  // asset keeps the panel honest without re-fetching the grid. In a pack it
+  // is the frame on show, so every field and action is about that file.
   const selectedAssetIdForLive =
     selectedImage &&
     (selectedImage.galleryItemType === "asset" ||
+      selectedImage.galleryItemType === "pack" ||
       selectedImage.galleryItemType === undefined) &&
     !selectedImage.isDesignInspiration
-      ? selectedImage.id
+      ? activeSlideId
       : null;
+  const liveReadExpected = Boolean(selectedAssetIdForLive && canAccessMyGallery);
   const liveSelectedAsset = useQuery(
     api.assets.getGalleryAsset,
-    selectedAssetIdForLive && canAccessMyGallery
+    liveReadExpected
       ? { id: selectedAssetIdForLive as Id<"assets">, ownerUserId }
       : "skip",
   );
 
   const selectedImageLive = useMemo<SelectedImage | null>(() => {
     if (!selectedImage) return null;
-    if (!liveSelectedAsset || liveSelectedAsset._id !== selectedImage.id) {
-      return selectedImage;
+    const onCover = activeSlideId === selectedImage.id;
+    if (!liveSelectedAsset || liveSelectedAsset._id !== activeSlideId) {
+      if (onCover || !liveReadExpected) return selectedImage;
+      // Another frame, still loading: show nothing of the cover's rather
+      // than pass its tags and filing off as this file's.
+      return {
+        ...selectedImage,
+        description: undefined,
+        tagNames: [],
+        folderId: undefined,
+        folderIds: [],
+        isPublic: undefined,
+        isFeatured: undefined,
+        isLiked: undefined,
+        starredAt: undefined,
+        starNote: undefined,
+      };
     }
     return {
       ...selectedImage,
+      packId: onCover
+        ? selectedImage.packId
+        : (liveSelectedAsset.assetPackId as string | undefined),
       description: liveSelectedAsset.description,
       tagNames: liveSelectedAsset.tagNames,
       folderId: liveSelectedAsset.folderId as string | undefined,
@@ -3660,8 +3783,10 @@ export function GalleryDashboard({
       starredAt: liveSelectedAsset.starredAt,
       starNote: liveSelectedAsset.starNote,
       modelName: liveSelectedAsset.modelName ?? selectedImage.modelName,
+      sourceUrl: liveSelectedAsset.sourceUrl ?? selectedImage.sourceUrl,
+      createdAt: liveSelectedAsset.createdAt,
     };
-  }, [liveSelectedAsset, selectedImage]);
+  }, [activeSlideId, liveReadExpected, liveSelectedAsset, selectedImage]);
 
   // ── Collection thumbnail ───────────────────────────────────────────────────
   // A collection's card image can come from any piece inside it (the detail
@@ -4021,9 +4146,9 @@ export function GalleryDashboard({
           void deleteAsset(imageId);
         }
       : undefined,
-    deleting: deletingAssetId === selectedImage?.id,
+    deleting: deletingAssetId === activeSlideId,
     deleteError: canDeleteInCurrentView
-      ? deletingAssetId === selectedImage?.id ||
+      ? deletingAssetId === activeSlideId ||
         deleteAssetError
         ? deleteAssetError
         : undefined
@@ -4050,9 +4175,9 @@ export function GalleryDashboard({
       ? (name: string, imageId: string) =>
           createCollectionFromAssets(name, [imageId])
       : undefined,
-    filingBusy: folderLoadingAssetId === selectedImage?.id,
+    filingBusy: folderLoadingAssetId === activeSlideId,
     filingError:
-      folderLoadingAssetId === selectedImage?.id ||
+      folderLoadingAssetId === activeSlideId ||
       folderError
         ? folderError
         : undefined,
@@ -4066,9 +4191,9 @@ export function GalleryDashboard({
         }
       : undefined,
     curationBusy:
-      curationLoadingAssetId === selectedImage?.id,
+      curationLoadingAssetId === activeSlideId,
     curationError:
-      curationLoadingAssetId === selectedImage?.id ||
+      curationLoadingAssetId === activeSlideId ||
       curationError
         ? curationError
         : undefined,
@@ -4078,15 +4203,15 @@ export function GalleryDashboard({
     similarBusy:
       semanticLoading &&
       semanticMode?.kind === "similar" &&
-      semanticMode.assetId === selectedImage?.id,
+      semanticMode.assetId === activeSlideId,
     similarActive:
       semanticMode?.kind === "similar" &&
-      semanticMode.assetId === selectedImage?.id,
+      semanticMode.assetId === activeSlideId,
     onReplaceThumbnail: canDeleteInCurrentView
       ? handleReplaceThumbnail
       : undefined,
     replacingThumbnail:
-      replacingThumbAssetId === selectedImage?.id,
+      replacingThumbAssetId === activeSlideId,
     // Description and tags edit through owner-auth mutations, so this needs no
     // admin mode — unlike the old metadata form, which sat behind /admin.
     canEditDetails: canManageFoldersInCurrentView,
@@ -5008,6 +5133,8 @@ export function GalleryDashboard({
             <GalleryDetailPanel
               image={selectedImageLive ?? selectedImage}
               carouselImages={carouselImages}
+              slideIndex={slideIndex}
+              onSlideIndexChange={setSlideIndex}
               variant="modal"
               {...expandedDetailProps}
             />
@@ -5061,6 +5188,8 @@ export function GalleryDashboard({
               <GalleryDetailPanel
                 image={selectedImageLive ?? selectedImage}
                 carouselImages={carouselImages}
+                slideIndex={slideIndex}
+                onSlideIndexChange={setSlideIndex}
                 {...expandedDetailProps}
               />
             </div>
