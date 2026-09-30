@@ -1,8 +1,9 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
+import { fitChipsInRows } from "@/lib/chip-rows";
 import { compareCollectionSectionNames } from "@/lib/collection-sections";
 
 // A collection card's data: summary from folders.listCollectionSummaries
@@ -319,34 +320,141 @@ function CollectionCard({
       </button>
       {/* Sub-collections open directly from the chip row. */}
       {childCollections.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5 px-0.5">
-          {childCollections.map((child) => (
-            <button
-              key={child._id}
-              type="button"
-              onClick={() => onOpen(child._id)}
-              className="interactive-ghost inline-flex items-center gap-1 rounded-full px-2.5 py-1"
-              style={{
-                fontFamily: "var(--lm-font)",
-                fontSize: "9px",
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "var(--lm-text-secondary)",
-                border: "1px solid var(--lm-border-strong)",
-                backgroundColor: "transparent",
-                cursor: "pointer",
-              }}
-              aria-label={`Open ${collection.name} / ${child.name}`}
-            >
-              {child.name}
-              <span style={{ color: "var(--lm-text-ghost)" }}>
-                {child.count}
-              </span>
-            </button>
-          ))}
-        </div>
+        <SubCollectionChips
+          parentName={collection.name}
+          childCollections={childCollections}
+          onOpen={onOpen}
+        />
       )}
     </div>
+  );
+}
+
+const CHIP_GAP = 6;
+const CHIP_ROWS = 2;
+
+const chipStyle: React.CSSProperties = {
+  fontFamily: "var(--lm-font)",
+  fontSize: "9px",
+  fontWeight: 700,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  color: "var(--lm-text-secondary)",
+  border: "1px solid var(--lm-border-strong)",
+  backgroundColor: "transparent",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  maxWidth: "100%",
+};
+
+const chipClass =
+  "interactive-ghost inline-flex min-w-0 shrink-0 items-center gap-1 rounded-full px-2.5 py-1";
+
+/**
+ * A parent card's sub-collection chips, held to two lines so every card in
+ * the grid keeps the same footprint. The rest sit behind a "+N" chip that
+ * unfolds them in place.
+ */
+function SubCollectionChips({
+  parentName,
+  childCollections,
+  onOpen,
+}: {
+  parentName: string;
+  childCollections: CollectionCardData[];
+  onOpen: (folderId: string) => void;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(childCollections.length);
+  const [expanded, setExpanded] = useState(false);
+
+  // Pack the chips off-screen at their natural widths, then keep as many as
+  // fit in two lines. Re-runs when the card resizes or fonts land.
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const measure = measureRef.current;
+    if (!row || !measure) return;
+    const fit = () => {
+      const nodes = Array.from(measure.children) as HTMLElement[];
+      const more = nodes.pop();
+      setVisibleCount(
+        fitChipsInRows({
+          widths: nodes.map((node) => node.offsetWidth),
+          rowWidth: row.clientWidth,
+          gap: CHIP_GAP,
+          maxRows: CHIP_ROWS,
+          moreWidth: more?.offsetWidth ?? 0,
+        }),
+      );
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(row);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [childCollections]);
+
+  const hidden = childCollections.length - visibleCount;
+  const shown = expanded ? childCollections : childCollections.slice(0, visibleCount);
+
+  return (
+    <div className="relative mt-2 px-0.5">
+      <div
+        ref={measureRef}
+        aria-hidden
+        className="pointer-events-none invisible absolute left-0 top-0 flex"
+        style={{ gap: CHIP_GAP }}
+      >
+        {childCollections.map((child) => (
+          <span key={child._id} className={chipClass} style={chipStyle}>
+            <ChipLabel child={child} />
+          </span>
+        ))}
+        <span className={chipClass} style={chipStyle}>
+          +{childCollections.length}
+        </span>
+      </div>
+      <div ref={rowRef} className="flex flex-wrap" style={{ gap: CHIP_GAP }}>
+        {shown.map((child) => (
+          <button
+            key={child._id}
+            type="button"
+            onClick={() => onOpen(child._id)}
+            className={chipClass}
+            style={chipStyle}
+            title={child.name}
+            aria-label={`Open ${parentName} / ${child.name}`}
+          >
+            <ChipLabel child={child} />
+          </button>
+        ))}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((open) => !open)}
+            className={chipClass}
+            style={{ ...chipStyle, color: "var(--lm-text-primary)" }}
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? `Show fewer ${parentName} sub-collections`
+                : `Show ${hidden} more ${parentName} sub-collections`
+            }
+          >
+            {expanded ? "Less" : `+${hidden}`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChipLabel({ child }: { child: CollectionCardData }) {
+  return (
+    <>
+      <span className="truncate">{child.name}</span>
+      <span style={{ color: "var(--lm-text-ghost)" }}>{child.count}</span>
+    </>
   );
 }
