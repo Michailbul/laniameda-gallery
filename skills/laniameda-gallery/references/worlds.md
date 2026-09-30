@@ -16,9 +16,9 @@ as everywhere else.
 |---|---|---|---|
 | **DEAR ANNETE** | root holds nothing loose | | `j97ca9jqpeagn2r6z1015ekpq588y5x3` |
 | | › **Animation** | animation | `j97a5aher6cph4qpadmcw7aj9h8fcbke` |
-| | › **Unreal Engine** | live-action look (AAA Unreal cinematic, photoreal textures) | `j9780r64s6hsss9wpqm0fhzcnd8fdxds` |
+| | › **Unreal Engine** | live action (AAA Unreal cinematic, photoreal textures) | `j9780r64s6hsss9wpqm0fhzcnd8fdxds` |
 | | › **Piazza Graphic 2D** | animation | `j9756s9azvn68egr9tss53mj7d8fd51n` |
-| | › **Dari** (a project inside the world) | Unreal cinematic | `j97dhvnq3s422s9ekx560f19jx8ezys9` |
+| | › **Dari** (a project inside the world) | live action (Unreal Engine look) | `j97dhvnq3s422s9ekx560f19jx8ezys9` |
 | **DADDY ISSUES** | none | animation | `j97da4j6e2zgregr873f3teze98bdmnn` |
 | **ANDROMEDA — ANN** | none | animation | `j97bxbd07tfcnzah723hwh93qn8dw3zb` |
 | **ANDROMEDA — RETRO-FUTURE** | none | animation | `j97cpd21smhhqrkbz65b22sa858fct3n` |
@@ -98,12 +98,19 @@ oversized retro jackets), worn machines, desert outposts, cockpits and corridors
 | `flat-fashion-caricature` (main look) | Flat-shaded 2D caricatures, elongated limbs, tiny heads, oversized retro streetwear, hard desert sun. Old mechanic `asset:j573852fj790g6yf145e2jz6vh8e1z7q`. |
 | `painted-crew-close-ups` | Painterly semi-3D low-angle crew portraits with race numbers, sun-bleached rooftops. `asset:j570e0b5600hke95wq5rn6hv9s8e00e4`. |
 
+## Medium: the master tags still rule
+
+The island bar's master pills are `animation`, `live-action` and `design`. The worlds never
+change them. Unreal Engine and Dari are **live action** (tag `live-action`, never `animation`);
+every other part is **animation** (tag `animation`, never `live-action`). "Unreal Engine" is a
+Dear Annete part name, not a medium. Don't touch `design` or the asset type schema.
+
 ## Filing a new piece into a world
 
 1. Decide the world by **story world and style together**. A piece that fits the world but
    not any of its looks goes nowhere yet: ask Michael, or leave it unfiled.
 2. File into the world's **part** (the folder), never loose in the DEAR ANNETE root.
-3. Tag: piece type, `animation` when animated, and the part's **style tag** from the tables
+3. Tag: piece type, the medium (`animation` or `live-action`, per the part), and the part's **style tag** from the tables
    above. Reuse these exact tag names; ask before starting a new style. `character` means a
    person or creature: never tag a location, vehicle or carriage as a character.
 4. `.webp` → INSPIRATION VAULT, never a world.
