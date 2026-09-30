@@ -1118,10 +1118,11 @@ function FilterRow({
   };
 
   return (
-    <button
-      type="button"
-      onClick={renameDraft !== null ? undefined : onClick}
-      className="group lm-glass-filter-row cursor-pointer"
+    // The row is a div so the management controls can be real buttons beside
+    // the navigation button (a button cannot contain buttons), reachable by
+    // keyboard and revealed on focus as well as hover.
+    <div
+      className="group lm-glass-filter-row"
       data-active={active ? "true" : "false"}
       onPointerLeave={() => setDeleteArmed(false)}
       onDragOver={
@@ -1148,7 +1149,9 @@ function FilterRow({
           : undefined
       }
       style={{
-        ...(indent ? { paddingLeft: "34px" } : {}),
+        paddingTop: 0,
+        paddingBottom: 0,
+        paddingLeft: 0,
         ...(dragOver
           ? {
               backgroundColor: "rgba(255, 122, 100, 0.14)",
@@ -1158,6 +1161,16 @@ function FilterRow({
           : {}),
       }}
     >
+      <button
+        type="button"
+        onClick={renameDraft !== null ? undefined : onClick}
+        className="flex min-w-0 flex-1 cursor-pointer items-center self-stretch text-left"
+        style={{
+          gap: "10px",
+          padding: `6px 0 6px ${indent ? "34px" : "16px"}`,
+          color: "inherit",
+        }}
+      >
       {expanded !== undefined && onToggleExpand ? (
         <span
           role="button"
@@ -1271,7 +1284,7 @@ function FilterRow({
       )}
       {count !== undefined && renameDraft === null && (
         <span
-          className={manageable ? "group-hover:hidden" : undefined}
+          className={manageable ? "group-hover:hidden group-focus-within:hidden" : undefined}
           style={{
             fontSize: "9px",
             fontVariantNumeric: "tabular-nums",
@@ -1284,33 +1297,32 @@ function FilterRow({
           {count}
         </span>
       )}
+      </button>
       {manageable && renameDraft === null && (
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
           {onAddSub && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onAddSub();
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{ color: "var(--lm-sidebar-text-ghost)" }}
               aria-label={`New sub-collection inside ${label}`}
               title="New sub-collection"
             >
               <Plus className="h-2.5 w-2.5" />
-            </span>
+            </button>
           )}
           {onToggleTaste && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleTaste(!taste);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: taste
                   ? "var(--lm-coral)"
@@ -1331,18 +1343,18 @@ function FilterRow({
                 className="h-2.5 w-2.5"
                 style={taste ? { fill: "var(--lm-coral)" } : undefined}
               />
-            </span>
+            </button>
           )}
           {onToggleHidden && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
+              disabled={hiddenByParent}
+              aria-pressed={hidden}
               onClick={(e) => {
                 e.stopPropagation();
-                if (hiddenByParent) return;
                 onToggleHidden(!hidden);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: hidden
                   ? "var(--lm-coral)"
@@ -1364,17 +1376,16 @@ function FilterRow({
               }
             >
               <EyeOff className="h-2.5 w-2.5" />
-            </span>
+            </button>
           )}
           {onTogglePublish && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onTogglePublish(!published);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: published
                   ? "var(--lm-coral)"
@@ -1392,17 +1403,16 @@ function FilterRow({
               }
             >
               <Eye className="h-2.5 w-2.5" />
-            </span>
+            </button>
           )}
           {onToggleFeatured && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleFeatured(!featured);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: featured
                   ? "var(--lm-coral)"
@@ -1421,17 +1431,16 @@ function FilterRow({
                 className="h-2.5 w-2.5"
                 style={featured ? { fill: "var(--lm-coral)" } : undefined}
               />
-            </span>
+            </button>
           )}
           {onToggleShowcase && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleShowcase(!showcased);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: showcased
                   ? "var(--lm-coral)"
@@ -1449,28 +1458,26 @@ function FilterRow({
               }
             >
               <Globe className="h-2.5 w-2.5" />
-            </span>
+            </button>
           )}
           {onRename && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setRenameDraft(label);
               }}
-              className="flex h-4 w-4 items-center justify-center"
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{ color: "var(--lm-sidebar-text-ghost)" }}
               aria-label={`Rename ${label}`}
               title="Rename"
             >
               <Pencil className="h-2.5 w-2.5" />
-            </span>
+            </button>
           )}
           {onDelete && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 if (!deleteArmed) {
@@ -1480,7 +1487,7 @@ function FilterRow({
                 setDeleteArmed(false);
                 void onDelete();
               }}
-              className="flex h-4 items-center justify-center gap-0.5 px-0.5"
+              className="flex h-4 items-center justify-center gap-0.5 px-0.5 rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
               style={{
                 color: deleteArmed
                   ? "var(--lm-coral)"
@@ -1510,10 +1517,10 @@ function FilterRow({
                   sure?
                 </span>
               )}
-            </span>
+            </button>
           )}
         </span>
       )}
-    </button>
+    </div>
   );
 }
