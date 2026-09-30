@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { findSimilarAssets, searchAssets } from "../convex/semanticSearch";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("semantic search actions", () => {
   const originalFetch = global.fetch;
@@ -71,7 +72,7 @@ describe("semantic search actions", () => {
       },
     };
 
-    const results = await searchAssets._handler(ctx as never, {
+    const results = await callAsOwner(searchAssets)(ctx as never, {
       scope: "public",
       query: "editorial brutalist",
       modelName: "imagen",
@@ -126,7 +127,7 @@ describe("semantic search actions", () => {
       },
     };
 
-    const results = await findSimilarAssets._handler(ctx as never, {
+    const results = await callAsOwner(findSimilarAssets)(ctx as never, {
       scope: "public",
       assetId: "assets:1" as never,
       limit: 10,

@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "action is required." }, { status: 400 });
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(agent.ownerUserId);
 
     if (action === "listAssets") {
       const assets = await client.query(api.assets.listGalleryAssets, {

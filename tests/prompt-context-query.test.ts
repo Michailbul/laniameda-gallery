@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getPromptContext } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const OWNER = "278674008";
 
@@ -80,7 +81,7 @@ describe("prompts.getPromptContext", () => {
   test("the owner gets sections, every file sharing the prompt, and the sibling steps", async () => {
     const { workflowId, vlogPrompt } = await seedWorkflow();
 
-    const result = await getPromptContext._handler(harness.ctx as never, {
+    const result = await callAsOwner(getPromptContext)(harness.ctx as never, {
       id: vlogPrompt as never,
       ownerUserId: OWNER,
     });
@@ -111,19 +112,19 @@ describe("prompts.getPromptContext", () => {
     const { workflowId, portraitPrompt } = await seedWorkflow();
 
     expect(
-      await getPromptContext._handler(harness.ctx as never, {
+      await callAsOwner(getPromptContext)(harness.ctx as never, {
         id: portraitPrompt as never,
         ownerUserId: "999",
       }),
     ).toBeNull();
     expect(
-      await getPromptContext._handler(harness.ctx as never, {
+      await callAsOwner(getPromptContext)(harness.ctx as never, {
         id: portraitPrompt as never,
       }),
     ).toBeNull();
 
     await harness.db.patch(workflowId, { isPublic: true });
-    const result = await getPromptContext._handler(harness.ctx as never, {
+    const result = await callAsOwner(getPromptContext)(harness.ctx as never, {
       id: portraitPrompt as never,
     });
     expect(result?.workflow?.title).toBe("1890s GRWM vlog");
@@ -148,7 +149,7 @@ describe("prompts.getPromptContext", () => {
       });
     }
 
-    const result = await getPromptContext._handler(harness.ctx as never, {
+    const result = await callAsOwner(getPromptContext)(harness.ctx as never, {
       id: promptId as never,
       ownerUserId: OWNER,
     });
@@ -158,7 +159,7 @@ describe("prompts.getPromptContext", () => {
 
     // A private prompt with no workflow is the owner's alone.
     expect(
-      await getPromptContext._handler(harness.ctx as never, {
+      await callAsOwner(getPromptContext)(harness.ctx as never, {
         id: promptId as never,
       }),
     ).toBeNull();

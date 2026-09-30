@@ -44,6 +44,7 @@ import {
   ingestSourceValidator,
   optionalPillarValidator,
 } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const pillarValidator = optionalPillarValidator;
 const reindexAssetAction = makeFunctionReference<"action">(
@@ -530,7 +531,7 @@ const mergeRepeatedSaveMetadata = async (
   await bumpTagUsage(ctx, extraTagIds, 1);
 };
 
-export const createAsset = mutation({
+export const createAsset = ownerMutation({
   args: {
     ownerUserId: v.string(),
     kind: v.union(v.literal("image"), v.literal("video")),
@@ -723,7 +724,7 @@ const agentDescriptionPatch = (
 
 // Set or replace one asset's agent description without touching anything
 // else, then reindex so search picks it up.
-export const setAgentDescription = mutation({
+export const setAgentDescription = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -775,7 +776,7 @@ export const setAgentDescription = mutation({
 
 // "Did I already save this?" for extraction runs: which of these source URLs
 // (post permalinks, page URLs) already have assets in the owner's vault.
-export const findAssetsBySourceUrls = query({
+export const findAssetsBySourceUrls = ownerQuery({
   args: {
     ownerUserId: v.string(),
     sourceUrls: v.array(v.string()),
@@ -815,7 +816,7 @@ export const findAssetsBySourceUrls = query({
   },
 });
 
-export const setAssetFolder = mutation({
+export const setAssetFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -855,7 +856,7 @@ export const setAssetFolder = mutation({
   },
 });
 
-export const setAssetLiked = mutation({
+export const setAssetLiked = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -910,7 +911,7 @@ const requireOwnedAsset = async (
 // wherever the asset surfaces — collection, world, project section or plain
 // browse. Unstarring KEEPS any note: the note is only ever shown while starred,
 // so holding it makes an accidental toggle free to undo.
-export const setAssetStarred = mutation({
+export const setAssetStarred = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -960,7 +961,7 @@ export const setAssetStarred = mutation({
 });
 
 // Edit just the note on a starred asset, without touching the star itself.
-export const setAssetStarNote = mutation({
+export const setAssetStarNote = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -979,7 +980,7 @@ export const setAssetStarNote = mutation({
   },
 });
 
-export const setAssetFolders = mutation({
+export const setAssetFolders = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -1019,7 +1020,7 @@ export const setAssetFolders = mutation({
   },
 });
 
-export const addAssetFolders = mutation({
+export const addAssetFolders = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -1079,7 +1080,7 @@ export const addAssetFolders = mutation({
 // "not relevant here". Idempotent: removing a collection the asset was never
 // in reports removed: false instead of throwing, so a double click, a stale
 // tile, or a retry is harmless.
-export const removeAssetFolder = mutation({
+export const removeAssetFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -1140,7 +1141,7 @@ export const removeAssetFolder = mutation({
   },
 });
 
-export const updateAssetMetadata = mutation({
+export const updateAssetMetadata = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -1458,7 +1459,7 @@ export const adminUpdateAsset = mutation({
   },
 });
 
-export const getAsset = query({
+export const getAsset = ownerQuery({
   args: {
     id: v.id("assets"),
     ownerUserId: v.optional(v.string()),
@@ -1476,7 +1477,7 @@ export const getAsset = query({
   },
 });
 
-export const getGalleryAsset = query({
+export const getGalleryAsset = ownerQuery({
   args: {
     id: v.id("assets"),
     ownerUserId: v.optional(v.string()),
@@ -1519,7 +1520,7 @@ export const getAssetIdForIngestKey = internalQuery({
   },
 });
 
-export const listAssets = query({
+export const listAssets = ownerQuery({
   args: {
     ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),
@@ -1845,7 +1846,7 @@ const hasMenuFilterArgs = (args: MenuFilterArgs) =>
 // otherwise not reach the top of the grid until the user scrolled that far.
 // The caller merges these into its asset list before filtering, so search and
 // the filter bar still apply to them normally.
-export const listStarredAssets = query({
+export const listStarredAssets = ownerQuery({
   args: {
     ownerUserId: v.string(),
     folderId: v.optional(v.id("folders")),
@@ -1900,7 +1901,7 @@ export const listStarredAssets = query({
   },
 });
 
-export const listGalleryAssets = query({
+export const listGalleryAssets = ownerQuery({
   args: {
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -2140,7 +2141,7 @@ export const listGalleryAssets = query({
   },
 });
 
-export const galleryAssetFacets = query({
+export const galleryAssetFacets = ownerQuery({
   args: {
     ownerUserId: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
@@ -2347,7 +2348,7 @@ const parseWrappedCursor = (raw: string | null): WrappedCursor => {
   }
 };
 
-export const listGalleryAssetsPage = query({
+export const listGalleryAssetsPage = ownerQuery({
   args: {
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -2466,7 +2467,7 @@ export const listGalleryAssetsPage = query({
 // index — so a collection of any size streams fully, no 600 cap. Membership
 // upkeep mirrors the legacy assets.folderId alias into links, so links alone
 // are the complete member set.
-export const listFolderAssetsPage = query({
+export const listFolderAssetsPage = ownerQuery({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -2855,7 +2856,7 @@ export const bulkSetFolderCuration = mutation({
 const INGEST_MATCH_MAX_ENTRIES = 16;
 const INGEST_MATCH_MIN_PREFIX_LENGTH = 30;
 
-export const checkAssetIngestMatches = query({
+export const checkAssetIngestMatches = ownerQuery({
   args: {
     ownerUserId: v.string(),
     keys: v.array(v.string()),
@@ -2928,7 +2929,7 @@ export const checkAssetIngestMatches = query({
 // the asset's existing tagIds, and keeps assetTags links + usageCount in sync.
 // Deliberately does NOT schedule a semantic reindex — bulk tagging would fan
 // out hundreds of embedding jobs; the periodic backfill picks the change up.
-export const addAssetTags = mutation({
+export const addAssetTags = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3021,7 +3022,7 @@ export const addAssetTags = mutation({
 
 // Rename an asset. The name is a short user-given handle, referenced as
 // @name when composing beats. Empty clears it.
-export const renameAsset = mutation({
+export const renameAsset = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3052,7 +3053,7 @@ export const renameAsset = mutation({
 // Manual ordering for the project workspace: move an asset to the top or
 // bottom of its views. Timestamps keep repeated moves monotonic (the latest
 // "top" wins) without reading siblings.
-export const setAssetPriority = mutation({
+export const setAssetPriority = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3090,7 +3091,7 @@ export const setAssetPriority = mutation({
 
 // Pin/unpin an asset in the project workspace. Pinned assets float above
 // everything (latest pin first) and carry a pin marker.
-export const setAssetPinned = mutation({
+export const setAssetPinned = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3120,7 +3121,7 @@ export const setAssetPinned = mutation({
 // bytes URL for the /api/assets/[assetId]/download proxy (R2's public domain
 // has no CORS headers, so downloads stream same-origin with an attachment
 // header). The route validates the session before calling this.
-export const getAssetDownload = query({
+export const getAssetDownload = ownerQuery({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3155,7 +3156,7 @@ export const getAssetDownload = query({
 // Reference options for the @ selector: every named asset PLUS the newest
 // assets across the gallery, so ANY asset can be pulled into a beat — named
 // ones by @name, the rest by file name. The client filters as the user types.
-export const listAssetOptions = query({
+export const listAssetOptions = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -3314,7 +3315,7 @@ const setTagPresenceOnAsset = async (
 // Toggle any global tag on an asset with the same boolean-flag ergonomics.
 // Powers the project workspace role chips (character / location), where a
 // tag IS the asset's role inside a beat.
-export const setAssetTagState = mutation({
+export const setAssetTagState = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3359,7 +3360,7 @@ const ASSET_TYPE_TAG_ALIASES: Record<AssetType, readonly string[]> = {
   scene: ["scene", "scenes", "still", "stills"],
 };
 
-export const bulkSetAssetTagState = mutation({
+export const bulkSetAssetTagState = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetIds: v.array(v.id("assets")),
@@ -3408,7 +3409,7 @@ export const bulkSetAssetTagState = mutation({
   },
 });
 
-export const bulkAssignAssetType = mutation({
+export const bulkAssignAssetType = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetIds: v.array(v.id("assets")),
@@ -3489,7 +3490,7 @@ export const bulkAssignAssetType = mutation({
 // Minimal projection of every owned asset for the style-classification
 // backfill (scripts/classify-animation-live-action.ts): media URLs to fetch
 // bytes from plus current tag names for idempotent skip checks.
-export const listAssetsForStyleClassification = query({
+export const listAssetsForStyleClassification = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -3543,7 +3544,7 @@ export const listAssetsForStyleClassification = query({
   },
 });
 
-export const folderAssetCounts = query({
+export const folderAssetCounts = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -3628,7 +3629,7 @@ export const listPublicCollections = query({
   },
 });
 
-export const replaceAssetThumbnail = mutation({
+export const replaceAssetThumbnail = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3675,7 +3676,7 @@ export const replaceAssetThumbnail = mutation({
   },
 });
 
-export const replaceAssetMedia = mutation({
+export const replaceAssetMedia = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -3956,7 +3957,7 @@ export const wipeAllAssets = internalMutation({
 // the vault, so this stays far below the vault size.
 const FEATURED_SHELF_SCAN_LIMIT = 2000;
 
-export const listFeaturedAssets = query({
+export const listFeaturedAssets = ownerQuery({
   args: { ownerUserId: v.string(), publicCap: v.optional(v.number()) },
   returns: v.array(
     v.object({
@@ -4028,7 +4029,7 @@ export const listFeaturedAssets = query({
  * project workspace (which writes +Date.now()) still lands above the shelf
  * instead of landing in the middle of it.
  */
-export const reorderFeaturedAssets = mutation({
+export const reorderFeaturedAssets = ownerMutation({
   args: { ownerUserId: v.string(), assetIds: v.array(v.id("assets")) },
   returns: v.object({ updated: v.number() }),
   handler: async (ctx, args) => {
@@ -4063,7 +4064,7 @@ export const reorderFeaturedAssets = mutation({
  * caption means echoing every tag back correctly or silently wiping them. This
  * touches one column.
  */
-export const setAssetDescription = mutation({
+export const setAssetDescription = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -4100,7 +4101,7 @@ export const setAssetDescription = mutation({
  * tags on an open asset. Names rather than ids so the caller never has to
  * create a tag first; unknown names are created, like ingest does.
  */
-export const setAssetTags = mutation({
+export const setAssetTags = ownerMutation({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),

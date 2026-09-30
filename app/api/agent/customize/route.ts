@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     }
 
     const agent = await requireAgentAuth(request, requiredScopeForAction(action));
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(agent.ownerUserId);
 
     if (action === "listTags") {
       const tags = await client.query(api.userTags.listUserTags, {

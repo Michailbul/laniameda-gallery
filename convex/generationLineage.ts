@@ -1,9 +1,10 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { canActorAccessOwnerUserId } from "./authz";
 import { lineageRoleValidator } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const lineageDocValidator = v.object({
   _id: v.id("generationLineage"),
@@ -138,7 +139,7 @@ async function assertOwnedLineageEndpoint(
   }
 }
 
-export const upsertLineage = mutation({
+export const upsertLineage = ownerMutation({
   args: {
     ownerUserId: v.string(),
     targetPromptId: v.optional(v.id("prompts")),
@@ -189,7 +190,7 @@ async function hydrateLineageRows(
   );
 }
 
-export const getUpstreamForAsset = query({
+export const getUpstreamForAsset = ownerQuery({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -209,7 +210,7 @@ export const getUpstreamForAsset = query({
   },
 });
 
-export const getUpstreamForPrompt = query({
+export const getUpstreamForPrompt = ownerQuery({
   args: {
     ownerUserId: v.string(),
     promptId: v.id("prompts"),
@@ -229,7 +230,7 @@ export const getUpstreamForPrompt = query({
   },
 });
 
-export const getDownstreamForAsset = query({
+export const getDownstreamForAsset = ownerQuery({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),
@@ -249,7 +250,7 @@ export const getDownstreamForAsset = query({
   },
 });
 
-export const getDownstreamForPrompt = query({
+export const getDownstreamForPrompt = ownerQuery({
   args: {
     ownerUserId: v.string(),
     promptId: v.id("prompts"),

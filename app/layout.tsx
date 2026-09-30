@@ -36,9 +36,9 @@ export default function RootLayout({
         className={`${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ConvexClientProvider>
-          <TelegramAuthProvider>{children}</TelegramAuthProvider>
-        </ConvexClientProvider>
+        <TelegramAuthProvider>
+          <ConvexClientProvider>{children}</ConvexClientProvider>
+        </TelegramAuthProvider>
       </body>
     </html>
   );

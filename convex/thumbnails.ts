@@ -1,7 +1,7 @@
 "use node";
 
 import { Jimp, JimpMime } from "jimp";
-import { action, internalAction, type ActionCtx } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import { Id } from "./_generated/dataModel";
@@ -11,6 +11,7 @@ import {
   CARD_THUMB_MAX_WIDTH,
   CARD_THUMB_WEBP_QUALITY,
 } from "../lib/card-thumbnail";
+import { ownerAction } from "./actor";
 
 // ── Card thumbnail encoder ──────────────────────────────────────────────────
 // One encoder for every ingest path, so a tile costs the same bytes whichever
@@ -153,7 +154,7 @@ const replaceAssetThumbnailRef = makeFunctionReference<"mutation">(
   "assets:replaceAssetThumbnail",
 );
 
-export const processAndReplaceThumbnail = action({
+export const processAndReplaceThumbnail = ownerAction({
   args: {
     ownerUserId: v.string(),
     assetId: v.id("assets"),

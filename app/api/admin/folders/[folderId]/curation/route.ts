@@ -52,7 +52,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(authUser.ownerUserId);
     const result = await client.mutation(bulkSetFolderCurationMutation, {
       folderId: folderId as Id<"folders">,
       actorUserId: authUser.id,

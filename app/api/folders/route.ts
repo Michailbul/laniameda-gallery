@@ -13,7 +13,7 @@ const unauthorized = () =>
 export async function GET() {
   try {
     const user = await requireAppUser();
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const folders = await client.query(api.folders.listFolders, {
       ownerUserId: user.ownerUserId,
     });
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       return badRequest("name is required.");
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const result = await client.mutation(api.folders.createFolder, {
       ownerUserId: user.ownerUserId,
       name: body.name,

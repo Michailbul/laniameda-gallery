@@ -74,6 +74,13 @@ CONVEX_URL=https://perfect-buffalo-375.convex.cloud KB_OWNER_USER_ID=<owner id> 
 Source both values from the repo's `.env.local`; never paste the owner id into
 a prompt or a wrapper script.
 
+**Convex only trusts a signed owner.** Every owner-scoped function takes the
+actor from `ctx.auth` (`convex/actor.ts`), so the scripts also need
+`CONVEX_AUTH_PRIVATE_KEY` from `.env.local`. `scripts/convex-auth.ts` signs a
+one-hour token for `KB_OWNER_USER_ID` and sends it as `Authorization: Bearer`.
+Without the key, the deployment answers `Not authenticated.`. A bare
+`ownerUserId` argument is no longer enough.
+
 ## Agent descriptions: switches and backfill
 
 Deployment env (set with `CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex env set …`):
@@ -121,6 +128,22 @@ rather than read `process.env.CONVEX_URL`, for the same reason. And source
 secrets from the repo's `.env.local` explicitly — `export $(grep … .env.local)`
 run from a scratch directory silently finds nothing and dumps the whole
 environment.
+
+## Convex auth keys and rollout
+
+- `CONVEX_AUTH_PRIVATE_KEY`: Vercel env, the repo's `.env.local` (scripts) and
+  the agent worker. `CONVEX_AUTH_JWKS`: Convex env. Generate the pair with
+  `bun scripts/generate-convex-auth-keys.ts` (prints only).
+- `convex/auth.config.ts` reads `CONVEX_AUTH_JWKS` at push time. Set it on the
+  deployment **before** pushing, or the push fails.
+- `LEGACY_OWNER_ARG_AUTH=true` (Convex env) accepts unauthenticated calls that
+  name an owner, the pre-fix behaviour. It only bridges the gap between the
+  Convex push and the Vercel deploy. Unset it right after.
+- Rollout order: set `CONVEX_AUTH_JWKS` and `LEGACY_OWNER_ARG_AUTH=true` →
+  push Convex → set `CONVEX_AUTH_PRIVATE_KEY` in Vercel and `.env.local` →
+  deploy the app → check the vault loads → `bunx convex env remove
+  LEGACY_OWNER_ARG_AUTH` (with the `CONVEX_DEPLOYMENT=dev:perfect-buffalo-375`
+  prefix, like every CLI call).
 
 ## When the contract changes
 

@@ -1,7 +1,5 @@
 import {
   internalMutation,
-  mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -19,6 +17,7 @@ import { collectAssetsForFolder } from "./assets";
 import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { compareCollectionSectionNames } from "../lib/collection-sections";
+import { ownerMutation, ownerQuery } from "./actor";
 
 export const folderKindValidator = v.optional(
   v.union(
@@ -104,7 +103,7 @@ const dedupeById = <T extends { _id: string }>(rows: T[]) => {
   });
 };
 
-export const createFolder = mutation({
+export const createFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     name: v.string(),
@@ -195,7 +194,7 @@ export const createFolder = mutation({
   },
 });
 
-export const listFolders = query({
+export const listFolders = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -223,7 +222,7 @@ export const listFolders = query({
   },
 });
 
-export const updateFolder = mutation({
+export const updateFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -317,7 +316,7 @@ export const updateFolder = mutation({
 });
 
 // Pin/unpin a collection — pinned rows float first.
-export const setFolderPinned = mutation({
+export const setFolderPinned = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -351,7 +350,7 @@ export const setFolderPinned = mutation({
 // Showcasing publishes the SET, not its members: every public read filters to
 // assets the owner individually marked isPublic, so flipping this flag can
 // never expose a private asset.
-export const setFolderShowcased = mutation({
+export const setFolderShowcased = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -419,7 +418,7 @@ const allocateWorldSlug = async (ctx: MutationCtx, name: string) => {
 // Feature a showcased set on the public home (large hero treatment above the
 // regular stacks). Featuring implies showcasing; un-featuring keeps the set
 // showcased as a regular stack.
-export const setFolderFeatured = mutation({
+export const setFolderFeatured = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -455,7 +454,7 @@ export const setFolderFeatured = mutation({
 // Mark a plain collection as THE taste collection: its members are exactly
 // what the public showcase home's inspiration grid shows. At most one per
 // owner — setting it clears the flag from any other folder.
-export const setTasteCollection = mutation({
+export const setTasteCollection = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -594,7 +593,7 @@ export const cascadeDeleteFolder = async (
   };
 };
 
-export const deleteFolder = mutation({
+export const deleteFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
@@ -752,7 +751,7 @@ const countCollectionAssets = async (
  * with up to four preview thumbs, the chosen cover first. Counts are NOT
  * computed here — the dashboard already subscribes to folderAssetCounts.
  */
-export const listCollectionSummaries = query({
+export const listCollectionSummaries = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -838,7 +837,7 @@ export const listCollectionSummaries = query({
  * deliberately parent-scoped (rather than reusing the all-collections query)
  * so opening a collection reads only its immediate children via `by_parent`.
  */
-export const listChildCollectionEntries = query({
+export const listChildCollectionEntries = ownerQuery({
   args: {
     ownerUserId: v.string(),
     parentFolderId: v.id("folders"),
@@ -922,7 +921,7 @@ const containerMemberFolderIds = async (
 // similar options), and the card image when it is published as a world.
 // The asset must actually be inside, via the primary folderId, an
 // assetFolders link, or — for a container — one of its member folders.
-export const setFolderCover = mutation({
+export const setFolderCover = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),

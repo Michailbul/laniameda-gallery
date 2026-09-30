@@ -16,6 +16,7 @@ import {
   handleSources,
 } from "../skills/laniameda-gallery/scripts/query";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const OWNER = "278674008";
 
@@ -37,7 +38,7 @@ describe("tag aliases", () => {
   test("an alias resolves to its canonical tag; a real tag name wins", async () => {
     const cinematic = await insertTag("cinematic", ["filmic"]);
     const moody = await insertTag("moody", ["cinematic"]);
-    const ids = await getOrCreateTagsWithMetadata._handler(harness.ctx as never, {
+    const ids = await callAsOwner(getOrCreateTagsWithMetadata)(harness.ctx as never, {
       tags: [{ name: "Filmic" }, { name: "cinematic" }],
     });
     expect(ids).toEqual([cinematic, cinematic]);
@@ -47,7 +48,7 @@ describe("tag aliases", () => {
   test("addTagAliases ignores aliases that are real tags", async () => {
     const cinematic = await insertTag("cinematic");
     await insertTag("moody");
-    const result = await addTagAliases._handler(harness.ctx as never, {
+    const result = await callAsOwner(addTagAliases)(harness.ctx as never, {
       name: "Cinematic",
       aliases: ["filmic", "film look", "moody", "cinematic"],
     });
@@ -91,7 +92,7 @@ describe("listGalleryAssets named filters", () => {
 
   const run = async (args: Record<string, unknown>) => {
     const ctx = { ...harness.ctx, storage: { getUrl: async () => null } };
-    const results = await listGalleryAssets._handler(ctx as never, {
+    const results = await callAsOwner(listGalleryAssets)(ctx as never, {
       ownerUserId: OWNER,
       limit: 20,
       ...args,

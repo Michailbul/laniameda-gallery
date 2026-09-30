@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     }
 
     const { ownerUserId: _ignoredOwnerUserId, ...rest } = data;
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(agent.ownerUserId);
     const result = await client.action(deleteAction, {
       ...rest,
       ownerUserId: agent.ownerUserId,

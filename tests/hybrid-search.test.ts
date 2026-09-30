@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { buildAssetFilter, fuseLanes, searchAssets } from "../convex/semanticSearch";
 import { reindexAsset } from "../convex/semanticIndex";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("lane fusion", () => {
   test("a piece found by both lanes outranks one found by a single lane", () => {
@@ -124,7 +125,7 @@ describe("hybrid searchAssets", () => {
 
   test("hybrid queries both lanes and fuses them", async () => {
     const indexes: string[] = [];
-    const results = await searchAssets._handler(makeCtx(indexes) as never, {
+    const results = await callAsOwner(searchAssets)(makeCtx(indexes) as never, {
       scope: "mine",
       ownerUserId: "278674008",
       query: "clay character",
@@ -139,7 +140,7 @@ describe("hybrid searchAssets", () => {
 
   test("visual mode queries the pixel lane only", async () => {
     const indexes: string[] = [];
-    await searchAssets._handler(makeCtx(indexes) as never, {
+    await callAsOwner(searchAssets)(makeCtx(indexes) as never, {
       scope: "mine",
       ownerUserId: "278674008",
       query: "clay character",
@@ -149,7 +150,7 @@ describe("hybrid searchAssets", () => {
   });
 
   test("filters apply after fusion and switch the score cutoff off", async () => {
-    const results = await searchAssets._handler(makeCtx([]) as never, {
+    const results = await callAsOwner(searchAssets)(makeCtx([]) as never, {
       scope: "mine",
       ownerUserId: "278674008",
       query: "clay character",
@@ -208,7 +209,7 @@ describe("text lane indexing", () => {
       },
     };
     try {
-      const result = await reindexAsset._handler(ctx as never, { assetId: "assets:2" as never });
+      const result = await callAsOwner(reindexAsset)(ctx as never, { assetId: "assets:2" as never });
       expect(result.status).toBe("indexed");
       expect(result.retryScheduled).toBeTrue();
       const upsert = writes.find((w) => "searchText" in w)!;
@@ -286,7 +287,7 @@ describe("text lane indexing", () => {
       scheduler: { runAfter: async () => null },
     };
 
-    const first = await reindexAsset._handler(ctx as never, { assetId: "assets:1" as never });
+    const first = await callAsOwner(reindexAsset)(ctx as never, { assetId: "assets:1" as never });
     expect(first.status).toBe("indexed");
     expect(embedBodies).toHaveLength(2); // words + pixels
     // The text lane runs on its own model, first, as a retrieval document.
@@ -297,7 +298,7 @@ describe("text lane indexing", () => {
     expect(stored!.searchText).toContain("Clay character waves");
     expect(stored!.textEmbedding).toEqual([0.1, 0.2, 0.3]);
 
-    await reindexAsset._handler(ctx as never, { assetId: "assets:1" as never });
+    await callAsOwner(reindexAsset)(ctx as never, { assetId: "assets:1" as never });
     expect(embedBodies).toHaveLength(2); // nothing changed, nothing re-embedded
   });
 });

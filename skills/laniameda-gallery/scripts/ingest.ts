@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
+import { convexAuthHeaders } from "./convex-auth";
 
 type Pillar = string;
 type Operation = "create" | "update" | "delete" | "workflow";
@@ -603,7 +604,7 @@ async function callConvex(
     `${convexUrl}/api/${kind}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...convexAuthHeaders() },
       body: JSON.stringify({ path, args }),
     },
     { retry: true, label: path },
@@ -1280,7 +1281,7 @@ export async function mutateOne(
       `${convexUrl}/api/action`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...convexAuthHeaders(ownerUserId) },
         body: JSON.stringify(request),
       },
       { retry: isIdempotent(item), label: summarizeInput(item) },

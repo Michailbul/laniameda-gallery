@@ -15,6 +15,7 @@ import {
   setAgentDescription,
 } from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const OWNER = "278674008";
 
@@ -90,7 +91,7 @@ describe("agent description write paths", () => {
   };
 
   test("createAsset stores an agent description and skips the auto pass", async () => {
-    const { assetId } = await createAsset._handler(harness.ctx as never, {
+    const { assetId } = await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       agentDescription: "  Clay character waving from a doorway.  ",
       sourceUrl: "https://x.com/a/status/1",
@@ -104,7 +105,7 @@ describe("agent description write paths", () => {
   });
 
   test("createAsset indexes directly while automatic descriptions are off", async () => {
-    await createAsset._handler(harness.ctx as never, baseAsset);
+    await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]?.args).toEqual({ assetId: expect.any(String) });
   });
@@ -112,7 +113,7 @@ describe("agent description write paths", () => {
   test("with automatic descriptions on, createAsset describes first and indexes once after", async () => {
     process.env.AGENT_DESCRIPTIONS_ENABLED = "true";
     try {
-      await createAsset._handler(harness.ctx as never, baseAsset);
+      await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     } finally {
       delete process.env.AGENT_DESCRIPTIONS_ENABLED;
     }
@@ -122,17 +123,17 @@ describe("agent description write paths", () => {
   });
 
   test("a repeat save fills a missing description but never overwrites", async () => {
-    const first = await createAsset._handler(harness.ctx as never, {
+    const first = await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       ingestKey: "x:1:1",
     });
-    await createAsset._handler(harness.ctx as never, {
+    await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       ingestKey: "x:1:1",
       agentDescription: "First description.",
       sourceUrl: "https://x.com/a/status/1",
     });
-    await createAsset._handler(harness.ctx as never, {
+    await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       ingestKey: "x:1:1",
       agentDescription: "Second description.",
@@ -143,17 +144,17 @@ describe("agent description write paths", () => {
   });
 
   test("setAgentDescription protects agent-written text unless overwrite is set", async () => {
-    const { assetId } = await createAsset._handler(harness.ctx as never, {
+    const { assetId } = await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       agentDescription: "Original.",
     });
-    const refused = await setAgentDescription._handler(harness.ctx as never, {
+    const refused = await callAsOwner(setAgentDescription)(harness.ctx as never, {
       ownerUserId: OWNER,
       assetId,
       agentDescription: "Replacement.",
     });
     expect(refused.updated).toBeFalse();
-    const replaced = await setAgentDescription._handler(harness.ctx as never, {
+    const replaced = await callAsOwner(setAgentDescription)(harness.ctx as never, {
       ownerUserId: OWNER,
       assetId,
       agentDescription: "Replacement.",
@@ -165,9 +166,9 @@ describe("agent description write paths", () => {
   });
 
   test("setAgentDescription rejects another owner's asset", async () => {
-    const { assetId } = await createAsset._handler(harness.ctx as never, baseAsset);
+    const { assetId } = await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     await expect(
-      setAgentDescription._handler(harness.ctx as never, {
+      callAsOwner(setAgentDescription)(harness.ctx as never, {
         ownerUserId: "someone-else",
         assetId,
         agentDescription: "x",
@@ -176,11 +177,11 @@ describe("agent description write paths", () => {
   });
 
   test("findAssetsBySourceUrls reports saved and unsaved sources", async () => {
-    const { assetId } = await createAsset._handler(harness.ctx as never, {
+    const { assetId } = await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       sourceUrl: "https://x.com/a/status/1",
     });
-    const matches = await findAssetsBySourceUrls._handler(harness.ctx as never, {
+    const matches = await callAsOwner(findAssetsBySourceUrls)(harness.ctx as never, {
       ownerUserId: OWNER,
       sourceUrls: ["https://x.com/a/status/1", "https://x.com/a/status/2", " "],
     });
@@ -191,20 +192,20 @@ describe("agent description write paths", () => {
   });
 
   test("the auto pass never overwrites an agent description", async () => {
-    const { assetId } = await createAsset._handler(harness.ctx as never, {
+    const { assetId } = await callAsOwner(createAsset)(harness.ctx as never, {
       ...baseAsset,
       agentDescription: "Agent wrote this.",
     });
-    const saved = await saveAutoDescription._handler(harness.ctx as never, {
+    const saved = await callAsOwner(saveAutoDescription)(harness.ctx as never, {
       assetId,
       agentDescription: "Auto text.",
       replaceAuto: true,
     });
     expect(saved).toBeFalse();
 
-    const other = await createAsset._handler(harness.ctx as never, baseAsset);
+    const other = await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     expect(
-      await saveAutoDescription._handler(harness.ctx as never, {
+      await callAsOwner(saveAutoDescription)(harness.ctx as never, {
         assetId: other.assetId,
         agentDescription: "Auto text.",
       }),
@@ -243,10 +244,10 @@ describe("describeAsset action", () => {
       },
     };
     expect(
-      (await describeAsset._handler(ctx as never, { assetId: "assets:1" as never })).status,
+      (await callAsOwner(describeAsset)(ctx as never, { assetId: "assets:1" as never })).status,
     ).toBe("disabled");
     expect(indexed).toHaveLength(0);
-    await describeAsset._handler(ctx as never, {
+    await callAsOwner(describeAsset)(ctx as never, {
       assetId: "assets:1" as never,
       reindexAfter: true,
     });
@@ -284,7 +285,7 @@ describe("describeAsset action", () => {
       },
       scheduler: { runAfter: async () => null },
     };
-    const result = await describeAsset._handler(ctx as never, { assetId: "assets:1" as never });
+    const result = await callAsOwner(describeAsset)(ctx as never, { assetId: "assets:1" as never });
     expect(result.status).toBe("described");
     expect(calls.some((url) => url.includes(":generateContent"))).toBeTrue();
     expect(saves[0]).toMatchObject({
@@ -312,7 +313,7 @@ describe("describeAsset action", () => {
         },
       },
     };
-    const result = await describeAsset._handler(ctx as never, { assetId: "assets:1" as never });
+    const result = await callAsOwner(describeAsset)(ctx as never, { assetId: "assets:1" as never });
     expect(result).toEqual({ status: "error", retryScheduled: true });
     expect(retries[0]).toMatchObject({ assetId: "assets:1", attempt: 1 });
   });

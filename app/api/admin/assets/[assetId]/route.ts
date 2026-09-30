@@ -113,7 +113,7 @@ export async function PATCH(
               })()
         : undefined;
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const result = await client.mutation(adminUpdateAssetMutation, {
       assetId: assetId as Id<"assets">,
       actorUserId: user.ownerUserId,

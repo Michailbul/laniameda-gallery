@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import { ingestFromApi } from "../convex/ingest";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 type MutationArgs = Record<string, unknown>;
 
@@ -66,7 +67,7 @@ describe("content-hash duplicate detection", () => {
   });
 
   test("hashes the original bytes of an inline file", async () => {
-    await ingestFromApi._handler(harness.ctx as never, {
+    await callAsOwner(ingestFromApi)(harness.ctx as never, {
       ownerUserId: "telegram:278674008",
       promptText: "A first save.",
       file: { base64, fileName: "a.png", contentType: "image/png" },
@@ -77,7 +78,7 @@ describe("content-hash duplicate detection", () => {
   });
 
   test("passes the browser-computed digest straight through for R2 media", async () => {
-    await ingestFromApi._handler(harness.ctx as never, {
+    await callAsOwner(ingestFromApi)(harness.ctx as never, {
       ownerUserId: "telegram:278674008",
       promptText: "A video that never touched the action.",
       r2Key: "uploads/clip.mp4",
@@ -91,7 +92,7 @@ describe("content-hash duplicate detection", () => {
 
   test("reports a duplicate instead of creating a second asset", async () => {
     const dupeHarness = createHarness({ twinExists: true });
-    const result = await ingestFromApi._handler(dupeHarness.ctx as never, {
+    const result = await callAsOwner(ingestFromApi)(dupeHarness.ctx as never, {
       ownerUserId: "telegram:278674008",
       // Deliberately a DIFFERENT name, prompt and ingestKey from the first
       // save — only the bytes match, which is exactly what ingestKey misses.
@@ -108,7 +109,7 @@ describe("content-hash duplicate detection", () => {
   });
 
   test("a genuinely new file is not flagged", async () => {
-    const result = await ingestFromApi._handler(harness.ctx as never, {
+    const result = await callAsOwner(ingestFromApi)(harness.ctx as never, {
       ownerUserId: "telegram:278674008",
       promptText: "Brand new.",
       file: { base64, fileName: "new.png", contentType: "image/png" },

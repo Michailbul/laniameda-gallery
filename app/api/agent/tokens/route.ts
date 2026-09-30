@@ -55,7 +55,7 @@ const parseExpiresAt = (value: unknown) => {
 export async function GET() {
   try {
     const user = await requireAuth();
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const tokens = await client.query(listAgentTokensQuery, {
       serverSecret: requireAgentTokenIssuerSecret(),
       ownerUserId: user.ownerUserId,
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     const body = await parseBody(request);
     const rawToken = createAgentTokenSecret();
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const token = await client.mutation(createAgentTokenMutation, {
       serverSecret: requireAgentTokenIssuerSecret(),
       ownerUserId: user.ownerUserId,

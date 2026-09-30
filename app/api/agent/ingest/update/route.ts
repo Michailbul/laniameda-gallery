@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(agent.ownerUserId);
     const result = await client.action(updateAction, {
       ...rest,
       ownerUserId: agent.ownerUserId,

@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     }
 
     const ownerUserId = resolveExtensionOwnerUserId();
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const folders = await client.query(listFoldersQuery, { ownerUserId });
     return corsJson({ ok: true, folders: toFolderDto(folders) });
   } catch (error) {
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
         ? payload.description.trim().slice(0, MAX_DESCRIPTION_LENGTH)
         : undefined;
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const result = await client.mutation(createFolderMutation, {
       ownerUserId,
       name,

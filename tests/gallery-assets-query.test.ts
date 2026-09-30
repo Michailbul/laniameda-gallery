@@ -6,6 +6,7 @@ import {
   listPublicGalleryAssets,
 } from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("gallery asset queries", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -69,7 +70,7 @@ describe("gallery asset queries", () => {
       },
     };
 
-    const results = await listGalleryAssets._handler(ctx as never, {
+    const results = await callAsOwner(listGalleryAssets)(ctx as never, {
       ownerUserId: "278674008",
       tagIds: [carTagId],
       search: "cinematic",
@@ -126,7 +127,7 @@ describe("gallery asset queries", () => {
       },
     };
 
-    const results = await listPublicGalleryAssets._handler(ctx as never, {
+    const results = await callAsOwner(listPublicGalleryAssets)(ctx as never, {
       pillar: "creators",
       search: "public",
       limit: 10,
@@ -175,7 +176,7 @@ describe("gallery asset queries", () => {
       storage: { getUrl: async (_storageId: string) => null },
     };
 
-    const results = await listGalleryAssets._handler(ctx as never, {
+    const results = await callAsOwner(listGalleryAssets)(ctx as never, {
       ownerUserId: "278674008",
       tagIdGroups: [[locationTagId], [liveActionTagId]],
       limit: 20,
@@ -226,7 +227,7 @@ describe("gallery asset queries", () => {
       storage: { getUrl: async (_storageId: string) => null },
     };
 
-    const results = await listGalleryAssets._handler(ctx as never, {
+    const results = await callAsOwner(listGalleryAssets)(ctx as never, {
       ownerUserId: "278674008",
       tagIdGroups: [[keepTagId]],
       excludeTagIds: [animationTagId],
@@ -263,22 +264,24 @@ describe("gallery asset queries", () => {
       createdAt: 100,
     });
 
-    const mine = await galleryAssetFacets._handler(harness.ctx as never, {
+    const mine = await callAsOwner(galleryAssetFacets)(harness.ctx as never, {
       ownerUserId: "278674008",
     });
     expect(mine.totalCount).toBe(2);
     expect(mine.modelCounts).toEqual([{ name: "Midjourney", count: 2 }]);
 
-    const publicFacets = await galleryAssetFacets._handler(
-      harness.ctx as never,
+    // With no ownerUserId the facets are the signed-in owner's, never a
+    // cross-owner scan: the actor fills the argument in.
+    const implicitOwner = await galleryAssetFacets._handler(
       {
-        isPublic: true,
-      },
+        ...harness.ctx,
+        auth: { getUserIdentity: async () => ({ subject: "telegram:278674008" }) },
+      } as never,
+      { isPublic: true },
     );
-    expect(publicFacets.totalCount).toBe(2);
-    expect(publicFacets.modelCounts).toEqual([
-      { name: "Midjourney", count: 1 },
-      { name: "Other Model", count: 1 },
+    expect(implicitOwner.totalCount).toBe(2);
+    expect(implicitOwner.modelCounts.map((m) => [m.name.toLowerCase(), m.count])).toEqual([
+      ["midjourney", 2],
     ]);
   });
 });

@@ -1,5 +1,4 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
@@ -9,6 +8,7 @@ import {
   tagSourceValidator,
 } from "./validators";
 import { resolveUserIdCandidates } from "./authz";
+import { ownerMutation, ownerQuery } from "./actor";
 
 type TagCategory = Doc<"tags">["category"];
 type TagSource = Doc<"tags">["source"];
@@ -181,7 +181,7 @@ const hydrateTags = async (ctx: QueryCtx, tagIds: Iterable<Id<"tags">>) => {
   return result;
 };
 
-export const listUserTags = query({
+export const listUserTags = ownerQuery({
   args: {
     ownerUserId: v.string(),
     includeArchived: v.optional(v.boolean()),
@@ -274,7 +274,7 @@ export const listUserTags = query({
   },
 });
 
-export const upsertUserTag = mutation({
+export const upsertUserTag = ownerMutation({
   args: {
     ownerUserId: v.string(),
     name: v.string(),
@@ -367,7 +367,7 @@ export const upsertUserTag = mutation({
   },
 });
 
-export const archiveUserTag = mutation({
+export const archiveUserTag = ownerMutation({
   args: {
     ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),

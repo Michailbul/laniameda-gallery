@@ -172,7 +172,7 @@ export async function POST(request: Request) {
     // Collections are owner-scoped `folders` rows. `folderId` remains the
     // primary/back-compat field; `folderIds` can attach the asset to many.
     const requestedFolderIds = normalizeFolderIds(data);
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const sourcePath = getUrlParts(sourceUrl)?.pathname ?? "";
     const inferredCollectionPillar =
       /\/profiles?(?:\/|$)/.test(sourcePath) ||

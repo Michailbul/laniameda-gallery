@@ -7,6 +7,7 @@ import {
   upsertSemanticDocument,
 } from "../convex/semanticIndex";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("semantic index backend", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -61,7 +62,7 @@ describe("semantic index backend", () => {
       createdAt: 30,
     });
 
-    const source = await getAssetSourceForReindex._handler(
+    const source = await callAsOwner(getAssetSourceForReindex)(
       {
         ...harness.ctx,
         storage: {
@@ -85,7 +86,7 @@ describe("semantic index backend", () => {
   });
 
   test("upsertSemanticDocument updates existing rows instead of duplicating", async () => {
-    const firstId = await upsertSemanticDocument._handler(harness.ctx as never, {
+    const firstId = await callAsOwner(upsertSemanticDocument)(harness.ctx as never, {
       ownerUserId: "278674008",
       sourceType: "asset",
       sourceId: "assets:1",
@@ -102,7 +103,7 @@ describe("semantic index backend", () => {
       sourceUpdatedAt: 1,
     });
 
-    const secondId = await upsertSemanticDocument._handler(harness.ctx as never, {
+    const secondId = await callAsOwner(upsertSemanticDocument)(harness.ctx as never, {
       ownerUserId: "278674008",
       sourceType: "asset",
       sourceId: "assets:1",
@@ -131,13 +132,13 @@ describe("semantic index backend", () => {
   });
 
   test("semantic failure rows increment attempts and resolve cleanly", async () => {
-    const first = await recordSemanticIndexFailure._handler(harness.ctx as never, {
+    const first = await callAsOwner(recordSemanticIndexFailure)(harness.ctx as never, {
       ownerUserId: "278674008",
       sourceType: "asset",
       sourceId: "assets:1",
       errorMessage: "temporary failure",
     });
-    const second = await recordSemanticIndexFailure._handler(harness.ctx as never, {
+    const second = await callAsOwner(recordSemanticIndexFailure)(harness.ctx as never, {
       ownerUserId: "278674008",
       sourceType: "asset",
       sourceId: "assets:1",
@@ -148,7 +149,7 @@ describe("semantic index backend", () => {
     expect(second.attemptCount).toBe(2);
     expect(second.failureId).toBe(first.failureId);
 
-    const resolved = await resolveSemanticIndexFailure._handler(harness.ctx as never, {
+    const resolved = await callAsOwner(resolveSemanticIndexFailure)(harness.ctx as never, {
       sourceType: "asset",
       sourceId: "assets:1",
     });

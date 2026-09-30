@@ -1,4 +1,5 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
+import { authedMutation } from "./actor";
 import { v } from "convex/values";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { Id } from "./_generated/dataModel";
@@ -56,7 +57,7 @@ const indexTagsForLookup = (allTags: TagDocLike[]) => {
   return { byNormalized, byCanonical };
 };
 
-export const getOrCreateTags = mutation({
+export const getOrCreateTags = authedMutation({
   args: { names: v.array(v.string()) },
   returns: v.array(v.id("tags")),
   handler: async (ctx, args) => {
@@ -99,7 +100,7 @@ export const getOrCreateTags = mutation({
   },
 });
 
-export const getOrCreateTagsWithMetadata = mutation({
+export const getOrCreateTagsWithMetadata = authedMutation({
   args: {
     tags: v.array(typedTagInputValidator),
   },
@@ -165,7 +166,7 @@ export const getOrCreateTagsWithMetadata = mutation({
 // so future saves reuse it instead of minting a synonym. Aliases that are
 // already real tags are reported and ignored: merging two live tags is a
 // separate, deliberate operation.
-export const addTagAliases = mutation({
+export const addTagAliases = authedMutation({
   args: {
     name: v.string(),
     aliases: v.array(v.string()),

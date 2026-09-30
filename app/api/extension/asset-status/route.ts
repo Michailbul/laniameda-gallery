@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     ];
     const prefixes = [...new Set(entries.flatMap((entry) => entry.prefixes))];
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const result = (await client.query(checkMatchesQuery, {
       ownerUserId,
       keys,

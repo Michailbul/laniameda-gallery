@@ -33,7 +33,7 @@ export async function DELETE(
       return NextResponse.json({ error: "assetId is required." }, { status: 400 });
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     await client.mutation(api.assets.deleteAsset, {
       id: assetId as Id<"assets">,
       actorUserId: user.ownerUserId,

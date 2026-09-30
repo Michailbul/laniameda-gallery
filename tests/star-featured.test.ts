@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { createAsset, setAssetStarred } from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("star is the featured flag", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -16,12 +17,12 @@ describe("star is the featured flag", () => {
   });
 
   test("a curator's star publishes and features; unstar unfeatures", async () => {
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "curator-1",
       kind: "image",
       tagIds: [],
     });
-    await setAssetStarred._handler(harness.ctx as never, {
+    await callAsOwner(setAssetStarred)(harness.ctx as never, {
       ownerUserId: "curator-1",
       assetId: asset.assetId,
       starred: true,
@@ -31,7 +32,7 @@ describe("star is the featured flag", () => {
     expect(row?.isFeatured).toBe(true);
     expect(row?.starredAt).toBeDefined();
 
-    await setAssetStarred._handler(harness.ctx as never, {
+    await callAsOwner(setAssetStarred)(harness.ctx as never, {
       ownerUserId: "curator-1",
       assetId: asset.assetId,
       starred: false,
@@ -43,12 +44,12 @@ describe("star is the featured flag", () => {
   });
 
   test("anyone else's star stays private", async () => {
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "someone-else",
       kind: "image",
       tagIds: [],
     });
-    await setAssetStarred._handler(harness.ctx as never, {
+    await callAsOwner(setAssetStarred)(harness.ctx as never, {
       ownerUserId: "someone-else",
       assetId: asset.assetId,
       starred: true,

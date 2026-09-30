@@ -1,4 +1,4 @@
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { query, type QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
@@ -6,6 +6,7 @@ import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
+import { ownerMutation, ownerQuery } from "./actor";
 
 // Curated filter pills for the main gallery menu. The owner decides which
 // filters surface (the raw tag cloud never renders directly). Two kinds:
@@ -243,7 +244,7 @@ const buildMenuFilters = async (
   }
 };
 
-export const listMenuFilters = query({
+export const listMenuFilters = ownerQuery({
   args: {
     ownerUserId: v.string(),
     // Count against the public gallery (isPublic assets) instead of the
@@ -294,7 +295,7 @@ const assertValidMapping = async (
   }
 };
 
-export const createMenuFilter = mutation({
+export const createMenuFilter = ownerMutation({
   args: {
     ownerUserId: v.string(),
     label: v.string(),
@@ -331,7 +332,7 @@ export const createMenuFilter = mutation({
   },
 });
 
-export const updateMenuFilter = mutation({
+export const updateMenuFilter = ownerMutation({
   args: {
     ownerUserId: v.string(),
     menuFilterId: v.id("menuFilters"),
@@ -366,7 +367,7 @@ export const updateMenuFilter = mutation({
   },
 });
 
-export const deleteMenuFilter = mutation({
+export const deleteMenuFilter = ownerMutation({
   args: {
     ownerUserId: v.string(),
     menuFilterId: v.id("menuFilters"),
@@ -380,7 +381,7 @@ export const deleteMenuFilter = mutation({
   },
 });
 
-export const reorderMenuFilters = mutation({
+export const reorderMenuFilters = ownerMutation({
   args: {
     ownerUserId: v.string(),
     orderedIds: v.array(v.id("menuFilters")),

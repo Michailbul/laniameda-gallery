@@ -1,4 +1,3 @@
-import { query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { collectAssetsForFolder } from "./assets";
@@ -11,6 +10,7 @@ import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
+import { ownerQuery } from "./actor";
 
 // How many member thumbnails the masonry stack card gets.
 const STACK_PREVIEW_LIMIT = 4;
@@ -61,7 +61,7 @@ const collectOwnerStorybookFolders = async (
   });
 };
 
-export const listStorybooks = query({
+export const listStorybooks = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -124,7 +124,7 @@ export const listStorybooks = query({
   },
 });
 
-export const getStorybook = query({
+export const getStorybook = ownerQuery({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),

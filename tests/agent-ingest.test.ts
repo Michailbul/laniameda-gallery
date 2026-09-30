@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { ingestFromAgentPayload } from "../convex/agent_ingest";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const tinyGifBase64 = "R0lGODdhAQABAIAAAP///////ywAAAAAAQABAAACAkQBADs=";
 
@@ -85,7 +86,7 @@ describe("agent ingest", () => {
   });
 
   test("assigns prompt-scoped tags to each asset and generates image derivatives", async () => {
-    const result = await ingestFromAgentPayload._handler(harness.ctx as never, {
+    const result = await callAsOwner(ingestFromAgentPayload)(harness.ctx as never, {
       runId: "runs:1" as never,
       ownerUserId: "telegram:278674008",
       payload: {
@@ -141,7 +142,7 @@ describe("agent ingest", () => {
   });
 
   test("persists selected URLs as design inspirations linked to the prompt", async () => {
-    const result = await ingestFromAgentPayload._handler(harness.ctx as never, {
+    const result = await callAsOwner(ingestFromAgentPayload)(harness.ctx as never, {
       runId: "runs:2" as never,
       ownerUserId: "telegram:278674008",
       payload: {

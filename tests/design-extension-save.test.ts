@@ -12,6 +12,7 @@ import {
 } from "../convex/designInspirations";
 import { getOrCreateTags } from "../convex/tags";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const ONE_BY_ONE_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==";
@@ -33,17 +34,17 @@ const createActionHarness = () => {
     runMutation: async (reference: object, args: unknown) => {
       switch (getFunctionName(reference)) {
         case "assets:createAsset":
-          return await createAsset._handler(mutationCtx as never, args as never);
+          return await callAsOwner(createAsset)(mutationCtx as never, args as never);
         case "assets:internalDeleteAsset":
-          return await internalDeleteAsset._handler(mutationCtx as never, args as never);
+          return await callAsOwner(internalDeleteAsset)(mutationCtx as never, args as never);
         case "designInspirations:createDesignInspiration":
-          return await createDesignInspiration._handler(mutationCtx as never, args as never);
+          return await callAsOwner(createDesignInspiration)(mutationCtx as never, args as never);
         case "designInspirations:updateDesignInspiration":
-          return await updateDesignInspiration._handler(mutationCtx as never, args as never);
+          return await callAsOwner(updateDesignInspiration)(mutationCtx as never, args as never);
         case "tags:getOrCreateTags":
-          return await getOrCreateTags._handler(mutationCtx as never, args as never);
+          return await callAsOwner(getOrCreateTags)(mutationCtx as never, args as never);
         case "designSaveTemplates:upsertDesignSaveTemplate":
-          return await upsertDesignSaveTemplate._handler(mutationCtx as never, args as never);
+          return await callAsOwner(upsertDesignSaveTemplate)(mutationCtx as never, args as never);
         default:
           throw new Error(`Unknown mutation reference: ${getFunctionName(reference)}`);
       }
@@ -51,14 +52,14 @@ const createActionHarness = () => {
     runQuery: async (reference: object, args: unknown) => {
       switch (getFunctionName(reference)) {
         case "designInspirations:getDesignInspiration":
-          return await getDesignInspiration._handler(queryCtx as never, args as never);
+          return await callAsOwner(getDesignInspiration)(queryCtx as never, args as never);
         case "designInspirations:getDesignInspirationIdForSourceFingerprint":
-          return await getDesignInspirationIdForSourceFingerprint._handler(
+          return await callAsOwner(getDesignInspirationIdForSourceFingerprint)(
             queryCtx as never,
             args as never,
           );
         case "designSaveTemplates:getDesignSaveTemplateByKey":
-          return await getDesignSaveTemplateByKey._handler(queryCtx as never, args as never);
+          return await callAsOwner(getDesignSaveTemplateByKey)(queryCtx as never, args as never);
         default:
           throw new Error(`Unknown query reference: ${getFunctionName(reference)}`);
       }
@@ -90,7 +91,7 @@ describe("design extension save backend", () => {
   });
 
   test("page capture creates a design inspiration with preview asset", async () => {
-    await upsertDesignSaveTemplate._handler(harness.ctx as never, {
+    await callAsOwner(upsertDesignSaveTemplate)(harness.ctx as never, {
       ownerUserId: "278674008",
       key: "utility-site",
       label: "Utility site",
@@ -101,7 +102,7 @@ describe("design extension save backend", () => {
       },
     });
 
-    const result = await saveFromExtension._handler(harness.ctx as never, {
+    const result = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "page",
@@ -120,7 +121,7 @@ describe("design extension save backend", () => {
 
     expect(result.created).toBeTrue();
 
-    const design = await getDesignInspiration._handler(harness.ctx as never, {
+    const design = await callAsOwner(getDesignInspiration)(harness.ctx as never, {
       id: result.designInspirationId,
       ownerUserId: "278674008",
     });
@@ -141,7 +142,7 @@ describe("design extension save backend", () => {
   });
 
   test("source fingerprint dedupes repeated saves and merges tag metadata", async () => {
-    const first = await saveFromExtension._handler(harness.ctx as never, {
+    const first = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "page",
@@ -157,7 +158,7 @@ describe("design extension save backend", () => {
       userNote: "first note",
     });
 
-    const second = await saveFromExtension._handler(harness.ctx as never, {
+    const second = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "telegram:278674008",
       capture: {
         mode: "page",
@@ -177,7 +178,7 @@ describe("design extension save backend", () => {
     expect(second.designInspirationId).toBe(first.designInspirationId);
     expect(harness.db.getTableDocs("assets")).toHaveLength(1);
 
-    const design = await getDesignInspiration._handler(harness.ctx as never, {
+    const design = await callAsOwner(getDesignInspiration)(harness.ctx as never, {
       id: first.designInspirationId,
       ownerUserId: "278674008",
     });
@@ -189,7 +190,7 @@ describe("design extension save backend", () => {
   });
 
   test("image capture stores preview and design gallery filters hydrate preview urls", async () => {
-    const result = await saveFromExtension._handler(harness.ctx as never, {
+    const result = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "image",
@@ -208,7 +209,7 @@ describe("design extension save backend", () => {
       workflowType: "page_prompt",
     });
 
-    const results = await listDesignGalleryEntries._handler(harness.ctx as never, {
+    const results = await callAsOwner(listDesignGalleryEntries)(harness.ctx as never, {
       ownerUserId: "278674008",
       captureKind: "image",
       saveIntent: "inspiration",
@@ -228,7 +229,7 @@ describe("design extension save backend", () => {
   });
 
   test("template defaults fill missing save metadata and tags", async () => {
-    await upsertDesignSaveTemplate._handler(harness.ctx as never, {
+    await callAsOwner(upsertDesignSaveTemplate)(harness.ctx as never, {
       ownerUserId: "278674008",
       key: "component-library",
       label: "Component library",
@@ -242,7 +243,7 @@ describe("design extension save backend", () => {
       },
     });
 
-    const result = await saveFromExtension._handler(harness.ctx as never, {
+    const result = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "page",
@@ -257,7 +258,7 @@ describe("design extension save backend", () => {
       tagNames: ["cards"],
     });
 
-    const design = await getDesignInspiration._handler(harness.ctx as never, {
+    const design = await callAsOwner(getDesignInspiration)(harness.ctx as never, {
       id: result.designInspirationId,
       ownerUserId: "278674008",
     });
@@ -271,7 +272,7 @@ describe("design extension save backend", () => {
   });
 
   test("same image can be saved from different source pages", async () => {
-    const first = await saveFromExtension._handler(harness.ctx as never, {
+    const first = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "image",
@@ -283,7 +284,7 @@ describe("design extension save backend", () => {
       captureKind: "image",
     });
 
-    const second = await saveFromExtension._handler(harness.ctx as never, {
+    const second = await callAsOwner(saveFromExtension)(harness.ctx as never, {
       ownerUserId: "278674008",
       capture: {
         mode: "image",

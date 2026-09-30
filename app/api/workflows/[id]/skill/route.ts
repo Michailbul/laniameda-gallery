@@ -103,7 +103,7 @@ export async function GET(
       return NextResponse.json({ error: "Workflow id is required." }, { status: 400 });
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const workflow = (await client.query(api.workflows.getWorkflow, {
       id: id as Id<"workflows">,
       ownerUserId: user.ownerUserId,

@@ -16,6 +16,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { ConvexHttpClient } from "convex/browser";
+import { setConvexActorAuth } from "../lib/convex-auth";
 import { makeFunctionReference } from "convex/server";
 
 const listForClassification = makeFunctionReference<"query">(
@@ -28,7 +29,12 @@ const addAssetTags = makeFunctionReference<"mutation">("assets:addAssetTags");
 const CONVEX_URL =
   process.env.GALLERY_CONVEX_URL?.trim() ||
   "https://perfect-buffalo-375.convex.cloud";
-const OWNER_USER_ID = process.env.GALLERY_OWNER_USER_ID?.trim() || "278674008";
+const OWNER_USER_ID = (
+  process.env.GALLERY_OWNER_USER_ID ?? process.env.KB_OWNER_USER_ID ?? ""
+).trim();
+if (!OWNER_USER_ID) {
+  throw new Error("GALLERY_OWNER_USER_ID or KB_OWNER_USER_ID is required.");
+}
 
 const MODEL = "claude-opus-4-8";
 const CONCURRENCY = 6;
@@ -185,6 +191,7 @@ async function applyLabelsFromFile(convex: ConvexHttpClient, file: string) {
 
 const main = async () => {
   const convex = new ConvexHttpClient(CONVEX_URL);
+  setConvexActorAuth(convex, OWNER_USER_ID, { ttlSeconds: 6 * 60 * 60 });
 
   const applyIndex = args.indexOf("--apply");
   if (applyIndex !== -1) {

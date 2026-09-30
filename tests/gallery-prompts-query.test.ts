@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { listPromptOnlyGalleryPrompts } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("prompt-only gallery queries", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -47,7 +48,7 @@ describe("prompt-only gallery queries", () => {
       createdAt: 150,
     });
 
-    const results = await listPromptOnlyGalleryPrompts._handler(
+    const results = await callAsOwner(listPromptOnlyGalleryPrompts)(
       harness.ctx as never,
       {
         ownerUserId: "278674008",
@@ -96,7 +97,7 @@ describe("prompt-only gallery queries", () => {
       createdAt: 200,
     });
 
-    const results = await listPromptOnlyGalleryPrompts._handler(
+    const results = await callAsOwner(listPromptOnlyGalleryPrompts)(
       harness.ctx as never,
       {
         ownerUserId: "278674008",

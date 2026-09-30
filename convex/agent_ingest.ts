@@ -1,7 +1,7 @@
 "use node";
 
 import { ConvexError, v, type Infer } from "convex/values";
-import { action, type ActionCtx } from "./_generated/server";
+import { type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
@@ -16,6 +16,7 @@ import {
   promptTypeValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerAction } from "./actor";
 
 type Pillar = string;
 type PromptProfile = Infer<typeof promptProfileValidator>;
@@ -260,7 +261,7 @@ const createThumbnail = async (
   };
 };
 
-export const ingestFromAgentPayload = action({
+export const ingestFromAgentPayload = ownerAction({
   args: {
     runId: v.id("runs"),
     ownerUserId: v.string(),

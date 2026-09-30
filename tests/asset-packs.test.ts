@@ -5,6 +5,7 @@ import {
   getGalleryAssetPack,
 } from "../convex/assetPacks";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("asset pack consolidation", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -48,7 +49,7 @@ describe("asset pack consolidation", () => {
       createdAt: 200,
     });
 
-    const result = await consolidateOwnerPromptPacks._handler(
+    const result = await callAsOwner(consolidateOwnerPromptPacks)(
       harness.ctx as never,
       {
         ownerUserId: "278674008",
@@ -146,7 +147,7 @@ describe("asset pack consolidation", () => {
       createdAt: 220,
     });
 
-    const firstPage = await consolidateOwnerPromptPacks._handler(
+    const firstPage = await callAsOwner(consolidateOwnerPromptPacks)(
       harness.ctx as never,
       {
         ownerUserId: "278674008",
@@ -158,7 +159,7 @@ describe("asset pack consolidation", () => {
     expect(firstPage.hasMore).toBeTrue();
     expect(firstPage.nextCreatedBefore).toBe(300);
 
-    const secondPage = await consolidateOwnerPromptPacks._handler(
+    const secondPage = await callAsOwner(consolidateOwnerPromptPacks)(
       harness.ctx as never,
       {
         ownerUserId: "278674008",
@@ -213,7 +214,7 @@ describe("asset pack consolidation", () => {
       },
     };
 
-    const result = await getGalleryAssetPack._handler(ctx as never, {
+    const result = await callAsOwner(getGalleryAssetPack)(ctx as never, {
       packId,
       ownerUserId: "telegram:278674008",
     });
@@ -223,7 +224,7 @@ describe("asset pack consolidation", () => {
     expect(result?.assets[0]?.promptText).toBe("Editorial portrait pack");
     expect(result?.assets[0]?.tagNames).toEqual(["Creators"]);
 
-    const denied = await getGalleryAssetPack._handler(ctx as never, {
+    const denied = await callAsOwner(getGalleryAssetPack)(ctx as never, {
       packId,
       ownerUserId: "telegram:999",
     });
