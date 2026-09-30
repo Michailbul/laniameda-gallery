@@ -339,4 +339,49 @@ describe("gallery asset queries", () => {
     });
     expect(opened.map((asset: { _id: string }) => asset._id)).toEqual([inRoot]);
   });
+  test("skipHiddenCollections reads past windows that are entirely hidden", async () => {
+    const owner = "278674008";
+    const hidden = await harness.db.insert("folders", {
+      ownerUserId: owner,
+      name: "Hockey",
+      normalizedName: "hockey",
+      hiddenFromGallery: true,
+    });
+    const visibleIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      visibleIds.push(
+        await harness.db.insert("assets", {
+          ownerUserId: owner,
+          kind: "image",
+          tagIds: [],
+          createdAt: 100 + i,
+        }),
+      );
+    }
+    // limit 2 reads windows of 8: the first two windows are all hidden.
+    for (let i = 0; i < 20; i++) {
+      const assetId = await harness.db.insert("assets", {
+        ownerUserId: owner,
+        kind: "image",
+        tagIds: [],
+        createdAt: 1000 + i,
+      });
+      await harness.db.insert("assetFolders", {
+        ownerUserId: owner,
+        assetId,
+        folderId: hidden,
+        createdAt: 1000 + i,
+      });
+    }
+
+    const grid = await listGalleryAssets._handler(harness.ctx as never, {
+      ownerUserId: owner,
+      skipHiddenCollections: true,
+      limit: 2,
+    });
+    expect(grid.map((asset: { _id: string }) => asset._id)).toEqual([
+      visibleIds[2],
+      visibleIds[1],
+    ]);
+  });
 });

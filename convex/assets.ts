@@ -1723,17 +1723,14 @@ const collectAllAssetIdsForFolder = async (
   return links.map((link) => link.assetId);
 };
 
-// Members of every collection the owner hid from the gallery (folders with
-// hiddenFromGallery, plus the sub-collections of a hidden root). null = none
-// hidden. A piece filed in a hidden collection stays out of the main grid even
-// when it also sits in a visible one — same "exclusion wins" rule as the pills.
-const collectHiddenCollectionAssetIds = async (
+// Collections the owner hid from the gallery: folders with hiddenFromGallery
+// plus the sub-collections of a hidden root. null = none hidden. Reads only
+// those folders, so an unrelated folder write (a rename, a pin, a memberCount
+// recount) does not re-run every loaded grid page.
+const resolveHiddenFolderIds = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
-): Promise<Set<Id<"assets">> | null> => {
-  // Read only the hidden folders (and their sub-collections), so an unrelated
-  // folder write — a rename, a pin, a memberCount recount — does not re-run
-  // every loaded grid page.
+): Promise<Set<Id<"folders">> | null> => {
   const hiddenRoots = (
     await Promise.all(
       ownerUserIds.map((ownerCandidate) =>
@@ -1757,15 +1754,50 @@ const collectHiddenCollectionAssetIds = async (
       ),
     )
   ).flat();
-  const hiddenFolderIds = [...hiddenRoots, ...children].map((folder) => folder._id);
+  return new Set([...hiddenRoots, ...children].map((folder) => folder._id));
+};
 
-  const hidden = new Set<Id<"assets">>();
-  for (const folderId of new Set(hiddenFolderIds)) {
-    for (const assetId of await collectAllAssetIdsForFolder(ctx, folderId)) {
-      hidden.add(assetId);
-    }
+// A piece filed in a hidden collection stays out of the main grid even when it
+// also sits in a visible one (same "exclusion wins" rule as the pills). Only
+// this piece's own membership links are read, so the cost follows the page,
+// not the size of the hidden collection.
+const isInHiddenCollection = async (
+  ctx: QueryCtx,
+  asset: Doc<"assets">,
+  hiddenFolderIds: Set<Id<"folders">>,
+) => {
+  if (asset.folderId && hiddenFolderIds.has(asset.folderId)) return true;
+  const links = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  return links.some((link) => hiddenFolderIds.has(link.folderId));
+};
+
+const HIDDEN_CHECK_CHUNK = 50;
+// Source rows the one-shot grid read may scan past hidden-only windows.
+const HIDDEN_SCAN_BUDGET = 6000;
+
+// Drops hidden-collection members, keeping order, and stops checking once
+// `limit` visible pieces are found.
+const dropHiddenCollectionMembers = async (
+  ctx: QueryCtx,
+  assets: Doc<"assets">[],
+  hiddenFolderIds: Set<Id<"folders">> | null,
+  limit = Number.POSITIVE_INFINITY,
+) => {
+  if (!hiddenFolderIds) return assets.slice(0, limit);
+  const visible: Doc<"assets">[] = [];
+  for (let i = 0; i < assets.length && visible.length < limit; i += HIDDEN_CHECK_CHUNK) {
+    const chunk = assets.slice(i, i + HIDDEN_CHECK_CHUNK);
+    const hidden = await Promise.all(
+      chunk.map((asset) => isInHiddenCollection(ctx, asset, hiddenFolderIds)),
+    );
+    chunk.forEach((asset, index) => {
+      if (!hidden[index]) visible.push(asset);
+    });
   }
-  return hidden.size > 0 ? hidden : null;
+  return visible.slice(0, limit);
 };
 
 const buildMenuFilterPredicate = async (
@@ -1928,13 +1960,16 @@ export const listStarredAssets = query({
 
     const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
     if (scopeFolderIds === null) {
-      const hiddenAssetIds = args.skipHiddenCollections
-        ? await collectHiddenCollectionAssetIds(ctx, ownerUserIds)
+      const hiddenFolderIds = args.skipHiddenCollections
+        ? await resolveHiddenFolderIds(ctx, ownerUserIds)
         : null;
-      const visible = hiddenAssetIds
-        ? starred.filter((asset) => !hiddenAssetIds.has(asset._id))
-        : starred;
-      return await hydrateGalleryAssetResults(ctx, visible.slice(0, limit));
+      const visible = await dropHiddenCollectionMembers(
+        ctx,
+        starred,
+        hiddenFolderIds,
+        limit,
+      );
+      return await hydrateGalleryAssetResults(ctx, visible);
     }
     if (scopeFolderIds.size === 0) return [];
 
@@ -2008,16 +2043,13 @@ export const listGalleryAssets = query({
     const onlyLiked = args.onlyLiked === true;
     const limit = Math.min(args.limit ?? 100, 2000);
     const scopedToSet = args.folderId;
-    const hiddenAssetIds =
+    const hiddenFolderIds =
       args.skipHiddenCollections && !scopedToSet
-        ? await collectHiddenCollectionAssetIds(
-            ctx,
-            resolveUserIdCandidates(ownerUserId),
-          )
+        ? await resolveHiddenFolderIds(ctx, resolveUserIdCandidates(ownerUserId))
         : null;
     const hasPostQueryFilters = Boolean(
       hasMenuFilterArgs(args) ||
-        hiddenAssetIds ||
+        hiddenFolderIds ||
         (scopedToSet && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
         (args.modelName && (args.pillar || scopedToSet || args.assetRole || args.kind)) ||
         (args.pillar && (scopedToSet || args.modelName || args.kind)) ||
@@ -2052,152 +2084,214 @@ export const listGalleryAssets = query({
     const pillar = args.pillar;
     const assetRole = args.assetRole;
     const kind = args.kind;
-    const ownerScopedAssets = args.folderId
-      ? args.includeDescendants
-        ? await collectAssetsForFolderTree(
-            ctx,
-            ownerUserIds,
-            args.folderId,
-            queryTake,
-          )
-        : await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake)
-      : (
-          await Promise.all(
-            ownerUserIds.map(async (ownerCandidate) => {
-              if (onlyLiked) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_isLiked_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("isLiked", true).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              if (modelNameFilter) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_modelName_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              if (pillar && assetRole) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              if (pillar) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_pillar_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              if (assetRole) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_assetRole_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              if (kind) {
-                return await ctx.db
-                  .query("assets")
-                  .withIndex("by_owner_kind_createdAt", (q) =>
-                    q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
-                  )
-                  .order("desc")
-                  .take(queryTake);
-              }
-              return await ctx.db
-                .query("assets")
-                .withIndex("by_owner_createdAt", (q) =>
-                  q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
-                )
-                .order("desc")
-                .take(queryTake);
-            }),
-          )
-        ).flat();
-
-    ownerScopedAssets.sort((a, b) => b.createdAt - a.createdAt);
-    const seenAssetIds = new Set<Id<"assets">>();
-    const assets = ownerScopedAssets.filter((asset) => {
-      if (seenAssetIds.has(asset._id)) {
-        return false;
-      }
-      seenAssetIds.add(asset._id);
-      return true;
-    });
-    const filteredAssets = assets.filter((asset) => {
-      if (isHiddenWorkflowStepAsset(asset, assetRole)) {
-        return false;
-      }
-      if (hiddenAssetIds?.has(asset._id)) {
-        return false;
-      }
-      if (!matchesMenuFilters(menuFilters, asset)) {
-        return false;
-      }
-      if (modelNameFilter && asset.modelName !== modelNameFilter) {
-        return false;
-      }
-      if (assetRole && asset.assetRole !== assetRole) {
-        return false;
-      }
-      if (kind && asset.kind !== kind) {
-        return false;
-      }
-      if (onlyLiked && asset.isLiked !== true) {
-        return false;
-      }
-      return true;
-    });
-
-    if (filteredAssets.length === 0) {
-      return [];
-    }
-
-    let selectedAssets = filteredAssets;
-    let promptTextById: Map<Id<"prompts">, string>;
-    if (search) {
-      const promptIds = dedupeIds(
-        filteredAssets
-          .map((asset) => asset.promptId)
-          .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
-      );
-      const promptEntries = await Promise.all(
-        promptIds.map(async (promptId) => {
-          const prompt = await ctx.db.get(promptId);
-          return [promptId, prompt?.text] as const;
+    // One read of the owner's newest assets, older than `before`. `full`
+    // means some owner candidate filled its window, so older rows may remain.
+    const readOwnerBatch = async (before: number) => {
+      const perCandidate = await Promise.all(
+        ownerUserIds.map(async (ownerCandidate) => {
+          if (onlyLiked) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_isLiked_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("isLiked", true)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (modelNameFilter) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_modelName_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (pillar && assetRole) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
+                q
+                  .eq("ownerUserId", ownerCandidate)
+                  .eq("pillar", pillar)
+                  .eq("assetRole", assetRole)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (pillar) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_pillar_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (assetRole) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_assetRole_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          if (kind) {
+            return await ctx.db
+              .query("assets")
+              .withIndex("by_owner_kind_createdAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).eq("kind", kind)
+                  .gte("createdAt", 0)
+                  .lte("createdAt", before),
+              )
+              .order("desc")
+              .take(queryTake);
+          }
+          return await ctx.db
+            .query("assets")
+            .withIndex("by_owner_createdAt", (q) =>
+              q.eq("ownerUserId", ownerCandidate)
+                .gte("createdAt", 0)
+                .lte("createdAt", before),
+            )
+            .order("desc")
+            .take(queryTake);
         }),
       );
-      promptTextById = new Map(
-        promptEntries.filter((entry): entry is [Id<"prompts">, string] => Boolean(entry[1])),
-      );
-      selectedAssets = filteredAssets.filter((asset) => {
-        const promptText = asset.promptId
-          ? promptTextById.get(asset.promptId)
-          : undefined;
-        return buildSearchHaystack(promptText, asset.fileName, asset.sourceUrl)
-          .includes(search);
-      });
-    } else {
-      selectedAssets = filteredAssets;
-      promptTextById = new Map();
-    }
+      // Next cursor: the newest of the full windows' oldest rows, so no
+      // candidate's older rows are skipped (re-read rows are deduped).
+      const fullWindows = perCandidate.filter((rows) => rows.length >= queryTake);
+      return {
+        rows: perCandidate.flat(),
+        full: fullWindows.length > 0,
+        nextBefore: Math.max(
+          ...fullWindows.map((rows) => Math.min(...rows.map((asset) => asset.createdAt))),
+        ),
+      };
+    };
+    const firstBatch = args.folderId
+      ? {
+          rows: args.includeDescendants
+            ? await collectAssetsForFolderTree(ctx, ownerUserIds, args.folderId, queryTake)
+            : await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake),
+          full: false,
+          nextBefore: 0,
+        }
+      : await readOwnerBatch(Number.MAX_SAFE_INTEGER);
 
-    if (args.onlyStarred) {
-      selectedAssets = selectedAssets.filter((asset) => Boolean(asset.starredAt));
+    const seenAssetIds = new Set<Id<"assets">>();
+    // Dedupe, order and filter one batch; returns candidates in grid order.
+    const selectFromBatch = async (rows: Doc<"assets">[]) => {
+      const assets = rows
+        .filter((asset) => {
+          if (seenAssetIds.has(asset._id)) {
+            return false;
+          }
+          seenAssetIds.add(asset._id);
+          return true;
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+      const filteredAssets = assets.filter((asset) => {
+        if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+          return false;
+        }
+        if (!matchesMenuFilters(menuFilters, asset)) {
+          return false;
+        }
+        if (modelNameFilter && asset.modelName !== modelNameFilter) {
+          return false;
+        }
+        if (assetRole && asset.assetRole !== assetRole) {
+          return false;
+        }
+        if (kind && asset.kind !== kind) {
+          return false;
+        }
+        if (onlyLiked && asset.isLiked !== true) {
+          return false;
+        }
+        return true;
+      });
+      if (filteredAssets.length === 0) {
+        return [];
+      }
+
+      let selectedAssets = filteredAssets;
+      let promptTextById: Map<Id<"prompts">, string>;
+      if (search) {
+        const promptIds = dedupeIds(
+          filteredAssets
+            .map((asset) => asset.promptId)
+            .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
+        );
+        const promptEntries = await Promise.all(
+          promptIds.map(async (promptId) => {
+            const prompt = await ctx.db.get(promptId);
+            return [promptId, prompt?.text] as const;
+          }),
+        );
+        promptTextById = new Map(
+          promptEntries.filter((entry): entry is [Id<"prompts">, string] => Boolean(entry[1])),
+        );
+        selectedAssets = filteredAssets.filter((asset) => {
+          const promptText = asset.promptId
+            ? promptTextById.get(asset.promptId)
+            : undefined;
+          return buildSearchHaystack(promptText, asset.fileName, asset.sourceUrl)
+            .includes(search);
+        });
+      } else {
+        selectedAssets = filteredAssets;
+        promptTextById = new Map();
+      }
+
+      if (args.onlyStarred) {
+        selectedAssets = selectedAssets.filter((asset) => Boolean(asset.starredAt));
+      }
+      return selectedAssets;
+    };
+
+    // Hidden collections can fill a whole window, so keep reading older
+    // batches until the grid has `limit` visible pieces, the source runs out,
+    // or the scan budget is spent (bounded well under Convex's read limits).
+    let batch = firstBatch;
+    let scanned = 0;
+    let selectedAssets: Doc<"assets">[] = [];
+    for (;;) {
+      scanned += batch.rows.length;
+      const candidates = await selectFromBatch(batch.rows);
+      selectedAssets.push(
+        ...(await dropHiddenCollectionMembers(
+          ctx,
+          candidates,
+          hiddenFolderIds,
+          limit - selectedAssets.length,
+        )),
+      );
+      if (
+        !hiddenFolderIds ||
+        selectedAssets.length >= limit ||
+        !batch.full ||
+        scanned >= HIDDEN_SCAN_BUDGET
+      ) {
+        break;
+      }
+      const next = await readOwnerBatch(batch.nextBefore);
+      if (next.rows.every((asset) => seenAssetIds.has(asset._id))) {
+        break;
+      }
+      batch = next;
     }
     selectedAssets = selectedAssets.slice(0, limit);
     if (selectedAssets.length === 0) {
@@ -2435,8 +2529,8 @@ export const listGalleryAssetsPage = query({
       throw new ConvexError("ownerUserId is required.");
     }
     const candidates = resolveUserIdCandidates(ownerUserId);
-    const hiddenAssetIds = args.skipHiddenCollections
-      ? await collectHiddenCollectionAssetIds(ctx, candidates)
+    const hiddenFolderIds = args.skipHiddenCollections
+      ? await resolveHiddenFolderIds(ctx, candidates)
       : null;
     const cursor = parseWrappedCursor(args.paginationOpts.cursor);
     const ownerIndex = Math.min(cursor.o, candidates.length - 1);
@@ -2502,9 +2596,6 @@ export const listGalleryAssetsPage = query({
       if (isHiddenWorkflowStepAsset(asset, assetRole)) {
         return false;
       }
-      if (hiddenAssetIds?.has(asset._id)) {
-        return false;
-      }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
         return false;
       }
@@ -2523,9 +2614,11 @@ export const listGalleryAssetsPage = query({
       return true;
     });
 
+    const visible = await dropHiddenCollectionMembers(ctx, filtered, hiddenFolderIds);
+
     const isLastCandidate = ownerIndex >= candidates.length - 1;
     return {
-      page: await hydrateGalleryAssetResults(ctx, filtered),
+      page: await hydrateGalleryAssetResults(ctx, visible),
       isDone: result.isDone && isLastCandidate,
       continueCursor:
         result.isDone && !isLastCandidate
