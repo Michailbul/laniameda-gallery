@@ -1,7 +1,5 @@
 import {
   internalQuery,
-  mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -21,6 +19,7 @@ import {
   optionalPillarValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const designInspirationResultValidator = v.object({
   _id: v.id("designInspirations"),
@@ -176,7 +175,7 @@ const ensureLinkedOwnership = async (
   }
 };
 
-export const createDesignInspiration = mutation({
+export const createDesignInspiration = ownerMutation({
   args: {
     ownerUserId: v.string(),
     pillar: v.optional(optionalPillarValidator),
@@ -302,7 +301,7 @@ export const createDesignInspiration = mutation({
   },
 });
 
-export const updateDesignInspiration = mutation({
+export const updateDesignInspiration = ownerMutation({
   args: {
     ownerUserId: v.string(),
     id: v.id("designInspirations"),
@@ -443,7 +442,7 @@ export const updateDesignInspiration = mutation({
   },
 });
 
-export const getDesignInspiration = query({
+export const getDesignInspiration = ownerQuery({
   args: {
     id: v.id("designInspirations"),
     ownerUserId: v.optional(v.string()),
@@ -514,7 +513,7 @@ export const getDesignInspirationIdForSourceFingerprint = internalQuery({
   },
 });
 
-export const listDesignInspirations = query({
+export const listDesignInspirations = ownerQuery({
   args: {
     ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),
@@ -605,7 +604,7 @@ export const listDesignInspirations = query({
   },
 });
 
-export const listDesignGalleryEntries = query({
+export const listDesignGalleryEntries = ownerQuery({
   args: {
     ownerUserId: v.string(),
     pillar: v.optional(optionalPillarValidator),
@@ -706,7 +705,7 @@ export const listDesignGalleryEntries = query({
   },
 });
 
-export const deleteDesignInspiration = mutation({
+export const deleteDesignInspiration = ownerMutation({
   args: {
     ownerUserId: v.string(),
     id: v.id("designInspirations"),

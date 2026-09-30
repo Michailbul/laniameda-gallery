@@ -1,5 +1,4 @@
 import {
-  action,
   internalMutation,
   internalQuery,
   type ActionCtx,
@@ -18,6 +17,7 @@ import {
   assetRoleValidator,
   optionalPillarValidator,
 } from "./validators";
+import { ownerAction } from "./actor";
 
 const getSemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentsByIds",
@@ -527,7 +527,7 @@ const resolveScope = (
   return ownerCandidates;
 };
 
-export const searchAssets = action({
+export const searchAssets = ownerAction({
   args: {
     ownerUserId: v.optional(v.string()),
     scope: v.union(v.literal("mine"), v.literal("public")),
@@ -600,7 +600,7 @@ export const searchAssets = action({
   },
 });
 
-export const findSimilarAssets = action({
+export const findSimilarAssets = ownerAction({
   args: {
     ownerUserId: v.optional(v.string()),
     scope: v.union(v.literal("mine"), v.literal("public")),

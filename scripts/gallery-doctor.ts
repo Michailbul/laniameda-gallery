@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { ConvexHttpClient } from "convex/browser";
+import { setConvexActorAuth } from "../lib/convex-auth";
 
 import { api } from "../convex/_generated/api";
 
@@ -23,6 +24,7 @@ if (!OWNER_USER_ID) {
 }
 
 const client = new ConvexHttpClient(CONVEX_URL);
+setConvexActorAuth(client, OWNER_USER_ID, { ttlSeconds: 6 * 60 * 60 });
 
 function groupByKey<T>(items: T[], getKey: (item: T) => string | undefined | null) {
   const groups = new Map<string, T[]>();

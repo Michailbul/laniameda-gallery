@@ -1,5 +1,19 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { actorMatchesUserId, requireActor } from "./actor";
+
+// The Next.js server resolves the signed-in Telegram session to a users row
+// before it knows the ownerUserId, so it mints a token for the Telegram id.
+// Nobody else may look up or create rows for someone else's Telegram id.
+const assertActorIsTelegramUser = async (
+  ctx: Parameters<typeof requireActor>[0],
+  telegramId: string,
+) => {
+  const actor = await requireActor(ctx);
+  if (actor && !actorMatchesUserId(actor, telegramId)) {
+    throw new ConvexError("telegramId does not match the signed-in user.");
+  }
+};
 
 const userReturnValidator = v.object({
   _id: v.id("users"),
@@ -21,6 +35,7 @@ export const resolveByTelegramId = query({
   handler: async (ctx, args) => {
     const telegramId = args.telegramId.trim();
     if (!telegramId) return null;
+    await assertActorIsTelegramUser(ctx, telegramId);
     return await ctx.db
       .query("users")
       .withIndex("by_telegramId", (q) => q.eq("telegramId", telegramId))
@@ -40,6 +55,7 @@ export const resolveOrCreateByTelegram = mutation({
     if (!telegramId) {
       throw new ConvexError("telegramId is required.");
     }
+    await assertActorIsTelegramUser(ctx, telegramId);
 
     const existing = await ctx.db
       .query("users")

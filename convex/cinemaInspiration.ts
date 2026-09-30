@@ -1,11 +1,12 @@
 "use node";
 
 import { ConvexError, v } from "convex/values";
-import { action, type ActionCtx } from "./_generated/server";
+import { type ActionCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { storeBlobToR2 } from "./r2_store";
 import { encodeCardThumbnail } from "./thumbnails";
+import { ownerAction } from "./actor";
 
 const CINEMA_PILLAR_KEY = "cinema-inspiration";
 
@@ -107,7 +108,7 @@ const storeFrameToR2 = async (
   return { r2Key, size: blob.size };
 };
 
-export const ingestCinemaFrame = action({
+export const ingestCinemaFrame = ownerAction({
   args: {
     ownerUserId: v.string(),
     base64: v.string(),

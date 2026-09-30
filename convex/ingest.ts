@@ -27,6 +27,7 @@ import {
   typedTagInputValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerAction } from "./actor";
 
 type Pillar = string;
 type PromptType = Infer<typeof promptTypeValidator>;
@@ -539,7 +540,7 @@ const processMediaInput = async (
   };
 };
 
-export const ingestFromApi: ReturnType<typeof action> = action({
+export const ingestFromApi: ReturnType<typeof action> = ownerAction({
   args: {
     ownerUserId: v.string(),
     promptText: v.optional(v.string()),
@@ -889,7 +890,7 @@ export const ingestFromApi: ReturnType<typeof action> = action({
   },
 });
 
-export const updateFromApi: ReturnType<typeof action> = action({
+export const updateFromApi: ReturnType<typeof action> = ownerAction({
   args: updateArgsValidator,
   returns: v.object({
     target: targetValidator,
@@ -1262,7 +1263,7 @@ export const updateFromApi: ReturnType<typeof action> = action({
   },
 });
 
-export const deleteFromApi: ReturnType<typeof action> = action({
+export const deleteFromApi: ReturnType<typeof action> = ownerAction({
   args: deleteArgsValidator,
   returns: v.object({
     target: targetValidator,

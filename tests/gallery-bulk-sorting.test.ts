@@ -7,6 +7,7 @@ import {
   writeAssetDragPayload,
 } from "../lib/asset-drag";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("gallery bulk sorting", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -28,13 +29,13 @@ describe("gallery bulk sorting", () => {
       canonicalKey: "locations",
       usageCount: 1,
     });
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [characterTagId, locationsTagId],
     });
 
-    const result = await bulkAssignAssetType._handler(harness.ctx as never, {
+    const result = await callAsOwner(bulkAssignAssetType)(harness.ctx as never, {
       ownerUserId: "user-1",
       assetIds: [asset.assetId, asset.assetId],
       assetType: "scene",

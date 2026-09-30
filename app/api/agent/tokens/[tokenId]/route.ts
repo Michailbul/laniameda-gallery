@@ -16,7 +16,7 @@ export async function DELETE(
   try {
     const user = await requireAuth();
     const { tokenId } = await params;
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user.ownerUserId);
     const result = await client.mutation(revokeAgentTokenMutation, {
       serverSecret: requireAgentTokenIssuerSecret(),
       ownerUserId: user.ownerUserId,

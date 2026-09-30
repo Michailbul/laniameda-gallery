@@ -1,6 +1,6 @@
 "use node";
 
-import { action, type ActionCtx } from "./_generated/server";
+import { type ActionCtx } from "./_generated/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
@@ -23,6 +23,7 @@ import {
   optionalPillarValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerAction } from "./actor";
 
 const getDesignInspirationBySourceFingerprintQuery = makeFunctionReference<"query">(
   "designInspirations:getDesignInspirationIdForSourceFingerprint",
@@ -208,7 +209,7 @@ const createPreviewAsset = async (ctx: ActionCtx, args: {
   return result.assetId;
 };
 
-export const saveFromExtension = action({
+export const saveFromExtension = ownerAction({
   args: {
     ownerUserId: v.string(),
     pillar: v.optional(optionalPillarValidator),

@@ -5,13 +5,14 @@ import {
   upsertUserTag,
 } from "@/convex/userTags";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("user tags", () => {
   test("creates and archives owner-customized tags", async () => {
     const harness = createMockConvexMutationCtx();
     const ctx = harness.ctx as never;
 
-    const result = await upsertUserTag._handler(ctx, {
+    const result = await callAsOwner(upsertUserTag)(ctx, {
       ownerUserId: "user-1",
       name: "Editorial Portrait",
       category: "style",
@@ -21,7 +22,7 @@ describe("user tags", () => {
 
     expect(result.created).toBe(true);
 
-    const active = await listUserTags._handler(ctx, {
+    const active = await callAsOwner(listUserTags)(ctx, {
       ownerUserId: "user-1",
     });
     expect(active).toHaveLength(1);
@@ -34,17 +35,17 @@ describe("user tags", () => {
       isCustomized: true,
     });
 
-    await archiveUserTag._handler(ctx, {
+    await callAsOwner(archiveUserTag)(ctx, {
       ownerUserId: "user-1",
       name: "Editorial Portrait",
     });
 
-    const afterArchive = await listUserTags._handler(ctx, {
+    const afterArchive = await callAsOwner(listUserTags)(ctx, {
       ownerUserId: "user-1",
     });
     expect(afterArchive).toHaveLength(0);
 
-    const archived = await listUserTags._handler(ctx, {
+    const archived = await callAsOwner(listUserTags)(ctx, {
       ownerUserId: "user-1",
       includeArchived: true,
     });
@@ -71,7 +72,7 @@ describe("user tags", () => {
       createdAt: Date.now(),
     });
 
-    const tags = await listUserTags._handler(ctx, {
+    const tags = await callAsOwner(listUserTags)(ctx, {
       ownerUserId: "user-1",
     });
 

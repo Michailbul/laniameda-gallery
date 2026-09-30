@@ -4,6 +4,7 @@ import { flattenSectionCollections } from "../convex/collectionCleanup";
 import { createFolder } from "../convex/folders";
 import { createAsset } from "../convex/assets";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("flattenSectionCollections", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -13,39 +14,39 @@ describe("flattenSectionCollections", () => {
   });
 
   test("folds section folders into tags and leaves the owner's folders alone", async () => {
-    const world = await createFolder._handler(harness.ctx as never, {
+    const world = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Cassandra",
     });
-    const section = await createFolder._handler(harness.ctx as never, {
+    const section = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Characters",
       parentFolderId: world.folderId,
     });
-    const beat = await createFolder._handler(harness.ctx as never, {
+    const beat = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Balcony",
       parentFolderId: world.folderId,
     });
-    const empty = await createFolder._handler(harness.ctx as never, {
+    const empty = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "inspo",
       parentFolderId: world.folderId,
     });
-    await createAsset._handler(harness.ctx as never, {
+    await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
       folderId: section.folderId,
     });
-    await createAsset._handler(harness.ctx as never, {
+    await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
       folderId: beat.folderId,
     });
 
-    const result = await flattenSectionCollections._handler(
+    const result = await callAsOwner(flattenSectionCollections)(
       harness.ctx as never,
       { ownerUserId: "user-1", dryRun: false },
     );

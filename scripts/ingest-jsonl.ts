@@ -1,5 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
+import { setConvexActorAuth } from "../lib/convex-auth";
 import { readFile } from "node:fs/promises";
 
 const convexUrl = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -22,6 +23,8 @@ const main = async () => {
     .filter(Boolean);
 
   const client = new ConvexHttpClient(convexUrl);
+  // Convex rejects any line whose ownerUserId is not this actor.
+  setConvexActorAuth(client, process.env.KB_OWNER_USER_ID ?? "", { ttlSeconds: 6 * 60 * 60 });
 
   let ok = 0;
   let failed = 0;

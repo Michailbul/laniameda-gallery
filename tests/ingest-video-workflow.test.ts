@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { ingestFromApi } from "../convex/ingest";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 type MutationArgs = Record<string, unknown>;
 
@@ -79,7 +80,7 @@ describe("video workflow ingest", () => {
   });
 
   test("stores video outputs and attaches upstream workflow lineage", async () => {
-    const result = await ingestFromApi._handler(harness.ctx as never, {
+    const result = await callAsOwner(ingestFromApi)(harness.ctx as never, {
       ownerUserId: "telegram:278674008",
       promptText: "Slow dolly-in from the starting frame.",
       file: {

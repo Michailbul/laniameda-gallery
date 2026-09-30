@@ -8,6 +8,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { convexAuthHeaders } from "./convex-auth";
 
 type Pillar = string;
 type Scope = "mine" | "public";
@@ -411,7 +412,7 @@ function createHttpClient(runtime?: QueryRuntime) {
     async convexQuery(functionPath: string, args: Record<string, unknown>) {
       const response = await fetchImpl(`${convexUrl}/api/query`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...convexAuthHeaders() },
         body: JSON.stringify({ path: functionPath, args }),
       });
 
@@ -433,7 +434,7 @@ function createHttpClient(runtime?: QueryRuntime) {
     async convexAction(functionPath: string, args: Record<string, unknown>) {
       const response = await fetchImpl(`${convexUrl}/api/action`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...convexAuthHeaders() },
         body: JSON.stringify({ path: functionPath, args }),
       });
 

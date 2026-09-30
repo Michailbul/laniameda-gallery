@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     const ownerUserId = resolveExtensionOwnerUserId();
     const payload = await request.json();
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const result = await client.action(saveDesignFromExtensionAction, {
       ownerUserId,
       pillar: payload.pillar,

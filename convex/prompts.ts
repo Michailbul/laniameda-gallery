@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
@@ -15,6 +15,7 @@ import {
   promptTypeValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const pillarValidator = optionalPillarValidator;
 const reindexPromptAction = makeFunctionReference<"action">(
@@ -91,7 +92,7 @@ const matchesPromptSearch = (
     .some((value) => value.toLowerCase().includes(needle));
 };
 
-export const createPrompt = mutation({
+export const createPrompt = ownerMutation({
   args: {
     ownerUserId: v.string(),
     text: v.string(),
@@ -169,7 +170,7 @@ export const createPrompt = mutation({
   },
 });
 
-export const updatePrompt = mutation({
+export const updatePrompt = ownerMutation({
   args: {
     ownerUserId: v.string(),
     id: v.id("prompts"),
@@ -295,7 +296,7 @@ export const getPromptIdForIngestKey = internalQuery({
   },
 });
 
-export const getPrompt = query({
+export const getPrompt = ownerQuery({
   args: {
     id: v.id("prompts"),
     ownerUserId: v.optional(v.string()),
@@ -364,7 +365,7 @@ const promptContextStepValidator = v.object({
 //
 // Deliberately a separate query from the grid read: the list path stays a
 // flat `promptText`, and this only runs for the one open asset.
-export const getPromptContext = query({
+export const getPromptContext = ownerQuery({
   args: {
     id: v.id("prompts"),
     ownerUserId: v.optional(v.string()),
@@ -487,7 +488,7 @@ export const getPromptContext = query({
   },
 });
 
-export const listPrompts = query({
+export const listPrompts = ownerQuery({
   args: {
     ownerUserId: v.string(),
     tagId: v.optional(v.id("tags")),
@@ -573,7 +574,7 @@ export const listPrompts = query({
   },
 });
 
-export const listPromptOnlyGalleryPrompts = query({
+export const listPromptOnlyGalleryPrompts = ownerQuery({
   args: {
     ownerUserId: v.string(),
     tagIds: v.optional(v.array(v.id("tags"))),

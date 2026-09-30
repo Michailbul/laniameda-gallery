@@ -5,6 +5,7 @@ import { createDesignInspiration, getDesignInspiration } from "../convex/designI
 import { createFolder } from "../convex/folders";
 import { createPrompt, deletePrompt, getPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("ingest management backend", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -14,14 +15,14 @@ describe("ingest management backend", () => {
   });
 
   test("deletePrompt clears linked design inspiration promptId", async () => {
-    const prompt = await createPrompt._handler(harness.ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(harness.ctx as never, {
       ownerUserId: "user-1",
       text: "Original prompt",
       tagIds: [],
       ingestKey: "prompt:key",
     });
 
-    const design = await createDesignInspiration._handler(harness.ctx as never, {
+    const design = await callAsOwner(createDesignInspiration)(harness.ctx as never, {
       ownerUserId: "user-1",
       title: "Reference",
       inspirationType: "website",
@@ -30,11 +31,11 @@ describe("ingest management backend", () => {
       ingestKey: "design:key",
     });
 
-    await deletePrompt._handler(harness.ctx as never, {
+    await callAsOwner(deletePrompt)(harness.ctx as never, {
       id: prompt.promptId,
     });
 
-    const updatedDesign = await getDesignInspiration._handler(harness.ctx as never, {
+    const updatedDesign = await callAsOwner(getDesignInspiration)(harness.ctx as never, {
       id: design.designInspirationId,
       ownerUserId: "user-1",
     });
@@ -42,24 +43,24 @@ describe("ingest management backend", () => {
   });
 
   test("updateAssetMetadata patches ingest-managed asset fields", async () => {
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Refs",
     });
-    const prompt = await createPrompt._handler(harness.ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(harness.ctx as never, {
       ownerUserId: "user-1",
       text: "Prompt A",
       tagIds: [],
       ingestKey: "prompt:key",
     });
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
       ingestKey: "asset:key",
     });
 
-    const updatedAssetId = await updateAssetMetadata._handler(harness.ctx as never, {
+    const updatedAssetId = await callAsOwner(updateAssetMetadata)(harness.ctx as never, {
       ownerUserId: "user-1",
       assetId: asset.assetId,
       tagIds: [],
@@ -77,7 +78,7 @@ describe("ingest management backend", () => {
 
     expect(updatedAssetId).toBe(asset.assetId);
 
-    const updatedAsset = await getAsset._handler(harness.ctx as never, {
+    const updatedAsset = await callAsOwner(getAsset)(harness.ctx as never, {
       id: asset.assetId,
       ownerUserId: "user-1",
     });
@@ -94,11 +95,11 @@ describe("ingest management backend", () => {
   });
 
   test("repeated media saves update tags and collection membership without another asset", async () => {
-    const firstFolder = await createFolder._handler(harness.ctx as never, {
+    const firstFolder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "First collection",
     });
-    const secondFolder = await createFolder._handler(harness.ctx as never, {
+    const secondFolder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Second collection",
     });
@@ -121,7 +122,7 @@ describe("ingest management backend", () => {
       usageCount: 0,
     });
 
-    const first = await createAsset._handler(harness.ctx as never, {
+    const first = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [characterTagId],
@@ -129,7 +130,7 @@ describe("ingest management backend", () => {
       ingestKey: "extension-upload:same-bytes",
       contentHash: "same-bytes",
     });
-    const retried = await createAsset._handler(harness.ctx as never, {
+    const retried = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [locationTagId],
@@ -137,7 +138,7 @@ describe("ingest management backend", () => {
       ingestKey: "extension-upload:same-bytes",
       contentHash: "same-bytes",
     });
-    const renamedTwin = await createAsset._handler(harness.ctx as never, {
+    const renamedTwin = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [sceneTagId],
@@ -185,7 +186,7 @@ describe("ingest management backend", () => {
     process.env.CURATION_ADMIN_USER_IDS = "admin-1";
 
     try {
-      const asset = await createAsset._handler(harness.ctx as never, {
+      const asset = await callAsOwner(createAsset)(harness.ctx as never, {
         ownerUserId: "owner-1",
         kind: "image",
         tagIds: [],
@@ -194,7 +195,7 @@ describe("ingest management backend", () => {
         modelName: "old-model",
       });
 
-      const result = await adminUpdateAsset._handler(harness.ctx as never, {
+      const result = await callAsOwner(adminUpdateAsset)(harness.ctx as never, {
         actorUserId: "admin-1",
         adminSecret: "test-secret",
         assetId: asset.assetId,
@@ -223,7 +224,7 @@ describe("ingest management backend", () => {
       expect(result.assetRole).toBe("generated_output");
       expect(result.ingestSource).toBe("manual");
 
-      const updatedAsset = await getAsset._handler(harness.ctx as never, {
+      const updatedAsset = await callAsOwner(getAsset)(harness.ctx as never, {
         id: asset.assetId,
         ownerUserId: "owner-1",
       });
@@ -233,7 +234,7 @@ describe("ingest management backend", () => {
       expect(updatedAsset?.contentType).toBe("video/mp4");
       expect(updatedAsset?.tagIds).toEqual(result.tagIds);
 
-      const prompt = await getPrompt._handler(harness.ctx as never, {
+      const prompt = await callAsOwner(getPrompt)(harness.ctx as never, {
         id: result.promptId!,
         ownerUserId: "owner-1",
       });

@@ -8,17 +8,18 @@ import {
 } from "../convex/generationLineage";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("generation lineage backend", () => {
   test("links workflow outputs to upstream prompts idempotently", async () => {
     const { ctx, db } = createMockConvexMutationCtx();
-    const prompt = await createPrompt._handler(ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(ctx as never, {
       ownerUserId: "user-1",
       text: "Starting image prompt",
       tagIds: [],
       ingestKey: "prompt:start:v1",
     });
-    const asset = await createAsset._handler(ctx as never, {
+    const asset = await callAsOwner(createAsset)(ctx as never, {
       ownerUserId: "user-1",
       kind: "video",
       tagIds: [],
@@ -29,7 +30,7 @@ describe("generation lineage backend", () => {
       assetRole: "generated_output",
     });
 
-    const first = await upsertLineage._handler(ctx as never, {
+    const first = await callAsOwner(upsertLineage)(ctx as never, {
       ownerUserId: "user-1",
       targetAssetId: asset.assetId,
       sourcePromptId: prompt.promptId,
@@ -37,7 +38,7 @@ describe("generation lineage backend", () => {
       stageOrder: 1,
       notes: "Seedance video used this starting-frame prompt.",
     });
-    const second = await upsertLineage._handler(ctx as never, {
+    const second = await callAsOwner(upsertLineage)(ctx as never, {
       ownerUserId: "user-1",
       targetAssetId: asset.assetId,
       sourcePromptId: prompt.promptId,
@@ -50,7 +51,7 @@ describe("generation lineage backend", () => {
     expect(second.created).toBe(false);
     expect(second.lineageId).toBe(first.lineageId);
 
-    const upstream = await getUpstreamForAsset._handler(ctx as never, {
+    const upstream = await callAsOwner(getUpstreamForAsset)(ctx as never, {
       ownerUserId: "user-1",
       assetId: asset.assetId,
     });
@@ -60,7 +61,7 @@ describe("generation lineage backend", () => {
     expect(upstream[0]?.sourcePrompt?.text).toBe("Starting image prompt");
     expect(upstream[0]?.targetAsset?.kind).toBe("video");
 
-    const downstream = await getDownstreamForPrompt._handler(ctx as never, {
+    const downstream = await callAsOwner(getDownstreamForPrompt)(ctx as never, {
       ownerUserId: "user-1",
       promptId: prompt.promptId,
     });
@@ -70,12 +71,12 @@ describe("generation lineage backend", () => {
 
   test("rejects lineage links across owners", async () => {
     const { ctx } = createMockConvexMutationCtx();
-    const prompt = await createPrompt._handler(ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(ctx as never, {
       ownerUserId: "user-1",
       text: "Starting image prompt",
       tagIds: [],
     });
-    const asset = await createAsset._handler(ctx as never, {
+    const asset = await callAsOwner(createAsset)(ctx as never, {
       ownerUserId: "user-2",
       kind: "video",
       tagIds: [],
@@ -83,7 +84,7 @@ describe("generation lineage backend", () => {
     });
 
     await expect(
-      upsertLineage._handler(ctx as never, {
+      callAsOwner(upsertLineage)(ctx as never, {
         ownerUserId: "user-1",
         targetAssetId: asset.assetId,
         sourcePromptId: prompt.promptId,
@@ -94,19 +95,19 @@ describe("generation lineage backend", () => {
 
   test("deleting an asset clears workflow lineage rows", async () => {
     const { ctx, db } = createMockConvexMutationCtx();
-    const prompt = await createPrompt._handler(ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(ctx as never, {
       ownerUserId: "user-1",
       text: "Source prompt",
       tagIds: [],
     });
-    const asset = await createAsset._handler(ctx as never, {
+    const asset = await callAsOwner(createAsset)(ctx as never, {
       ownerUserId: "user-1",
       kind: "video",
       tagIds: [],
       contentType: "video/mp4",
     });
 
-    await upsertLineage._handler(ctx as never, {
+    await callAsOwner(upsertLineage)(ctx as never, {
       ownerUserId: "user-1",
       targetAssetId: asset.assetId,
       sourcePromptId: prompt.promptId,
@@ -114,7 +115,7 @@ describe("generation lineage backend", () => {
     });
 
     expect(db.getTableDocs("generationLineage")).toHaveLength(1);
-    await internalDeleteAsset._handler(ctx as never, {
+    await callAsOwner(internalDeleteAsset)(ctx as never, {
       id: asset.assetId,
     });
     expect(db.getTableDocs("generationLineage")).toHaveLength(0);

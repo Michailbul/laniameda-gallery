@@ -1,5 +1,6 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
+import { setConvexActorAuth } from "../lib/convex-auth";
 import { createLogger } from "../lib/observability/logger";
 import { workerConfig } from "./config";
 
@@ -136,6 +137,12 @@ export const convexRuns = {
     runTimed({
       op: "ingestAgentPayload",
       runId: args.runId,
-      fn: () => client.action(ingestAgentPayloadAction, args),
+      fn: () => {
+        // The run's owner was authenticated when the run was created; the
+        // ingest action only accepts a token for that same owner.
+        const ownerClient = new ConvexHttpClient(workerConfig.convexUrl);
+        setConvexActorAuth(ownerClient, args.ownerUserId);
+        return ownerClient.action(ingestAgentPayloadAction, args);
+      },
     }),
 };

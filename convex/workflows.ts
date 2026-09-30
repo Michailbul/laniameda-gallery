@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values";
-import { action, internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -14,6 +14,7 @@ import {
   promptTypeValidator,
   workflowTypeValidator,
 } from "./validators";
+import { ownerAction, ownerMutation, ownerQuery } from "./actor";
 
 // A workflow is an ordered container of steps. Each step is a prompt
 // (extended with `workflowId` + `workflowStepOrder`) plus the assets linked
@@ -172,7 +173,7 @@ const collectWorkflowPreviewMedia = async (
   return media;
 };
 
-export const listWorkflows = query({
+export const listWorkflows = ownerQuery({
   args: {
     ownerUserId: v.string(),
     pillar: optionalPillarValidator,
@@ -251,7 +252,7 @@ export const listWorkflows = query({
   },
 });
 
-export const getWorkflow = query({
+export const getWorkflow = ownerQuery({
   args: {
     id: v.id("workflows"),
     ownerUserId: v.optional(v.string()),
@@ -303,7 +304,7 @@ export const getWorkflow = query({
   },
 });
 
-export const createWorkflow = mutation({
+export const createWorkflow = ownerMutation({
   args: {
     ownerUserId: v.string(),
     title: v.string(),
@@ -357,7 +358,7 @@ export const createWorkflow = mutation({
   },
 });
 
-export const deleteWorkflow = mutation({
+export const deleteWorkflow = ownerMutation({
   args: { ownerUserId: v.string(), id: v.id("workflows") },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -459,7 +460,7 @@ export const finalizeWorkflow = internalMutation({
 // decision than "give this pack a workflows-view card". The pack rows are left
 // in place too — nothing reads them anymore, and keeping them makes this
 // reversible.
-export const backfillPacksAsWorkflows = mutation({
+export const backfillPacksAsWorkflows = ownerMutation({
   args: {
     ownerUserId: v.string(),
     dryRun: v.optional(v.boolean()),
@@ -606,7 +607,7 @@ const stepMediaInputValidator = v.object({
 // Single-call workflow ingest: creates the workflow row, then ingests each
 // step's prompt + media through the canonical `ingest:ingestFromApi` path so
 // steps inherit R2 storage, thumbnails, tagging and semantic indexing.
-export const ingestWorkflowFromApi = action({
+export const ingestWorkflowFromApi = ownerAction({
   args: {
     ownerUserId: v.string(),
     ingestKey: v.optional(v.string()),

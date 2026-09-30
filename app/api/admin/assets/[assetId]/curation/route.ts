@@ -53,7 +53,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(authUser.ownerUserId);
     const result = await client.mutation(setAssetCurationMutation, {
       assetId: assetId as Id<"assets">,
       actorUserId: authUser.id,

@@ -10,6 +10,7 @@ import {
 import { createFolder, deleteFolder, listFolders } from "../convex/folders";
 import { createPrompt, getPrompt, listPrompts, updatePrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("owner authz canonicalization", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -21,23 +22,23 @@ describe("owner authz canonicalization", () => {
   });
 
   test("folder list and assignment accept owner aliases", async () => {
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: owner,
       name: "Inbox",
     });
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: owner,
       kind: "image",
       tagIds: [],
     });
 
-    const folders = await listFolders._handler(harness.ctx as never, {
+    const folders = await callAsOwner(listFolders)(harness.ctx as never, {
       ownerUserId: ownerAlias,
     });
     expect(folders.length).toBe(1);
     expect(folders[0]?._id).toBe(folder.folderId);
 
-    const update = await setAssetFolder._handler(harness.ctx as never, {
+    const update = await callAsOwner(setAssetFolder)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       assetId: asset.assetId,
       folderId: folder.folderId,
@@ -46,25 +47,25 @@ describe("owner authz canonicalization", () => {
   });
 
   test("asset queries/count/ingest checks include owner aliases", async () => {
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       kind: "image",
       tagIds: [],
       ingestKey: "asset-owner-alias-key",
     });
 
-    const fetched = await getAsset._handler(harness.ctx as never, {
+    const fetched = await callAsOwner(getAsset)(harness.ctx as never, {
       id: asset.assetId,
       ownerUserId: owner,
     });
     expect(fetched?._id).toBe(asset.assetId);
 
-    const listed = await listAssets._handler(harness.ctx as never, {
+    const listed = await callAsOwner(listAssets)(harness.ctx as never, {
       ownerUserId: owner,
     });
     expect(listed.some((row) => row._id === asset.assetId)).toBeTrue();
 
-    const ingestMatches = await checkAssetIngestMatches._handler(
+    const ingestMatches = await callAsOwner(checkAssetIngestMatches)(
       harness.ctx as never,
       {
         ownerUserId: owner,
@@ -76,22 +77,22 @@ describe("owner authz canonicalization", () => {
   });
 
   test("prompt ownership checks and reads accept owner aliases", async () => {
-    const folderA = await createFolder._handler(harness.ctx as never, {
+    const folderA = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: owner,
       name: "Folder A",
     });
-    const folderB = await createFolder._handler(harness.ctx as never, {
+    const folderB = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       name: "Folder B",
     });
-    const prompt = await createPrompt._handler(harness.ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(harness.ctx as never, {
       ownerUserId: owner,
       text: "Initial prompt text",
       tagIds: [],
       folderId: folderA.folderId,
     });
 
-    const updatedPromptId = await updatePrompt._handler(harness.ctx as never, {
+    const updatedPromptId = await callAsOwner(updatePrompt)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       id: prompt.promptId,
       text: "Updated prompt text",
@@ -100,14 +101,14 @@ describe("owner authz canonicalization", () => {
     });
     expect(updatedPromptId).toBe(prompt.promptId);
 
-    const fetched = await getPrompt._handler(harness.ctx as never, {
+    const fetched = await callAsOwner(getPrompt)(harness.ctx as never, {
       id: prompt.promptId,
       ownerUserId: ownerAlias,
     });
     expect(fetched?.text).toBe("Updated prompt text");
     expect(fetched?.folderId).toBe(folderB.folderId);
 
-    const listed = await listPrompts._handler(harness.ctx as never, {
+    const listed = await callAsOwner(listPrompts)(harness.ctx as never, {
       ownerUserId: ownerAlias,
     });
     expect(listed.length).toBe(1);
@@ -115,17 +116,17 @@ describe("owner authz canonicalization", () => {
   });
 
   test("deleteFolder accepts owner alias and clears linked docs", async () => {
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: owner,
       name: "Archive",
     });
-    const prompt = await createPrompt._handler(harness.ctx as never, {
+    const prompt = await callAsOwner(createPrompt)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       text: "Alias-linked prompt",
       tagIds: [],
       folderId: folder.folderId,
     });
-    const asset = await createAsset._handler(harness.ctx as never, {
+    const asset = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       kind: "image",
       tagIds: [],
@@ -133,7 +134,7 @@ describe("owner authz canonicalization", () => {
       promptId: prompt.promptId,
     });
 
-    const result = await deleteFolder._handler(harness.ctx as never, {
+    const result = await callAsOwner(deleteFolder)(harness.ctx as never, {
       ownerUserId: ownerAlias,
       folderId: folder.folderId,
     });

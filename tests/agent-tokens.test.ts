@@ -7,6 +7,7 @@ import {
   revokeAgentToken,
 } from "../convex/agentTokens";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("agent tokens", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -17,7 +18,7 @@ describe("agent tokens", () => {
   });
 
   test("creates public token metadata without returning tokenHash", async () => {
-    const token = await createAgentToken._handler(harness.ctx as never, {
+    const token = await callAsOwner(createAgentToken)(harness.ctx as never, {
       serverSecret: "issuer-secret",
       ownerUserId: "telegram:278674008",
       tokenHash: "hashed-token",
@@ -30,7 +31,7 @@ describe("agent tokens", () => {
     expect(token.scopes).toEqual(["gallery:read", "gallery:write"]);
     expect("tokenHash" in token).toBe(false);
 
-    const tokens = await listAgentTokens._handler(harness.ctx as never, {
+    const tokens = await callAsOwner(listAgentTokens)(harness.ctx as never, {
       serverSecret: "issuer-secret",
       ownerUserId: "telegram:278674008",
     });
@@ -39,7 +40,7 @@ describe("agent tokens", () => {
   });
 
   test("authenticates scoped tokens and rejects missing scopes", async () => {
-    await createAgentToken._handler(harness.ctx as never, {
+    await callAsOwner(createAgentToken)(harness.ctx as never, {
       serverSecret: "issuer-secret",
       ownerUserId: "user-1",
       tokenHash: "hashed-token",
@@ -47,13 +48,13 @@ describe("agent tokens", () => {
       scopes: ["gallery:read"],
     });
 
-    const readAuth = await authenticateAgentToken._handler(harness.ctx as never, {
+    const readAuth = await callAsOwner(authenticateAgentToken)(harness.ctx as never, {
       tokenHash: "hashed-token",
       requiredScope: "gallery:read",
     });
     expect(readAuth?.ownerUserId).toBe("user-1");
 
-    const writeAuth = await authenticateAgentToken._handler(harness.ctx as never, {
+    const writeAuth = await callAsOwner(authenticateAgentToken)(harness.ctx as never, {
       tokenHash: "hashed-token",
       requiredScope: "gallery:write",
     });
@@ -61,7 +62,7 @@ describe("agent tokens", () => {
   });
 
   test("revoked tokens no longer authenticate", async () => {
-    const token = await createAgentToken._handler(harness.ctx as never, {
+    const token = await callAsOwner(createAgentToken)(harness.ctx as never, {
       serverSecret: "issuer-secret",
       ownerUserId: "user-1",
       tokenHash: "hashed-token",
@@ -69,13 +70,13 @@ describe("agent tokens", () => {
       scopes: ["gallery:read"],
     });
 
-    await revokeAgentToken._handler(harness.ctx as never, {
+    await callAsOwner(revokeAgentToken)(harness.ctx as never, {
       serverSecret: "issuer-secret",
       ownerUserId: "user-1",
       tokenId: token._id,
     });
 
-    const auth = await authenticateAgentToken._handler(harness.ctx as never, {
+    const auth = await callAsOwner(authenticateAgentToken)(harness.ctx as never, {
       tokenHash: "hashed-token",
       requiredScope: "gallery:read",
     });

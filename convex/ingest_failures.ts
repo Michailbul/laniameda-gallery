@@ -1,6 +1,7 @@
-import { internalQuery, mutation } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { ownerMutation } from "./actor";
 
 const ingestFailureSourceValidator = v.union(v.literal("api"));
 const ingestFailureStatusValidator = v.union(v.literal("pending"), v.literal("resolved"));
@@ -27,7 +28,7 @@ const normalizeOptionalString = (value?: string) => {
   return normalized && normalized.length > 0 ? normalized : undefined;
 };
 
-export const recordIngestFailure = mutation({
+export const recordIngestFailure = ownerMutation({
   args: {
     source: ingestFailureSourceValidator,
     ownerUserId: v.optional(v.string()),
@@ -113,7 +114,7 @@ export const recordIngestFailure = mutation({
   },
 });
 
-export const resolveIngestFailure = mutation({
+export const resolveIngestFailure = ownerMutation({
   args: {
     ownerUserId: v.string(),
     ingestKey: v.string(),

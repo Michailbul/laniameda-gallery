@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { trimOptionalText } from "./designSaveHelpers";
 import { designSaveTemplateDefaultsValidator } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const designSaveTemplateValidator = v.object({
   _id: v.id("designSaveTemplates"),
@@ -23,7 +24,7 @@ const normalizeTemplateKey = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-export const upsertDesignSaveTemplate = mutation({
+export const upsertDesignSaveTemplate = ownerMutation({
   args: {
     ownerUserId: v.string(),
     key: v.string(),
@@ -83,7 +84,7 @@ export const upsertDesignSaveTemplate = mutation({
   },
 });
 
-export const listDesignSaveTemplates = query({
+export const listDesignSaveTemplates = ownerQuery({
   args: {
     ownerUserId: v.string(),
   },
@@ -149,7 +150,7 @@ export const getDesignSaveTemplateByKey = internalQuery({
   },
 });
 
-export const deleteDesignSaveTemplate = mutation({
+export const deleteDesignSaveTemplate = ownerMutation({
   args: {
     ownerUserId: v.string(),
     id: v.id("designSaveTemplates"),

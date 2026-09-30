@@ -424,7 +424,7 @@ export async function POST(request: Request) {
 
     failurePayload = sanitizeFailurePayload(payload);
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
     const result = await client.action(ingestAction, payload);
 
     if (ownerUserId && finalIngestKey) {
@@ -442,7 +442,7 @@ export async function POST(request: Request) {
 
     if (ownerUserId) {
       try {
-        const client = getServerConvexClient();
+        const client = getServerConvexClient(ownerUserId);
         const failureRecord = await client.mutation(recordIngestFailureMutation, {
           source: "api",
           ownerUserId,

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as actor from "../actor.js";
 import type * as agentDescriptionText from "../agentDescriptionText.js";
 import type * as agentDescriptions from "../agentDescriptions.js";
 import type * as agentTokens from "../agentTokens.js";
@@ -61,6 +62,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  actor: typeof actor;
   agentDescriptionText: typeof agentDescriptionText;
   agentDescriptions: typeof agentDescriptions;
   agentTokens: typeof agentTokens;

@@ -15,6 +15,7 @@ import {
 } from "../convex/folders";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 describe("folders backend", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
@@ -24,7 +25,7 @@ describe("folders backend", () => {
   });
 
   test("creates owner-scoped folders and dedupes by normalized name", async () => {
-    const first = await createFolder._handler(harness.ctx as never, {
+    const first = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "  Mood   Board ",
       description: " references ",
@@ -32,7 +33,7 @@ describe("folders backend", () => {
 
     expect(first.created).toBe(true);
 
-    const second = await createFolder._handler(harness.ctx as never, {
+    const second = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "mood board",
     });
@@ -40,7 +41,7 @@ describe("folders backend", () => {
     expect(second.created).toBe(false);
     expect(second.folderId).toBe(first.folderId);
 
-    const third = await createFolder._handler(harness.ctx as never, {
+    const third = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-2",
       name: "mood board",
     });
@@ -50,16 +51,16 @@ describe("folders backend", () => {
   });
 
   test("lists folders only for the requested owner", async () => {
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Folder A",
     });
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-2",
       name: "Folder B",
     });
 
-    const list = await listFolders._handler(harness.ctx as never, {
+    const list = await callAsOwner(listFolders)(harness.ctx as never, {
       ownerUserId: "user-1",
     });
 
@@ -69,43 +70,43 @@ describe("folders backend", () => {
   });
 
   test("lists child collections as visual entries with previews and counts", async () => {
-    const parent = await createFolder._handler(harness.ctx as never, {
+    const parent = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Orpheus",
     });
-    const characters = await createFolder._handler(harness.ctx as never, {
+    const characters = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Characters",
       parentFolderId: parent.folderId,
     });
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Locations",
       parentFolderId: parent.folderId,
     });
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Inspirations",
       parentFolderId: parent.folderId,
     });
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Scenes",
       parentFolderId: parent.folderId,
     });
-    await createFolder._handler(harness.ctx as never, {
+    await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-2",
       name: "Other",
     });
 
-    const first = await createAsset._handler(harness.ctx as never, {
+    const first = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
       folderId: characters.folderId,
       sourceUrl: "https://example.com/orpheus.jpg",
     });
-    const second = await createAsset._handler(harness.ctx as never, {
+    const second = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
@@ -113,7 +114,7 @@ describe("folders backend", () => {
       sourceUrl: "https://example.com/eurydice.jpg",
     });
 
-    const entries = await listChildCollectionEntries._handler(
+    const entries = await callAsOwner(listChildCollectionEntries)(
       harness.ctx as never,
       {
         ownerUserId: "user-1",
@@ -138,13 +139,13 @@ describe("folders backend", () => {
   });
 
   test("blocks child collection entries for another owner", async () => {
-    const parent = await createFolder._handler(harness.ctx as never, {
+    const parent = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Private project",
     });
 
     await expect(
-      listChildCollectionEntries._handler(harness.ctx as never, {
+      callAsOwner(listChildCollectionEntries)(harness.ctx as never, {
         ownerUserId: "user-2",
         parentFolderId: parent.folderId,
       }),
@@ -152,13 +153,13 @@ describe("folders backend", () => {
   });
 
   test("rejects assigning another user's folder during asset create", async () => {
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-2",
       name: "Private",
     });
 
     await expect(
-      createAsset._handler(harness.ctx as never, {
+      callAsOwner(createAsset)(harness.ctx as never, {
         ownerUserId: "user-1",
         kind: "image",
         tagIds: [],
@@ -168,22 +169,22 @@ describe("folders backend", () => {
   });
 
   test("setAssetFolder updates folder assignment and blocks cross-user access", async () => {
-    const folderA = await createFolder._handler(harness.ctx as never, {
+    const folderA = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "To Review",
     });
-    const folderB = await createFolder._handler(harness.ctx as never, {
+    const folderB = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-2",
       name: "Hidden",
     });
 
-    const assetResult = await createAsset._handler(harness.ctx as never, {
+    const assetResult = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
     });
 
-    const firstUpdate = await setAssetFolder._handler(harness.ctx as never, {
+    const firstUpdate = await callAsOwner(setAssetFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       assetId: assetResult.assetId,
       folderId: folderA.folderId,
@@ -195,7 +196,7 @@ describe("folders backend", () => {
     expect(asset?.folderId).toBe(folderA.folderId);
 
     await expect(
-      setAssetFolder._handler(harness.ctx as never, {
+      callAsOwner(setAssetFolder)(harness.ctx as never, {
         ownerUserId: "user-1",
         assetId: assetResult.assetId,
         folderId: folderB.folderId,
@@ -204,22 +205,22 @@ describe("folders backend", () => {
   });
 
   test("setAssetFolders allows one asset in multiple folders", async () => {
-    const folderA = await createFolder._handler(harness.ctx as never, {
+    const folderA = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Editorial",
     });
-    const folderB = await createFolder._handler(harness.ctx as never, {
+    const folderB = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Reference",
     });
-    const assetResult = await createAsset._handler(harness.ctx as never, {
+    const assetResult = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
       sourceUrl: "https://example.com/image.png",
     });
 
-    const result = await setAssetFolders._handler(harness.ctx as never, {
+    const result = await callAsOwner(setAssetFolders)(harness.ctx as never, {
       ownerUserId: "user-1",
       assetId: assetResult.assetId,
       folderIds: [folderA.folderId, folderB.folderId, folderA.folderId],
@@ -231,7 +232,7 @@ describe("folders backend", () => {
     const links = harness.db.getTableDocs("assetFolders");
     expect(links.length).toBe(2);
 
-    const folderBResults = await listGalleryAssets._handler(harness.ctx as never, {
+    const folderBResults = await callAsOwner(listGalleryAssets)(harness.ctx as never, {
       ownerUserId: "user-1",
       folderId: folderB.folderId,
       limit: 20,
@@ -246,19 +247,19 @@ describe("folders backend", () => {
   });
 
   test("addAssetFolders appends folders without replacing existing links", async () => {
-    const folderA = await createFolder._handler(harness.ctx as never, {
+    const folderA = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Editorial",
     });
-    const folderB = await createFolder._handler(harness.ctx as never, {
+    const folderB = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Reference",
     });
-    const folderC = await createFolder._handler(harness.ctx as never, {
+    const folderC = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Campaign",
     });
-    const assetResult = await createAsset._handler(harness.ctx as never, {
+    const assetResult = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
@@ -266,7 +267,7 @@ describe("folders backend", () => {
       sourceUrl: "https://example.com/image.png",
     });
 
-    const result = await addAssetFolders._handler(harness.ctx as never, {
+    const result = await callAsOwner(addAssetFolders)(harness.ctx as never, {
       ownerUserId: "user-1",
       assetId: assetResult.assetId,
       folderIds: [folderB.folderId, folderC.folderId, folderB.folderId],
@@ -282,11 +283,11 @@ describe("folders backend", () => {
   });
 
   test("nests folders one level inside a collection", async () => {
-    const collection = await createFolder._handler(harness.ctx as never, {
+    const collection = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Cassandra",
     });
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Balcony",
       parentFolderId: collection.folderId,
@@ -299,7 +300,7 @@ describe("folders backend", () => {
 
     // A folder never holds folders of its own.
     await expect(
-      createFolder._handler(harness.ctx as never, {
+      callAsOwner(createFolder)(harness.ctx as never, {
         ownerUserId: "user-1",
         name: "Too deep",
         parentFolderId: folder.folderId,
@@ -308,7 +309,7 @@ describe("folders backend", () => {
 
     // Storybooks stay leaves.
     await expect(
-      createFolder._handler(harness.ctx as never, {
+      callAsOwner(createFolder)(harness.ctx as never, {
         ownerUserId: "user-1",
         name: "A story",
         kind: "storybook",
@@ -318,19 +319,19 @@ describe("folders backend", () => {
   });
 
   test("deleteFolder clears related asset and prompt references", async () => {
-    const folder = await createFolder._handler(harness.ctx as never, {
+    const folder = await callAsOwner(createFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       name: "Archive",
     });
 
-    const promptResult = await createPrompt._handler(harness.ctx as never, {
+    const promptResult = await callAsOwner(createPrompt)(harness.ctx as never, {
       ownerUserId: "user-1",
       text: "Cinematic portrait",
       tagIds: [],
       folderId: folder.folderId,
     });
 
-    const assetResult = await createAsset._handler(harness.ctx as never, {
+    const assetResult = await callAsOwner(createAsset)(harness.ctx as never, {
       ownerUserId: "user-1",
       kind: "image",
       tagIds: [],
@@ -338,7 +339,7 @@ describe("folders backend", () => {
       promptId: promptResult.promptId,
     });
 
-    const deletion = await deleteFolder._handler(harness.ctx as never, {
+    const deletion = await callAsOwner(deleteFolder)(harness.ctx as never, {
       ownerUserId: "user-1",
       folderId: folder.folderId,
     });

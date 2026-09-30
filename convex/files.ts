@@ -1,7 +1,7 @@
-import { mutation } from "./_generated/server";
+import { authedMutation } from "./actor";
 import { v } from "convex/values";
 
-export const generateUploadUrl = mutation({
+export const generateUploadUrl = authedMutation({
   args: {},
   returns: v.string(),
   handler: async (ctx) => {

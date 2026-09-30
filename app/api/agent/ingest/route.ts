@@ -59,7 +59,7 @@ export async function POST(request: Request) {
         typeof rest.ingestSource === "string" ? rest.ingestSource : "agent",
     };
 
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(agent.ownerUserId);
     const result = await client.action(ingestAction, payload);
     const collections =
       result.assetId && folderIds

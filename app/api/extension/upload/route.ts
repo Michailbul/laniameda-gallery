@@ -38,11 +38,11 @@ export async function POST(request: Request) {
     // Keep the upload handshake scoped to the same configured owner as every
     // other extension route, even though the R2 component itself only needs a
     // token-authorized call to mint the signed URL.
-    resolveExtensionOwnerUserId();
+    const ownerUserId = resolveExtensionOwnerUserId();
 
     const payload = (await request.json().catch(() => null)) as UploadRequest | null;
     const action = typeof payload?.action === "string" ? payload.action : "";
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(ownerUserId);
 
     if (action === "prepare") {
       const result = (await client.mutation(generateUploadUrlMutation, {})) as {

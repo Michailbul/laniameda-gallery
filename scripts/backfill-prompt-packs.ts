@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { ConvexHttpClient } from "convex/browser";
+import { setConvexActorAuth } from "../lib/convex-auth";
 
 import { api } from "../convex/_generated/api";
 
@@ -22,6 +23,7 @@ if (!OWNER_USER_ID) {
 }
 
 const client = new ConvexHttpClient(CONVEX_URL);
+setConvexActorAuth(client, OWNER_USER_ID, { ttlSeconds: 6 * 60 * 60 });
 
 async function main() {
   console.log(`Connecting to ${CONVEX_URL}`);

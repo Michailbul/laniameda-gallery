@@ -30,7 +30,7 @@ const toAppUser = (sessionUser: TelegramUser, convexUser: ConvexUser): AppUser =
 const resolveOrCreateByTelegramSession = async (
   sessionUser: TelegramUser,
 ): Promise<ConvexUser> => {
-  const client = getServerConvexClient();
+  const client = getServerConvexClient(sessionUser.telegramId);
   const existing = await client.query(api.users.resolveByTelegramId, {
     telegramId: sessionUser.telegramId,
   });

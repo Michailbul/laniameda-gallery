@@ -32,7 +32,7 @@ export async function GET(
 
   let download;
   try {
-    const client = getServerConvexClient();
+    const client = getServerConvexClient(user?.ownerUserId);
     download = user
       ? await client.query(api.assets.getAssetDownload, {
           ownerUserId: user.ownerUserId,

@@ -1,7 +1,6 @@
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
 import { syncPromptAssetPack } from "./assetPackHelpers";
 import { canActorAccessOwnerUserId } from "./authz";
 import {
@@ -13,6 +12,7 @@ import {
   assetDocValidator,
   optionalPillarValidator,
 } from "./validators";
+import { ownerMutation, ownerQuery } from "./actor";
 
 const VIDEO_FALLBACK_DIMENSIONS = { width: 16, height: 9 } as const;
 
@@ -61,7 +61,7 @@ const resolveAssetPreviewDimensions = (asset: {
   return thumbnail ?? original ?? {};
 };
 
-export const createAssetPack = mutation({
+export const createAssetPack = ownerMutation({
   args: {
     ownerUserId: v.optional(v.string()),
     title: v.string(),
@@ -95,7 +95,7 @@ export const createAssetPack = mutation({
   },
 });
 
-export const addAssetToPack = mutation({
+export const addAssetToPack = ownerMutation({
   args: {
     ownerUserId: v.string(),
     packId: v.id("assetPacks"),
@@ -164,7 +164,7 @@ export const addAssetToPack = mutation({
   },
 });
 
-export const getAssetPackWithAssets = query({
+export const getAssetPackWithAssets = ownerQuery({
   // ownerUserId is optional only for rollout compatibility; without it the
   // query behaves fail-closed and returns public packs only.
   args: { ownerUserId: v.optional(v.string()), packId: v.id("assetPacks") },
@@ -240,7 +240,7 @@ export const getAssetPackWithAssets = query({
   },
 });
 
-export const getGalleryAssetPack = query({
+export const getGalleryAssetPack = ownerQuery({
   args: {
     packId: v.id("assetPacks"),
     ownerUserId: v.string(),
@@ -297,7 +297,7 @@ export const getGalleryAssetPack = query({
   },
 });
 
-export const listAssetPacks = query({
+export const listAssetPacks = ownerQuery({
   args: {
     ownerUserId: v.string(),
     pillar: v.optional(optionalPillarValidator),
@@ -342,7 +342,7 @@ export const listAssetPacks = query({
   },
 });
 
-export const listAssetPacksWithCovers = query({
+export const listAssetPacksWithCovers = ownerQuery({
   args: {
     ownerUserId: v.string(),
     pillar: v.optional(optionalPillarValidator),
@@ -489,7 +489,7 @@ export const listAssetPacksWithCovers = query({
   },
 });
 
-export const getAssetPackByIngestKey = query({
+export const getAssetPackByIngestKey = ownerQuery({
   args: {
     ownerUserId: v.optional(v.string()),
     ingestKey: v.string(),
@@ -531,7 +531,7 @@ export const getAssetPackByIngestKey = query({
   },
 });
 
-export const consolidateOwnerPromptPacks = mutation({
+export const consolidateOwnerPromptPacks = ownerMutation({
   args: {
     ownerUserId: v.string(),
     limit: v.optional(v.number()),
