@@ -15,7 +15,7 @@ as everywhere else.
 | World (root collection) | Parts (folders) | Medium | Folder id |
 |---|---|---|---|
 | **DEAR ANNETE** | root holds nothing loose | | `j97ca9jqpeagn2r6z1015ekpq588y5x3` |
-| | › **Animation** | animation | `j97a5aher6cph4qpadmcw7aj9h8fcbke` |
+| | › **Animated** | animation | `j97a5aher6cph4qpadmcw7aj9h8fcbke` |
 | | › **Unreal Engine** | live action (AAA Unreal cinematic, photoreal textures) | `j9780r64s6hsss9wpqm0fhzcnd8fdxds` |
 | | › **Piazza Graphic 2D** | animation | `j9756s9azvn68egr9tss53mj7d8fd51n` |
 | | › **Dari** (a project inside the world) | live action (Unreal Engine look) | `j97dhvnq3s422s9ekx560f19jx8ezys9` |
@@ -57,8 +57,8 @@ Leads:
 Parts and their style tags:
 | Part | Style tag | Look |
 |---|---|---|
-| Animation | `lantern-painterly` (main look) | Stylized animated concept painting: soft brushed painterly 3D, haze, indigo night, warm amber lantern light, muted red tiles, gold accents. |
-| Animation | `baroque-3d-cast` | Painted 3D character sheets on pale grey/white: black and ivory baroque military coats, brass-gold mechanical limbs. |
+| Animated | `lantern-painterly` (main look) | Stylized animated concept painting: soft brushed painterly 3D, haze, indigo night, warm amber lantern light, muted red tiles, gold accents. |
+| Animated | `baroque-3d-cast` | Painted 3D character sheets on pale grey/white: black and ivory baroque military coats, brass-gold mechanical limbs. |
 | Piazza Graphic 2D | `piazza-graphic-2d` | Flat graphic comic look: low-angle heroic framing, blue sky, pink-cream palazzi, cel-shaded cyber-aristocrats. |
 | Unreal Engine | `golden-prague-ue` (main look) | AAA Unreal cinematic Prague in golden-hour sun and amber haze. Tram canyon `asset:j5776vwey580p9362nsx7jshhs8e0eqd`, flower arcade `asset:j57eqd5f0pgcgbzzcdeanegvp98e1t4g`, rose courtyard `asset:j57fe0t848f7sk53qpw84acqa98e11dh`. |
 | Unreal Engine | `cyber-baroque-cast` | Unreal character and carriage renders on neutral backdrops, navy-bone-brass baroque costume with gold cyber limbs. Courier hero `asset:j57bgqdctfwn2b0ke3gkem0qy18cnx8k`. |
@@ -98,6 +98,13 @@ oversized retro jackets), worn machines, desert outposts, cockpits and corridors
 | `flat-fashion-caricature` (main look) | Flat-shaded 2D caricatures, elongated limbs, tiny heads, oversized retro streetwear, hard desert sun. Old mechanic `asset:j573852fj790g6yf145e2jz6vh8e1z7q`. |
 | `painted-crew-close-ups` | Painterly semi-3D low-angle crew portraits with race numbers, sun-bleached rooftops. `asset:j570e0b5600hke95wq5rn6hv9s8e00e4`. |
 
+## Never name a folder after a filter pill
+
+The island bar's pills are tags: Characters, Locations, Scenes, Inspirations, Live action,
+Cinematic, Animation, Design. The gallery treats a collection whose name matches a pill tag as
+that tag, so a folder called "Animation" shows every animated piece in the gallery. That is why
+Dear Annete's animated part is named **Animated**. Check `menuFilters` before naming a folder.
+
 ## Medium: the master tags still rule
 
 The island bar's master pills are `animation`, `live-action` and `design`. The worlds never
@@ -120,7 +127,7 @@ Dear Annete part name, not a medium. Don't touch `design` or the asset type sche
 ## Storybooks (30 Sep 2026)
 
 One world and one look each, named `<WORLD> · <Title>`; the description holds the logline and
-numbered beats. DEAR ANNETE: Lens Cap, Two Pears (Animation) · Past the Last Stop, Ten to Closing
+numbered beats. DEAR ANNETE: Lens Cap, Two Pears (Animated) · Past the Last Stop, Ten to Closing
 (Unreal Engine) · The Third String (Piazza Graphic 2D) · The Rose That Stays (Dari). DADDY ISSUES:
 Coffee for Two, The Brave One, The Top Button. ANDROMEDA — ANN: One Grain a Day, Two Sandwiches.
 ANDROMEDA — RETRO-FUTURE: The Chief's Chair. Source: `~/AI-video-work/gallery-art-direction-2026-09-26/stories-0930/`.
