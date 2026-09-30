@@ -377,7 +377,7 @@ describe("gallery asset queries", () => {
       });
     }
 
-    const grid = await listGalleryAssets._handler(harness.ctx as never, {
+    const grid = await callAsOwner(listGalleryAssets)(harness.ctx as never, {
       ownerUserId: owner,
       skipHiddenCollections: true,
       limit: 2,
