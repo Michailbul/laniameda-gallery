@@ -59,10 +59,10 @@ Parts and their style tags:
 |---|---|---|
 | Animation | `lantern-painterly` (main look) | Stylized animated concept painting: soft brushed painterly 3D, haze, indigo night, warm amber lantern light, muted red tiles, gold accents. |
 | Animation | `baroque-3d-cast` | Painted 3D character sheets on pale grey/white: black and ivory baroque military coats, brass-gold mechanical limbs. |
-| Animation | (untagged, 30 Sep) | 14 painted three-panel character sheets made for the rooftop story. |
 | Piazza Graphic 2D | `piazza-graphic-2d` | Flat graphic comic look: low-angle heroic framing, blue sky, pink-cream palazzi, cel-shaded cyber-aristocrats. |
 | Unreal Engine | `golden-prague-ue` (main look) | AAA Unreal cinematic Prague in golden-hour sun and amber haze. Tram canyon `asset:j5776vwey580p9362nsx7jshhs8e0eqd`, flower arcade `asset:j57eqd5f0pgcgbzzcdeanegvp98e1t4g`, rose courtyard `asset:j57fe0t848f7sk53qpw84acqa98e11dh`. |
 | Unreal Engine | `cyber-baroque-cast` | Unreal character and carriage renders on neutral backdrops, navy-bone-brass baroque costume with gold cyber limbs. Courier hero `asset:j57bgqdctfwn2b0ke3gkem0qy18cnx8k`. |
+| Unreal Engine | `character-sheet` | The painted three-panel character sheets made for the rooftop story (30 Sep). Michael files these under Unreal Engine, not Animation. |
 | Unreal Engine | `night-bloom-prague` | Low-key Unreal Prague: wet lamplit streets, cold canals, flower shops glowing pink neon. |
 | Dari | `dari-red-valley` (main look) | Unreal crimson poppy and spider-lily valleys, pagodas, black monolith (`asset:j573dgqhn9kj2rz4z7jtxpvgjd8bfcj5`), crystal stag. |
 | Dari | `dari-cast` | Unreal character renders: black-haired women and cyborgs in crimson, bronze and gold armour. |
@@ -77,7 +77,7 @@ a fierce blonde woman, a poodle, a Doberman, a trench-coat owner with his hound.
 story. A fantasy-Prague chapter in the same 2D style is possible.
 | Style tag | Look |
 |---|---|
-| `clean-2d-feature` (main look) | Clean-line 2D feature animation, flat cel colour, crisp sun shapes on pale limestone. Characters and dogs. |
+| `clean-2d-feature` (main look) | Clean-line 2D feature animation, flat cel colour, crisp sun shapes on pale limestone. Characters (elegant caricature, cream / tan / black) and dogs. |
 | `painted-matte-plates` | Soft painted matte backgrounds without linework: sunlit streets and attic interiors. |
 
 ### ANDROMEDA — ANN
@@ -104,7 +104,8 @@ oversized retro jackets), worn machines, desert outposts, cockpits and corridors
    not any of its looks goes nowhere yet: ask Michael, or leave it unfiled.
 2. File into the world's **part** (the folder), never loose in the DEAR ANNETE root.
 3. Tag: piece type, `animation` when animated, and the part's **style tag** from the tables
-   above. Reuse these exact tag names; ask before starting a new style.
+   above. Reuse these exact tag names; ask before starting a new style. `character` means a
+   person or creature: never tag a location, vehicle or carriage as a character.
 4. `.webp` → INSPIRATION VAULT, never a world.
 5. Storybooks (`kind: storybook`) combine a world's characters, locations and beats; keep a
    storybook inside one world and one style.
