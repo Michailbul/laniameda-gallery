@@ -38,6 +38,49 @@ describe("gallery entry builder", () => {
     ]);
   });
 
+  test("flattenStacks gives every pack and prompt member its own tile", () => {
+    const entries = buildGalleryEntries({
+      assets: [
+        {
+          _id: "asset:cover",
+          assetPackId: "pack:1",
+          packSlotIndex: 0,
+          promptId: "prompt:1",
+          sourceUrl: "https://example.com/cover.jpg",
+          createdAt: 300,
+        },
+        {
+          _id: "asset:older",
+          assetPackId: "pack:1",
+          packSlotIndex: 1,
+          promptId: "prompt:1",
+          sourceUrl: "https://example.com/older.jpg",
+          createdAt: 200,
+        },
+        {
+          _id: "asset:variant",
+          promptId: "prompt:2",
+          sourceUrl: "https://example.com/variant.jpg",
+          createdAt: 100,
+        },
+      ],
+      sortOrder: "newest",
+      flattenStacks: true,
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "asset:cover",
+      "asset:older",
+      "asset:variant",
+    ]);
+    for (const entry of entries) {
+      expect(entry.galleryItemType).toBe("asset");
+      expect(entry.packId).toBeUndefined();
+      expect(entry.packMemberCount).toBeUndefined();
+      expect(entry.previewImages).toHaveLength(1);
+    }
+  });
+
   test("falls back to prompt grouping before explicit pack backfill runs", () => {
     const entries = buildGalleryEntries({
       assets: [

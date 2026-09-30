@@ -6,6 +6,7 @@ import {
   Grid3X3,
   Heart,
   Image as ImageIcon,
+  Layers,
   Minus,
   SlidersHorizontal,
   Video,
@@ -62,6 +63,10 @@ interface GalleryFilterBarProps {
   /** Grid tile size, 0.4–1 (1 = full size). Slider hidden when omitted. */
   gridZoom?: number;
   onGridZoomChange?: (zoom: number) => void;
+  /** Flatten mode: stacks spread into one tile per asset. Pill hidden when
+   *  the handler is omitted. */
+  flattenStacks?: boolean;
+  onFlattenStacksChange?: (next: boolean) => void;
 }
 
 const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
@@ -96,6 +101,8 @@ export function GalleryFilterBar({
   onViewModeChange,
   gridZoom,
   onGridZoomChange,
+  flattenStacks = false,
+  onFlattenStacksChange,
 }: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const excludedFilterSet = useMemo(
@@ -192,6 +199,10 @@ export function GalleryFilterBar({
                   likedOnly={likedOnly}
                   onLikedOnlyChange={onLikedOnlyChange}
                   showLiked={showLiked}
+                  flattenStacks={flattenStacks}
+                  onFlattenStacksChange={
+                    viewMode === "grid" ? onFlattenStacksChange : undefined
+                  }
                 />
               </div>
             </div>
@@ -232,6 +243,10 @@ export function GalleryFilterBar({
             likedOnly={likedOnly}
             onLikedOnlyChange={onLikedOnlyChange}
             showLiked={showLiked}
+            flattenStacks={flattenStacks}
+            onFlattenStacksChange={
+              viewMode === "grid" ? onFlattenStacksChange : undefined
+            }
           />
           <div
             style={{
@@ -786,12 +801,16 @@ function ContentTypePills({
   likedOnly = false,
   onLikedOnlyChange,
   showLiked = false,
+  flattenStacks = false,
+  onFlattenStacksChange,
 }: {
   mediaKind: MediaKind | null;
   onMediaKindChange: (kind: MediaKind | null) => void;
   likedOnly?: boolean;
   onLikedOnlyChange?: (next: boolean) => void;
   showLiked?: boolean;
+  flattenStacks?: boolean;
+  onFlattenStacksChange?: (next: boolean) => void;
 }) {
   const items: Array<{
     key: string;
@@ -822,6 +841,17 @@ function ContentTypePills({
             icon: Heart,
             active: likedOnly,
             onClick: () => onLikedOnlyChange(!likedOnly),
+          },
+        ]
+      : []),
+    ...(onFlattenStacksChange
+      ? [
+          {
+            key: "flatten",
+            label: "Flatten",
+            icon: Layers,
+            active: flattenStacks,
+            onClick: () => onFlattenStacksChange(!flattenStacks),
           },
         ]
       : []),
@@ -857,7 +887,15 @@ function ContentTypePills({
             whiteSpace: "nowrap",
             flexShrink: 0,
           }}
-          title={active ? `Showing ${label.toLowerCase()} only` : `Show ${label.toLowerCase()} only`}
+          title={
+            key === "flatten"
+              ? active
+                ? "Stacks are spread out. Click to group them again."
+                : "Spread every stack into one tile per image"
+              : active
+                ? `Showing ${label.toLowerCase()} only`
+                : `Show ${label.toLowerCase()} only`
+          }
         >
           {label}
         </button>

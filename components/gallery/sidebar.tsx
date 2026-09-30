@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  EyeOff,
   Film,
   FolderOpen,
   Globe,
@@ -101,6 +102,10 @@ interface GallerySidebarProps {
   publicFolderIds?: Set<string>;
   /** Publish/unpublish every asset of a collection to the public gallery. */
   onToggleFolderPublic?: (folderId: string, next: boolean) => void;
+  /** Collections hidden from the main gallery grid. */
+  hiddenFolderIds?: Set<string>;
+  /** Hide/show a collection's pieces in the main gallery grid. */
+  onToggleHidden?: (folderId: string, next: boolean) => void;
 }
 
 export function GallerySidebar({
@@ -136,6 +141,8 @@ export function GallerySidebar({
   onPreviewShowcase,
   publicFolderIds,
   onToggleFolderPublic,
+  hiddenFolderIds,
+  onToggleHidden,
 }: GallerySidebarProps) {
   const pathname = usePathname();
   const isGalleryActive = pathname === "/";
@@ -664,6 +671,12 @@ export function GallerySidebar({
                           ? (next) => onToggleFolderPublic(folder._id, next)
                           : undefined
                       }
+                      hidden={hiddenFolderIds?.has(folder._id)}
+                      onToggleHidden={
+                        onToggleHidden
+                          ? (next) => onToggleHidden(folder._id, next)
+                          : undefined
+                      }
                       onAddSub={
                         onCreateSubCollection
                           ? () => {
@@ -740,6 +753,19 @@ export function GallerySidebar({
                         onTogglePublish={
                           onToggleFolderPublic
                             ? (next) => onToggleFolderPublic(child._id, next)
+                            : undefined
+                        }
+                        hidden={
+                          hiddenFolderIds?.has(child._id) ||
+                          hiddenFolderIds?.has(folder._id)
+                        }
+                        hiddenByParent={
+                          !hiddenFolderIds?.has(child._id) &&
+                          hiddenFolderIds?.has(folder._id)
+                        }
+                        onToggleHidden={
+                          onToggleHidden
+                            ? (next) => onToggleHidden(child._id, next)
                             : undefined
                         }
                       />
@@ -1018,6 +1044,9 @@ function FilterRow({
   onToggleTaste,
   published = false,
   onTogglePublish,
+  hidden = false,
+  hiddenByParent = false,
+  onToggleHidden,
   onAddSub,
   indent = false,
   expanded,
@@ -1050,6 +1079,12 @@ function FilterRow({
   published?: boolean;
   /** When set, the row shows a publish-to-public-gallery toggle. */
   onTogglePublish?: (next: boolean) => void;
+  /** True when this collection's pieces are left out of the main gallery. */
+  hidden?: boolean;
+  /** Hidden only because its parent collection is — the toggle is locked. */
+  hiddenByParent?: boolean;
+  /** When set, the row shows a hide-from-gallery toggle. */
+  onToggleHidden?: (next: boolean) => void;
   /** When set, the row shows an add-sub-collection control. */
   onAddSub?: () => void;
   /** Renders as a nested sub-collection row. */
@@ -1071,6 +1106,7 @@ function FilterRow({
       onToggleFeatured ||
       onToggleTaste ||
       onTogglePublish ||
+      onToggleHidden ||
       onAddSub,
   );
 
@@ -1192,6 +1228,7 @@ function FilterRow({
             fontWeight: active ? 700 : 500,
             textTransform: "uppercase",
             letterSpacing: "0.10em",
+            opacity: hidden && !active ? 0.5 : undefined,
           }}
         >
           {label}
@@ -1216,6 +1253,13 @@ function FilterRow({
           className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
           style={{ color: "var(--lm-coral)" }}
           aria-label="Public on showcase"
+        />
+      )}
+      {hidden && renameDraft === null && (
+        <EyeOff
+          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          style={{ color: "var(--lm-sidebar-text-ghost)" }}
+          aria-label="Hidden from the gallery"
         />
       )}
       {published && renameDraft === null && (
@@ -1287,6 +1331,39 @@ function FilterRow({
                 className="h-2.5 w-2.5"
                 style={taste ? { fill: "var(--lm-coral)" } : undefined}
               />
+            </span>
+          )}
+          {onToggleHidden && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hiddenByParent) return;
+                onToggleHidden(!hidden);
+              }}
+              className="flex h-4 w-4 items-center justify-center"
+              style={{
+                color: hidden
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+                opacity: hiddenByParent ? 0.5 : undefined,
+                cursor: hiddenByParent ? "default" : undefined,
+              }}
+              aria-label={
+                hidden
+                  ? `Show ${label} in the gallery`
+                  : `Hide ${label} from the gallery`
+              }
+              title={
+                hiddenByParent
+                  ? "Hidden because its parent collection is hidden"
+                  : hidden
+                    ? "Hidden from the gallery. Click to show its pieces in the main grid again."
+                    : "Hide from the gallery: its pieces leave the main grid but stay in this collection."
+              }
+            >
+              <EyeOff className="h-2.5 w-2.5" />
             </span>
           )}
           {onTogglePublish && (

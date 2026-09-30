@@ -1723,6 +1723,47 @@ const collectAllAssetIdsForFolder = async (
   return links.map((link) => link.assetId);
 };
 
+// Members of every collection the owner hid from the gallery (folders with
+// hiddenFromGallery, plus the sub-collections of a hidden root). null = none
+// hidden. A piece filed in a hidden collection stays out of the main grid even
+// when it also sits in a visible one — same "exclusion wins" rule as the pills.
+const collectHiddenCollectionAssetIds = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+): Promise<Set<Id<"assets">> | null> => {
+  const folders = (
+    await Promise.all(
+      ownerUserIds.map((ownerCandidate) =>
+        ctx.db
+          .query("folders")
+          .withIndex("by_owner_normalizedName", (q) =>
+            q.eq("ownerUserId", ownerCandidate).gte("normalizedName", ""),
+          )
+          .collect(),
+      ),
+    )
+  ).flat();
+  const hiddenRootIds = new Set(
+    folders.filter((folder) => folder.hiddenFromGallery).map((folder) => folder._id),
+  );
+  const hiddenFolderIds = folders
+    .filter(
+      (folder) =>
+        folder.hiddenFromGallery ||
+        (folder.parentFolderId !== undefined && hiddenRootIds.has(folder.parentFolderId)),
+    )
+    .map((folder) => folder._id);
+  if (hiddenFolderIds.length === 0) return null;
+
+  const hidden = new Set<Id<"assets">>();
+  for (const folderId of new Set(hiddenFolderIds)) {
+    for (const assetId of await collectAllAssetIdsForFolder(ctx, folderId)) {
+      hidden.add(assetId);
+    }
+  }
+  return hidden.size > 0 ? hidden : null;
+};
+
 const buildMenuFilterPredicate = async (
   ctx: QueryCtx,
   args: MenuFilterArgs,
@@ -1850,6 +1891,8 @@ export const listStarredAssets = query({
     ownerUserId: v.string(),
     folderId: v.optional(v.id("folders")),
     includeDescendants: v.optional(v.boolean()),
+    // Unscoped reads only: drop members of collections hidden from the gallery.
+    skipHiddenCollections: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
   returns: v.array(galleryAssetResultValidator),
@@ -1881,7 +1924,13 @@ export const listStarredAssets = query({
 
     const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
     if (scopeFolderIds === null) {
-      return await hydrateGalleryAssetResults(ctx, starred.slice(0, limit));
+      const hiddenAssetIds = args.skipHiddenCollections
+        ? await collectHiddenCollectionAssetIds(ctx, ownerUserIds)
+        : null;
+      const visible = hiddenAssetIds
+        ? starred.filter((asset) => !hiddenAssetIds.has(asset._id))
+        : starred;
+      return await hydrateGalleryAssetResults(ctx, visible.slice(0, limit));
     }
     if (scopeFolderIds.size === 0) return [];
 
@@ -1934,6 +1983,10 @@ export const listGalleryAssets = query({
     medium: v.optional(v.union(v.literal("animation"), v.literal("live-action"))),
     onlyStarred: v.optional(v.boolean()),
     search: v.optional(v.string()),
+    // The owner's main grid: drop members of collections hidden from the
+    // gallery. Ignored when folderId is set — opening a hidden collection
+    // still shows it. Agents leave it off and see everything.
+    skipHiddenCollections: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
   returns: v.array(galleryAssetResultValidator),
@@ -1951,8 +2004,16 @@ export const listGalleryAssets = query({
     const onlyLiked = args.onlyLiked === true;
     const limit = Math.min(args.limit ?? 100, 2000);
     const scopedToSet = args.folderId;
+    const hiddenAssetIds =
+      args.skipHiddenCollections && !scopedToSet
+        ? await collectHiddenCollectionAssetIds(
+            ctx,
+            resolveUserIdCandidates(ownerUserId),
+          )
+        : null;
     const hasPostQueryFilters = Boolean(
       hasMenuFilterArgs(args) ||
+        hiddenAssetIds ||
         (scopedToSet && (args.pillar || args.modelName || args.assetRole || args.kind)) ||
         (args.modelName && (args.pillar || scopedToSet || args.assetRole || args.kind)) ||
         (args.pillar && (scopedToSet || args.modelName || args.kind)) ||
@@ -2075,6 +2136,9 @@ export const listGalleryAssets = query({
     });
     const filteredAssets = assets.filter((asset) => {
       if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+        return false;
+      }
+      if (hiddenAssetIds?.has(asset._id)) {
         return false;
       }
       if (!matchesMenuFilters(menuFilters, asset)) {
@@ -2356,6 +2420,8 @@ export const listGalleryAssetsPage = query({
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
     onlyLiked: v.optional(v.boolean()),
+    // Drop members of collections hidden from the gallery (see listGalleryAssets).
+    skipHiddenCollections: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: galleryPageValidator,
@@ -2365,6 +2431,9 @@ export const listGalleryAssetsPage = query({
       throw new ConvexError("ownerUserId is required.");
     }
     const candidates = resolveUserIdCandidates(ownerUserId);
+    const hiddenAssetIds = args.skipHiddenCollections
+      ? await collectHiddenCollectionAssetIds(ctx, candidates)
+      : null;
     const cursor = parseWrappedCursor(args.paginationOpts.cursor);
     const ownerIndex = Math.min(cursor.o, candidates.length - 1);
     const ownerCandidate = candidates[ownerIndex];
@@ -2427,6 +2496,9 @@ export const listGalleryAssetsPage = query({
 
     const filtered = result.page.filter((asset) => {
       if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+        return false;
+      }
+      if (hiddenAssetIds?.has(asset._id)) {
         return false;
       }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {

@@ -362,6 +362,18 @@ export function GalleryDashboard({
     setGridZoomRaw(clamped);
     localStorage.setItem("laniameda-grid-zoom", String(clamped));
   }, []);
+  // Flatten mode: stacks (prompt packs and a collection's folders) spread out
+  // into one tile per asset. Persisted across sessions like the zoom.
+  const [flattenStacks, setFlattenStacksRaw] = useState(false);
+  useEffect(() => {
+    setFlattenStacksRaw(
+      localStorage.getItem("laniameda-flatten-stacks") === "true",
+    );
+  }, []);
+  const setFlattenStacks = useCallback((next: boolean) => {
+    setFlattenStacksRaw(next);
+    localStorage.setItem("laniameda-flatten-stacks", String(next));
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
 
@@ -569,6 +581,9 @@ export function GalleryDashboard({
     api.folders.setFolderShowcased,
   );
   const setFolderFeaturedMutation = useMutation(api.folders.setFolderFeatured);
+  const setFolderHiddenMutation = useMutation(
+    api.folders.setFolderHiddenFromGallery,
+  );
   const setTasteCollectionMutation = useMutation(
     api.folders.setTasteCollection,
   );
@@ -1219,6 +1234,29 @@ export function GalleryDashboard({
     [ownerUserId, setFolderShowcasedMutation],
   );
 
+  // Collections hidden from the main gallery grid. Their members still show
+  // inside the collection itself and in search.
+  const hiddenFolderIds = useMemo(
+    () =>
+      new Set(
+        (folders ?? [])
+          .filter((folder) => folder.hiddenFromGallery)
+          .map((folder) => folder._id as string),
+      ),
+    [folders],
+  );
+  const toggleFolderHidden = useCallback(
+    (folderId: string, next: boolean) => {
+      if (!ownerUserId) return;
+      void setFolderHiddenMutation({
+        ownerUserId,
+        folderId: folderId as Id<"folders">,
+        hidden: next,
+      });
+    },
+    [ownerUserId, setFolderHiddenMutation],
+  );
+
   // Featured = hero treatment on the public home. Featuring an unpublished
   // set publishes it too (backend enforces featured ⇒ showcased).
   const featuredFolderIds = useMemo(
@@ -1574,7 +1612,7 @@ export function GalleryDashboard({
   const collectionAssetsExpanded =
     browsingWorldFolder &&
     !activeSmartCollectionFilter &&
-    expandedCollectionId === effectiveSelectedFolderId;
+    (flattenStacks || expandedCollectionId === effectiveSelectedFolderId);
   const collectionStackViewAvailable =
     Boolean(effectiveSelectedFolderId) &&
     !activeSmartCollectionFilter &&
@@ -1608,6 +1646,7 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
+          skipHiddenCollections: true,
         }
       : "skip",
     { initialNumItems: 60 },
@@ -1668,6 +1707,9 @@ export function GalleryDashboard({
               ? (effectiveSelectedFolderId as Id<"folders">)
               : undefined,
           includeDescendants: browsingWorldFolder || undefined,
+          // The unscoped grid leaves hidden collections out; a folder view
+          // (the backend ignores this there) always shows its members.
+          skipHiddenCollections: !effectiveSelectedFolderId || undefined,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
@@ -1700,6 +1742,7 @@ export function GalleryDashboard({
               ? (effectiveSelectedFolderId as Id<"folders">)
               : undefined,
           includeDescendants: browsingWorldFolder || undefined,
+          skipHiddenCollections: !effectiveSelectedFolderId || undefined,
         }
       : "skip",
   );
@@ -2067,6 +2110,7 @@ export function GalleryDashboard({
       // Only the FEATURED sort floats starred pieces. Semantic results are
       // already ordered by score, so a star never jumps the queue there.
       promoteStarred: featuredFirst && filteredSemanticResults === null,
+      flattenStacks,
     });
     return entries.map((entry) => {
       const badges = resolveEntryBadges(entry);
@@ -2080,6 +2124,7 @@ export function GalleryDashboard({
     resolveEntryBadges,
     sortOrder,
     shuffleSeed,
+    flattenStacks,
   ]);
 
   // Storybook stack cards only join the grid in the default browse state —
@@ -4353,6 +4398,10 @@ export function GalleryDashboard({
           onPreviewShowcase={
             () => window.open(SELECTED_WORK_PATH, "_blank")
           }
+          hiddenFolderIds={hiddenFolderIds}
+          onToggleHidden={
+            canManageFoldersInCurrentView ? toggleFolderHidden : undefined
+          }
         />
       </div>
 
@@ -4399,6 +4448,8 @@ export function GalleryDashboard({
                 onViewModeChange={setViewMode}
                 gridZoom={gridZoom}
                 onGridZoomChange={setGridZoom}
+                flattenStacks={flattenStacks}
+                onFlattenStacksChange={setFlattenStacks}
               />
             )}
 
@@ -4546,7 +4597,7 @@ export function GalleryDashboard({
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
                             childCount={
-                              collectionStackViewAvailable
+                              collectionStackViewAvailable && !flattenStacks
                                 ? activeChildCollectionCount
                                 : 0
                             }

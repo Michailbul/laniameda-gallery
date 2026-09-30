@@ -137,6 +137,9 @@ type BuildGalleryEntriesArgs = {
    * search, where the score IS the order the user asked for — a star is a
    * curation signal, not a relevance one. */
   promoteStarred?: boolean;
+  /** Every asset gets its own tile: pack and prompt stacks spread out into
+   * their members instead of collapsing behind a cover. */
+  flattenStacks?: boolean;
 };
 
 // Small deterministic PRNG (mulberry32) for the seeded shuffle.
@@ -248,7 +251,10 @@ const buildEntry = (
   cover: GalleryAssetRecord,
   members: GalleryAssetRecord[],
   loadedAssetIds?: Set<string>,
+  standalone = false,
 ): GalleryEntry => {
+  // A flattened member is a plain asset tile, not a one-frame pack.
+  const packId = standalone ? undefined : cover.assetPackId;
   const tagNames = Array.from(
     new Set(members.flatMap((member) => member.tagNames ?? [])),
   );
@@ -260,9 +266,9 @@ const buildEntry = (
 
   return {
     id: cover._id,
-    packId: cover.assetPackId ?? undefined,
-    galleryItemId: cover.assetPackId ?? cover._id,
-    galleryItemType: cover.assetPackId ? "pack" : "asset",
+    packId: packId ?? undefined,
+    galleryItemId: packId ?? cover._id,
+    galleryItemType: packId ? "pack" : "asset",
     promptId: cover.promptId ?? undefined,
     src: displaySrc(cover),
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
@@ -316,6 +322,7 @@ export const buildGalleryEntries = ({
   sortOrder,
   shuffleSeed,
   promoteStarred = true,
+  flattenStacks = false,
 }: BuildGalleryEntriesArgs): GalleryEntry[] => {
   const visibleAssets = assets.filter(
     (asset) => !hiddenAssetIds?.has(asset._id),
@@ -327,14 +334,16 @@ export const buildGalleryEntries = ({
   const entryRank = new Map<GalleryEntry, number>();
 
   for (const [index, asset] of visibleAssets.entries()) {
-    const groupingKey = asset.assetPackId
-      ? `pack:${asset.assetPackId}`
-      : asset.promptId
-        ? `prompt:${asset.promptId}`
-        : null;
+    const groupingKey = flattenStacks
+      ? null
+      : asset.assetPackId
+        ? `pack:${asset.assetPackId}`
+        : asset.promptId
+          ? `prompt:${asset.promptId}`
+          : null;
 
     if (!groupingKey) {
-      const entry = buildEntry(asset, [asset], loadedAssetIds);
+      const entry = buildEntry(asset, [asset], loadedAssetIds, flattenStacks);
       entryRank.set(entry, index);
       standaloneEntries.push(entry);
       continue;
