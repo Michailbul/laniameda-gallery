@@ -347,7 +347,7 @@ export const setFolderPinned = ownerMutation({
 // Hide/show a collection in the owner's main gallery grid. The flag only
 // affects the unscoped browse (see skipHiddenCollections on the gallery
 // reads); the collection itself, search and agent queries are untouched.
-export const setFolderHiddenFromGallery = mutation({
+export const setFolderHiddenFromGallery = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
