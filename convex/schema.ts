@@ -144,6 +144,7 @@ export default defineSchema({
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_kind", ["ownerUserId", "kind"])
+    .index("by_owner_hiddenFromGallery", ["ownerUserId", "hiddenFromGallery"])
     .index("by_showcased", ["showcased"])
     .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])

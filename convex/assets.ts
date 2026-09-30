@@ -1731,29 +1731,33 @@ const collectHiddenCollectionAssetIds = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
 ): Promise<Set<Id<"assets">> | null> => {
-  const folders = (
+  // Read only the hidden folders (and their sub-collections), so an unrelated
+  // folder write — a rename, a pin, a memberCount recount — does not re-run
+  // every loaded grid page.
+  const hiddenRoots = (
     await Promise.all(
       ownerUserIds.map((ownerCandidate) =>
         ctx.db
           .query("folders")
-          .withIndex("by_owner_normalizedName", (q) =>
-            q.eq("ownerUserId", ownerCandidate).gte("normalizedName", ""),
+          .withIndex("by_owner_hiddenFromGallery", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("hiddenFromGallery", true),
           )
           .collect(),
       ),
     )
   ).flat();
-  const hiddenRootIds = new Set(
-    folders.filter((folder) => folder.hiddenFromGallery).map((folder) => folder._id),
-  );
-  const hiddenFolderIds = folders
-    .filter(
-      (folder) =>
-        folder.hiddenFromGallery ||
-        (folder.parentFolderId !== undefined && hiddenRootIds.has(folder.parentFolderId)),
+  if (hiddenRoots.length === 0) return null;
+  const children = (
+    await Promise.all(
+      hiddenRoots.map((root) =>
+        ctx.db
+          .query("folders")
+          .withIndex("by_parent", (q) => q.eq("parentFolderId", root._id))
+          .collect(),
+      ),
     )
-    .map((folder) => folder._id);
-  if (hiddenFolderIds.length === 0) return null;
+  ).flat();
+  const hiddenFolderIds = [...hiddenRoots, ...children].map((folder) => folder._id);
 
   const hidden = new Set<Id<"assets">>();
   for (const folderId of new Set(hiddenFolderIds)) {

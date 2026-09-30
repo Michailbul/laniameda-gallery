@@ -1721,6 +1721,20 @@ export function GalleryDashboard({
       activePagedAssets.loadMore(60);
     }
   }, [anyPaginationActive, activePagedAssets]);
+  // Hidden collections are filtered out of each page on the server, so a page
+  // can come back empty while later pages still hold visible pieces. With
+  // nothing rendered the grid never mounts its end-of-list sentinel, so keep
+  // pulling pages here until something shows or the list is exhausted.
+  const pagedFrontierEmpty =
+    anyPaginationActive &&
+    activePagedAssets.results.length === 0 &&
+    (activePagedAssets.status === "CanLoadMore" ||
+      activePagedAssets.status === "LoadingMore");
+  useEffect(() => {
+    if (pagedFrontierEmpty && activePagedAssets.status === "CanLoadMore") {
+      activePagedAssets.loadMore(60);
+    }
+  }, [pagedFrontierEmpty, activePagedAssets]);
 
   // A collection with folders inside leads its grid with one stack card per
   // folder, until the owner flattens it into plain assets.
@@ -3707,7 +3721,7 @@ export function GalleryDashboard({
       ? true
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
-          activePagedAssets.status === "LoadingFirstPage"
+          (activePagedAssets.status === "LoadingFirstPage" || pagedFrontierEmpty)
         : galleryScope === "mine"
           ? canAccessMyGallery &&
             mineGalleryAssets === undefined
