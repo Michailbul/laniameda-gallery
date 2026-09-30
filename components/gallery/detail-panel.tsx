@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
-import { downloadImage } from "@/lib/download-image";
+import { triggerAssetDownload } from "@/lib/download-image";
 import { meaningfulPrompt } from "@/lib/prompt";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { api } from "@/convex/_generated/api";
@@ -561,10 +561,12 @@ export function GalleryDetailPanel({
     }
   };
 
-  // Downloads the file on show — in a pack, that's the current slide.
-  const handleDownload = async () => {
+  // Downloads the file on show — in a pack, that's the current slide. Goes
+  // through the same-origin proxy: fetching the R2 URL directly fails CORS and
+  // used to fall back to opening the image in a new tab.
+  const handleDownload = () => {
     setDownloadStarted(true);
-    await downloadImage(currentSlide.fullSrc, `laniameda-${currentAssetId}`);
+    triggerAssetDownload(currentAssetId);
     setTimeout(() => setDownloadStarted(false), 1500);
   };
 
@@ -1143,7 +1145,7 @@ export function GalleryDetailPanel({
             </div>
             <button
               type="button"
-              onClick={() => void handleDownload()}
+              onClick={handleDownload}
               className="flex items-center justify-center transition-colors hover:bg-black/5"
               aria-label="Download image"
               style={{
