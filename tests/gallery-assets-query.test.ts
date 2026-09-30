@@ -284,4 +284,62 @@ describe("gallery asset queries", () => {
       ["midjourney", 2],
     ]);
   });
+  test("skipHiddenCollections drops hidden roots and their sub-collections, never the collection's own view", async () => {
+    const owner = "278674008";
+    const insertAsset = (createdAt: number) =>
+      harness.db.insert("assets", {
+        ownerUserId: owner,
+        kind: "image",
+        tagIds: [],
+        createdAt,
+      });
+    const hiddenRoot = await harness.db.insert("folders", {
+      ownerUserId: owner,
+      name: "Hockey",
+      normalizedName: "hockey",
+      hiddenFromGallery: true,
+    });
+    const hiddenChild = await harness.db.insert("folders", {
+      ownerUserId: owner,
+      name: "Rink",
+      normalizedName: "rink",
+      parentFolderId: hiddenRoot,
+    });
+    const visible = await harness.db.insert("folders", {
+      ownerUserId: owner,
+      name: "Love",
+      normalizedName: "love",
+    });
+    const inRoot = await insertAsset(400);
+    const inChild = await insertAsset(300);
+    const inVisible = await insertAsset(200);
+    const loose = await insertAsset(100);
+    for (const [assetId, folderId] of [
+      [inRoot, hiddenRoot],
+      [inChild, hiddenChild],
+      [inVisible, visible],
+    ] as const) {
+      await harness.db.insert("assetFolders", {
+        ownerUserId: owner,
+        assetId,
+        folderId,
+        createdAt: 1,
+      });
+    }
+
+    const grid = await listGalleryAssets._handler(harness.ctx as never, {
+      ownerUserId: owner,
+      skipHiddenCollections: true,
+    });
+    expect(grid.map((asset: { _id: string }) => asset._id).sort()).toEqual(
+      [inVisible, loose].sort(),
+    );
+
+    const opened = await listGalleryAssets._handler(harness.ctx as never, {
+      ownerUserId: owner,
+      folderId: hiddenRoot,
+      skipHiddenCollections: true,
+    });
+    expect(opened.map((asset: { _id: string }) => asset._id)).toEqual([inRoot]);
+  });
 });
