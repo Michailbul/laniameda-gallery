@@ -32,6 +32,14 @@ Instagram, sites) into the vault.
   / `cinema-inspiration`) is dormant; only cinema frames and workflow ingest
   still set it.
 
+### Worlds (since 30 Sep 2026)
+Michael's story universes are root collections: **DEAR ANNETE** (parts: Animation,
+Unreal Engine, Piazza Graphic 2D, Dari), **DADDY ISSUES**, **ANDROMEDA — ANN**,
+**ANDROMEDA — RETRO-FUTURE**. Styles inside a world are style tags, not folders.
+`.webp` saves live in **INSPIRATION VAULT**, never in a world. CASSANDRA and ART are
+off-limits unless asked. The full map (folder ids, leads, looks, style tags, filing
+rules) is `skills/laniameda-gallery/references/worlds.md`. Read it before touching a world.
+
 ### How ingestion works
 1. An agent (Claude Code, Codex, OpenClaw) or the browser extension sends
    media + prompt + tags through the ingest contract (`convex/ingest.ts`,
