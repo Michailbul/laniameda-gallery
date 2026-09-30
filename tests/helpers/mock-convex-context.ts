@@ -1,7 +1,8 @@
 type Constraint =
   | { type: "eq"; field: string; value: unknown }
   | { type: "gte"; field: string; value: unknown }
-  | { type: "lt"; field: string; value: unknown };
+  | { type: "lt"; field: string; value: unknown }
+  | { type: "lte"; field: string; value: unknown };
 
 type AnyDoc = {
   _id: string;
@@ -24,6 +25,11 @@ class QueryBuilder {
 
   lt(field: string, value: unknown) {
     this.constraints.push({ type: "lt", field, value });
+    return this;
+  }
+
+  lte(field: string, value: unknown) {
+    this.constraints.push({ type: "lte", field, value });
     return this;
   }
 }
@@ -85,11 +91,13 @@ class InMemoryQuery {
           continue;
         }
 
-        if (constraint.type === "lt") {
+        if (constraint.type === "lt" || constraint.type === "lte") {
           if (value === undefined || value === null) {
             return false;
           }
-          if ((value as string | number) >= (constraint.value as string | number)) {
+          const bound = constraint.value as string | number;
+          const current = value as string | number;
+          if (constraint.type === "lt" ? current >= bound : current > bound) {
             return false;
           }
           continue;

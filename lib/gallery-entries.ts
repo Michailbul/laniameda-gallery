@@ -143,6 +143,9 @@ type BuildGalleryEntriesArgs = {
    * search, where the score IS the order the user asked for — a star is a
    * curation signal, not a relevance one. */
   promoteStarred?: boolean;
+  /** Every asset gets its own tile: pack and prompt stacks spread out into
+   * their members instead of collapsing behind a cover. */
+  flattenStacks?: boolean;
 };
 
 // Small deterministic PRNG (mulberry32) for the seeded shuffle.
@@ -260,7 +263,10 @@ const buildEntry = (
   cover: GalleryAssetRecord,
   members: GalleryAssetRecord[],
   loadedAssetIds?: Set<string>,
+  standalone = false,
 ): GalleryEntry => {
+  // A flattened member is a plain asset tile, not a one-frame pack.
+  const packId = standalone ? undefined : cover.assetPackId;
   const tagNames = Array.from(
     new Set(members.flatMap((member) => member.tagNames ?? [])),
   );
@@ -272,9 +278,9 @@ const buildEntry = (
 
   return {
     id: cover._id,
-    packId: cover.assetPackId ?? undefined,
-    galleryItemId: cover.assetPackId ?? cover._id,
-    galleryItemType: cover.assetPackId ? "pack" : "asset",
+    packId: packId ?? undefined,
+    galleryItemId: packId ?? cover._id,
+    galleryItemType: packId ? "pack" : "asset",
     promptId: cover.promptId ?? undefined,
     src: displaySrc(cover),
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
@@ -332,10 +338,65 @@ export const buildGalleryEntries = ({
   sortOrder,
   shuffleSeed,
   promoteStarred = true,
+  flattenStacks = false,
 }: BuildGalleryEntriesArgs): GalleryEntry[] => {
   const visibleAssets = assets.filter(
     (asset) => !hiddenAssetIds?.has(asset._id),
   );
+
+  // Orders the finished entries: starred band first (when promoted), then the
+  // chosen sort. entryRank is each entry's arrival position, for "relevance".
+  const orderEntries = (
+    entries: GalleryEntry[],
+    entryRank: Map<GalleryEntry, number>,
+  ): GalleryEntry[] => {
+    // With promoteStarred, starred (featured) pieces lead as their own band and
+    // the chosen sort governs the rest. The vault turns it on only for the
+    // FEATURED sort; NEWEST and SHUFFLE keep starred pieces in place.
+    const starred = promoteStarred
+      ? entries.filter((entry) => Boolean(entry.starredAt))
+      : [];
+    const rest = promoteStarred
+      ? entries.filter((entry) => !entry.starredAt)
+      : entries;
+    starred.sort((left, right) => (right.starredAt ?? 0) - (left.starredAt ?? 0));
+
+    if (sortOrder === "featured") {
+      rest.sort((left, right) => {
+        const featuredDiff =
+          Number(Boolean(right.isFeatured)) -
+          Number(Boolean(left.isFeatured));
+        if (featuredDiff !== 0) {
+          return featuredDiff;
+        }
+        return (right.createdAt ?? 0) - (left.createdAt ?? 0);
+      });
+      return [...starred, ...rest];
+    }
+
+    if (sortOrder === "shuffle") {
+      return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
+    }
+
+    if (sortOrder === "relevance") {
+      rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
+      return [...starred, ...rest];
+    }
+
+    rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
+    return [...starred, ...rest];
+  };
+
+  // Flatten mode: every asset is its own tile, no packs and no families.
+  if (flattenStacks) {
+    const entryRank = new Map<GalleryEntry, number>();
+    const entries = visibleAssets.map((asset, index) => {
+      const entry = buildEntry(asset, [asset], loadedAssetIds, true);
+      entryRank.set(entry, index);
+      return entry;
+    });
+    return orderEntries(entries, entryRank);
+  }
 
   // First the explicit groups: a stored pack, else the prompt row. Each group
   // remembers where its first member arrived, for the "relevance" order.
@@ -385,39 +446,5 @@ export const buildGalleryEntries = ({
     return entry;
   });
 
-  // With promoteStarred, starred (featured) pieces lead as their own band and
-  // the chosen sort governs the rest. The vault turns it on only for the
-  // FEATURED sort; NEWEST and SHUFFLE keep starred pieces in place.
-  const starred = promoteStarred
-    ? entries.filter((entry) => Boolean(entry.starredAt))
-    : [];
-  const rest = promoteStarred
-    ? entries.filter((entry) => !entry.starredAt)
-    : entries;
-  starred.sort((left, right) => (right.starredAt ?? 0) - (left.starredAt ?? 0));
-
-  if (sortOrder === "featured") {
-    rest.sort((left, right) => {
-      const featuredDiff =
-        Number(Boolean(right.isFeatured)) -
-        Number(Boolean(left.isFeatured));
-      if (featuredDiff !== 0) {
-        return featuredDiff;
-      }
-      return (right.createdAt ?? 0) - (left.createdAt ?? 0);
-    });
-    return [...starred, ...rest];
-  }
-
-  if (sortOrder === "shuffle") {
-    return [...starred, ...seededShuffle(rest, shuffleSeed ?? 1)];
-  }
-
-  if (sortOrder === "relevance") {
-    rest.sort((left, right) => (entryRank.get(left) ?? 0) - (entryRank.get(right) ?? 0));
-    return [...starred, ...rest];
-  }
-
-  rest.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
-  return [...starred, ...rest];
+  return orderEntries(entries, entryRank);
 };

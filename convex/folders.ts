@@ -42,6 +42,7 @@ const folderReturnValidator = v.object({
   showcaseOrder: v.optional(v.number()),
   slug: v.optional(v.string()),
   tasteCollection: v.optional(v.boolean()),
+  hiddenFromGallery: v.optional(v.boolean()),
   memberCount: v.optional(v.number()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
@@ -338,6 +339,37 @@ export const setFolderPinned = mutation({
     }
     await ctx.db.patch(args.folderId, {
       pinnedAt: args.pinned ? Date.now() : undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+// Hide/show a collection in the owner's main gallery grid. The flag only
+// affects the unscoped browse (see skipHiddenCollections on the gallery
+// reads); the collection itself, search and agent queries are untouched.
+export const setFolderHiddenFromGallery = mutation({
+  args: {
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    hidden: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const folder = await ctx.db.get(args.folderId);
+    if (!folder) {
+      throw new ConvexError("Folder not found.");
+    }
+    if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
+      throw new ConvexError("Folder does not belong to this user.");
+    }
+    await ctx.db.patch(args.folderId, {
+      // Store the flag only when on, same as showcased.
+      hiddenFromGallery: args.hidden ? true : undefined,
       updatedAt: Date.now(),
     });
     return null;
