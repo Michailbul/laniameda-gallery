@@ -3977,6 +3977,16 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
     await ctx.db.delete(row._id);
   }
 
+  // A saved post lives through its preview asset; deleting the asset deletes
+  // the bookmark so the bookmarks view never lists a post with no preview.
+  const bookmarks = await ctx.db
+    .query("bookmarks")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  for (const bookmark of bookmarks) {
+    await ctx.db.delete(bookmark._id);
+  }
+
   const packId = asset.assetPackId;
   await ctx.db.delete(asset._id);
   if (packId) {

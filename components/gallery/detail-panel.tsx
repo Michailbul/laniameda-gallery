@@ -21,6 +21,8 @@ import {
   Star,
 } from "lucide-react";
 import { useQuery } from "convex/react";
+import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
+import type { BookmarkPost } from "@/lib/bookmarks";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
 import { triggerAssetDownload } from "@/lib/download-image";
 import { meaningfulPrompt } from "@/lib/prompt";
@@ -110,6 +112,8 @@ interface GalleryDetailPanelProps {
     saveIntent?: string;
     inspirationType?: string;
     userNote?: string;
+    /** A saved social post — DETAILS leads with the post. */
+    bookmark?: BookmarkPost;
   };
   carouselImages?: CarouselImage[];
   /**
@@ -1208,6 +1212,13 @@ export function GalleryDetailPanel({
         <div className="px-3 pb-6">
           {activeTab === "DETAILS" && (
             <div className="flex flex-col pt-3">
+              {image.bookmark ? (
+                <BookmarkDetail
+                  post={image.bookmark}
+                  ownerUserId={ownerUserId}
+                  canEdit={Boolean(canEditDetails)}
+                />
+              ) : null}
               {isDesignView && designView ? (
                 <>
                   {designView.title && (

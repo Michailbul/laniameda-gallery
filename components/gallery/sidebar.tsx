@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import {
   BookOpen,
+  Bookmark,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -58,6 +59,9 @@ interface GallerySidebarProps {
   /** Opens the dedicated Storybooks masonry tab. */
   onStorybooksTab?: () => void;
   storybooksTabActive?: boolean;
+  /** Opens the Bookmarks tab: saved X posts. */
+  onBookmarksTab?: () => void;
+  bookmarksTabActive?: boolean;
   /** Clears any tab overlay and returns to the asset gallery. */
   onGalleryHome?: () => void;
   user?: User | null;
@@ -117,6 +121,8 @@ export function GallerySidebar({
   featuredShelfActive = false,
   onStorybooksTab,
   storybooksTabActive = false,
+  onBookmarksTab,
+  bookmarksTabActive = false,
   onGalleryHome,
   user,
   onSignOut,
@@ -338,7 +344,7 @@ export function GallerySidebar({
           icon={Home}
           label="Gallery"
           href="/"
-          active={isGalleryActive && !storybooksTabActive}
+          active={isGalleryActive && !storybooksTabActive && !bookmarksTabActive}
           collapsed={collapsed}
           onClick={onGalleryHome}
         />
@@ -368,6 +374,16 @@ export function GallerySidebar({
             active={storybooksTabActive}
             collapsed={collapsed}
             onClick={onStorybooksTab}
+          />
+        )}
+        {onBookmarksTab && (
+          <NavItem
+            icon={Bookmark}
+            label="Bookmarks"
+            href="#"
+            active={bookmarksTabActive}
+            collapsed={collapsed}
+            onClick={onBookmarksTab}
           />
         )}
         {onSeedanceClick && (

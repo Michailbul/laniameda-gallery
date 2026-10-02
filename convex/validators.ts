@@ -229,8 +229,68 @@ export const assetRoleValidator = v.optional(v.union(
   v.literal("inspiration_capture"),
   v.literal("workflow_asset"),
   v.literal("cinema_frame"),
+  // Preview image of a saved social post (see the `bookmarks` table). The
+  // asset carries `bookmarkId`; the post itself lives on the bookmark row.
+  v.literal("bookmark"),
   v.literal("other"),
 ));
+
+// Social post bookmarks. "x" = a post on x.com / twitter.com. New platforms
+// join the union; the row shape stays the same.
+export const bookmarkPlatformValidator = v.union(v.literal("x"));
+
+export const bookmarkMediaValidator = v.object({
+  kind: v.union(v.literal("image"), v.literal("video"), v.literal("gif")),
+  // Full-size image, or the video's poster frame.
+  url: v.string(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  alt: v.optional(v.string()),
+});
+
+export const bookmarkQuotedPostValidator = v.object({
+  url: v.optional(v.string()),
+  authorName: v.optional(v.string()),
+  authorHandle: v.optional(v.string()),
+  text: v.optional(v.string()),
+});
+
+export const bookmarkMetricsValidator = v.object({
+  replies: v.optional(v.number()),
+  reposts: v.optional(v.number()),
+  likes: v.optional(v.number()),
+  bookmarks: v.optional(v.number()),
+  views: v.optional(v.number()),
+});
+
+// The post as captured from the page. Everything here is source metadata,
+// never the owner's own words (those go in `userNote`).
+export const bookmarkPostFields = {
+  platform: bookmarkPlatformValidator,
+  // Platform post id (the numeric status id on X).
+  externalId: v.string(),
+  // Canonical permalink: https://x.com/<handle>/status/<id>.
+  url: v.string(),
+  authorName: v.optional(v.string()),
+  authorHandle: v.optional(v.string()),
+  authorAvatarUrl: v.optional(v.string()),
+  authorVerified: v.optional(v.boolean()),
+  text: v.optional(v.string()),
+  lang: v.optional(v.string()),
+  postedAt: v.optional(v.number()),
+  media: v.array(bookmarkMediaValidator),
+  quotedPost: v.optional(bookmarkQuotedPostValidator),
+  metrics: v.optional(bookmarkMetricsValidator),
+};
+
+// What gallery results carry for a bookmark-backed asset, so the grid can
+// render it as a post card without a second query.
+export const bookmarkSummaryValidator = v.object({
+  _id: v.id("bookmarks"),
+  ...bookmarkPostFields,
+  userNote: v.optional(v.string()),
+  savedAt: v.number(),
+});
 
 // Cinema metadata — used by the cinema-inspiration pillar. Frames have no prompt;
 // the metadata describes the source film and any cinematographic notes (manual or
@@ -330,6 +390,7 @@ export const assetDocValidator = v.object({
   thumbHeight: v.optional(v.number()),
   promptId: v.optional(v.id("prompts")),
   designInspirationId: v.optional(v.id("designInspirations")),
+  bookmarkId: v.optional(v.id("bookmarks")),
   tagIds: v.array(v.id("tags")),
   folderId: v.optional(v.id("folders")),
   ingestKey: v.optional(v.string()),

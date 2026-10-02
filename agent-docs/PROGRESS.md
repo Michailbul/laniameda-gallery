@@ -2,11 +2,15 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-09-26
+Last updated: 2026-10-02
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-02
+- X post bookmarks: the extension (v0.12) puts a Save button on every post on x.com. It saves the post's author, text, permalink, time, media, quoted post and counts as a bookmark, filed into the collections you pick, with an optional note. Bookmarks render as post cards in the grid, have their own Bookmarks view in the sidebar (collection chips, search), and lead the detail panel with the full post. Detail: `features/x-bookmarks/README.md`.
+- The extension creates a root **Cars** collection once per install.
 
 ### 2026-09-26
 - Gallery tiles now load WebP card thumbnails instead of originals. Before: 1,810 of 2,427 image tiles pulled the full original (629 of them over 2 MB), 48 video tiles mounted the full video for want of a poster, and existing thumbs were quality-100 JPEG or PNG at a median of 500 KB. Scrolling the whole grid now costs 160 MB for images (was 4.5 GB) and 8 MB for video posters (was 670 MB); the median tile is 47 KB. All ingest paths (API, agent, cinema frames, design saves, browser posters) share one sharp encoder; `thumbnails:backfillCardThumbnails` rebuilt the existing thumbs and `scripts/backfill-video-posters.ts` gave 18 poster-less videos a poster via local ffmpeg.

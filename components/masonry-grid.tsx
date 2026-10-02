@@ -11,6 +11,7 @@ import {
   type JustifiedTile,
   type LayoutInput,
 } from "@/lib/masonry-layout";
+import { bookmarkCardLayout, type BookmarkPost } from "@/lib/bookmarks";
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -69,6 +70,8 @@ interface GalleryImage {
   peekThumbs?: string[];
   stepCount?: number;
   cinemaMetadata?: CinemaMetadataLite | null;
+  /** A saved social post: laid out and rendered as a post card. */
+  bookmark?: BookmarkPost;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
@@ -161,6 +164,7 @@ interface MasonryGridProps {
       isLiked?: boolean;
       starredAt?: number;
       starNote?: string;
+      bookmark?: BookmarkPost;
       activePreviewId?: string;
       previewImages: Array<{
         id: string;
@@ -284,6 +288,16 @@ function findScrollParent(node: HTMLElement | null): HTMLElement | null {
 
 function resolveGridLayoutInput(image: GalleryImage): LayoutInput {
   const preview = image.previewImages[0];
+  if (image.bookmark) {
+    return {
+      ...bookmarkCardLayout({
+        post: image.bookmark,
+        previewWidth: preview?.width ?? image.width,
+        previewHeight: preview?.height ?? image.height,
+      }),
+      kind: "image",
+    };
+  }
   return {
     width: preview?.width ?? image.width,
     height: preview?.height ?? image.height,

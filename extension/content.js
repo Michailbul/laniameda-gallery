@@ -2263,6 +2263,7 @@
 
     hideBadge();
     hideMjGridBadge();
+    clearXPostUi();
 
     for (const node of document.querySelectorAll(
       ".stg-badge, .stg-popover, .stg-mj-liked-nav, .stg-mj-quick-save, .stg-mj-notes, .stg-mj-notes-layer, .stg-bulk-toggle, .stg-bulk-bar, .stg-bulk-check",
@@ -2304,6 +2305,10 @@
       clearInjectedUi();
     } else if (isPersistentSaveSite()) {
       scheduleMidjourneyMediaScan();
+    }
+    if (extensionEnabled && isXPage()) {
+      startXPostObserver();
+      scheduleXPostScan();
     }
   }
 
@@ -5687,6 +5692,350 @@
     );
   }
 
+  // ── X (Twitter) post bookmarks ──
+  //
+  // On x.com every post gets a "Save" button in its action bar. It opens a
+  // small picker (collections, optional note) and saves the POST — author,
+  // text, permalink, time, media, counts — as a bookmark. The preview is the
+  // post's first photo/poster, or a crop of the post itself for text posts.
+
+  const xAdapter = globalThis.SaveToGalleryX;
+  const X_POST_ATTR = "data-stg-x-post";
+  // Bookmarks usually go to different collections than images, so the X
+  // picker remembers its own last selection.
+  const X_LAST_FOLDER_IDS_KEY = "lastXPostFolderIds";
+  const X_SCAN_DELAY_MS = 180;
+  const BOOKMARK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z"/><path d="M12 7.5v6M9 10.5h6"/></svg>`;
+  let xObserver = null;
+  let xScanTimer = null;
+  let xPopover = null;
+  let xPopoverCleanup = null;
+
+  function isXPage() {
+    return Boolean(xAdapter?.isXPage?.(currentHost));
+  }
+
+  function scheduleXPostScan() {
+    if (xScanTimer) return;
+    xScanTimer = setTimeout(() => {
+      xScanTimer = null;
+      scanXPosts();
+    }, X_SCAN_DELAY_MS);
+  }
+
+  function scanXPosts() {
+    if (!extensionEnabled || !isXPage() || isRetiredInstance()) return;
+    for (const article of xAdapter.getPostRoots(document)) {
+      // X re-renders action bars; re-add the button whenever it went missing.
+      if (article.querySelector(".stg-x-save")) continue;
+      const bar = xAdapter.getActionBar(article);
+      if (!bar) continue;
+      article.setAttribute(X_POST_ATTR, "1");
+      bar.appendChild(createXSaveButton(article));
+    }
+  }
+
+  function startXPostObserver() {
+    if (xObserver || !isXPage() || !document.body) return;
+    xObserver = new MutationObserver(() => scheduleXPostScan());
+    xObserver.observe(document.body, { childList: true, subtree: true });
+    scheduleXPostScan();
+  }
+
+  function clearXPostUi() {
+    closeXPostPopover();
+    for (const node of document.querySelectorAll(".stg-x-save, .stg-x-popover")) {
+      node.remove();
+    }
+    for (const article of document.querySelectorAll(`[${X_POST_ATTR}]`)) {
+      article.removeAttribute(X_POST_ATTR);
+    }
+  }
+
+  function setXSaveButtonState(button, state, label) {
+    button.dataset.state = state;
+    button.classList.toggle("stg-x-save--saved", state === "saved");
+    button.classList.toggle("stg-x-save--busy", state === "busy");
+    button.innerHTML = `${state === "saved" ? CHECK_ICON : BOOKMARK_ICON}<span class="stg-x-save__label">${escapeHtml(label)}</span>`;
+  }
+
+  function createXSaveButton(article) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stg-x-save";
+    button.title = "Save this post to laniameda";
+    setXSaveButtonState(button, "idle", "Save");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.dataset.state === "busy") return;
+      if (xPopover && xPopover.stgButton === button) {
+        closeXPostPopover();
+        return;
+      }
+      void openXPostPopover(article, button);
+    });
+    bindExtensionUiEventShield(button);
+    return button;
+  }
+
+  function closeXPostPopover() {
+    xPopoverCleanup?.();
+    xPopoverCleanup = null;
+    xPopover?.remove();
+    xPopover = null;
+  }
+
+  async function readXFolderPreset() {
+    try {
+      const cfg = await getStorageSync([X_LAST_FOLDER_IDS_KEY]);
+      return normalizeFolderIdList(cfg[X_LAST_FOLDER_IDS_KEY]);
+    } catch {
+      return [];
+    }
+  }
+
+  function positionXPopover(popover, button) {
+    const rect = button.getBoundingClientRect();
+    const width = popover.offsetWidth || 300;
+    const height = popover.offsetHeight || 360;
+    const margin = 12;
+    let left = rect.right - width;
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+    let top = rect.bottom + 8;
+    if (top + height > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - height - 8);
+    }
+    popover.style.left = `${Math.round(left)}px`;
+    popover.style.top = `${Math.round(top)}px`;
+  }
+
+  // Roots first, each followed by its sub-collections.
+  function orderFoldersForPicker(folders) {
+    const roots = getRootFolders(folders);
+    const ordered = [];
+    for (const root of roots) {
+      ordered.push({ ...root, depth: 0 });
+      for (const child of folders.filter((folder) => folder.parentFolderId === root.id)) {
+        ordered.push({ ...child, depth: 1 });
+      }
+    }
+    return ordered;
+  }
+
+  function renderXFolderList(popover, folders, selected, error) {
+    const list = popover.querySelector(".stg-x-popover__folders");
+    if (error) {
+      list.innerHTML = `<div class="stg-x-popover__empty stg-x-popover__empty--error">${escapeHtml(error)}</div>`;
+      return;
+    }
+    if (!folders.length) {
+      list.innerHTML = `<div class="stg-x-popover__empty">No collections yet — create one below.</div>`;
+      return;
+    }
+    list.innerHTML = orderFoldersForPicker(folders)
+      .map(
+        (folder) => `<button type="button" class="stg-x-popover__folder${
+          selected.has(folder.id) ? " stg-x-popover__folder--active" : ""
+        }${folder.depth ? " stg-x-popover__folder--child" : ""}" data-folder-id="${escapeHtml(folder.id)}">
+          <span class="stg-x-popover__check">${selected.has(folder.id) ? CHECK_ICON : ""}</span>
+          <span class="stg-x-popover__folder-name">${escapeHtml(folder.name)}</span>
+        </button>`,
+      )
+      .join("");
+  }
+
+  async function openXPostPopover(article, button) {
+    closeXPostPopover();
+    const post = xAdapter.extractPost(article, location.href);
+    if (!post) {
+      showContextToast("error", "Could not read this post");
+      return;
+    }
+
+    const popover = document.createElement("div");
+    popover.className = "stg-x-popover";
+    popover.stgButton = button;
+    const who = post.authorHandle ? `@${post.authorHandle}` : post.authorName || "Post";
+    const snippet = (post.text || (post.media.length ? `${post.media.length} media` : "")).slice(0, 140);
+    popover.innerHTML = `
+      <div class="stg-x-popover__head">
+        <span class="stg-x-popover__title">Save post</span>
+        <button type="button" class="stg-x-popover__close" aria-label="Close">×</button>
+      </div>
+      <div class="stg-x-popover__post">
+        <span class="stg-x-popover__who">${escapeHtml(who)}</span>
+        <span class="stg-x-popover__snippet">${escapeHtml(snippet)}</span>
+      </div>
+      <div class="stg-x-popover__label">Collections</div>
+      <div class="stg-x-popover__folders"><div class="stg-x-popover__empty">Loading…</div></div>
+      <form class="stg-x-popover__new">
+        <input type="text" class="stg-x-popover__new-input" placeholder="New collection" maxlength="120" />
+        <button type="submit" class="stg-x-popover__new-add">Add</button>
+      </form>
+      <textarea class="stg-x-popover__note" rows="2" maxlength="2000" placeholder="Note (optional)"></textarea>
+      <div class="stg-x-popover__actions">
+        <span class="stg-x-popover__status"></span>
+        <button type="button" class="stg-x-popover__submit">Save bookmark</button>
+      </div>`;
+    bindExtensionUiEventShield(popover);
+    document.body.appendChild(popover);
+    xPopover = popover;
+    positionXPopover(popover, button);
+
+    const selected = new Set(await readXFolderPreset());
+    let folders = [];
+    const status = popover.querySelector(".stg-x-popover__status");
+
+    const refreshFolders = async () => {
+      const result = await loadFoldersCached();
+      if (xPopover !== popover) return;
+      folders = result.folders;
+      // Forget remembered collections that no longer exist.
+      for (const id of [...selected]) {
+        if (!folders.some((folder) => folder.id === id)) selected.delete(id);
+      }
+      renderXFolderList(popover, folders, selected, result.error);
+      positionXPopover(popover, button);
+    };
+
+    popover.querySelector(".stg-x-popover__folders").addEventListener("click", (event) => {
+      const row = event.target.closest?.("[data-folder-id]");
+      if (!row) return;
+      const id = row.dataset.folderId;
+      if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
+      renderXFolderList(popover, folders, selected, "");
+    });
+
+    popover.querySelector(".stg-x-popover__new").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = popover.querySelector(".stg-x-popover__new-input");
+      const name = input.value.trim();
+      if (!name) return;
+      status.textContent = "Creating…";
+      const result = await createFolderRemote(name);
+      if (xPopover !== popover) return;
+      if (!result.ok) {
+        status.textContent = result.error;
+        return;
+      }
+      status.textContent = "";
+      input.value = "";
+      folders = result.folders;
+      if (result.id) selected.add(result.id);
+      renderXFolderList(popover, folders, selected, "");
+    });
+
+    popover.querySelector(".stg-x-popover__close").addEventListener("click", closeXPostPopover);
+    popover.querySelector(".stg-x-popover__submit").addEventListener("click", () => {
+      const userNote = popover.querySelector(".stg-x-popover__note").value.trim();
+      const folderIds = [...selected];
+      closeXPostPopover();
+      void saveXPost(article, button, { folderIds, userNote });
+    });
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") closeXPostPopover();
+    };
+    const onPointerDown = (event) => {
+      if (popover.contains(event.target) || button.contains(event.target)) return;
+      closeXPostPopover();
+    };
+    const onScroll = () => {
+      if (xPopover === popover) positionXPopover(popover, button);
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    xPopoverCleanup = () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("scroll", onScroll);
+    };
+
+    await refreshFolders();
+  }
+
+  function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  // Viewport rect of the post, for the background to crop a screenshot to.
+  function measurePostCrop(article) {
+    const rect = article.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(window.innerWidth, rect.right);
+    const bottom = Math.min(window.innerHeight, rect.bottom);
+    if (right - left < 40 || bottom - top < 40) return null;
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  }
+
+  async function saveXPost(article, button, { folderIds, userNote }) {
+    const post = xAdapter.extractPost(article, location.href);
+    if (!post) {
+      showContextToast("error", "Could not read this post");
+      return;
+    }
+    setStorageSync({ [X_LAST_FOLDER_IDS_KEY]: normalizeFolderIdList(folderIds) });
+    setXSaveButtonState(button, "busy", "Saving…");
+
+    // A text-only post needs a picture of itself as its preview. Bring it
+    // into view and hide our own UI for the capture.
+    let crop = null;
+    if (!post.media.length) {
+      const rect = article.getBoundingClientRect();
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        article.scrollIntoView({ block: "center" });
+      }
+      document.documentElement.classList.add("stg-x-capturing");
+      await nextFrame();
+      await nextFrame();
+      crop = measurePostCrop(article);
+    }
+
+    let response;
+    try {
+      response = await sendRuntimeMessage({
+        action: "saveXPost",
+        post,
+        folderIds: normalizeFolderIdList(folderIds),
+        userNote: userNote || undefined,
+        crop: crop || undefined,
+      });
+    } catch (err) {
+      response = { ok: false, error: err?.message || "Save failed" };
+    } finally {
+      document.documentElement.classList.remove("stg-x-capturing");
+    }
+
+    if (!response?.ok) {
+      setXSaveButtonState(button, "idle", "Save");
+      showContextToast("error", "Post not saved", response?.error || "Save failed");
+      return;
+    }
+    setXSaveButtonState(button, "saved", "Saved");
+    const names = folderIds
+      .map((id) => foldersCache?.find((folder) => folder.id === id)?.name)
+      .filter(Boolean);
+    showContextToast(
+      "saved",
+      response.result?.created === false
+        ? "Bookmark updated"
+        : names.length
+          ? `Saved to ${names.join(", ")}`
+          : "Saved to bookmarks",
+    );
+  }
+
   // Take over from any previous copy of this script (extension reloaded while
   // the page stayed open): its banner and widgets hold dead runtime references,
   // so sweep them before building fresh UI. No-op on a normal page load.
@@ -5701,5 +6050,6 @@
 
   syncSiteStateFromStorage();
   startMidjourneyMediaObserver();
+  startXPostObserver();
 
 })();

@@ -1,5 +1,6 @@
 import { isCardThumbSharp } from "./card-thumbnail";
 import { clusterPromptFamilies } from "./prompt-family";
+import type { BookmarkPost } from "./bookmarks";
 
 export type CinemaMetadata = {
   movieTitle: string;
@@ -24,6 +25,8 @@ export type GalleryAssetRecord = {
   contentType?: string;
   promptId?: string;
   designInspirationId?: string;
+  /** Saved social post behind this asset — rendered as a post card. */
+  bookmark?: BookmarkPost | null;
   thumbUrl?: string;
   url?: string;
   sourceUrl?: string;
@@ -99,6 +102,8 @@ export type GalleryEntry = {
   description?: string;
   fileName?: string;
   designInspirationId?: string;
+  /** Set for a saved social post: the card renders the post, not the image. */
+  bookmark?: BookmarkPost;
   createdAt?: number;
   folderId?: string;
   folderIds?: string[];
@@ -243,10 +248,13 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   contentType: asset.contentType,
 });
 
-// Web bookmarks carry a page title as their "prompt", and cinema frames open
-// one by one in the cinema popout — neither is a generation prompt.
+// Web bookmarks carry a page title as their "prompt", saved posts carry the
+// post, and cinema frames open one by one in the cinema popout — none is a
+// generation prompt.
 const canJoinPromptFamily = (asset: GalleryAssetRecord) =>
-  !asset.designInspirationId && asset.pillar !== "cinema-inspiration";
+  !asset.designInspirationId &&
+  !asset.bookmark &&
+  asset.pillar !== "cinema-inspiration";
 
 const sortPackMembers = (
   left: GalleryAssetRecord,
@@ -301,6 +309,7 @@ const buildEntry = (
     description: cover.description ?? undefined,
     fileName: cover.fileName ?? undefined,
     designInspirationId: cover.designInspirationId ?? undefined,
+    bookmark: cover.bookmark ?? undefined,
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,
     folderIds: cover.folderIds ?? (cover.folderId ? [cover.folderId] : []),
