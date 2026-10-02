@@ -5,8 +5,8 @@ description: >-
   makes and the work he likes. Use it to save anything into the gallery
   (prompts, images, videos, references, multi-step workflows), to update or
   delete items, to find and pull things back out (semantic search, browse by
-  collection, tag, piece type, medium or liked, resolve a copied asset:<id> or
-  pack:<id>), and to extract liked items from X bookmarks, Instagram, Pinterest,
+  collection, tag, piece type, medium or liked, resolve a copied asset:ID or
+  pack:ID), and to extract liked items from X bookmarks, Instagram, Pinterest,
   Dribbble or websites into it. Triggers: "add this to my gallery", "save this",
   "put this in the Love collection", "file this under CASSANDRA", "sort these into
   characters and locations", "what do I have for...", "find in my gallery",
