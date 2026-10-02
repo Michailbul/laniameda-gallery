@@ -1,10 +1,47 @@
-# laniameda-gallery Local MCP
+# laniameda-gallery MCP
 
-Local stdio MCP server for Claude Code, Claude Desktop, Codex CLI, and local
-Codex-style agents.
+Two ways in, same tools (`tools.ts`):
 
-This is intentionally not a hosted remote MCP server. Each user runs this process
-locally with their own gallery agent token.
+- **Hosted (OAuth)**: `https://gallery.laniameda.space/api/mcp`. Add it as a
+  connector and sign in; no token to copy. Owner only for now.
+- **Local stdio** (`server.ts`): runs on your machine with an agent token from
+  `/agents`. The only path that can upload a local `filePath`.
+
+## Hosted
+
+The endpoint speaks Streamable HTTP (stateless, JSON responses) and is protected
+by OAuth 2.1 with dynamic client registration and PKCE. The client discovers
+everything from the `401` it gets on first contact.
+
+Claude Code:
+
+```bash
+claude mcp add --transport http laniameda-gallery https://gallery.laniameda.space/api/mcp
+```
+
+Then run `/mcp` in Claude Code and pick Authenticate. claude.ai / Claude Desktop:
+Settings → Connectors → Add custom connector, URL
+`https://gallery.laniameda.space/api/mcp`.
+
+The browser opens `/oauth/authorize`. Sign in with Telegram if asked, then
+approve. Approval mints an agent token labelled `MCP · <client name>` (365
+days, scopes read/write/delete) which the client keeps; revoke it on `/agents`
+to cut the client off.
+
+Who may approve: `MCP_ALLOWED_USER_IDS` (comma-separated owner ids), falling
+back to `KB_OWNER_USER_ID`. Empty means nobody. The MCP endpoint applies the same
+list to every bearer token, so another user's manually created agent token is
+refused too.
+
+Hosted differences: no `filePath` (send `url` or `fileBase64`; Vercel caps a
+request body at ~4.5 MB, so prefer `url` for anything big).
+
+Routes: `/.well-known/oauth-protected-resource[/api/mcp]`,
+`/.well-known/oauth-authorization-server`, `/api/oauth/register`,
+`/oauth/authorize` (consent page), `/api/oauth/authorize` (consent POST),
+`/api/oauth/token`, `/api/mcp`. Logic lives in `lib/server/mcp-oauth.ts`.
+
+## Local stdio
 
 ## Required Env
 

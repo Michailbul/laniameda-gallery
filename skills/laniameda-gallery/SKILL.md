@@ -175,7 +175,10 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
 ## Access
 
 Use the gallery MCP tools when they are available and authenticated. Start
-with `check_connection`; the token selects the owner. If MCP is unavailable
+with `check_connection`; the token selects the owner. The MCP is hosted at
+`https://gallery.laniameda.space/api/mcp` (OAuth sign-in, owner only), so it also
+works from claude.ai; the local stdio server is the same tools plus `filePath`
+uploads. If MCP is unavailable
 or fails to connect, this local single-owner workspace can use the direct
 Convex scripts below. Never use that fallback for multi-user agents.
 

@@ -1,8 +1,15 @@
-# Local MCP Agent Access
+# MCP Agent Access
 
-This project supports local stdio MCP for Claude Code, Claude Desktop, Codex CLI,
-and Codex desktop-style local agents. Do not deploy the current MCP server as a
-shared hosted process; it reads one local user token from environment variables.
+Two transports share one tool surface (`mcp/laniameda-gallery/tools.ts`):
+
+- **Hosted**: `https://<app-host>/api/mcp`, Streamable HTTP behind OAuth 2.1
+  (dynamic client registration, PKCE, Telegram sign-in on the consent page).
+  Restricted to `MCP_ALLOWED_USER_IDS`, falling back to `KB_OWNER_USER_ID`.
+  The OAuth access token is an ordinary `lgat_` agent token, so it is listed and
+  revocable on `/agents`. Setup: `mcp/laniameda-gallery/README.md`.
+- **Local stdio**: `bun run mcp:gallery` with a token in the environment, below.
+  Do not deploy `server.ts` as a shared hosted process; it reads one local user
+  token from environment variables.
 
 ## Flow
 
