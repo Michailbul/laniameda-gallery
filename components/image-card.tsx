@@ -444,7 +444,7 @@ export const ImageCard = memo(function ImageCard({
       : galleryItemType === "design"
         ? "DESIGN ID COPIED"
         : galleryItemType === "workflow"
-          ? "WORKFLOW ID COPIED"
+          ? "SKILL ID COPIED"
           : "ASSET ID COPIED";
   const isWorkflow = galleryItemType === "workflow";
 
@@ -721,7 +721,7 @@ export const ImageCard = memo(function ImageCard({
     const stepLabel =
       typeof image.stepCount === "number" && image.stepCount > 0
         ? `${image.stepCount} ${image.stepCount === 1 ? "step" : "steps"}`
-        : "Workflow";
+        : "Skill";
 
     return (
       <div
@@ -750,7 +750,6 @@ export const ImageCard = memo(function ImageCard({
 
         <div
           className="workflow-card-media"
-          style={{ aspectRatio }}
         >
           {(isLoading || hasError) && (
             <div
@@ -809,8 +808,8 @@ export const ImageCard = memo(function ImageCard({
               void handleIdCopy(event);
             }}
             className="workflow-card-copy-btn"
-            aria-label="Copy workflow ID"
-            title="Copy workflow ID"
+            aria-label="Copy skill ID"
+            title="Copy skill ID"
           >
             <Copy className="h-3 w-3" />
           </button>
@@ -822,7 +821,7 @@ export const ImageCard = memo(function ImageCard({
             void handlePromptCopy(event);
           }}
           className="workflow-card-caption"
-          aria-label="Copy workflow description"
+          aria-label="Copy skill description"
         >
           <span className="workflow-card-caption-marker">▸</span>
           <span className="workflow-card-caption-text">{image.prompt}</span>
@@ -835,7 +834,7 @@ export const ImageCard = memo(function ImageCard({
             onClick={handleDelete}
             disabled={deleting}
             className="workflow-card-delete"
-            aria-label={deleting ? "Deleting workflow" : "Delete workflow"}
+            aria-label={deleting ? "Deleting skill" : "Delete skill"}
           >
             {deleting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
