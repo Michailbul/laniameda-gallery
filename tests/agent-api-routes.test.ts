@@ -186,6 +186,55 @@ describe("agent API routes", () => {
     });
   });
 
+  test("agent contact sheet strips typed ids and pins the token owner", async () => {
+    const { POST } = await import(galleryRoutePath);
+    state.actionResult = { imageBase64: "AAAA", cells: [] };
+
+    const response = await POST(
+      new Request("http://localhost/api/agent/gallery", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "contactSheet",
+          ownerUserId: "attacker",
+          ids: ["asset:a1", "a2"],
+          columns: 2,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.requiredScopes).toEqual(["gallery:read"]);
+    expect(state.actionCalls[0]?.payload).toEqual({
+      ownerUserId: "telegram:278674008",
+      assetIds: ["a1", "a2"],
+      columns: 2,
+      maxEdge: undefined,
+    });
+    expect(await response.json()).toEqual({ sheet: { imageBase64: "AAAA", cells: [] } });
+  });
+
+  test("agent contact sheet requires ids", async () => {
+    const { POST } = await import(galleryRoutePath);
+
+    const response = await POST(
+      new Request("http://localhost/api/agent/gallery", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ action: "contactSheet" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(state.actionCalls).toEqual([]);
+  });
+
   test("agent customization writes derive ownerUserId from token auth", async () => {
     const { POST } = await import(customizeRoutePath);
 

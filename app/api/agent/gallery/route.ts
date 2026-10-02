@@ -221,6 +221,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ design, asset });
     }
 
+    if (action === "contactSheet") {
+      const rawIds = stringArrayValue(data.ids ?? data.assetIds);
+      if (!rawIds || rawIds.length === 0) {
+        return NextResponse.json({ error: "ids is required." }, { status: 400 });
+      }
+      const sheet = await client.action(api.agentPreview.contactSheet, {
+        ownerUserId: agent.ownerUserId,
+        assetIds: rawIds.map((rawId) => parseGalleryId(rawId, "asset").id),
+        columns: numberValue(data.columns),
+        maxEdge: numberValue(data.maxEdge),
+      });
+      return NextResponse.json({ sheet });
+    }
+
     if (action === "listFolders") {
       const folders = await client.query(api.folders.listFolders, {
         ownerUserId: agent.ownerUserId,
