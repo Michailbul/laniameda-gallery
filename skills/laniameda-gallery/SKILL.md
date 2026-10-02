@@ -39,7 +39,7 @@ references.
 
 | Handle | What it is | Example |
 |---|---|---|
-| **Collection / folder** | Where it lives. Root collections (worlds are ALL CAPS) hold one level of folders. | `CASSANDRA › Balcony`, `LOVE` |
+| **Collection / folder** | Where it lives. Root collections (worlds are ALL CAPS) hold one level of folders. | `DEAR ANNETE › Animated`, `LOVE` |
 | **Piece type** | What it IS. One tag of four: `character`, `location`, `scene`, `inspiration`. Never a folder. | a Dari portrait → `character` |
 | **Medium** | The exact tag `animation`; anything without it is Live action. | a clay short → `animation` |
 | **Descriptive tags** | Typed tags: platform, content, style, lighting, camera, model… | `x`, `landing-page`, `golden-hour` |
@@ -110,7 +110,7 @@ And on the record itself:
 | Anything about a world: Dear Annete, Daddy Issues, Andromeda (Ann / Retro-future), its characters, locations, styles | `references/worlds.md` first |
 | Save a prompt, image, video or reference | `references/ingest.md` (examples: `references/ingest-examples.md`) |
 | File into a collection, folder or world; publish a world | `references/ingest.md`, "Filing" and "Publishing" |
-| A multi-step preset or tutorial | `references/ingest.md`, "Workflows" |
+| A multi-step preset or tutorial (a **skill** card in the gallery UI; the code, tables and ingest kind still say `workflow`) | `references/ingest.md`, "Workflows" |
 | A cinema frame (film still, no prompt) | `references/ingest.md`, "Cinema Inspiration" |
 | Update or delete an item | `references/ingest.md` and the update examples |
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |

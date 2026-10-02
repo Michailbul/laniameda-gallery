@@ -29,6 +29,8 @@ Not a world:
   (mostly other people's character, location and scene art). **Never put a .webp asset into
   a world or a storybook, and never use one as a production reference for a world.**
 - **CASSANDRA** (and CAS, Cassandra Collection) and **ART**: Michael's own separate areas.
+  CASSANDRA is one flat collection with no sub-collections (the 20 old ones, Forest, Balcony,
+  Creature and so on, were folded into it on 2 Oct 2026).
   Don't reorganise them unless he asks. ART is mostly references.
 - LOVE, ORPHEUS, NO DRUMA, HOCKEY, DESIGN, Pets, Cinematic, LIZ, TO BE LOVED: other
   projects, untouched by the world sort.
