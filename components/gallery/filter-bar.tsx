@@ -122,7 +122,9 @@ export function GalleryFilterBar({
     [menuFilters],
   );
 
-  const showMenuRow = menuFilters.length > 0 || canManageMenuFilters;
+  // Menu pills filter assets; the Skills view has its own tag and collection chips.
+  const showMenuRow =
+    viewMode !== "skills" && (menuFilters.length > 0 || canManageMenuFilters);
 
   return (
     <div

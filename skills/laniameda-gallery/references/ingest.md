@@ -137,7 +137,7 @@ The direct script reads `CONVEX_URL`/`KB_OWNER_USER_ID` from this repository's `
 - Metadata updates for prompts and assets
 - Idempotent deletes for prompts and assets
 - Automatic pack sync for multi-asset prompt variations that share a prompt record
-- **Workflows**: multi-step presets/tutorials that bundle prompt + media steps under one record via `operation: "workflow"`. These surface ONLY in the gallery's Workflows view — their step media is kept out of the main grid on purpose.
+- **Skills** (ingest kind `workflow`): multi-step presets/tutorials that bundle prompt + media steps and a markdown body under one record via `operation: "workflow"`. They show as skill cards in the Skills tab, the default grid and the collections they are filed in; their step media stays out of the main grid on purpose.
 
 ## Reading ingested content back (for agent handoff)
 
@@ -233,7 +233,7 @@ the server decodes them and builds the thumbnail. Oversized images fail with a
 
 **No R2 branch on `update`.** `updateFromApi` accepts base64 only, so replace a
 large video by ingesting it as a new `create`. Workflow steps DO take video
-(see "Workflows" below) — the script prepares each step's video exactly as it
+(see "Skills" below) — the script prepares each step's video exactly as it
 prepares a standalone one.
 
 Verifying an upload by hand: `r2.dev` public URLs reject `HEAD` with 403. That is
@@ -346,23 +346,40 @@ Rules:
 - Lineage rows are idempotent on `(owner, target, source, role)`. Re-ingest with the same keys updates `stageOrder`/`notes` without duplicating rows.
 - Unresolvable upstream `id`/`ingestKey` fails the ingest rather than silently dropping the link — ingest the upstream step first.
 
-## Workflows (presets / tutorials)
+## Skills (presets / tutorials / recipes)
 
-A **workflow** bundles several prompt + media steps under one organizing record — a reusable preset or tutorial. Use it when the knowledge is multi-step (e.g. an image-gen prompt + result images, then a video-gen prompt + result video) and worth keeping together rather than as scattered one-shot prompts.
+A **skill** bundles several prompt + media steps and an optional markdown document under one record: a reusable preset, tutorial or recipe. Use it when the knowledge is multi-step (an image-gen prompt + result images, then a video-gen prompt + result video) and worth keeping together rather than as scattered one-shot prompts. The UI calls it a skill; the table (`workflows`), the ingest kind (`operation: "workflow"`) and the copied id (`workflow:<id>`) keep the old name.
 
-Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the workflow row and ingests each step through the canonical ingest path, so every step's prompt and media become real gallery records.
+Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the skill row and ingests each step through the canonical ingest path, so every step's prompt and media become real gallery records.
 
-### A workflow shows up in ONE place: the Workflows view
+Skill-level fields:
 
-Saving a workflow does **not** add anything to the main grid. This is enforced, not incidental:
+- `title`, `description` (one or two sentences, shown on the card)
+- `body`: the skill as a **markdown** post. Headings, lists, tables, fenced blocks all render. Embed gallery media inline with `![caption](asset:<id>)`. Opening the skill reads it top to bottom like a blog post, steps after the body.
+- `agentInstructions`: how to run it (rendered as a "How to run it" note)
+- `tagNames`: tags are how skills are filtered in the Skills tab and by `searchSkills`; give every skill a few (technique, model, medium, world)
+- `folderIds`: collections to file it into. A skill can sit in several collections and shows up inside each one among its pieces.
 
-- Step media is stored with `assetRole: "workflow_asset"`, and every owner-facing browse read (`listGalleryAssets`, `listGalleryAssetsPage`, `listFolderAssetsPage`, `listStarredAssets`, plus `galleryAssetFacets`) drops that role. A workflow can attach a dozen intermediate frames — depth maps, character sheets, poster stills — without flooding the vault.
-- The workflow record itself renders only in the Workflows view (the third view-mode button, `Workflow` icon). It is not a grid card and has no `workflowsOnly` filter pill anymore.
-- Semantic search still reaches step media on purpose, so "find that depth map" keeps working.
-- An explicit `assetRole: "workflow_asset"` query still returns it, which is how admin tooling and verification get at it.
-- Deleting a workflow clears the `workflow_asset` role on its step media, returning those assets to the grid rather than stranding them in no view at all.
+Every save, edit and retag re-embeds the skill (text lane, `semanticDocuments.sourceType: "skill"`), so it is findable by meaning a moment later.
 
-**Do not** file workflow steps into collections expecting them to appear there — collection browse applies the same exclusion. If a piece of media should live in the gallery proper, ingest it as its own `create` instead of as a workflow step.
+### Where a skill shows up
+
+- The **Skills** tab in the sidebar (also the third view-mode button): every skill as a card, with semantic search, tag chips and collection chips.
+- The main grid in its default state, as one card among the tiles by date.
+- Inside every collection it is filed in.
+- Step media is stored with `assetRole: "workflow_asset"`, and every owner-facing browse read drops that role, so a skill's intermediate frames never flood the grid. Semantic asset search still reaches step media on purpose ("find that depth map" keeps working). Deleting a skill clears the role and returns those assets to the grid.
+
+### Editing and filing after save
+
+Through the agent API / MCP (`update_skill`, `file_skill`) or `/api/agent/customize`:
+
+```json
+{"action":"updateSkill","id":"skill:<id>","addTagNames":["seedance","depth-map"],"body":"# ..."}
+{"action":"addSkillToCollection","id":"skill:<id>","folderId":"<folderId>"}
+{"action":"removeSkillFromCollection","id":"skill:<id>","folderId":"<folderId>"}
+```
+
+`tagNames` replaces the set; `addTagNames` / `removeTagNames` adjust it. Michael can do the same from the open skill (Tags / Collections panel).
 
 ### `pillar` is REQUIRED on workflow ingest
 
@@ -462,7 +479,7 @@ Common trap: user shares an image inline in a chat conversation. You cannot extr
 - Prefer `typedTags` when category and source are known.
 - Use stable `ingestKey` values for retry safety.
 - Use `promptIngestKey` when multiple assets should attach to one prompt.
-- Reusing one `promptIngestKey` across multiple media ingests still creates or updates an `assetPack` automatically, but **packs no longer have a browse surface** — the Packs view became the Workflows view. Packs are now an internal grouping only; to give a multi-media prompt a card the user can open, save it as a workflow.
+- Reusing one `promptIngestKey` across multiple media ingests still creates or updates an `assetPack` automatically, but **packs no longer have a browse surface** — the Packs view became the Skills view. Packs are now an internal grouping only; to give a multi-media prompt a card the user can open, save it as a skill (`operation: "workflow"`).
 - Keep `ownerUserId` env-driven; callers never pass it directly.
 - `ingestKey` is only an idempotency key for `create`; it is not a general
   metadata patch key. A repeated create only performs the safe additive
