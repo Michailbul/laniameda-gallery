@@ -10,7 +10,7 @@ import {
   Minus,
   SlidersHorizontal,
   Video,
-  Workflow,
+  BookOpenText,
   X,
 } from "lucide-react";
 import { MenuFilterAdmin } from "./menu-filter-admin";
@@ -19,7 +19,7 @@ export type MediaKind = "image" | "video";
 
 export type SortOrder = "featured" | "newest" | "shuffle";
 export type GalleryScope = "mine" | "public";
-export type ViewMode = "grid" | "collections" | "workflows";
+export type ViewMode = "grid" | "collections" | "skills";
 
 // A curated menu pill (admin-managed on the backend). "tag" pills toggle the
 // tag filter; "collection" pills toggle the folder filter to their collection.
@@ -122,7 +122,9 @@ export function GalleryFilterBar({
     [menuFilters],
   );
 
-  const showMenuRow = menuFilters.length > 0 || canManageMenuFilters;
+  // Menu pills filter assets; the Skills view has its own tag and collection chips.
+  const showMenuRow =
+    viewMode !== "skills" && (menuFilters.length > 0 || canManageMenuFilters);
 
   return (
     <div
@@ -722,23 +724,23 @@ function ViewModeToggle({
       />
       <button
         type="button"
-        onClick={() => onViewModeChange("workflows")}
+        onClick={() => onViewModeChange("skills")}
         className="flex items-center justify-center transition-colors"
         style={{
           padding: buttonPadding,
           background:
-            viewMode === "workflows"
+            viewMode === "skills"
               ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
               : "transparent",
           color:
-            viewMode === "workflows"
+            viewMode === "skills"
               ? "#fff"
               : "var(--lm-text-ghost)",
         }}
-        aria-label="Workflows view"
-        title="Browse workflows"
+        aria-label="Skills view"
+        title="Browse skills"
       >
-        <Workflow className="h-3.5 w-3.5" />
+        <BookOpenText className="h-3.5 w-3.5" />
       </button>
     </div>
   );

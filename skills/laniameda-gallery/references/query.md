@@ -249,6 +249,25 @@ Download one owner-scoped asset to local disk.
 }
 ```
 
+### Skills: `searchSkills`, `skills`, `getSkill`
+
+Skills (multi-step recipes, table `workflows`) are searched on their own, not
+through `search`. Each is embedded on its words: title, description, tags,
+models, step labels and markdown body.
+
+```json
+{ "action": "searchSkills", "query": "composition-first seedance control", "tagNames": ["seedance"], "limit": 5 }
+{ "action": "skills", "tagNames": ["camera movements"], "folderId": "<folderId>", "search": "dolly" }
+{ "action": "getSkill", "id": "skill:<id>" }
+```
+
+`searchSkills` ranks by meaning, then appends keyword matches the embedding
+missed. `skills` lists newest first; every `tagNames` entry must match
+(canonically). `getSkill` returns the full document: `body` (markdown),
+`agentInstructions`, `tagNames`, `collections`, `modelNames` and every step
+with its prompt sections and media URLs. `getById` accepts `skill:<id>` and the
+`workflow:<id>` the gallery copies.
+
 ## Typical workflows
 
 ### Pick references by eye

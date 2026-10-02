@@ -26,6 +26,7 @@ type Workflow = {
   title: string;
   description?: string;
   agentInstructions?: string;
+  body?: string;
   pillar?: string;
   tagNames: string[];
   stepCount: number;
@@ -36,7 +37,7 @@ const buildSkillMarkdown = (workflow: Workflow): string => {
   const name = slugify(workflow.title);
   const description =
     workflow.description?.replace(/\s+/g, " ").trim() ||
-    `Reproduce the "${workflow.title}" creative workflow.`;
+    `Reproduce the "${workflow.title}" skill.`;
 
   const lines: string[] = [];
   lines.push("---");
@@ -51,8 +52,12 @@ const buildSkillMarkdown = (workflow: Workflow): string => {
     lines.push(workflow.description.trim());
     lines.push("");
   }
+  if (workflow.body) {
+    lines.push(workflow.body.trim());
+    lines.push("");
+  }
   if (workflow.agentInstructions) {
-    lines.push("## How to run this workflow");
+    lines.push("## How to run this skill");
     lines.push("");
     lines.push(workflow.agentInstructions.trim());
     lines.push("");

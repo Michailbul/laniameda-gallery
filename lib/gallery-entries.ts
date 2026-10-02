@@ -128,6 +128,8 @@ export type GalleryEntry = {
   storybookCount?: number;
   /** Step count for workflow entries (galleryItemType "workflow"). */
   stepCount?: number;
+  /** Skill cards: one or two plain sentences under the title. */
+  excerpt?: string;
   size?: number;
   totalSize?: number;
   cinemaMetadata?: CinemaMetadata | null;

@@ -110,7 +110,8 @@ And on the record itself:
 | Anything about a world: Dear Annete, Daddy Issues, Andromeda (Ann / Retro-future), its characters, locations, styles | `references/worlds.md` first |
 | Save a prompt, image, video or reference | `references/ingest.md` (examples: `references/ingest-examples.md`) |
 | File into a collection, folder or world; publish a world | `references/ingest.md`, "Filing" and "Publishing" |
-| A multi-step preset or tutorial (a **skill** card in the gallery UI; the code, tables and ingest kind still say `workflow`) | `references/ingest.md`, "Workflows" |
+| A multi-step preset, tutorial or recipe: a **skill** (the table and ingest kind still say `workflow`) | `references/ingest.md`, "Skills" |
+| Find a skill, retag it, file it into a collection | `references/query.md`, "Skills" |
 | A cinema frame (film still, no prompt) | `references/ingest.md`, "Cinema Inspiration" |
 | Update or delete an item | `references/ingest.md` and the update examples |
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |
@@ -133,6 +134,13 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
   `excludeTagNames`, `pieceType`, `medium`, `onlyLiked`, `onlyStarred`,
   `folderId` (+ `includeDescendants`). Tag names match canonically.
 - **More like this**: `similar` with `assetId` (visual by default).
+- **"How did I do X" / "find the recipe for Y"**: skills are their own search.
+  `searchSkills` ranks by meaning over title, description, tags, models, step
+  labels and the markdown body; `skills` lists with `tagNames` / `folderId`;
+  `getSkill` (or `getById` with `skill:<id>` / `workflow:<id>`) reads one whole.
+  ```json
+  {"action":"searchSkills","query":"turn live footage into frame-by-frame paint","limit":5}
+  ```
 - **Look before you pick**: `preview` composes the hits of a search (or a
   listing, or explicit `ids`) into numbered contact-sheet JPEGs. Read the
   sheet, pick by number, map numbers to `asset:<id>` from `sheets[].cells`.
@@ -156,8 +164,7 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
 ## Hard rules
 
 - **Worlds are strict.** A piece joins a world only when its story world AND its look
-  match (`references/worlds.md`). `.webp` saves go to INSPIRATION VAULT, never into a
-  world or a storybook. Don't touch CASSANDRA or ART unless Michael asks.
+  match (`references/worlds.md`). Don't touch CASSANDRA or ART unless Michael asks.
 - **Never save a prompt without its image or video** unless Michael says yes to
   `allowPromptOnly`. If the media can't be fetched, stop and ask.
 - **A screenshot of a prompt is not the asset.** Read the text into

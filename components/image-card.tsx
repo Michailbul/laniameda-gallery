@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, BookOpenText, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import {
   PackDeckLayers,
@@ -82,6 +82,8 @@ interface ImageCardProps {
     size?: number;
     totalSize?: number;
     stepCount?: number;
+    /** Skill cards: one or two plain sentences under the title. */
+    excerpt?: string;
     cinemaMetadata?: CinemaMetadataLite | null;
     /** A saved social post: the tile renders as a post card. */
     bookmark?: BookmarkPost;
@@ -262,6 +264,8 @@ export const ImageCard = memo(function ImageCard({
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState(image.src);
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
+  // Skill delete is two clicks: the first arms it, the second commits.
+  const [skillDeleteArmed, setSkillDeleteArmed] = useState(false);
   const [previewCycling, setPreviewCycling] = useState(false);
   const [videoActive, setVideoActive] = useState(false);
   const [excluding, setExcluding] = useState(false);
@@ -708,9 +712,9 @@ export const ImageCard = memo(function ImageCard({
   }
 
   if (isWorkflow) {
-    const workflowCardClasses = [
-      "group relative cursor-pointer overflow-hidden workflow-card",
-      isSelected && "workflow-card-selected",
+    const skillClasses = [
+      "group relative cursor-pointer skill-card",
+      isSelected && "skill-card-selected",
       dimmed && "card-dimmed",
       exiting && "animate-card-exit",
       shouldAnimateEntrance && "animate-card-entrance",
@@ -718,14 +722,37 @@ export const ImageCard = memo(function ImageCard({
       .filter(Boolean)
       .join(" ");
 
-    const stepLabel =
-      typeof image.stepCount === "number" && image.stepCount > 0
-        ? `${image.stepCount} ${image.stepCount === 1 ? "step" : "steps"}`
-        : "Skill";
+    const stepCount = image.stepCount ?? 0;
+    const hasCover = Boolean(image.src) && image.src !== "/placeholder.svg";
+    // One segment per step, capped so a long recipe stays a hairline.
+    const segmentCount = Math.min(Math.max(stepCount, 1), 12);
+    const activeSegment =
+      previewImages.length > 1
+        ? Math.min(
+            Math.floor((activePreviewIndex / previewImages.length) * segmentCount),
+            segmentCount - 1,
+          )
+        : 0;
+    const excerpt = image.excerpt?.trim();
+    const tags = (image.tagNames ?? []).slice(0, 4);
+
+    const textBlock = (
+      <>
+        <span className="skill-card-title">{image.prompt}</span>
+        {excerpt && <span className="skill-card-excerpt">{excerpt}</span>}
+        {tags.length > 0 && (
+          <span className="skill-card-tags">
+            {tags.map((tag) => (
+              <span key={tag}>#{tag}</span>
+            ))}
+          </span>
+        )}
+      </>
+    );
 
     return (
       <div
-        className={workflowCardClasses}
+        className={skillClasses}
         style={{
           animationDelay: shouldAnimateEntrance ? entranceDelay : undefined,
           animationFillMode: shouldAnimateEntrance ? "backwards" : undefined,
@@ -739,48 +766,20 @@ export const ImageCard = memo(function ImageCard({
         onMouseLeave={() => {
           setPreviewCycling(false);
           setActivePreviewIndex(0);
+          setSkillDeleteArmed(false);
         }}
+        aria-label={`Skill: ${image.prompt}${stepCount ? `, ${stepCount} steps` : ""}`}
       >
-        <div className="workflow-card-header">
-          <div className="workflow-card-header-left">
-            <WorkflowIcon className="h-3 w-3" strokeWidth={2.5} />
-            <span className="workflow-card-header-label">{stepLabel}</span>
-          </div>
-        </div>
-
-        <div
-          className="workflow-card-media"
-        >
-          {(isLoading || hasError) && (
-            <div
-              className="absolute inset-0"
-              style={{
-                // Must read as a card against the page background on both
-                // themes — a bare --surface-1 is nearly invisible on dark.
-                backgroundColor:
-                  "color-mix(in srgb, var(--text-primary) 6%, var(--surface-1))",
-                boxShadow:
-                  "inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent)",
-              }}
-            >
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                <ImageIcon
-                  className="h-6 w-6"
-                  style={{ color: "var(--text-ghost)" }}
-                />
-                {hasError && (
-                  <span
-                    className="text-[11px] font-mono uppercase tracking-wider"
-                    style={{ color: "var(--text-ghost)" }}
-                  >
-                    Failed to load
-                  </span>
-                )}
+        {hasCover ? (
+          <div className="skill-card-media">
+            {(isLoading || hasError) && (
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ backgroundColor: "var(--surface-2)" }}
+              >
+                <ImageIcon className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
               </div>
-            </div>
-          )}
-
-          <div className="relative h-full w-full">
+            )}
             <Image
               src={currentSrc || "/placeholder.svg"}
               alt={activePreview.prompt}
@@ -788,58 +787,103 @@ export const ImageCard = memo(function ImageCard({
               sizes={responsiveSizes}
               priority={eager}
               loading={imgLoading}
-              className={`object-cover transition-transform duration-200 group-hover:scale-[1.02] ${
+              className={`object-cover transition-transform duration-500 group-hover:scale-[1.03] ${
                 isLoading ? "opacity-0" : "opacity-100"
               }`}
-              style={{
-                transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
+              style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
               ref={attachImageNode}
               onLoad={handleImageLoad}
               onError={handleImageError}
               unoptimized
             />
-            <div className="workflow-card-grid-overlay" aria-hidden />
+            <div className="skill-card-scrim" aria-hidden />
           </div>
+        ) : (
+          <div className="skill-card-doc" aria-hidden />
+        )}
 
-          <button
-            type="button"
-            onClick={(event) => {
-              void handleIdCopy(event);
-            }}
-            className="workflow-card-copy-btn"
-            aria-label="Copy skill ID"
-            title="Copy skill ID"
-          >
-            <Copy className="h-3 w-3" />
-          </button>
+        <div className="skill-card-segments" aria-hidden>
+          {Array.from({ length: segmentCount }, (_, index) => (
+            <span
+              key={index}
+              className="skill-card-segment"
+              data-active={index <= activeSegment}
+            />
+          ))}
         </div>
+
+        <div className="skill-card-top">
+          <span className="skill-card-badge skill-card-badge-kind">
+            <BookOpenText className="h-2.5 w-2.5" strokeWidth={2.75} />
+            Skill
+          </span>
+          {stepCount > 0 && (
+            <span className="skill-card-badge skill-card-badge-meta">
+              {stepCount} {stepCount === 1 ? "step" : "steps"}
+            </span>
+          )}
+        </div>
+
+        {hasCover ? (
+          <div className="skill-card-body">{textBlock}</div>
+        ) : (
+          <div className="skill-card-doc-text">{textBlock}</div>
+        )}
 
         <button
           type="button"
           onClick={(event) => {
-            void handlePromptCopy(event);
+            void handleIdCopy(event);
           }}
-          className="workflow-card-caption"
-          aria-label="Copy skill description"
+          className="skill-card-action"
+          style={{ top: "40px" }}
+          aria-label="Copy skill ID"
+          title="Copy skill ID"
         >
-          <span className="workflow-card-caption-marker">▸</span>
-          <span className="workflow-card-caption-text">{image.prompt}</span>
-          <Copy className="workflow-card-caption-copy h-2.5 w-2.5" />
+          <Copy className="h-3 w-3" />
         </button>
 
         {canDelete && (
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={(event) => {
+              if (!skillDeleteArmed) {
+                event.preventDefault();
+                event.stopPropagation();
+                setSkillDeleteArmed(true);
+                return;
+              }
+              handleDelete(event);
+            }}
             disabled={deleting}
-            className="workflow-card-delete"
-            aria-label={deleting ? "Deleting skill" : "Delete skill"}
+            className="skill-card-action skill-card-action-delete"
+            style={{
+              top: "70px",
+              width: skillDeleteArmed ? "auto" : undefined,
+              padding: skillDeleteArmed ? "0 8px" : undefined,
+              gap: "5px",
+              ...(skillDeleteArmed
+                ? { opacity: 1, background: "var(--coral)", color: "var(--lm-paper)" }
+                : {}),
+            }}
+            aria-label={
+              deleting
+                ? "Deleting skill"
+                : skillDeleteArmed
+                  ? "Confirm delete skill"
+                  : "Delete skill"
+            }
+            title={skillDeleteArmed ? "Click again to delete" : "Delete skill"}
           >
             {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
+            )}
+            {skillDeleteArmed && !deleting && (
+              <span className="text-[9px] font-mono font-bold uppercase tracking-[0.12em]">
+                Sure?
+              </span>
             )}
           </button>
         )}

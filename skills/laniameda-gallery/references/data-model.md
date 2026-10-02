@@ -18,6 +18,7 @@ can never hit.
 | **Medium** | tag: `animation` (absent = live action) | `tagNames` / `typedTags` |
 | **Descriptive tags** | `tags` via `assetTags` / `promptTags`, typed by category | `typedTags` |
 | **Pixels and words** | `semanticDocuments`: pixel lane `embedding` + text lane `textEmbedding` | automatic after ingest |
+| **Skills** | `workflows` (`body` markdown, `tagIds`) + `workflowFolders` for collections; text lane `semanticDocuments.sourceType: "skill"` | `operation: "workflow"`, then `updateSkill` / `addSkillToCollection` |
 
 Plus the provenance fields that make a piece traceable: `sourceUrl`,
 `agentDescription`, `description`, `modelName`, `ingestSource`, `assetRole`,

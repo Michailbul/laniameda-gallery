@@ -562,7 +562,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "get_gallery_item",
     {
       title: "Get Gallery Item",
-      description: "Read a gallery asset or asset pack by typed ID, such as asset:<id> or pack:<id>.",
+      description: "Read a gallery asset, asset pack or skill by typed ID, such as asset:<id>, pack:<id> or skill:<id>.",
       inputSchema: {
         id: z.string(),
       },
@@ -742,6 +742,98 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         await apiFetch("/api/agent/customize", {
           action: "deleteFolder",
           ...input,
+        }),
+      ),
+  );
+
+  // Skills: multi-step recipes saved as one document (markdown body + ordered
+  // prompt steps with their media). Ids read skill:<id> or workflow:<id>.
+  server.registerTool(
+    "search_skills",
+    {
+      title: "Search Skills",
+      description:
+        "Find saved skills by meaning (semantic search over title, description, tags, models, step labels and the markdown body). Use when the user asks how they did something, or for a recipe/workflow/technique.",
+      inputSchema: {
+        query: z.string(),
+        tagNames: z.array(z.string()).describe("Every tag must be on the skill.").optional(),
+        folderId: z.string().describe("Only skills filed in this collection.").optional(),
+        limit: z.number().optional(),
+      },
+    },
+    async (input) =>
+      jsonText(await apiFetch("/api/agent/gallery", { action: "searchSkills", ...input })),
+  );
+
+  server.registerTool(
+    "list_skills",
+    {
+      title: "List Skills",
+      description:
+        "List saved skills, newest first, optionally narrowed by tags (all must match), collection or keywords.",
+      inputSchema: {
+        tagNames: z.array(z.string()).optional(),
+        folderId: z.string().optional(),
+        search: z.string().optional(),
+        limit: z.number().optional(),
+      },
+    },
+    async (input) =>
+      jsonText(await apiFetch("/api/agent/gallery", { action: "listSkills", ...input })),
+  );
+
+  server.registerTool(
+    "get_skill",
+    {
+      title: "Get Skill",
+      description:
+        "Read one skill in full: markdown body, how-to-run notes, tags, collections and every step with its prompt and media URLs.",
+      inputSchema: {
+        id: z.string().describe("skill:<id>, workflow:<id> or the bare id."),
+      },
+    },
+    async (input) =>
+      jsonText(await apiFetch("/api/agent/gallery", { action: "getSkill", id: input.id })),
+  );
+
+  server.registerTool(
+    "update_skill",
+    {
+      title: "Update Skill",
+      description:
+        "Edit a skill's title, description, markdown body (embed gallery images as ![caption](asset:<id>)) or how-to-run notes, and set, add or remove tags.",
+      inputSchema: {
+        id: z.string(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        body: z.string().optional(),
+        agentInstructions: z.string().optional(),
+        tagNames: z.array(z.string()).describe("Replaces the whole tag set.").optional(),
+        addTagNames: z.array(z.string()).optional(),
+        removeTagNames: z.array(z.string()).optional(),
+      },
+    },
+    async (input) =>
+      jsonText(await apiFetch("/api/agent/customize", { action: "updateSkill", ...input })),
+  );
+
+  server.registerTool(
+    "file_skill",
+    {
+      title: "Add Or Remove Skill From Collection",
+      description: "File a skill into a collection, or take it out. The skill itself is kept.",
+      inputSchema: {
+        id: z.string(),
+        folderId: z.string(),
+        remove: z.boolean().describe("true takes the skill out of the collection.").optional(),
+      },
+    },
+    async (input) =>
+      jsonText(
+        await apiFetch("/api/agent/customize", {
+          action: input.remove ? "removeSkillFromCollection" : "addSkillToCollection",
+          id: input.id,
+          folderId: input.folderId,
         }),
       ),
   );

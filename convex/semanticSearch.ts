@@ -705,3 +705,90 @@ export const findSimilarAssets = ownerAction({
     );
   },
 });
+
+const listSkillCardsByIdsQueryRef = makeFunctionReference<"query">(
+  "workflows:listSkillCardsByIds",
+);
+const listWorkflowsQueryRef = makeFunctionReference<"query">(
+  "workflows:listWorkflows",
+);
+
+// Skills ranked by meaning. Skills are embedded on their words only (title,
+// description, tags, models, step labels, markdown body), so this runs the
+// text lane alone. Keyword matches the embedding missed follow the ranked
+// hits, and with embeddings off the keyword match is the whole answer.
+export const searchSkills = ownerAction({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    query: v.string(),
+    tagNames: v.optional(v.array(v.string())),
+    folderId: v.optional(v.id("folders")),
+    minRelativeScore: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    previewLimit: v.optional(v.number()),
+  },
+  // Same shape as workflows:listWorkflows cards, plus the text-lane score.
+  returns: v.array(v.any()),
+  handler: async (ctx, args) => {
+    const query = args.query.trim();
+    const ownerCandidates = resolveScope("mine", args.ownerUserId);
+    const ownerUserId = args.ownerUserId?.trim() || ownerCandidates[0]!;
+    const limit = Math.min(Math.max(args.limit ?? 24, 1), 100);
+    const previewLimit = args.previewLimit ?? 6;
+    if (!query) return [];
+
+    const scored = new Map<string, number>();
+    if (isSemanticEmbeddingsEnabled()) {
+      const vector = await getQueryEmbedding(ctx, query, textQueryModel());
+      const hits = await ctx.vectorSearch("semanticDocuments", "by_text_embedding", {
+        vector,
+        limit: Math.min(limit * 4, 256),
+        filter: (q) =>
+          q.or(
+            ...ownerCandidates.map((owner) => q.eq("scopeKey", `owner:${owner}:skill`)),
+          ),
+      });
+      const docs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
+        ids: hits.map((hit) => hit._id),
+      })) as Array<{ _id: Id<"semanticDocuments">; sourceId: string; sourceType: string }>;
+      const sourceById = new Map(docs.map((doc) => [doc._id, doc]));
+      const top = hits[0]?._score ?? 0;
+      const cutoff = args.minRelativeScore ?? 0.8;
+      for (const hit of hits) {
+        const doc = sourceById.get(hit._id);
+        if (!doc || doc.sourceType !== "skill") continue;
+        if (top > 0 && hit._score < top * cutoff) continue;
+        if (!scored.has(doc.sourceId)) scored.set(doc.sourceId, hit._score);
+      }
+    }
+
+    const ranked = (await ctx.runQuery(listSkillCardsByIdsQueryRef, {
+      ownerUserId,
+      ids: [...scored.keys()] as Id<"workflows">[],
+      tagNames: args.tagNames,
+      folderId: args.folderId,
+      previewLimit,
+    })) as Array<{ _id: string } & Record<string, unknown>>;
+    const results: Array<Record<string, unknown>> = ranked.map((card) => ({
+      ...card,
+      score: scored.get(card._id),
+    }));
+
+    if (results.length < limit) {
+      const lexical = (await ctx.runQuery(listWorkflowsQueryRef, {
+        ownerUserId,
+        search: query,
+        tagNames: args.tagNames,
+        folderId: args.folderId,
+        limit,
+        previewLimit,
+      })) as Array<{ _id: string } & Record<string, unknown>>;
+      const seen = new Set(results.map((card) => card._id as string));
+      for (const card of lexical) {
+        if (results.length >= limit) break;
+        if (!seen.has(card._id)) results.push(card);
+      }
+    }
+    return results.slice(0, limit);
+  },
+});
