@@ -139,6 +139,30 @@ Search (with `query`) or list (without), download each match and write
 { "action": "refs", "query": "rainy neon alley at night", "pieceType": "location", "limit": 6, "outDir": "<scratchpad>/refs" }
 ```
 
+### `preview`
+
+Look before you pick. Search (with `query`), list (filters only) or take
+explicit `ids`, then have the gallery compose the hits into numbered
+contact-sheet JPEGs (thumbs, not originals) and write them to `outDir`
+(default `/tmp/laniameda-gallery/previews/<query-slug>`). Open each
+`sheets[].path` with your image reader: one read shows up to 48 pieces.
+
+- Cells are numbered left to right, top to bottom, and the numbers restart on
+  every sheet. `sheets[].cells[]` maps each number to its `asset:<id>`,
+  `kind`, size, `score` (search only), tags and `agentDescription`.
+- A ▶ badge is a video; the cell shows its poster frame. A crossed-out cell
+  has no preview (`previewError` says why, e.g. a video with no poster).
+- `limit`: default 24, max 96. `perSheet`: default 24, max 48. A sheet's long
+  edge stays at 1568px (`maxEdge` up to 2400), so 24 per sheet keeps cells
+  around 250px; drop to 6–12 per sheet when details matter.
+- `ids` with 1–4 assets renders them large, for a closer look at a shortlist.
+- Takes the same filters as `search` / `list`, plus `columns`.
+
+```json
+{ "action": "preview", "query": "rainy neon alley at night", "pieceType": "location", "limit": 24, "outDir": "<scratchpad>/previews" }
+{ "action": "preview", "ids": ["asset:abc123", "asset:def456"], "outDir": "<scratchpad>/previews" }
+```
+
 ### `sources`
 
 Which source URLs are already saved. Run it before an extraction pass.
@@ -220,6 +244,15 @@ Download one owner-scoped asset to local disk.
 ```
 
 ## Typical workflows
+
+### Pick references by eye
+
+1. `preview` with the brief as `query` (wide net: `limit` 24–48)
+2. Read the sheet(s); shortlist by number and map numbers to `asset:<id>`s
+   with `sheets[].cells`
+3. Optional: `preview` the shortlist `ids` for a larger look, or `similar` on
+   the best pick and `preview` again
+4. `getById` / `download` / `refs` only the chosen assets
 
 ### Find and reuse an image prompt
 

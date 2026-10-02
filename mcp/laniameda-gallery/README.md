@@ -98,6 +98,21 @@ Ask the agent to call `check_connection`. It should return:
 Never pass `ownerUserId` to MCP tools. The local token determines the owner.
 The app API ignores caller-supplied ownership fields and injects the token owner.
 
+## Seeing The Gallery
+
+Search and list tools return JSON (ids, tags, descriptions, URLs). To judge
+pieces by eye, call `preview_assets`: it returns one numbered contact-sheet
+image (up to 48 thumbnails) as an MCP image block, plus a legend mapping each
+number to its `asset:<id>`, tags and description.
+
+- `query` previews semantic-search hits in rank order (with scores).
+- Filters only (`pieceType`, `tagNames`, `folderId`, …) previews a listing.
+- `ids` previews specific assets; 1–4 ids render large for a close look.
+
+A typical reference hunt: `preview_assets` with the brief, pick by number,
+`preview_assets` again with the shortlist ids, then `get_gallery_item` for
+prompts and full records.
+
 ## Asset Model
 
 Use `save_asset` for images, videos, URLs, UI references, design references, and

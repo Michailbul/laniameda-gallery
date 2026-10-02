@@ -11,6 +11,8 @@
 import type * as actor from "../actor.js";
 import type * as agentDescriptionText from "../agentDescriptionText.js";
 import type * as agentDescriptions from "../agentDescriptions.js";
+import type * as agentPreview from "../agentPreview.js";
+import type * as agentPreviewData from "../agentPreviewData.js";
 import type * as agentTokens from "../agentTokens.js";
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
@@ -68,6 +70,8 @@ declare const fullApi: ApiFromModules<{
   actor: typeof actor;
   agentDescriptionText: typeof agentDescriptionText;
   agentDescriptions: typeof agentDescriptions;
+  agentPreview: typeof agentPreview;
+  agentPreviewData: typeof agentPreviewData;
   agentTokens: typeof agentTokens;
   agent_ingest: typeof agent_ingest;
   assetPackHelpers: typeof assetPackHelpers;
