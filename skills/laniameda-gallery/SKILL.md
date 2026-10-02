@@ -156,8 +156,7 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
 ## Hard rules
 
 - **Worlds are strict.** A piece joins a world only when its story world AND its look
-  match (`references/worlds.md`). `.webp` saves go to INSPIRATION VAULT, never into a
-  world or a storybook. Don't touch CASSANDRA or ART unless Michael asks.
+  match (`references/worlds.md`). Don't touch CASSANDRA or ART unless Michael asks.
 - **Never save a prompt without its image or video** unless Michael says yes to
   `allowPromptOnly`. If the media can't be fetched, stop and ask.
 - **A screenshot of a prompt is not the asset.** Read the text into

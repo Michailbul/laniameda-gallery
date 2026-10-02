@@ -25,9 +25,9 @@ as everywhere else.
 
 Not a world:
 
-- **INSPIRATION VAULT** (`j976dyftsn0vq18cfdd5fbnbf18fdnms`): every `image/webp` save
-  (mostly other people's character, location and scene art). **Never put a .webp asset into
-  a world or a storybook, and never use one as a production reference for a world.**
+- **INSPIRATION VAULT** (`j976dyftsn0vq18cfdd5fbnbf18fdnms`): other people's character,
+  location and scene art kept as general inspiration. A file's format (`.webp` or any other)
+  never decides where it goes; file by content like everything else.
 - **CASSANDRA** (and CAS, Cassandra Collection) and **ART**: Michael's own separate areas.
   CASSANDRA is one flat collection with no sub-collections (the 20 old ones, Forest, Balcony,
   Creature and so on, were folded into it on 2 Oct 2026).
@@ -122,8 +122,7 @@ Dear Annete part name, not a medium. Don't touch `design` or the asset type sche
 3. Tag: piece type, the medium (`animation` or `live-action`, per the part), and the part's **style tag** from the tables
    above. Reuse these exact tag names; ask before starting a new style. `character` means a
    person or creature: never tag a location, vehicle or carriage as a character.
-4. `.webp` → INSPIRATION VAULT, never a world.
-5. Storybooks (`kind: storybook`) combine a world's characters, locations and beats; keep a
+4. Storybooks (`kind: storybook`) combine a world's characters, locations and beats; keep a
    storybook inside one world and one style.
 
 ## Storybooks (30 Sep 2026)

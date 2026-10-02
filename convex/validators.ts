@@ -339,6 +339,8 @@ export const semanticSourceTypeValidator = v.union(
   v.literal("asset"),
   v.literal("prompt"),
   v.literal("designInspiration"),
+  // A skill (workflows row), embedded on its words only.
+  v.literal("skill"),
 );
 
 export const semanticModalityValidator = v.union(

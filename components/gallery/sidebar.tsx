@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import {
   BookOpen,
+  BookOpenText,
   Bookmark,
   ChevronLeft,
   ChevronRight,
@@ -62,6 +63,9 @@ interface GallerySidebarProps {
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
+  /** Opens the Skills tab: every saved skill, searchable and filterable. */
+  onSkillsTab?: () => void;
+  skillsTabActive?: boolean;
   /** Clears any tab overlay and returns to the asset gallery. */
   onGalleryHome?: () => void;
   user?: User | null;
@@ -123,6 +127,8 @@ export function GallerySidebar({
   storybooksTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
+  onSkillsTab,
+  skillsTabActive = false,
   onGalleryHome,
   user,
   onSignOut,
@@ -344,7 +350,12 @@ export function GallerySidebar({
           icon={Home}
           label="Gallery"
           href="/"
-          active={isGalleryActive && !storybooksTabActive && !bookmarksTabActive}
+          active={
+            isGalleryActive &&
+            !storybooksTabActive &&
+            !bookmarksTabActive &&
+            !skillsTabActive
+          }
           collapsed={collapsed}
           onClick={onGalleryHome}
         />
@@ -384,6 +395,16 @@ export function GallerySidebar({
             active={bookmarksTabActive}
             collapsed={collapsed}
             onClick={onBookmarksTab}
+          />
+        )}
+        {onSkillsTab && (
+          <NavItem
+            icon={BookOpenText}
+            label="Skills"
+            href="#"
+            active={skillsTabActive}
+            collapsed={collapsed}
+            onClick={onSkillsTab}
           />
         )}
         {onSeedanceClick && (

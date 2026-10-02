@@ -175,7 +175,31 @@ interface DesignGetParams {
   designInspirationId: string;
 }
 
+interface SkillListParams {
+  action: "skills";
+  tagNames?: string[];
+  folderId?: string;
+  search?: string;
+  limit?: number;
+}
+
+interface SkillSearchParams {
+  action: "searchSkills";
+  query: string;
+  tagNames?: string[];
+  folderId?: string;
+  limit?: number;
+}
+
+interface SkillGetParams {
+  action: "getSkill";
+  id: string;
+}
+
 type Params =
+  | SkillListParams
+  | SkillSearchParams
+  | SkillGetParams
   | AssetListParams
   | AssetSearchParams
   | AssetSimilarParams
@@ -292,7 +316,7 @@ export function resolveOwnerUserId(explicitValue?: string): string {
   return value;
 }
 
-type GalleryIdKind = "asset" | "pack" | "design";
+type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
 function normalizeGalleryIdKind(kind: string): GalleryIdKind | null {
   switch (kind) {
@@ -309,6 +333,12 @@ function normalizeGalleryIdKind(kind: string): GalleryIdKind | null {
     case "designInspiration":
     case "designInspirations":
       return "design";
+    // Skills live in the workflows table; the gallery copies workflow:<id>.
+    case "skill":
+    case "skills":
+    case "workflow":
+    case "workflows":
+      return "skill";
     default:
       return null;
   }
@@ -334,7 +364,7 @@ function parseGalleryId(value: string, expectedKind?: GalleryIdKind) {
   }
 
   throw new Error(
-    "Typed gallery ID is required. Use asset:<id>, pack:<id>, or design:<id>.",
+    "Typed gallery ID is required. Use asset:<id>, pack:<id>, design:<id> or skill:<id>.",
   );
 }
 
@@ -880,6 +910,9 @@ export async function handleGetById(params: GalleryIdGetParams, runtime?: QueryR
   if (parsed.kind === "pack") {
     return await handleGetPack({ action: "getPack", packId: parsed.id }, runtime);
   }
+  if (parsed.kind === "skill") {
+    return await handleGetSkill({ action: "getSkill", id: parsed.id }, runtime);
+  }
   return await handleGetDesign(
     { action: "getDesign", designInspirationId: parsed.id },
     runtime,
@@ -972,8 +1005,68 @@ export async function handleGetDesign(params: DesignGetParams, runtime?: QueryRu
   };
 }
 
+// A skill card trimmed for an agent: what it is, how to find it again, and
+// enough of the body to decide whether to open it.
+const compactSkill = (skill: Record<string, unknown>) => ({
+  id: `skill:${String(skill._id)}`,
+  title: skill.title,
+  description: skill.description,
+  excerpt: skill.excerpt,
+  tagNames: skill.tagNames,
+  folderIds: skill.folderIds,
+  modelNames: skill.modelNames,
+  stepCount: skill.stepCount,
+  score: skill.score,
+  createdAt: skill.createdAt,
+});
+
+export async function handleListSkills(params: SkillListParams, runtime?: QueryRuntime) {
+  const { convexQuery } = createHttpClient(runtime);
+  const skills = (await convexQuery("workflows:listWorkflows", {
+    ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
+    tagNames: params.tagNames,
+    folderId: params.folderId,
+    search: params.search,
+    limit: Math.min(params.limit ?? 50, 200),
+    previewLimit: 1,
+  })) as Record<string, unknown>[];
+  return { count: skills.length, skills: skills.map(compactSkill) };
+}
+
+export async function handleSearchSkills(params: SkillSearchParams, runtime?: QueryRuntime) {
+  const { convexAction } = createHttpClient(runtime);
+  const skills = (await convexAction("semanticSearch:searchSkills", {
+    ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
+    query: params.query,
+    tagNames: params.tagNames,
+    folderId: params.folderId,
+    limit: Math.min(params.limit ?? 10, 100),
+    previewLimit: 1,
+  })) as Record<string, unknown>[];
+  return { count: skills.length, skills: skills.map(compactSkill) };
+}
+
+export async function handleGetSkill(params: SkillGetParams, runtime?: QueryRuntime) {
+  const { convexQuery } = createHttpClient(runtime);
+  const { id } = parseGalleryId(params.id, "skill");
+  const skill = (await convexQuery("workflows:getWorkflow", {
+    id,
+    ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
+  })) as Record<string, unknown> | null;
+  if (!skill) {
+    return { error: `Skill ${id} not found in the owner-scoped gallery.` };
+  }
+  return { skill: { ...skill, id: `skill:${id}` } };
+}
+
 export async function runGalleryQuery(params: Params, runtime?: QueryRuntime) {
   switch (params.action) {
+    case "skills":
+      return await handleListSkills(params, runtime);
+    case "searchSkills":
+      return await handleSearchSkills(params, runtime);
+    case "getSkill":
+      return await handleGetSkill(params, runtime);
     case "list":
       return await handleList(params, runtime);
     case "search":
