@@ -13,7 +13,7 @@ description: >-
   "pull the prompt for asset:...", "show me what I have for...", "pick
   references", "go through my X bookmarks", "save my
   bookmarks to the gallery", "extract these into the gallery".
-version: 1.2.0
+version: 1.2.1
 ---
 
 # laniameda gallery
@@ -174,7 +174,10 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
 
 ## Access
 
-Claude Code saves and reads through the direct Convex scripts today:
+Use the gallery MCP tools when they are available and authenticated. Start
+with `check_connection`; the token selects the owner. If MCP is unavailable
+or fails to connect, this local single-owner workspace can use the direct
+Convex scripts below. Never use that fallback for multi-user agents.
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '<JSON>'
@@ -186,6 +189,6 @@ the deployment rules in `references/maintenance.md` (one deployment,
 `dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call). The
 script takes `folderIds` (first is primary) and warns on stderr when a save
 would mint a new tag. The gallery MCP server (`save_asset`, `search_gallery`,
-`find_similar`, `preview_assets`, `check_sources`, …) is the multi-user path,
-and isn't registered in Claude Code yet. Its `preview_assets` returns the
+`find_similar`, `preview_assets`, `check_sources`, …) is the multi-user path.
+Its `preview_assets` returns the
 contact sheet as an inline image, no file read needed.

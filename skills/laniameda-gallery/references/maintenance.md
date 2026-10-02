@@ -56,8 +56,10 @@ LANIAMEDA_GALLERY_API_URL=https://<app-host>      # http://localhost:3317 for lo
 LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...            # issued from /agents after login
 ```
 
-As of 26 Sep 2026 it is **not** registered in Claude Code, and no token is set
-in the shell. Setting it up is Michael's call (he issues the token).
+MCP registration and credentials depend on the current agent session. Do not
+assume it is unavailable from an older setup note. Discover the tools and run
+`check_connection`; use the direct scripts for this local single-owner
+workspace if the connection fails. Michael issues any new token.
 
 **Direct Convex scripts (what Claude Code uses today).** Owner-scoped via
 `KB_OWNER_USER_ID`. `folderIds` works: the first is primary, the rest are
