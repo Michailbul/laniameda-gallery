@@ -21,6 +21,20 @@ describe("lane fusion", () => {
     expect(fused[0]!.score).toBeLessThanOrEqual(1);
   });
 
+  test("a text-only piece is judged on the text lane alone", () => {
+    const fused = fuseLanes({
+      visual: [{ assetId: "assets:a" as never, score: 0.37 }],
+      text: [
+        { assetId: "assets:v" as never, score: 0.8, textOnly: true },
+        { assetId: "assets:a" as never, score: 0.7 },
+      ],
+    });
+    // v tops the only lane it can be in; a is first in one lane, second in the other.
+    expect(fused.map((hit) => hit.assetId)).toEqual(["assets:v", "assets:a"]);
+    expect(fused[0]!.score).toBeCloseTo(1);
+    expect(fused[0]).not.toHaveProperty("textOnly");
+  });
+
   test("single lane normalizes its top hit to 1", () => {
     const fused = fuseLanes({ visual: [{ assetId: "assets:a" as never, score: 0.4 }] });
     expect(fused[0]!.score).toBeCloseTo(1);
@@ -89,11 +103,18 @@ describe("hybrid searchAssets", () => {
     "assets:a": { _id: "assets:a", kind: "image", tagIds: [], tagNames: ["character"], folderIds: [], createdAt: 1 },
     "assets:b": { _id: "assets:b", kind: "image", tagIds: [], tagNames: ["location"], folderIds: [], createdAt: 2 },
     "assets:c": { _id: "assets:c", kind: "image", tagIds: [], tagNames: ["character", "animation"], folderIds: [], createdAt: 3 },
+    "assets:v": { _id: "assets:v", kind: "video", tagIds: [], tagNames: [], folderIds: [], createdAt: 4 },
   };
+  // A video has no pixels; its pixel-lane vector embeds its prompt text.
+  const textOnlyDocs = new Set(["semanticDocuments:v"]);
 
-  const makeCtx = (indexes: string[]) => ({
-    vectorSearch: async (_table: string, index: string) => {
+  const makeCtx = (
+    indexes: string[],
+    lanes: Partial<Record<"by_embedding" | "by_text_embedding", Array<{ _id: string; _score: number }>>> = {},
+  ) => ({
+    vectorSearch: async (_table: string, index: "by_embedding" | "by_text_embedding") => {
       indexes.push(index);
+      if (lanes[index]) return lanes[index];
       return index === "by_embedding"
         ? [
             { _id: "semanticDocuments:a", _score: 0.4 },
@@ -113,7 +134,11 @@ describe("hybrid searchAssets", () => {
       };
       if (payload.queryHash) return [0.1, 0.2, 0.3];
       if (payload.ids) {
-        return payload.ids.map((id) => ({ _id: id, assetId: id.replace("semanticDocuments:", "assets:") }));
+        return payload.ids.map((id) => ({
+          _id: id,
+          assetId: id.replace("semanticDocuments:", "assets:"),
+          modality: textOnlyDocs.has(id) ? "text_only" : "multimodal_image",
+        }));
       }
       if (payload.items) {
         return payload.items.map((item) => ({ ...hydrated[item.assetId], ...item }));
@@ -136,6 +161,33 @@ describe("hybrid searchAssets", () => {
     // of 0.8); c misses the visual cutoff, so it counts in one lane only.
     expect(results[0]?._id).toBe("assets:b");
     expect(results.map((asset) => asset._id)).toContain("assets:a");
+  });
+
+  test("a video's prompt text never enters the pixel lane", async () => {
+    // Query-text vs the video's prompt-text outscores every real cross-modal
+    // match. Left in the lane it would take the top slot and push the images
+    // under the relative cutoff.
+    const results = await callAsOwner(searchAssets)(
+      makeCtx([], {
+        by_embedding: [
+          { _id: "semanticDocuments:v", _score: 0.7 },
+          { _id: "semanticDocuments:a", _score: 0.4 },
+          { _id: "semanticDocuments:b", _score: 0.39 },
+        ],
+        by_text_embedding: [
+          { _id: "semanticDocuments:b", _score: 0.8 },
+          { _id: "semanticDocuments:v", _score: 0.65 },
+        ],
+      }) as never,
+      { scope: "mine", ownerUserId: "278674008", query: "rainy street", limit: 10 },
+    );
+    const ids = results.map((asset) => asset._id);
+    // b leads (both lanes); a survives the pixel cutoff; the video still
+    // ranks, through its words, and below b.
+    expect(ids[0]).toBe("assets:b");
+    expect(ids).toContain("assets:a");
+    expect(ids).toContain("assets:v");
+    expect(results.find((asset) => asset._id === "assets:v")?.visualScore).toBeUndefined();
   });
 
   test("visual mode queries the pixel lane only", async () => {

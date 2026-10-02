@@ -98,6 +98,7 @@ const semanticDocumentLookupValidator = v.object({
   pillar: optionalPillarValidator,
   isPublic: v.boolean(),
   kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+  modality: semanticModalityValidator,
 });
 
 type ReindexResult = {
@@ -450,6 +451,7 @@ export const getSemanticDocumentsByIds = internalQuery({
         pillar: row.pillar,
         isPublic: row.isPublic,
         kind: row.kind,
+        modality: row.modality,
       }));
   },
 });
