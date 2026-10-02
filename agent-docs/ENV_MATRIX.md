@@ -98,6 +98,13 @@ LANIAMEDA_GALLERY_API_URL=https://<your-app-host>
 LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...
 ```
 
+Hosted MCP (`/api/mcp`, OAuth) needs no extra env. Optional:
+
+```bash
+MCP_ALLOWED_USER_IDS=278674008   # who may approve; defaults to KB_OWNER_USER_ID
+MCP_OAUTH_SECRET=...             # signs OAuth clients/codes; defaults to SESSION_SECRET
+```
+
 Important:
 - Users create agent tokens while logged in through `/api/agent/tokens`.
 - The MCP server runs with `bun run mcp:gallery` and calls `/api/agent/*`.
