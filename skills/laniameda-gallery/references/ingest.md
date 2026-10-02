@@ -123,7 +123,7 @@ Collections are owner-scoped groupings stored in `folders`; "collection" is the 
   original asset row and additively merges newly requested tags and collection
   membership. It never creates a second asset or removes earlier organization.
 
-The legacy script in this skill still reads `CONVEX_URL`/`KB_OWNER_USER_ID` and calls Convex directly. Treat that path as admin migration only; do not use it for multi-user agents.
+The direct script reads `CONVEX_URL`/`KB_OWNER_USER_ID` from this repository's `.env.local`. It is the fallback for this local single-owner workspace and admin migrations when MCP is unavailable. Never use it for multi-user agents.
 
 ## Supported content
 

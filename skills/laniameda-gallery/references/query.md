@@ -24,7 +24,8 @@ When MCP tools are available, use:
 
 Collections are owner-scoped groupings (the `folders` table; "collection" is the product-facing name). Filter `list_assets` / `search_gallery` to one by passing its `folderId` (`scope: "mine"` only).
 
-The script below is legacy direct-Convex access for admin migration workflows:
+The script below is direct-Convex access for this local single-owner workspace
+and admin migrations when MCP is unavailable:
 
 - `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` — required
 - `KB_OWNER_USER_ID` — required for owner-scoped reads (`scope: "mine"`)
@@ -64,7 +65,7 @@ Example:
 {
   "action": "list",
   "scope": "mine",  "assetRole": "reference",
-  "folderId": "folders:abc123",
+  "folderId": "<raw-folder-id>",
   "limit": 10
 }
 ```
@@ -113,12 +114,17 @@ all returns nothing.
 
 ### `search` modes
 
-`mode`: `hybrid` (default) runs the pixel lane and the text lane with one query
-embedding and merges them by rank; `visual` is pixels only (looks alike);
+`mode`: `hybrid` (default) runs the pixel lane and the text lane with a query
+embedding from each lane's model and merges them by rank; `visual` is pixels only (looks alike);
 `text` is words only (agent description, caption, prompt, tags, source).
 Without filters each lane keeps results close to its best match (pixels
 within 85%, words within 75%); with filters the cutoff is off so the best
 in-filter matches come back. Override with `minRelativeScore` (0–1).
+
+Videos have no pixels, so they live in the text lane only and rank by their
+words; a video at the top of the text lane scores 1, the same as an image at
+the top of both lanes. `mode: "visual"` therefore returns images only. To
+look at videos, pass `kind: "video"`.
 
 ### `similar`
 
@@ -333,10 +339,9 @@ Design actions return compact design objects with fields like:
 
 ## Semantic search
 
-All ingested assets and prompts are automatically indexed for semantic search using Gemini multimodal embeddings (`gemini-embedding-2-preview`).
-
-- **Image assets** are embedded as pure image data (no text metadata). A text query like "car" matches images that visually contain cars via cross-modal matching.
-- **Prompts** are embedded as prompt text only (no tags/pillar/model padding).
-- **Tags and metadata** are applied as post-filters, not included in embeddings.
-- Search via `semanticSearch:searchAssets` (text → assets) or `semanticSearch:findSimilarAssets` (image → similar images).
-- Backfill after schema changes: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`).
+Assets use separate pixel and text embeddings. The pixel lane uses image bytes
+with Gemini multimodal embeddings; the text lane uses agent descriptions,
+captions, prompts, tags and source metadata with its own text model. Hybrid
+search merges both lanes and applies the requested filters. A missing pixel
+embedding does not prevent text search. See `references/data-model.md` for
+model names and `references/maintenance.md` for paced backfill commands.

@@ -77,15 +77,19 @@ which digest into `laniameda-hq/content-kb/`, and list them in the report.
 
 ### X bookmarks and posts
 
-- **Browser:** Claude in Chrome, running in Comet (connected 26 Sep 2026).
-  Work in the Claude tab-group window (`tabs_context_mcp` with
-  `createIfEmpty: true`), never in Michael's own tabs.
+- **Browser:** use the browser tools available in the current agent session,
+  in a dedicated task tab. Do not assume a particular browser integration is
+  installed. A public post API can also supply full text and media URLs.
 - **URL:** `https://x.com/i/bookmarks`. It lands on `/i/history` with the
   Bookmarks tab selected. Scroll to load more; X virtualises the list, so
   collect permalinks as you go rather than at the end.
 - **Read-only.** Never unbookmark, like, repost, reply or follow.
-- **Images:** the `pbs.twimg.com/media/<id>` URL with `name=orig` gives the
-  original size.
+- **Images:** fetch every attachment separately from
+  `pbs.twimg.com/media/<id>?format=jpg&name=orig`; if the original fails, try
+  `format=jpg&name=large`. Inspect every image, preserve the complete prompt
+  and every `--sref`, and use one shared `promptIngestKey` for variations.
+  A saved source URL alone does not prove all attachments were saved; read
+  back the members before skipping an explicitly requested post.
 - **Video / GIF:** download from the post permalink with the
   `video-downloader` skill (yt-dlp). If it needs a login, stop and tell
   Michael. Don't export browser cookies to get around it.
