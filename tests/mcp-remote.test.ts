@@ -64,8 +64,10 @@ mock.module("@/lib/server/mcp-agent-routes", () => ({
       "/api/agent/customize",
       "/api/agent/gallery",
       "/api/agent/ingest",
+      "/api/agent/ingest/batch",
       "/api/agent/ingest/delete",
       "/api/agent/ingest/update",
+      "/api/agent/uploads",
     ].map((path) => [path, passthroughRoute(path)]),
   ),
 }));
@@ -321,6 +323,8 @@ describe("hosted MCP endpoint", () => {
     const names = listBody.result.tools.map((tool) => tool.name);
     expect(names).toContain("search_gallery");
     expect(names).toContain("preview_assets");
+    expect(names).toContain("prepare_uploads");
+    expect(names).toContain("save_assets");
     const saveAsset = listBody.result.tools.find((tool) => tool.name === "save_asset");
     expect(saveAsset?.inputSchema.properties).toHaveProperty("url");
     expect(saveAsset?.inputSchema.properties).not.toHaveProperty("filePath");
@@ -337,6 +341,33 @@ describe("hosted MCP endpoint", () => {
     expect(state.galleryCalls[0]).toEqual({
       authorization: "Bearer lgat_owner",
       body: { action: "listFolders" },
+    });
+  });
+
+  test("save_assets forwards uploadIds with their original file names", async () => {
+    const response = await mcpRequest(
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "save_assets",
+          arguments: {
+            items: [
+              { uploadId: "upload-1", fileName: "frame 01.png", tagNames: ["character"] },
+              { url: "https://example.test/b.jpg" },
+            ],
+          },
+        },
+      },
+      "Bearer lgat_owner",
+    );
+    expect(response.status).toBe(200);
+    expect(state.galleryCalls.at(-1)?.body).toEqual({
+      items: [
+        { uploadId: "upload-1", fileName: "frame 01.png", tagNames: ["character"] },
+        { url: "https://example.test/b.jpg" },
+      ],
     });
   });
 

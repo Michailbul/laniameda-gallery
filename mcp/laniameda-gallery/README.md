@@ -33,10 +33,30 @@ back to `KB_OWNER_USER_ID`. Empty means nobody. The MCP endpoint applies the sam
 list to every bearer token, so another user's manually created agent token is
 refused too.
 
-Hosted differences: no `filePath` (send `url` or `fileBase64`; Vercel caps a
-request body at ~4.5 MB, so prefer `url` for anything big).
+### Uploading local files (both servers)
 
-Routes: `/.well-known/oauth-protected-resource[/api/mcp]`,
+An agent with a shell (Claude Code, Codex, Claude Desktop with a terminal) adds
+files from disk in two tool calls, whatever the batch size:
+
+1. `prepare_uploads` with the file paths → one signed upload URL and a ready
+   `curl -T` command per file (URLs live 15 minutes).
+2. Run the curl commands; the bytes go straight to R2, never through the chat.
+3. `save_assets` with one item per file: its `uploadId` plus tags, `folderIds`,
+   `agentDescription`, `sourceUrl`. Up to 50 per call; each item reports its own
+   result. A single file can use `save_asset` with `uploadId`.
+
+On save the server reads the file back once: dimensions, card thumbnail and a
+content hash, so a file already in the gallery comes back as
+`duplicateMedia: true` instead of a second copy. For a video, upload a poster
+frame too and pass it as `posterUploadId` (that gives the card its thumbnail and
+aspect ratio).
+
+The local stdio server also takes `filePath` on `save_asset` / `save_assets`;
+it does the same upload itself. Public media needs no upload: pass `url`.
+`fileBase64` stays as a fallback for an agent with no shell (small files only).
+
+Routes: `/api/agent/uploads` (upload slots), `/api/agent/ingest/batch`,
+`/.well-known/oauth-protected-resource[/api/mcp]`,
 `/.well-known/oauth-authorization-server`, `/api/oauth/register`,
 `/oauth/authorize` (consent page), `/api/oauth/authorize` (consent POST),
 `/api/oauth/token`, `/api/mcp`. Logic lives in `lib/server/mcp-oauth.ts`.
