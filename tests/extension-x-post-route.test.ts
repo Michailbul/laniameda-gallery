@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { ConvexError } from "convex/values";
 
 const state = {
   actionCalls: [] as Array<{ name: string; payload: Record<string, unknown> }>,
+  actionError: undefined as unknown,
 };
 
 const routePath = new URL("../app/api/extension/x-post/route.ts", import.meta.url).pathname;
@@ -17,6 +19,7 @@ mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
     action: async (reference: object, payload: Record<string, unknown>) => {
       state.actionCalls.push({ name: getFunctionName(reference), payload });
+      if (state.actionError) throw state.actionError;
       return { bookmarkId: "bookmarks:1", assetId: "assets:1", created: true };
     },
   }),
@@ -32,6 +35,7 @@ const post = (body: unknown, token = "test-extension-token") =>
 describe("POST /api/extension/x-post", () => {
   beforeEach(() => {
     state.actionCalls = [];
+    state.actionError = undefined;
     process.env.EXTENSION_OWNER_USER_ID = "telegram:278674008";
     process.env.EXTENSION_API_TOKEN = "test-extension-token";
   });
@@ -80,5 +84,30 @@ describe("POST /api/extension/x-post", () => {
     const response = await POST(post({ post: { text: "no url" } }));
     expect(response.status).toBe(400);
     expect(state.actionCalls).toHaveLength(0);
+  });
+  test("passes a backend validation message through, nothing else", async () => {
+    const { POST } = await import(routePath);
+    state.actionError = new ConvexError("Not an X post URL. Expected https://x.com/<handle>/status/<id>.");
+    const response = await POST(post({ post: { url: "https://x.com/explore" } }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Not an X post URL. Expected https://x.com/<handle>/status/<id>.",
+    });
+  });
+
+  test("hides a raw server error and its stack", async () => {
+    const { POST } = await import(routePath);
+    state.actionError = new Error(
+      "[Request ID: abc] Server Error\nUncaught Error: boom\n    at handler (../convex/bookmarkSaves.ts:1:1)",
+    );
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      const response = await POST(post({ post: { url: "https://x.com/a/status/1" } }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Failed to save the X post." });
+    } finally {
+      console.error = originalError;
+    }
   });
 });

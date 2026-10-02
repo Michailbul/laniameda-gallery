@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { makeFunctionReference } from "convex/server";
 import { buildIngestKey } from "@/lib/ingest";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { clientErrorMessage } from "@/lib/server/route-error";
 import {
   resolveExtensionOwnerUserId,
   validateExtensionToken,
@@ -453,8 +454,7 @@ export async function POST(request: Request) {
 
     return corsJson({ ok: true, result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return corsJson({ error: message }, 400);
+    return corsJson({ error: clientErrorMessage(error, "Failed to save to the gallery.") }, 400);
   }
 }
 
