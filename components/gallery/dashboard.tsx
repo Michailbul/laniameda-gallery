@@ -55,7 +55,8 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
-import { WorkflowGrid } from "./workflow-grid";
+import { SkillsView } from "./skills-view";
+import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
 import {
   BrowseBreadcrumb,
@@ -68,7 +69,7 @@ import {
   type AssetFilingTarget,
   type AssetMembership,
 } from "./detail-panel";
-import { WorkflowModal } from "./workflow-modal";
+import { SkillModal } from "./skill-modal";
 import { StorybookModal } from "./storybook-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
@@ -355,8 +356,8 @@ export function GalleryDashboard({
   const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
-    // Leaving the workflows view closes whatever workflow was open with it.
-    if (mode !== "workflows") setSelectedWorkflowId(null);
+    // Leaving the skills view closes whatever skill was open with it.
+    if (mode !== "skills") setSelectedWorkflowId(null);
   }, []);
   // Grid tile size (0.4–1, 1 = full size), persisted across sessions.
   const [gridZoom, setGridZoomRaw] = useState(1);
@@ -1385,6 +1386,7 @@ export function GalleryDashboard({
       ? { ownerUserId, previewLimit: 8 }
       : "skip",
   );
+  const deleteSkillMutation = useMutation(api.workflows.deleteWorkflow);
 
   // Public-facing collections, derived from the data: any collection with at
   // least one public asset, counted over public assets only. Queried in both
@@ -2183,9 +2185,11 @@ export function GalleryDashboard({
     flattenStacks,
   ]);
 
-  // Storybook stack cards only join the grid in the default browse state —
-  // every filter below targets assets, which storybooks are not.
-  const showStorybookStacks =
+  // Workflow cards only join the grid in the default browse state: they are
+  // inserts, not assets, so any asset filter hides them and the Skills view
+  // stays the place to browse them all. Storybooks never join the grid; they
+  // live in the Storybooks tab.
+  const showWorkflowCards =
     galleryScope === "mine" &&
     viewMode === "grid" &&
     !effectiveSelectedFolderId &&
@@ -2196,52 +2200,42 @@ export function GalleryDashboard({
     !semanticMode &&
     !assetSearchQuery.trim();
 
-  // Workflow cards follow the same rule: they are inserts, not assets, so any
-  // asset filter hides them and the Workflows view stays the place to browse
-  // them all.
-  const showWorkflowCards = showStorybookStacks;
+  // Skills filed in the collection being browsed sit among its pieces.
+  const folderSkills = useQuery(
+    api.workflows.listWorkflows,
+    canAccessMyGallery && galleryScope === "mine" && effectiveSelectedFolderId
+      ? {
+          ownerUserId,
+          folderId: effectiveSelectedFolderId as Id<"folders">,
+          previewLimit: 8,
+        }
+      : "skip",
+  );
+  const showFolderSkillCards =
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    Boolean(effectiveSelectedFolderId) &&
+    !selectedModelName &&
+    !mediaKind &&
+    !likedOnly &&
+    !menuFilterActive &&
+    !semanticMode &&
+    !assetSearchQuery.trim();
+
+  const skillIds = useMemo(
+    () =>
+      new Set<string>([
+        ...(gridWorkflows ?? []).map((skill) => String(skill._id)),
+        ...(folderSkills ?? []).map((skill) => String(skill._id)),
+      ]),
+    [folderSkills, gridWorkflows],
+  );
 
   const workflowEntries = useMemo<GalleryEntry[]>(() => {
-    if (!gridWorkflows || gridWorkflows.length === 0) return [];
-    return gridWorkflows.map((workflow) => {
-      const previews = workflow.previewImages
-        .filter((preview) => preview.url || preview.thumbUrl)
-        .map((preview) => ({
-          id: preview.id,
-          galleryItemId: preview.id,
-          galleryItemType: "asset" as const,
-          src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
-          fullSrc: preview.url ?? preview.thumbUrl ?? "/placeholder.svg",
-          prompt: workflow.title,
-          width: preview.width,
-          height: preview.height,
-          kind: preview.kind,
-          contentType: preview.contentType,
-        }));
-      const cover = previews[0];
-      return {
-        id: workflow._id as string,
-        galleryItemId: workflow._id as string,
-        galleryItemType: "workflow" as const,
-        src: cover?.src ?? "/placeholder.svg",
-        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
-        prompt: workflow.title,
-        author: "Workflow",
-        likes: 0,
-        width: cover?.width,
-        height: cover?.height,
-        kind: cover?.kind,
-        contentType: cover?.contentType,
-        description: workflow.description,
-        tagNames: workflow.tagNames,
-        createdAt: workflow.createdAt,
-        isPublic: workflow.isPublic ?? false,
-        isFeatured: workflow.isFeatured ?? false,
-        stepCount: workflow.stepCount,
-        previewImages: previews,
-      };
-    });
-  }, [gridWorkflows]);
+    const source = showFolderSkillCards ? folderSkills : gridWorkflows;
+    if (!source || source.length === 0) return [];
+    return source.map(skillCardToEntry);
+  }, [folderSkills, gridWorkflows, showFolderSkillCards]);
 
   const storybookEntries = useMemo<GalleryEntry[]>(() => {
     if (!storybooks || storybooks.length === 0) return [];
@@ -2332,7 +2326,6 @@ export function GalleryDashboard({
   );
 
   const images = useMemo(() => {
-    const stacks = showStorybookStacks ? storybookEntries : [];
     const childCollections = showChildCollectionStacks
       ? childCollectionEntries
       : [];
@@ -2345,7 +2338,8 @@ export function GalleryDashboard({
     // Workflow cards sit among the tiles by date, not on a shelf above them:
     // an insert saved yesterday belongs next to yesterday's other work. Under
     // any other sort they trail the tiles rather than fake a position.
-    const workflowCards = showWorkflowCards ? workflowEntries : [];
+    const workflowCards =
+      showWorkflowCards || showFolderSkillCards ? workflowEntries : [];
     const mixed =
       workflowCards.length === 0
         ? assetTiles
@@ -2354,13 +2348,12 @@ export function GalleryDashboard({
               (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
             )
           : [...assetTiles, ...workflowCards];
-    // Stacks lead the grid — they're shelves, not dated assets: a
-    // collection's folders when browsing one, storybooks in the default state.
-    const leading = [...stacks, ...childCollections];
+    // A collection's folders lead the grid when browsing one — shelves, not
+    // dated assets.
     const ordered =
-      leading.length > 0 ? [...leading, ...mixed] : mixed;
+      childCollections.length > 0 ? [...childCollections, ...mixed] : mixed;
     // Under the FEATURED sort a star outranks a shelf: featured pieces take
-    // the very top, above the storybook/collection stacks. Any other sort
+    // the very top, above the collection stacks. Any other sort
     // leaves them where the date puts them.
     // buildGalleryEntries already ordered the starred ones among themselves.
     if (!featuredFirst) return ordered;
@@ -2373,9 +2366,8 @@ export function GalleryDashboard({
   }, [
     baseImages,
     featuredFirst,
-    showStorybookStacks,
-    storybookEntries,
     showWorkflowCards,
+    showFolderSkillCards,
     workflowEntries,
     sortOrder,
     showChildCollectionStacks,
@@ -3195,9 +3187,17 @@ export function GalleryDashboard({
   // card renders on the same frame the expanded view is trying to fade in.
   const handleCardDelete = useCallback(
     (imageId: string) => {
+      // A skill card's id is a workflows row, not an asset.
+      if (skillIds.has(imageId)) {
+        void deleteSkillMutation({
+          ownerUserId,
+          id: imageId as Id<"workflows">,
+        });
+        return;
+      }
       void deleteAsset(imageId);
     },
-    [deleteAsset],
+    [deleteAsset, deleteSkillMutation, ownerUserId, skillIds],
   );
 
   const handleCardToggleLike = useCallback(
@@ -4496,9 +4496,22 @@ export function GalleryDashboard({
               : undefined
           }
           bookmarksTabActive={bookmarksView}
+          onSkillsTab={
+            canManageFoldersInCurrentView
+              ? () => {
+                  setStorybooksView(false);
+                  setBookmarksView(false);
+                  setViewMode("skills");
+                }
+              : undefined
+          }
+          skillsTabActive={
+            viewMode === "skills" && !storybooksView && !bookmarksView
+          }
           onGalleryHome={() => {
             setStorybooksView(false);
             setBookmarksView(false);
+            setViewMode("grid");
           }}
           user={user}
           onSignOut={onSignOut}
@@ -4648,7 +4661,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4880,12 +4893,20 @@ export function GalleryDashboard({
                     </p>
                   </div>
                 )
-              ) : viewMode === "workflows" ? (
+              ) : viewMode === "skills" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
-                  <WorkflowGrid
+                  <SkillsView
                     ownerUserId={ownerUserId}
-                    scope={galleryScope}
-                    onWorkflowSelect={setSelectedWorkflowId}
+                    collections={(folders ?? []).map((folder) => ({
+                      _id: String(folder._id),
+                      name: folder.name,
+                      parentFolderId: folder.parentFolderId
+                        ? String(folder.parentFolderId)
+                        : undefined,
+                    }))}
+                    onSkillOpen={setSelectedWorkflowId}
+                    selectedSkillId={selectedWorkflowId}
+                    onImageLoad={markImageLoaded}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
@@ -4899,7 +4920,7 @@ export function GalleryDashboard({
                         color: "var(--lm-text-tertiary)",
                       }}
                     >
-                      SWITCH TO MY GALLERY TO BROWSE WORKFLOWS.
+                      SWITCH TO MY GALLERY TO BROWSE SKILLS.
                     </p>
                   </div>
                 )
@@ -5625,8 +5646,8 @@ export function GalleryDashboard({
         onClose={() => setSelectedCinemaAsset(null)}
       />
 
-      <WorkflowModal
-        workflowId={selectedWorkflowId}
+      <SkillModal
+        skillId={selectedWorkflowId}
         ownerUserId={ownerUserId}
         onClose={() => setSelectedWorkflowId(null)}
       />

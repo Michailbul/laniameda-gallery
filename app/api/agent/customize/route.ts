@@ -36,6 +36,12 @@ const tagNameArray = (value: unknown) =>
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : undefined;
 
+const skillIdValue = (value: unknown) => {
+  const raw = stringValue(value);
+  if (!raw) throw new Error("id is required.");
+  return raw.replace(/^(skill|skills|workflow|workflows):/, "") as Id<"workflows">;
+};
+
 const requiredScopeForAction = (action: string): AgentScope => {
   if (action.startsWith("list")) return "gallery:read";
   if (action === "deleteFolder") return "gallery:delete";
@@ -158,6 +164,37 @@ export async function POST(request: Request) {
         description: stringValue(data.description),
       });
       return NextResponse.json({ folderId: result });
+    }
+
+    // Skills: words, tags and collection filing. The skill id may arrive bare
+    // or typed (skill:<id> / workflow:<id>).
+    if (action === "updateSkill") {
+      const result = await client.mutation(api.workflows.updateSkill, {
+        ownerUserId: agent.ownerUserId,
+        id: skillIdValue(data.id ?? data.skillId),
+        title: typeof data.title === "string" ? data.title : undefined,
+        description: typeof data.description === "string" ? data.description : undefined,
+        body: typeof data.body === "string" ? data.body : undefined,
+        agentInstructions:
+          typeof data.agentInstructions === "string" ? data.agentInstructions : undefined,
+        tagNames: tagNameArray(data.tagNames),
+        addTagNames: tagNameArray(data.addTagNames),
+        removeTagNames: tagNameArray(data.removeTagNames),
+      });
+      return NextResponse.json(result);
+    }
+
+    if (action === "addSkillToCollection" || action === "removeSkillFromCollection") {
+      const args = {
+        ownerUserId: agent.ownerUserId,
+        id: skillIdValue(data.id ?? data.skillId),
+        folderId: stringValue(data.folderId) as Id<"folders">,
+      };
+      const result =
+        action === "addSkillToCollection"
+          ? await client.mutation(api.workflows.addSkillToCollection, args)
+          : await client.mutation(api.workflows.removeSkillFromCollection, args);
+      return NextResponse.json(result);
     }
 
     if (action === "deleteFolder") {

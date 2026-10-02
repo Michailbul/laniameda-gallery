@@ -345,6 +345,10 @@ export default defineSchema({
     description: v.optional(v.string()),
     // Knowledge body used to generate the downloadable agent skill.
     agentInstructions: v.optional(v.string()),
+    // The skill as a document: markdown, read top to bottom like a post.
+    // `![caption](asset:<id>)` embeds a gallery image inline. Optional — a
+    // skill without a body reads as its description, instructions and steps.
+    body: v.optional(v.string()),
     pillar: optionalPillarValidator,
     tagIds: v.array(v.id("tags")),
     ingestKey: v.optional(v.string()),
@@ -361,6 +365,18 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"]),
+  // Skill (workflows row) <-> collection membership. A skill can sit in any
+  // number of collections, like an asset through assetFolders. Skills never
+  // count toward folders.memberCount, which counts assets.
+  workflowFolders: defineTable({
+    ownerUserId: v.string(),
+    workflowId: v.id("workflows"),
+    folderId: v.id("folders"),
+    createdAt: v.number(),
+  })
+    .index("by_workflow", ["workflowId"])
+    .index("by_workflow_folder", ["workflowId", "folderId"])
+    .index("by_folder_createdAt", ["folderId", "createdAt"]),
   designInspirations: defineTable({
     ownerUserId: v.optional(v.string()),
     // Originally limited to "designs"; now stores web bookmarks across any pillar.
@@ -494,6 +510,7 @@ export default defineSchema({
     assetId: v.optional(v.id("assets")),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    workflowId: v.optional(v.id("workflows")),
     pillar: optionalPillarValidator,
     isPublic: v.boolean(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),

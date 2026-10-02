@@ -58,6 +58,12 @@ const reindexPromptActionRef = makeFunctionReference<"action">(
 const reindexDesignInspirationActionRef = makeFunctionReference<"action">(
   "semanticIndex:reindexDesignInspiration",
 );
+const getSkillSourceQueryRef = makeFunctionReference<"query">(
+  "semanticIndex:getSkillSourceForReindex",
+);
+const reindexSkillActionRef = makeFunctionReference<"action">(
+  "semanticIndex:reindexSkill",
+);
 
 const semanticDocumentValidator = v.object({
   _id: v.id("semanticDocuments"),
@@ -68,6 +74,7 @@ const semanticDocumentValidator = v.object({
   assetId: v.optional(v.id("assets")),
   promptId: v.optional(v.id("prompts")),
   designInspirationId: v.optional(v.id("designInspirations")),
+  workflowId: v.optional(v.id("workflows")),
   pillar: optionalPillarValidator,
   isPublic: v.boolean(),
   kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -169,6 +176,24 @@ const designSourceValidator = v.union(
   }),
 );
 
+const skillSourceValidator = v.union(
+  v.null(),
+  v.object({
+    workflowId: v.id("workflows"),
+    ownerUserId: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    body: v.optional(v.string()),
+    agentInstructions: v.optional(v.string()),
+    tagNames: v.array(v.string()),
+    stepLabels: v.array(v.string()),
+    modelNames: v.array(v.string()),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    sourceUpdatedAt: v.number(),
+  }),
+);
+
 const backfillBatchQueryResultValidator = v.object({
   ids: v.array(v.string()),
   nextCursor: v.optional(v.string()),
@@ -253,7 +278,7 @@ const getGeminiApiKey = () => {
 
 const buildScopeFields = (
   ownerUserId: string,
-  sourceType: "asset" | "prompt" | "designInspiration",
+  sourceType: "asset" | "prompt" | "designInspiration" | "skill",
   pillar: string | undefined,
   isPublic: boolean,
 ) => {
@@ -572,6 +597,50 @@ export const getDesignSourceForReindex = internalQuery({
   },
 });
 
+export const getSkillSourceForReindex = internalQuery({
+  args: {
+    workflowId: v.id("workflows"),
+  },
+  returns: skillSourceValidator,
+  handler: async (ctx, args) => {
+    const workflow = await ctx.db.get(args.workflowId);
+    if (!workflow?.ownerUserId) {
+      return null;
+    }
+
+    const steps = await ctx.db
+      .query("prompts")
+      .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", workflow._id))
+      .order("asc")
+      .collect();
+    const stepLabels = steps
+      .map((step) => normalizeOptionalString(step.workflowStepLabel))
+      .filter((label): label is string => Boolean(label));
+    const modelNames = Array.from(
+      new Set(
+        steps
+          .map((step) => normalizeOptionalString(step.modelName))
+          .filter((name): name is string => Boolean(name)),
+      ),
+    );
+
+    return {
+      workflowId: workflow._id,
+      ownerUserId: workflow.ownerUserId,
+      title: workflow.title,
+      description: workflow.description,
+      body: workflow.body,
+      agentInstructions: workflow.agentInstructions,
+      tagNames: await resolveTagNames(ctx, workflow.tagIds),
+      stepLabels,
+      modelNames,
+      pillar: workflow.pillar,
+      isPublic: Boolean(workflow.isPublic),
+      sourceUpdatedAt: workflow.updatedAt,
+    };
+  },
+});
+
 export const listBackfillSourceBatch = internalQuery({
   args: {
     sourceType: semanticSourceTypeValidator,
@@ -593,10 +662,12 @@ export const listBackfillSourceBatch = internalQuery({
               .query("prompts")
               .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
               .collect()
-          : await ctx.db
-              .query("designInspirations")
-              .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
-              .collect();
+          : args.sourceType === "skill"
+            ? await ctx.db.query("workflows").collect()
+            : await ctx.db
+                .query("designInspirations")
+                .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
+                .collect();
 
     const ordered = [...rows].sort((left, right) =>
       compareCursor(
@@ -635,6 +706,7 @@ export const upsertSemanticDocument = internalMutation({
     assetId: v.optional(v.id("assets")),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    workflowId: v.optional(v.id("workflows")),
     pillar: optionalPillarValidator,
     isPublic: v.boolean(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -671,6 +743,7 @@ export const upsertSemanticDocument = internalMutation({
         assetId: args.assetId,
         promptId: args.promptId,
         designInspirationId: args.designInspirationId,
+        workflowId: args.workflowId,
         pillar: args.pillar,
         isPublic: args.isPublic,
         kind: args.kind,
@@ -707,6 +780,7 @@ export const upsertSemanticDocument = internalMutation({
       assetId: args.assetId,
       promptId: args.promptId,
       designInspirationId: args.designInspirationId,
+      workflowId: args.workflowId,
       pillar: args.pillar,
       isPublic: args.isPublic,
       kind: args.kind,
@@ -855,7 +929,7 @@ export const resolveSemanticIndexFailure = internalMutation({
 
 const scheduleRetry = async (
   ctx: ActionCtx,
-  sourceType: "asset" | "prompt" | "designInspiration",
+  sourceType: "asset" | "prompt" | "designInspiration" | "skill",
   sourceId: string,
   attempt: number,
 ) => {
@@ -867,6 +941,13 @@ const scheduleRetry = async (
   if (sourceType === "asset") {
     await ctx.scheduler.runAfter(delay, reindexAssetActionRef, {
       assetId: sourceId as Id<"assets">,
+      attempt: attempt + 1,
+    });
+    return true;
+  }
+  if (sourceType === "skill") {
+    await ctx.scheduler.runAfter(delay, reindexSkillActionRef, {
+      workflowId: sourceId as Id<"workflows">,
       attempt: attempt + 1,
     });
     return true;
@@ -1326,6 +1407,127 @@ const reindexDesignSource = async (
   }
 };
 
+// A skill's markdown can run long; the text model reads ~2k tokens, so the
+// lead of the document (title, description, tags, then the body) carries it.
+const SKILL_TEXT_LANE_MAX_CHARS = 7_500;
+
+export const buildSkillTextLane = (source: {
+  title: string;
+  description?: string;
+  body?: string;
+  agentInstructions?: string;
+  tagNames: string[];
+  stepLabels: string[];
+  modelNames: string[];
+}) =>
+  compactSearchText([
+    `skill: ${source.title}`,
+    source.description,
+    source.tagNames.length > 0 ? `tags: ${source.tagNames.join(", ")}` : undefined,
+    source.modelNames.length > 0
+      ? `models: ${source.modelNames.join(", ")}`
+      : undefined,
+    source.stepLabels.length > 0
+      ? `steps: ${source.stepLabels.join(" / ")}`
+      : undefined,
+    source.body,
+    source.agentInstructions,
+  ]).slice(0, SKILL_TEXT_LANE_MAX_CHARS);
+
+// Skills live in the text lane only: what a skill is about is in its words.
+const reindexSkillSource = async (
+  ctx: ActionCtx,
+  workflowId: Id<"workflows">,
+  attempt: number,
+): Promise<ReindexResult> => {
+  if (!isSemanticEmbeddingsEnabled()) {
+    return { status: "skipped" as const, retryScheduled: false };
+  }
+
+  const source = await ctx.runQuery(getSkillSourceQueryRef, { workflowId });
+  const sourceId = String(workflowId);
+  if (!source) {
+    await ctx.runMutation(deleteSemanticDocumentMutationRef, {
+      sourceType: "skill",
+      sourceId,
+    });
+    await ctx.runMutation(resolveFailureMutationRef, {
+      sourceType: "skill",
+      sourceId,
+    });
+    return { status: "deleted" as const, retryScheduled: false };
+  }
+
+  try {
+    const searchText = buildSkillTextLane(source);
+    const dimensions = getSemanticEmbeddingDimensions();
+    const textModel = getTextEmbeddingModel();
+    const textContentHash = await sha256Hex(
+      JSON.stringify({ v: "skill-v1", model: textModel, dimensions, text: searchText }),
+    );
+    const existing = await ctx.runQuery(getExistingSemanticDocumentQueryRef, {
+      sourceType: "skill",
+      sourceId,
+    });
+    const unchanged =
+      existing?.textContentHash === textContentHash && Boolean(existing?.textEmbedding);
+    const textEmbedding = unchanged ? undefined : await embedTextLane(searchText);
+    const scopeFields = buildScopeFields(
+      source.ownerUserId,
+      "skill",
+      source.pillar,
+      false,
+    );
+
+    const semanticDocumentId = await ctx.runMutation(upsertSemanticDocumentMutationRef, {
+      ownerUserId: source.ownerUserId,
+      sourceType: "skill",
+      sourceId,
+      workflowId,
+      pillar: source.pillar,
+      isPublic: source.isPublic,
+      modality: "text_only",
+      searchText,
+      contentHash: textContentHash,
+      embeddingModel: textModel,
+      embeddingDimensions: dimensions,
+      textEmbedding,
+      textContentHash,
+      scopeKey: scopeFields.scopeKey,
+      scopePillarKey: scopeFields.scopePillarKey,
+      sourceUpdatedAt: source.sourceUpdatedAt,
+    });
+    await ctx.runMutation(resolveFailureMutationRef, {
+      sourceType: "skill",
+      sourceId,
+    });
+    return { status: "indexed" as const, semanticDocumentId, retryScheduled: false };
+  } catch (error) {
+    await ctx.runMutation(recordFailureMutationRef, {
+      ownerUserId: source.ownerUserId,
+      sourceType: "skill",
+      sourceId,
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown semantic skill index error.",
+    });
+    return {
+      status: "skipped" as const,
+      retryScheduled: await scheduleRetry(ctx, "skill", sourceId, attempt),
+    };
+  }
+};
+
+export const reindexSkill = internalAction({
+  args: {
+    workflowId: v.id("workflows"),
+    attempt: v.optional(v.number()),
+  },
+  returns: reindexResultValidator,
+  handler: async (ctx, args): Promise<ReindexResult> => {
+    return await reindexSkillSource(ctx, args.workflowId, args.attempt ?? 0);
+  },
+});
+
 export const reindexAsset = internalAction({
   args: {
     assetId: v.id("assets"),
@@ -1400,7 +1602,9 @@ export const backfillBatch = internalAction({
           ? await reindexAssetSource(ctx, id as Id<"assets">, 0, args.textOnly === true)
           : args.sourceType === "prompt"
             ? await reindexPromptSource(ctx, id as Id<"prompts">, 0)
-            : await reindexDesignSource(ctx, id as Id<"designInspirations">, 0);
+            : args.sourceType === "skill"
+              ? await reindexSkillSource(ctx, id as Id<"workflows">, 0)
+              : await reindexDesignSource(ctx, id as Id<"designInspirations">, 0);
 
       if (result.status === "indexed" || result.status === "deleted") {
         successCount += 1;

@@ -69,6 +69,8 @@ interface GalleryImage {
   /** Stack entries: every member thumb (cover first) for the hover peek. */
   peekThumbs?: string[];
   stepCount?: number;
+  /** Skill cards: one or two plain sentences under the title. */
+  excerpt?: string;
   cinemaMetadata?: CinemaMetadataLite | null;
   /** A saved social post: laid out and rendered as a post card. */
   bookmark?: BookmarkPost;

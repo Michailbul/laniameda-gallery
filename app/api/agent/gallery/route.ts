@@ -4,7 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 
-type GalleryIdKind = "asset" | "pack" | "design";
+type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
 const readJson = async (request: Request) => {
   try {
@@ -76,6 +76,12 @@ const normalizeGalleryIdKind = (kind: string): GalleryIdKind | null => {
     case "designInspiration":
     case "designInspirations":
       return "design";
+    // Skills live in the workflows table; the copied id reads workflow:<id>.
+    case "skill":
+    case "skills":
+    case "workflow":
+    case "workflows":
+      return "skill";
     default:
       return null;
   }
@@ -103,7 +109,7 @@ const parseGalleryId = (rawValue: unknown, expectedKind?: GalleryIdKind) => {
     return { kind: expectedKind, id: value };
   }
 
-  throw new Error("Typed gallery ID is required. Use asset:<id>, pack:<id>, or design:<id>.");
+  throw new Error("Typed gallery ID is required. Use asset:<id>, pack:<id>, design:<id> or skill:<id>.");
 };
 
 export async function POST(request: Request) {
@@ -199,6 +205,13 @@ export async function POST(request: Request) {
         });
         return NextResponse.json({ asset });
       }
+      if (parsed.kind === "skill") {
+        const skill = await client.query(api.workflows.getWorkflow, {
+          id: parsed.id as Id<"workflows">,
+          ownerUserId: agent.ownerUserId,
+        });
+        return NextResponse.json({ skill });
+      }
       if (parsed.kind === "pack") {
         const pack = await client.query(api.assetPacks.getGalleryAssetPack, {
           packId: parsed.id as Id<"assetPacks">,
@@ -219,6 +232,44 @@ export async function POST(request: Request) {
             })
           : null;
       return NextResponse.json({ design, asset });
+    }
+
+    if (action === "listSkills") {
+      const skills = await client.query(api.workflows.listWorkflows, {
+        ownerUserId: agent.ownerUserId,
+        tagNames: stringArrayValue(data.tagNames),
+        folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
+        search: stringValue(data.search),
+        limit: numberValue(data.limit),
+        previewLimit: numberValue(data.previewLimit) ?? 2,
+      });
+      return NextResponse.json({ skills });
+    }
+
+    if (action === "searchSkills") {
+      const query = stringValue(data.query);
+      if (!query) {
+        return NextResponse.json({ error: "query is required." }, { status: 400 });
+      }
+      const skills = await client.action(api.semanticSearch.searchSkills, {
+        ownerUserId: agent.ownerUserId,
+        query,
+        tagNames: stringArrayValue(data.tagNames),
+        folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
+        minRelativeScore: numberValue(data.minRelativeScore),
+        limit: numberValue(data.limit),
+        previewLimit: numberValue(data.previewLimit) ?? 2,
+      });
+      return NextResponse.json({ skills });
+    }
+
+    if (action === "getSkill") {
+      const parsed = parseGalleryId(data.id ?? data.skillId, "skill");
+      const skill = await client.query(api.workflows.getWorkflow, {
+        id: parsed.id as Id<"workflows">,
+        ownerUserId: agent.ownerUserId,
+      });
+      return NextResponse.json({ skill });
     }
 
     if (action === "contactSheet") {

@@ -589,6 +589,17 @@ export const cascadeDeleteFolder = async (
     await ctx.db.patch(prompt._id, { folderId: undefined });
   }
 
+  // Skills filed here leave the collection; the skills themselves stay.
+  const skillLinks = await ctx.db
+    .query("workflowFolders")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", folderId).gte("createdAt", 0),
+    )
+    .collect();
+  for (const link of skillLinks) {
+    await ctx.db.delete(link._id);
+  }
+
   // Promote sub-collections to root instead of orphaning them. Their
   // canonical name is re-scoped; on a rare root-level name collision the
   // old (parent-prefixed) normalizedName is kept — still unique, and only

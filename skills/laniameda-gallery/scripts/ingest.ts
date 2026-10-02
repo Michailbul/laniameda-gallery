@@ -251,8 +251,12 @@ type WorkflowItem = {
   title: string;
   description?: string;
   agentInstructions?: string;
+  /** The skill as a markdown document; ![caption](asset:<id>) embeds an image. */
+  body?: string;
   pillar?: Pillar;
   tagNames?: string[];
+  /** Collections to file the skill into. */
+  folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
   steps: WorkflowStepInput[];
@@ -1190,7 +1194,9 @@ export function buildWorkflowArgs(
   };
   assignIfDefined(args, "description", item.description);
   assignIfDefined(args, "agentInstructions", item.agentInstructions);
+  assignIfDefined(args, "body", item.body);
   if (item.tagNames?.length) args.tagNames = item.tagNames;
+  if (item.folderIds?.length) args.folderIds = item.folderIds;
   if (item.isPublic) args.isPublic = true;
   if (item.isFeatured) args.isFeatured = true;
   return args;
