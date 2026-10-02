@@ -42,8 +42,8 @@ describe("semantic search actions", () => {
         const payload = args as { ids?: string[]; items?: Array<{ assetId: string; score: number }> };
         if (payload.ids) {
           return [
-            { _id: "semanticDocuments:1", assetId: "assets:1" },
-            { _id: "semanticDocuments:2", assetId: "assets:2" },
+            { _id: "semanticDocuments:1", assetId: "assets:1", modality: "multimodal_image" },
+            { _id: "semanticDocuments:2", assetId: "assets:2", modality: "multimodal_image" },
           ];
         }
         if (payload.items) {
@@ -102,13 +102,14 @@ describe("semantic search actions", () => {
             ownerUserId: "278674008",
             pillar: "designs",
             isPublic: true,
+            modality: "multimodal_image",
             embedding: [0.1, 0.2, 0.3],
           };
         }
         if ("ids" in payload && payload.ids) {
           return [
-            { _id: "semanticDocuments:source", assetId: "assets:1" },
-            { _id: "semanticDocuments:other", assetId: "assets:2" },
+            { _id: "semanticDocuments:source", assetId: "assets:1", modality: "multimodal_image" },
+            { _id: "semanticDocuments:other", assetId: "assets:2", modality: "multimodal_image" },
           ];
         }
         if ("items" in payload && payload.items) {

@@ -269,7 +269,9 @@ const HYDRATE_CHUNK = 60;
 
 type SearchMode = "hybrid" | "visual" | "text";
 type LaneName = "visual" | "text";
-type LaneHit = { assetId: Id<"assets">; score: number };
+// textOnly: the asset has no pixels (a video), so it can only ever be found by
+// the text lane.
+type LaneHit = { assetId: Id<"assets">; score: number; textOnly?: boolean };
 type FusedHit = {
   assetId: Id<"assets">;
   score: number;
@@ -392,38 +394,41 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
 };
 
 // Reciprocal-rank fusion over the lanes, normalized so a piece ranked first
-// in every lane scores 1.
+// in every lane it can appear in scores 1. A text-only piece is judged on the
+// text lane alone; it is never marked down for missing the pixel lane.
 export const fuseLanes = (lanes: Partial<Record<LaneName, LaneHit[]>>) => {
   const active = (Object.entries(lanes) as Array<[LaneName, LaneHit[] | undefined]>)
     .filter((entry): entry is [LaneName, LaneHit[]] => Array.isArray(entry[1]));
-  const maxScore = active.length / (RRF_K + 1);
-  const fused = new Map<Id<"assets">, FusedHit>();
+  const visualActive = active.some(([lane]) => lane === "visual");
+  const fused = new Map<Id<"assets">, FusedHit & { textOnly?: boolean }>();
   for (const [lane, hits] of active) {
     hits.forEach((hit, index) => {
       const entry = fused.get(hit.assetId) ?? { assetId: hit.assetId, score: 0 };
       entry.score += 1 / (RRF_K + index + 1);
+      if (hit.textOnly) entry.textOnly = true;
       if (lane === "visual") entry.visualScore = hit.score;
       else entry.textScore = hit.score;
       fused.set(hit.assetId, entry);
     });
   }
   return Array.from(fused.values())
-    .map((entry) => ({ ...entry, score: maxScore > 0 ? entry.score / maxScore : 0 }))
+    .map(({ textOnly, ...entry }) => {
+      const eligibleLanes = active.length - (textOnly && visualActive ? 1 : 0);
+      return { ...entry, score: entry.score / (eligibleLanes / (RRF_K + 1)) };
+    })
     .sort((left, right) => right.score - left.score);
 };
 
 const dedupeScoredAssets = (items: LaneHit[]) => {
-  const byAssetId = new Map<Id<"assets">, number>();
+  const byAssetId = new Map<Id<"assets">, LaneHit>();
   for (const item of items) {
     const existing = byAssetId.get(item.assetId);
-    if (existing === undefined || item.score > existing) {
-      byAssetId.set(item.assetId, item.score);
+    if (existing === undefined || item.score > existing.score) {
+      byAssetId.set(item.assetId, item);
     }
   }
 
-  return Array.from(byAssetId.entries())
-    .map(([assetId, score]) => ({ assetId, score }))
-    .sort((left, right) => right.score - left.score);
+  return Array.from(byAssetId.values()).sort((left, right) => right.score - left.score);
 };
 
 const applyRelativeCutoff = (hits: LaneHit[], cutoff: number) => {
@@ -475,16 +480,34 @@ const runLane = async (
 
   const semanticDocs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
     ids: vectorResults.map((result) => result._id),
-  })) as Array<{ _id: Id<"semanticDocuments">; assetId?: Id<"assets"> }>;
-  const assetIdByDocId = new Map(semanticDocs.map((doc) => [doc._id, doc.assetId] as const));
+  })) as Array<{
+    _id: Id<"semanticDocuments">;
+    assetId?: Id<"assets">;
+    modality: "multimodal_image" | "text_only";
+  }>;
+  // The pixel lane is for pixels. An imageless asset (a video) stores a short
+  // text there, and query-text against that text outscores every real
+  // cross-modal match, so it would crowd the images out of the lane. Those
+  // assets are found by their words in the text lane instead.
+  const docById = new Map(
+    semanticDocs
+      .filter((doc) => index !== "by_embedding" || doc.modality === "multimodal_image")
+      .map((doc) => [doc._id, doc] as const),
+  );
 
   return dedupeScoredAssets(
     vectorResults.flatMap((result) => {
-      const assetId = assetIdByDocId.get(result._id);
-      if (!assetId || assetId === excludeAssetId) {
+      const doc = docById.get(result._id);
+      if (!doc?.assetId || doc.assetId === excludeAssetId) {
         return [];
       }
-      return [{ assetId, score: result._score }];
+      return [
+        {
+          assetId: doc.assetId,
+          score: result._score,
+          ...(doc.modality === "text_only" ? { textOnly: true } : {}),
+        },
+      ];
     }),
   );
 };
@@ -650,13 +673,17 @@ export const findSimilarAssets = ownerAction({
       pillar: sourceDoc.pillar,
     };
     const textVector = sourceDoc.textEmbedding;
+    // A video's pixel-lane vector is an embedding of its prompt, not of pixels.
+    const pixelVector =
+      sourceDoc.modality === "multimodal_image" ? sourceDoc.embedding : undefined;
 
     const [visual, text] = await Promise.all([
-      mode === "text" || !sourceDoc.embedding
+      mode === "text" || !pixelVector
         ? undefined
-        : runLane(ctx, "by_embedding", sourceDoc.embedding, take, spec, args.assetId),
-      // Visual mode falls back to the text lane while the pixel lane is pending.
-      !textVector || (mode === "visual" && sourceDoc.embedding)
+        : runLane(ctx, "by_embedding", pixelVector, take, spec, args.assetId),
+      // Visual mode falls back to the text lane while the pixel lane is pending
+      // or the source has no pixels.
+      !textVector || (mode === "visual" && pixelVector)
         ? undefined
         : runLane(ctx, "by_text_embedding", textVector, take, spec, args.assetId),
     ]);
