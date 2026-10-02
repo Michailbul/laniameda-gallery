@@ -2091,7 +2091,13 @@
 .skill-doc-cover-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(0deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-0) 0%, transparent) 55%);
+  background: linear-gradient(
+    0deg,
+    var(--surface-0) 0%,
+    color-mix(in srgb, var(--surface-0) 82%, transparent) 30%,
+    color-mix(in srgb, var(--surface-0) 25%, transparent) 70%,
+    transparent 100%
+  );
 }
 
 .skill-doc {

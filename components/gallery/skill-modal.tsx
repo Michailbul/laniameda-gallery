@@ -583,8 +583,11 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
 
                       {sections ? (
                         <div className="skill-doc-prompt">
+                          {/* The sections label themselves; "Copy all" only
+                              earns a row when there is more than the prompt. */}
+                          {sections.negativePrompt || sections.generationNotes ? (
                           <div className="skill-doc-prompt-head">
-                            <span className="skill-doc-eyebrow">Prompt</span>
+                            <span />
                             <button
                               type="button"
                               className="skill-doc-prompt-copy"
@@ -595,6 +598,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                               <Copy className="h-3 w-3" /> Copy all
                             </button>
                           </div>
+                          ) : null}
                           <PromptSections sections={sections} onCopy={copyText} size="doc" />
                         </div>
                       ) : null}
