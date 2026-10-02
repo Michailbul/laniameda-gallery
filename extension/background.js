@@ -11,6 +11,7 @@ const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
+const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 // Installs that stored an older host rewrite themselves to CANONICAL_API_HOST on
 // the next call, so nobody has to re-enter the API URL after a domain move.
@@ -677,6 +678,7 @@ const CONTENT_SCRIPT_JS_FILES = [
   "higgsfield-adapter.js",
   "pinterest-adapter.js",
   "shotdeck-adapter.js",
+  "x-adapter.js",
   "content.js",
 ];
 const CONTENT_SCRIPT_CSS_FILES = ["styles.css"];
@@ -860,6 +862,109 @@ async function bookmarkPage(payload) {
 }
 
 
+// Crop the visible tab to one post. `crop` is in CSS pixels of the page's
+// viewport; the screenshot is in device pixels, so scale by the ratio.
+async function captureTabCrop(tab, crop) {
+  if (typeof tab?.windowId !== "number") {
+    throw new Error("Could not resolve window for tab.");
+  }
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+    throw new Error("Screenshot capture returned an empty result.");
+  }
+  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  const viewportWidth = Number(crop.viewportWidth) || bitmap.width;
+  const scale = bitmap.width / viewportWidth;
+  const sx = Math.max(0, Math.round(Number(crop.x) * scale));
+  const sy = Math.max(0, Math.round(Number(crop.y) * scale));
+  const sw = Math.min(bitmap.width - sx, Math.round(Number(crop.width) * scale));
+  const sh = Math.min(bitmap.height - sy, Math.round(Number(crop.height) * scale));
+  if (!(sw > 0 && sh > 0)) {
+    throw new Error("The post is not visible on screen.");
+  }
+  const canvas = new OffscreenCanvas(sw, sh);
+  canvas.getContext("2d").drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+  bitmap.close?.();
+  let blob = await canvas.convertToBlob({ type: "image/png" });
+  if (blob.size > MAX_INLINE_CAPTURE_BYTES) {
+    blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 });
+  }
+  return {
+    base64: arrayBufferToBase64(await blob.arrayBuffer()),
+    contentType: blob.type || "image/png",
+  };
+}
+
+async function postXPost(config, body) {
+  const url = normalizeRouteUrl(config.apiUrl, X_POST_ROUTE_PATH);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}`, apiUrl: url };
+  }
+  let rawText = "";
+  let data = null;
+  try {
+    rawText = await response.text();
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    // body wasn't JSON
+  }
+  if (!response.ok) {
+    const detail = data?.error || rawText.slice(0, 500) || "(empty body)";
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${response.statusText}: ${detail}`,
+      apiUrl: url,
+      status: response.status,
+    };
+  }
+  return { ok: true, result: data?.result };
+}
+
+// Save an X post as a bookmark. Posts with media let the gallery fetch the
+// first photo as the preview; text posts send a crop of the post. If the
+// media fetch fails server-side, retry once with the crop.
+async function saveXPost(payload, tab) {
+  const post = payload.post;
+  if (!post || typeof post.url !== "string") {
+    return { ok: false, error: "Post URL is required." };
+  }
+  const config = await getConfig();
+  const body = {
+    post,
+    folderIds: normalizeFolderIds(payload.folderIds),
+    userNote: payload.userNote || undefined,
+  };
+  const hasMedia = Array.isArray(post.media) && post.media.length > 0;
+  const crop = payload.crop && typeof payload.crop === "object" ? payload.crop : null;
+
+  const withCrop = async () => {
+    if (!crop) {
+      return { ok: false, error: "Scroll the post into view and try again." };
+    }
+    let preview;
+    try {
+      preview = await captureTabCrop(tab, crop);
+    } catch (err) {
+      return { ok: false, error: `Screenshot failed: ${err.message || String(err)}` };
+    }
+    return postXPost(config, { ...body, preview });
+  };
+
+  if (!hasMedia) return withCrop();
+  const result = await postXPost(config, body);
+  if (!result.ok && crop && /media|preview/i.test(result.error || "")) {
+    return withCrop();
+  }
+  return result;
+}
+
 // Read-only "already saved?" lookup — powers the In-gallery state on the
 // Midjourney viewer save widget.
 async function checkAssetStatus(payload) {
@@ -943,7 +1048,52 @@ async function getFolders() {
     };
   }
 
-  return { ok: true, folders: Array.isArray(data?.folders) ? data.folders : [] };
+  const folders = Array.isArray(data?.folders) ? data.folders : [];
+  return { ok: true, folders: await seedDefaultCollections(folders) };
+}
+
+// Collections every vault starts with. Each is created once per install, the
+// first time the collection list loads, and only when no collection of that
+// name exists. The seeded names are remembered so a collection you delete
+// later stays deleted.
+const DEFAULT_COLLECTIONS = ["Cars"];
+const SEEDED_COLLECTIONS_KEY = "seededDefaultCollections";
+
+async function seedDefaultCollections(folders) {
+  let seeded = [];
+  try {
+    const stored = await chrome.storage.local.get(SEEDED_COLLECTIONS_KEY);
+    seeded = Array.isArray(stored?.[SEEDED_COLLECTIONS_KEY])
+      ? stored[SEEDED_COLLECTIONS_KEY]
+      : [];
+  } catch {
+    return folders;
+  }
+  const existing = new Set(
+    folders
+      .filter((folder) => !folder?.parentFolderId)
+      .map((folder) => String(folder?.name || "").trim().toLowerCase()),
+  );
+  let next = folders;
+  const nextSeeded = [...seeded];
+  for (const name of DEFAULT_COLLECTIONS) {
+    const key = name.toLowerCase();
+    if (nextSeeded.includes(key)) continue;
+    if (!existing.has(key)) {
+      const created = await createFolder({ name });
+      if (!created.ok) continue; // retry on the next load
+      if (created.folders.length) next = created.folders;
+    }
+    nextSeeded.push(key);
+  }
+  if (nextSeeded.length !== seeded.length) {
+    try {
+      await chrome.storage.local.set({ [SEEDED_COLLECTIONS_KEY]: nextSeeded });
+    } catch {
+      // Best effort: createFolder is an upsert, so a repeat is harmless.
+    }
+  }
+  return next;
 }
 
 async function createFolder(payload) {
@@ -1148,6 +1298,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       title: message.title,
       description: message.description,
     })
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "saveXPost") {
+    saveXPost(
+      {
+        post: message.post,
+        folderIds: message.folderIds,
+        userNote: message.userNote,
+        crop: message.crop,
+      },
+      _sender?.tab,
+    )
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

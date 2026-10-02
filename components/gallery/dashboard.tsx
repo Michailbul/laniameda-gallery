@@ -93,6 +93,8 @@ import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
+import type { BookmarkPost } from "@/lib/bookmarks";
+import { BookmarksView } from "@/components/gallery/bookmarks-view";
 
 type SelectedImage = {
   id: string;
@@ -134,6 +136,8 @@ type SelectedImage = {
   saveIntent?: string;
   inspirationType?: string;
   userNote?: string;
+  /** A saved social post (X) — the detail panel leads with the post. */
+  bookmark?: BookmarkPost;
   previewImages?: GalleryEntryPreview[];
   /** The pack member a card was showing when clicked — the expanded view
    *  opens on it. */
@@ -313,6 +317,8 @@ export function GalleryDashboard({
   // Top-level "Storybooks" tab: shows every storybook as a masonry of stack
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
+  // The Bookmarks tab: saved X posts as post cards, by collection.
+  const [bookmarksView, setBookmarksView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -3388,6 +3394,7 @@ export function GalleryDashboard({
         isFeatured: entry.isFeatured,
         starredAt: "starredAt" in entry ? entry.starredAt : undefined,
         starNote: "starNote" in entry ? entry.starNote : undefined,
+        bookmark: "bookmark" in entry ? entry.bookmark : undefined,
         previewImages: entry.previewImages ?? [],
       });
     },
@@ -3799,6 +3806,9 @@ export function GalleryDashboard({
       modelName: liveSelectedAsset.modelName ?? selectedImage.modelName,
       sourceUrl: liveSelectedAsset.sourceUrl ?? selectedImage.sourceUrl,
       createdAt: liveSelectedAsset.createdAt,
+      bookmark:
+        (liveSelectedAsset.bookmark as BookmarkPost | undefined) ??
+        selectedImage.bookmark,
     };
   }, [activeSlideId, liveReadExpected, liveSelectedAsset, selectedImage]);
 
@@ -3889,7 +3899,7 @@ export function GalleryDashboard({
     // grid is actually showing. The collections landing, workflows and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
-    if (viewMode !== "grid" || storybooksView) return null;
+    if (viewMode !== "grid" || storybooksView || bookmarksView) return null;
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -3904,6 +3914,7 @@ export function GalleryDashboard({
     foldersWithCounts,
     galleryScope,
     storybooksView,
+    bookmarksView,
     viewMode,
   ]);
   const quickDropImpliedTag = useMemo<StaticsTagName | null>(() => {
@@ -4469,11 +4480,26 @@ export function GalleryDashboard({
           onSeedanceClick={() => setSeedanceOpen(true)}
           onStorybooksTab={
             canManageFoldersInCurrentView
-              ? () => setStorybooksView(true)
+              ? () => {
+                  setBookmarksView(false);
+                  setStorybooksView(true);
+                }
               : undefined
           }
           storybooksTabActive={storybooksView}
-          onGalleryHome={() => setStorybooksView(false)}
+          onBookmarksTab={
+            canManageFoldersInCurrentView
+              ? () => {
+                  setStorybooksView(false);
+                  setBookmarksView(true);
+                }
+              : undefined
+          }
+          bookmarksTabActive={bookmarksView}
+          onGalleryHome={() => {
+            setStorybooksView(false);
+            setBookmarksView(false);
+          }}
           user={user}
           onSignOut={onSignOut}
           folders={sidebarFolders}
@@ -4559,7 +4585,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && (
+            {!storybooksView && !bookmarksView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4622,7 +4648,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4668,7 +4694,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -4725,7 +4751,7 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className="relative min-w-0"
             >
-              {!storybooksView && breadcrumbSegments.length > 0 && (
+              {!storybooksView && !bookmarksView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
@@ -4789,7 +4815,20 @@ export function GalleryDashboard({
                   }
                 />
               )}
-              {storybooksView ? (
+              {bookmarksView ? (
+                <BookmarksView
+                  ownerUserId={ownerUserId ?? undefined}
+                  folders={(folders ?? []).map((folder) => ({
+                    _id: folder._id,
+                    name: folder.name,
+                    parentFolderId: folder.parentFolderId,
+                  }))}
+                  resolveEntryBadges={resolveEntryBadges}
+                  onImageSelect={handleImageSelect}
+                  selectedImageId={selectedImage?.id}
+                  onImageLoad={markImageLoaded}
+                />
+              ) : storybooksView ? (
                 storybookEntries.length > 0 ? (
                   <MasonryGrid
                     images={storybookEntries}

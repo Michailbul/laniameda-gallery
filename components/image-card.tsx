@@ -18,6 +18,8 @@ import {
   CardCollectionButton,
   type CollectionOption,
 } from "@/components/collection-menu";
+import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
+import type { BookmarkPost } from "@/lib/bookmarks";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -81,6 +83,8 @@ interface ImageCardProps {
     totalSize?: number;
     stepCount?: number;
     cinemaMetadata?: CinemaMetadataLite | null;
+    /** A saved social post: the tile renders as a post card. */
+    bookmark?: BookmarkPost;
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
@@ -127,6 +131,7 @@ interface ImageCardProps {
       isLiked?: boolean;
       starredAt?: number;
       starNote?: string;
+      bookmark?: BookmarkPost;
       /** The pack member on show when the card was clicked — the expanded
           view opens on it rather than on the cover. */
       activePreviewId?: string;
@@ -519,6 +524,7 @@ export const ImageCard = memo(function ImageCard({
       isLiked: image.isLiked,
       starredAt: image.starredAt,
       starNote: image.starNote,
+      bookmark: image.bookmark,
       activePreviewId: isPackDeck ? activePreview.id : undefined,
       previewImages,
     });
@@ -680,6 +686,26 @@ export const ImageCard = memo(function ImageCard({
     },
     [galleryCopyLabel, galleryCopyToken, toastFn],
   );
+
+  if (image.bookmark) {
+    return (
+      <div
+        className={exiting ? "h-full w-full animate-card-exit" : "h-full w-full"}
+        style={{ opacity: deleting ? 0.5 : undefined }}
+      >
+        <BookmarkPostCard
+          post={image.bookmark}
+          mediaSrc={image.bookmark.media.length > 0 ? image.src : undefined}
+          collectionLabels={image.collectionLabels}
+          starred={isStarred}
+          selected={isSelected}
+          dimmed={dimmed}
+          checked={selected}
+          onClick={handleCardClick}
+        />
+      </div>
+    );
+  }
 
   if (isWorkflow) {
     const workflowCardClasses = [

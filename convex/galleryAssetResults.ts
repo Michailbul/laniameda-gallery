@@ -6,6 +6,7 @@ import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
   agentDescriptionSourceValidator,
+  bookmarkSummaryValidator,
   cinemaMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
@@ -40,6 +41,9 @@ export const galleryAssetResultValidator = v.object({
   thumbHeight: v.optional(v.number()),
   promptId: v.optional(v.id("prompts")),
   designInspirationId: v.optional(v.id("designInspirations")),
+  bookmarkId: v.optional(v.id("bookmarks")),
+  // The saved post behind a bookmark asset; the grid renders it as a post card.
+  bookmark: v.optional(bookmarkSummaryValidator),
   promptText: v.optional(v.string()),
   tagIds: v.array(v.id("tags")),
   tagNames: v.array(v.string()),
@@ -125,6 +129,42 @@ const resolveTagNameMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
   return tagNameById;
 };
 
+const resolveBookmarkMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
+  const bookmarkIds = dedupeIds(
+    assets
+      .map((asset) => asset.bookmarkId)
+      .filter((bookmarkId): bookmarkId is Id<"bookmarks"> => Boolean(bookmarkId)),
+  );
+  const bookmarkById = new Map<Id<"bookmarks">, Doc<"bookmarks">>();
+  if (bookmarkIds.length === 0) {
+    return bookmarkById;
+  }
+  const rows = await Promise.all(bookmarkIds.map((bookmarkId) => ctx.db.get(bookmarkId)));
+  for (const row of rows) {
+    if (row) bookmarkById.set(row._id, row);
+  }
+  return bookmarkById;
+};
+
+export const toBookmarkSummary = (row: Doc<"bookmarks">) => ({
+  _id: row._id,
+  platform: row.platform,
+  externalId: row.externalId,
+  url: row.url,
+  authorName: row.authorName,
+  authorHandle: row.authorHandle,
+  authorAvatarUrl: row.authorAvatarUrl,
+  authorVerified: row.authorVerified,
+  text: row.text,
+  lang: row.lang,
+  postedAt: row.postedAt,
+  media: row.media,
+  quotedPost: row.quotedPost,
+  metrics: row.metrics,
+  userNote: row.userNote,
+  savedAt: row.createdAt,
+});
+
 const resolveFolderIdsMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
   const entries = await Promise.all(
     assets.map(async (asset) => {
@@ -153,10 +193,11 @@ export const hydrateGalleryAssetResults = async (
     return [];
   }
 
-  const [promptTextById, tagNameById, folderIdsByAssetId] = await Promise.all([
+  const [promptTextById, tagNameById, folderIdsByAssetId, bookmarkById] = await Promise.all([
     resolvePromptTextMap(ctx, assets),
     resolveTagNameMap(ctx, assets),
     resolveFolderIdsMap(ctx, assets),
+    resolveBookmarkMap(ctx, assets),
   ]);
 
   return await Promise.all(
@@ -167,6 +208,10 @@ export const hydrateGalleryAssetResults = async (
       const tagNames = asset.tagIds
         .map((tagId) => tagNameById.get(tagId))
         .filter((tagName): tagName is string => Boolean(tagName));
+
+      const bookmark = asset.bookmarkId
+        ? bookmarkById.get(asset.bookmarkId)
+        : undefined;
 
       const [url, thumbUrl] = await Promise.all([
         resolveAssetUrl(ctx, asset),
@@ -201,6 +246,8 @@ export const hydrateGalleryAssetResults = async (
         thumbHeight: asset.thumbHeight,
         promptId: asset.promptId,
         designInspirationId: asset.designInspirationId,
+        bookmarkId: asset.bookmarkId,
+        ...(bookmark ? { bookmark: toBookmarkSummary(bookmark) } : {}),
         promptText,
         tagIds: asset.tagIds,
         tagNames,

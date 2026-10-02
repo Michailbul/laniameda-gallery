@@ -46,6 +46,8 @@ export type AssetTextLaneSource = {
   designTitle?: string;
   designSummary?: string;
   designSourceDomain?: string;
+  // Saved social post: author, post text, quoted post, owner note.
+  bookmarkText?: string;
   sourceUrl?: string;
 };
 
@@ -66,6 +68,7 @@ export const buildAssetTextLane = (source: AssetTextLaneSource) => {
     clean(source.description),
     clean(source.designTitle),
     clean(source.designSummary),
+    clean(source.bookmarkText),
     promptText ? promptText.slice(0, TEXT_LANE_PROMPT_MAX_LENGTH) : undefined,
     tagNames.length > 0 ? `tags: ${tagNames.join(", ")}` : undefined,
     clean(source.modelName) ? `model: ${clean(source.modelName)}` : undefined,

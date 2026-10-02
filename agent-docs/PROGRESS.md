@@ -9,6 +9,8 @@ Last updated: 2026-10-02
 ## ✔ Shipped
 
 ### 2026-10-02
+- X post bookmarks: the extension (v0.12) puts a Save button on every post on x.com. It saves the post's author, text, permalink, time, media, quoted post and counts as a bookmark, filed into the collections you pick, with an optional note. Bookmarks render as post cards in the grid, have their own Bookmarks view in the sidebar (collection chips, search), and lead the detail panel with the full post. Detail: `features/x-bookmarks/README.md`.
+- The extension creates a root **Cars** collection once per install.
 - Agents can now SEE the gallery, not just read its JSON. `agentPreview:contactSheet` (Convex Node action, owner-scoped) composes up to 48 assets into one numbered JPEG grid from their card thumbs or video posters, with a legend mapping each number to its `asset:<id>`, tags and agent description. Sheets cap their long edge at 1568px, the size Claude scales images down to for vision anyway. Labels are drawn from a built-in bitmap font (`lib/contact-sheet.ts`), so they don't depend on system fonts. Three entry points: the MCP tool `preview_assets` (an inline image block, from a query, filters or ids), the skill CLI action `preview` (writes `sheet-N.jpg` files for the agent's image reader, up to 96 pieces across sheets), and the agent API action `contactSheet` on `/api/agent/gallery`.
 
 ### 2026-09-26

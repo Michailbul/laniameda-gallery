@@ -17,6 +17,7 @@ import {
 } from "./validators";
 import { resolveAssetUrl } from "./r2_url";
 import { buildAssetTextLane } from "./agentDescriptionText";
+import { buildBookmarkSearchText } from "./bookmarkHelpers";
 
 const RETRY_DELAYS_MS = [30_000, 300_000, 1_800_000] as const;
 const MAX_QUERY_BATCH = 50;
@@ -122,6 +123,7 @@ const assetSourceValidator = v.union(
     designTitle: v.optional(v.string()),
     designSummary: v.optional(v.string()),
     designSourceDomain: v.optional(v.string()),
+    bookmarkText: v.optional(v.string()),
     tagNames: v.array(v.string()),
     pillar: optionalPillarValidator,
     modelName: v.optional(v.string()),
@@ -476,11 +478,12 @@ export const getAssetSourceForReindex = internalQuery({
       return null;
     }
 
-    const [prompt, designInspiration, tagNames, storageUrl] = await Promise.all([
+    const [prompt, designInspiration, bookmark, tagNames, storageUrl] = await Promise.all([
       asset.promptId ? ctx.db.get(asset.promptId) : Promise.resolve(null),
       asset.designInspirationId
         ? ctx.db.get(asset.designInspirationId)
         : Promise.resolve(null),
+      asset.bookmarkId ? ctx.db.get(asset.bookmarkId) : Promise.resolve(null),
       resolveTagNames(ctx, asset.tagIds),
       resolveAssetUrl(ctx, asset),
     ]);
@@ -500,6 +503,7 @@ export const getAssetSourceForReindex = internalQuery({
       designTitle: designInspiration?.title,
       designSummary: designInspiration?.summary,
       designSourceDomain: designInspiration?.sourceDomain,
+      bookmarkText: bookmark ? buildBookmarkSearchText(bookmark) : undefined,
       tagNames,
       pillar: asset.pillar,
       modelName: asset.modelName,
@@ -932,6 +936,7 @@ const reindexAssetSource = async (
       designTitle: source.designTitle,
       designSummary: source.designSummary,
       designSourceDomain: source.designSourceDomain,
+      bookmarkText: source.bookmarkText,
       sourceUrl: source.sourceUrl,
     });
     // Pixel-lane input and hash are unchanged from pure-v1, so every existing

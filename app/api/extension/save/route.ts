@@ -65,6 +65,15 @@ function inferPlatformTag(value: string | undefined) {
   if (url.host.includes("instagram")) return "instagram";
   if (url.host.includes("civitai")) return "civitai";
   if (url.host.includes("behance")) return "behance";
+  if (
+    url.host === "x.com" ||
+    url.host.endsWith(".x.com") ||
+    url.host === "twitter.com" ||
+    url.host.endsWith(".twitter.com") ||
+    url.host === "pbs.twimg.com"
+  ) {
+    return "x";
+  }
   return undefined;
 }
 

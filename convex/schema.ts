@@ -23,6 +23,7 @@ import {
   semanticSourceTypeValidator,
   tagCategoryValidator,
   agentDescriptionSourceValidator,
+  bookmarkPostFields,
   tagSourceValidator,
   workflowTypeValidator,
 } from "./validators";
@@ -244,6 +245,9 @@ export default defineSchema({
     thumbHeight: v.optional(v.number()),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    // Set when this asset is the preview of a saved social post (assetRole
+    // "bookmark"). The grid renders such assets as post cards.
+    bookmarkId: v.optional(v.id("bookmarks")),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
     ingestKey: v.optional(v.string()),
@@ -397,6 +401,23 @@ export default defineSchema({
     .index("by_owner_sourceFingerprint", ["ownerUserId", "sourceFingerprint"])
     .index("by_owner_folder_createdAt", ["ownerUserId", "folderId", "createdAt"])
     .searchIndex("search_text", { searchField: "searchText" }),
+  // Saved social posts (X for now). One row per post per owner; re-saving the
+  // same post refreshes its metadata and files it into more collections. The
+  // post's preview image is a regular asset (assetRole "bookmark",
+  // bookmarkId -> this row), so collections, search and the grid all work
+  // through the asset. Post fields are source metadata captured from the page;
+  // `userNote` is the owner's own words.
+  bookmarks: defineTable({
+    ownerUserId: v.string(),
+    ...bookmarkPostFields,
+    userNote: v.optional(v.string()),
+    assetId: v.optional(v.id("assets")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_platform_externalId", ["ownerUserId", "platform", "externalId"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_asset", ["assetId"]),
   designSaveTemplates: defineTable({
     ownerUserId: v.string(),
     key: v.string(),
