@@ -29,6 +29,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "Every saved asset should carry sourceUrl when it came from the web, and an agentDescription: one or two plain sentences (max ~45 words) on what it shows and why it was kept.",
   "Reuse existing tags (list_tags) before inventing new ones. Never star or publish anything unless asked. Ask before deleting.",
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
+  "To add local files (e.g. from ~/Downloads): prepare_uploads with the paths, run the curl commands it returns, then save_assets with the uploadIds. Two tool calls for any batch size; public URLs go straight into save_assets.",
 ].join(" ");
 
 export const guessMime = (fileName: string) => {
@@ -73,8 +74,21 @@ const commonIngestShape = {
     .optional(),
   ingestKey: z.string().optional(),
   promptIngestKey: z.string().optional(),
-  url: z.string().optional(),
-  fileBase64: z.string().optional(),
+  url: z.string().describe("Public image/video URL to fetch and save.").optional(),
+  uploadId: z
+    .string()
+    .describe(
+      "From prepare_uploads, after the file was PUT to its uploadUrl. The way to save local files.",
+    )
+    .optional(),
+  posterUploadId: z
+    .string()
+    .describe("Video only: uploadId of a JPEG/PNG poster frame for the card thumbnail.")
+    .optional(),
+  fileBase64: z
+    .string()
+    .describe("Fallback when there is no shell: the file inline as base64 (keep under ~3 MB).")
+    .optional(),
   fileName: z.string().optional(),
   contentType: z.string().optional(),
   description: z.string().optional(),
@@ -173,10 +187,51 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       contentType: typeof contentType === "string" ? contentType : undefined,
     });
 
+    if (file) return { ...rest, file };
+    // An uploadId save still wants the original name and type.
     return {
       ...rest,
-      ...(file ? { file } : {}),
+      ...(typeof fileName === "string" ? { fileName } : {}),
+      ...(typeof contentType === "string" ? { contentType } : {}),
     };
+  };
+
+  // Saves of a local file go straight to storage (prepare → PUT → uploadId),
+  // the same path agents use from a shell, so size never hits a request cap.
+  // Updates still send base64: the update action only takes inline files.
+  const uploadLocalFile = async (filePath: string, contentType: string) => {
+    const local = readLocalFile!(filePath);
+    const prepared = await apiFetch("/api/agent/uploads", { count: 1 });
+    const [slot] = Array.isArray(prepared.uploads) ? (prepared.uploads as JsonRecord[]) : [];
+    if (!slot || typeof slot.uploadUrl !== "string" || typeof slot.uploadId !== "string") {
+      throw new Error("The gallery did not return an upload slot.");
+    }
+    const response = await fetch(slot.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": contentType },
+      body: Buffer.from(local.base64, "base64"),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload of ${local.fileName} failed with HTTP ${response.status}.`);
+    }
+    return { uploadId: slot.uploadId, fileName: local.fileName };
+  };
+
+  const buildCreateBody = async (input: JsonRecord) => {
+    const { filePath, ...rest } = input;
+    if (typeof filePath !== "string" || !filePath || !readLocalFile) {
+      return buildIngestBody(input);
+    }
+    const fileName = typeof rest.fileName === "string" ? rest.fileName : undefined;
+    const contentType =
+      typeof rest.contentType === "string" ? rest.contentType : guessMime(fileName ?? filePath);
+    const uploaded = await uploadLocalFile(filePath, contentType);
+    return buildIngestBody({
+      ...rest,
+      uploadId: uploaded.uploadId,
+      fileName: fileName ?? uploaded.fileName,
+      contentType,
+    });
   };
 
   server.registerTool(
@@ -204,12 +259,74 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "save_asset",
     {
       title: "Save Asset",
-      description: readLocalFile
-        ? "Save an image/video URL or local file to the authenticated user's gallery."
-        : "Save an image/video (by url, or as fileBase64) to the authenticated user's gallery.",
+      description:
+        "Save one image or video to the gallery. Media comes from `uploadId` (local files: prepare_uploads first), `url` (anything public)" +
+        (readLocalFile ? ", `filePath` (a local path)" : "") +
+        " or `fileBase64` (small files, no shell). For several pieces use save_assets.",
       inputSchema: { ...commonIngestShape, ...localFileShape },
     },
-    async (input) => jsonText(await apiFetch("/api/agent/ingest", buildIngestBody(input))),
+    async (input) => jsonText(await apiFetch("/api/agent/ingest", await buildCreateBody(input))),
+  );
+
+  server.registerTool(
+    "prepare_uploads",
+    {
+      title: "Prepare Uploads",
+      description: [
+        "Get signed upload URLs for local files (images or videos), so the bytes go straight from your shell to storage and never through the chat.",
+        "1) Call with the file paths (or a count, max 50). 2) Run the returned curl command for each file; URLs expire after 15 minutes, so script the loop. 3) Save them all with save_assets (or save_asset), passing each file's uploadId plus its tags, collection and description.",
+        "For a video, also upload a poster frame (e.g. ffmpeg -ss 1 -i in.mp4 -frames:v 1 poster.jpg) and pass it as posterUploadId; convert .mov to .mp4 first if you can.",
+      ].join(" "),
+      inputSchema: {
+        fileNames: z
+          .array(z.string())
+          .describe("The local paths you will upload; each gets a ready curl command.")
+          .optional(),
+        count: z.number().describe("How many slots, when you don't pass fileNames (1-50).").optional(),
+      },
+    },
+    async (input) => {
+      const count = input.fileNames?.length || input.count || 1;
+      const response = await apiFetch("/api/agent/uploads", { count });
+      const uploads = Array.isArray(response.uploads) ? (response.uploads as JsonRecord[]) : [];
+      const shellQuote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
+      return jsonText({
+        uploads: uploads.map((upload, index) => {
+          const path = input.fileNames?.[index];
+          if (!path) return upload;
+          const contentType = guessMime(path);
+          return {
+            ...upload,
+            file: path,
+            contentType,
+            curl: `curl -sS --fail -T ${shellQuote(path)} -H ${shellQuote(`Content-Type: ${contentType}`)} ${shellQuote(String(upload.uploadUrl))}`,
+          };
+        }),
+        next: "PUT every file to its uploadUrl (run the curl commands), then call save_assets with one item per file carrying its uploadId.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "save_assets",
+    {
+      title: "Save Assets (batch)",
+      description:
+        "Save up to 50 images/videos in one call. Each item takes the same fields as save_asset (uploadId / url" +
+        (readLocalFile ? " / filePath" : "") +
+        ", tagNames, folderIds, agentDescription, sourceUrl, ...). Every item reports its own result; one failure does not stop the rest.",
+      inputSchema: {
+        items: z
+          .array(z.object({ ...commonIngestShape, ...localFileShape }))
+          .describe("One entry per piece, max 50."),
+      },
+    },
+    async (input) =>
+      jsonText(
+        await apiFetch("/api/agent/ingest/batch", {
+          items: await Promise.all(input.items.map((item) => buildCreateBody(item as JsonRecord))),
+        }),
+      ),
   );
 
   server.registerTool(

@@ -129,6 +129,8 @@ The bundled stdio MCP server exposes:
 
 - `check_connection`
 - `save_asset`
+- `prepare_uploads` — signed direct-to-R2 upload URLs for local files
+- `save_assets` — batch save (up to 50), by `uploadId`, `url` or `filePath`
 - `save_prompt`
 - `update_gallery_item`
 - `delete_gallery_item`

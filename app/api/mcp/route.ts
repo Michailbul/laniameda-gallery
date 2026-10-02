@@ -20,7 +20,8 @@ import {
 // token, so tool calls go through the same /api/agent/* handlers as the local
 // stdio server, dispatched in-process instead of over the network.
 
-export const maxDuration = 60;
+// Batch saves run inside this request (see /api/agent/ingest/batch).
+export const maxDuration = 300;
 
 const withCors = (response: Response) => {
   const headers = new Headers(response.headers);

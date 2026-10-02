@@ -44,7 +44,12 @@ const signingKey = () => {
   return new TextEncoder().encode(secret);
 };
 
-const sign = (claims: Record<string, unknown>, audience: string, ttlSeconds?: number) => {
+/** Short-lived, audience-scoped JWT signed with the gallery's MCP secret. */
+export const signScopedJwt = (
+  claims: Record<string, unknown>,
+  audience: string,
+  ttlSeconds?: number,
+) => {
   const jwt = new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(ISSUER_CLAIM)
@@ -54,7 +59,7 @@ const sign = (claims: Record<string, unknown>, audience: string, ttlSeconds?: nu
   return jwt.sign(signingKey());
 };
 
-const verify = async (token: string, audience: string) => {
+export const verifyScopedJwt = async (token: string, audience: string) => {
   try {
     const { payload } = await jwtVerify(token, signingKey(), {
       issuer: ISSUER_CLAIM,
@@ -168,7 +173,7 @@ export const registerClient = async (body: Record<string, unknown>) => {
   }
 
   const clientName = cleanClientName(body.client_name);
-  const clientId = await sign({ name: clientName, uris: redirectUris }, AUDIENCE.client);
+  const clientId = await signScopedJwt({ name: clientName, uris: redirectUris }, AUDIENCE.client);
 
   return {
     client_id: clientId,
@@ -183,7 +188,7 @@ export const registerClient = async (body: Record<string, unknown>) => {
 
 export const resolveClient = async (clientId: string | null | undefined) => {
   if (!clientId) return null;
-  const payload = await verify(clientId, AUDIENCE.client);
+  const payload = await verifyScopedJwt(clientId, AUDIENCE.client);
   if (!payload || !Array.isArray(payload.uris)) return null;
   return {
     clientId,
@@ -283,10 +288,10 @@ export const validateAuthorizeParams = async (
 
 /** Binds the consent form to the signed-in owner and the validated request. */
 export const signConsentTicket = (request: AuthorizationRequest, ownerUserId: string) =>
-  sign({ ...request, sub: ownerUserId }, AUDIENCE.consent, CONSENT_TTL_SECONDS);
+  signScopedJwt({ ...request, sub: ownerUserId }, AUDIENCE.consent, CONSENT_TTL_SECONDS);
 
 export const readConsentTicket = async (ticket: string) => {
-  const payload = await verify(ticket, AUDIENCE.consent);
+  const payload = await verifyScopedJwt(ticket, AUDIENCE.consent);
   if (!payload || typeof payload.sub !== "string") return null;
   return {
     ownerUserId: payload.sub,
@@ -303,7 +308,7 @@ export const readConsentTicket = async (ticket: string) => {
 };
 
 export const issueAuthorizationCode = (request: AuthorizationRequest, ownerUserId: string) =>
-  sign(
+  signScopedJwt(
     {
       sub: ownerUserId,
       cid: createHash("sha256").update(request.clientId).digest("base64url"),
@@ -341,7 +346,7 @@ export const redeemAuthorizationCode = async (input: {
     throw new OAuthError("invalid_grant", "Malformed code_verifier.");
   }
 
-  const payload = await verify(input.code, AUDIENCE.code);
+  const payload = await verifyScopedJwt(input.code, AUDIENCE.code);
   if (!payload || typeof payload.sub !== "string") {
     throw new OAuthError("invalid_grant", "The authorization code is invalid or expired.");
   }
