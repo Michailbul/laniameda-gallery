@@ -127,14 +127,15 @@ The bundled stdio MCP server exposes:
 - `delete_gallery_item`
 - `list_assets`
 - `search_gallery`
+- `find_similar`
+- `preview_assets` — numbered contact-sheet image of search hits, a listing, or explicit ids (the agent's way to see pieces)
+- `check_sources`
 - `get_gallery_item`
-- `list_pillars`
-- `upsert_pillar`
-- `archive_pillar`
 - `list_tags`
 - `upsert_tag`
 - `upsert_tags`
 - `archive_tag`
+- `add_tag_aliases`
 - `list_collections`
 - `create_collection`
 - `update_collection`

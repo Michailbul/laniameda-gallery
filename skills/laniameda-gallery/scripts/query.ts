@@ -114,6 +114,25 @@ interface RefsParams extends NamedFilters {
   download?: boolean;
 }
 
+// "Let me SEE the options": search (or list, or explicit ids), then have the
+// gallery compose the hits into numbered contact-sheet JPEGs the agent opens
+// with its image reader. One sheet = one vision read for up to 48 pieces.
+interface PreviewParams extends NamedFilters {
+  action: "preview";
+  ids?: string[];
+  query?: string;
+  mode?: SearchMode;
+  kind?: AssetKind;
+  folderId?: string;
+  includeDescendants?: boolean;
+  search?: string;
+  limit?: number;
+  perSheet?: number;
+  columns?: number;
+  maxEdge?: number;
+  outDir?: string;
+}
+
 interface AssetGetParams {
   action: "get";
   assetId: string;
@@ -163,6 +182,7 @@ type Params =
   | SourcesParams
   | TagsParams
   | RefsParams
+  | PreviewParams
   | AssetGetParams
   | GalleryIdGetParams
   | AssetDownloadParams
@@ -670,6 +690,154 @@ export async function handleRefs(params: RefsParams, runtime?: QueryRuntime) {
   return { count: refs.length, outDir, manifestPath, markdownPath, refs };
 }
 
+const PREVIEW_DEFAULT_LIMIT = 24;
+const PREVIEW_MAX_LIMIT = 96;
+const PREVIEW_MAX_PER_SHEET = 48;
+
+interface ContactSheetCell {
+  number: number;
+  assetId: string;
+  kind: AssetKind;
+  width?: number;
+  height?: number;
+  agentDescription?: string;
+  tagNames: string[];
+  previewOk: boolean;
+  previewError?: string;
+}
+
+interface ContactSheetResult {
+  contentType: string;
+  imageBase64: string;
+  width: number;
+  height: number;
+  columns: number;
+  rows: number;
+  cells: ContactSheetCell[];
+  missingIds: string[];
+}
+
+export async function handlePreview(params: PreviewParams, runtime?: QueryRuntime) {
+  const limit = Math.max(1, Math.min(params.limit ?? PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT));
+  const perSheet = Math.max(
+    1,
+    Math.min(params.perSheet ?? PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_PER_SHEET),
+  );
+  const scores = new Map<string, number>();
+
+  let assetIds: string[];
+  if (Array.isArray(params.ids) && params.ids.length > 0) {
+    assetIds = params.ids
+      .map((id) => parseGalleryId(String(id), "asset").id)
+      .slice(0, PREVIEW_MAX_LIMIT);
+  } else if (params.query?.trim()) {
+    const found = await handleSearch(
+      {
+        action: "search",
+        query: params.query,
+        mode: params.mode,
+        kind: params.kind,
+        folderId: params.folderId,
+        ...namedFilterArgs(params),
+        limit: Math.min(limit, 100),
+      },
+      runtime,
+    );
+    assetIds = found.results.map((asset) => {
+      if (typeof asset.score === "number") scores.set(String(asset.id), asset.score);
+      return String(asset.id);
+    });
+  } else {
+    const found = await handleList(
+      {
+        action: "list",
+        kind: params.kind,
+        folderId: params.folderId,
+        includeDescendants: params.includeDescendants,
+        search: params.search,
+        ...namedFilterArgs(params),
+        limit,
+      },
+      runtime,
+    );
+    assetIds = found.assets.map((asset) => String(asset.id));
+  }
+
+  if (assetIds.length === 0) {
+    return { count: 0, sheets: [], note: "Nothing matched; no sheet to show." };
+  }
+
+  const { convexAction } = createHttpClient(runtime);
+  const ownerUserId = resolveOwnerUserId(runtime?.ownerUserId);
+  const outDir =
+    params.outDir ||
+    join(
+      "/tmp/laniameda-gallery/previews",
+      slugify(params.query ?? (params.ids?.length ? "ids" : "list")),
+    );
+  await mkdir(outDir, { recursive: true });
+
+  const sheets: Array<{
+    path: string;
+    width: number;
+    height: number;
+    columns: number;
+    rows: number;
+    cells: Array<{
+      number: number;
+      id: string;
+      kind: AssetKind;
+      width?: number;
+      height?: number;
+      score?: number;
+      tagNames: string[];
+      agentDescription?: string;
+      previewError?: string;
+    }>;
+  }> = [];
+  const missingIds: string[] = [];
+
+  for (let start = 0; start < assetIds.length; start += perSheet) {
+    const chunk = assetIds.slice(start, start + perSheet);
+    const sheet = (await convexAction("agentPreview:contactSheet", {
+      ownerUserId,
+      assetIds: chunk,
+      columns: params.columns,
+      maxEdge: params.maxEdge,
+    })) as ContactSheetResult;
+    const path = join(outDir, `sheet-${sheets.length + 1}.jpg`);
+    await writeFile(path, Buffer.from(sheet.imageBase64, "base64"));
+    missingIds.push(...sheet.missingIds);
+    sheets.push({
+      path,
+      width: sheet.width,
+      height: sheet.height,
+      columns: sheet.columns,
+      rows: sheet.rows,
+      cells: sheet.cells.map((cell) => ({
+        number: cell.number,
+        id: `asset:${cell.assetId}`,
+        kind: cell.kind,
+        width: cell.width,
+        height: cell.height,
+        ...(scores.has(cell.assetId) ? { score: scores.get(cell.assetId) } : {}),
+        tagNames: cell.tagNames,
+        agentDescription: cell.agentDescription,
+        ...(cell.previewOk ? {} : { previewError: cell.previewError ?? "no preview" }),
+      })),
+    });
+  }
+
+  return {
+    count: sheets.reduce((total, sheet) => total + sheet.cells.length, 0),
+    outDir,
+    sheets,
+    ...(missingIds.length > 0 ? { missingIds } : {}),
+    next:
+      "Open each sheet path with your image reader. Cells are numbered left to right, top to bottom; numbers restart on every sheet; a play badge marks a video poster. Then getById an asset:<id> for its prompt and record, or preview with 1-4 ids to look closer.",
+  };
+}
+
 export async function handleGet(params: AssetGetParams, runtime?: QueryRuntime) {
   const { convexQuery } = createHttpClient(runtime);
   const { id: assetId } = parseGalleryId(params.assetId, "asset");
@@ -818,6 +986,8 @@ export async function runGalleryQuery(params: Params, runtime?: QueryRuntime) {
       return await handleTags(params, runtime);
     case "refs":
       return await handleRefs(params, runtime);
+    case "preview":
+      return await handlePreview(params, runtime);
     case "get":
       return await handleGet(params, runtime);
     case "getById":
@@ -839,7 +1009,7 @@ async function main() {
   const rawInput = process.argv[2];
   if (!rawInput) {
     console.error(
-      "Usage: bun run query.ts '<json>'. Actions: list, search, similar, refs, sources, tags, get, getById, getPack, download, listDesigns, getDesign.",
+      "Usage: bun run query.ts '<json>'. Actions: list, search, similar, refs, preview, sources, tags, get, getById, getPack, download, listDesigns, getDesign.",
     );
     process.exit(1);
   }

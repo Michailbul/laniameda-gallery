@@ -10,9 +10,10 @@ description: >-
   Dribbble or websites into it. Triggers: "add this to my gallery", "save this",
   "put this in the Love collection", "file this under CASSANDRA", "sort these into
   characters and locations", "what do I have for...", "find in my gallery",
-  "pull the prompt for asset:...", "go through my X bookmarks", "save my
+  "pull the prompt for asset:...", "show me what I have for...", "pick
+  references", "go through my X bookmarks", "save my
   bookmarks to the gallery", "extract these into the gallery".
-version: 1.1.0
+version: 1.2.0
 ---
 
 # laniameda gallery
@@ -132,6 +133,16 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
   `excludeTagNames`, `pieceType`, `medium`, `onlyLiked`, `onlyStarred`,
   `folderId` (+ `includeDescendants`). Tag names match canonically.
 - **More like this**: `similar` with `assetId` (visual by default).
+- **Look before you pick**: `preview` composes the hits of a search (or a
+  listing, or explicit `ids`) into numbered contact-sheet JPEGs. Read the
+  sheet, pick by number, map numbers to `asset:<id>` from `sheets[].cells`.
+  One image read shows up to 48 pieces, so browse visually instead of judging
+  from captions:
+  ```json
+  {"action":"preview","query":"moody rainy street at night","pieceType":"location","limit":24,"outDir":"<scratchpad>/previews"}
+  ```
+  Default to this whenever Michael asks you to find, choose or compare
+  references: search narrows by words, the sheet lets you judge by eye.
 - **Hand me N references**: `refs` searches (or lists), downloads the top
   matches and writes `refs.json` + `refs.md` with each piece's description,
   tags, prompt and source. The one call for "pull references for this task".
@@ -175,5 +186,6 @@ the deployment rules in `references/maintenance.md` (one deployment,
 `dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call). The
 script takes `folderIds` (first is primary) and warns on stderr when a save
 would mint a new tag. The gallery MCP server (`save_asset`, `search_gallery`,
-`find_similar`, `check_sources`, …) is the multi-user path, and isn't
-registered in Claude Code yet.
+`find_similar`, `preview_assets`, `check_sources`, …) is the multi-user path,
+and isn't registered in Claude Code yet. Its `preview_assets` returns the
+contact sheet as an inline image, no file read needed.

@@ -399,6 +399,150 @@ server.registerTool(
     ),
 );
 
+const PREVIEW_DEFAULT_LIMIT = 24;
+const PREVIEW_MAX_LIMIT = 48;
+
+type SheetCell = {
+  number: number;
+  assetId: string;
+  kind: string;
+  width?: number;
+  height?: number;
+  agentDescription?: string;
+  tagNames?: string[];
+  previewOk: boolean;
+  previewError?: string;
+};
+
+type ContactSheet = {
+  contentType: string;
+  imageBase64: string;
+  columns: number;
+  rows: number;
+  cells: SheetCell[];
+  missingIds: string[];
+};
+
+const assetIdOf = (record: unknown) =>
+  record && typeof record === "object" && typeof (record as JsonRecord)._id === "string"
+    ? ((record as JsonRecord)._id as string)
+    : undefined;
+
+const formatSheetLegend = (sheet: ContactSheet, scores: Map<string, number>) => {
+  const lines = [
+    `Contact sheet: ${sheet.cells.length} pieces in a ${sheet.columns}×${sheet.rows} grid, numbered left to right, top to bottom. A ▶ badge marks a video (its poster frame is shown).`,
+    ...sheet.cells.map((cell) => {
+      const parts = [`#${cell.number} asset:${cell.assetId}`, cell.kind];
+      if (cell.width && cell.height) parts.push(`${cell.width}×${cell.height}`);
+      const score = scores.get(cell.assetId);
+      if (score !== undefined) parts.push(`score ${score.toFixed(2)}`);
+      if (cell.tagNames && cell.tagNames.length > 0) parts.push(`tags: ${cell.tagNames.join(", ")}`);
+      if (cell.agentDescription) parts.push(`"${cell.agentDescription}"`);
+      if (!cell.previewOk) parts.push(`NO PREVIEW (${cell.previewError ?? "unknown"})`);
+      return parts.join(" · ");
+    }),
+  ];
+  if (sheet.missingIds.length > 0) {
+    lines.push(`Not found or not yours: ${sheet.missingIds.join(", ")}`);
+  }
+  lines.push(
+    "Next: get_gallery_item with an asset:<id> for its prompt and full record; preview_assets with 1–4 ids to look closer; find_similar to widen around a pick.",
+  );
+  return lines.join("\n");
+};
+
+server.registerTool(
+  "preview_assets",
+  {
+    title: "Preview Assets",
+    description:
+      "SEE gallery pieces instead of reading URLs. Returns ONE numbered contact-sheet image (up to 48 thumbs) plus a legend mapping each number to its asset:<id>, tags and description. Give `ids` to look at specific assets (1–4 ids render large for close inspection), or `query` to semantic-search and preview the hits, or only filters to preview a listing. Use it to browse, compare and pick references before pulling full records.",
+    inputSchema: {
+      ids: z
+        .array(z.string())
+        .describe("asset:<id> or raw asset ids, in the order to show them. Max 48.")
+        .optional(),
+      query: z
+        .string()
+        .describe("Semantic search query; its hits are previewed in rank order.")
+        .optional(),
+      mode: z.enum(["hybrid", "visual", "text"]).optional(),
+      kind: z.enum(["image", "video"]).optional(),
+      folderId: z.string().optional(),
+      includeDescendants: z.boolean().optional(),
+      modelName: z.string().optional(),
+      assetRole: z.string().optional(),
+      ...namedFilterShape,
+      search: z.string().describe("Plain substring filter for a listing (no query).").optional(),
+      limit: z
+        .number()
+        .describe(`How many pieces to preview (default ${PREVIEW_DEFAULT_LIMIT}, max ${PREVIEW_MAX_LIMIT}).`)
+        .optional(),
+      columns: z.number().describe("Grid columns; auto (about 4:3) by default.").optional(),
+      maxEdge: z
+        .number()
+        .describe("Long edge of the sheet in px (default 1568, max 2400).")
+        .optional(),
+    },
+  },
+  async (input) => {
+    const { ids, query, columns, maxEdge, limit, mode, search, includeDescendants, ...filters } =
+      input;
+    const cap = Math.max(1, Math.min(limit ?? PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT));
+    const scores = new Map<string, number>();
+
+    let assetIds: string[];
+    if (ids && ids.length > 0) {
+      assetIds = ids.slice(0, PREVIEW_MAX_LIMIT);
+    } else if (query?.trim()) {
+      const found = await apiFetch("/api/agent/gallery", {
+        action: "searchAssets",
+        query,
+        mode,
+        ...filters,
+        limit: cap,
+      });
+      const results = Array.isArray(found.results) ? found.results : [];
+      assetIds = [];
+      for (const result of results) {
+        const id = assetIdOf(result);
+        if (!id) continue;
+        assetIds.push(id);
+        const score = (result as JsonRecord).score;
+        if (typeof score === "number") scores.set(id, score);
+      }
+    } else {
+      const found = await apiFetch("/api/agent/gallery", {
+        action: "listAssets",
+        ...filters,
+        search,
+        includeDescendants,
+        limit: cap,
+      });
+      const assets = Array.isArray(found.assets) ? found.assets : [];
+      assetIds = assets.map(assetIdOf).filter((id): id is string => Boolean(id));
+    }
+
+    if (assetIds.length === 0) {
+      return { content: [{ type: "text" as const, text: "Nothing matched; no sheet to show." }] };
+    }
+
+    const response = await apiFetch("/api/agent/gallery", {
+      action: "contactSheet",
+      ids: assetIds,
+      columns,
+      maxEdge,
+    });
+    const sheet = response.sheet as ContactSheet;
+    return {
+      content: [
+        { type: "image" as const, data: sheet.imageBase64, mimeType: sheet.contentType },
+        { type: "text" as const, text: formatSheetLegend(sheet, scores) },
+      ],
+    };
+  },
+);
+
 server.registerTool(
   "check_sources",
   {

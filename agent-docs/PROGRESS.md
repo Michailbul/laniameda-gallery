@@ -2,11 +2,14 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-09-26
+Last updated: 2026-10-02
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-02
+- Agents can now SEE the gallery, not just read its JSON. `agentPreview:contactSheet` (Convex Node action, owner-scoped) composes up to 48 assets into one numbered JPEG grid from their card thumbs or video posters, with a legend mapping each number to its `asset:<id>`, tags and agent description. Sheets cap their long edge at 1568px, the size Claude scales images down to for vision anyway. Labels are drawn from a built-in bitmap font (`lib/contact-sheet.ts`), so they don't depend on system fonts. Three entry points: the MCP tool `preview_assets` (an inline image block, from a query, filters or ids), the skill CLI action `preview` (writes `sheet-N.jpg` files for the agent's image reader, up to 96 pieces across sheets), and the agent API action `contactSheet` on `/api/agent/gallery`.
 
 ### 2026-09-26
 - Gallery tiles now load WebP card thumbnails instead of originals. Before: 1,810 of 2,427 image tiles pulled the full original (629 of them over 2 MB), 48 video tiles mounted the full video for want of a poster, and existing thumbs were quality-100 JPEG or PNG at a median of 500 KB. Scrolling the whole grid now costs 160 MB for images (was 4.5 GB) and 8 MB for video posters (was 670 MB); the median tile is 47 KB. All ingest paths (API, agent, cinema frames, design saves, browser posters) share one sharp encoder; `thumbnails:backfillCardThumbnails` rebuilt the existing thumbs and `scripts/backfill-video-posters.ts` gave 18 poster-less videos a poster via local ffmpeg.
