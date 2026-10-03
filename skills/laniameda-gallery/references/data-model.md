@@ -214,7 +214,7 @@ These are the valid enum values the Convex schema enforces — use these or inge
 **`parentFolderId` nesting:** only a plain root collection may be a parent, and
 only plain collections may be children. One level deep.
 
-**`assetRole`:** `generated_output`, `reference`, `inspiration_capture`, `workflow_asset`, `cinema_frame`, `other`
+**`assetRole`:** `generated_output`, `reference`, `inspiration_capture`, `workflow_asset`, `cinema_frame`, `bookmark` (a saved post's own preview; set by the bookmark save, never by hand), `other`
 
 **`ingestSource`:** `api`, `agent`, `telegram`, `manual`, `import`
 
@@ -293,6 +293,18 @@ not folders), `tagNames` (plain strings) and the R2 keys of the copied
 thumbnail and in-video frames. Idempotent on (owner, video id). Not in the
 semantic index. Detail: `references/video-refs.md`; code: `convex/videoRefs.ts`,
 `lib/video-refs.ts`.
+
+### `bookmarks`: X posts with their text
+
+One row per post per owner (idempotent on owner, platform, post id): permalink,
+author, text, language, posted time, media (image URLs, or a video's poster),
+quoted post, counts, and `userNote` (the owner's words). `assetId` names the
+piece the Bookmarks tab shows for the post. Assets point back through
+`assets.bookmarkId` (index `by_bookmark`): a post's own preview has
+`assetRole: "bookmark"`; media saved earlier from the same post is linked and
+keeps its role. Every linked piece carries the tag `bookmark`, and the post's
+text is part of its search text lane. Detail: `references/bookmarks.md`; code:
+`convex/bookmarks.ts`, `convex/bookmarkSaves.ts`, `convex/bookmarkHelpers.ts`.
 
 ## Validators to read in code
 

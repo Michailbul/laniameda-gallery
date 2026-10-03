@@ -117,6 +117,7 @@ And on the record itself:
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |
 | Go through X bookmarks, Instagram, Pinterest, sites and save what he liked | `references/extraction.md` |
 | Save or find a YouTube video as research: competitors, formats, animation styles, what performs | `references/video-refs.md` |
+| Bookmark a post from X (link in, text kept), find posts by what they say | `references/bookmarks.md` |
 | Save or find motion design: animated UI, morph transitions, kinetic type, product-launch videos, templates | `references/motion.md` |
 | What a field, tag category or enum means | `references/data-model.md` |
 | Access, env, deployment, keeping this skill current | `references/maintenance.md` |
@@ -164,6 +165,14 @@ MCP tools or `scripts/gallery.mjs`, use the matching tool listed under Access.
   {"action":"list","collection":"youtube-cars-competitors","sort":"views","limit":20}
   ```
   `search` over assets does not return them (`references/video-refs.md`).
+- **X posts he bookmarked** ("what did I save about alpha mattes", "posts by
+  @handle"): bookmarks keep the post's text. `list_bookmarks` /
+  `scripts/bookmarks.ts` matches words in the text, author or note; `search`
+  with `"tagNames":["bookmark"]` finds them by meaning, and each hit carries
+  `post` (`references/bookmarks.md`).
+  ```json
+  {"action":"list","search":"alpha matte","limit":10}
+  ```
 - **Already saved?**: `sources` with a list of permalinks, before any
   extraction run.
 - **Which tags exist**: `tags` (optionally `search`), before inventing one.
@@ -242,6 +251,7 @@ and 2 the same work is done by the MCP tools: `search` → `search_gallery`,
 `save_assets` / `save_prompt`, folders → `list_collections` and friends.
 Video references have their own tools on every path: `list_video_refs`,
 `get_video_ref`, `save_video_refs`, `update_video_ref`, `delete_video_ref`,
-or `scripts/video-refs.ts` directly.
+or `scripts/video-refs.ts` directly. So do bookmarks: `save_bookmarks`,
+`list_bookmarks`, `set_bookmark_note`, or `scripts/bookmarks.ts`.
 Deployment rules for path 3 are in `references/maintenance.md` (one deployment,
 `dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call).

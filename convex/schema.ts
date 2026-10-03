@@ -245,8 +245,9 @@ export default defineSchema({
     thumbHeight: v.optional(v.number()),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
-    // Set when this asset is the preview of a saved social post (assetRole
-    // "bookmark"). The grid renders such assets as post cards.
+    // The saved social post this asset belongs to. A post's own preview has
+    // assetRole "bookmark" and renders as a post card; media saved from the
+    // post is linked here too and keeps its own role.
     bookmarkId: v.optional(v.id("bookmarks")),
     tagIds: v.array(v.id("tags")),
     folderId: v.optional(v.id("folders")),
@@ -297,6 +298,7 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_contentHash", ["ownerUserId", "contentHash"])
     .index("by_owner_sourceUrl", ["ownerUserId", "sourceUrl"])
+    .index("by_bookmark", ["bookmarkId"])
     .index("by_prompt_createdAt", ["promptId", "createdAt"])
     .index("by_owner_prompt_createdAt", ["ownerUserId", "promptId", "createdAt"])
     .index("by_folder_createdAt", ["folderId", "createdAt"])
@@ -421,7 +423,8 @@ export default defineSchema({
   // same post refreshes its metadata and files it into more collections. The
   // post's preview image is a regular asset (assetRole "bookmark",
   // bookmarkId -> this row), so collections, search and the grid all work
-  // through the asset. Post fields are source metadata captured from the page;
+  // through the asset. Media already saved from the post points here as well;
+  // `assetId` is the one piece the Bookmarks tab shows for the post. Post fields are source metadata captured from the page;
   // `userNote` is the owner's own words.
   bookmarks: defineTable({
     ownerUserId: v.string(),

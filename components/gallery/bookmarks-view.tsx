@@ -75,7 +75,9 @@ export function BookmarksView({
       flattenStacks: true,
     }).map((entry) => {
       const badges = resolveEntryBadges?.(entry);
-      return badges ? { ...entry, ...badges } : entry;
+      // This view is about the posts: a media piece linked to its post shows
+      // as the post here, not as a bare image.
+      return { ...entry, ...(badges ?? {}), postCard: Boolean(entry.bookmark) };
     });
   }, [resolveEntryBadges, rows]);
 

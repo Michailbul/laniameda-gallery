@@ -2,11 +2,17 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-03
+- Bookmarks from a link, with their text. Agents save an X post by its URL (`save_bookmarks` MCP tool, `scripts/bookmarks.ts`, `/api/agent/bookmarks`): the gallery reads the author, text, media, quoted post and counts itself, so text-only posts are saveable too. A post whose images or video were already in the gallery is linked to those pieces instead of copied; they keep their role and gain the post in the detail panel and in search. 25 posts behind 47 existing X pieces were linked this way.
+- The island bar has a **Bookmarks** pill (tag `bookmark`). With it on, each post shows once as a post card with its text. The vault's keyword search now matches post text, author and note; `list_bookmarks` reads saved posts as text for agents.
+- Deleting one piece of a multi-image post no longer deletes the bookmark while other pieces remain.
+- Fixes found on the way: the hosted MCP never registered `/api/agent/video-refs`, so the video-reference tools failed there; `next dev --webpack` crashed on first compile since the `.claude/skills` symlink landed (Tailwind's source scan now skips `.claude` and `skills`).
 
 ### 2026-10-02
 - X post bookmarks: the extension (v0.12) puts a Save button on every post on x.com. It saves the post's author, text, permalink, time, media, quoted post and counts as a bookmark, filed into the collections you pick, with an optional note. Bookmarks render as post cards in the grid, have their own Bookmarks view in the sidebar (collection chips, search), and lead the detail panel with the full post. Detail: `features/x-bookmarks/README.md`.
