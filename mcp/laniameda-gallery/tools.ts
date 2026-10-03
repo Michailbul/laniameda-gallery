@@ -29,6 +29,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "Every saved asset should carry sourceUrl when it came from the web, and an agentDescription: one or two plain sentences (max ~45 words) on what it shows and why it was kept.",
   "Reuse existing tags (list_tags) before inventing new ones. Never star or publish anything unless asked. Ask before deleting.",
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
+  "YouTube videos kept as research (competitors, formats, animation styles) are video references, not assets: list_video_refs to read them, save_video_refs to add them.",
   "To add local files (e.g. from ~/Downloads): prepare_uploads with the paths, run the curl commands it returns, then save_assets with the uploadIds. Two tool calls for any batch size; public URLs go straight into save_assets.",
 ].join(" ");
 
@@ -953,5 +954,124 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
           folderId: input.folderId,
         }),
       ),
+  );
+
+  // Video references: YouTube videos saved as research on what performs and
+  // how it looks. Their own table and their own tab ("Videos"), apart from
+  // assets. Ids read video:<id>.
+  const videoRefShape = {
+    url: z.string().describe("YouTube link or the 11-character video id."),
+    title: z.string(),
+    channelName: z.string().optional(),
+    channelHandle: z.string().describe("@handle").optional(),
+    channelUrl: z.string().optional(),
+    subscribers: z.number().optional(),
+    medianViews: z.number().describe("Median views of the channel's recent uploads.").optional(),
+    views: z.number().optional(),
+    publishedAt: z
+      .union([z.number(), z.string()])
+      .describe("Upload date: epoch milliseconds or an ISO date.")
+      .optional(),
+    durationSeconds: z.number().optional(),
+    isChannelBest: z.boolean().describe("The channel's best performer in the window studied.").optional(),
+    topic: z.string().describe("Subject area, e.g. cars, history, success-stories.").optional(),
+    styleFamily: z.string().describe("Plain-words name of the look, e.g. 'map animation'.").optional(),
+    styleDescription: z
+      .string()
+      .describe("What the picture is made of: materials, colour, type, how things move.")
+      .optional(),
+    format: z.string().describe("How an episode is structured.").optional(),
+    whyItWorks: z.string().optional(),
+    hook: z.string().optional(),
+    titlePattern: z.string().optional(),
+    thumbnailPattern: z.string().optional(),
+    audience: z.string().optional(),
+    bendIdea: z.string().describe("How the format could carry another subject.").optional(),
+    agentDescription: z
+      .string()
+      .describe("One or two plain sentences: what it shows and why it was kept.")
+      .optional(),
+    collections: z
+      .array(z.string())
+      .describe("Filter labels in the Videos tab, e.g. youtube-cars-competitors.")
+      .optional(),
+    tagNames: z.array(z.string()).optional(),
+    thumbnailUrl: z.string().describe("Override; YouTube's own thumbnail is copied by default.").optional(),
+    frameUrls: z
+      .array(z.string())
+      .describe("Override, up to 6 https image URLs; YouTube's three auto-captured frames are copied by default.")
+      .optional(),
+  };
+
+  server.registerTool(
+    "list_video_refs",
+    {
+      title: "List Video References",
+      description:
+        "List saved YouTube video references with their style notes, stats, thumbnail and in-video frame URLs. Sorted by most views unless sort says otherwise. Use for 'what competitors do', 'find a video in this style', 'what performs in cars'.",
+      inputSchema: {
+        collection: z.string().describe("e.g. youtube-cars-competitors").optional(),
+        topic: z.string().optional(),
+        styleFamily: z.string().optional(),
+        channelHandle: z.string().optional(),
+        search: z.string().describe("Every word must appear in the title, channel, style or notes.").optional(),
+        onlyLiked: z.boolean().optional(),
+        onlyChannelBest: z.boolean().optional(),
+        minViews: z.number().optional(),
+        publishedAfter: z.union([z.number(), z.string()]).optional(),
+        sort: z.enum(["views", "recent", "saved"]).optional(),
+        limit: z.number().optional(),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "list", ...input })),
+  );
+
+  server.registerTool(
+    "get_video_ref",
+    {
+      title: "Get Video Reference",
+      description: "Read one video reference in full.",
+      inputSchema: { id: z.string().describe("video:<id> or the bare id.") },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "get", id: input.id })),
+  );
+
+  server.registerTool(
+    "save_video_refs",
+    {
+      title: "Save Video References",
+      description:
+        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, the title, the stats and the style notes. Saving the same video again updates it and merges collections.",
+      inputSchema: {
+        items: z.array(z.object(videoRefShape)).min(1).max(12),
+        refreshMedia: z.boolean().describe("Re-copy the thumbnail and frames.").optional(),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "save", ...input })),
+  );
+
+  server.registerTool(
+    "update_video_ref",
+    {
+      title: "Update Video Reference",
+      description: "Set the owner's note, the like, or the collections of a video reference.",
+      inputSchema: {
+        id: z.string(),
+        userNote: z.string().optional(),
+        isLiked: z.boolean().optional(),
+        collections: z.array(z.string()).describe("Replaces the whole set.").optional(),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "update", ...input })),
+  );
+
+  server.registerTool(
+    "delete_video_ref",
+    {
+      title: "Delete Video Reference",
+      description: "Remove one video reference. Ask before deleting.",
+      inputSchema: { id: z.string() },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "delete", id: input.id })),
   );
 }

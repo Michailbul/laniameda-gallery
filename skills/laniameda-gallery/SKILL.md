@@ -116,6 +116,7 @@ And on the record itself:
 | Update or delete an item | `references/ingest.md` and the update examples |
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |
 | Go through X bookmarks, Instagram, Pinterest, sites and save what he liked | `references/extraction.md` |
+| Save or find a YouTube video as research: competitors, formats, animation styles, what performs | `references/video-refs.md` |
 | What a field, tag category or enum means | `references/data-model.md` |
 | Access, env, deployment, keeping this skill current | `references/maintenance.md` |
 
@@ -155,6 +156,13 @@ MCP tools or `scripts/gallery.mjs`, use the matching tool listed under Access.
 - **Hand me N references**: `refs` searches (or lists), downloads the top
   matches and writes `refs.json` + `refs.md` with each piece's description,
   tags, prompt and source. The one call for "pull references for this task".
+- **YouTube research** ("what do car channels do", "a video in this style"):
+  video references are their own object with their own listing, sorted by views
+  or by date. `list_video_refs` / `scripts/video-refs.ts`:
+  ```json
+  {"action":"list","collection":"youtube-cars-competitors","sort":"views","limit":20}
+  ```
+  `search` over assets does not return them (`references/video-refs.md`).
 - **Already saved?**: `sources` with a list of permalinks, before any
   extraction run.
 - **Which tags exist**: `tags` (optionally `search`), before inventing one.
@@ -231,5 +239,8 @@ and 2 the same work is done by the MCP tools: `search` → `search_gallery`,
 `getById` → `get_gallery_item`, `searchSkills` / `skills` / `getSkill` →
 `search_skills` / `list_skills` / `get_skill`, a save → `save_asset` /
 `save_assets` / `save_prompt`, folders → `list_collections` and friends.
+Video references have their own tools on every path: `list_video_refs`,
+`get_video_ref`, `save_video_refs`, `update_video_ref`, `delete_video_ref`,
+or `scripts/video-refs.ts` directly.
 Deployment rules for path 3 are in `references/maintenance.md` (one deployment,
 `dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call).

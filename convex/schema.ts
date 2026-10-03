@@ -486,6 +486,59 @@ export default defineSchema({
     .index("by_targetAsset", ["targetAssetId"])
     .index("by_sourcePrompt", ["sourcePromptId"])
     .index("by_sourceAsset", ["sourceAssetId"]),
+  // Video references: one row per YouTube video per owner. Research on what
+  // performs and how it looks, kept apart from assets so a batch of several
+  // hundred never floods the grid. The thumbnail and the in-video frames are
+  // copied to R2 at save time (`thumbR2Key`, `frames`), so the look survives
+  // the video being taken down. `collections` are plain labels used as
+  // filters in the Videos tab (e.g. "youtube-cars-competitors"), not folders.
+  // Channel fields are a snapshot at save time; `userNote` and `isLiked` are
+  // the owner's own.
+  videoRefs: defineTable({
+    ownerUserId: v.string(),
+    platform: v.literal("youtube"),
+    externalId: v.string(),
+    url: v.string(),
+    title: v.string(),
+    channelName: v.optional(v.string()),
+    channelHandle: v.optional(v.string()),
+    channelUrl: v.optional(v.string()),
+    subscribers: v.optional(v.number()),
+    medianViews: v.optional(v.number()),
+    views: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    durationSeconds: v.optional(v.number()),
+    // The channel's best performer in the window the research looked at.
+    isChannelBest: v.optional(v.boolean()),
+    collections: v.array(v.string()),
+    topic: v.optional(v.string()),
+    styleFamily: v.optional(v.string()),
+    styleDescription: v.optional(v.string()),
+    format: v.optional(v.string()),
+    whyItWorks: v.optional(v.string()),
+    hook: v.optional(v.string()),
+    titlePattern: v.optional(v.string()),
+    thumbnailPattern: v.optional(v.string()),
+    audience: v.optional(v.string()),
+    bendIdea: v.optional(v.string()),
+    agentDescription: v.optional(v.string()),
+    tagNames: v.array(v.string()),
+    thumbR2Key: v.optional(v.string()),
+    frames: v.array(
+      v.object({
+        r2Key: v.string(),
+        label: v.optional(v.string()),
+      }),
+    ),
+    userNote: v.optional(v.string()),
+    isLiked: v.optional(v.boolean()),
+    // Lowercased title, channel, style and notes; what `search` matches.
+    searchText: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_platform_externalId", ["ownerUserId", "platform", "externalId"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   ingest_failures: defineTable({
     source: v.union(v.literal("api")),
     ownerUserId: v.optional(v.string()),

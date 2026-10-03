@@ -285,6 +285,15 @@ only plain collections may be children. One level deep.
   - Points at canonical `tags` rows while storing user-specific label, description, color, sort order, pillar/category defaults, and archive state.
   - Managed externally through `/api/agent/customize`; content rows still attach canonical `tagIds`.
 
+### `videoRefs`: YouTube research (the Videos tab)
+
+One row per YouTube video per owner, apart from assets. Holds the video's and
+the channel's numbers, the style analysis, `collections` (plain filter labels,
+not folders), `tagNames` (plain strings) and the R2 keys of the copied
+thumbnail and in-video frames. Idempotent on (owner, video id). Not in the
+semantic index. Detail: `references/video-refs.md`; code: `convex/videoRefs.ts`,
+`lib/video-refs.ts`.
+
 ## Validators to read in code
 
 See `convex/validators.ts`:
