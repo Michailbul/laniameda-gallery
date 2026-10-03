@@ -117,6 +117,7 @@ And on the record itself:
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |
 | Go through X bookmarks, Instagram, Pinterest, sites and save what he liked | `references/extraction.md` |
 | Save or find a YouTube video as research: competitors, formats, animation styles, what performs | `references/video-refs.md` |
+| Save or find motion design: animated UI, morph transitions, kinetic type, product-launch videos, templates | `references/motion.md` |
 | What a field, tag category or enum means | `references/data-model.md` |
 | Access, env, deployment, keeping this skill current | `references/maintenance.md` |
 

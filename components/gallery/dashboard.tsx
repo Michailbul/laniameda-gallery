@@ -97,6 +97,7 @@ import {
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
 import { VideoRefsView } from "@/components/gallery/video-refs-view";
+import { MotionView } from "@/components/gallery/motion-view";
 
 type SelectedImage = {
   id: string;
@@ -323,6 +324,8 @@ export function GalleryDashboard({
   const [bookmarksView, setBookmarksView] = useState(false);
   // The Videos tab: YouTube video references (their own table, not assets).
   const [videosView, setVideosView] = useState(false);
+  // The Motion tab: assets tagged motion-design, filtered by their own facets.
+  const [motionView, setMotionView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -3902,7 +3905,7 @@ export function GalleryDashboard({
     // grid is actually showing. The collections landing, workflows and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
-    if (viewMode !== "grid" || storybooksView || bookmarksView || videosView) return null;
+    if (viewMode !== "grid" || storybooksView || bookmarksView || videosView || motionView) return null;
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -3919,6 +3922,7 @@ export function GalleryDashboard({
     storybooksView,
     bookmarksView,
     videosView,
+    motionView,
     viewMode,
   ]);
   const quickDropImpliedTag = useMemo<StaticsTagName | null>(() => {
@@ -4487,6 +4491,7 @@ export function GalleryDashboard({
               ? () => {
                   setBookmarksView(false);
                   setVideosView(false);
+                  setMotionView(false);
                   setStorybooksView(true);
                 }
               : undefined
@@ -4498,6 +4503,7 @@ export function GalleryDashboard({
                   setStorybooksView(false);
                   setBookmarksView(true);
                   setVideosView(false);
+                  setMotionView(false);
                 }
               : undefined
           }
@@ -4508,27 +4514,41 @@ export function GalleryDashboard({
                   setStorybooksView(false);
                   setBookmarksView(false);
                   setVideosView(true);
+                  setMotionView(false);
                 }
               : undefined
           }
           videosTabActive={videosView}
+          onMotionTab={
+            canManageFoldersInCurrentView
+              ? () => {
+                  setStorybooksView(false);
+                  setBookmarksView(false);
+                  setVideosView(false);
+                  setMotionView(true);
+                }
+              : undefined
+          }
+          motionTabActive={motionView}
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(false);
                   setVideosView(false);
+                  setMotionView(false);
                   setViewMode("skills");
                 }
               : undefined
           }
           skillsTabActive={
-            viewMode === "skills" && !storybooksView && !bookmarksView && !videosView
+            viewMode === "skills" && !storybooksView && !bookmarksView && !videosView && !motionView
           }
           onGalleryHome={() => {
             setStorybooksView(false);
             setBookmarksView(false);
                   setVideosView(false);
+                  setMotionView(false);
             setViewMode("grid");
           }}
           user={user}
@@ -4616,7 +4636,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !videosView && (
+            {!storybooksView && !bookmarksView && !videosView && !motionView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4679,7 +4699,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && !videosView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && !videosView && !motionView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4725,7 +4745,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && !bookmarksView && !videosView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && !videosView && !motionView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -4782,7 +4802,7 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className="relative min-w-0"
             >
-              {!storybooksView && !bookmarksView && !videosView && breadcrumbSegments.length > 0 && (
+              {!storybooksView && !bookmarksView && !videosView && !motionView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
@@ -4846,7 +4866,9 @@ export function GalleryDashboard({
                   }
                 />
               )}
-              {videosView && ownerUserId ? (
+              {motionView && ownerUserId ? (
+                <MotionView ownerUserId={ownerUserId} />
+              ) : videosView && ownerUserId ? (
                 <VideoRefsView ownerUserId={ownerUserId} />
               ) : bookmarksView ? (
                 <BookmarksView
