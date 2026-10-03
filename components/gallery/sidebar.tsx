@@ -12,7 +12,6 @@ import {
   Eye,
   EyeOff,
   Clapperboard,
-  Film,
   FolderOpen,
   Globe,
   Home,
@@ -55,7 +54,6 @@ interface GallerySidebarProps {
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   onUploadClick: () => void;
-  onSeedanceClick?: () => void;
   /** Opens the featured shelf — the owner's control over the public home reel. */
   onFeaturedShelf?: () => void;
   featuredShelfActive?: boolean;
@@ -65,9 +63,8 @@ interface GallerySidebarProps {
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
-  /** Opens the Videos tab: YouTube video references. */
-  onVideosTab?: () => void;
-  videosTabActive?: boolean;
+  /** Links to the public YouTube page (video references). */
+  showYouTubeTab?: boolean;
   /** Opens the Motion tab: motion design references with their own filters. */
   onMotionTab?: () => void;
   motionTabActive?: boolean;
@@ -128,15 +125,13 @@ export function GallerySidebar({
   collapsed,
   onCollapsedChange,
   onUploadClick,
-  onSeedanceClick,
   onFeaturedShelf,
   featuredShelfActive = false,
   onStorybooksTab,
   storybooksTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
-  onVideosTab,
-  videosTabActive = false,
+  showYouTubeTab = false,
   onMotionTab,
   motionTabActive = false,
   onSkillsTab,
@@ -366,7 +361,6 @@ export function GallerySidebar({
             isGalleryActive &&
             !storybooksTabActive &&
             !bookmarksTabActive &&
-            !videosTabActive &&
             !motionTabActive &&
             !skillsTabActive
           }
@@ -411,14 +405,13 @@ export function GallerySidebar({
             onClick={onBookmarksTab}
           />
         )}
-        {onVideosTab && (
+        {showYouTubeTab && (
           <NavItem
             icon={MonitorPlay}
-            label="Videos"
-            href="#"
-            active={videosTabActive}
+            label="YouTube"
+            href="/youtube"
+            active={false}
             collapsed={collapsed}
-            onClick={onVideosTab}
           />
         )}
         {onMotionTab && (
@@ -439,16 +432,6 @@ export function GallerySidebar({
             active={skillsTabActive}
             collapsed={collapsed}
             onClick={onSkillsTab}
-          />
-        )}
-        {onSeedanceClick && (
-          <NavItem
-            icon={Film}
-            label="Seedance"
-            href="#"
-            active={false}
-            collapsed={collapsed}
-            onClick={onSeedanceClick}
           />
         )}
         {onPreviewShowcase && (

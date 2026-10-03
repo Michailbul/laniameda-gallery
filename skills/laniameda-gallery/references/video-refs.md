@@ -2,7 +2,7 @@
 
 A **video reference** is a YouTube video kept as research: what performs, how it
 looks, why it works. It is its own object (table `videoRefs`,
-`convex/videoRefs.ts`), shown in the gallery's **Videos** tab and kept apart
+`convex/videoRefs.ts`), shown on the **YouTube** page (`/youtube`) and kept apart
 from assets, so a batch of several hundred videos never floods the grid.
 
 Use it when Michael says "save this YouTube video as a reference", "add these
@@ -18,7 +18,7 @@ ordinary asset (`references/ingest.md`).
 | `views`, `publishedAt`, `durationSeconds` | The video's numbers when it was saved. |
 | `channelName`, `channelHandle`, `channelUrl`, `subscribers`, `medianViews` | A snapshot of the channel. `medianViews` is the median of its recent long-form uploads. |
 | `isChannelBest` | The channel's best performer in the window the research looked at. |
-| `collections` | Plain labels used as filters in the Videos tab, e.g. `youtube-cars-competitors`. They are not gallery folders. Lowercase, hyphenated. |
+| `collections` | Plain labels used as themes on the YouTube page, e.g. `youtube-cars-competitors`. They are not gallery folders. Lowercase, hyphenated. |
 | `topic` | Subject area: `cars`, `history`, `success-stories`, `what-if`, `animation-styles`… |
 | `styleFamily` | Plain-words name of the look: "Map animation", "3D cutaway and schematic animation". |
 | `styleDescription` | What the picture is made of: materials, colour, type, how things move. |
@@ -98,4 +98,10 @@ index, so `search_gallery` does not return them.
 
 `update_video_ref` (or `{"action":"update"}`) sets `userNote`, `isLiked` and the
 whole `collections` list. `delete_video_ref` removes the record; ask first.
-In the Videos tab Michael likes, notes and deletes from the detail view.
+The YouTube page (`/youtube`) is public behind one password (`YOUTUBE_PAGE_PASSWORD`,
+default `ANDROMEDA`; the owner's own session skips it). It lists videos or channels by
+theme, Cars first, with sort and filters kept in the URL, and every video has its own
+link (`/youtube/<youtube id>`) to share. `userNote` and `bendIdea` never appear there.
+New collection labels show up as themes on their own; to name one or move it up the
+order, edit `THEMES` in `lib/youtube-page.ts`. Likes, notes and deletes go through the agent
+tools; the old in-gallery Videos tab is gone.

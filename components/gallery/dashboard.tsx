@@ -73,7 +73,6 @@ import { SkillModal } from "./skill-modal";
 import { StorybookModal } from "./storybook-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
-import { SeedanceIngestModal } from "@/components/seedance-ingest-modal";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
@@ -96,7 +95,6 @@ import {
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
-import { VideoRefsView } from "@/components/gallery/video-refs-view";
 import { MotionView } from "@/components/gallery/motion-view";
 
 type SelectedImage = {
@@ -329,8 +327,6 @@ export function GalleryDashboard({
   const [storybooksView, setStorybooksView] = useState(false);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
-  // The Videos tab: YouTube video references (their own table, not assets).
-  const [videosView, setVideosView] = useState(false);
   // The Motion tab: assets tagged motion-design, filtered by their own facets.
   const [motionView, setMotionView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
@@ -431,7 +427,6 @@ export function GalleryDashboard({
   );
   const [selectedCinemaAsset, setSelectedCinemaAsset] =
     useState<CinemaModalAsset | null>(null);
-  const [isSeedanceOpen, setSeedanceOpen] = useState(false);
 
   const openAddModal = useCallback(() => {
     setUploadInitialFiles(undefined);
@@ -3939,7 +3934,7 @@ export function GalleryDashboard({
     // grid is actually showing. The collections landing, workflows and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
-    if (viewMode !== "grid" || storybooksView || bookmarksView || videosView || motionView) return null;
+    if (viewMode !== "grid" || storybooksView || bookmarksView || motionView) return null;
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -3955,7 +3950,6 @@ export function GalleryDashboard({
     galleryScope,
     storybooksView,
     bookmarksView,
-    videosView,
     motionView,
     viewMode,
   ]);
@@ -4519,12 +4513,10 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onSeedanceClick={() => setSeedanceOpen(true)}
           onStorybooksTab={
             canManageFoldersInCurrentView
               ? () => {
                   setBookmarksView(false);
-                  setVideosView(false);
                   setMotionView(false);
                   setStorybooksView(true);
                 }
@@ -4536,29 +4528,17 @@ export function GalleryDashboard({
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(true);
-                  setVideosView(false);
                   setMotionView(false);
                 }
               : undefined
           }
           bookmarksTabActive={bookmarksView}
-          onVideosTab={
-            canManageFoldersInCurrentView
-              ? () => {
-                  setStorybooksView(false);
-                  setBookmarksView(false);
-                  setVideosView(true);
-                  setMotionView(false);
-                }
-              : undefined
-          }
-          videosTabActive={videosView}
+          showYouTubeTab={canManageFoldersInCurrentView}
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(false);
-                  setVideosView(false);
                   setMotionView(true);
                 }
               : undefined
@@ -4569,19 +4549,17 @@ export function GalleryDashboard({
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(false);
-                  setVideosView(false);
                   setMotionView(false);
                   setViewMode("skills");
                 }
               : undefined
           }
           skillsTabActive={
-            viewMode === "skills" && !storybooksView && !bookmarksView && !videosView && !motionView
+            viewMode === "skills" && !storybooksView && !bookmarksView && !motionView
           }
           onGalleryHome={() => {
             setStorybooksView(false);
             setBookmarksView(false);
-                  setVideosView(false);
                   setMotionView(false);
             setViewMode("grid");
           }}
@@ -4670,7 +4648,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !videosView && !motionView && (
+            {!storybooksView && !bookmarksView && !motionView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4733,7 +4711,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && !videosView && !motionView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && !motionView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4779,7 +4757,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && !bookmarksView && !videosView && !motionView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && !motionView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -4836,7 +4814,7 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className="relative min-w-0"
             >
-              {!storybooksView && !bookmarksView && !videosView && !motionView && breadcrumbSegments.length > 0 && (
+              {!storybooksView && !bookmarksView && !motionView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
@@ -4902,8 +4880,6 @@ export function GalleryDashboard({
               )}
               {motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
-              ) : videosView && ownerUserId ? (
-                <VideoRefsView ownerUserId={ownerUserId} />
               ) : bookmarksView ? (
                 <BookmarksView
                   ownerUserId={ownerUserId ?? undefined}
@@ -5710,11 +5686,6 @@ export function GalleryDashboard({
         }
         canPromoteToPublic={canCuratePublic}
         initialFiles={uploadInitialFiles}
-      />
-
-      <SeedanceIngestModal
-        open={isSeedanceOpen}
-        onClose={() => setSeedanceOpen(false)}
       />
 
       <CinemaModal

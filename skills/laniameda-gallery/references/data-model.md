@@ -285,7 +285,7 @@ only plain collections may be children. One level deep.
   - Points at canonical `tags` rows while storing user-specific label, description, color, sort order, pillar/category defaults, and archive state.
   - Managed externally through `/api/agent/customize`; content rows still attach canonical `tagIds`.
 
-### `videoRefs`: YouTube research (the Videos tab)
+### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and
 the channel's numbers, the style analysis, `collections` (plain filter labels,
