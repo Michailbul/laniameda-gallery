@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "laniameda-gallery": {
+      "type": "http",
+      "url": "https://gallery.laniameda.space/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LANIAMEDA_GALLERY_AGENT_TOKEN}"
+      }
+    }
+  }
+}

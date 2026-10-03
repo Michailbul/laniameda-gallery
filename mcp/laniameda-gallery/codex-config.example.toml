@@ -1,7 +1,15 @@
+# Hosted server (recommended): works whether or not the local app is running.
+# Export LANIAMEDA_GALLERY_AGENT_TOKEN in your shell profile; the token never
+# lands in this file.
 [mcp_servers.laniameda-gallery]
-command = "bun"
-args = ["/absolute/path/to/laniameda.gallery/mcp/laniameda-gallery/server.ts"]
+url = "https://gallery.laniameda.space/api/mcp"
+bearer_token_env_var = "LANIAMEDA_GALLERY_AGENT_TOKEN"
 
-[mcp_servers.laniameda-gallery.env]
-LANIAMEDA_GALLERY_API_URL = "https://<app-host>"
-LANIAMEDA_GALLERY_AGENT_TOKEN = "lgat_..."
+# Local stdio server instead (adds filePath uploads). Use one block, not both.
+# [mcp_servers.laniameda-gallery]
+# command = "bun"
+# args = ["/absolute/path/to/laniameda.gallery/mcp/laniameda-gallery/server.ts"]
+#
+# [mcp_servers.laniameda-gallery.env]
+# LANIAMEDA_GALLERY_API_URL = "https://gallery.laniameda.space"
+# LANIAMEDA_GALLERY_AGENT_TOKEN = "lgat_..."

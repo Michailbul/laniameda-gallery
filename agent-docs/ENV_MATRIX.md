@@ -98,7 +98,11 @@ LANIAMEDA_GALLERY_API_URL=https://<your-app-host>
 LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...
 ```
 
-Hosted MCP (`/api/mcp`, OAuth) needs no extra env. Optional:
+Clients of the hosted MCP (`/api/mcp`) that cannot do OAuth (cloud sessions, Codex,
+`.mcp.json`, `skills/laniameda-gallery/scripts/gallery.mjs`) need only
+`LANIAMEDA_GALLERY_AGENT_TOKEN`; the API URL defaults to production.
+
+The hosted MCP itself needs no extra server env. Optional:
 
 ```bash
 MCP_ALLOWED_USER_IDS=278674008   # who may approve; defaults to KB_OWNER_USER_ID
