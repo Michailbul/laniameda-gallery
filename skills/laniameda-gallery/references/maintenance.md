@@ -42,26 +42,48 @@ For navigation behaviour: `convex/menuFilters.ts` (island-bar pills),
 
 ## Access paths
 
-**MCP (preferred for multi-user agents).** A local stdio server in
-`mcp/laniameda-gallery/`. Tools: `save_asset`, `save_prompt`,
-`update_gallery_item`, `delete_gallery_item`, `get_gallery_item`,
-`list_assets`, `search_gallery`, `find_similar`, `check_sources`, `list_tags`,
-`upsert_tag`, `upsert_tags`, `archive_tag`, `add_tag_aliases`,
-`list_collections`, `create_collection`, `update_collection`,
-`delete_collection`. The Next.js routes behind it (`app/api/agent/*`) ship with
-the app deploy, not the Convex deploy. It needs:
+**MCP (preferred everywhere).** One tool surface
+(`mcp/laniameda-gallery/tools.ts`), two servers: hosted at
+`https://gallery.laniameda.space/api/mcp` (Streamable HTTP; OAuth sign-in, or a
+gallery agent token as `Authorization: Bearer`), and a local stdio server
+(`bun run mcp:gallery`) that adds `filePath`. The Next.js routes behind both
+(`app/api/agent/*`) ship with the app deploy, not the Convex deploy. Run
+`gallery.mjs tools` or an MCP `tools/list` for the current tool list; do not
+trust a copied one.
 
-```bash
-LANIAMEDA_GALLERY_API_URL=https://<app-host>      # http://localhost:3317 for local dev
-LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...            # issued from /agents after login
-```
+Where each client gets it:
+
+| Client | How |
+|---|---|
+| claude.ai, Claude Desktop | Custom connector, URL above, OAuth sign-in |
+| Claude Code in this repo, local or cloud | `.mcp.json`, token from `LANIAMEDA_GALLERY_AGENT_TOKEN` |
+| Claude Code elsewhere on the Mac | `claude mcp add --transport http --scope user …` (repo `mcp/laniameda-gallery/README.md`) |
+| Codex app / CLI / IDE | `config.toml`: `url` + `bearer_token_env_var` |
+| Any shell with no MCP (Codex cloud, CI, another repo's cloud session) | `scripts/gallery.mjs`, or plain `curl` to `/api/mcp` |
 
 MCP registration and credentials depend on the current agent session. Do not
 assume it is unavailable from an older setup note. Discover the tools and run
-`check_connection`; use the direct scripts for this local single-owner
-workspace if the connection fails. Michael issues any new token.
+`check_connection`. Michael issues tokens (`/agents`); each client has its own
+so one can be revoked alone.
 
-**Direct Convex scripts (what Claude Code uses today).** Owner-scoped via
+### Cloud sessions
+
+A cloud sandbox has none of the laptop's config. It needs three things:
+
+1. **The token** as an environment variable, `LANIAMEDA_GALLERY_AGENT_TOKEN`.
+   In Codex cloud use a variable, not a secret: secrets are removed before the
+   agent phase.
+2. **Network access** to `gallery.laniameda.space` (API),
+   `laniameda-gallery-videos.549ed200949b388f171b696e6ea7d033.r2.cloudflarestorage.com`
+   (uploads) and `pub-ad6ed85f12d147539181afa324bead00.r2.dev` (media).
+3. **This skill.** Claude cloud sessions load it from the repo's
+   `.claude/skills/` (a link to `skills/laniameda-gallery`) and from the skills
+   enabled on claude.ai. The claude.ai copy is an upload, so it goes stale:
+   after changing this folder, zip it and replace the copy in claude.ai →
+   Settings → Capabilities → Skills. Bump `version` in `SKILL.md` so the two
+   can be compared.
+
+**Direct Convex scripts (Michael's machine only).** Owner-scoped via
 `KB_OWNER_USER_ID`. `folderIds` works: the first is primary, the rest are
 linked right after the save.
 

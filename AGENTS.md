@@ -11,6 +11,17 @@ Read these files first:
 
 ---
 
+## Using the gallery itself from an agent session
+To read from or save into Michael's gallery (not to change this codebase), follow
+`skills/laniameda-gallery/SKILL.md`. Access, in order: the gallery MCP tools if
+the session has them (`.mcp.json` registers the hosted server for Claude Code);
+otherwise `node skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
+which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
+`gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
+`gallery.mjs check`. If the token is missing, ask Michael; never print it.
+
+---
+
 ## What this project is
 
 **laniameda.gallery** — a personal AI creatorship vault.

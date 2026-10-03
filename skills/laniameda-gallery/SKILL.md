@@ -13,7 +13,7 @@ description: >-
   "pull the prompt for asset:...", "show me what I have for...", "pick
   references", "go through my X bookmarks", "save my
   bookmarks to the gallery", "extract these into the gallery".
-version: 1.2.1
+version: 1.3.0
 ---
 
 # laniameda gallery
@@ -121,7 +121,8 @@ And on the record itself:
 
 ## Query recipes
 
-All through `scripts/query.ts` (see `references/query.md` for every field).
+Written for `scripts/query.ts` (see `references/query.md` for every field); with
+MCP tools or `scripts/gallery.mjs`, use the matching tool listed under Access.
 
 - **"Find me X"**: `search` with a plain-language query. Hybrid by default: it
   matches what pieces look like AND what their words say. Narrow with filters:
@@ -181,26 +182,54 @@ All through `scripts/query.ts` (see `references/query.md` for every field).
 
 ## Access
 
-Use the gallery MCP tools when they are available and authenticated. Start
-with `check_connection`; the token selects the owner. The MCP is hosted at
-`https://gallery.laniameda.space/api/mcp` (OAuth sign-in, owner only), so it also
-works from claude.ai; the local stdio server is the same tools plus `filePath`.
-Local files go in through the MCP too: `prepare_uploads` with the paths, run the
-returned `curl` commands, then one `save_assets` call with the `uploadId`s (up to
-50 per call; videos also get a poster frame as `posterUploadId`). If MCP is unavailable
-or fails to connect, this local single-owner workspace can use the direct
-Convex scripts below. Never use that fallback for multi-user agents.
+Three ways in, tried in this order. All three reach the same gallery.
+
+**1. Gallery MCP tools.** If tools named `check_connection`, `search_gallery`,
+`save_assets` … are in the session, use them. Start with `check_connection`;
+the token selects the owner. The server is hosted at
+`https://gallery.laniameda.space/api/mcp` (OAuth sign-in or a bearer token,
+owner only); the local stdio server is the same tools plus `filePath`.
+
+**2. `scripts/gallery.mjs`, when the session has no gallery MCP** (cloud
+sandboxes, a fresh machine). The same tools from a shell, no install: Node 18+
+or bun, and `LANIAMEDA_GALLERY_AGENT_TOKEN` in the environment.
+
+```bash
+node <this skill>/scripts/gallery.mjs check
+node <this skill>/scripts/gallery.mjs tools                 # every tool, one line each
+node <this skill>/scripts/gallery.mjs schema save_assets    # one tool: full input schema
+node <this skill>/scripts/gallery.mjs search_gallery '{"query":"rainy street at night","limit":8}'
+node <this skill>/scripts/gallery.mjs preview_assets '{"query":"clay character"}' --out <scratchpad>/previews
+```
+
+Arguments are the tool's JSON (`@file.json` or `-` for stdin work too).
+`preview_assets` writes its contact sheet to `--out` and prints the path; read
+that image. If the token is missing, ask Michael for it; never guess one, and
+never print it. If the host is unreachable from a cloud sandbox, the
+environment's network allowlist is missing the gallery hosts
+(`references/maintenance.md`, "Cloud sessions").
+
+Local files go in the same way on both paths: `prepare_uploads` with the
+paths, run the returned `curl` commands, then one `save_assets` call with the
+`uploadId`s (up to 50 per call; videos also get a poster frame as
+`posterUploadId`).
+
+**3. Direct Convex scripts, on Michael's own machine only.** They need the
+repo's `.env.local` (`CONVEX_URL`, `KB_OWNER_USER_ID`,
+`CONVEX_AUTH_PRIVATE_KEY`), so they do not exist in a cloud session, and they
+are never the path for multi-user agents.
 
 ```bash
 bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '<JSON>'
 bun run ~/.agents/skills/laniameda-gallery/scripts/query.ts '<JSON>'
 ```
 
-They need `CONVEX_URL` and `KB_OWNER_USER_ID` from the repo's `.env.local`, and
-the deployment rules in `references/maintenance.md` (one deployment,
-`dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call). The
-script takes `folderIds` (first is primary) and warns on stderr when a save
-would mint a new tag. The gallery MCP server (`save_asset`, `search_gallery`,
-`find_similar`, `preview_assets`, `check_sources`, …) is the multi-user path.
-Its `preview_assets` returns the
-contact sheet as an inline image, no file read needed.
+The recipes in this skill are written for `query.ts` / `ingest.ts`. On paths 1
+and 2 the same work is done by the MCP tools: `search` → `search_gallery`,
+`list` → `list_assets`, `similar` → `find_similar`, `preview` →
+`preview_assets`, `sources` → `check_sources`, `tags` → `list_tags`,
+`getById` → `get_gallery_item`, `searchSkills` / `skills` / `getSkill` →
+`search_skills` / `list_skills` / `get_skill`, a save → `save_asset` /
+`save_assets` / `save_prompt`, folders → `list_collections` and friends.
+Deployment rules for path 3 are in `references/maintenance.md` (one deployment,
+`dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call).

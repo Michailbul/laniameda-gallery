@@ -1,11 +1,21 @@
 # laniameda-gallery MCP
 
-Two ways in, same tools (`tools.ts`):
+Same tools (`tools.ts`), three ways in:
 
-- **Hosted (OAuth)**: `https://gallery.laniameda.space/api/mcp`. Add it as a
+- **Hosted, OAuth**: `https://gallery.laniameda.space/api/mcp`. Add it as a
   connector and sign in; no token to copy. Owner only for now.
+- **Hosted, bearer token**: the same URL with `Authorization: Bearer lgat_...`.
+  For anything that cannot open a browser: cloud sessions, CI, Codex.
 - **Local stdio** (`server.ts`): runs on your machine with an agent token from
   `/agents`. The only path that can upload a local `filePath`.
+
+| Client | Setup |
+|---|---|
+| claude.ai, Claude Desktop | Custom connector, OAuth (below) |
+| Claude Code in this repo, local or cloud | `.mcp.json` (checked in) + `LANIAMEDA_GALLERY_AGENT_TOKEN` |
+| Claude Code in other projects on your machine | `claude mcp add --scope user`, bearer (below) |
+| Codex app / CLI / IDE | `codex-config.example.toml` |
+| A shell with no MCP (Codex cloud, CI) | `skills/laniameda-gallery/scripts/gallery.mjs` or `curl` (below) |
 
 ## Hosted
 
@@ -32,6 +42,59 @@ Who may approve: `MCP_ALLOWED_USER_IDS` (comma-separated owner ids), falling
 back to `KB_OWNER_USER_ID`. Empty means nobody. The MCP endpoint applies the same
 list to every bearer token, so another user's manually created agent token is
 refused too.
+
+### Bearer token (headless clients and cloud sessions)
+
+The endpoint takes any gallery agent token (`/agents`) whose owner is on the
+allowed list. Give each client its own token so one can be revoked alone.
+
+This repo's `.mcp.json` registers the hosted server for Claude Code and reads
+the token from `LANIAMEDA_GALLERY_AGENT_TOKEN`. In other projects:
+
+```bash
+claude mcp add --transport http --scope user laniameda-gallery \
+  https://gallery.laniameda.space/api/mcp \
+  --header "Authorization: Bearer ${LANIAMEDA_GALLERY_AGENT_TOKEN}"
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.laniameda-gallery]
+url = "https://gallery.laniameda.space/api/mcp"
+bearer_token_env_var = "LANIAMEDA_GALLERY_AGENT_TOKEN"
+```
+
+**Cloud sessions** start with none of your machine's config. Set these on the
+cloud environment:
+
+- Environment variable `LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_...`. In Codex cloud
+  it must be a variable; secrets are removed before the agent runs.
+- Allowed network domains: `gallery.laniameda.space` (API),
+  `laniameda-gallery-videos.549ed200949b388f171b696e6ea7d033.r2.cloudflarestorage.com`
+  (uploads), `pub-ad6ed85f12d147539181afa324bead00.r2.dev` (media).
+
+A Claude cloud session on this repo then gets the MCP server from `.mcp.json`
+and the skill from `.claude/skills/`. A session on another repo gets the skill
+from claude.ai (re-upload it there after changing `skills/laniameda-gallery`)
+and reaches the gallery through the skill's script.
+
+**No MCP client at all** (Codex cloud, CI): the same tools from a shell.
+
+```bash
+node skills/laniameda-gallery/scripts/gallery.mjs check
+node skills/laniameda-gallery/scripts/gallery.mjs tools
+node skills/laniameda-gallery/scripts/gallery.mjs search_gallery '{"query":"rainy street at night"}'
+```
+
+Or with nothing but `curl`:
+
+```bash
+curl -sS https://gallery.laniameda.space/api/mcp \
+  -H "authorization: Bearer $LANIAMEDA_GALLERY_AGENT_TOKEN" \
+  -H "content-type: application/json" -H "accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check_connection","arguments":{}}}'
+```
 
 ### Uploading local files (both servers)
 

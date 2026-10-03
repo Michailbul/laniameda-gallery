@@ -1,12 +1,18 @@
 # MCP Agent Access
 
-Two transports share one tool surface (`mcp/laniameda-gallery/tools.ts`):
+Two servers share one tool surface (`mcp/laniameda-gallery/tools.ts`):
 
 - **Hosted**: `https://<app-host>/api/mcp`, Streamable HTTP behind OAuth 2.1
   (dynamic client registration, PKCE, Telegram sign-in on the consent page).
   Restricted to `MCP_ALLOWED_USER_IDS`, falling back to `KB_OWNER_USER_ID`.
   The OAuth access token is an ordinary `lgat_` agent token, so it is listed and
   revocable on `/agents`. Setup: `mcp/laniameda-gallery/README.md`.
+- **Hosted with a bearer token**: the same URL accepts an `lgat_` agent token
+  as `Authorization: Bearer`. This is the path for cloud sessions, Codex and
+  CI. `.mcp.json` registers it for Claude Code in this repo, reading
+  `LANIAMEDA_GALLERY_AGENT_TOKEN`; `skills/laniameda-gallery/scripts/gallery.mjs`
+  calls the same tools from a shell with no MCP client. Cloud environment
+  setup (variable + allowed domains): `mcp/laniameda-gallery/README.md`.
 - **Local stdio**: `bun run mcp:gallery` with a token in the environment, below.
   Do not deploy `server.ts` as a shared hosted process; it reads one local user
   token from environment variables.
