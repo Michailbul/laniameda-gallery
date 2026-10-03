@@ -224,6 +224,7 @@ const buildAssetSearchHaystack = (
     pillar?: string;
     folderId?: string;
     folderIds?: string[];
+    bookmark?: BookmarkPost | null;
   },
   folderNameById?: Map<string, string>,
 ) => {
@@ -244,6 +245,12 @@ const buildAssetSearchHaystack = (
     asset.sourceUrl,
     asset.modelName,
     asset.pillar,
+    // A saved post is found by its words, its author and the owner's note.
+    asset.bookmark?.text,
+    asset.bookmark?.authorName,
+    asset.bookmark?.authorHandle ? `@${asset.bookmark.authorHandle}` : undefined,
+    asset.bookmark?.quotedPost?.text,
+    asset.bookmark?.userNote,
     ...(asset.tagNames ?? []),
     ...folderNames,
   ]
@@ -1538,6 +1545,19 @@ export function GalleryDashboard({
     return groups.length > 0 ? groups : undefined;
   }, [activeSmartCollectionFilter, selectedTags, menuFilterEntries]);
 
+  // The Bookmarks pill is about the posts: with it on, every piece that came
+  // from a saved post shows as that post (author, text, media), not as bare
+  // media.
+  const bookmarkFilterOn = useMemo(() => {
+    const selectedSet = new Set(selectedTags);
+    return menuFilterEntries.some(
+      (entry) =>
+        entry.kind === "tag" &&
+        selectedSet.has(entry._id) &&
+        (entry.tagNames ?? []).some((name) => name.trim().toLowerCase() === "bookmark"),
+    );
+  }, [selectedTags, menuFilterEntries]);
+
   // The negative side of the same pills (minus button on a pill's left edge).
   // Tag pills exclude their tags; collection pills exclude the collection's
   // members. Exclusion always wins over an include.
@@ -2176,11 +2196,25 @@ export function GalleryDashboard({
       promoteStarred: featuredFirst && filteredSemanticResults === null,
       flattenStacks,
     });
-    return entries.map((entry) => {
+    // Under the Bookmarks pill a post shows once, however many of its images
+    // are saved as separate pieces; the card counts the rest ("+3") and the
+    // detail panel shows them all.
+    const seenPosts = new Set<string>();
+    const visibleEntries = bookmarkFilterOn
+      ? entries.filter((entry) => {
+          if (!entry.bookmark) return true;
+          if (seenPosts.has(entry.bookmark._id)) return false;
+          seenPosts.add(entry.bookmark._id);
+          return true;
+        })
+      : entries;
+    return visibleEntries.map((entry) => {
       const badges = resolveEntryBadges(entry);
-      return badges ? { ...entry, ...badges } : entry;
+      const postCard = entry.postCard || (bookmarkFilterOn && Boolean(entry.bookmark));
+      return { ...entry, ...(badges ?? {}), postCard };
     });
   }, [
+    bookmarkFilterOn,
     displayGalleryAssets,
     featuredFirst,
     filteredSemanticResults,

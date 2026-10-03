@@ -85,8 +85,10 @@ interface ImageCardProps {
     /** Skill cards: one or two plain sentences under the title. */
     excerpt?: string;
     cinemaMetadata?: CinemaMetadataLite | null;
-    /** A saved social post: the tile renders as a post card. */
+    /** The post this piece came from, when one is saved. */
     bookmark?: BookmarkPost;
+    /** Render the tile as a post card instead of bare media. */
+    postCard?: boolean;
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
@@ -691,7 +693,7 @@ export const ImageCard = memo(function ImageCard({
     [galleryCopyLabel, galleryCopyToken, toastFn],
   );
 
-  if (image.bookmark) {
+  if (image.bookmark && image.postCard) {
     return (
       <div
         className={exiting ? "h-full w-full animate-card-exit" : "h-full w-full"}

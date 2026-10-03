@@ -244,6 +244,7 @@ interface CompactAsset {
   assetPackId: unknown;
   packSlotIndex: unknown;
   createdAt: unknown;
+  post?: unknown;
   score?: unknown;
   visualScore?: unknown;
   textScore?: unknown;
@@ -368,6 +369,23 @@ function parseGalleryId(value: string, expectedKind?: GalleryIdKind) {
   );
 }
 
+// The saved X post a piece came from: who wrote it and what it says.
+const compactPost = (bookmark: unknown) => {
+  if (!bookmark || typeof bookmark !== "object") return undefined;
+  const post = bookmark as Record<string, unknown>;
+  const quoted = post.quotedPost as Record<string, unknown> | undefined;
+  return {
+    id: `bookmark:${String(post._id)}`,
+    url: post.url,
+    authorName: post.authorName,
+    authorHandle: post.authorHandle,
+    text: post.text,
+    ...(quoted?.text ? { quotedText: quoted.text } : {}),
+    ...(post.userNote ? { userNote: post.userNote } : {}),
+    postedAt: post.postedAt,
+  };
+};
+
 const compactAsset = (asset: Record<string, unknown>): CompactAsset => ({
   id: asset._id,
   kind: asset.kind,
@@ -392,6 +410,7 @@ const compactAsset = (asset: Record<string, unknown>): CompactAsset => ({
   assetPackId: asset.assetPackId,
   packSlotIndex: asset.packSlotIndex,
   createdAt: asset.createdAt,
+  ...(compactPost(asset.bookmark) ? { post: compactPost(asset.bookmark) } : {}),
   ...(asset.score !== undefined ? { score: asset.score } : {}),
   ...(asset.visualScore !== undefined ? { visualScore: asset.visualScore } : {}),
   ...(asset.textScore !== undefined ? { textScore: asset.textScore } : {}),

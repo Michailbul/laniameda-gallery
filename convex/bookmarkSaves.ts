@@ -3,6 +3,7 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
 import { ownerAction } from "./actor";
 import { storeBlobToR2 } from "./r2_store";
 import { storeCardThumbnail } from "./thumbnails";
@@ -10,10 +11,16 @@ import { dedupeIds } from "./helpers";
 import {
   buildXPostTitle,
   clampText,
+  fxTwitterPostUrl,
+  mergeXPostCapture,
   normalizeXHandle,
   parseXPostUrl,
   sanitizeHttpUrl,
   toOriginalXImageUrl,
+  xPostFromFxTwitter,
+  xPostFromSyndication,
+  xSyndicationPostUrl,
+  type FetchedXPost,
 } from "./bookmarkHelpers";
 import {
   bookmarkMediaValidator,
@@ -39,9 +46,18 @@ const addAssetFoldersMutation = makeFunctionReference<"mutation">(
 const deleteAssetMutation = makeFunctionReference<"mutation">(
   "assets:internalDeleteAsset",
 );
+const findAssetsForXPostQuery = makeFunctionReference<"query">(
+  "bookmarks:findAssetsForXPost",
+);
+const linkAssetsToBookmarkMutation = makeFunctionReference<"mutation">(
+  "bookmarks:linkAssetsToBookmark",
+);
 
 // Every saved post carries these so the island bar's tag pills can find them.
 export const X_POST_SYSTEM_TAGS = ["x", "bookmark"];
+// What a piece already in the gallery gains when it is linked to its post.
+export const BOOKMARK_TAG = "bookmark";
+const FETCH_TIMEOUT_MS = 12_000;
 const BOOKMARK_PILLAR = "bookmarks";
 const MAX_TEXT_LENGTH = 4000;
 const MAX_NOTE_LENGTH = 2000;
@@ -158,6 +174,9 @@ const stripDataUrlPrefix = (value: string) => {
 const resolvePreviewBytes = async (
   preview: Infer<typeof previewValidator> | undefined,
   media: { kind: string; url: string }[],
+  // Agent saves of a text post have no screenshot; the author's avatar
+  // stands in as the stored image (the card itself shows the text).
+  fallbackUrl?: string,
 ) => {
   if (preview?.base64.trim()) {
     const buffer = Buffer.from(stripDataUrlPrefix(preview.base64), "base64");
@@ -165,13 +184,13 @@ const resolvePreviewBytes = async (
   }
   // No capture from the page: fall back to the post's first image or video
   // poster, fetched server-side. pbs.twimg.com serves these publicly.
-  const first = media[0];
-  if (!first) {
+  const firstUrl = media[0]?.url ?? fallbackUrl;
+  if (!firstUrl) {
     throw new ConvexError(
       "A preview is required: send a screenshot of the post or a post with media.",
     );
   }
-  const response = await fetch(first.url);
+  const response = await fetch(firstUrl);
   if (!response.ok) {
     throw new ConvexError("Failed to fetch the post's media for a preview.");
   }
@@ -196,11 +215,157 @@ const previewFileName = (title: string, contentType: string) => {
   return `${base || "x-post"}.${extension}`;
 };
 
-// Save an X post from the extension. Idempotent per post: a re-save refreshes
-// the captured fields and files the post into any newly picked collections.
-// The post's preview (a crop of the post as rendered, or its first image) is
-// stored as an asset with assetRole "bookmark", so it lives in collections,
-// search and the gallery grid like any other piece.
+type NormalizedXPost = ReturnType<typeof normalizeCapturedXPost>;
+
+type SaveXPostInput = {
+  ownerUserId: string;
+  post: NormalizedXPost;
+  preview?: Infer<typeof previewValidator>;
+  folderIds: Id<"folders">[];
+  tagNames: string[];
+  userNote?: string;
+  ingestSource: "manual" | "agent";
+  agentDescription?: string;
+  // Assets already in the gallery that came from this post.
+  existingAssetIds?: Id<"assets">[];
+  previewFallbackUrl?: string;
+};
+
+type SaveXPostResult = {
+  bookmarkId: Id<"bookmarks">;
+  assetId: Id<"assets">;
+  created: boolean;
+  linkedAssetIds: Id<"assets">[];
+};
+
+// One save path for the extension and for agents. Idempotent per post: a
+// re-save refreshes the captured fields and files the post into any newly
+// picked collections. A post with no piece in the gallery yet gets a preview
+// asset (assetRole "bookmark"); a post whose media is already saved is linked
+// to those pieces instead, so nothing is stored twice.
+const saveXPost = async (ctx: ActionCtx, input: SaveXPostInput): Promise<SaveXPostResult> => {
+  const { ownerUserId, post, folderIds } = input;
+  const systemTagIds = (await ctx.runMutation(getOrCreateTagsMutation, {
+    names: dedupeIds(
+      [...X_POST_SYSTEM_TAGS, ...input.tagNames].map((tag) => tag.trim()).filter(Boolean),
+    ),
+  })) as Id<"tags">[];
+
+  const existing = (await ctx.runQuery(getBookmarkForSaveQuery, {
+    ownerUserId,
+    platform: post.platform,
+    externalId: post.externalId,
+  })) as { bookmarkId: Id<"bookmarks">; assetId?: Id<"assets"> } | null;
+  const existingAssetIds = dedupeIds(input.existingAssetIds ?? []);
+  const anchorAssetId = existing?.assetId ?? existingAssetIds[0];
+
+  if (anchorAssetId) {
+    const result = (await ctx.runMutation(upsertBookmarkRecordMutation, {
+      ownerUserId,
+      ...post,
+      userNote: input.userNote,
+      assetId: anchorAssetId,
+    })) as { bookmarkId: Id<"bookmarks">; created: boolean };
+    let linkedAssetIds: Id<"assets">[] = [];
+    if (existingAssetIds.length > 0) {
+      const [bookmarkTagId] = (await ctx.runMutation(getOrCreateTagsMutation, {
+        names: [BOOKMARK_TAG],
+      })) as Id<"tags">[];
+      const linked = (await ctx.runMutation(linkAssetsToBookmarkMutation, {
+        ownerUserId,
+        bookmarkId: result.bookmarkId,
+        assetIds: existingAssetIds,
+        tagIds: bookmarkTagId ? [bookmarkTagId] : [],
+      })) as { linked: Id<"assets">[] };
+      linkedAssetIds = linked.linked;
+    }
+    if (folderIds.length > 0) {
+      await ctx.runMutation(addAssetFoldersMutation, {
+        ownerUserId,
+        assetId: anchorAssetId,
+        folderIds,
+      });
+    }
+    return {
+      bookmarkId: result.bookmarkId,
+      assetId: anchorAssetId,
+      created: result.created,
+      linkedAssetIds,
+    };
+  }
+
+  const { buffer, contentType } = await resolvePreviewBytes(
+    input.preview,
+    post.media,
+    input.previewFallbackUrl,
+  );
+  if (!contentType.startsWith("image/")) {
+    throw new ConvexError("The post preview must be an image.");
+  }
+  if (buffer.byteLength === 0 || buffer.byteLength > MAX_PREVIEW_BYTES) {
+    throw new ConvexError("The post preview is empty or too large.");
+  }
+  const thumb = await storeCardThumbnail(ctx, buffer);
+  if (!thumb) {
+    throw new ConvexError("The post preview could not be decoded.");
+  }
+  const title = buildXPostTitle(post);
+  const storageBlob = new Blob([buffer], { type: contentType });
+  const [primaryFolderId, ...extraFolderIds] = folderIds;
+  const created = (await ctx.runMutation(createAssetMutation, {
+    ownerUserId,
+    kind: "image",
+    r2Key: await storeBlobToR2(ctx, storageBlob, { type: contentType }),
+    thumbR2Key: thumb.r2Key,
+    sourceUrl: post.url,
+    fileName: previewFileName(title, contentType),
+    contentType,
+    size: storageBlob.size,
+    width: thumb.sourceWidth,
+    height: thumb.sourceHeight,
+    thumbSize: thumb.size,
+    thumbWidth: thumb.width,
+    thumbHeight: thumb.height,
+    tagIds: systemTagIds,
+    folderId: primaryFolderId,
+    // Deliberately no contentHash: a post's preview must never collapse
+    // into an unrelated asset that happens to share the same bytes.
+    ingestKey: `x-post:${post.externalId}`,
+    pillar: BOOKMARK_PILLAR,
+    generationType: "other",
+    assetRole: "bookmark",
+    ingestSource: input.ingestSource,
+    ...(input.agentDescription
+      ? { agentDescription: input.agentDescription, agentDescriptionSource: "agent" as const }
+      : {}),
+  })) as { assetId: Id<"assets">; created: boolean };
+  const assetId = created.assetId;
+
+  try {
+    if (extraFolderIds.length > 0) {
+      await ctx.runMutation(addAssetFoldersMutation, {
+        ownerUserId,
+        assetId,
+        folderIds: extraFolderIds,
+      });
+    }
+    const result = (await ctx.runMutation(upsertBookmarkRecordMutation, {
+      ownerUserId,
+      ...post,
+      userNote: input.userNote,
+      assetId,
+    })) as { bookmarkId: Id<"bookmarks">; created: boolean };
+    return { bookmarkId: result.bookmarkId, assetId, created: result.created, linkedAssetIds: [] };
+  } catch (error) {
+    if (created.created) {
+      await ctx.runMutation(deleteAssetMutation, { id: assetId });
+    }
+    throw error;
+  }
+};
+
+// Save an X post from the extension: the post as read off the page, plus a
+// crop of it as the preview when it has no media.
 export const saveXPostFromExtension = ownerAction({
   args: {
     ownerUserId: v.string(),
@@ -220,101 +385,129 @@ export const saveXPostFromExtension = ownerAction({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
-    const post = normalizeCapturedXPost(args.post);
-    const userNote = clampText(args.userNote, MAX_NOTE_LENGTH);
-    const folderIds = dedupeIds(args.folderIds ?? []);
-    const tagNames = dedupeIds(
-      [...X_POST_SYSTEM_TAGS, ...(args.tagNames ?? [])]
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    );
-    const tagIds = (await ctx.runMutation(getOrCreateTagsMutation, {
-      names: tagNames,
-    })) as Id<"tags">[];
-
-    const existing = (await ctx.runQuery(getBookmarkForSaveQuery, {
+    const result = await saveXPost(ctx, {
       ownerUserId,
-      platform: post.platform,
-      externalId: post.externalId,
-    })) as { bookmarkId: Id<"bookmarks">; assetId?: Id<"assets"> } | null;
-
-    if (existing?.assetId) {
-      const result = (await ctx.runMutation(upsertBookmarkRecordMutation, {
-        ownerUserId,
-        ...post,
-        userNote,
-        assetId: existing.assetId,
-      })) as { bookmarkId: Id<"bookmarks"> };
-      if (folderIds.length > 0) {
-        await ctx.runMutation(addAssetFoldersMutation, {
-          ownerUserId,
-          assetId: existing.assetId,
-          folderIds,
-        });
-      }
-      return { bookmarkId: result.bookmarkId, assetId: existing.assetId, created: false };
-    }
-
-    const { buffer, contentType } = await resolvePreviewBytes(args.preview, post.media);
-    if (!contentType.startsWith("image/")) {
-      throw new ConvexError("The post preview must be an image.");
-    }
-    if (buffer.byteLength === 0 || buffer.byteLength > MAX_PREVIEW_BYTES) {
-      throw new ConvexError("The post preview is empty or too large.");
-    }
-    const thumb = await storeCardThumbnail(ctx, buffer);
-    if (!thumb) {
-      throw new ConvexError("The post preview could not be decoded.");
-    }
-    const title = buildXPostTitle(post);
-    const storageBlob = new Blob([buffer], { type: contentType });
-    const [primaryFolderId, ...extraFolderIds] = folderIds;
-    const created = (await ctx.runMutation(createAssetMutation, {
-      ownerUserId,
-      kind: "image",
-      r2Key: await storeBlobToR2(ctx, storageBlob, { type: contentType }),
-      thumbR2Key: thumb.r2Key,
-      sourceUrl: post.url,
-      fileName: previewFileName(title, contentType),
-      contentType,
-      size: storageBlob.size,
-      width: thumb.sourceWidth,
-      height: thumb.sourceHeight,
-      thumbSize: thumb.size,
-      thumbWidth: thumb.width,
-      thumbHeight: thumb.height,
-      tagIds,
-      folderId: primaryFolderId,
-      // Deliberately no contentHash: a post's preview must never collapse
-      // into an unrelated asset that happens to share the same bytes.
-      ingestKey: `x-post:${post.externalId}`,
-      pillar: BOOKMARK_PILLAR,
-      generationType: "other",
-      assetRole: "bookmark",
+      post: normalizeCapturedXPost(args.post),
+      preview: args.preview,
+      folderIds: dedupeIds(args.folderIds ?? []),
+      tagNames: args.tagNames ?? [],
+      userNote: clampText(args.userNote, MAX_NOTE_LENGTH),
       ingestSource: "manual",
-    })) as { assetId: Id<"assets">; created: boolean };
-    const assetId = created.assetId;
+    });
+    return { bookmarkId: result.bookmarkId, assetId: result.assetId, created: result.created };
+  },
+});
 
-    try {
-      if (extraFolderIds.length > 0) {
-        await ctx.runMutation(addAssetFoldersMutation, {
-          ownerUserId,
-          assetId,
-          folderIds: extraFolderIds,
-        });
-      }
-      const result = (await ctx.runMutation(upsertBookmarkRecordMutation, {
-        ownerUserId,
-        ...post,
-        userNote,
-        assetId,
-      })) as { bookmarkId: Id<"bookmarks">; created: boolean };
-      return { bookmarkId: result.bookmarkId, assetId, created: result.created };
-    } catch (error) {
-      if (created.created) {
-        await ctx.runMutation(deleteAssetMutation, { id: assetId });
-      }
-      throw error;
+const fetchJson = async (url: string) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "laniameda-gallery/1.0", Accept: "application/json" },
+    });
+    return response.ok ? ((await response.json()) as unknown) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// Reads a public post by id: the richer mirror first (counts, quote, alt
+// text), X's own embed payload second. null when neither answers, which is
+// what a deleted, private or age-gated post looks like.
+export const fetchXPost = async (
+  externalId: string,
+  handle?: string,
+): Promise<FetchedXPost | null> =>
+  xPostFromFxTwitter(await fetchJson(fxTwitterPostUrl(externalId, handle))) ??
+  xPostFromSyndication(await fetchJson(xSyndicationPostUrl(externalId)));
+
+// Save an X post from its link, for agents. The gallery reads the post itself
+// (author, text, media, quoted post, counts); `post` fills or corrects fields
+// when the caller already has them, and is the only source when the post
+// cannot be read publicly. Pieces already saved from this post are linked to
+// it rather than copied.
+export const saveXPostFromAgent = ownerAction({
+  args: {
+    ownerUserId: v.string(),
+    url: v.string(),
+    post: v.optional(
+      v.object({
+        authorName: v.optional(v.string()),
+        authorHandle: v.optional(v.string()),
+        authorAvatarUrl: v.optional(v.string()),
+        authorVerified: v.optional(v.boolean()),
+        text: v.optional(v.string()),
+        lang: v.optional(v.string()),
+        postedAt: v.optional(v.number()),
+        media: v.optional(v.array(bookmarkMediaValidator)),
+        quotedPost: v.optional(bookmarkQuotedPostValidator),
+        metrics: v.optional(bookmarkMetricsValidator),
+      }),
+    ),
+    preview: v.optional(previewValidator),
+    folderIds: v.optional(v.array(v.id("folders"))),
+    tagNames: v.optional(v.array(v.string())),
+    userNote: v.optional(v.string()),
+    agentDescription: v.optional(v.string()),
+    // Explicit pieces to link; by default every asset whose sourceUrl is
+    // this post's permalink.
+    assetIds: v.optional(v.array(v.id("assets"))),
+  },
+  returns: v.object({
+    bookmarkId: v.id("bookmarks"),
+    assetId: v.id("assets"),
+    created: v.boolean(),
+    linkedAssetIds: v.array(v.id("assets")),
+    url: v.string(),
+    authorHandle: v.optional(v.string()),
+    text: v.optional(v.string()),
+    fetched: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
     }
+    const parsed = parseXPostUrl(args.url);
+    if (!parsed) {
+      throw new ConvexError("Not an X post URL. Expected https://x.com/<handle>/status/<id>.");
+    }
+    const fetched = await fetchXPost(parsed.externalId, parsed.authorHandle);
+    if (!fetched && !args.post?.text && !(args.post?.media?.length ?? 0)) {
+      throw new ConvexError(
+        "The post could not be read (deleted, private or rate limited). Send its text and media in `post`.",
+      );
+    }
+    const post = normalizeCapturedXPost(mergeXPostCapture(fetched, args.post, parsed.url));
+
+    const existingAssetIds =
+      args.assetIds ??
+      ((await ctx.runQuery(findAssetsForXPostQuery, {
+        ownerUserId,
+        sourceUrls: [args.url.trim(), parsed.url, post.url],
+      })) as Id<"assets">[]);
+
+    const result = await saveXPost(ctx, {
+      ownerUserId,
+      post,
+      preview: args.preview,
+      folderIds: dedupeIds(args.folderIds ?? []),
+      tagNames: args.tagNames ?? [],
+      userNote: clampText(args.userNote, MAX_NOTE_LENGTH),
+      ingestSource: "agent",
+      agentDescription: clampText(args.agentDescription, 400),
+      existingAssetIds,
+      previewFallbackUrl: post.authorAvatarUrl,
+    });
+    return {
+      ...result,
+      url: post.url,
+      authorHandle: post.authorHandle,
+      text: post.text,
+      fetched: Boolean(fetched),
+    };
   },
 });

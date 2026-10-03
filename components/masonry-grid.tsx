@@ -72,8 +72,10 @@ interface GalleryImage {
   /** Skill cards: one or two plain sentences under the title. */
   excerpt?: string;
   cinemaMetadata?: CinemaMetadataLite | null;
-  /** A saved social post: laid out and rendered as a post card. */
+  /** The post this piece came from, when one is saved. */
   bookmark?: BookmarkPost;
+  /** Lay the tile out and render it as a post card. */
+  postCard?: boolean;
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
@@ -290,7 +292,7 @@ function findScrollParent(node: HTMLElement | null): HTMLElement | null {
 
 function resolveGridLayoutInput(image: GalleryImage): LayoutInput {
   const preview = image.previewImages[0];
-  if (image.bookmark) {
+  if (image.bookmark && image.postCard) {
     return {
       ...bookmarkCardLayout({
         post: image.bookmark,

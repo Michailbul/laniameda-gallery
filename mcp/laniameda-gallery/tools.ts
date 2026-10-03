@@ -30,6 +30,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "Reuse existing tags (list_tags) before inventing new ones. Never star or publish anything unless asked. Ask before deleting.",
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
   "YouTube videos kept as research (competitors, formats, animation styles) are video references, not assets: list_video_refs to read them, save_video_refs to add them.",
+  "A post on X is saved as a bookmark with save_bookmarks: send the link, the gallery reads the author, text, media and counts itself, and links any piece already saved from that post. list_bookmarks reads saved posts as text; the tag `bookmark` narrows list_assets and search_gallery to them.",
   "To add local files (e.g. from ~/Downloads): prepare_uploads with the paths, run the curl commands it returns, then save_assets with the uploadIds. Two tool calls for any batch size; public URLs go straight into save_assets.",
 ].join(" ");
 
@@ -1073,5 +1074,81 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       inputSchema: { id: z.string() },
     },
     async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "delete", id: input.id })),
+  );
+
+  // Saved posts (X bookmarks). The post itself (author, text, quote, counts)
+  // lives on a bookmark row; its gallery pieces carry the tag `bookmark`.
+  // Ids read bookmark:<id>.
+  server.registerTool(
+    "save_bookmarks",
+    {
+      title: "Save X Posts As Bookmarks",
+      description:
+        "Save up to 12 posts from x.com as bookmarks, from their links. The gallery reads each post itself (author, text, media, quoted post, counts) and makes the text searchable. A post whose image or video is already in the gallery is linked to those pieces; any other post gets a post card. Text-only posts are fine. Saving the same post again refreshes it. Pass text/media only when the post cannot be read publicly.",
+      inputSchema: {
+        items: z
+          .array(
+            z.object({
+              url: z.string().describe("https://x.com/<handle>/status/<id>"),
+              userNote: z.string().describe("The owner's own words about the post.").optional(),
+              agentDescription: z
+                .string()
+                .describe("One or two plain sentences: what the post is about and why it was kept.")
+                .optional(),
+              folderIds: z.array(z.string()).describe("Collections to file it into.").optional(),
+              tagNames: z.array(z.string()).optional(),
+              assetIds: z
+                .array(z.string())
+                .describe("Gallery pieces of this post to link. Default: every asset whose sourceUrl is the post.")
+                .optional(),
+              text: z.string().describe("Only when the post cannot be read publicly.").optional(),
+              authorName: z.string().optional(),
+              authorHandle: z.string().optional(),
+              postedAt: z.union([z.number(), z.string()]).optional(),
+              media: z
+                .array(
+                  z.object({
+                    kind: z.enum(["image", "video", "gif"]),
+                    url: z.string().describe("Image URL, or a video's poster frame."),
+                    alt: z.string().optional(),
+                  }),
+                )
+                .optional(),
+            }),
+          )
+          .min(1)
+          .max(12),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/bookmarks", { action: "save", ...input })),
+  );
+
+  server.registerTool(
+    "list_bookmarks",
+    {
+      title: "List Bookmarked Posts",
+      description:
+        "Read saved X posts as text, newest first: author, full text, quoted post, counts, the owner's note and the gallery pieces of each post. Use for 'what did I bookmark about …', 'posts by @handle'. For a search by meaning, use search_gallery with tagNames ['bookmark'].",
+      inputSchema: {
+        search: z.string().describe("Every word must appear in the text, author, quote or note.").optional(),
+        authorHandle: z.string().optional(),
+        folderId: z.string().describe("A collection; its folders count too.").optional(),
+        limit: z.number().optional(),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/bookmarks", { action: "list", ...input })),
+  );
+
+  server.registerTool(
+    "set_bookmark_note",
+    {
+      title: "Set Bookmark Note",
+      description: "Set or clear the owner's note on a saved post.",
+      inputSchema: {
+        id: z.string().describe("bookmark:<id>"),
+        userNote: z.string().describe("Empty clears the note.").optional(),
+      },
+    },
+    async (input) => jsonText(await apiFetch("/api/agent/bookmarks", { action: "note", ...input })),
   );
 }

@@ -68,10 +68,14 @@ in `references/ingest.md`).
 
 ## No media
 
-Text posts, threads, articles and link-only bookmarks have nothing for the
-gallery to show. Don't save them prompt-only (that needs Michael's explicit
-yes). Route knowledge-type posts to `laniameda-x-post` / `laniameda-youtube-digest`,
-which digest into `laniameda-hq/content-kb/`, and list them in the report.
+A text post on X is saved as a bookmark: the gallery keeps the post's words and
+shows it as a post card (`references/bookmarks.md`). Threads worth digesting
+still go to `laniameda-x-post` / `laniameda-youtube-digest`, which digest into
+`laniameda-hq/content-kb/`.
+
+Articles and link-only items from other sources have nothing for the gallery
+to show. Don't save them prompt-only (that needs Michael's explicit yes); list
+them in the report.
 
 ## Sources
 
@@ -95,6 +99,12 @@ which digest into `laniameda-hq/content-kb/`, and list them in the report.
   Michael. Don't export browser cookies to get around it.
 - **Quote posts:** the media usually belongs to the quoted post; use that
   post's permalink as `sourceUrl`.
+- **Keep the post's text:** after saving a post's media with the permalink as
+  `sourceUrl`, bookmark the same link (`save_bookmarks` /
+  `scripts/bookmarks.ts`). The gallery reads the text, links the saved pieces
+  to it and tags them `bookmark`. Always use the permalink as `sourceUrl`, not
+  the `pbs.twimg.com` image URL: a piece saved with the image URL cannot be
+  matched to its post.
 
 ### Instagram
 

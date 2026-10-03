@@ -1,4 +1,9 @@
 @import "tailwindcss";
+/* Keep Tailwind's source scan out of agent tooling and docs. `.claude/skills`
+   holds a symlink into `skills/`; webpack's dev compiler crashes hashing a
+   scanned directory that contains one ("reading 'length'" in WasmHash). */
+@source not "../.claude";
+@source not "../skills";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 

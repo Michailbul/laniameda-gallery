@@ -102,8 +102,10 @@ export type GalleryEntry = {
   description?: string;
   fileName?: string;
   designInspirationId?: string;
-  /** Set for a saved social post: the card renders the post, not the image. */
+  /** The post this piece came from (author, text, counts), when one is saved. */
   bookmark?: BookmarkPost;
+  /** Render the tile as a post card instead of bare media. */
+  postCard?: boolean;
   createdAt?: number;
   folderId?: string;
   folderIds?: string[];
@@ -250,12 +252,17 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   contentType: asset.contentType,
 });
 
+// A post's own preview asset, as opposed to a media piece that is linked to
+// the post it came from.
+const isPostPreview = (asset: Pick<GalleryAssetRecord, "bookmark" | "assetRole">) =>
+  Boolean(asset.bookmark) && asset.assetRole === "bookmark";
+
 // Web bookmarks carry a page title as their "prompt", saved posts carry the
 // post, and cinema frames open one by one in the cinema popout — none is a
 // generation prompt.
 const canJoinPromptFamily = (asset: GalleryAssetRecord) =>
   !asset.designInspirationId &&
-  !asset.bookmark &&
+  !isPostPreview(asset) &&
   asset.pillar !== "cinema-inspiration";
 
 const sortPackMembers = (
@@ -312,6 +319,10 @@ const buildEntry = (
     fileName: cover.fileName ?? undefined,
     designInspirationId: cover.designInspirationId ?? undefined,
     bookmark: cover.bookmark ?? undefined,
+    // A post's own preview renders as a post card everywhere. A media piece
+    // linked to its post stays a media tile; views that are about the posts
+    // (the Bookmarks tab and filter) turn the card on for those too.
+    postCard: isPostPreview(cover),
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,
     folderIds: cover.folderIds ?? (cover.folderId ? [cover.folderId] : []),
