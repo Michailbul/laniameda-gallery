@@ -96,6 +96,7 @@ import {
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
+import { VideoRefsView } from "@/components/gallery/video-refs-view";
 
 type SelectedImage = {
   id: string;
@@ -320,6 +321,8 @@ export function GalleryDashboard({
   const [storybooksView, setStorybooksView] = useState(false);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
+  // The Videos tab: YouTube video references (their own table, not assets).
+  const [videosView, setVideosView] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -3899,7 +3902,7 @@ export function GalleryDashboard({
     // grid is actually showing. The collections landing, workflows and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
-    if (viewMode !== "grid" || storybooksView || bookmarksView) return null;
+    if (viewMode !== "grid" || storybooksView || bookmarksView || videosView) return null;
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -3915,6 +3918,7 @@ export function GalleryDashboard({
     galleryScope,
     storybooksView,
     bookmarksView,
+    videosView,
     viewMode,
   ]);
   const quickDropImpliedTag = useMemo<StaticsTagName | null>(() => {
@@ -4482,6 +4486,7 @@ export function GalleryDashboard({
             canManageFoldersInCurrentView
               ? () => {
                   setBookmarksView(false);
+                  setVideosView(false);
                   setStorybooksView(true);
                 }
               : undefined
@@ -4492,25 +4497,38 @@ export function GalleryDashboard({
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(true);
+                  setVideosView(false);
                 }
               : undefined
           }
           bookmarksTabActive={bookmarksView}
+          onVideosTab={
+            canManageFoldersInCurrentView
+              ? () => {
+                  setStorybooksView(false);
+                  setBookmarksView(false);
+                  setVideosView(true);
+                }
+              : undefined
+          }
+          videosTabActive={videosView}
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(false);
+                  setVideosView(false);
                   setViewMode("skills");
                 }
               : undefined
           }
           skillsTabActive={
-            viewMode === "skills" && !storybooksView && !bookmarksView
+            viewMode === "skills" && !storybooksView && !bookmarksView && !videosView
           }
           onGalleryHome={() => {
             setStorybooksView(false);
             setBookmarksView(false);
+                  setVideosView(false);
             setViewMode("grid");
           }}
           user={user}
@@ -4598,7 +4616,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && (
+            {!storybooksView && !bookmarksView && !videosView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4661,7 +4679,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && !videosView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4707,7 +4725,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && !bookmarksView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && !videosView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -4764,7 +4782,7 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className="relative min-w-0"
             >
-              {!storybooksView && !bookmarksView && breadcrumbSegments.length > 0 && (
+              {!storybooksView && !bookmarksView && !videosView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
@@ -4828,7 +4846,9 @@ export function GalleryDashboard({
                   }
                 />
               )}
-              {bookmarksView ? (
+              {videosView && ownerUserId ? (
+                <VideoRefsView ownerUserId={ownerUserId} />
+              ) : bookmarksView ? (
                 <BookmarksView
                   ownerUserId={ownerUserId ?? undefined}
                   folders={(folders ?? []).map((folder) => ({

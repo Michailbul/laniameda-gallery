@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Globe,
   Home,
+  MonitorPlay,
   Moon,
   Pencil,
   Plus,
@@ -63,6 +64,9 @@ interface GallerySidebarProps {
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
+  /** Opens the Videos tab: YouTube video references. */
+  onVideosTab?: () => void;
+  videosTabActive?: boolean;
   /** Opens the Skills tab: every saved skill, searchable and filterable. */
   onSkillsTab?: () => void;
   skillsTabActive?: boolean;
@@ -127,6 +131,8 @@ export function GallerySidebar({
   storybooksTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
+  onVideosTab,
+  videosTabActive = false,
   onSkillsTab,
   skillsTabActive = false,
   onGalleryHome,
@@ -354,6 +360,7 @@ export function GallerySidebar({
             isGalleryActive &&
             !storybooksTabActive &&
             !bookmarksTabActive &&
+            !videosTabActive &&
             !skillsTabActive
           }
           collapsed={collapsed}
@@ -395,6 +402,16 @@ export function GallerySidebar({
             active={bookmarksTabActive}
             collapsed={collapsed}
             onClick={onBookmarksTab}
+          />
+        )}
+        {onVideosTab && (
+          <NavItem
+            icon={MonitorPlay}
+            label="Videos"
+            href="#"
+            active={videosTabActive}
+            collapsed={collapsed}
+            onClick={onVideosTab}
           />
         )}
         {onSkillsTab && (

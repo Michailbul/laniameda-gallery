@@ -268,6 +268,17 @@ missed. `skills` lists newest first; every `tagNames` entry must match
 with its prompt sections and media URLs. `getById` accepts `skill:<id>` and the
 `workflow:<id>` the gallery copies.
 
+### Video references: `scripts/video-refs.ts`
+
+YouTube videos saved as research live in their own table and are not returned
+by `list` or `search`. Query them with the MCP tool `list_video_refs` or:
+
+```json
+{"action":"list","collection":"youtube-cars-competitors","sort":"views","limit":20}
+```
+
+Filters, sorting and fields: `references/video-refs.md`.
+
 ## Typical workflows
 
 ### Pick references by eye

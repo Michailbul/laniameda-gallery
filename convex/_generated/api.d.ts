@@ -58,6 +58,7 @@ import type * as thumbnails from "../thumbnails.js";
 import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
+import type * as videoRefs from "../videoRefs.js";
 import type * as workflows from "../workflows.js";
 
 import type {
@@ -117,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   userTags: typeof userTags;
   users: typeof users;
   validators: typeof validators;
+  videoRefs: typeof videoRefs;
   workflows: typeof workflows;
 }>;
 
