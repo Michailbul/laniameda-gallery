@@ -63,6 +63,10 @@ type TagCategory =
   | "design_type"
   | "workflow_type"
   | "component_type"
+  | "motion_technique"
+  | "motion_format"
+  | "motion_tool"
+  | "motion_feel"
   | "custom";
 type TagSource = "user" | "agent" | "system";
 const createDesignInspirationMutation = makeFunctionReference<"mutation">(
