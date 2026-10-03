@@ -2898,3 +2898,66 @@
   .vref-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   .vref-sort { margin-left: 0; }
 }
+
+/* Motion tab: reuses the Videos tab card and modal, adds facet rows. */
+.motion-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.motion-thumb { aspect-ratio: 1 / 1; }
+.motion-thumb > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.motion-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.motion-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.motion-facet-row { align-items: center; }
+.motion-facet-label {
+  flex: none;
+  min-width: 64px;
+  font-family: var(--lm-font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lm-text-tertiary);
+}
+.motion-player { aspect-ratio: 1 / 1; max-height: calc(100vh - 48px); margin: 0 auto; width: 100%; }
+.motion-player > video, .motion-player > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.motion-side { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 20px; overflow-y: auto; align-items: flex-start; }
+.motion-close { position: absolute; top: 14px; right: 14px; color: var(--lm-text-tertiary); }
+.motion-close:hover { color: var(--lm-text-primary); }
+.motion-copy { font-size: 13px; line-height: 1.5; color: var(--lm-text-secondary); }
+.motion-modal-facet { display: grid; gap: 6px; }
+.motion-prompt { display: grid; gap: 8px; width: 100%; }
+.motion-prompt-head { display: flex; align-items: center; justify-content: space-between; }
+.motion-prompt pre {
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--lm-border);
+  border-radius: 6px;
+  background: var(--lm-surface-1);
+  font-family: var(--lm-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.motion-id { margin-top: auto; font-family: var(--lm-font-mono, ui-monospace, monospace); font-size: 10px; color: var(--lm-text-tertiary); user-select: all; }
+@media (max-width: 860px) {
+  .motion-side { padding-top: 18px; }
+}

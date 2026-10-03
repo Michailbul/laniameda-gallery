@@ -152,6 +152,11 @@ export const tagCategoryValidator = v.optional(v.union(
   v.literal("design_type"),
   v.literal("workflow_type"),
   v.literal("component_type"),
+  // Motion design facets: the Motion tab filters on these four.
+  v.literal("motion_technique"),
+  v.literal("motion_format"),
+  v.literal("motion_tool"),
+  v.literal("motion_feel"),
   v.literal("custom"),
 ));
 

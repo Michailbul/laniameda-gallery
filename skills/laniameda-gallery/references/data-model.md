@@ -202,7 +202,7 @@ These are the valid enum values the Convex schema enforces — use these or inge
 
 **`workflowType`:** `component_prompt`, `page_prompt`, `system_prompt`, `asset_recipe`, `other`
 
-**`typedTags[].category`:** `model_name`, `style`, `content_type`, `platform`, `color`, `camera_angle`, `lighting`, `composition`, `car_make`, `car_model`, `car_angle`, `environment`, `design_style`, `design_type`, `workflow_type`, `component_type`, `custom`
+**`typedTags[].category`:** `model_name`, `style`, `content_type`, `platform`, `color`, `camera_angle`, `lighting`, `composition`, `car_make`, `car_model`, `car_angle`, `environment`, `design_style`, `design_type`, `workflow_type`, `component_type`, `motion_technique`, `motion_format`, `motion_tool`, `motion_feel`, `custom`
 → No `subject` — use `content_type` instead.
 
 **`promptSections` fields:** `finalPrompt` (required), `generationNotes` (optional), `negativePrompt` (optional)

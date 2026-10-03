@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  Clapperboard,
   Film,
   FolderOpen,
   Globe,
@@ -67,6 +68,9 @@ interface GallerySidebarProps {
   /** Opens the Videos tab: YouTube video references. */
   onVideosTab?: () => void;
   videosTabActive?: boolean;
+  /** Opens the Motion tab: motion design references with their own filters. */
+  onMotionTab?: () => void;
+  motionTabActive?: boolean;
   /** Opens the Skills tab: every saved skill, searchable and filterable. */
   onSkillsTab?: () => void;
   skillsTabActive?: boolean;
@@ -133,6 +137,8 @@ export function GallerySidebar({
   bookmarksTabActive = false,
   onVideosTab,
   videosTabActive = false,
+  onMotionTab,
+  motionTabActive = false,
   onSkillsTab,
   skillsTabActive = false,
   onGalleryHome,
@@ -361,6 +367,7 @@ export function GallerySidebar({
             !storybooksTabActive &&
             !bookmarksTabActive &&
             !videosTabActive &&
+            !motionTabActive &&
             !skillsTabActive
           }
           collapsed={collapsed}
@@ -412,6 +419,16 @@ export function GallerySidebar({
             active={videosTabActive}
             collapsed={collapsed}
             onClick={onVideosTab}
+          />
+        )}
+        {onMotionTab && (
+          <NavItem
+            icon={Clapperboard}
+            label="Motion"
+            href="#"
+            active={motionTabActive}
+            collapsed={collapsed}
+            onClick={onMotionTab}
           />
         )}
         {onSkillsTab && (
