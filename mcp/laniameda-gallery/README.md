@@ -12,7 +12,7 @@ Same tools (`tools.ts`), three ways in:
 | Client | Setup |
 |---|---|
 | claude.ai, Claude Desktop | Custom connector, OAuth (below) |
-| Claude Code in this repo, local or cloud | `.mcp.json` (checked in) + `LANIAMEDA_GALLERY_AGENT_TOKEN` |
+| Claude Code in this repo, local or cloud | `.mcp.json` (checked in) + `LANIAMEDA_GALLERY_AGENT_TOKEN`, or `~/.config/laniameda/gallery.env` on the Mac |
 | Claude Code in other projects on your machine | `claude mcp add --scope user`, bearer (below) |
 | Codex app / CLI / IDE | `codex-config.example.toml` |
 | A shell with no MCP (Codex cloud, CI) | `skills/laniameda-gallery/scripts/gallery.mjs` or `curl` (below) |
@@ -49,7 +49,12 @@ The endpoint takes any gallery agent token (`/agents`) whose owner is on the
 allowed list. Give each client its own token so one can be revoked alone.
 
 This repo's `.mcp.json` registers the hosted server for Claude Code and reads
-the token from `LANIAMEDA_GALLERY_AGENT_TOKEN`. In other projects:
+the token from `LANIAMEDA_GALLERY_AGENT_TOKEN`. The Claude desktop app starts
+Claude Code without the shell profile, so the variable is missing there; the
+entry's `headersHelper` (`skills/laniameda-gallery/scripts/mcp-headers.sh`)
+then reads the token from `~/.config/laniameda/gallery.env`. How the two fit
+together: `skills/laniameda-gallery/references/maintenance.md`. In other
+projects:
 
 ```bash
 claude mcp add --transport http --scope user laniameda-gallery \

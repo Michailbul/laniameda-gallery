@@ -13,7 +13,7 @@ description: >-
   "pull the prompt for asset:...", "show me what I have for...", "pick
   references", "go through my X bookmarks", "save my
   bookmarks to the gallery", "extract these into the gallery".
-version: 1.3.0
+version: 1.3.1
 ---
 
 # laniameda gallery

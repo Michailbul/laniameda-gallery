@@ -5,7 +5,8 @@
       "url": "https://gallery.laniameda.space/api/mcp",
       "headers": {
         "Authorization": "Bearer ${LANIAMEDA_GALLERY_AGENT_TOKEN}"
-      }
+      },
+      "headersHelper": "sh skills/laniameda-gallery/scripts/mcp-headers.sh"
     }
   }
 }
