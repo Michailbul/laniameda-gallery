@@ -56,8 +56,8 @@ Where each client gets it:
 | Client | How |
 |---|---|
 | claude.ai, Claude Desktop | Custom connector, URL above, OAuth sign-in |
-| Claude Code in this repo, local or cloud | `.mcp.json`, token from `LANIAMEDA_GALLERY_AGENT_TOKEN` |
-| Claude Code elsewhere on the Mac | `claude mcp add --transport http --scope user …` (repo `mcp/laniameda-gallery/README.md`) |
+| Claude Code in this repo, local or cloud | `.mcp.json`: token from `~/.config/laniameda/gallery.env` on the Mac, from `LANIAMEDA_GALLERY_AGENT_TOKEN` in the cloud (see below) |
+| Claude Code elsewhere on the Mac | User-scope entry in `~/.claude.json` with a `headersHelper` (see below) |
 | Codex app / CLI / IDE | `config.toml`: `url` + `bearer_token_env_var` |
 | Any shell with no MCP (Codex cloud, CI, another repo's cloud session) | `scripts/gallery.mjs`, or plain `curl` to `/api/mcp` |
 
@@ -66,13 +66,63 @@ assume it is unavailable from an older setup note. Discover the tools and run
 `check_connection`. Michael issues tokens (`/agents`); each client has its own
 so one can be revoked alone.
 
+### Where Claude Code gets the token
+
+On the Mac the token lives in one file, `~/.config/laniameda/gallery.env`
+(`export LANIAMEDA_GALLERY_AGENT_TOKEN=…`), which `~/.zshenv` sources. A
+terminal session has the variable. A session started by the Claude desktop app
+has none, because the app launches Claude Code without the shell profile.
+Claude Code sends an unset `${VAR}` in a header exactly as written, the gallery
+answers `401 invalid_token`, and the connector shows as failed while the token
+is fine.
+
+Both Claude Code entries read the file through a `headersHelper`, so they
+connect however Claude was started:
+
+| Entry | Static header | `headersHelper` |
+|---|---|---|
+| Project: `.mcp.json` in this repo | `Bearer ${LANIAMEDA_GALLERY_AGENT_TOKEN}` | `sh skills/laniameda-gallery/scripts/mcp-headers.sh` |
+| User: `~/.claude.json`, every other folder on the Mac | none | `~/.config/laniameda/gallery-mcp-headers.sh` |
+
+- **Project helper** (in this repo). With `gallery.env` present it prints
+  `{"Authorization": "Bearer <token>"}`, which overrides the static header.
+  Without the file it prints `{}` and the static header applies: that is a
+  cloud sandbox, where the variable is set and the file does not exist.
+  Claude Code runs a project-scope helper from the repo root, with every
+  variable whose name contains TOKEN, KEY, SECRET, AUTH or PASSWORD removed, and
+  only once the folder's trust dialog has been accepted. That is why the helper
+  reads the file. In an untrusted checkout the static header is all that is
+  sent.
+- **User helper** (outside the repo, Michael's Mac only). It uses the variable
+  when set, otherwise sources `gallery.env`, and exits 1 with a message when
+  neither holds a token. User-scope helpers keep their environment.
+
+Inside this repo the project entry wins: Claude Code takes the whole entry from
+the highest scope and merges nothing from the user one. The desktop app, cloud
+sessions and `claude -p` load `.mcp.json` servers without asking. The
+interactive CLI asks once per machine, and until that approval
+`claude mcp get laniameda-gallery` run in this repo reports the user entry.
+To check the project entry itself:
+
+```bash
+env -u LANIAMEDA_GALLERY_AGENT_TOKEN claude \
+  --settings '{"enabledMcpjsonServers":["laniameda-gallery"]}' \
+  mcp get laniameda-gallery
+```
+
+Expect `Scope: Project config` and `Status: ✔ Connected`, with the variable and
+without it. To rotate the token, edit `gallery.env`: the shell and both helpers
+read it on the next connection. Neither helper logs the token. Tests:
+`tests/gallery-mcp-headers.test.ts`.
+
 ### Cloud sessions
 
 A cloud sandbox has none of the laptop's config. It needs three things:
 
 1. **The token** as an environment variable, `LANIAMEDA_GALLERY_AGENT_TOKEN`.
    In Codex cloud use a variable, not a secret: secrets are removed before the
-   agent phase.
+   agent phase. The static header in `.mcp.json` carries it; the helper finds
+   no `gallery.env` there and adds nothing.
 2. **Network access** to `gallery.laniameda.space` (API),
    `laniameda-gallery-videos.549ed200949b388f171b696e6ea7d033.r2.cloudflarestorage.com`
    (uploads) and `pub-ad6ed85f12d147539181afa324bead00.r2.dev` (media).

@@ -10,7 +10,9 @@ Two servers share one tool surface (`mcp/laniameda-gallery/tools.ts`):
 - **Hosted with a bearer token**: the same URL accepts an `lgat_` agent token
   as `Authorization: Bearer`. This is the path for cloud sessions, Codex and
   CI. `.mcp.json` registers it for Claude Code in this repo, reading
-  `LANIAMEDA_GALLERY_AGENT_TOKEN`; `skills/laniameda-gallery/scripts/gallery.mjs`
+  `LANIAMEDA_GALLERY_AGENT_TOKEN`, or `~/.config/laniameda/gallery.env` through
+  its `headersHelper` when the variable is missing (Claude desktop app
+  sessions); `skills/laniameda-gallery/scripts/gallery.mjs`
   calls the same tools from a shell with no MCP client. Cloud environment
   setup (variable + allowed domains): `mcp/laniameda-gallery/README.md`.
 - **Local stdio**: `bun run mcp:gallery` with a token in the environment, below.
