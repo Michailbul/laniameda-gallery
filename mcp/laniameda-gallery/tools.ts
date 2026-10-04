@@ -975,8 +975,23 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       .optional(),
     durationSeconds: z.number().optional(),
     isChannelBest: z.boolean().describe("The channel's best performer in the window studied.").optional(),
+    channelLastUploadAt: z
+      .union([z.number(), z.string()])
+      .describe("When the channel last uploaded, as seen when checked: epoch milliseconds or an ISO date.")
+      .optional(),
+    checkedAt: z
+      .union([z.number(), z.string()])
+      .describe("When these numbers were last verified on YouTube: epoch milliseconds or an ISO date.")
+      .optional(),
     topic: z.string().describe("Subject area, e.g. cars, history, success-stories.").optional(),
     styleFamily: z.string().describe("Plain-words name of the look, e.g. 'map animation'.").optional(),
+    productionStyle: z
+      .string()
+      .describe(
+        "How the picture is made. Use one of these names: 2D animation, Whiteboard animation, AI pictures, AI 2D, Stock footage, Game recording, 3D animation, Archive and paintings, AI presenter, Mixed.",
+      )
+      .optional(),
+    language: z.string().describe("Spoken language, lowercase ISO 639-1 code: en, es, id.").optional(),
     styleDescription: z
       .string()
       .describe("What the picture is made of: materials, colour, type, how things move.")
@@ -1009,11 +1024,17 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Video References",
       description:
-        "List saved YouTube video references with their style notes, stats, thumbnail and in-video frame URLs. Sorted by most views unless sort says otherwise. Use for 'what competitors do', 'find a video in this style', 'what performs in cars'.",
+        "List saved YouTube video references with their style notes, stats, thumbnail and in-video frame URLs. Sorted by most views unless sort says otherwise. Filter by how the video is made (productionStyle), by language or by tags. Use for 'what competitors do', 'find a video in this style', 'what performs in cars', 'whiteboard videos in Spanish'.",
       inputSchema: {
         collection: z.string().describe("e.g. youtube-cars-competitors").optional(),
         topic: z.string().optional(),
         styleFamily: z.string().optional(),
+        productionStyle: z
+          .string()
+          .describe("How the picture is made, e.g. '2D animation', 'Stock footage', 'AI pictures'. Exact match, any case.")
+          .optional(),
+        language: z.string().describe("ISO 639-1 code, e.g. en, es. Exact match, any case.").optional(),
+        tagNames: z.array(z.string()).describe("Every tag listed must be on the record.").optional(),
         channelHandle: z.string().optional(),
         search: z.string().describe("Every word must appear in the title, channel, style or notes.").optional(),
         onlyLiked: z.boolean().optional(),
@@ -1042,7 +1063,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Save Video References",
       description:
-        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, the title, the stats and the style notes. Saving the same video again updates it and merges collections.",
+        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, the title, the stats and the style notes, with productionStyle (how the picture is made), language and checkedAt (when the numbers were verified). Saving the same video again updates it and merges collections.",
       inputSchema: {
         items: z.array(z.object(videoRefShape)).min(1).max(12),
         refreshMedia: z.boolean().describe("Re-copy the thumbnail and frames.").optional(),

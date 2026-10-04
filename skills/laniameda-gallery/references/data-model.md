@@ -294,6 +294,18 @@ thumbnail and in-video frames. Idempotent on (owner, video id). Not in the
 semantic index. Detail: `references/video-refs.md`; code: `convex/videoRefs.ts`,
 `lib/video-refs.ts`.
 
+Four optional fields say how a video is made and how fresh its numbers are
+(added 4 Oct 2026; older rows do not have them):
+
+- `productionStyle`: how the picture is made, e.g. "2D animation", "Stock
+  footage", "AI pictures". The vocabulary is in `references/video-refs.md`.
+- `language`: the spoken language, a lowercase ISO 639-1 code (`en`, `es`).
+- `channelLastUploadAt`: epoch ms of the channel's latest upload when checked.
+- `checkedAt`: epoch ms when the numbers were last verified on YouTube.
+
+`listVideoRefs` filters on `productionStyle`, `language` (exact match, any
+case) and `tagNames` (the record must carry every tag given).
+
 ### `bookmarks`: X posts with their text
 
 One row per post per owner (idempotent on owner, platform, post id): permalink,

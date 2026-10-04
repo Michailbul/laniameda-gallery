@@ -139,7 +139,16 @@ export function YouTubeVideoPage({ video, videos }: { video: PublicVideo; videos
             </div>
           </div>
 
-          {video.styleFamily ? <span className="yt-tag yt-tag-large">{video.styleFamily}</span> : null}
+          {video.productionStyle || video.styleFamily ? (
+            <span className="yt-card-tags">
+              {video.productionStyle ? (
+                <span className="yt-tag yt-tag-large" data-kind="made">
+                  {video.productionStyle}
+                </span>
+              ) : null}
+              {video.styleFamily ? <span className="yt-tag yt-tag-large">{video.styleFamily}</span> : null}
+            </span>
+          ) : null}
 
           {NOTE_ROWS.map((row) => {
             const value = video[row.key];
@@ -150,6 +159,14 @@ export function YouTubeVideoPage({ video, videos }: { video: PublicVideo; videos
               </p>
             ) : null;
           })}
+
+          {video.checkedAt || video.channelLastUploadAt ? (
+            <p className="yt-checked">
+              {video.checkedAt ? `Numbers checked ${formatDate(video.checkedAt)}` : ""}
+              {video.checkedAt && video.channelLastUploadAt ? " · " : ""}
+              {video.channelLastUploadAt ? `channel last uploaded ${formatDate(video.channelLastUploadAt)}` : ""}
+            </p>
+          ) : null}
 
           <a className="yt-button" href={video.url} target="_blank" rel="noopener noreferrer">
             <ArrowUpRight className="h-3.5 w-3.5" /> Watch on YouTube

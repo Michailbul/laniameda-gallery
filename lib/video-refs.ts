@@ -7,6 +7,10 @@ export type VideoRefFilter = {
   collection?: string;
   topic?: string;
   styleFamily?: string;
+  productionStyle?: string;
+  language?: string;
+  // Every tag listed must be on the record.
+  tagNames?: string[];
   channelHandle?: string;
   search?: string;
   onlyLiked?: boolean;
@@ -20,8 +24,11 @@ export type VideoRefSortable = {
   publishedAt?: number;
   createdAt: number;
   collections: string[];
+  tagNames?: string[];
   topic?: string;
   styleFamily?: string;
+  productionStyle?: string;
+  language?: string;
   channelHandle?: string;
   searchText: string;
   isLiked?: boolean;
@@ -94,6 +101,23 @@ export const matchesVideoRef = (row: VideoRefSortable, filter: VideoRefFilter) =
     (row.styleFamily ?? "").trim().toLowerCase() !== filter.styleFamily.trim().toLowerCase()
   ) {
     return false;
+  }
+  if (
+    filter.productionStyle &&
+    (row.productionStyle ?? "").trim().toLowerCase() !== filter.productionStyle.trim().toLowerCase()
+  ) {
+    return false;
+  }
+  if (
+    filter.language &&
+    (row.language ?? "").trim().toLowerCase() !== filter.language.trim().toLowerCase()
+  ) {
+    return false;
+  }
+  if (filter.tagNames && filter.tagNames.length > 0) {
+    const onRow = new Set((row.tagNames ?? []).map(normalizeLabel));
+    const wanted = filter.tagNames.map(normalizeLabel).filter(Boolean);
+    if (!wanted.every((tag) => onRow.has(tag))) return false;
   }
   if (
     filter.channelHandle &&

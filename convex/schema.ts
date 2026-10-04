@@ -513,9 +513,17 @@ export default defineSchema({
     durationSeconds: v.optional(v.number()),
     // The channel's best performer in the window the research looked at.
     isChannelBest: v.optional(v.boolean()),
+    // When the channel last uploaded, as seen at `checkedAt`: is it alive.
+    channelLastUploadAt: v.optional(v.number()),
+    // When the numbers on this row were last verified on YouTube.
+    checkedAt: v.optional(v.number()),
     collections: v.array(v.string()),
     topic: v.optional(v.string()),
     styleFamily: v.optional(v.string()),
+    // How the picture is made: "2D animation", "Stock footage", "AI pictures"…
+    productionStyle: v.optional(v.string()),
+    // Spoken language, a lowercase ISO 639-1 code: "en", "es", "id".
+    language: v.optional(v.string()),
     styleDescription: v.optional(v.string()),
     format: v.optional(v.string()),
     whyItWorks: v.optional(v.string()),

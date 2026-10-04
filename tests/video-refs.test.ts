@@ -68,6 +68,52 @@ test("matchesVideoRef applies every filter", () => {
   expect(matchesVideoRef(video, { onlyChannelBest: true })).toBe(true);
 });
 
+test("matchesVideoRef filters by production style, language and tags", () => {
+  const video = row({
+    productionStyle: "Whiteboard animation",
+    language: "es",
+    tagNames: ["niche-bend", "whiteboard", "has-bend"],
+  });
+  expect(matchesVideoRef(video, { productionStyle: " whiteboard ANIMATION " })).toBe(true);
+  expect(matchesVideoRef(video, { productionStyle: "Whiteboard" })).toBe(false);
+  expect(matchesVideoRef(video, { productionStyle: "Stock footage" })).toBe(false);
+  expect(matchesVideoRef(video, { language: "ES" })).toBe(true);
+  expect(matchesVideoRef(video, { language: "en" })).toBe(false);
+  expect(matchesVideoRef(video, { tagNames: [] })).toBe(true);
+  expect(matchesVideoRef(video, { tagNames: ["Whiteboard"] })).toBe(true);
+  expect(matchesVideoRef(video, { tagNames: ["Niche Bend", "has-bend"] })).toBe(true);
+  expect(matchesVideoRef(video, { tagNames: ["whiteboard", "cutaway"] })).toBe(false);
+  expect(
+    matchesVideoRef(video, { productionStyle: "whiteboard animation", language: "es", tagNames: ["has-bend"] }),
+  ).toBe(true);
+  expect(
+    matchesVideoRef(video, { productionStyle: "whiteboard animation", language: "en", tagNames: ["has-bend"] }),
+  ).toBe(false);
+
+  // A record saved before these fields existed matches none of the three.
+  const older = row({});
+  expect(matchesVideoRef(older, {})).toBe(true);
+  expect(matchesVideoRef(older, { productionStyle: "Stock footage" })).toBe(false);
+  expect(matchesVideoRef(older, { language: "en" })).toBe(false);
+  expect(matchesVideoRef(older, { tagNames: ["whiteboard"] })).toBe(false);
+});
+
+test("production style and language are part of the search text", () => {
+  const source = readFileSync(join(process.cwd(), "convex/videoRefs.ts"), "utf8");
+  const start = source.indexOf("const searchTextFor = (");
+  const searchTextFor = source.slice(start, source.indexOf("const toResult = (", start));
+  expect(start).toBeGreaterThan(-1);
+  expect(searchTextFor).toContain("row.productionStyle,");
+  expect(searchTextFor).toContain("row.language,");
+
+  const video = row({
+    productionStyle: "Stock footage",
+    searchText: buildVideoRefSearchText(["Every Engine Explained", "Stock footage", "en"]),
+  });
+  expect(matchesVideoRef(video, { search: "engine stock footage" })).toBe(true);
+  expect(matchesVideoRef(video, { search: "engine whiteboard" })).toBe(false);
+});
+
 test("compareVideoRefs sorts by views, by upload date and by save time", () => {
   const a = row({ views: 100, publishedAt: 30, createdAt: 1 });
   const b = row({ views: 900, publishedAt: 10, createdAt: 2 });

@@ -88,7 +88,12 @@ export async function loadYouTubeVideos(): Promise<PublicVideo[] | null> {
     titlePattern: row.titlePattern,
     thumbnailPattern: row.thumbnailPattern,
     audience: row.audience,
+    productionStyle: row.productionStyle,
+    language: row.language,
+    channelLastUploadAt: row.channelLastUploadAt,
+    checkedAt: row.checkedAt,
     collections: row.collections,
+    tagNames: row.tagNames,
     thumbUrl: row.thumbUrl,
     frames: row.frames,
   }));
