@@ -31,7 +31,14 @@ export type PublicVideo = {
   titlePattern?: string;
   thumbnailPattern?: string;
   audience?: string;
+  // How the picture is made: "2D animation", "Stock footage", "AI pictures"…
+  productionStyle?: string;
+  language?: string;
+  // The channel's latest upload and the day the numbers were re-read on YouTube.
+  channelLastUploadAt?: number;
+  checkedAt?: number;
   collections: string[];
+  tagNames: string[];
   thumbUrl?: string;
   frames: { url: string; label?: string }[];
 };
@@ -44,6 +51,11 @@ export const THEMES: { key: string; label: string; blurb: string }[] = [
     label: "Cars",
     blurb: "Faceless car channels: what they make and what works.",
   },
+  {
+    key: "youtube-niche-bend",
+    label: "Niche bend",
+    blurb: "Titles and thumbnails that worked, kept to reuse on our own subjects.",
+  },
   { key: "youtube-history-docs", label: "History", blurb: "Documentaries and histories." },
   { key: "youtube-ai-worlds", label: "AI worlds", blurb: "Original AI films and serials." },
   { key: "youtube-style-map", label: "Animation styles", blurb: "One look per channel." },
@@ -55,13 +67,18 @@ export const THEMES: { key: string; label: string; blurb: string }[] = [
 export const DEFAULT_THEME = THEMES[0].key;
 export const ALL_THEMES = "all";
 
+const ACRONYMS = new Set(["ai", "tv", "2d", "3d", "ufo", "wwii"]);
+
 const titleize = (value: string) =>
   value
     .replace(/^youtube-/, "")
     .split("-")
     .filter(Boolean)
-    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .map((word) => (ACRONYMS.has(word) ? word.toUpperCase() : word[0].toUpperCase() + word.slice(1)))
     .join(" ");
+
+// "true-crime" → "True Crime": a topic as a tag or a section heading.
+export const topicLabel = (topic: string) => titleize(topic);
 
 export const themeLabel = (key: string) =>
   THEMES.find((theme) => theme.key === key)?.label ?? titleize(key);
@@ -76,6 +93,7 @@ export const themeRank = (key: string) => {
 export type YouTubeSort =
   | "views"
   | "recent"
+  | "velocity"
   | "breakout"
   | "subscribers"
   | "longest"
@@ -85,6 +103,11 @@ export type YouTubeSort =
 export const SORTS: { key: YouTubeSort; label: string; hint: string }[] = [
   { key: "views", label: "Most views", hint: "Highest view count first" },
   { key: "recent", label: "Newest", hint: "Latest upload first" },
+  {
+    key: "velocity",
+    label: "Views per day",
+    hint: "Views divided by days since upload: what is working right now",
+  },
   {
     key: "breakout",
     label: "Breakout",
@@ -108,12 +131,38 @@ const channelKey = (video: PublicVideo) =>
 export const breakoutScore = (video: PublicVideo) =>
   video.views !== undefined && video.subscribers ? video.views / video.subscribers : -1;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Views per day since upload. A video with no date has no rate, so it sinks.
+// The first day counts as a whole one, so an hour-old upload does not win.
+export const viewsPerDay = (video: PublicVideo, now: number) =>
+  video.views !== undefined && video.publishedAt
+    ? video.views / Math.max(1, (now - video.publishedAt) / DAY_MS)
+    : -1;
+
+// How many times its channel's typical upload a video reached. The proof that
+// the title and thumbnail did the work, whatever the channel's size.
+export const typicalMultiple = (video: PublicVideo) =>
+  video.views !== undefined && video.medianViews ? video.views / video.medianViews : undefined;
+
+// "19 d", "4 mo", "2 y": how long a video has been up, short enough for a tile.
+export const formatAge = (publishedAt: number | undefined, now: number) => {
+  if (!publishedAt) return "";
+  const days = Math.max(0, Math.floor((now - publishedAt) / DAY_MS));
+  if (days < 1) return "today";
+  if (days < 60) return `${days} d`;
+  if (days < 730) return `${Math.round(days / 30.4)} mo`;
+  return `${Math.floor(days / 365)} y`;
+};
+
 const byViews = (a: PublicVideo, b: PublicVideo) => (b.views ?? -1) - (a.views ?? -1);
 
-export const compareVideos = (sort: YouTubeSort) => (a: PublicVideo, b: PublicVideo) => {
+export const compareVideos = (sort: YouTubeSort, now = Date.now()) => (a: PublicVideo, b: PublicVideo) => {
   switch (sort) {
     case "recent":
       return (b.publishedAt ?? 0) - (a.publishedAt ?? 0) || byViews(a, b);
+    case "velocity":
+      return viewsPerDay(b, now) - viewsPerDay(a, now) || byViews(a, b);
     case "breakout":
       return breakoutScore(b) - breakoutScore(a) || byViews(a, b);
     case "subscribers":
@@ -129,7 +178,59 @@ export const compareVideos = (sort: YouTubeSort) => (a: PublicVideo, b: PublicVi
   }
 };
 
-export type YouTubeView = "videos" | "channels";
+// "thumbnails" is the packaging wall: the thumbnail and the title as YouTube
+// showed them, nothing laid over the picture.
+export type YouTubeView = "videos" | "channels" | "thumbnails";
+
+export const VIEWS: { key: YouTubeView; label: string }[] = [
+  { key: "videos", label: "Videos" },
+  { key: "thumbnails", label: "Thumbnails" },
+  { key: "channels", label: "Channels" },
+];
+
+const isYouTubeView = (value: string | undefined): value is YouTubeView =>
+  VIEWS.some((view) => view.key === value);
+
+// Upload windows. Packaging goes stale fast, so "what works now" needs a cutoff.
+export type YouTubeSince = "30d" | "90d" | "180d";
+
+export const SINCE: { key: YouTubeSince; label: string; days: number }[] = [
+  { key: "30d", label: "Last 30 days", days: 30 },
+  { key: "90d", label: "Last 3 months", days: 90 },
+  { key: "180d", label: "Last 6 months", days: 180 },
+];
+
+const isSince = (value: string | undefined): value is YouTubeSince =>
+  SINCE.some((entry) => entry.key === value);
+
+// The thumbnail wall at three sizes: many at a glance, the default, or large
+// with the title formula and the thumbnail layout written out.
+export type ThumbSize = "wall" | "shelf" | "study";
+
+export const THUMB_SIZES: { key: ThumbSize; label: string; hint: string }[] = [
+  { key: "wall", label: "Wall", hint: "Small, as in YouTube's sidebar: does it read at a glance" },
+  { key: "shelf", label: "Shelf", hint: "Thumbnail, title, numbers and tags" },
+  { key: "study", label: "Study", hint: "Large, with the title formula and the thumbnail layout" },
+];
+
+export const DEFAULT_THUMB_SIZE: ThumbSize = "shelf";
+
+const isThumbSize = (value: string | undefined): value is ThumbSize =>
+  THUMB_SIZES.some((entry) => entry.key === value);
+
+export type ThumbGroup = "made" | "topic";
+
+export const THUMB_GROUPS: { key: ThumbGroup; label: string }[] = [
+  { key: "made", label: "Made with" },
+  { key: "topic", label: "Niche" },
+];
+
+const isThumbGroup = (value: string | undefined): value is ThumbGroup =>
+  THUMB_GROUPS.some((entry) => entry.key === value);
+
+// The tag an agent puts on a video whose channel passes every check we run
+// (alive, median, size, faceless). The page offers it as one switch.
+export const FITS_TAG = "passes-filters";
 
 export type ChannelSort = "top" | "subscribers" | "typical" | "count" | "name";
 
@@ -151,9 +252,15 @@ export type YouTubeFilters = {
   theme: string; // a collection label, or ALL_THEMES
   sort: YouTubeSort | ChannelSort;
   style?: string;
+  made?: string; // productionStyle
+  since?: YouTubeSince;
   channel?: string; // channel handle or name, as shown in the URL
   query?: string;
   bestOnly?: boolean;
+  fitsOnly?: boolean;
+  // Thumbnails view only.
+  size?: ThumbSize;
+  group?: ThumbGroup;
 };
 
 export const channelId = (video: PublicVideo) => video.channelHandle ?? video.channelName ?? "";
@@ -168,6 +275,8 @@ export type ChannelSummary = {
   videos: PublicVideo[]; // best first
   topViews: number;
   styles: string[];
+  made?: string;
+  lastUploadAt?: number;
 };
 
 export const summarizeChannels = (videos: PublicVideo[]): ChannelSummary[] => {
@@ -192,6 +301,14 @@ export const summarizeChannels = (videos: PublicVideo[]): ChannelSummary[] => {
       styles: countBy(sorted, (video) => (video.styleFamily ? [video.styleFamily] : [])).map(
         (entry) => entry.key,
       ),
+      made: countBy(sorted, (video) => (video.productionStyle ? [video.productionStyle] : []))[0]?.key,
+      lastUploadAt: sorted.reduce<number | undefined>(
+        (latest, video) =>
+          video.channelLastUploadAt && video.channelLastUploadAt > (latest ?? 0)
+            ? video.channelLastUploadAt
+            : latest,
+        undefined,
+      ),
     };
   });
 };
@@ -211,9 +328,15 @@ export const compareChannels = (sort: ChannelSort) => (a: ChannelSummary, b: Cha
   }
 };
 
-export const matchesFilters = (video: PublicVideo, filters: YouTubeFilters) => {
+export const matchesFilters = (video: PublicVideo, filters: YouTubeFilters, now = Date.now()) => {
   if (filters.theme !== ALL_THEMES && !video.collections.includes(filters.theme)) return false;
   if (filters.style && video.styleFamily !== filters.style) return false;
+  if (filters.made && video.productionStyle !== filters.made) return false;
+  if (filters.since) {
+    const days = SINCE.find((entry) => entry.key === filters.since)?.days ?? 0;
+    if (!video.publishedAt || video.publishedAt < now - days * DAY_MS) return false;
+  }
+  if (filters.fitsOnly && !video.tagNames.includes(FITS_TAG)) return false;
   if (filters.channel && channelId(video) !== filters.channel) return false;
   if (filters.bestOnly && !video.isChannelBest) return false;
   const terms = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -231,10 +354,14 @@ export const searchTextOf = (video: PublicVideo) =>
     video.channelHandle,
     video.topic,
     video.styleFamily,
+    video.productionStyle,
     video.styleDescription,
     video.format,
     video.whyItWorks,
     video.hook,
+    video.titlePattern,
+    video.thumbnailPattern,
+    video.tagNames.join(" "),
     video.collections.map((key) => themeLabel(key)).join(" "),
   ]
     .filter(Boolean)
@@ -262,7 +389,12 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
           ? DEFAULT_THEME
           : ALL_THEMES;
   const rawSort = one(params.sort);
-  const view: YouTubeView = one(params.view) === "channels" ? "channels" : "videos";
+  const rawView = one(params.view);
+  const view: YouTubeView = isYouTubeView(rawView) ? rawView : "videos";
+  const rawSince = one(params.since);
+  const rawSize = one(params.size);
+  const rawGroup = one(params.group);
+  const thumbnails = view === "thumbnails";
   const sort =
     view === "channels"
       ? isChannelSort(rawSort)
@@ -276,9 +408,14 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
     theme,
     sort,
     style: one(params.style) || undefined,
+    made: one(params.made) || undefined,
+    since: isSince(rawSince) ? rawSince : undefined,
     channel: one(params.channel) || undefined,
     query: one(params.q)?.trim() || undefined,
     bestOnly: one(params.best) === "1" ? true : undefined,
+    fitsOnly: one(params.fits) === "1" ? true : undefined,
+    size: thumbnails && isThumbSize(rawSize) && rawSize !== DEFAULT_THUMB_SIZE ? rawSize : undefined,
+    group: thumbnails && isThumbGroup(rawGroup) ? rawGroup : undefined,
   };
 };
 
@@ -286,14 +423,21 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
 // plain link stays short.
 export const filtersToSearch = (filters: YouTubeFilters) => {
   const search = new URLSearchParams();
-  if (filters.view === "channels") search.set("view", "channels");
+  if (filters.view !== "videos") search.set("view", filters.view);
   if (filters.theme !== DEFAULT_THEME) search.set("theme", filters.theme);
   const defaultSort = filters.view === "channels" ? DEFAULT_CHANNEL_SORT : DEFAULT_SORT;
   if (filters.sort !== defaultSort) search.set("sort", filters.sort);
   if (filters.style) search.set("style", filters.style);
+  if (filters.made) search.set("made", filters.made);
+  if (filters.since) search.set("since", filters.since);
   if (filters.channel) search.set("channel", filters.channel);
   if (filters.query) search.set("q", filters.query);
   if (filters.bestOnly) search.set("best", "1");
+  if (filters.fitsOnly) search.set("fits", "1");
+  if (filters.view === "thumbnails") {
+    if (filters.size && filters.size !== DEFAULT_THUMB_SIZE) search.set("size", filters.size);
+    if (filters.group) search.set("group", filters.group);
+  }
   const text = search.toString();
   return text ? `?${text}` : "";
 };
@@ -304,4 +448,23 @@ export const countBy = <T>(items: T[], pick: (item: T) => string[]) => {
   return [...counts.entries()]
     .map(([key, count]) => ({ key, count }))
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+};
+
+// The thumbnail wall in sections: one per way of making the picture, or one per
+// niche. Videos with no label go last, under their own heading.
+export const groupVideos = (videos: PublicVideo[], group: ThumbGroup) => {
+  const UNLABELLED = "Not labelled";
+  const sections = new Map<string, PublicVideo[]>();
+  for (const video of videos) {
+    const key = (group === "made" ? video.productionStyle : video.topic) || UNLABELLED;
+    sections.set(key, [...(sections.get(key) ?? []), video]);
+  }
+  return [...sections.entries()]
+    .map(([key, items]) => ({ key, label: group === "topic" && key !== UNLABELLED ? titleize(key) : key, videos: items }))
+    .sort(
+      (a, b) =>
+        Number(a.key === UNLABELLED) - Number(b.key === UNLABELLED) ||
+        b.videos.length - a.videos.length ||
+        a.key.localeCompare(b.key),
+    );
 };

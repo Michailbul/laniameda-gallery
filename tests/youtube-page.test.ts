@@ -6,11 +6,16 @@ import {
   compareChannels,
   compareVideos,
   filtersToSearch,
+  formatAge,
+  groupVideos,
   homeTheme,
   matchesFilters,
   parseFilters,
   summarizeChannels,
   themeLabel,
+  topicLabel,
+  typicalMultiple,
+  viewsPerDay,
   type PublicVideo,
 } from "../lib/youtube-page";
 
@@ -19,9 +24,13 @@ const video = (overrides: Partial<PublicVideo>): PublicVideo => ({
   url: "https://www.youtube.com/watch?v=aaaaaaaaaaa",
   title: "A video",
   collections: ["youtube-cars-competitors"],
+  tagNames: [],
   frames: [],
   ...overrides,
 });
+
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.UTC(2026, 9, 4);
 
 const known = ["youtube-cars-competitors", "youtube-history-docs"];
 
@@ -29,6 +38,8 @@ test("themes put Cars first and label unknown collections readably", () => {
   expect(DEFAULT_THEME).toBe("youtube-cars-competitors");
   expect(themeLabel("youtube-cars-competitors")).toBe("Cars");
   expect(themeLabel("youtube-new-thing")).toBe("New Thing");
+  expect(themeLabel("youtube-niche-bend")).toBe("Niche bend");
+  expect(topicLabel("ai-original-worlds")).toBe("AI Original Worlds");
   expect(homeTheme(video({ collections: ["youtube-what-if", "youtube-cars-competitors"] }))).toBe(
     "youtube-cars-competitors",
   );
@@ -101,4 +112,83 @@ test("channels group their videos best first and sort", () => {
   expect(channels.sort(compareChannels("top")).map((entry) => entry.id)).toEqual(["@one", "@two"]);
   expect(channels.sort(compareChannels("subscribers")).map((entry) => entry.id)).toEqual(["@two", "@one"]);
   expect(channels.sort(compareChannels("count")).map((entry) => entry.id)).toEqual(["@one", "@two"]);
+});
+
+test("the thumbnail wall keeps its view, size and grouping in the URL", () => {
+  const filters = parseFilters(
+    { view: "thumbnails", sort: "velocity", made: "2D animation", since: "90d", fits: "1", size: "study", group: "made" },
+    known,
+  );
+  expect(filters.view).toBe("thumbnails");
+  expect(filters.sort).toBe("velocity");
+  expect(filters.made).toBe("2D animation");
+  expect(filters.since).toBe("90d");
+  expect(filters.fitsOnly).toBe(true);
+  expect(filters.size).toBe("study");
+  expect(filters.group).toBe("made");
+  expect(parseFilters(Object.fromEntries(new URLSearchParams(filtersToSearch(filters))), known)).toEqual(filters);
+  // The default size is left out of the link, and the wall's controls mean nothing elsewhere.
+  expect(filtersToSearch(parseFilters({ view: "thumbnails", size: "shelf" }, known))).toBe("?view=thumbnails");
+  const videos = parseFilters({ view: "videos", size: "study", group: "made", since: "5y" }, known);
+  expect(videos.size).toBeUndefined();
+  expect(videos.group).toBeUndefined();
+  expect(videos.since).toBeUndefined();
+});
+
+test("filters narrow by how it is made, upload window and our checks", () => {
+  const drawn = video({ productionStyle: "2D animation", publishedAt: NOW - 20 * DAY, tagNames: ["passes-filters"] });
+  const stock = video({ productionStyle: "Stock footage", publishedAt: NOW - 120 * DAY });
+  const undated = video({});
+  const base = parseFilters({}, known);
+  expect(matchesFilters(drawn, { ...base, made: "2D animation" }, NOW)).toBe(true);
+  expect(matchesFilters(stock, { ...base, made: "2D animation" }, NOW)).toBe(false);
+  expect(matchesFilters(drawn, { ...base, since: "30d" }, NOW)).toBe(true);
+  expect(matchesFilters(stock, { ...base, since: "90d" }, NOW)).toBe(false);
+  expect(matchesFilters(stock, { ...base, since: "180d" }, NOW)).toBe(true);
+  expect(matchesFilters(undated, { ...base, since: "180d" }, NOW)).toBe(false);
+  expect(matchesFilters(drawn, { ...base, fitsOnly: true }, NOW)).toBe(true);
+  expect(matchesFilters(stock, { ...base, fitsOnly: true }, NOW)).toBe(false);
+  expect(matchesFilters(stock, { ...base, query: "stock footage" }, NOW)).toBe(true);
+});
+
+test("views per day ranks what works now, and the multiple shows a video against its channel", () => {
+  const fresh = video({ title: "Fresh", views: 300_000, publishedAt: NOW - 10 * DAY, medianViews: 20_000 });
+  const old = video({ title: "Old", views: 2_000_000, publishedAt: NOW - 400 * DAY, medianViews: 1_000_000 });
+  const undated = video({ title: "Undated", views: 5_000_000 });
+  expect([old, undated, fresh].sort(compareVideos("velocity", NOW)).map((entry) => entry.title)).toEqual([
+    "Fresh",
+    "Old",
+    "Undated",
+  ]);
+  expect(viewsPerDay(video({ views: 500, publishedAt: NOW - DAY / 24 }), NOW)).toBe(500);
+  expect(typicalMultiple(fresh)).toBe(15);
+  expect(typicalMultiple(undated)).toBeUndefined();
+  expect(formatAge(NOW - 19 * DAY, NOW)).toBe("19 d");
+  expect(formatAge(NOW - 122 * DAY, NOW)).toBe("4 mo");
+  expect(formatAge(NOW - 800 * DAY, NOW)).toBe("2 y");
+  expect(formatAge(undefined, NOW)).toBe("");
+});
+
+test("the wall groups by how it is made or by niche, unlabelled last", () => {
+  const rows = [
+    video({ externalId: "a", productionStyle: "Stock footage", topic: "true-crime" }),
+    video({ externalId: "b", productionStyle: "2D animation", topic: "history" }),
+    video({ externalId: "c", productionStyle: "2D animation", topic: "history" }),
+    video({ externalId: "d" }),
+  ];
+  expect(groupVideos(rows, "made").map((section) => [section.label, section.videos.length])).toEqual([
+    ["2D animation", 2],
+    ["Stock footage", 1],
+    ["Not labelled", 1],
+  ]);
+  expect(groupVideos(rows, "topic").map((section) => section.label)).toEqual(["History", "True Crime", "Not labelled"]);
+});
+
+test("a channel carries how it is made and its last upload", () => {
+  const [channel] = summarizeChannels([
+    video({ externalId: "a", channelHandle: "@one", views: 10, productionStyle: "Whiteboard animation", channelLastUploadAt: 5 }),
+    video({ externalId: "b", channelHandle: "@one", views: 90, productionStyle: "Whiteboard animation", channelLastUploadAt: 9 }),
+  ]);
+  expect(channel.made).toBe("Whiteboard animation");
+  expect(channel.lastUploadAt).toBe(9);
 });

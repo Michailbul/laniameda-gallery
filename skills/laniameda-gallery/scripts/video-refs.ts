@@ -75,6 +75,8 @@ export async function runVideoRefs(input: Input) {
       const batch = items.slice(start, start + SAVE_BATCH).map((item) => ({
         ...item,
         publishedAt: toTime(item.publishedAt),
+        channelLastUploadAt: toTime(item.channelLastUploadAt),
+        checkedAt: toTime(item.checkedAt),
       }));
       const saved = (await call("action", "videoRefs:saveVideoRefs", {
         ownerUserId,

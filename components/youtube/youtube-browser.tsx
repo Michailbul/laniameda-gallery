@@ -2,20 +2,27 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Trophy, X } from "lucide-react";
+import { Check, Search, Trophy, X } from "lucide-react";
 import { formatCount } from "@/lib/video-refs";
 import {
   ALL_THEMES,
   CHANNEL_SORTS,
   DEFAULT_CHANNEL_SORT,
   DEFAULT_SORT,
+  DEFAULT_THUMB_SIZE,
+  FITS_TAG,
+  SINCE,
   SORTS,
   THEMES,
+  THUMB_GROUPS,
+  THUMB_SIZES,
+  VIEWS,
   YOUTUBE_PATH,
   compareChannels,
   compareVideos,
   countBy,
   filtersToSearch,
+  groupVideos,
   matchesFilters,
   summarizeChannels,
   themeLabel,
@@ -24,12 +31,17 @@ import {
   type ChannelSummary,
   type PublicVideo,
   type YouTubeFilters,
+  type YouTubeSince,
   type YouTubeSort,
+  type YouTubeView,
 } from "@/lib/youtube-page";
 import { CopyLinkButton } from "./copy-link-button";
-import { VideoCard } from "./video-card";
+import { ThumbTile } from "./thumb-tile";
+import { VideoCard, formatDate } from "./video-card";
 
 const STYLE_CHIP_LIMIT = 14;
+// On the thumbnail wall the pictures are the point, so the style row stays on one line until asked.
+const WALL_STYLE_CHIP_LIMIT = 6;
 
 type Props = { videos: PublicVideo[]; initialFilters: YouTubeFilters };
 
@@ -40,6 +52,9 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
   const [filters, setFilters] = useState(initialFilters);
   const [query, setQuery] = useState(initialFilters.query ?? "");
   const [showAllStyles, setShowAllStyles] = useState(false);
+  // One clock for the whole visit, so the upload window and the views-per-day
+  // order do not shift between renders.
+  const [now] = useState(() => Date.now());
 
   // Typing updates the list after a beat, so the URL is not rewritten per key.
   useEffect(() => {
@@ -73,6 +88,11 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
     () => countBy(inTheme, (video) => (video.styleFamily ? [video.styleFamily] : [])),
     [inTheme],
   );
+  const madeWith = useMemo(
+    () => countBy(inTheme, (video) => (video.productionStyle ? [video.productionStyle] : [])),
+    [inTheme],
+  );
+  const hasFits = useMemo(() => inTheme.some((video) => video.tagNames.includes(FITS_TAG)), [inTheme]);
   const channelOptions = useMemo(
     () =>
       summarizeChannels(inTheme)
@@ -84,27 +104,56 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
   const visible = useMemo(
     () =>
       videos
-        .filter((video) => matchesFilters(video, filters))
-        .sort(compareVideos(filters.sort as YouTubeSort)),
-    [videos, filters],
+        .filter((video) => matchesFilters(video, filters, now))
+        .sort(compareVideos(filters.sort as YouTubeSort, now)),
+    [videos, filters, now],
   );
 
   const channels = useMemo(
     () =>
-      summarizeChannels(videos.filter((video) => matchesFilters(video, { ...filters, channel: undefined })))
+      summarizeChannels(videos.filter((video) => matchesFilters(video, { ...filters, channel: undefined }, now)))
         .sort(compareChannels(filters.sort as ChannelSort)),
-    [videos, filters],
+    [videos, filters, now],
   );
 
   const channelView = filters.view === "channels";
+  const thumbView = filters.view === "thumbnails";
+  const thumbSize = filters.size ?? DEFAULT_THUMB_SIZE;
   const sortOptions = channelView ? CHANNEL_SORTS : SORTS;
-  const visibleStyles = showAllStyles ? styles : styles.slice(0, STYLE_CHIP_LIMIT);
-  const refining = Boolean(filters.style || filters.channel || filters.query || filters.bestOnly);
+  const styleChipLimit = thumbView ? WALL_STYLE_CHIP_LIMIT : STYLE_CHIP_LIMIT;
+  const visibleStyles = showAllStyles ? styles : styles.slice(0, styleChipLimit);
+  const refining = Boolean(
+    filters.style ||
+      filters.made ||
+      filters.since ||
+      filters.channel ||
+      filters.query ||
+      filters.bestOnly ||
+      filters.fitsOnly,
+  );
   const theme = THEMES.find((entry) => entry.key === filters.theme);
+  const sections = useMemo(
+    () => (thumbView && filters.group ? groupVideos(visible, filters.group) : null),
+    [thumbView, filters.group, visible],
+  );
 
-  const pickTheme = (key: string) => update({ theme: key, style: undefined, channel: undefined });
-  const pickView = (view: "videos" | "channels") =>
-    update({ view, sort: view === "channels" ? DEFAULT_CHANNEL_SORT : DEFAULT_SORT, channel: undefined });
+  const pickTheme = (key: string) =>
+    update({ theme: key, style: undefined, made: undefined, channel: undefined });
+  // Videos and Thumbnails share their sorts, so the order survives the switch.
+  // Channels sort by other things, and the wall's own controls stay on the wall.
+  const pickView = (view: YouTubeView) =>
+    update({
+      view,
+      sort:
+        view === "channels"
+          ? DEFAULT_CHANNEL_SORT
+          : channelView
+            ? DEFAULT_SORT
+            : filters.sort,
+      channel: view === "channels" ? undefined : filters.channel,
+      size: view === "thumbnails" ? filters.size : undefined,
+      group: view === "thumbnails" ? filters.group : undefined,
+    });
 
   const openChannel = (channel: ChannelSummary) => update({ view: "videos", sort: DEFAULT_SORT, channel: channel.id });
 
@@ -150,12 +199,16 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
 
       <div className="yt-toolbar">
         <div className="yt-segment" role="group" aria-label="View">
-          <button type="button" data-active={!channelView} onClick={() => pickView("videos")}>
-            Videos
-          </button>
-          <button type="button" data-active={channelView} onClick={() => pickView("channels")}>
-            Channels
-          </button>
+          {VIEWS.map((view) => (
+            <button
+              key={view.key}
+              type="button"
+              data-active={filters.view === view.key}
+              onClick={() => pickView(view.key)}
+            >
+              {view.label}
+            </button>
+          ))}
         </div>
 
         <label className="yt-search">
@@ -189,6 +242,21 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
           </select>
         )}
 
+        <select
+          className="yt-select"
+          value={filters.since ?? ""}
+          onChange={(event) => update({ since: (event.target.value || undefined) as YouTubeSince | undefined })}
+          aria-label="Uploaded"
+          title="Only videos uploaded in this window"
+        >
+          <option value="">Any upload date</option>
+          {SINCE.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
         <label className="yt-sort">
           <span>Sort</span>
           <select
@@ -215,7 +283,38 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
         >
           <Trophy className="h-3 w-3" aria-hidden /> Best per channel
         </button>
+
+        {hasFits && (
+          <button
+            type="button"
+            className="yt-chip"
+            data-active={Boolean(filters.fitsOnly)}
+            onClick={() => update({ fitsOnly: filters.fitsOnly ? undefined : true })}
+            title="Channels that pass every check: still posting, faceless, in English, under 100K subscribers, 50K typical views, more than one hit"
+          >
+            <Check className="h-3 w-3" aria-hidden /> Passes our filters
+          </button>
+        )}
       </div>
+
+      {madeWith.length > 0 && (
+        <div className="yt-chips yt-made" aria-label="Made with">
+          <span className="yt-control-label">Made with</span>
+          {madeWith.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              className="yt-chip"
+              data-kind="made"
+              data-active={filters.made === entry.key}
+              onClick={() => update({ made: filters.made === entry.key ? undefined : entry.key })}
+            >
+              {entry.key}
+              <span>{entry.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {styles.length > 1 && (
         <div className="yt-chips" aria-label="Styles">
@@ -231,16 +330,53 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
               <span>{entry.count}</span>
             </button>
           ))}
-          {styles.length > STYLE_CHIP_LIMIT && (
+          {styles.length > styleChipLimit && (
             <button type="button" className="yt-chip yt-chip-more" onClick={() => setShowAllStyles((value) => !value)}>
-              {showAllStyles ? "Fewer" : `+${styles.length - STYLE_CHIP_LIMIT} more`}
+              {showAllStyles ? "Fewer" : `+${styles.length - styleChipLimit} more`}
             </button>
           )}
         </div>
       )}
 
+      {thumbView && (
+        <div className="yt-wall-controls">
+          <span className="yt-control-label">Size</span>
+          <div className="yt-segment yt-segment-small" role="group" aria-label="Thumbnail size">
+            {THUMB_SIZES.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                data-active={thumbSize === option.key}
+                title={option.hint}
+                onClick={() => update({ size: option.key === DEFAULT_THUMB_SIZE ? undefined : option.key })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <span className="yt-control-label">Group</span>
+          <div className="yt-segment yt-segment-small" role="group" aria-label="Group thumbnails">
+            <button type="button" data-active={!filters.group} onClick={() => update({ group: undefined })}>
+              Off
+            </button>
+            {THUMB_GROUPS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                data-active={filters.group === option.key}
+                onClick={() => update({ group: option.key })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="yt-count" aria-live="polite">
-        {channelView ? `${channels.length} channels` : `${visible.length} of ${inTheme.length} videos`}
+        {channelView
+          ? `${channels.length} channels`
+          : `${visible.length} of ${inTheme.length} ${thumbView ? "thumbnails" : "videos"}`}
         {filters.channel ? ` · ${filters.channel}` : ""}
         {refining ? (
           <button
@@ -248,7 +384,15 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
             className="yt-clear"
             onClick={() => {
               setQuery("");
-              update({ style: undefined, channel: undefined, query: undefined, bestOnly: undefined });
+              update({
+                style: undefined,
+                made: undefined,
+                since: undefined,
+                channel: undefined,
+                query: undefined,
+                bestOnly: undefined,
+                fitsOnly: undefined,
+              });
             }}
           >
             Clear filters
@@ -268,6 +412,31 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
         )
       ) : visible.length === 0 ? (
         <Empty />
+      ) : thumbView ? (
+        sections ? (
+          sections.map((section) => (
+            <section key={section.key} className="yt-group">
+              <header className="yt-group-head">
+                <h2 className="yt-group-title">{section.label}</h2>
+                <span className="yt-group-count">
+                  {section.videos.length} {section.videos.length === 1 ? "thumbnail" : "thumbnails"} ·{" "}
+                  {formatCount(section.videos.reduce((sum, video) => sum + (video.views ?? 0), 0))} views
+                </span>
+              </header>
+              <div className="yt-wall" data-size={thumbSize}>
+                {section.videos.map((video, index) => (
+                  <ThumbTile key={video.externalId} video={video} rank={index + 1} size={thumbSize} now={now} />
+                ))}
+              </div>
+            </section>
+          ))
+        ) : (
+          <div className="yt-wall" data-size={thumbSize}>
+            {visible.map((video, index) => (
+              <ThumbTile key={video.externalId} video={video} rank={index + 1} size={thumbSize} now={now} />
+            ))}
+          </div>
+        )
       ) : (
         <div className="yt-grid">
           {visible.map((video) => (
@@ -316,7 +485,19 @@ function ChannelCard({ channel, onOpen }: { channel: ChannelSummary; onOpen: () 
             </span>
           ) : null}
         </span>
-        {channel.styles[0] ? <span className="yt-tag">{channel.styles[0]}</span> : null}
+        {channel.lastUploadAt ? (
+          <span className="yt-card-meta">Last upload {formatDate(channel.lastUploadAt)}</span>
+        ) : null}
+        {channel.made || channel.styles[0] ? (
+          <span className="yt-card-tags">
+            {channel.made ? (
+              <span className="yt-tag" data-kind="made">
+                {channel.made}
+              </span>
+            ) : null}
+            {channel.styles[0] ? <span className="yt-tag">{channel.styles[0]}</span> : null}
+          </span>
+        ) : null}
       </span>
     </button>
   );

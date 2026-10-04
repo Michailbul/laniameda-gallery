@@ -39,8 +39,12 @@ const describedFields = {
   publishedAt: v.optional(v.number()),
   durationSeconds: v.optional(v.number()),
   isChannelBest: v.optional(v.boolean()),
+  channelLastUploadAt: v.optional(v.number()),
+  checkedAt: v.optional(v.number()),
   topic: v.optional(v.string()),
   styleFamily: v.optional(v.string()),
+  productionStyle: v.optional(v.string()),
+  language: v.optional(v.string()),
   styleDescription: v.optional(v.string()),
   format: v.optional(v.string()),
   whyItWorks: v.optional(v.string()),
@@ -99,6 +103,8 @@ const searchTextFor = (row: {
   channelHandle?: string;
   topic?: string;
   styleFamily?: string;
+  productionStyle?: string;
+  language?: string;
   styleDescription?: string;
   format?: string;
   whyItWorks?: string;
@@ -118,6 +124,8 @@ const searchTextFor = (row: {
     row.channelHandle,
     row.topic,
     row.styleFamily,
+    row.productionStyle,
+    row.language,
     row.styleDescription,
     row.format,
     row.whyItWorks,
@@ -147,8 +155,12 @@ const toResult = (row: Doc<"videoRefs">) => ({
   publishedAt: row.publishedAt,
   durationSeconds: row.durationSeconds,
   isChannelBest: row.isChannelBest,
+  channelLastUploadAt: row.channelLastUploadAt,
+  checkedAt: row.checkedAt,
   topic: row.topic,
   styleFamily: row.styleFamily,
+  productionStyle: row.productionStyle,
+  language: row.language,
   styleDescription: row.styleDescription,
   format: row.format,
   whyItWorks: row.whyItWorks,
@@ -235,8 +247,13 @@ export const upsertVideoRef = internalMutation({
       publishedAt: args.publishedAt ?? existing?.publishedAt,
       durationSeconds: args.durationSeconds ?? existing?.durationSeconds,
       isChannelBest: args.isChannelBest ?? existing?.isChannelBest,
+      channelLastUploadAt: args.channelLastUploadAt ?? existing?.channelLastUploadAt,
+      checkedAt: args.checkedAt ?? existing?.checkedAt,
       topic: clip(args.topic) ?? existing?.topic,
       styleFamily: clip(args.styleFamily) ?? existing?.styleFamily,
+      productionStyle: clip(args.productionStyle) ?? existing?.productionStyle,
+      // Stored lowercase, so "EN" and "en" are one language.
+      language: clip(args.language)?.toLowerCase() ?? existing?.language,
       styleDescription: clip(args.styleDescription) ?? existing?.styleDescription,
       format: clip(args.format) ?? existing?.format,
       whyItWorks: clip(args.whyItWorks) ?? existing?.whyItWorks,
@@ -410,13 +427,16 @@ export const saveVideoRefs = ownerAction({
 
 // The Videos tab and the agent listing. Filters are all optional; `sort`
 // defaults to most views. `search` matches every word against the title,
-// channel, style and notes.
+// channel, style and notes. `tagNames` keeps rows that carry every tag given.
 export const listVideoRefs = ownerQuery({
   args: {
     ownerUserId: v.string(),
     collection: v.optional(v.string()),
     topic: v.optional(v.string()),
     styleFamily: v.optional(v.string()),
+    productionStyle: v.optional(v.string()),
+    language: v.optional(v.string()),
+    tagNames: v.optional(v.array(v.string())),
     channelHandle: v.optional(v.string()),
     search: v.optional(v.string()),
     onlyLiked: v.optional(v.boolean()),

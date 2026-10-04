@@ -54,6 +54,11 @@ export function VideoCard({ video, showTheme }: { video: PublicVideo; showTheme?
                 {themeLabel(homeTheme(video))}
               </span>
             ) : null}
+            {video.productionStyle ? (
+              <span className="yt-tag" data-kind="made">
+                {video.productionStyle}
+              </span>
+            ) : null}
             {video.styleFamily ? <span className="yt-tag">{video.styleFamily}</span> : null}
           </span>
         </span>
