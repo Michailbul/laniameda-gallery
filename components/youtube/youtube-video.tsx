@@ -15,6 +15,7 @@ import {
   type PublicVideo,
 } from "@/lib/youtube-page";
 import { CopyLinkButton } from "./copy-link-button";
+import { ResearchNotes } from "./research-notes";
 import { VideoCard, formatDate } from "./video-card";
 
 const NOTE_ROWS: { key: keyof PublicVideo; label: string }[] = [
@@ -159,6 +160,7 @@ export function YouTubeVideoPage({ video, videos }: { video: PublicVideo; videos
               </p>
             ) : null;
           })}
+          <ResearchNotes value={video.bendIdea} userNote={video.userNote} />
 
           {video.checkedAt || video.channelLastUploadAt ? (
             <p className="yt-checked">

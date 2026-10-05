@@ -7,6 +7,7 @@ import { getSessionSecret } from "@/lib/session-jwt";
 import { getSessionUser } from "@/lib/telegram-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import type { PublicVideo } from "@/lib/youtube-page";
+import { currentResearchTags, privateResearchFields } from "@/lib/youtube-research";
 
 // The public YouTube page sits behind one shared password. The gate is enforced
 // on the server: the videos are loaded here, only after the cookie checks out,
@@ -42,23 +43,26 @@ export const youTubeCookieOptions = () => ({
 export const ownerUserId = () => resolveUserIdCandidates(process.env.KB_OWNER_USER_ID ?? "")[0] ?? "";
 
 const hasAccess = async () => {
+  const user = await getSessionUser();
+  const isOwner = Boolean(user && resolveUserIdCandidates(process.env.KB_OWNER_USER_ID ?? "").includes(user.telegramId));
+  if (isOwner) return { allowed: true, isOwner: true };
   const jar = await cookies();
   const token = jar.get(YOUTUBE_COOKIE)?.value;
   if (token) {
     try {
       const { payload } = await jwtVerify(token, getSessionSecret());
-      if (payload.scope === "youtube") return true;
+      if (payload.scope === "youtube") return { allowed: true, isOwner: false };
     } catch {
       // Expired or forged: fall through to the owner check.
     }
   }
-  const user = await getSessionUser();
-  return Boolean(user && resolveUserIdCandidates(process.env.KB_OWNER_USER_ID ?? "").includes(user.telegramId));
+  return { allowed: false, isOwner: false };
 };
 
 /** The videos, or null while the visitor has not unlocked the page. */
 export async function loadYouTubeVideos(): Promise<PublicVideo[] | null> {
-  if (!(await hasAccess())) return null;
+  const access = await hasAccess();
+  if (!access.allowed) return null;
   const owner = ownerUserId();
   if (!owner) return [];
   const rows = await getServerConvexClient(owner).query(api.videoRefs.listVideoRefs, {
@@ -67,6 +71,7 @@ export async function loadYouTubeVideos(): Promise<PublicVideo[] | null> {
     sort: "views",
   });
   return rows.map((row) => ({
+    ...privateResearchFields(row, access.isOwner),
     externalId: row.externalId,
     url: row.url,
     title: row.title,
@@ -93,7 +98,7 @@ export async function loadYouTubeVideos(): Promise<PublicVideo[] | null> {
     channelLastUploadAt: row.channelLastUploadAt,
     checkedAt: row.checkedAt,
     collections: row.collections,
-    tagNames: row.tagNames,
+    tagNames: currentResearchTags(row),
     thumbUrl: row.thumbUrl,
     frames: row.frames,
   }));

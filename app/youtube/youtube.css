@@ -244,6 +244,7 @@
 .yt-stats span { font-family: var(--lm-font); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--lm-text-tertiary); }
 .yt-stats div[data-hot] b { color: var(--lm-coral); }
 .yt-note { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 14px; line-height: 1.5; }
+.yt-research { display: flex; flex-direction: column; gap: 14px; padding-top: 20px; border-top: 1px solid var(--lm-border); }
 .yt-note span { font-family: var(--lm-font); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--lm-text-tertiary); }
 .yt-related { margin-top: 56px; }
 
