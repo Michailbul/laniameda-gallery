@@ -96,6 +96,7 @@ import {
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
 import { MotionView } from "@/components/gallery/motion-view";
+import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 
 type SelectedImage = {
   id: string;
@@ -329,6 +330,10 @@ export function GalleryDashboard({
   const [bookmarksView, setBookmarksView] = useState(false);
   // The Motion tab: assets tagged motion-design, filtered by their own facets.
   const [motionView, setMotionView] = useState(false);
+  // The Cinematography tab: camera-move packs, shown as skill cards under
+  // their own name and kept out of the Skills tab.
+  const [cinematographyView, setCinematographyView] = useState(false);
+  const extraTabView = motionView || cinematographyView;
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -1391,7 +1396,7 @@ export function GalleryDashboard({
   const gridWorkflows = useQuery(
     api.workflows.listWorkflows,
     canAccessMyGallery && galleryScope === "mine"
-      ? { ownerUserId, previewLimit: 8 }
+      ? { ownerUserId, previewLimit: 8, excludeTagNames: [CINEMATOGRAPHY_TAG] }
       : "skip",
   );
   const deleteSkillMutation = useMutation(api.workflows.deleteWorkflow);
@@ -3934,7 +3939,7 @@ export function GalleryDashboard({
     // grid is actually showing. The collections landing, workflows and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
-    if (viewMode !== "grid" || storybooksView || bookmarksView || motionView) return null;
+    if (viewMode !== "grid" || storybooksView || bookmarksView || extraTabView) return null;
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -3950,7 +3955,7 @@ export function GalleryDashboard({
     galleryScope,
     storybooksView,
     bookmarksView,
-    motionView,
+    extraTabView,
     viewMode,
   ]);
   const quickDropImpliedTag = useMemo<StaticsTagName | null>(() => {
@@ -4518,6 +4523,7 @@ export function GalleryDashboard({
               ? () => {
                   setBookmarksView(false);
                   setMotionView(false);
+                  setCinematographyView(false);
                   setStorybooksView(true);
                 }
               : undefined
@@ -4529,6 +4535,7 @@ export function GalleryDashboard({
                   setStorybooksView(false);
                   setBookmarksView(true);
                   setMotionView(false);
+                  setCinematographyView(false);
                 }
               : undefined
           }
@@ -4540,27 +4547,42 @@ export function GalleryDashboard({
                   setStorybooksView(false);
                   setBookmarksView(false);
                   setMotionView(true);
+                  setCinematographyView(false);
                 }
               : undefined
           }
           motionTabActive={motionView}
+          onCinematographyTab={
+            canManageFoldersInCurrentView
+              ? () => {
+                  setStorybooksView(false);
+                  setBookmarksView(false);
+                  setMotionView(false);
+                  setCinematographyView(true);
+                  setViewMode("grid");
+                }
+              : undefined
+          }
+          cinematographyTabActive={cinematographyView}
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
                   setStorybooksView(false);
                   setBookmarksView(false);
                   setMotionView(false);
+                  setCinematographyView(false);
                   setViewMode("skills");
                 }
               : undefined
           }
           skillsTabActive={
-            viewMode === "skills" && !storybooksView && !bookmarksView && !motionView
+            viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
           onGalleryHome={() => {
             setStorybooksView(false);
             setBookmarksView(false);
-                  setMotionView(false);
+            setMotionView(false);
+            setCinematographyView(false);
             setViewMode("grid");
           }}
           user={user}
@@ -4648,7 +4670,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !motionView && (
+            {!storybooksView && !bookmarksView && !extraTabView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4711,7 +4733,7 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && !motionView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
+            {!storybooksView && !bookmarksView && !extraTabView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
                 <button
                   type="button"
@@ -4757,7 +4779,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && !bookmarksView && !motionView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && !extraTabView && (semanticMode?.kind === "similar" || semanticError) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -4814,7 +4836,7 @@ export function GalleryDashboard({
               id="gallery-main-content"
               className="relative min-w-0"
             >
-              {!storybooksView && !bookmarksView && !motionView && breadcrumbSegments.length > 0 && (
+              {!storybooksView && !bookmarksView && !extraTabView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
@@ -4880,6 +4902,22 @@ export function GalleryDashboard({
               )}
               {motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
+              ) : cinematographyView && ownerUserId ? (
+                <SkillsView
+                  key="cinematography"
+                  section="cinematography"
+                  ownerUserId={ownerUserId}
+                  collections={(folders ?? []).map((folder) => ({
+                    _id: String(folder._id),
+                    name: folder.name,
+                    parentFolderId: folder.parentFolderId
+                      ? String(folder.parentFolderId)
+                      : undefined,
+                  }))}
+                  onSkillOpen={setSelectedWorkflowId}
+                  selectedSkillId={selectedWorkflowId}
+                  onImageLoad={markImageLoaded}
+                />
               ) : bookmarksView ? (
                 <BookmarksView
                   ownerUserId={ownerUserId ?? undefined}
@@ -4948,6 +4986,7 @@ export function GalleryDashboard({
               ) : viewMode === "skills" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
                   <SkillsView
+                    key="skills"
                     ownerUserId={ownerUserId}
                     collections={(folders ?? []).map((folder) => ({
                       _id: String(folder._id),

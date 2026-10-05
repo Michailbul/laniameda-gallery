@@ -7,6 +7,7 @@ import {
   BookOpenText,
   Copy,
   Download,
+  Film,
   FolderOpen,
   Hash,
   Loader2,
@@ -23,6 +24,7 @@ import {
   toPromptSections,
 } from "./prompt-sections";
 import { SkillMarkdown, type SkillMediaRef } from "./skill-markdown";
+import { SKILL_SECTION_COPY, isCinematographySkill } from "@/lib/cinematography";
 
 interface SkillModalProps {
   skillId: string | null;
@@ -328,6 +330,12 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
     skillId ? { id: skillId as Id<"workflows">, ownerUserId } : "skip",
   );
   const isOwner = Boolean(skill && ownerUserId);
+  // Cinematography packs open in the skill document under their own name.
+  const isCinema = isCinematographySkill(skill?.tagNames);
+  const sectionCopy = SKILL_SECTION_COPY[isCinema ? "cinematography" : "skills"];
+  const KindIcon = isCinema ? Film : BookOpenText;
+  const kindLabel = isCinema ? "Cinematography" : "Skill";
+  const unitsFor = (count: number) => (count === 1 ? sectionCopy.unit : sectionCopy.units);
 
   useEffect(() => {
     if (!skillId) return;
@@ -367,18 +375,20 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${skill?.title ?? "skill"}-skill.zip`;
+      anchor.download = isCinema
+        ? `${skill?.title ?? "cinematography"}.zip`
+        : `${skill?.title ?? "skill"}-skill.zip`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      toast?.("Downloaded", "SKILL EXPORTED", "success");
+      toast?.("Downloaded", isCinema ? "EXPORTED" : "SKILL EXPORTED", "success");
     } catch {
       toast?.("Error", "EXPORT FAILED", "warning");
     } finally {
       setDownloading(false);
     }
-  }, [skillId, skill?.title, toast]);
+  }, [isCinema, skillId, skill?.title, toast]);
 
   // Everything the body can embed by id: its own `asset:` refs and step media.
   const mediaById = useMemo(() => {
@@ -411,7 +421,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={skill?.title ?? "Skill"}
+      aria-label={skill?.title ?? kindLabel}
     >
       <div className="skill-modal-card" onClick={(event) => event.stopPropagation()}>
         {skill === undefined ? (
@@ -420,7 +430,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
           </div>
         ) : skill === null ? (
           <div className="skill-modal-state">
-            <p>Skill not found</p>
+            <p>{kindLabel} not found</p>
             <button type="button" onClick={onClose} className="skill-action skill-action-ghost">
               Close
             </button>
@@ -430,11 +440,11 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
             <div className="skill-action-bar">
               <div className="skill-action-bar-meta">
                 <span className="skill-card-badge skill-card-badge-kind">
-                  <BookOpenText className="h-2.5 w-2.5" strokeWidth={2.75} />
-                  Skill
+                  <KindIcon className="h-2.5 w-2.5" strokeWidth={2.75} />
+                  {kindLabel}
                 </span>
                 <span className="skill-action-bar-count">
-                  {pad(skill.stepCount)} {skill.stepCount === 1 ? "step" : "steps"}
+                  {pad(skill.stepCount)} {unitsFor(skill.stepCount)}
                 </span>
               </div>
               <div className="skill-action-bar-actions">
@@ -448,9 +458,14 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void copyText(`workflow:${skill._id}`, "SKILL ID COPIED")}
+                  onClick={() =>
+                    void copyText(
+                      `workflow:${skill._id}`,
+                      isCinema ? "ID COPIED" : "SKILL ID COPIED",
+                    )
+                  }
                   className="skill-action skill-action-ghost"
-                  title="Copy the skill ID an agent can resolve"
+                  title={`Copy the ${sectionCopy.noun} ID an agent can resolve`}
                 >
                   <Hash className="h-3.5 w-3.5" />
                   <span>ID</span>
@@ -466,13 +481,13 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                   ) : (
                     <Download className="h-3.5 w-3.5" />
                   )}
-                  <span>SKILL.md</span>
+                  <span>{isCinema ? "Export" : "SKILL.md"}</span>
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
                   className="skill-action-close"
-                  aria-label="Close skill"
+                  aria-label={`Close ${sectionCopy.noun}`}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -497,7 +512,9 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                 <header className="skill-doc-head">
                   <h1 className="skill-doc-title">{skill.title}</h1>
                   <div className="skill-doc-byline">
-                    <span>{pad(skill.stepCount)} steps</span>
+                    <span>
+                      {pad(skill.stepCount)} {sectionCopy.units}
+                    </span>
                     {skill.modelNames.length > 0 ? (
                       <>
                         <span aria-hidden>/</span>
@@ -527,7 +544,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
 
                 {skill.steps.length >= 3 ? (
                   <nav className="skill-doc-toc" aria-label="Steps">
-                    <span className="skill-doc-eyebrow">In this skill</span>
+                    <span className="skill-doc-eyebrow">In this {sectionCopy.noun}</span>
                     <ol>
                       {skill.steps.map((step, index) => (
                         <li key={step.promptId}>
@@ -609,8 +626,8 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                 <footer className="skill-doc-end">
                   <span aria-hidden className="skill-doc-end-rule" />
                   <span>
-                    End of skill · {pad(skill.stepCount)}{" "}
-                    {skill.stepCount === 1 ? "step" : "steps"}
+                    End of {sectionCopy.noun} · {pad(skill.stepCount)}{" "}
+                    {unitsFor(skill.stepCount)}
                   </span>
                 </footer>
               </article>

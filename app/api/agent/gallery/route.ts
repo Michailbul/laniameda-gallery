@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { CINEMATOGRAPHY_TAG, isCinematographySkill } from "@/lib/cinematography";
 
 type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
@@ -29,6 +30,11 @@ const stringArrayValue = (value: unknown) =>
     : undefined;
 
 const booleanValue = (value: unknown) => (value === true ? true : undefined);
+
+// Cinematography packs have their own tab, so skill lists leave them out
+// unless the caller asks for the tag.
+const skillListExclusions = (tagNames: string[] | undefined) =>
+  isCinematographySkill(tagNames) ? undefined : [CINEMATOGRAPHY_TAG];
 
 const PIECE_TYPES = new Set(["character", "location", "scene", "inspiration"]);
 const MEDIUMS = new Set(["animation", "live-action"]);
@@ -235,9 +241,11 @@ export async function POST(request: Request) {
     }
 
     if (action === "listSkills") {
+      const tagNames = stringArrayValue(data.tagNames);
       const skills = await client.query(api.workflows.listWorkflows, {
         ownerUserId: agent.ownerUserId,
-        tagNames: stringArrayValue(data.tagNames),
+        tagNames,
+        excludeTagNames: skillListExclusions(tagNames),
         folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
         search: stringValue(data.search),
         limit: numberValue(data.limit),
@@ -251,10 +259,12 @@ export async function POST(request: Request) {
       if (!query) {
         return NextResponse.json({ error: "query is required." }, { status: 400 });
       }
+      const tagNames = stringArrayValue(data.tagNames);
       const skills = await client.action(api.semanticSearch.searchSkills, {
         ownerUserId: agent.ownerUserId,
         query,
-        tagNames: stringArrayValue(data.tagNames),
+        tagNames,
+        excludeTagNames: skillListExclusions(tagNames),
         folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
         minRelativeScore: numberValue(data.minRelativeScore),
         limit: numberValue(data.limit),

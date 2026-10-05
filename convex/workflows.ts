@@ -161,6 +161,14 @@ const skillMatchesTags = (tagNames: string[], required: string[]) => {
   return required.every((tag) => have.has(canonicalTagKey(tag)));
 };
 
+// True when the skill carries any of the excluded tags. The Skills tab drops
+// cinematography packs this way.
+const skillHasExcludedTag = (tagNames: string[], excluded: string[]) => {
+  if (excluded.length === 0) return false;
+  const have = new Set(tagNames.map(canonicalTagKey));
+  return excluded.some((tag) => have.has(canonicalTagKey(tag)));
+};
+
 const skillMatchesSearch = (
   workflow: Doc<"workflows">,
   tagNames: string[],
@@ -310,6 +318,8 @@ export const listWorkflows = ownerQuery({
     scope: v.optional(v.union(v.literal("mine"), v.literal("public"))),
     // Every tag must be on the skill (canonical match: case, "-", "_" fold).
     tagNames: v.optional(v.array(v.string())),
+    // Skills carrying any of these tags are left out.
+    excludeTagNames: v.optional(v.array(v.string())),
     // Only skills filed in this collection.
     folderId: v.optional(v.id("folders")),
     // Words that must all appear in the title, description, body or tags.
@@ -380,11 +390,13 @@ export const listWorkflows = ownerQuery({
       .sort((a, b) => b.createdAt - a.createdAt);
 
     const requiredTags = (args.tagNames ?? []).filter((tag) => tag.trim());
+    const excludedTags = (args.excludeTagNames ?? []).filter((tag) => tag.trim());
     const cards = [];
     for (const workflow of deduped) {
       if (cards.length >= limit) break;
       const tagNames = await resolveTagNames(ctx, workflow.tagIds);
       if (!skillMatchesTags(tagNames, requiredTags)) continue;
+      if (skillHasExcludedTag(tagNames, excludedTags)) continue;
       if (args.search && !skillMatchesSearch(workflow, tagNames, args.search)) {
         continue;
       }
@@ -769,6 +781,7 @@ export const listSkillCardsByIds = internalQuery({
     ownerUserId: v.string(),
     ids: v.array(v.id("workflows")),
     tagNames: v.optional(v.array(v.string())),
+    excludeTagNames: v.optional(v.array(v.string())),
     folderId: v.optional(v.id("folders")),
     previewLimit: v.optional(v.number()),
   },
@@ -776,6 +789,7 @@ export const listSkillCardsByIds = internalQuery({
   handler: async (ctx, args) => {
     const previewLimit = Math.min(Math.max(args.previewLimit ?? 6, 1), 24);
     const requiredTags = (args.tagNames ?? []).filter((tag) => tag.trim());
+    const excludedTags = (args.excludeTagNames ?? []).filter((tag) => tag.trim());
     const cards = [];
     for (const id of args.ids) {
       const workflow = await ctx.db.get(id);
@@ -783,6 +797,7 @@ export const listSkillCardsByIds = internalQuery({
       if (!canActorAccessOwnerUserId(args.ownerUserId, workflow.ownerUserId)) continue;
       const tagNames = await resolveTagNames(ctx, workflow.tagIds);
       if (!skillMatchesTags(tagNames, requiredTags)) continue;
+      if (skillHasExcludedTag(tagNames, excludedTags)) continue;
       if (args.folderId) {
         const link = await ctx.db
           .query("workflowFolders")

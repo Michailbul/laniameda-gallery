@@ -872,7 +872,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Search Skills",
       description:
-        "Find saved skills by meaning (semantic search over title, description, tags, models, step labels and the markdown body). Use when the user asks how they did something, or for a recipe/workflow/technique.",
+        "Find saved skills by meaning (semantic search over title, description, tags, models, step labels and the markdown body). Use when the user asks how they did something, or for a recipe/workflow/technique. Cinematography packs (camera moves) are left out unless tagNames includes \"cinematography\".",
       inputSchema: {
         query: z.string(),
         tagNames: z.array(z.string()).describe("Every tag must be on the skill.").optional(),
@@ -889,7 +889,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Skills",
       description:
-        "List saved skills, newest first, optionally narrowed by tags (all must match), collection or keywords.",
+        "List saved skills, newest first, optionally narrowed by tags (all must match), collection or keywords. Cinematography packs (camera moves) are left out unless tagNames includes \"cinematography\".",
       inputSchema: {
         tagNames: z.array(z.string()).optional(),
         folderId: z.string().optional(),
