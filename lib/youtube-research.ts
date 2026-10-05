@@ -7,6 +7,11 @@ const evidence = z.object({
   views: z.number().int().nonnegative(),
 });
 const reading = z.object({ summary: z.string().min(1), evidence: z.array(evidence).max(3) });
+const optionalReading = z.object({ summary: z.string().trim().min(1), evidence: z.array(evidence).max(3) });
+const audienceFit = optionalReading.extend({
+  verdict: z.enum(["Supported", "Partial", "Unknown", "Mismatch"]),
+});
+export type EvidenceVideo = z.infer<typeof evidence>;
 const bend = z.object({
   niche: z.string().min(1),
   title: z.string().min(1),
@@ -16,6 +21,15 @@ const bend = z.object({
   urgency: z.string().min(1),
   thumbnail: z.string().min(1),
   style: z.string().min(1),
+  // Optional V1 extensions keep previously saved proposals readable. Evidence
+  // videos support visual comparisons; view counts never infer demographics.
+  audienceFit: audienceFit.optional(),
+  adaptation: z.string().trim().min(1).optional(),
+  previousAttempts: optionalReading.optional(),
+  urgencyEvidence: z.object({
+    summary: z.string().trim().min(1),
+    url: z.string().url().startsWith("https://"),
+  }).optional(),
   format: z.string().min(1),
   first30: z.tuple([z.string().min(1), z.string().min(1), z.string().min(1)]),
   demand: reading,
