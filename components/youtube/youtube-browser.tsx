@@ -93,6 +93,7 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
     [inTheme],
   );
   const hasFits = useMemo(() => inTheme.some((video) => video.tagNames.includes(FITS_TAG)), [inTheme]);
+  const hasIdeas = inTheme.some((video) => video.bendIdea?.trim());
   const channelOptions = useMemo(
     () =>
       summarizeChannels(inTheme)
@@ -129,7 +130,7 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
       filters.channel ||
       filters.query ||
       filters.bestOnly ||
-      filters.fitsOnly,
+      filters.fitsOnly || filters.ideasOnly,
   );
   const theme = THEMES.find((entry) => entry.key === filters.theme);
   const sections = useMemo(
@@ -284,6 +285,17 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
           <Trophy className="h-3 w-3" aria-hidden /> Best per channel
         </button>
 
+        {hasIdeas && (
+          <button
+            type="button"
+            className="yt-chip"
+            data-active={Boolean(filters.ideasOnly)}
+            onClick={() => update({ ideasOnly: filters.ideasOnly ? undefined : true })}
+            title="Sources with private niche-bending proposals; open a video to read its proposals"
+          >
+            Proposals
+          </button>
+        )}
         {hasFits && (
           <button
             type="button"
@@ -392,6 +404,7 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
                 query: undefined,
                 bestOnly: undefined,
                 fitsOnly: undefined,
+                ideasOnly: undefined,
               });
             }}
           >

@@ -109,10 +109,20 @@ index, so `search_gallery` does not return them.
 
 `update_video_ref` (or `{"action":"update"}`) sets `userNote`, `isLiked` and the
 whole `collections` list. `delete_video_ref` removes the record; ask first.
+Automatic research proposals reuse `bendIdea`, maximum 4000 characters. JSON
+version 1 is validated by `lib/youtube-research.ts` and rendered in the existing
+video detail layout: bent title, thumbnail layout, animation style, structure,
+three opening beats, separate demand/saturation thumbnail evidence and an
+external demand signal. Legacy plain-text bends still display. The server only
+includes `bendIdea`, `userNote` and `isLiked` for the authenticated owner, never
+for shared-password visitors. Owners can use `ideas=1` / the Proposals chip to
+find source videos with proposals and search their bent titles.
+
 The YouTube page (`/youtube`) is public behind one password (`YOUTUBE_PAGE_PASSWORD`,
 default `ANDROMEDA`; the owner's own session skips it). It lists videos, thumbnails or
 channels by theme, Cars first, with sort and filters kept in the URL, and every video has
-its own link (`/youtube/<youtube id>`) to share. `userNote` and `bendIdea` never appear there.
+its own link (`/youtube/<youtube id>`) to share. Private ideas and notes only appear
+for the signed-in owner; sharing the URL does not share those fields.
 
 Three views (`view` in the URL):
 

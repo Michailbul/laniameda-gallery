@@ -7,8 +7,7 @@ import { normalizeLabel } from "./video-refs";
 export const YOUTUBE_PATH = "/youtube";
 export const youtubeVideoPath = (externalId: string) => `${YOUTUBE_PATH}/${externalId}`;
 
-// What a visitor gets. Michael's own notes and the "bend it" idea (how he would
-// reuse the format) stay in the vault.
+// Owner fields are included by the server only for Michael's signed-in session.
 export type PublicVideo = {
   externalId: string;
   url: string;
@@ -31,6 +30,9 @@ export type PublicVideo = {
   titlePattern?: string;
   thumbnailPattern?: string;
   audience?: string;
+  bendIdea?: string;
+  userNote?: string;
+  isLiked?: boolean;
   // How the picture is made: "2D animation", "Stock footage", "AI pictures"…
   productionStyle?: string;
   language?: string;
@@ -258,6 +260,7 @@ export type YouTubeFilters = {
   query?: string;
   bestOnly?: boolean;
   fitsOnly?: boolean;
+  ideasOnly?: boolean;
   // Thumbnails view only.
   size?: ThumbSize;
   group?: ThumbGroup;
@@ -337,6 +340,7 @@ export const matchesFilters = (video: PublicVideo, filters: YouTubeFilters, now 
     if (!video.publishedAt || video.publishedAt < now - days * DAY_MS) return false;
   }
   if (filters.fitsOnly && !video.tagNames.includes(FITS_TAG)) return false;
+  if (filters.ideasOnly && !video.bendIdea?.trim()) return false;
   if (filters.channel && channelId(video) !== filters.channel) return false;
   if (filters.bestOnly && !video.isChannelBest) return false;
   const terms = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -361,6 +365,8 @@ export const searchTextOf = (video: PublicVideo) =>
     video.hook,
     video.titlePattern,
     video.thumbnailPattern,
+    video.bendIdea,
+    video.userNote,
     video.tagNames.join(" "),
     video.collections.map((key) => themeLabel(key)).join(" "),
   ]
@@ -414,6 +420,7 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
     query: one(params.q)?.trim() || undefined,
     bestOnly: one(params.best) === "1" ? true : undefined,
     fitsOnly: one(params.fits) === "1" ? true : undefined,
+    ideasOnly: one(params.ideas) === "1" ? true : undefined,
     size: thumbnails && isThumbSize(rawSize) && rawSize !== DEFAULT_THUMB_SIZE ? rawSize : undefined,
     group: thumbnails && isThumbGroup(rawGroup) ? rawGroup : undefined,
   };
@@ -434,6 +441,7 @@ export const filtersToSearch = (filters: YouTubeFilters) => {
   if (filters.query) search.set("q", filters.query);
   if (filters.bestOnly) search.set("best", "1");
   if (filters.fitsOnly) search.set("fits", "1");
+  if (filters.ideasOnly) search.set("ideas", "1");
   if (filters.view === "thumbnails") {
     if (filters.size && filters.size !== DEFAULT_THUMB_SIZE) search.set("size", filters.size);
     if (filters.group) search.set("group", filters.group);
