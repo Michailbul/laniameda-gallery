@@ -29,6 +29,7 @@ import {
   themeRank,
   type ChannelSort,
   type ChannelSummary,
+  styleLabel,
   type PublicVideo,
   type YouTubeFilters,
   type YouTubeSince,
@@ -85,11 +86,7 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
 
   // Style and channel options follow the theme, so they only offer what exists there.
   const styles = useMemo(
-    () => countBy(inTheme, (video) => (video.styleFamily ? [video.styleFamily] : [])),
-    [inTheme],
-  );
-  const madeWith = useMemo(
-    () => countBy(inTheme, (video) => (video.productionStyle ? [video.productionStyle] : [])),
+    () => countBy(inTheme, (video) => (video.styleFamily && styleLabel(video.styleFamily) ? [video.styleFamily] : [])),
     [inTheme],
   );
   const hasFits = useMemo(() => inTheme.some((video) => video.tagNames.includes(FITS_TAG)), [inTheme]);
@@ -125,7 +122,6 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
   const visibleStyles = showAllStyles ? styles : styles.slice(0, styleChipLimit);
   const refining = Boolean(
     filters.style ||
-      filters.made ||
       filters.since ||
       filters.channel ||
       filters.query ||
@@ -309,25 +305,6 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
         )}
       </div>
 
-      {madeWith.length > 0 && (
-        <div className="yt-chips yt-made" aria-label="Made with">
-          <span className="yt-control-label">Made with</span>
-          {madeWith.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              className="yt-chip"
-              data-kind="made"
-              data-active={filters.made === entry.key}
-              onClick={() => update({ made: filters.made === entry.key ? undefined : entry.key })}
-            >
-              {entry.key}
-              <span>{entry.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
       {styles.length > 1 && (
         <div className="yt-chips" aria-label="Styles">
           {visibleStyles.map((entry) => (
@@ -338,7 +315,7 @@ export function YouTubeBrowser({ videos, initialFilters }: Props) {
               data-active={filters.style === entry.key}
               onClick={() => update({ style: filters.style === entry.key ? undefined : entry.key })}
             >
-              {entry.key}
+              {styleLabel(entry.key)}
               <span>{entry.count}</span>
             </button>
           ))}
@@ -501,14 +478,9 @@ function ChannelCard({ channel, onOpen }: { channel: ChannelSummary; onOpen: () 
         {channel.lastUploadAt ? (
           <span className="yt-card-meta">Last upload {formatDate(channel.lastUploadAt)}</span>
         ) : null}
-        {channel.made || channel.styles[0] ? (
+        {styleLabel(channel.styles[0]) ? (
           <span className="yt-card-tags">
-            {channel.made ? (
-              <span className="yt-tag" data-kind="made">
-                {channel.made}
-              </span>
-            ) : null}
-            {channel.styles[0] ? <span className="yt-tag">{channel.styles[0]}</span> : null}
+            {styleLabel(channel.styles[0]) ? <span className="yt-tag">{styleLabel(channel.styles[0])}</span> : null}
           </span>
         ) : null}
       </span>

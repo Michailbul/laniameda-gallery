@@ -988,13 +988,13 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     productionStyle: z
       .string()
       .describe(
-        "How the picture is made. Use one of these names: 2D animation, Whiteboard animation, AI pictures, AI 2D, Stock footage, Game recording, 3D animation, Archive and paintings, AI presenter, Mixed.",
+        "Legacy optional classification. Omit in new research; do not infer AI-versus-stock or model origin from frames. Michael judges the material visually.",
       )
       .optional(),
     language: z.string().describe("Spoken language, lowercase ISO 639-1 code: en, es, id.").optional(),
     styleDescription: z
       .string()
-      .describe("What the picture is made of: materials, colour, type, how things move.")
+      .describe("Legacy source description. Omit material-origin diagnoses in new research; show actual frames for visual review.")
       .optional(),
     format: z.string().describe("How an episode is structured.").optional(),
     whyItWorks: z.string().optional(),
@@ -1063,7 +1063,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Save Video References",
       description:
-        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, the title, the stats and the style notes, with productionStyle (how the picture is made), language and checkedAt (when the numbers were verified). Saving the same video again updates it and merges collections.",
+        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, title, stats, language, checkedAt, packaging, structure and hook. The live Gallery adds up to 24 chronological frames on hover when available. Omit inferred productionStyle and material-origin styleDescription in new research. Saving the same video again updates it and merges collections.",
       inputSchema: {
         items: z.array(z.object(videoRefShape)).min(1).max(12),
         refreshMedia: z.boolean().describe("Re-copy the thumbnail and frames.").optional(),

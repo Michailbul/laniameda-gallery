@@ -45,6 +45,14 @@ export type PublicVideo = {
   frames: { url: string; label?: string }[];
 };
 
+// Legacy visual-style text sometimes embeds how the source was produced. Keep
+// its saved filter key, but show only the visual description in the gallery.
+export const styleLabel = (value?: string) => (value ?? "")
+  .replace(/\b(?:ai(?:[ -]generated)?|stock)\b[ -]*/gi, "")
+  .replace(/^[\s,;/&+-]+|[\s,;/&+-]+$/g, "")
+  .replace(/\s{2,}/g, " ")
+  .trim();
+
 // Cars first: that is the theme this research exists for. The rest follow in
 // the order the research was done. Anything unknown sorts after these.
 export const THEMES: { key: string; label: string; blurb: string }[] = [
@@ -220,10 +228,9 @@ export const DEFAULT_THUMB_SIZE: ThumbSize = "shelf";
 const isThumbSize = (value: string | undefined): value is ThumbSize =>
   THUMB_SIZES.some((entry) => entry.key === value);
 
-export type ThumbGroup = "made" | "topic";
+export type ThumbGroup = "topic";
 
 export const THUMB_GROUPS: { key: ThumbGroup; label: string }[] = [
-  { key: "made", label: "Made with" },
   { key: "topic", label: "Niche" },
 ];
 
@@ -254,7 +261,7 @@ export type YouTubeFilters = {
   theme: string; // a collection label, or ALL_THEMES
   sort: YouTubeSort | ChannelSort;
   style?: string;
-  made?: string; // productionStyle
+  made?: string; // Legacy URL field, ignored by the browsing UI.
   since?: YouTubeSince;
   channel?: string; // channel handle or name, as shown in the URL
   query?: string;
@@ -334,7 +341,6 @@ export const compareChannels = (sort: ChannelSort) => (a: ChannelSummary, b: Cha
 export const matchesFilters = (video: PublicVideo, filters: YouTubeFilters, now = Date.now()) => {
   if (filters.theme !== ALL_THEMES && !video.collections.includes(filters.theme)) return false;
   if (filters.style && video.styleFamily !== filters.style) return false;
-  if (filters.made && video.productionStyle !== filters.made) return false;
   if (filters.since) {
     const days = SINCE.find((entry) => entry.key === filters.since)?.days ?? 0;
     if (!video.publishedAt || video.publishedAt < now - days * DAY_MS) return false;
@@ -414,7 +420,6 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
     theme,
     sort,
     style: one(params.style) || undefined,
-    made: one(params.made) || undefined,
     since: isSince(rawSince) ? rawSince : undefined,
     channel: one(params.channel) || undefined,
     query: one(params.q)?.trim() || undefined,
@@ -435,7 +440,6 @@ export const filtersToSearch = (filters: YouTubeFilters) => {
   const defaultSort = filters.view === "channels" ? DEFAULT_CHANNEL_SORT : DEFAULT_SORT;
   if (filters.sort !== defaultSort) search.set("sort", filters.sort);
   if (filters.style) search.set("style", filters.style);
-  if (filters.made) search.set("made", filters.made);
   if (filters.since) search.set("since", filters.since);
   if (filters.channel) search.set("channel", filters.channel);
   if (filters.query) search.set("q", filters.query);
@@ -458,13 +462,12 @@ export const countBy = <T>(items: T[], pick: (item: T) => string[]) => {
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 };
 
-// The thumbnail wall in sections: one per way of making the picture, or one per
-// niche. Videos with no label go last, under their own heading.
+// The thumbnail wall in niche sections. Videos with no label go last.
 export const groupVideos = (videos: PublicVideo[], group: ThumbGroup) => {
   const UNLABELLED = "Not labelled";
   const sections = new Map<string, PublicVideo[]>();
   for (const video of videos) {
-    const key = (group === "made" ? video.productionStyle : video.topic) || UNLABELLED;
+    const key = video.topic || UNLABELLED;
     sections.set(key, [...(sections.get(key) ?? []), video]);
   }
   return [...sections.entries()]

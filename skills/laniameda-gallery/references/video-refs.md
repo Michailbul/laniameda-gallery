@@ -10,6 +10,12 @@ competitors", "what do car channels do", "find a video in this style". A
 generated clip of his own, or a video file he wants in a collection, is still an
 ordinary asset (`references/ingest.md`).
 
+## Frame review preference (Michael, 5 October 2026)
+
+Michael judges the material by skimming frames. Do not infer or write AI-versus-stock or model labels from appearance; material origin is not relevant to this research. Omit `productionStyle` and source-material `styleDescription` in new research saves. Keep title/thumbnail, episode structure, observed hook and our proposed animation treatment. Older labels remain compatibility data.
+
+On the live Gallery cards and thumbnail wall, hover to cycle through up to 24 chronological storyboard frames, including opening checkpoints; move horizontally to scrub. The timestamp and counter show the available coverage. Keyboard focus supports arrows, Home and End; Enter opens the video. Richer frames load on demand through the existing password/owner gate, and fall back to the stored stills if unavailable. Three stills alone are not a full skim or proof of the opening. Handoff `https://gallery.laniameda.space/youtube`; name localhost explicitly as a development preview.
+
 ## What one record holds
 
 | Field | Meaning |
@@ -23,9 +29,9 @@ ordinary asset (`references/ingest.md`).
 | `collections` | Plain labels used as themes on the YouTube page, e.g. `youtube-cars-competitors`. They are not gallery folders. Lowercase, hyphenated. |
 | `topic` | Subject area: `cars`, `history`, `success-stories`, `what-if`, `animation-styles`… |
 | `styleFamily` | Plain-words name of the look: "Map animation", "3D cutaway and schematic animation". |
-| `productionStyle` | How the picture is made. Use one of: "2D animation", "Whiteboard animation", "AI pictures", "AI 2D", "Stock footage", "Game recording", "3D animation", "Archive and paintings", "AI presenter", "Mixed". Judge it from the in-video frames. |
+| `productionStyle` | Optional legacy classification. Omit in new research saves; do not infer material origin from frames. |
 | `language` | The spoken language as a lowercase ISO 639-1 code: `en`, `es`, `id`. |
-| `styleDescription` | What the picture is made of: materials, colour, type, how things move. |
+| `styleDescription` | Legacy source description. Omit material-origin diagnosis in new research. |
 | `format`, `whyItWorks`, `hook`, `titlePattern`, `thumbnailPattern`, `audience`, `bendIdea` | The analysis. Leave out what you did not check; never guess. |
 | `agentDescription` | One or two plain sentences, 45 words at most. Required on every agent save, same rule as assets. |
 | `tagNames` | Plain strings (not the typed tag table). |
@@ -35,13 +41,13 @@ ordinary asset (`references/ingest.md`).
 ## Stills are copied for you
 
 Send the link. The save action copies YouTube's own thumbnail and its three
-auto-captured frames (about 25, 50 and 75 percent of the video) into R2, so the
+auto-captured frames into R2, so the
 look survives the video being taken down. To supply your own stills instead,
 pass `thumbnailUrl` and up to six `frameUrls` (public https image URLs).
 
 Outside the gallery, the same stills are at
 `https://i.ytimg.com/vi/<id>/maxresdefault.jpg` and `…/maxres1.jpg`, `maxres2.jpg`,
-`maxres3.jpg`. Look at the frames before you describe a style: a thumbnail is
+`maxres3.jpg`. These stills have no guaranteed timestamps. Skim the richer sequence to assess the visible format: a thumbnail is
 packaging and often shows nothing of how the video looks.
 
 ## Save
@@ -59,9 +65,8 @@ node <this skill>/scripts/gallery.mjs save_video_refs '{"items":[{
   "subscribers":286000,"medianViews":117000,"views":172736,
   "publishedAt":"2026-07-24","durationSeconds":1294,
   "channelLastUploadAt":"2026-09-30","checkedAt":"2026-10-04",
-  "productionStyle":"Archive and paintings","language":"en",
+  "language":"en",
   "topic":"cars","styleFamily":"Archive photos, brochures and old ads, narrated",
-  "styleDescription":"Period brochures and press photos held on screen with slow moves, one narrator.",
   "agentDescription":"Big Car model history told over archive brochures and press photos; kept as a car-history competitor.",
   "collections":["youtube-cars-competitors"],"tagNames":["youtube","cars"]}]}'
 
@@ -90,8 +95,8 @@ bun run <this skill>/scripts/video-refs.ts '{"action":"list","styleFamily":"Map 
 # Words: every term must appear in the title, channel, style or notes
 bun run <this skill>/scripts/video-refs.ts '{"action":"list","search":"cutaway engine","minViews":500000}'
 
-# By how it is made: English whiteboard videos that carry both tags
-node <this skill>/scripts/gallery.mjs list_video_refs '{"productionStyle":"Whiteboard animation","language":"en","tagNames":["niche-bend","passes-filters"],"sort":"views"}'
+# English map-animation videos that carry both tags
+node <this skill>/scripts/gallery.mjs list_video_refs '{"styleFamily":"Map animation","language":"en","tagNames":["niche-bend","passes-filters"],"sort":"views"}'
 ```
 
 Filters: `collection`, `topic`, `styleFamily`, `productionStyle`, `language`,
@@ -100,7 +105,9 @@ Filters: `collection`, `topic`, `styleFamily`, `productionStyle`, `language`,
 `language` match the whole value in any case. `tagNames` is a list, and a
 record must carry every tag in it. `sort`: `views` (default), `recent` (upload
 date), `saved`. `limit` up to 2000. Each result carries `thumbUrl` and
-`frames[].url`; read those images when the task is about a look.
+`frames[].url`; read those images when the task is about a look. The MCP legacy
+`productionStyle` filter remains compatible; the visual dashboard ignores old
+`made` URLs and no longer displays material-origin badges or controls.
 
 `search` here is plain word matching. Video references are not in the semantic
 index, so `search_gallery` does not return them.
@@ -131,15 +138,15 @@ Three views (`view` in the URL):
   nothing laid over it and the title in its own capitals, then rank, views, age and how
   many times the channel's typical upload it reached. `size=wall` shows many small tiles
   (does the thumbnail read at sidebar size), the default shows tags, `size=study` shows
-  large tiles with `titlePattern` and `thumbnailPattern` written out. `group=made` or
-  `group=topic` splits the wall into sections.
+  large tiles with `titlePattern` and `thumbnailPattern` written out. `group=topic`
+  splits the wall into sections.
 - **Channels** (`view=channels`): one card per channel with its last upload.
 
-Filters that follow the fields: `made` (`productionStyle`), `since` (`30d`, `90d`,
+Filters that follow the fields: `since` (`30d`, `90d`,
 `180d`: the upload window), `fits=1` (the tag `passes-filters`), next to `theme`,
 `style`, `channel`, `q` and `best`. Sort `velocity` orders by views per day since
 upload. A link to "what worked in the last three months, drawn, on channels that pass":
-`/youtube?view=thumbnails&theme=youtube-niche-bend&made=2D+animation&since=90d&fits=1`.
+`/youtube?view=thumbnails&theme=youtube-niche-bend&style=Map+animation&since=90d&fits=1`.
 
 Tags the page and the agents rely on, set on save: `passes-filters` (the channel is
 still posting, faceless, in English, under 100K subscribers, 50K typical views, more

@@ -2,13 +2,14 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 ---
 
 ## ✔ Shipped
 
 ### 2026-10-05
+- YouTube cards and thumbnail wall reuse their existing overlay for up to 24 timed storyboard frames: auto-cycle, horizontal scrub and keyboard arrows/Home/End. Frames load only on hover/focus behind the existing gate, with stored stills as fallback. Removed material-origin badges, controls and source-look writeups; legacy metadata remains compatible.
 - The existing YouTube view now displays private niche-bending proposals for the signed-in owner: title, thumbnail layout, animation style, structure, first 30 seconds, demand/saturation thumbnail evidence and an external demand reading. Proposals use the existing `bendIdea` field and toolbar, with no new dashboard or schema. Shared-password visitors receive no private fields.
 
 ### 2026-10-03
