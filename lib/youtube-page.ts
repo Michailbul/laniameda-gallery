@@ -62,6 +62,11 @@ export const THEMES: { key: string; label: string; blurb: string }[] = [
     blurb: "Faceless car channels: what they make and what works.",
   },
   {
+    key: "channel-europe-self-sabotage",
+    label: "Europe / Germany",
+    blurb: "Channel in research: European industry and bureaucracy. Related stories, packaging, hooks and references; proposals remain private to the owner.",
+  },
+  {
     key: "youtube-niche-bend",
     label: "Niche bend",
     blurb: "Titles and thumbnails that worked, kept to reuse on our own subjects.",

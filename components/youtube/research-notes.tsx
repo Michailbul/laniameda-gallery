@@ -30,15 +30,24 @@ export function ResearchNotes({ value, userNote }: { value?: string; userNote?: 
           {research.bends.map((bend, index) => (
             <section className="yt-research" key={`${bend.title}-${index}`} aria-label={`Proposal: ${bend.title}`}>
               <h2 className="yt-video-title">{bend.title}</h2>
-              <p className="yt-note"><span>{bend.niche} · {bend.verdict}</span>{bend.why}</p>
+              <p className="yt-note"><span>Target niche · {bend.niche} · {bend.verdict}</span>{bend.why}</p>
               <p className="yt-note"><span>Tension</span>{bend.tension}</p>
               <p className="yt-note"><span>Urgency</span>{bend.urgency}</p>
+              <p className="yt-note"><span>Urgency evidence</span>{bend.urgencyEvidence ? <a href={bend.urgencyEvidence.url} target="_blank" rel="noopener noreferrer">{bend.urgencyEvidence.summary}</a> : "No dated source has been recorded; the timing claim is unverified."}</p>
               <p className="yt-note"><span>Our thumbnail</span>{bend.thumbnail}</p>
               <p className="yt-note"><span>Animation style</span>{bend.style}</p>
+              {bend.audienceFit ? (
+                <>
+                  <Evidence reading={bend.audienceFit} label={`Audience & visual style fit · ${bend.audienceFit.verdict}`} />
+                  {bend.audienceFit.evidence.length > 0 && <p className="yt-note"><span>Audience evidence limit</span>Video examples show visual execution and performance. They do not establish viewer demographics.</p>}
+                </>
+              ) : <p className="yt-note"><span>Audience & visual style fit · Unknown</span>The target audience and visual style fit have not been checked.</p>}
               <p className="yt-note"><span>Video format</span>{bend.format}</p>
+              <p className="yt-note"><span>How to adapt it</span>{bend.adaptation ?? "Adaptation instructions have not been recorded yet."}</p>
               {bend.first30.map((beat, i) => <p className="yt-note" key={i}><span>Opens on · {['0–5 seconds', '5–15 seconds', '15–30 seconds'][i]}</span>{beat}</p>)}
               <Evidence reading={bend.demand} label="Demand" />
               <Evidence reading={bend.saturation} label="Saturation" />
+              {bend.previousAttempts ? <Evidence reading={bend.previousAttempts} label="Previous attempts" /> : <p className="yt-note"><span>Previous attempts</span>Previous attempts at this niche and format have not been checked.</p>}
               <p className="yt-note"><span>Outside YouTube · {bend.externalDemand.source}</span><a href={bend.externalDemand.url} target="_blank" rel="noopener noreferrer">{bend.externalDemand.summary}</a></p>
               {bend.toCheck.length > 0 && <p className="yt-note"><span>To check</span>{bend.toCheck.join(" · ")}</p>}
             </section>
