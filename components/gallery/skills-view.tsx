@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { BookOpenText, FolderOpen, Loader2, Search, X } from "lucide-react";
+import { BookOpenText, Film, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { skillCardToEntry, type SkillCardData } from "@/lib/skill-entries";
+import {
+  CINEMATOGRAPHY_TAG,
+  SKILL_SECTION_COPY,
+  type SkillSection,
+} from "@/lib/cinematography";
 
 type CollectionOption = {
   _id: string;
@@ -18,6 +23,8 @@ type CollectionOption = {
 
 type SkillsViewProps = {
   ownerUserId: string;
+  /** "cinematography" lists only cinematography packs; "skills" lists the rest. */
+  section?: SkillSection;
   collections: CollectionOption[];
   onSkillOpen: (skillId: string) => void;
   selectedSkillId?: string | null;
@@ -30,9 +37,12 @@ const canonical = (tag: string) =>
   tag.trim().toLowerCase().replace(/^#+/, "").replace(/[_-]+/g, " ");
 
 // The Skills tab: every saved skill as a card, narrowed by meaning (semantic
-// search), tags (all must match) and collection. Owner-only.
+// search), tags (all must match) and collection. Owner-only. The Cinematography
+// tab is the same view over the packs tagged `cinematography`, which the
+// Skills tab leaves out.
 export function SkillsView({
   ownerUserId,
+  section = "skills",
   collections,
   onSkillOpen,
   selectedSkillId,
@@ -46,6 +56,19 @@ export function SkillsView({
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const copy = SKILL_SECTION_COPY[section];
+  const SectionIcon = section === "cinematography" ? Film : BookOpenText;
+  // The section's own scope. Cinematography requires its tag and every card
+  // carries it, so that chip is not offered as a filter.
+  const baseTags = useMemo(
+    () => (section === "cinematography" ? [CINEMATOGRAPHY_TAG] : []),
+    [section],
+  );
+  const excludeTagNames = useMemo(
+    () => (section === "skills" ? [CINEMATOGRAPHY_TAG] : undefined),
+    [section],
+  );
+
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedQuery(query.trim()), 320);
     return () => window.clearTimeout(handle);
@@ -57,6 +80,8 @@ export function SkillsView({
     ownerUserId,
     limit: 200,
     previewLimit: 6,
+    tagNames: baseTags,
+    excludeTagNames,
   }) as SkillCardData[] | undefined;
   const filteredSkills = useQuery(
     api.workflows.listWorkflows,
@@ -65,7 +90,8 @@ export function SkillsView({
           ownerUserId,
           limit: 200,
           previewLimit: 6,
-          tagNames: selectedTags,
+          tagNames: [...baseTags, ...selectedTags],
+          excludeTagNames,
           folderId: (folderId ?? undefined) as Id<"folders"> | undefined,
         }
       : "skip",
@@ -86,7 +112,11 @@ export function SkillsView({
     searchSkills({
       ownerUserId,
       query: debouncedQuery,
-      tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+      tagNames:
+        baseTags.length + selectedTags.length > 0
+          ? [...baseTags, ...selectedTags]
+          : undefined,
+      excludeTagNames,
       folderId: (folderId ?? undefined) as Id<"folders"> | undefined,
       limit: 60,
     })
@@ -99,7 +129,7 @@ export function SkillsView({
       .finally(() => {
         if (seq === searchSeq.current) setSearching(false);
       });
-  }, [debouncedQuery, folderId, ownerUserId, searchSkills, selectedTags]);
+  }, [baseTags, debouncedQuery, excludeTagNames, folderId, ownerUserId, searchSkills, selectedTags]);
 
   const deleteSkill = useMutation(api.workflows.deleteWorkflow);
   const toast = useCoralToastSafe()?.toast;
@@ -109,15 +139,18 @@ export function SkillsView({
     for (const skill of allSkills ?? []) {
       for (const tag of skill.tagNames) {
         const key = canonical(tag);
+        if (baseTags.some((base) => canonical(base) === key)) continue;
         const entry = counts.get(key);
         if (entry) entry.count += 1;
         else counts.set(key, { label: tag, count: 1 });
       }
     }
-    return [...counts.values()].sort(
-      (a, b) => b.count - a.count || a.label.localeCompare(b.label),
-    );
-  }, [allSkills]);
+    // A tag every card carries filters nothing, so it earns no chip.
+    const total = allSkills?.length ?? 0;
+    return [...counts.values()]
+      .filter((entry) => total <= 1 || entry.count < total)
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [allSkills, baseTags]);
 
   // Only collections that hold a skill are worth offering as a filter.
   const skillCollections = useMemo(() => {
@@ -171,11 +204,13 @@ export function SkillsView({
     try {
       await deleteSkill({ ownerUserId, id: skillId as Id<"workflows"> });
       setRemovedIds((previous) => new Set(previous).add(skillId));
-      toast?.("Deleted", "SKILL REMOVED · ITS STEPS STAY IN THE GALLERY", "success");
+      toast?.("Deleted", copy.deleted, "success");
     } catch (error) {
       toast?.(
         "Failed",
-        error instanceof Error ? error.message.toUpperCase() : "COULD NOT DELETE SKILL",
+        error instanceof Error
+          ? error.message.toUpperCase()
+          : `COULD NOT DELETE ${copy.noun.toUpperCase()}`,
         "warning",
       );
     } finally {
@@ -188,8 +223,8 @@ export function SkillsView({
       <div className="skills-toolbar">
         <div className="skills-toolbar-head">
           <div className="skills-toolbar-title">
-            <BookOpenText className="h-3.5 w-3.5" style={{ color: "var(--coral)" }} />
-            <span>Skills</span>
+            <SectionIcon className="h-3.5 w-3.5" style={{ color: "var(--coral)" }} />
+            <span>{copy.title}</span>
             <span className="skills-toolbar-count">
               {filtering && source ? `${entries.length} / ` : ""}
               {allSkills?.length ?? "—"}
@@ -204,8 +239,8 @@ export function SkillsView({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search skills by meaning — “turn footage into paint”"
-              aria-label="Search skills"
+              placeholder={copy.placeholder}
+              aria-label={`Search ${copy.title.toLowerCase()}`}
             />
             {query && (
               <button type="button" onClick={() => setQuery("")} aria-label="Clear search">
@@ -226,7 +261,7 @@ export function SkillsView({
                   className="skills-chip skills-chip-collection"
                   data-active={active}
                   onClick={() => setFolderId(active ? null : collection._id)}
-                  title={`Skills in ${collection.label}`}
+                  title={`${copy.title} in ${collection.label}`}
                 >
                   <FolderOpen className="h-2.5 w-2.5" aria-hidden />
                   {collection.label}
@@ -284,14 +319,14 @@ export function SkillsView({
         </div>
       ) : entries.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[40vh] px-8 py-12 text-center lm-animate-fade-in">
-          <BookOpenText className="mb-4 h-7 w-7" style={{ color: "var(--coral)" }} />
+          <SectionIcon className="mb-4 h-7 w-7" style={{ color: "var(--coral)" }} />
           <h2 className="skills-empty-title">
-            {filtering ? "No skill matches" : "No skills yet"}
+            {filtering ? copy.emptyFiltered : copy.emptyTitle}
           </h2>
           <p className="skills-empty-copy">
             {filtering
               ? "Loosen a tag, pick another collection or search in other words."
-              : "Ask an agent to save a multi-step recipe as a skill. It lands here with its prompts, media and markdown."}
+              : copy.emptyCopy}
           </p>
         </div>
       ) : (

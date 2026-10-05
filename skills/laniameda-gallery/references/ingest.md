@@ -364,7 +364,7 @@ Every save, edit and retag re-embeds the skill (text lane, `semanticDocuments.so
 
 ### Where a skill shows up
 
-- The **Skills** tab in the sidebar (also the third view-mode button): every skill as a card, with semantic search, tag chips and collection chips.
+- The **Skills** tab in the sidebar (also the third view-mode button): every skill as a card, with semantic search, tag chips and collection chips. Packs tagged `cinematography` are the exception: they show in the **Cinematography** tab instead (`references/cinematography.md`) and stay out of Skills, the default grid and the agents' skill lists.
 - The main grid in its default state, as one card among the tiles by date.
 - Inside every collection it is filed in.
 - Step media is stored with `assetRole: "workflow_asset"`, and every owner-facing browse read drops that role, so a skill's intermediate frames never flood the grid. Semantic asset search still reaches step media on purpose ("find that depth map" keeps working). Deleting a skill clears the role and returns those assets to the grid.

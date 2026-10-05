@@ -722,6 +722,7 @@ export const searchSkills = ownerAction({
     ownerUserId: v.optional(v.string()),
     query: v.string(),
     tagNames: v.optional(v.array(v.string())),
+    excludeTagNames: v.optional(v.array(v.string())),
     folderId: v.optional(v.id("folders")),
     minRelativeScore: v.optional(v.number()),
     limit: v.optional(v.number()),
@@ -766,6 +767,7 @@ export const searchSkills = ownerAction({
       ownerUserId,
       ids: [...scored.keys()] as Id<"workflows">[],
       tagNames: args.tagNames,
+      excludeTagNames: args.excludeTagNames,
       folderId: args.folderId,
       previewLimit,
     })) as Array<{ _id: string } & Record<string, unknown>>;
@@ -779,6 +781,7 @@ export const searchSkills = ownerAction({
         ownerUserId,
         search: query,
         tagNames: args.tagNames,
+        excludeTagNames: args.excludeTagNames,
         folderId: args.folderId,
         limit,
         previewLimit,

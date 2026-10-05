@@ -257,7 +257,7 @@ models, step labels and markdown body.
 
 ```json
 { "action": "searchSkills", "query": "composition-first seedance control", "tagNames": ["seedance"], "limit": 5 }
-{ "action": "skills", "tagNames": ["camera movements"], "folderId": "<folderId>", "search": "dolly" }
+{ "action": "skills", "tagNames": ["cinematography"], "folderId": "<folderId>", "search": "dolly" }
 { "action": "getSkill", "id": "skill:<id>" }
 ```
 
@@ -267,6 +267,9 @@ missed. `skills` lists newest first; every `tagNames` entry must match
 `agentInstructions`, `tagNames`, `collections`, `modelNames` and every step
 with its prompt sections and media URLs. `getById` accepts `skill:<id>` and the
 `workflow:<id>` the gallery copies.
+
+Packs tagged `cinematography` (camera moves, own tab) are left out of both lists
+unless `tagNames` includes `cinematography`; see `references/cinematography.md`.
 
 ### Video references: `scripts/video-refs.ts`
 

@@ -1,4 +1,5 @@
 import type { GalleryEntry } from "@/lib/gallery-entries";
+import { isCinematographySkill } from "@/lib/cinematography";
 
 // The card shape `workflows:listWorkflows` and `semanticSearch:searchSkills`
 // return. Kept structural so both feeds map through one function.
@@ -51,7 +52,7 @@ export const skillCardToEntry = (skill: SkillCardData): GalleryEntry => {
     src: cover?.src ?? "/placeholder.svg",
     fullSrc: cover?.fullSrc ?? "/placeholder.svg",
     prompt: skill.title,
-    author: "Skill",
+    author: isCinematographySkill(skill.tagNames) ? "Cinematography" : "Skill",
     likes: 0,
     // A text-only skill gets a document-shaped tile.
     width: cover?.width ?? 4,

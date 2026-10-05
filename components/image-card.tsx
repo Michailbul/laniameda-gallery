@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, BookOpenText, X } from "lucide-react";
+import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, BookOpenText, Film, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import {
   PackDeckLayers,
@@ -14,6 +14,7 @@ import {
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
 import { triggerAssetDownload } from "@/lib/download-image";
 import { hasMeaningfulPrompt } from "@/lib/prompt";
+import { SKILL_SECTION_COPY, isCinematographySkill } from "@/lib/cinematography";
 import {
   CardCollectionButton,
   type CollectionOption,
@@ -450,7 +451,9 @@ export const ImageCard = memo(function ImageCard({
       : galleryItemType === "design"
         ? "DESIGN ID COPIED"
         : galleryItemType === "workflow"
-          ? "SKILL ID COPIED"
+          ? isCinematographySkill(image.tagNames)
+            ? "ID COPIED"
+            : "SKILL ID COPIED"
           : "ASSET ID COPIED";
   const isWorkflow = galleryItemType === "workflow";
 
@@ -737,6 +740,12 @@ export const ImageCard = memo(function ImageCard({
         : 0;
     const excerpt = image.excerpt?.trim();
     const tags = (image.tagNames ?? []).slice(0, 4);
+    // Cinematography packs wear the skill card's design under their own name.
+    const section = isCinematographySkill(image.tagNames) ? "cinematography" : "skills";
+    const sectionCopy = SKILL_SECTION_COPY[section];
+    const KindIcon = section === "cinematography" ? Film : BookOpenText;
+    const kindLabel = section === "cinematography" ? "Cinematography" : "Skill";
+    const noun = sectionCopy.noun;
 
     const textBlock = (
       <>
@@ -770,7 +779,7 @@ export const ImageCard = memo(function ImageCard({
           setActivePreviewIndex(0);
           setSkillDeleteArmed(false);
         }}
-        aria-label={`Skill: ${image.prompt}${stepCount ? `, ${stepCount} steps` : ""}`}
+        aria-label={`${kindLabel}: ${image.prompt}${stepCount ? `, ${stepCount} ${stepCount === 1 ? sectionCopy.unit : sectionCopy.units}` : ""}`}
       >
         {hasCover ? (
           <div className="skill-card-media">
@@ -816,12 +825,12 @@ export const ImageCard = memo(function ImageCard({
 
         <div className="skill-card-top">
           <span className="skill-card-badge skill-card-badge-kind">
-            <BookOpenText className="h-2.5 w-2.5" strokeWidth={2.75} />
-            Skill
+            <KindIcon className="h-2.5 w-2.5" strokeWidth={2.75} />
+            {kindLabel}
           </span>
           {stepCount > 0 && (
             <span className="skill-card-badge skill-card-badge-meta">
-              {stepCount} {stepCount === 1 ? "step" : "steps"}
+              {stepCount} {stepCount === 1 ? sectionCopy.unit : sectionCopy.units}
             </span>
           )}
         </div>
@@ -839,8 +848,8 @@ export const ImageCard = memo(function ImageCard({
           }}
           className="skill-card-action"
           style={{ top: "40px" }}
-          aria-label="Copy skill ID"
-          title="Copy skill ID"
+          aria-label={`Copy ${noun} ID`}
+          title={`Copy ${noun} ID`}
         >
           <Copy className="h-3 w-3" />
         </button>
@@ -870,12 +879,12 @@ export const ImageCard = memo(function ImageCard({
             }}
             aria-label={
               deleting
-                ? "Deleting skill"
+                ? `Deleting ${noun}`
                 : skillDeleteArmed
-                  ? "Confirm delete skill"
-                  : "Delete skill"
+                  ? `Confirm delete ${noun}`
+                  : `Delete ${noun}`
             }
-            title={skillDeleteArmed ? "Click again to delete" : "Delete skill"}
+            title={skillDeleteArmed ? "Click again to delete" : `Delete ${noun}`}
           >
             {deleting ? (
               <Loader2 className="h-3 w-3 animate-spin" />

@@ -112,6 +112,7 @@ And on the record itself:
 | File into a collection, folder or world; publish a world | `references/ingest.md`, "Filing" and "Publishing" |
 | A multi-step preset, tutorial or recipe: a **skill** (the table and ingest kind still say `workflow`) | `references/ingest.md`, "Skills" |
 | Find a skill, retag it, file it into a collection | `references/query.md`, "Skills" |
+| Camera moves or cinematography references: packs tagged `cinematography`, their own tab (not Skills) | `references/cinematography.md` |
 | A cinema frame (film still, no prompt) | `references/ingest.md`, "Cinema Inspiration" |
 | Update or delete an item | `references/ingest.md` and the update examples |
 | Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |

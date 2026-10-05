@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Clapperboard,
+  Film,
   FolderOpen,
   Globe,
   Home,
@@ -68,6 +69,9 @@ interface GallerySidebarProps {
   /** Opens the Motion tab: motion design references with their own filters. */
   onMotionTab?: () => void;
   motionTabActive?: boolean;
+  /** Opens the Cinematography tab: camera-move packs and shot references. */
+  onCinematographyTab?: () => void;
+  cinematographyTabActive?: boolean;
   /** Opens the Skills tab: every saved skill, searchable and filterable. */
   onSkillsTab?: () => void;
   skillsTabActive?: boolean;
@@ -134,6 +138,8 @@ export function GallerySidebar({
   showYouTubeTab = false,
   onMotionTab,
   motionTabActive = false,
+  onCinematographyTab,
+  cinematographyTabActive = false,
   onSkillsTab,
   skillsTabActive = false,
   onGalleryHome,
@@ -362,6 +368,7 @@ export function GallerySidebar({
             !storybooksTabActive &&
             !bookmarksTabActive &&
             !motionTabActive &&
+            !cinematographyTabActive &&
             !skillsTabActive
           }
           collapsed={collapsed}
@@ -422,6 +429,16 @@ export function GallerySidebar({
             active={motionTabActive}
             collapsed={collapsed}
             onClick={onMotionTab}
+          />
+        )}
+        {onCinematographyTab && (
+          <NavItem
+            icon={Film}
+            label="Cinematography"
+            href="#"
+            active={cinematographyTabActive}
+            collapsed={collapsed}
+            onClick={onCinematographyTab}
           />
         )}
         {onSkillsTab && (
