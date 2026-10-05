@@ -8,12 +8,15 @@ import {
   topicLabel,
   typicalMultiple,
   youtubeVideoPath,
+  styleLabel,
   type PublicVideo,
   type ThumbSize,
 } from "@/lib/youtube-page";
 
+import { useFramePreview } from "./frame-preview";
+
 // One thumbnail on the packaging wall. The picture is shown as the viewer saw
-// it, with nothing laid over it, and the title keeps its own capitals: both are
+// it until hover reveals the video frames, and the title keeps its capitals: both are
 // what won the click. Numbers and tags sit underneath.
 export function ThumbTile({
   video,
@@ -26,12 +29,14 @@ export function ThumbTile({
   size: ThumbSize;
   now: number;
 }) {
+  const preview = useFramePreview(video);
   const multiple = typicalMultiple(video);
   const age = formatAge(video.publishedAt, now);
   return (
-    <Link href={youtubeVideoPath(video.externalId)} className="yt-tile" aria-label={video.title}>
-      <span className="yt-tile-img">
+    <Link href={youtubeVideoPath(video.externalId)} className="yt-tile" aria-label={video.title} {...preview.linkProps}>
+      <span className="yt-tile-img" data-frame-surface>
         {video.thumbUrl ? <img src={video.thumbUrl} alt="" loading="lazy" /> : null}
+        {preview.preview}
       </span>
       <span className="yt-tile-title">{video.title}</span>
       {size === "study" && video.titlePattern ? (
@@ -66,17 +71,13 @@ export function ThumbTile({
           {video.subscribers ? ` · ${formatCount(video.subscribers)} subs` : ""}
         </span>
       ) : null}
-      {size !== "wall" && (video.productionStyle || video.topic || video.styleFamily) ? (
+      {size !== "wall" && (video.topic || video.styleFamily) ? (
         <span className="yt-card-tags">
-          {video.productionStyle ? (
-            <span className="yt-tag" data-kind="made">
-              {video.productionStyle}
-            </span>
-          ) : null}
           {video.topic ? <span className="yt-tag">{topicLabel(video.topic)}</span> : null}
-          {video.styleFamily ? <span className="yt-tag">{video.styleFamily}</span> : null}
+          {styleLabel(video.styleFamily) ? <span className="yt-tag">{styleLabel(video.styleFamily)}</span> : null}
         </span>
       ) : null}
+      {preview.hint}
     </Link>
   );
 }

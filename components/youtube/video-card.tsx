@@ -4,8 +4,9 @@
 import Link from "next/link";
 import { Play, Trophy } from "lucide-react";
 import { formatCount, formatDuration } from "@/lib/video-refs";
-import { themeLabel, youtubeVideoPath, homeTheme, type PublicVideo } from "@/lib/youtube-page";
+import { themeLabel, youtubeVideoPath, homeTheme, styleLabel, type PublicVideo } from "@/lib/youtube-page";
 import { CopyLinkButton } from "./copy-link-button";
+import { useFramePreview } from "./frame-preview";
 
 export const formatDate = (value?: number) =>
   value
@@ -14,29 +15,24 @@ export const formatDate = (value?: number) =>
 
 export function VideoCard({ video, showTheme }: { video: PublicVideo; showTheme?: boolean }) {
   const href = youtubeVideoPath(video.externalId);
+  const preview = useFramePreview(video);
   return (
     <article className="yt-card">
-      <Link href={href} className="yt-card-link" aria-label={video.title}>
-        <span className="yt-thumb">
+      <Link href={href} className="yt-card-link" aria-label={video.title} {...preview.linkProps}>
+        <span className="yt-thumb" data-frame-surface>
           {video.thumbUrl ? <img src={video.thumbUrl} alt="" loading="lazy" /> : null}
-          {video.frames.length > 0 && (
-            <span className="yt-thumb-frames" aria-hidden>
-              {video.frames.slice(0, 3).map((frame) => (
-                <img key={frame.url} src={frame.url} alt="" loading="lazy" />
-              ))}
-            </span>
-          )}
+          {preview.preview}
           {video.isChannelBest && (
             <span className="yt-badge">
               <Trophy className="h-2.5 w-2.5" /> Best
             </span>
           )}
-          {video.durationSeconds ? (
+          {video.durationSeconds && !preview.preview ? (
             <span className="yt-duration">{formatDuration(video.durationSeconds)}</span>
           ) : null}
-          <span className="yt-play" aria-hidden>
+          {!preview.preview && <span className="yt-play" aria-hidden>
             <Play className="h-4 w-4" fill="currentColor" />
-          </span>
+          </span>}
         </span>
         <span className="yt-card-body">
           <span className="yt-card-title">{video.title}</span>
@@ -54,14 +50,10 @@ export function VideoCard({ video, showTheme }: { video: PublicVideo; showTheme?
                 {themeLabel(homeTheme(video))}
               </span>
             ) : null}
-            {video.productionStyle ? (
-              <span className="yt-tag" data-kind="made">
-                {video.productionStyle}
-              </span>
-            ) : null}
-            {video.styleFamily ? <span className="yt-tag">{video.styleFamily}</span> : null}
+            {styleLabel(video.styleFamily) ? <span className="yt-tag">{styleLabel(video.styleFamily)}</span> : null}
           </span>
         </span>
+        {preview.hint}
       </Link>
       <CopyLinkButton path={href} label="Copy link to this video" className="yt-card-copy" iconOnly />
     </article>
