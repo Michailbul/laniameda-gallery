@@ -387,4 +387,29 @@ describe("gallery asset queries", () => {
       visibleIds[1],
     ]);
   });
+
+  test("sparse tag filters find older matches beyond an empty first window", async () => {
+    const ownerUserId = "278674008";
+    const tagId = await harness.db.insert("tags", {
+      name: "game-view", normalized: "game-view", usageCount: 2,
+    });
+    const expectedIds = [];
+    for (let i = 0; i < 2; i++) {
+      expectedIds.push(await harness.db.insert("assets", {
+        ownerUserId, kind: "image", tagIds: [tagId], createdAt: 100 + i,
+      }));
+    }
+    for (let i = 0; i < 20; i++) {
+      await harness.db.insert("assets", {
+        ownerUserId, kind: "image", tagIds: [], createdAt: 1000 + i,
+      });
+    }
+    await harness.db.insert("assets", {
+      ownerUserId: "foreign-owner", kind: "image", tagIds: [tagId], createdAt: 2000,
+    });
+    const results = await callAsOwner(listGalleryAssets)(harness.ctx as never, {
+      ownerUserId, tagIdGroups: [[tagId]], skipHiddenCollections: true, limit: 2,
+    });
+    expect(results.map((asset: { _id: string }) => asset._id)).toEqual(expectedIds.reverse());
+  });
 });

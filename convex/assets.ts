@@ -2263,9 +2263,13 @@ export const listGalleryAssets = ownerQuery({
       return selectedAssets;
     };
 
-    // Hidden collections can fill a whole window, so keep reading older
-    // batches until the grid has `limit` visible pieces, the source runs out,
-    // or the scan budget is spent (bounded well under Convex's read limits).
+    // Hidden collections and sparse tag predicates can fill a whole window
+    // with nonmatches. Read older owner batches until the grid has `limit`
+    // matches, the source runs out, or the bounded scan budget is spent.
+    // Folder reads already use membership indexes and must stay scoped.
+    const scanOlderBatches = Boolean(
+      hiddenFolderIds || (!scopedToSet && hasPostQueryFilters),
+    );
     let batch = firstBatch;
     let scanned = 0;
     let selectedAssets: Doc<"assets">[] = [];
@@ -2281,7 +2285,7 @@ export const listGalleryAssets = ownerQuery({
         )),
       );
       if (
-        !hiddenFolderIds ||
+        !scanOlderBatches ||
         selectedAssets.length >= limit ||
         !batch.full ||
         scanned >= HIDDEN_SCAN_BUDGET
