@@ -24,6 +24,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
+- Published world identity follows a root's slug, not whether it still has child folders. Compare the public world route, home world cards and featured-piece world labels after curation; preserving asset flags alone misses navigation regressions. Keep internal audit notes out of public world descriptions.
+
 - A toolbar popup closes as soon as the browser loses focus, so local Finder/file-manager drag-and-drop must live in the extension's persistent Side Panel (`side_panel.default_path` + `openPanelOnActionClick`), not `action.default_popup`.
 - Browser-reserved shortcuts such as `Command+L` cannot be claimed by an extension. Use a manifest `commands` binding such as `Command+Shift+L` and let users remap it from Chrome's extension shortcuts page if desired.
 - Local extension files use a token-authenticated `/api/extension/upload` handshake for a signed browser-to-R2 PUT, then `/api/extension/save` receives only the R2 key, media metadata, content hash, and small preview. Keep large bytes out of Next.js/Convex action arguments.

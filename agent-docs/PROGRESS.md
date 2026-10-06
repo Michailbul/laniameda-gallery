@@ -9,6 +9,7 @@ Last updated: 2026-10-06
 ## ✔ Shipped
 
 ### 2026-10-06
+- Restored world cards on Featured and published flat-world routes such as `/w/cassandra`. World addresses no longer depend on retaining subfolders; private members remain excluded. Cassandra's public presentation retains its original published assets and omits internal audit notes.
 - Private **Stories / Scripts**: text-only ideas, scripts and world style locks, with world/type/status filtering, search, linked visual boards, revision history and stale-edit protection. The owner UI, scoped agent API, hosted/stdio MCP and canonical gallery skill share the same contract. Original and rewritten text from 14 audited storybooks is preserved in this section.
 - Owner filter presets save curated include/exclude pills, collection, media, favorites, ordering, stack expansion and whether Skills appear. Starter views are No skills, Inspirations, Animated characters, Locations and Game views. Removed collections or unresolved positive tag filters cannot silently broaden a saved view.
 - The new private tables require signed owner identity even during the older gallery's legacy auth rollout. Missing source links have an explicit repair action that retains earlier references in history.

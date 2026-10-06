@@ -43,6 +43,8 @@ DESIGN keeps original project/design work. HOCKEY INSPIRATION and NO DRUMA INSPI
 
 ## Filing contract
 
+Public world presentation is protected during filing: preserve world links, Featured world cards, covers and existing published media. CASSANDRA must remain reachable at `/w/cassandra`. Keep internal style locks and audit notes in private Stories/Scripts, rather than replacing public page copy. Verify `showcase.getWorld` and `showcase.getShowcaseHome.worlds` after changing a published world's organization; unchanged asset visibility flags alone do not prove its page still works.
+
 1. Determine source/provenance, visual medium and exact style from the actual image or video, not filename or auto-description. Source .webp saves stay in INSPIRATION VAULT and never enter a world or storybook, following Michael's explicit AGENTS rule. This applies to original/source WebP media; a derived WebP card thumbnail does not turn a PNG/JPEG/video production asset into a WebP save.
 2. Pinterest is inspiration only. Keep assetRole inspiration_capture and the inspiration tag. Use character-design or environment-design for external references rather than claiming production character/location/scene. Do not file Pinterest into canonical worlds or storybooks; use inspiration collections and optional world-ann-reference, world-dear-annete-reference or world-daddy-retro-reference tags. Storytell references may share the channel-development collection while retaining a reference-library membership.
 3. Own production assets go into their correct world part with piece type, medium and exact style tags. Character means a person/creature; carriage means vehicle; garment-only studies mean costume-study. Interaction in-frame is a scene, rather than an empty location plate.
