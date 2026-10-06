@@ -13,7 +13,7 @@ description: >-
   "pull the prompt for asset:...", "show me what I have for...", "pick
   references", "go through my X bookmarks", "save my
   bookmarks to the gallery", "extract these into the gallery".
-version: 1.3.1
+version: 1.4.0
 ---
 
 # laniameda gallery
@@ -107,6 +107,7 @@ And on the record itself:
 
 | Michael wants | Go to |
 |---|---|
+| Save, find or revise a textual idea, script or world style lock; reusable gallery filters | `references/stories.md` |
 | Anything about a world: Dear Annete, Daddy Issues, Andromeda (Ann / Retro-future), its characters, locations, styles | `references/worlds.md` first |
 | Save a prompt, image, video or reference | `references/ingest.md` (examples: `references/ingest-examples.md`) |
 | File into a collection, folder or world; publish a world | `references/ingest.md`, "Filing" and "Publishing" |
@@ -187,6 +188,11 @@ MCP tools or `scripts/gallery.mjs`, use the matching tool listed under Access.
   match (`references/worlds.md`). Don't touch CASSANDRA or ART unless Michael asks.
 - **Never save a prompt without its image or video** unless Michael says yes to
   `allowPromptOnly`. If the media can't be fetched, stop and ask.
+- **Textual stories are their own records.** Use `save_story` for ideas, scripts
+  and style locks. They need no image, no placeholder asset, and no `allowPromptOnly`.
+- **Pinterest is reference material.** File it into inspiration collections, with
+  `inspiration` and `inspiration_capture`; world tags make relevant references
+  accessible without turning them into the world's generated cast or scenes.
 - **A screenshot of a prompt is not the asset.** Read the text into
   `promptText`; only generated outputs are assets.
 - **Never star, feature, publish or set the taste collection** unless Michael

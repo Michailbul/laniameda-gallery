@@ -365,3 +365,21 @@ These are maintained by backend mutations; callers usually pass tag names, typed
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
 - Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
 - Backfill existing records: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
+# Text records and filter presets (6 October 2026)
+
+`stories` is the private native text table. Required fields: `ownerUserId`,
+`title`, `body`, `kind` (idea/script/style-lock), `status`
+(idea/draft/ready/archived), `tagNames`, `assetIds`, stable `ingestKey`,
+`revision`, `searchText`, `createdAt`, `updatedAt`. Optional fields: `logline`,
+`hook`, `folderId`, `styleTag`, `storybookId`. Every linked folder/asset is
+owner-validated. Owner/key retries are idempotent; changed text increments
+revision and preserves the prior content in `storyRevisions`.
+
+`storyRevisions` stores full previous story fields plus `storyId`, `revision`,
+and `savedAt`; access requires ownership of the current story.
+
+`galleryPresets` stores owner, name/normalizedName, timestamps, and typed filters:
+`selectedFilterIds` / `excludedFilterIds` reference menuFilters, optional folder
+and media kind, boolean `onlyLiked`, `includeSkills`, `flattenStacks`, and sort
+order newest/featured/shuffle. Presets upsert by owner/normalized name. They
+change browsing, never public state. See `stories.md` for MCP/API examples.

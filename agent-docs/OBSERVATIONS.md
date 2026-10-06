@@ -49,6 +49,10 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Auth
 
+- New `stories` and `galleryPresets` functions use `signedOwnerQuery` / `signedOwnerMutation`, which reject unsigned requests even if `LEGACY_OWNER_ARG_AUTH` is enabled for older functions. App and skill signing use key id `gallery-actor-20261006`; private key stays in ignored local and production environment configuration, public keys in Convex JWKS.
+- Zod 4 `.partial()` retains nested defaults. Use the explicit no-default `storyPatchSchema` for partial updates so a body edit preserves kind, status, tags and source links.
+- A later asset/collection deletion does not delete narrative text. `stories.getStoryLinkStatus` reports missing links; the editor lets the owner remove those links before saving, while prior revisions retain their source IDs.
+
 - Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
 - Telegram auth now prefers `TELEGRAM_LOGIN_BOT_TOKEN` (with legacy fallback to `TELEGRAM_BOT_TOKEN` during migration).
 - Telegram auth is origin-bound. `https://oauth.telegram.org/embed/<bot>?origin=...` should return the widget HTML for the canonical production host and `"Bot domain invalid"` for unregistered Vercel aliases; keep aliases redirected to a single approved host.

@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
   agentTokenScopeValidator,
   assetRoleValidator,
@@ -29,6 +30,26 @@ import {
 } from "./validators";
 
 export default defineSchema({
+  // Text is a first-class private save; no placeholder media or prompt needed.
+  stories: defineTable({
+    ownerUserId: v.string(), ...storyFields,
+    ingestKey: v.string(), revision: v.number(), searchText: v.string(),
+    createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"])
+    .index("by_owner_folder_updatedAt", ["ownerUserId", "folderId", "updatedAt"])
+    .searchIndex("search_text", { searchField: "searchText", filterFields: ["ownerUserId"] }),
+  storyRevisions: defineTable({
+    ownerUserId: v.string(), storyId: v.id("stories"), ...storyFields,
+    revision: v.number(), savedAt: v.number(),
+  }).index("by_story_revision", ["storyId", "revision"]),
+  galleryPresets: defineTable({
+    ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
+    filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   users: defineTable({
     telegramId: v.optional(v.string()),
     workosUserId: v.optional(v.string()),

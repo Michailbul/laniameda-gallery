@@ -68,6 +68,8 @@ mock.module("@/lib/server/mcp-agent-routes", () => ({
       "/api/agent/ingest/delete",
       "/api/agent/ingest/update",
       "/api/agent/uploads",
+      "/api/agent/stories",
+      "/api/agent/presets",
     ].map((path) => [path, passthroughRoute(path)]),
   ),
 }));
@@ -325,6 +327,10 @@ describe("hosted MCP endpoint", () => {
     expect(names).toContain("preview_assets");
     expect(names).toContain("prepare_uploads");
     expect(names).toContain("save_assets");
+    expect(names).toContain("save_story");
+    expect(names).toContain("update_story");
+    expect(names).toContain("get_story_revisions");
+    expect(names).toContain("save_filter_preset");
     const saveAsset = listBody.result.tools.find((tool) => tool.name === "save_asset");
     expect(saveAsset?.inputSchema.properties).toHaveProperty("url");
     expect(saveAsset?.inputSchema.properties).not.toHaveProperty("filePath");
@@ -342,6 +348,15 @@ describe("hosted MCP endpoint", () => {
       authorization: "Bearer lgat_owner",
       body: { action: "listFolders" },
     });
+  });
+
+  test("a hosted body-only story edit forwards no default metadata", async () => {
+    const response = await mcpRequest(
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "update_story", arguments: { id: "story:one", body: "Revised opening", expectedRevision: 2 } } },
+      "Bearer lgat_owner",
+    );
+    expect(response.status).toBe(200);
+    expect(state.galleryCalls[0]).toEqual({ authorization: "Bearer lgat_owner", body: { action: "update", id: "story:one", body: "Revised opening", expectedRevision: 2 } });
   });
 
   test("save_assets forwards uploadIds with their original file names", async () => {

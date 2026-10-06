@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [{ source: "/w/liz", destination: "/w/dear-annete", permanent: true }];
+  },
   // __dirname is undefined in ESM contexts on Vercel; use cwd for tracing root.
   outputFileTracingRoot: path.join(process.cwd()),
   webpack: (config, { dev }) => {

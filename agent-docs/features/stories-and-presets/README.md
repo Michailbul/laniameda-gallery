@@ -1,0 +1,7 @@
+# Stories / Scripts and gallery presets
+
+Requested 6 October 2026. Textual ideas, scripts, and versioned world style locks are private first-class records, separate from visual storybook collections, generation prompts, skills, and YouTube video research. An entry can link one world/format collection, a style tag, source assets, and its visual storybook. Save, read, update, search, and delete are available to authenticated owner sessions and scoped agent tokens, through both MCP servers and the repository skill. Editing preserves revisions and rejects stale revisions.
+
+The Stories / Scripts section uses the existing gallery design, with search, world and status filtering, editing, and revision history. Presets save the gallery's existing include/exclude pills, collection, medium, favorites, sort, stack expansion, and whether Skills appear. Initial presets: No skills, Inspirations, Animated characters, Locations, and Game views (where the corresponding curated pills exist). Presets belong to the owner and never change publication flags.
+
+Acceptance: authenticated owner CRUD and retry behavior, foreign-owner references rejected, stale edits rejected without losing history, full text readback, hosted MCP routes registered, browser create/edit/search/reopen, actual preset filtering, lint, typecheck, and Bun tests. The canonical shared Convex dev deployment is perfect-buffalo-375; app hosting must also ship before hosted MCP and production UI expose the new routes.

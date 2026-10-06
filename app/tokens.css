@@ -889,6 +889,16 @@
     0 2px 8px rgba(0, 0, 0, 0.40);
 }
 
+.lm-glass-text-btn {
+  width: auto;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* Logo wordmark on glass — hairline glyph shadow for depth. */
 .lm-glass-logo-letter {
   font-size: 14px;

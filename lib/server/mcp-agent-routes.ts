@@ -7,9 +7,13 @@ import { POST as ingestDeletePost } from "@/app/api/agent/ingest/delete/route";
 import { POST as ingestUpdatePost } from "@/app/api/agent/ingest/update/route";
 import { POST as uploadsPost } from "@/app/api/agent/uploads/route";
 import { POST as videoRefsPost } from "@/app/api/agent/video-refs/route";
+import { POST as storiesPost } from "@/app/api/agent/stories/route";
+import { POST as presetsPost } from "@/app/api/agent/presets/route";
 
 // The /api/agent/* handlers the hosted MCP calls in-process, keyed by path.
 export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response>> = {
+  "/api/agent/stories": storiesPost,
+  "/api/agent/presets": presetsPost,
   "/api/agent/bookmarks": bookmarksPost,
   "/api/agent/customize": customizePost,
   "/api/agent/gallery": galleryPost,

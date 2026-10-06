@@ -6,7 +6,7 @@ import { createPrivateKey, createSign, randomUUID } from "node:crypto";
 // .env.local, next to KB_OWNER_USER_ID. Keep ISSUER / AUDIENCE / KEY_ID in sync.
 const ISSUER = "https://gallery.laniameda.space";
 const AUDIENCE = "laniameda-gallery";
-const KEY_ID = "gallery-actor-1";
+const KEY_ID = "gallery-actor-20261006";
 const TTL_SECONDS = 60 * 60;
 // Re-mint a few minutes before expiry so long batch runs never send a stale token.
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;

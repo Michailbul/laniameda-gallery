@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { storyInputSchema, storyPatchSchema, presetFiltersSchema } from "../../lib/story-contract";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
 // and the hosted endpoint (app/api/mcp/route.ts). Every tool is a thin call into
@@ -24,6 +25,7 @@ export type GalleryToolOptions = {
 
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
+  "Textual story ideas, scripts and versioned world style locks are private story records: save_story needs text and a stable ingestKey, never placeholder media. list_stories and get_story retrieve them; update_story preserves revisions. Gallery filter presets have list_filter_presets and save_filter_preset.",
   "Collections (folders) are one level deep; resolve names with list_collections before filing.",
   "What a piece IS is a tag: character, location, scene or inspiration. The animation tag marks animated work; no tag means live action.",
   "Every saved asset should carry sourceUrl when it came from the web, and an agentDescription: one or two plain sentences (max ~45 words) on what it shows and why it was kept.",
@@ -139,6 +141,16 @@ const namedFilterShape = {
 
 export function registerGalleryTools(server: McpServer, options: GalleryToolOptions) {
   const { apiFetch, apiUrl, readLocalFile } = options;
+
+  server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
+  server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
+  server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
+  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
+  server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
+  server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
+  server.registerTool("save_filter_preset", { description: "Save/update a reusable filter preset by name. Use menu filter IDs from the gallery, not raw tag IDs. Owner-scoped; no publication changes.", inputSchema: { name: z.string(), filters: presetFiltersSchema } }, async (input) => jsonText(await apiFetch("/api/agent/presets", { action: "save", ...input })));
+  server.registerTool("delete_filter_preset", { description: "Delete an owner filter preset when requested.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/presets", { action: "delete", ...input })));
 
   // `filePath` only exists where the server can read the caller's disk.
   // Typed as always present so both modes share one handler signature; the

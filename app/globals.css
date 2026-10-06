@@ -4,6 +4,7 @@
    scanned directory that contains one ("reading 'length'" in WasmHash). */
 @source not "../.claude";
 @source not "../skills";
+@source not "../recovery";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 

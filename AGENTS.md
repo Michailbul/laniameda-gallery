@@ -15,7 +15,7 @@ Read these files first:
 To read from or save into Michael's gallery (not to change this codebase), follow
 `skills/laniameda-gallery/SKILL.md`. Access, in order: the gallery MCP tools if
 the session has them (`.mcp.json` registers the hosted server for Claude Code);
-otherwise `node skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
+otherwise `bun skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
 which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
 `gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
 `gallery.mjs check`. If the token is missing, ask Michael; never print it.
@@ -43,13 +43,23 @@ Instagram, sites) into the vault.
   / `cinema-inspiration`) is dormant; only cinema frames and workflow ingest
   still set it.
 
-### Worlds (since 30 Sep 2026)
-Michael's story universes are root collections: **DEAR ANNETE** (parts: Animated,
-Unreal Engine, Piazza Graphic 2D, Dari), **DADDY ISSUES**, **ANDROMEDA — ANN**,
-**ANDROMEDA — RETRO-FUTURE**. Styles inside a world are style tags, not folders.
-`.webp` saves live in **INSPIRATION VAULT**, never in a world. CASSANDRA and ART are
-off-limits unless asked. The full map (folder ids, leads, looks, style tags, filing
-rules) is `skills/laniameda-gallery/references/worlds.md`. Read it before touching a world.
+### Worlds (audited 6 Oct 2026)
+Michael's story universes include **DEAR ANNETE** (Animated, Unreal Engine,
+Piazza Graphic 2D, Dari, Animation Development), **DADDY ISSUES — RETRO-FUTURE**,
+**ANDROMEDA — ANN**, and the single main **CASSANDRA** collection. LIZ is the
+primary Dear Annete Animated format; its former root was merged and removed.
+Daddy and Retro-Future share a root while retaining separate exact style tags.
+Styles are tags, not folders; never mix rendering styles inside a storybook.
+
+Pinterest remains inspiration only, in inspiration collections with optional
+world-reference tags. Source `.webp` saves retain **INSPIRATION VAULT** membership
+and never enter worlds or storybooks; derived WebP thumbnails are exempt.
+**YOUTUBE — STORYTELL** is a separate channel-development/reference collection,
+distinct from YouTube Cars research. Native **Stories / Scripts** stores private
+text-only ideas, scripts and versioned style locks with links to their world,
+visual storybook and source assets. Detailed filing/style rules and live IDs are
+in `skills/laniameda-gallery/references/worlds.md`; read it before touching a world.
+CASSANDRA and ART remain protected from future reorganization unless Michael asks.
 
 ### How ingestion works
 1. An agent (Claude Code, Codex, OpenClaw) or the browser extension sends

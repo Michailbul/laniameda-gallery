@@ -56,6 +56,8 @@ import {
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
 import { SkillsView } from "./skills-view";
+import { StoriesView } from "./stories-view";
+import { FilterPresets } from "./filter-presets";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
 import {
@@ -326,6 +328,8 @@ export function GalleryDashboard({
   // Top-level "Storybooks" tab: shows every storybook as a masonry of stack
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
+  const [storiesView, setStoriesView] = useState(false);
+  const [includeSkills, setIncludeSkills] = useState(true);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
   // The Motion tab: assets tagged motion-design, filtered by their own facets.
@@ -333,7 +337,8 @@ export function GalleryDashboard({
   // The Cinematography tab: camera-move packs, shown as skill cards under
   // their own name and kept out of the Skills tab.
   const [cinematographyView, setCinematographyView] = useState(false);
-  const extraTabView = motionView || cinematographyView;
+  const activeStoriesView = storiesView && canAccessMyGallery && galleryScope === "mine";
+  const extraTabView = motionView || cinematographyView || activeStoriesView;
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -1562,9 +1567,14 @@ export function GalleryDashboard({
   // Tag pills exclude their tags; collection pills exclude the collection's
   // members. Exclusion always wins over an include.
   const excludedTagIds = useMemo(() => {
-    if (excludedFilters.length === 0) return undefined;
+    if (excludedFilters.length === 0 && includeSkills) return undefined;
     const excludedSet = new Set(excludedFilters);
     const ids = new Set<Id<"tags">>();
+    if (!includeSkills) {
+      for (const tag of tags ?? []) {
+        if (["workflow", "skill reference"].includes(canonicalTagKey(tag.name))) ids.add(tag._id);
+      }
+    }
     for (const entry of menuFilterEntries) {
       if (entry.kind !== "tag" || !excludedSet.has(entry._id)) continue;
       for (const id of entry.tagIds) {
@@ -1572,7 +1582,7 @@ export function GalleryDashboard({
       }
     }
     return ids.size > 0 ? Array.from(ids) : undefined;
-  }, [excludedFilters, menuFilterEntries]);
+  }, [excludedFilters, includeSkills, menuFilterEntries, tags]);
 
   const excludedFolderIds = useMemo(() => {
     if (excludedFilters.length === 0) return undefined;
@@ -2230,6 +2240,7 @@ export function GalleryDashboard({
   // stays the place to browse them all. Storybooks never join the grid; they
   // live in the Storybooks tab.
   const showWorkflowCards =
+    includeSkills &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
     !effectiveSelectedFolderId &&
@@ -2252,6 +2263,7 @@ export function GalleryDashboard({
       : "skip",
   );
   const showFolderSkillCards =
+    includeSkills &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
     Boolean(effectiveSelectedFolderId) &&
@@ -4518,13 +4530,15 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          storiesTabActive={activeStoriesView}
           onStorybooksTab={
             canManageFoldersInCurrentView
               ? () => {
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
-                  setStorybooksView(true);
+                  setStoriesView(false); setStorybooksView(true);
                 }
               : undefined
           }
@@ -4532,7 +4546,7 @@ export function GalleryDashboard({
           onBookmarksTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false);
+                  setStorybooksView(false); setStoriesView(false);
                   setBookmarksView(true);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -4544,7 +4558,7 @@ export function GalleryDashboard({
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false);
+                  setStorybooksView(false); setStoriesView(false);
                   setBookmarksView(false);
                   setMotionView(true);
                   setCinematographyView(false);
@@ -4555,7 +4569,7 @@ export function GalleryDashboard({
           onCinematographyTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false);
+                  setStorybooksView(false); setStoriesView(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(true);
@@ -4567,7 +4581,7 @@ export function GalleryDashboard({
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false);
+                  setStorybooksView(false); setStoriesView(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -4579,7 +4593,7 @@ export function GalleryDashboard({
             viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
           onGalleryHome={() => {
-            setStorybooksView(false);
+            setStorybooksView(false); setStoriesView(false);
             setBookmarksView(false);
             setMotionView(false);
             setCinematographyView(false);
@@ -4589,7 +4603,7 @@ export function GalleryDashboard({
           onSignOut={onSignOut}
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
-          onFolderSelect={setSelectedFolderId}
+          onFolderSelect={(id) => { setStoriesView(false); setSelectedFolderId(id); }}
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
@@ -4704,6 +4718,23 @@ export function GalleryDashboard({
             )}
 
             {/* Storybooks tab header */}
+            {!storybooksView && !bookmarksView && !extraTabView && viewMode === "grid" && canManageFoldersInCurrentView && (
+              <FilterPresets
+                ownerUserId={ownerUserId}
+                includeSkills={includeSkills}
+                onIncludeSkillsChange={setIncludeSkills}
+                validFilterIds={new Set((menuFilters ?? []).filter((filter) => filter.kind !== "tag" || filter.tagIds.length > 0).map((filter) => String(filter._id)))}
+                validFolderIds={new Set((folders ?? []).map((folder) => String(folder._id)))}
+                current={{ selectedFilterIds: selectedTags as Id<"menuFilters">[], excludedFilterIds: excludedFilters as Id<"menuFilters">[], folderId: (effectiveSelectedFolderId || undefined) as Id<"folders"> | undefined, mediaKind: mediaKind || undefined, onlyLiked: likedOnly, includeSkills, flattenStacks, sortOrder }}
+                onApply={(filters) => {
+                  setSelectedTags(filters.selectedFilterIds); setExcludedFilters(filters.excludedFilterIds);
+                  setSelectedFolderId(filters.folderId ?? null); setMediaKind(filters.mediaKind ?? null);
+                  setLikedOnly(filters.onlyLiked); setIncludeSkills(filters.includeSkills);
+                  setFlattenStacks(filters.flattenStacks); changeSortOrder(filters.sortOrder);
+                  setSelectedModelName(null); setAssetSearchQuery(""); setSemanticMode(null);
+                }}
+              />
+            )}
             {storybooksView && (
               <div className="flex items-center justify-between px-4 pb-2 pt-4">
                 <h2
@@ -4900,7 +4931,9 @@ export function GalleryDashboard({
                   }
                 />
               )}
-              {motionView && ownerUserId ? (
+              {activeStoriesView && ownerUserId ? (
+                <StoriesView ownerUserId={ownerUserId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
+              ) : motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
               ) : cinematographyView && ownerUserId ? (
                 <SkillsView

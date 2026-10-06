@@ -249,3 +249,11 @@ Resolve collection names with `list_collections` before saving. Pass
 `folderIds` to `save_asset` for multi-collection membership; the first ID is
 retained as the primary/backward-compatible collection. Pass `folderIds` to
 `update_gallery_item` with `target: "asset"` to replace memberships.
+# Textual stories and presets
+
+Both hosted and local servers register `save_story`, `list_stories`, `get_story`,
+`update_story`, `get_story_revisions`, `delete_story`, `list_filter_presets`,
+`save_filter_preset`, and `delete_filter_preset`. These use `/api/agent/stories`
+and `/api/agent/presets` with the authenticated token's owner and action scope.
+Ideas, scripts and versioned world style locks need text, not placeholder media.
+See `skills/laniameda-gallery/references/stories.md` for the contract.
