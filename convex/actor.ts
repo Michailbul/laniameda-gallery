@@ -98,4 +98,18 @@ export const ownerAction = ((definition: any) =>
   action(withOwnerArgs(definition) as any)) as typeof action;
 export const authedMutation = ((definition: any) =>
   mutation(withActor(definition) as any)) as typeof mutation;
+// New private text cannot rely on the legacy rollout switch used by old data.
+const withSignedOwner = (definition: AnyDefinition): AnyDefinition => ({
+  ...definition,
+  handler: async (ctx, args) => {
+    if (!await readIdentitySubject(ctx)) throw new ConvexError("Not authenticated.");
+    return definition.handler(ctx, await resolveOwnerArgs(ctx, args ?? {}));
+  },
+});
+export const signedOwnerQuery = ((definition: any) =>
+  query(withSignedOwner(definition) as any)) as typeof query;
+export const signedOwnerMutation = ((definition: any) =>
+  mutation(withSignedOwner(definition) as any)) as typeof mutation;
+export const signedOwnerAction = ((definition: any) =>
+  action(withSignedOwner(definition) as any)) as typeof action;
 /* eslint-enable @typescript-eslint/no-explicit-any */

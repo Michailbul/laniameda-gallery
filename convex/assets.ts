@@ -45,6 +45,7 @@ import {
   optionalPillarValidator,
 } from "./validators";
 import { ownerMutation, ownerQuery } from "./actor";
+import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
 const reindexAssetAction = makeFunctionReference<"action">(
@@ -1676,7 +1677,7 @@ const assetFolderIdSet = async (ctx: QueryCtx, asset: Doc<"assets">) => {
 // deliberately left alone so a step asset is still findable by searching for it.
 const WORKFLOW_STEP_ROLE = "workflow_asset" as const;
 
-const isHiddenWorkflowStepAsset = (
+export const isHiddenWorkflowStepAsset = (
   asset: Doc<"assets">,
   requestedAssetRole?: string,
 ) =>
@@ -1801,7 +1802,7 @@ const dropHiddenCollectionMembers = async (
   return visible.slice(0, limit);
 };
 
-const buildMenuFilterPredicate = async (
+export const buildMenuFilterPredicate = async (
   ctx: QueryCtx,
   args: MenuFilterArgs,
 ): Promise<MenuFilterPredicate | null> => {
@@ -1835,7 +1836,7 @@ const buildMenuFilterPredicate = async (
   return { groups, excludedTagIds, excludedAssetIds };
 };
 
-const matchesMenuFilters = (
+export const matchesMenuFilters = (
   predicate: MenuFilterPredicate | null,
   asset: Doc<"assets">,
 ) => {
@@ -1864,7 +1865,7 @@ type NamedTagFilterArgs = {
 // each group must match (OR inside a group), excluded ids must not. Returns
 // null when a required tag doesn't exist at all, so the caller can answer
 // "nothing" without scanning.
-const resolveNamedTagFilters = async <T extends NamedTagFilterArgs & MenuFilterArgs>(
+export const resolveNamedTagFilters = async <T extends NamedTagFilterArgs & MenuFilterArgs>(
   ctx: QueryCtx,
   args: T,
 ): Promise<T | null> => {
@@ -2229,32 +2230,12 @@ export const listGalleryAssets = ownerQuery({
       }
 
       let selectedAssets = filteredAssets;
-      let promptTextById: Map<Id<"prompts">, string>;
       if (search) {
-        const promptIds = dedupeIds(
-          filteredAssets
-            .map((asset) => asset.promptId)
-            .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId)),
-        );
-        const promptEntries = await Promise.all(
-          promptIds.map(async (promptId) => {
-            const prompt = await ctx.db.get(promptId);
-            return [promptId, prompt?.text] as const;
-          }),
-        );
-        promptTextById = new Map(
-          promptEntries.filter((entry): entry is [Id<"prompts">, string] => Boolean(entry[1])),
-        );
-        selectedAssets = filteredAssets.filter((asset) => {
-          const promptText = asset.promptId
-            ? promptTextById.get(asset.promptId)
-            : undefined;
-          return buildSearchHaystack(promptText, asset.fileName, asset.sourceUrl)
-            .includes(search);
-        });
+        const searchable = await hydrateGalleryAssetResults(ctx, filteredAssets);
+        const matched = new Set(searchable.filter(asset => galleryAssetSearchText(asset).includes(search)).map(asset => asset._id));
+        selectedAssets = filteredAssets.filter(asset => matched.has(asset._id));
       } else {
         selectedAssets = filteredAssets;
-        promptTextById = new Map();
       }
 
       if (args.onlyStarred) {
@@ -2263,9 +2244,13 @@ export const listGalleryAssets = ownerQuery({
       return selectedAssets;
     };
 
-    // Hidden collections can fill a whole window, so keep reading older
-    // batches until the grid has `limit` visible pieces, the source runs out,
-    // or the scan budget is spent (bounded well under Convex's read limits).
+    // Hidden collections and sparse tag predicates can fill a whole window
+    // with nonmatches. Read older owner batches until the grid has `limit`
+    // matches, the source runs out, or the bounded scan budget is spent.
+    // Folder reads already use membership indexes and must stay scoped.
+    const scanOlderBatches = Boolean(
+      hiddenFolderIds || (!scopedToSet && hasPostQueryFilters),
+    );
     let batch = firstBatch;
     let scanned = 0;
     let selectedAssets: Doc<"assets">[] = [];
@@ -2281,7 +2266,7 @@ export const listGalleryAssets = ownerQuery({
         )),
       );
       if (
-        !hiddenFolderIds ||
+        !scanOlderBatches ||
         selectedAssets.length >= limit ||
         !batch.full ||
         scanned >= HIDDEN_SCAN_BUDGET

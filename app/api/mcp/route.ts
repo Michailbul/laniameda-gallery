@@ -92,7 +92,7 @@ export async function POST(request: Request) {
   }
 
   const server = new McpServer(
-    { name: "laniameda-gallery", version: "0.2.0" },
+    { name: "laniameda-gallery", version: "0.3.0" },
     { instructions: GALLERY_MCP_INSTRUCTIONS },
   );
   registerGalleryTools(server, {

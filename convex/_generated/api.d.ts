@@ -9,8 +9,10 @@
  */
 
 import type * as actor from "../actor.js";
+import type * as agentAssets from "../agentAssets.js";
 import type * as agentDescriptionText from "../agentDescriptionText.js";
 import type * as agentDescriptions from "../agentDescriptions.js";
+import type * as agentInstructions from "../agentInstructions.js";
 import type * as agentPreview from "../agentPreview.js";
 import type * as agentPreviewData from "../agentPreviewData.js";
 import type * as agentTokens from "../agentTokens.js";
@@ -33,6 +35,7 @@ import type * as files from "../files.js";
 import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
 import type * as galleryAssetResults from "../galleryAssetResults.js";
+import type * as galleryPresets from "../galleryPresets.js";
 import type * as generationLineage from "../generationLineage.js";
 import type * as helpers from "../helpers.js";
 import type * as imageDimensions from "../imageDimensions.js";
@@ -50,6 +53,8 @@ import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as showcase from "../showcase.js";
+import type * as stories from "../stories.js";
+import type * as storyValidators from "../storyValidators.js";
 import type * as storybooks from "../storybooks.js";
 import type * as tagFilters from "../tagFilters.js";
 import type * as tags from "../tags.js";
@@ -69,8 +74,10 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   actor: typeof actor;
+  agentAssets: typeof agentAssets;
   agentDescriptionText: typeof agentDescriptionText;
   agentDescriptions: typeof agentDescriptions;
+  agentInstructions: typeof agentInstructions;
   agentPreview: typeof agentPreview;
   agentPreviewData: typeof agentPreviewData;
   agentTokens: typeof agentTokens;
@@ -93,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   folderHelpers: typeof folderHelpers;
   folders: typeof folders;
   galleryAssetResults: typeof galleryAssetResults;
+  galleryPresets: typeof galleryPresets;
   generationLineage: typeof generationLineage;
   helpers: typeof helpers;
   imageDimensions: typeof imageDimensions;
@@ -110,6 +118,8 @@ declare const fullApi: ApiFromModules<{
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
   showcase: typeof showcase;
+  stories: typeof stories;
+  storyValidators: typeof storyValidators;
   storybooks: typeof storybooks;
   tagFilters: typeof tagFilters;
   tags: typeof tags;

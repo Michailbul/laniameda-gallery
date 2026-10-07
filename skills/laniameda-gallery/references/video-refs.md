@@ -1,158 +1,118 @@
-# Video references: YouTube research
+# YouTube research references
 
-A **video reference** is a YouTube video kept as research: what performs, how it
-looks, why it works. It is its own object (table `videoRefs`,
-`convex/videoRefs.ts`), shown on the **YouTube** page (`/youtube`) and kept apart
-from assets, so a batch of several hundred videos never floods the grid.
+A YouTube reference is a separate research record in videoRefs, shown at
+/youtube and /youtube/<YouTube-id>. It keeps the source video, dated metrics,
+channel facts, visual stills and clearly labelled analysis. Asset semantic
+search does not include these records. Michael's generated or downloaded video
+files are ordinary media assets; a reference record does not ingest that video.
 
-Use it when Michael says "save this YouTube video as a reference", "add these
-competitors", "what do car channels do", "find a video in this style". A
-generated clip of his own, or a video file he wants in a collection, is still an
-ordinary asset (`references/ingest.md`).
+## Save facts and distinguish interpretation
 
-## Frame review preference (Michael, 5 October 2026)
-
-Michael judges the material by skimming frames. Do not infer or write AI-versus-stock or model labels from appearance; material origin is not relevant to this research. Omit `productionStyle` and source-material `styleDescription` in new research saves. Keep title/thumbnail, episode structure, observed hook and our proposed animation treatment. Older labels remain compatibility data.
-
-On the live Gallery cards and thumbnail wall, hover to cycle through up to 24 chronological storyboard frames, including opening checkpoints; move horizontally to scrub. The timestamp and counter show the available coverage. Keyboard focus supports arrows, Home and End; Enter opens the video. Richer frames load on demand through the existing password/owner gate, and fall back to the stored stills if unavailable. Three stills alone are not a full skim or proof of the opening. Handoff `https://gallery.laniameda.space/youtube`; name localhost explicitly as a development preview.
-
-## What one record holds
+Use save_video_refs, list_video_refs, get_video_ref, update_video_ref and
+delete_video_ref. Use list_video_refs_page for complete inventories. Discover the deployed schemas first. Send the original
+YouTube URL or 11-character ID. Saves are idempotent per video: another save
+updates supplied research fields, merges theme/tag labels and preserves
+Michael's userNote and isLiked. A save is not a generation prompt extraction.
 
 | Field | Meaning |
 |---|---|
-| `url`, `externalId`, `title` | The video. `url` accepts any YouTube link or the 11-character id. |
-| `views`, `publishedAt`, `durationSeconds` | The video's numbers when it was saved. |
-| `channelName`, `channelHandle`, `channelUrl`, `subscribers`, `medianViews` | A snapshot of the channel. `medianViews` is the median of its recent long-form uploads. |
-| `isChannelBest` | The channel's best performer in the window the research looked at. |
-| `channelLastUploadAt` | When the channel last uploaded, as seen on the day it was checked. Shows whether the channel is alive. ISO date or epoch ms. |
-| `checkedAt` | When the numbers on the record were last verified on YouTube. ISO date or epoch ms. Send it on every save and re-check. |
-| `collections` | Plain labels used as themes on the YouTube page, e.g. `youtube-cars-competitors`. They are not gallery folders. Lowercase, hyphenated. |
-| `topic` | Subject area: `cars`, `history`, `success-stories`, `what-if`, `animation-styles`… |
-| `styleFamily` | Plain-words name of the look: "Map animation", "3D cutaway and schematic animation". |
-| `productionStyle` | Optional legacy classification. Omit in new research saves; do not infer material origin from frames. |
-| `language` | The spoken language as a lowercase ISO 639-1 code: `en`, `es`, `id`. |
-| `styleDescription` | Legacy source description. Omit material-origin diagnosis in new research. |
-| `format`, `whyItWorks`, `hook`, `titlePattern`, `thumbnailPattern`, `audience`, `bendIdea` | The analysis. Leave out what you did not check; never guess. |
-| `agentDescription` | One or two plain sentences, 45 words at most. Required on every agent save, same rule as assets. |
-| `tagNames` | Plain strings (not the typed tag table). |
-| `thumbUrl`, `frames[]` | The thumbnail and the in-video stills, copied into R2 at save time. |
-| `userNote`, `isLiked` | Michael's own. An agent save never overwrites them. |
+| url, externalId, title | Original video identity and source title |
+| views, publishedAt, durationSeconds | Video metrics checked at a stated time |
+| channelName, channelHandle, channelUrl, subscribers | Channel identity and dated size |
+| medianViews, isChannelBest, channelLastUploadAt | Research findings; state the sampling window/method in notes and omit unverified values |
+| checkedAt | When the supplied numbers were actually verified; ISO date or epoch milliseconds |
+| collections | Plain theme labels such as youtube-cars-competitors; these are not gallery collection IDs |
+| topic, styleFamily, productionStyle, language | Subject and observed visual/spoken format; infer only from inspected material |
+| styleDescription, format, whyItWorks, hook, titlePattern, thumbnailPattern, audience | Analysis based on inspected evidence; performance correlation does not prove causation |
+| bendIdea | Michael's reuse idea, retained in the private record |
+| agentDescription | One or two factual sentences, about 45 words maximum, saying what it shows and why kept |
+| tagNames | Plain research labels, separate from typed gallery tags |
+| thumbUrl, frames | Persisted thumbnail and still media |
+| userNote, isLiked | Michael's own metadata, preserved by research upserts |
 
-## Stills are copied for you
+There is no mandatory faceless, 50K median, language, subscriber or channel-
+qualification gate. Apply such editorial filters only when Michael requests
+them. Existing passes-filters tags and fits=1 links remain legacy curated
+labels; their presence does not establish current eligibility or verified
+evidence. Do not fabricate facts or claim a channel passed unrequested tests.
+Prefer existing theme labels and report saved IDs and failures.
 
-Send the link. The save action copies YouTube's own thumbnail and its three
-auto-captured frames into R2, so the
-look survives the video being taken down. To supply your own stills instead,
-pass `thumbnailUrl` and up to six `frameUrls` (public https image URLs).
+## Stills and timed previews
 
-Outside the gallery, the same stills are at
-`https://i.ytimg.com/vi/<id>/maxresdefault.jpg` and `…/maxres1.jpg`, `maxres2.jpg`,
-`maxres3.jpg`. These stills have no guaranteed timestamps. Skim the richer sequence to assess the visible format: a thumbnail is
-packaging and often shows nothing of how the video looks.
+By default the save action attempts to copy YouTube's thumbnail and numbered
+automatic stills into R2. Supplied thumbnailUrl and up to six public HTTPS
+frameUrls may override them; refreshMedia: true requests a refresh on a repeat
+save. Inspect the result and readback before claiming media persisted.
 
-## Save
+Saved frame reads report sourceKind: youtube-auto-still, supplied-still or
+legacy-unverified; sourceUrl is retained when known. positionVerified is false.
+Automatic and legacy frames use neutral labels such as YouTube still 1.
+No exact time or 25/50/75-percent position is inferred from these stills.
+A thumbnail is packaging, so inspect actual video footage before describing
+movement, the hook or the first 30 seconds.
 
-Idempotent per video: saving it again updates the numbers and notes, merges
-`collections` and `tagNames`, and keeps the stills (pass `refreshMedia: true`
-to copy them again). Up to 12 videos per MCP call; the script batches any number.
+The chronological hover/scrub storyboard preview on the website is a separate
+timed preview/cache path. Its timeline does not make the saved automatic stills
+timestamp-verified, and it is not an archived original video file.
 
-```bash
-# MCP / gallery.mjs
-node <this skill>/scripts/gallery.mjs save_video_refs '{"items":[{
-  "url":"https://www.youtube.com/watch?v=zpkbsKs5DCw",
-  "title":"Fiat’s Pocket Rocket. The Fiat X1/9 Story",
-  "channelName":"Big Car","channelHandle":"@BigCar2",
-  "subscribers":286000,"medianViews":117000,"views":172736,
-  "publishedAt":"2026-07-24","durationSeconds":1294,
-  "channelLastUploadAt":"2026-09-30","checkedAt":"2026-10-04",
-  "language":"en",
-  "topic":"cars","styleFamily":"Archive photos, brochures and old ads, narrated",
-  "agentDescription":"Big Car model history told over archive brochures and press photos; kept as a car-history competitor.",
-  "collections":["youtube-cars-competitors"],"tagNames":["youtube","cars"]}]}'
-
-# Direct, on Michael's machine (any number of items, or @file.json)
-bun run <this skill>/scripts/video-refs.ts '{"action":"save","items":[ … ]}'
-```
-
-Rules:
-
-- **Faceless references only**, unless Michael says otherwise: no presenter on
-  camera, no podcasters, no footage built on real people. Check the frames.
-- **Nothing under 50K median views** for competitor research, and prefer each
-  channel's best video of the last three to four months.
-- Reuse existing `collections` labels (list first); ask before inventing a new one.
-- Report the `video:<id>`s you saved and anything that failed.
-
-## Find
+## Examples
 
 ```bash
-# Most-viewed car competitors
-node <this skill>/scripts/gallery.mjs list_video_refs '{"collection":"youtube-cars-competitors","sort":"views","limit":20}'
+bun <this skill>/scripts/gallery.mjs save_video_refs '{"items":[{
+  "url":"https://www.youtube.com/watch?v=<video-id>",
+  "title":"<source title>",
+  "checkedAt":"<actual verification date>",
+  "agentDescription":"<observed format and why Michael kept it>",
+  "collections":["youtube-cars-competitors"],
+  "tagNames":["youtube","cars"]
+}]}'
 
-# One look, newest first, each channel's best only
-bun run <this skill>/scripts/video-refs.ts '{"action":"list","styleFamily":"Map animation","sort":"recent","onlyChannelBest":true}'
-
-# Words: every term must appear in the title, channel, style or notes
-bun run <this skill>/scripts/video-refs.ts '{"action":"list","search":"cutaway engine","minViews":500000}'
-
-# English map-animation videos that carry both tags
-node <this skill>/scripts/gallery.mjs list_video_refs '{"styleFamily":"Map animation","language":"en","tagNames":["niche-bend","passes-filters"],"sort":"views"}'
+bun <this skill>/scripts/gallery.mjs list_video_refs '{"collection":"youtube-cars-competitors","sort":"views","limit":20}'
+bun <this skill>/scripts/gallery.mjs list_video_refs '{"productionStyle":"Whiteboard animation","language":"en","sort":"recent"}'
 ```
 
-Filters: `collection`, `topic`, `styleFamily`, `productionStyle`, `language`,
-`tagNames`, `channelHandle`, `search`, `onlyLiked`, `onlyChannelBest`,
-`minViews`, `publishedAfter` (ISO date or epoch ms). `productionStyle` and
-`language` match the whole value in any case. `tagNames` is a list, and a
-record must carry every tag in it. `sort`: `views` (default), `recent` (upload
-date), `saved`. `limit` up to 2000. Each result carries `thumbUrl` and
-`frames[].url`; read those images when the task is about a look. The MCP legacy
-`productionStyle` filter remains compatible; the visual dashboard ignores old
-`made` URLs and no longer displays material-origin badges or controls.
+Optional list filters include collection, topic, styleFamily, productionStyle,
+language, tagNames, channelHandle, search, onlyLiked, onlyChannelBest,
+minViews and publishedAfter. productionStyle/language match case-insensitively;
+every supplied tag must match. sort is views, recent or saved; limit is bounded
+at 2000. Keyword search matches words in research metadata rather than semantic
+image/video content. A bounded list is not proof of an exhaustive inventory.
 
-`search` here is plain word matching. Video references are not in the semantic
-index, so `search_gallery` does not return them.
+list_video_refs_page accepts the same filters (without sort/limit), cursor and
+pageSize from 1 to 200. It returns videos, cursor, isDone, scannedCount and
+order: owner-candidate-createdAt-desc. Keep filters unchanged and continue until
+isDone:true even through empty matching pages. For complete ranked research,
+collect all pages and sort locally by views/date. The Bun client videoRefs.pages(),
+all() and inventory() follow this surface. CLI all_video_refs starts from the
+beginning and writes <output-directory>/videos.json:
 
-## Edit and delete
+```bash
+bun <this skill>/scripts/gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
+```
 
-`update_video_ref` (or `{"action":"update"}`) sets `userNote`, `isLiked` and the
-whole `collections` list. `delete_video_ref` removes the record; ask first.
-Automatic research proposals reuse `bendIdea`, maximum 4000 characters. JSON
-version 1 is validated by `lib/youtube-research.ts` and rendered in the existing
-video detail layout: bent title, thumbnail layout, animation style, structure,
-three opening beats, separate demand/saturation thumbnail evidence and an
-external demand signal. Legacy plain-text bends still display. The server only
-includes `bendIdea`, `userNote` and `isLiked` for the authenticated owner, never
-for shared-password visitors. Owners can use `ideas=1` / the Proposals chip to
-find source videos with proposals and search their bent titles.
+## Edit, sharing and privacy
 
-The YouTube page (`/youtube`) is public behind one password (`YOUTUBE_PAGE_PASSWORD`,
-default `ANDROMEDA`; the owner's own session skips it). It lists videos, thumbnails or
-channels by theme, Cars first, with sort and filters kept in the URL, and every video has
-its own link (`/youtube/<youtube id>`) to share. Private ideas and notes only appear
-for the signed-in owner; sharing the URL does not share those fields.
+Private niche-bending proposals use bendIdea. Structured proposals are JSON version
+1 (at most 4000 characters), validated by lib/youtube-research.ts; the existing
+owner view displays title, thumbnail, animation style, structure, opening beats
+and the collected demand evidence. Plain-text legacy proposals remain compatible.
+Shared-password visitors never receive bendIdea, userNote or isLiked. These
+proposal fields are optional and do not create a qualification gate for saves.
 
-Three views (`view` in the URL):
+update_video_ref edits userNote/isLiked or replaces the complete collections
+theme list. delete_video_ref deletes the record; perform deletion only when
+Michael authorizes it. Local/admin scripts/video-refs.ts is a compatibility
+path requiring signed owner access; hosted MCP is preferred.
 
-- **Videos** (default): cards with the thumbnail, and the inside frames on hover.
-- **Thumbnails** (`view=thumbnails`): the packaging wall. Each tile is the thumbnail with
-  nothing laid over it and the title in its own capitals, then rank, views, age and how
-  many times the channel's typical upload it reached. `size=wall` shows many small tiles
-  (does the thumbnail read at sidebar size), the default shows tags, `size=study` shows
-  large tiles with `titlePattern` and `thumbnailPattern` written out. `group=topic`
-  splits the wall into sections.
-- **Channels** (`view=channels`): one card per channel with its last upload.
+The website is a shareable YouTube research surface behind its configured page
+password; the owner's signed session bypasses that password. It exposes video/
+channel facts, tags, themes, stills and several analysis fields, including hook,
+whyItWorks, format, titlePattern and thumbnailPattern. userNote and bendIdea
+are omitted from the public projection. Do not put private plans in shareable
+analysis fields. A page password is distinct from gallery OAuth/token scope.
 
-Filters that follow the fields: `since` (`30d`, `90d`,
-`180d`: the upload window), `fits=1` (the tag `passes-filters`), next to `theme`,
-`style`, `channel`, `q` and `best`. Sort `velocity` orders by views per day since
-upload. A link to "what worked in the last three months, drawn, on channels that pass":
-`/youtube?view=thumbnails&theme=youtube-niche-bend&style=Map+animation&since=90d&fits=1`.
-
-Tags the page and the agents rely on, set on save: `passes-filters` (the channel is
-still posting, faceless, in English, under 100K subscribers, 50K typical views, more
-than one hit, and buildable from animated stills), `one-big-hit`, `big-channel`,
-`non-english` with `lang-<code>`, `fresh-channel` (first video under six months ago),
-a source tag (`danilov-58`, `artofyt-100`) and a look tag.
-New collection labels show up as themes on their own; to name one or move it up the
-order, edit `THEMES` in `lib/youtube-page.ts`. Likes, notes and deletes go through the agent
-tools; the old in-gallery Videos tab is gone.
+Views are Videos, Thumbnails and Channels. URL filters select theme, visual
+production style, channel, upload window, words and curated tags; sorting also
+includes views per day and breakout ratios. New theme labels appear automatically;
+display order/names are website presentation in lib/youtube-page.ts. Research
+theme membership does not file a media asset in a World.

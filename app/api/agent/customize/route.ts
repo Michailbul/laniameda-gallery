@@ -147,11 +147,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ folders });
     }
 
+    if (action === "listMenuFilters") {
+      const filters = await client.query(api.menuFilters.listMenuFilters, { ownerUserId: agent.ownerUserId });
+      return NextResponse.json({ filters });
+    }
+
     if (action === "createFolder") {
       const result = await client.mutation(api.folders.createFolder, {
         ownerUserId: agent.ownerUserId,
         name: stringValue(data.name) ?? "",
         description: stringValue(data.description),
+        parentFolderId: stringValue(data.parentFolderId) as Id<"folders"> | undefined,
+        kind: data.kind === "storybook" ? "storybook" : undefined,
       });
       return NextResponse.json(result);
     }
@@ -162,8 +169,26 @@ export async function POST(request: Request) {
         folderId: stringValue(data.folderId) as Id<"folders">,
         name: stringValue(data.name) ?? "",
         description: stringValue(data.description),
+        parentFolderId: data.parentFolderId === null ? null : stringValue(data.parentFolderId) as Id<"folders"> | undefined,
       });
       return NextResponse.json({ folderId: result });
+    }
+
+    if (action === "setCollectionOption") {
+      const ownerUserId = agent.ownerUserId;
+      const folderId = stringValue(data.folderId) as Id<"folders">;
+      const option = stringValue(data.option);
+      if (option === "cover") {
+        if (!(data.assetId === null || typeof data.assetId === "string")) return NextResponse.json({ error: "assetId or null is required for a cover." }, { status: 400 });
+        return NextResponse.json(await client.mutation(api.folders.setFolderCover, { ownerUserId, folderId, assetId: data.assetId === null ? null : data.assetId.replace(/^asset:/, "") as Id<"assets"> }));
+      }
+      if (typeof data.enabled !== "boolean") return NextResponse.json({ error: "enabled is required." }, { status: 400 });
+      if (option === "pinned") await client.mutation(api.folders.setFolderPinned, { ownerUserId, folderId, pinned: data.enabled });
+      else if (option === "hidden") await client.mutation(api.folders.setFolderHiddenFromGallery, { ownerUserId, folderId, hidden: data.enabled });
+      else if (option === "showcased") await client.mutation(api.folders.setFolderShowcased, { ownerUserId, folderId, showcased: data.enabled });
+      else if (option === "featured") await client.mutation(api.folders.setFolderFeatured, { ownerUserId, folderId, featured: data.enabled });
+      else return NextResponse.json({ error: "option must be cover, pinned, hidden, showcased or featured." }, { status: 400 });
+      return NextResponse.json({ ok: true, folderId, option });
     }
 
     // Skills: words, tags and collection filing. The skill id may arrive bare

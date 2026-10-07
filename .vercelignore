@@ -7,3 +7,12 @@
 
 convex/.env*
 !convex/.env.example
+
+# Local audit exports and generation candidates are private working artifacts.
+recovery/
+agent-docs/audits/
+.claude/
+.worktrees/
+.superdesign/
+extension/ChatGPT Image Sep 23, 2026, 06_42_13 PM.png
+skills/minimax-360-video/

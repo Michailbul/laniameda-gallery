@@ -15,7 +15,7 @@ Read these files first:
 To read from or save into Michael's gallery (not to change this codebase), follow
 `skills/laniameda-gallery/SKILL.md`. Access, in order: the gallery MCP tools if
 the session has them (`.mcp.json` registers the hosted server for Claude Code);
-otherwise `node skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
+otherwise `bun skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
 which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
 `gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
 `gallery.mjs check`. If the token is missing, ask Michael; never print it.
@@ -31,25 +31,30 @@ save into it and query it back: the `skills/laniameda-gallery` skill is the
 agent contract for saving, finding, and extracting liked items (X bookmarks,
 Instagram, sites) into the vault.
 
-### How the vault is organized (since 22 Sep 2026)
-- **Collections**, one level deep: a root collection holds folders. A showcased
-  root collection is a public world at `/w/<slug>`.
-- **Piece type is a tag**: `character`, `location`, `scene`, `inspiration`
-  (`lib/collection-sections.ts`). Never a folder.
-- **Medium**: the tag `animation`; everything else is Live action (`lib/medium.ts`).
-- **Typed tags** (`tags` / `userTags`) carry platform, content, style, model.
-  The island bar shows owner-curated `menuFilters`, never the raw tag cloud.
-- **Pillars are legacy.** The `pillar` column (`creators` / `designs` / `dump`
-  / `cinema-inspiration`) is dormant; only cinema frames and workflow ingest
-  still set it.
+### Agent-facing object model (7 Oct 2026)
+- **Skills** are reusable techniques/recipes with text and optional prompt/media steps.
+- **Worlds** are story universes represented by root **collections**. Collections
+  support one level of children; visual storybooks are collections of selected frames.
+- **Tags** classify piece type, medium, source, content and exact style. Characters,
+  Locations, Scenes and Inspirations are tags, not section folders.
+- **Stories / Scripts** is private native text with world/asset links and revision history.
+- **YouTube references** are separate research records with thematic label strings;
+  Motion/Cinematography are tagged asset/Skill views, not another storage model.
+- **Bookmarks** preserve X post text and can link actual saved attachments.
+- Legacy folders/workflows/pillars/assetPacks names are internal compatibility
+  details. Do not teach another product concept or turn every media group into a Skill.
 
-### Worlds (since 30 Sep 2026)
-Michael's story universes are root collections: **DEAR ANNETE** (parts: Animated,
-Unreal Engine, Piazza Graphic 2D, Dari), **DADDY ISSUES**, **ANDROMEDA — ANN**,
-**ANDROMEDA — RETRO-FUTURE**. Styles inside a world are style tags, not folders.
-`.webp` saves live in **INSPIRATION VAULT**, never in a world. CASSANDRA and ART are
-off-limits unless asked. The full map (folder ids, leads, looks, style tags, filing
-rules) is `skills/laniameda-gallery/references/worlds.md`. Read it before touching a world.
+### Current rules and private world policy
+Read skills/laniameda-gallery/SKILL.md and fetch the authenticated full
+references/worlds.md before world filing, reference selection or story production.
+Tracked public worlds.md is a fetch bootstrap; full policy is owner-scoped
+agentInstructions data. Current human directions override historical maps/memories.
+Do not copy private collection/anchor IDs into public GitHub or plugin bundles.
+Preserve existing media, publication flags and public world routes when filing.
+CASSANDRA and ART remain protected from reorganization unless Michael asks.
+Pinterest remains inspiration; source WebP saves retain INSPIRATION VAULT and
+never join worlds/storybooks, with derived thumbnails exempt. No mandatory
+YouTube qualification-evidence gate; factual metrics/source provenance still matter.
 
 ### How ingestion works
 1. An agent (Claude Code, Codex, OpenClaw) or the browser extension sends
@@ -83,7 +88,9 @@ rules) is `skills/laniameda-gallery/references/worlds.md`. Read it before touchi
 - The gallery's canonical Convex **dev deployment** is `dev:perfect-buffalo-375`.
 - The gallery's canonical Convex **cloud URL** is `https://perfect-buffalo-375.convex.cloud`.
 - If `CONVEX_DEPLOYMENT`, `CONVEX_URL`, or `NEXT_PUBLIC_CONVEX_URL` point anywhere else, treat that as drift and fix the env before running migrations or backend checks.
-- `bun run convex:dev` should target `dev:perfect-buffalo-375`. The helper in `scripts/lib/convex-dev-env.ts` intentionally strips inherited Convex env vars to avoid stale shell/session overrides.
+- The dev-labelled cloud deployment serves real gallery data. Use the sanitized
+  `bun run convex:dev` cloud command after verifying its target; isolated local
+  backend work must be an explicit mode. Never infer dev means an isolated database.
 - If Convex CLI output looks inconsistent with the repo env files, check for shell-level exported vars first; this desktop environment has previously carried stale Convex vars across sessions.
 
 ---
@@ -112,7 +119,7 @@ bun run dev          # Start Next.js (port 3317 by default)
 bun run lint         # Lint
 bun test             # Tests
 bun run typecheck    # TypeScript check
-bunx convex dev      # Start local Convex dev environment
+bun run convex:dev   # Sanitized canonical cloud backend; affects real gallery data
 ```
 
 ## Verification (required after every change)
@@ -120,7 +127,8 @@ bunx convex dev      # Start local Convex dev environment
 bun run lint
 bun test
 ```
-If Convex schema changed, also run `bunx convex dev` once.
+If Convex schema changed, validate with the canonical sanitized Convex command
+only when a backend push is authorized. Compile/codegen are not a deployment.
 
 ---
 
@@ -144,7 +152,7 @@ scripts/         Dev utility scripts
 | `AUTH.md` | Telegram auth setup |
 | `DESIGN.md` | UI design system and visual direction |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
-| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the (now merged) laniameda-gallery skill work |
+| `MCP_AGENT_ACCESS.md` | Hosted/token client access and discovery |
 
 ## Feature PRD workflow
 - When starting a new feature on a new branch, do **not** add that feature's full PRD documents to `main`.

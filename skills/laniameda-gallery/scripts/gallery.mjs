@@ -1,15 +1,15 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 // The gallery's hosted MCP tools from a shell, for sessions that have no
 // gallery MCP server configured (cloud sandboxes, CI, a fresh machine).
-// No dependencies: Node 18+ or bun, plus a gallery agent token.
+// No dependencies: Bun, plus a gallery agent token.
 //
-//   LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_... node gallery.mjs check
-//   node gallery.mjs tools                      # tool names and one-line summaries
-//   node gallery.mjs schema save_assets         # one tool's full input schema
-//   node gallery.mjs search_gallery '{"query":"rainy street at night","limit":8}'
-//   node gallery.mjs preview_assets '{"query":"clay character"}' --out ./previews
-//   node gallery.mjs save_assets @items.json    # arguments from a file, or "-" for stdin
+//   bun gallery.mjs check                     # reads token from the environment
+//   bun gallery.mjs tools                     # tool names and one-line summaries
+//   bun gallery.mjs schema save_assets        # one tool's full input schema
+//   bun gallery.mjs search_gallery '{"query":"rainy street at night","limit":8}'
+//   bun gallery.mjs preview_assets '{"query":"clay character"}' --out ./previews
+//   bun gallery.mjs save_assets @items.json   # arguments from a file, or "-" for stdin
 //
 // Same tools, same server-side rules as the MCP connector: this speaks MCP
 // (Streamable HTTP, stateless) to <api url>/api/mcp with the token as a bearer.
@@ -26,6 +26,8 @@ const USAGE = `Usage: gallery.mjs <command> [json | @file | -] [--out <dir>]
   check                 verify the token (same as the check_connection tool)
   tools                 list every tool with a one-line summary
   schema <tool>         print one tool's input schema
+  all_assets '<json>'   traverse every cursor page; --out dir saves assets.json
+  all_video_refs '<json>'  traverse YouTube research; --out dir saves videos.json
   <tool> '<json>'       call a tool; arguments as JSON, @file.json, or - for stdin
 
 Env:
@@ -99,6 +101,7 @@ const rpc = async (method, params) => {
         accept: "application/json, text/event-stream",
         "mcp-protocol-version": PROTOCOL_VERSION,
       },
+      signal: AbortSignal.timeout(300_000),
       body: JSON.stringify({ jsonrpc: "2.0", id: requestId, method, ...(params ? { params } : {}) }),
     });
   } catch (error) {
@@ -149,9 +152,11 @@ const EXTENSION_BY_MIME = { "image/jpeg": "jpg", "image/png": "png", "image/webp
 
 const printToolResult = (tool, result, outDir) => {
   let imageCount = 0;
+  let failed = result.isError === true;
   for (const block of result.content ?? []) {
     if (block.type === "text") {
       process.stdout.write(`${block.text}\n`);
+      try { if (JSON.parse(block.text)?.ok === false) failed = true; } catch { /* Plain-text results are valid. */ }
     } else if (block.type === "image" && block.data) {
       const dir = resolve(outDir ?? join(tmpdir(), "laniameda-gallery"));
       mkdirSync(dir, { recursive: true });
@@ -163,7 +168,7 @@ const printToolResult = (tool, result, outDir) => {
       process.stdout.write(`${JSON.stringify({ image: file, mimeType: block.mimeType })}\n`);
     }
   }
-  if (result.isError) process.exit(1);
+  if (failed) process.exit(1);
 };
 
 const main = async () => {
@@ -197,6 +202,48 @@ const main = async () => {
     process.stdout.write(
       `${JSON.stringify({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }, null, 2)}\n`,
     );
+    return;
+  }
+
+  if (command === "all_assets" || command === "all_video_refs") {
+    const { maxPages = 10000, ...filters } = readArguments(rawArguments);
+    if (!Number.isInteger(maxPages) || maxPages < 1) fail("maxPages must be a positive integer.", 2);
+    if (filters.cursor) fail("Complete inventory must start without a cursor; call a page tool to resume partial traversal.", 2);
+    const tool = command === "all_assets" ? "list_assets_page" : "list_video_refs_page";
+    const key = command === "all_assets" ? "assets" : "videos";
+    const rows = new Map();
+    const cursors = new Set();
+    let cursor = filters.cursor ?? null;
+    let pages = 0;
+    let scanned = 0;
+    let order;
+    let isDone = false;
+    while (!isDone && pages < maxPages) {
+      const result = await rpc("tools/call", { name: tool, arguments: { ...filters, cursor } });
+      if (result.isError) { printToolResult(tool, result, outDir); return; }
+      let page;
+      try { page = JSON.parse(result.content.find(block => block.type === "text")?.text ?? "{}"); }
+      catch { fail("Gallery page was not JSON; traversal is incomplete."); }
+      if (!Array.isArray(page[key]) || typeof page.isDone !== "boolean") fail("Deployed gallery does not support this complete pagination contract; traversal is incomplete.");
+      pages++; scanned += page.scannedCount ?? page[key].length; order = page.order;
+      for (const item of page[key]) {
+        if (!item._id) fail("Gallery row has no stable ID; traversal is incomplete.");
+        rows.set(item._id, item);
+      }
+      isDone = page.isDone;
+      if (!isDone && (!page.cursor || page.cursor === cursor || cursors.has(page.cursor))) fail("Gallery cursor did not advance; traversal is incomplete.");
+      cursor = page.cursor;
+      cursors.add(cursor);
+    }
+    if (!isDone) fail(`maxPages (${maxPages}) reached; traversal is incomplete.`);
+    const inventory = { complete: true, count: rows.size, pages, scannedCount: scanned, order, filters, [key]: [...rows.values()] };
+    if (outDir) {
+      const dir = resolve(outDir);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `${key}.json`);
+      writeFileSync(path, JSON.stringify(inventory, null, 2));
+      process.stdout.write(`${JSON.stringify({ complete: true, count: rows.size, pages, file: path })}\n`);
+    } else process.stdout.write(`${JSON.stringify(inventory, null, 2)}\n`);
     return;
   }
 

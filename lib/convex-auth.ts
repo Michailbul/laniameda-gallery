@@ -10,7 +10,7 @@ import { createPrivateKey, createPublicKey, createSign, randomUUID } from "node:
 // skills/laniameda-gallery/scripts/convex-auth.ts.
 export const CONVEX_AUTH_ISSUER = "https://gallery.laniameda.space";
 export const CONVEX_AUTH_AUDIENCE = "laniameda-gallery";
-export const CONVEX_AUTH_KEY_ID = "gallery-actor-1";
+export const CONVEX_AUTH_KEY_ID = "gallery-actor-20261006";
 export const CONVEX_AUTH_DEFAULT_TTL_SECONDS = 60 * 60;
 
 const base64url = (input: string | Buffer) =>

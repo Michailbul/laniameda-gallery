@@ -13,7 +13,7 @@ every pack carrying it; the Skills tab, the default grid and `list_skills` /
 `search_skills` leave it out.
 
 A pack is saved the way any multi-step record is, as a skill
-(`references/ingest.md`, "Skills": `operation: "workflow"`, one step per move).
+(`references/ingest.md`, create_skill, one step per move).
 Do not file it without the tag. Useful companions: a family tag for the group
 (`dolly-track`, `pan-tilt`, `drone-crane`, `zoom-lens`, `physical-moves`,
 `human-camera`, `specials`), `reference`, `sourceUrl` of where the moves came
@@ -29,6 +29,9 @@ cinematography unless the call asks for it:
 
 ```json
 { "action": "skills", "tagNames": ["cinematography"] }
+```
+
+```json
 { "action": "searchSkills", "query": "slow push toward a face", "tagNames": ["cinematography"], "limit": 5 }
 ```
 

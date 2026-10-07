@@ -2,11 +2,19 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-05
+Last updated: 2026-10-07
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-06
+- Restored world cards on Featured and published flat-world routes such as `/w/cassandra`. World addresses no longer depend on retaining subfolders; private members remain excluded. Cassandra's public presentation retains its original published assets and omits internal audit notes.
+- Private **Stories / Scripts**: text-only ideas, scripts and world style locks, with world/type/status filtering, search, linked visual boards, revision history and stale-edit protection. The owner UI, scoped agent API, hosted/stdio MCP and canonical gallery skill share the same contract. Original and rewritten text from 14 audited storybooks is preserved in this section.
+- Owner filter presets save curated include/exclude pills, collection, media, favorites, ordering, stack expansion and whether Skills appear. Starter views are No skills, Inspirations, Animated characters, Locations and Game views. Removed collections or unresolved positive tag filters cannot silently broaden a saved view.
+- The new private tables require signed owner identity even during the older gallery's legacy auth rollout. Missing source links have an explicit repair action that retains earlier references in history.
+- Sparse tag filters now search older batches when recent items do not match, so presets can find older reference sheets and game views. Collection views retain their own indexed read path.
+- Gallery curation separates Pinterest inspiration from production worlds, Dear Annete's LIZ animation from development and Unreal Engine, and reusable references from Skills. The legacy `/w/liz` address redirects to `/w/dear-annete`. Full audit evidence is under `recovery/gallery-audit-2026-10-06/`; current filing/style rules are in the gallery skill's `references/worlds.md`.
 
 ### 2026-10-05
 - YouTube cards and thumbnail wall reuse their existing overlay for up to 24 timed storyboard frames: auto-cycle, horizontal scrub and keyboard arrows/Home/End. Frames load only on hover/focus behind the existing gate, with stored stills as fallback. Removed material-origin badges, controls and source-look writeups; legacy metadata remains compatible.
@@ -88,7 +96,7 @@ Last updated: 2026-10-05
 - Prompt-only workflows shipped: the dashboard now has a text-only prompt view, and prompt-only ingest requires explicit `allowPromptOnly` opt-in across maintained ingest paths
 
 ### 2026-03-13
-- Canonical repo-backed `laniameda-gallery-ingest` skill added under `skills/laniameda-gallery-ingest/` with GitHub/local `bunx skills` install workflows
+- Historical: separate ingest skill was introduced, then merged into the current skills/laniameda-gallery master Skill.
 - Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
 - Explicit ingest management contract added: `update` + `delete` actions/routes for prompts, assets, and design inspirations, plus skill support for all three operations
 
@@ -130,15 +138,16 @@ Last updated: 2026-10-05
 - Core Convex queries/mutations/actions for assets, prompts, tags, folders
 - Ingestion action with idempotency key (`ingestKey`)
 - `/api/ingest` route + ingest helpers
-- `laniameda-gallery-ingest` OpenClaw skill (Telegram → Convex ingest)
+- Historical OpenClaw ingest integration now uses the master laniameda-gallery Skill.
 - ESLint + Bun test baseline green (60 tests)
 
 ---
 
 ## 🔥 Active Sprint
 
-Dashboard Polish — SP-01 through SP-13.
-See `agent-docs/features/dashboard-polish/SPRINT.md` for ticket details.
+Current work is selected by the user request and branch-local feature docs.
+The dashboard-polish sprint file is historical; do not start its tickets without
+checking current BACKLOG and authorization.
 
 ---
 

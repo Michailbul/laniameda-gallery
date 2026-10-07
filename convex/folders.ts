@@ -17,7 +17,23 @@ import { collectAssetsForFolder } from "./assets";
 import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { compareCollectionSectionNames } from "../lib/collection-sections";
-import { ownerMutation, ownerQuery } from "./actor";
+import { ownerMutation, ownerQuery, signedOwnerQuery } from "./actor";
+
+export const validateOwnedFolders = signedOwnerQuery({
+  args: { ownerUserId: v.string(), folderIds: v.array(v.id("folders")) },
+  returns: v.array(v.id("folders")),
+  handler: async (ctx, args) => {
+    if (args.folderIds.length > 100) throw new ConvexError("At most 100 collections per operation.");
+    const ids = [...new Set(args.folderIds)];
+    for (const id of ids) {
+      const folder = await ctx.db.get(id);
+      if (!folder || !canActorAccessOwnerUserId(args.ownerUserId, folder.ownerUserId)) {
+        throw new ConvexError("Collection not found.");
+      }
+    }
+    return ids;
+  },
+});
 
 export const folderKindValidator = v.optional(
   v.union(

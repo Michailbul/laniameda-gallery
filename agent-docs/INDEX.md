@@ -44,7 +44,7 @@ features/<feature-name>/
 
 | Folder | Status | Contents |
 |--------|--------|----------|
-| `features/dashboard-polish/` | 🔥 Active sprint | `SPRINT.md` — SP-01 to SP-13 tickets |
+| `features/dashboard-polish/` | Historical sprint | `SPRINT.md` — SP-01 to SP-13 tickets |
 | `features/image-focus-mode/` | ✔ Done (Phase 1) | `PRD.md`, `TICKETS-PHASE1.md` |
 | `features/gallery-entry-v2/` | 📋 Backlog | `TICKET.md` — entry model (multi-image/prompt mapping) + hover actions + side-panel carousel |
 | `features/designs-pillar/` | 📋 Backlog | `PRD.md` — designs pillar as skills/workflows library with fullscreen modal, structured cards, agent prompt copy |

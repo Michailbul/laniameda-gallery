@@ -104,7 +104,7 @@ describe("actor tokens", () => {
         algorithms: ["RS256"],
       });
       expect(payload.sub).toBe("telegram:42");
-      expect(protectedHeader.kid).toBe("gallery-actor-1");
+      expect(protectedHeader.kid).toBe("gallery-actor-20261006");
       expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(3600);
     }
   });

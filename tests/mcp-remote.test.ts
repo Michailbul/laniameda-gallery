@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ConvexError } from "convex/values";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 process.env.MCP_OAUTH_SECRET = "test-mcp-oauth-secret-0123456789abcdef";
@@ -9,6 +10,7 @@ const state = {
   agentOwner: "telegram:278674008",
   agentValid: true,
   mintedTokens: [] as Array<Record<string, unknown>>,
+  redeemedCodes: new Set<string>(),
   galleryCalls: [] as Array<{ authorization: string | null; body: Record<string, unknown> }>,
 };
 
@@ -43,6 +45,10 @@ mock.module("@/lib/server/agent-auth", () => ({
 mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
     mutation: async (_reference: unknown, payload: Record<string, unknown>) => {
+      if (typeof payload.oauthCodeHash === "string") {
+        if (state.redeemedCodes.has(payload.oauthCodeHash)) throw new ConvexError("OAuth authorization code already used.");
+        state.redeemedCodes.add(payload.oauthCodeHash);
+      }
       state.mintedTokens.push(payload);
       return { _id: "agentTokens:new" };
     },
@@ -68,6 +74,9 @@ mock.module("@/lib/server/mcp-agent-routes", () => ({
       "/api/agent/ingest/delete",
       "/api/agent/ingest/update",
       "/api/agent/uploads",
+      "/api/agent/stories",
+      "/api/agent/presets",
+      "/api/agent/instructions",
     ].map((path) => [path, passthroughRoute(path)]),
   ),
 }));
@@ -129,6 +138,7 @@ describe("MCP OAuth", () => {
     state.agentOwner = "telegram:278674008";
     state.agentValid = true;
     state.mintedTokens = [];
+    state.redeemedCodes = new Set();
     state.galleryCalls = [];
     process.env.MCP_ALLOWED_USER_IDS = "278674008";
   });
@@ -180,6 +190,26 @@ describe("MCP OAuth", () => {
   test("scopes default to the full gallery set and always include read", () => {
     expect(oauth.parseScopes(null)).toEqual(["gallery:read", "gallery:write", "gallery:delete"]);
     expect(oauth.parseScopes("gallery:write")).toEqual(["gallery:read", "gallery:write"]);
+    expect(() => oauth.parseScopes("gallery:read bogus")).toThrow("Unsupported gallery scope");
+  });
+
+  test("sequential and concurrent code redemption mint exactly one token", async () => {
+    const { clientId, code } = await approvedCode();
+    const params = { grant_type: "authorization_code", code, client_id: clientId, redirect_uri: REDIRECT, code_verifier: VERIFIER };
+    const responses = await Promise.all([tokenRequest(params), tokenRequest(params)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
+    expect(state.mintedTokens).toHaveLength(1);
+    const replay = await tokenRequest(params);
+    expect(replay.status).toBe(400);
+    expect((await replay.json()).error).toBe("invalid_grant");
+    expect(state.mintedTokens).toHaveLength(1);
+  });
+
+  test("token exchange requires the bound redirect URI", async () => {
+    const { clientId, code } = await approvedCode();
+    const response = await tokenRequest({ grant_type: "authorization_code", code, client_id: clientId, code_verifier: VERIFIER });
+    expect(response.status).toBe(400);
+    expect(state.mintedTokens).toHaveLength(0);
   });
 
   test("only the configured owner is allowed", () => {
@@ -325,6 +355,11 @@ describe("hosted MCP endpoint", () => {
     expect(names).toContain("preview_assets");
     expect(names).toContain("prepare_uploads");
     expect(names).toContain("save_assets");
+    expect(names).toContain("save_story");
+    expect(names).toContain("update_story");
+    expect(names).toContain("get_story_revisions");
+    expect(names).toContain("save_filter_preset");
+    expect(names).toContain("get_skill_instructions");
     const saveAsset = listBody.result.tools.find((tool) => tool.name === "save_asset");
     expect(saveAsset?.inputSchema.properties).toHaveProperty("url");
     expect(saveAsset?.inputSchema.properties).not.toHaveProperty("filePath");
@@ -342,6 +377,21 @@ describe("hosted MCP endpoint", () => {
       authorization: "Bearer lgat_owner",
       body: { action: "listFolders" },
     });
+  });
+
+  test("a hosted body-only story edit forwards no default metadata", async () => {
+    const response = await mcpRequest(
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "update_story", arguments: { id: "story:one", body: "Revised opening", expectedRevision: 2 } } },
+      "Bearer lgat_owner",
+    );
+    expect(response.status).toBe(200);
+    expect(state.galleryCalls[0]).toEqual({ authorization: "Bearer lgat_owner", body: { action: "update", id: "story:one", body: "Revised opening", expectedRevision: 2 } });
+  });
+
+  test("instructions use the connector bearer token and requested resource", async () => {
+    const response = await mcpRequest({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_skill_instructions", arguments: { resource: "references/worlds.md" } } }, "Bearer lgat_owner");
+    expect(response.status).toBe(200);
+    expect(state.galleryCalls[0]).toEqual({ authorization: "Bearer lgat_owner", body: { resource: "references/worlds.md" } });
   });
 
   test("save_assets forwards uploadIds with their original file names", async () => {

@@ -20,11 +20,16 @@ facets, OR inside one. Reuse an existing tag before inventing one.
 | Category | Question it answers | Seen so far |
 |---|---|---|
 | `motion_technique` | What moves, and how | morph, mask-reveal, iris, goo, parallax, kinetic-type, text-roll, glass, camera-move, path-draw, counter, stagger, shader |
-| `motion_format` | What the piece is | product-launch, ui-demo, explainer, logo-reveal, title-sequence, social-ad, data-viz, loop, transition-pack |
+| `motion_format` | What the piece is | motion-product-launch, ui-demo, explainer, logo-reveal, title-sequence, social-ad, data-viz, loop, transition-pack |
 | `motion_tool` | Where it was made | code, remotion, after-effects, canvas, three-js, gsap, css, lottie, rive, blender |
-| `motion_feel` | How it plays | smooth, snappy, playful, cinematic, minimal, bold |
+| `motion_feel` | How it plays | smooth, snappy, playful, motion-cinematic, motion-minimal, bold |
 
-Only tag what is visibly true or stated by the source. `motion_tool` comes from
+A still is a visual reference, not proof of animation; video-reference and
+still-reference identify what was actually saved. Do not infer a transition,
+loop or movement from one frame. Only tag techniques/feel when visible or
+stated by the source. Reuse typed categories; a tag already used as a style
+should not be recategorized as a motion facet (motion-minimal/motion-cinematic
+avoid collisions with global style labels). `motion_tool` comes from
 the source (a thread that says "every frame is code"), never from a guess.
 
 ## Templates and prompts

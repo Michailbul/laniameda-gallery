@@ -82,4 +82,16 @@ describe("agent tokens", () => {
     });
     expect(auth).toBeNull();
   });
+
+  test("one OAuth code cannot mint another token, including after revocation", async () => {
+    const first = await callAsOwner(createAgentToken)(harness.ctx as never, {
+      serverSecret: "issuer-secret", ownerUserId: "owner", tokenHash: "first-hash", tokenPrefix: "lgat_first", oauthCodeHash: "code-hash",
+    });
+    expect("oauthCodeHash" in first).toBe(false);
+    await callAsOwner(revokeAgentToken)(harness.ctx as never, { serverSecret: "issuer-secret", ownerUserId: "owner", tokenId: first._id });
+    await expect(callAsOwner(createAgentToken)(harness.ctx as never, {
+      serverSecret: "issuer-secret", ownerUserId: "owner", tokenHash: "second-hash", tokenPrefix: "lgat_second", oauthCodeHash: "code-hash",
+    })).rejects.toThrow("OAuth authorization code already used");
+    expect(harness.db.getTableDocs("agentTokens")).toHaveLength(1);
+  });
 });

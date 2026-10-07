@@ -180,11 +180,16 @@ export function PublicHome({
       </header>
 
       {mode === "featured" && (
-        <FeaturedMode
-          assets={featuredReel}
-          labels={featuredWorldLabels}
-          loading={featuredReelData === undefined}
-        />
+        <>
+          {(worldsData === undefined || worlds.length > 0) && (
+            <WorldsMode worlds={worlds} loading={worldsData === undefined} title="Worlds" />
+          )}
+          <FeaturedMode
+            assets={featuredReel}
+            labels={featuredWorldLabels}
+            loading={featuredReelData === undefined}
+          />
+        </>
       )}
       {mode === "worlds" && (
         <WorldsMode worlds={worlds} loading={worldsData === undefined} />
@@ -350,15 +355,18 @@ function FeaturedMode({
 function WorldsMode({
   worlds,
   loading,
+  title,
 }: {
   worlds: WorldSummary[];
   loading: boolean;
+  title?: string;
 }) {
   // Same stored size as the other two views and the vault.
   const [zoom, setZoom] = useZoomPreference();
   return (
     <section style={{ padding: "0 clamp(16px, 3vw, 32px) clamp(40px, 8vh, 80px)" }}>
       <div>
+        {title && <h2 style={{ fontFamily: "var(--lm-font-display)", fontSize: 24, fontWeight: 800, margin: "0 0 20px" }}>{title}</h2>}
         {worlds.length > 0 && (
           <div
             style={{

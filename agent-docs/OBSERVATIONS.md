@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-10-05
+Last updated: 2026-10-07
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -14,7 +14,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Every server-side R2 write (`storeBlobToR2`) sets `Cache-Control: public, max-age=31536000, immutable`. Keys are fresh UUIDs and the R2 component refuses to store over an existing key, so this is safe. Objects uploaded straight from the browser via presigned PUT carry no Cache-Control.
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
 - `R2_PUBLIC_BASE_URL` is required for R2-backed assets to hydrate to public CDN URLs; without it, URL resolution intentionally falls back to legacy Convex storage or `sourceUrl`.
-- Pillars are no longer a closed enum for assets/prompts/tags. Keep default UI affordances for `creators`, `designs`, and `dump`, but backend filters and ingest paths must accept any non-empty custom pillar key.
+- Pillars are retired product taxonomy. Legacy columns remain compatible, but
+  agents organize through collections and tags; Skills have a dedicated token contract.
 - User tag customization lives in `userTags`, which points to canonical `tags` rows. Do not make the existing `tags` table owner-scoped without first removing global `by_normalized` uniqueness assumptions.
 - `bunx convex dev` requires external network access (Convex hits Sentry ingest endpoint); run from a networked machine.
 - Tightening Convex enum validators against live tables can block deploys if older rows still carry legacy literal values; migrate the data first or keep the validator backward-compatible until cleanup lands.
@@ -24,12 +25,18 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
+- Published world identity follows a root's slug, not whether it still has child folders. Compare the public world route, home world cards and featured-piece world labels after curation; preserving asset flags alone misses navigation regressions. Keep internal audit notes out of public world descriptions.
+
 - A toolbar popup closes as soon as the browser loses focus, so local Finder/file-manager drag-and-drop must live in the extension's persistent Side Panel (`side_panel.default_path` + `openPanelOnActionClick`), not `action.default_popup`.
 - Browser-reserved shortcuts such as `Command+L` cannot be claimed by an extension. Use a manifest `commands` binding such as `Command+Shift+L` and let users remap it from Chrome's extension shortcuts page if desired.
 - Local extension files use a token-authenticated `/api/extension/upload` handshake for a signed browser-to-R2 PUT, then `/api/extension/save` receives only the R2 key, media metadata, content hash, and small preview. Keep large bytes out of Next.js/Convex action arguments.
 - Folder/drop uploads may omit both collection and tags. When either an ingest-key retry or a content-hash twin is found, reuse the original asset and additively merge only the newly selected tags/collection; never create another asset or erase its prior organization.
-- Asset type is destination-aware: `Characters`, `Locations`, and `Scenes`/`Stills` collections imply the canonical singular type tag, so typed destinations must hide the redundant manual choice and replace competing legacy aliases at save/file time. General collections keep the manual type control. Visual treatment (`animation`, `live-action`, `other`) remains an independent tag axis.
-- Standard collection child pillars are name-based and ordered as `Characters`, `Locations`, `Scenes`, `Inspirations`; use `compareCollectionPillarNames` instead of alphabetical sorting so Inspirations stays last.
+- Piece type is a tag, not a folder. Legacy section-named destinations remain
+  compatible, but agents must not create new Characters/Locations/Scenes folders.
+  Exact animation tag selects Animation; the fallback Live action filter also
+  includes photoreal rendered work.
+- Legacy section-named child folders are recognized for compatibility; current
+  piece-type navigation uses tags and owner-curated menuFilters.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
 - `MasonryGrid` mounts no tiles until it has measured its width; the server HTML shows the skeleton instead. Tiles laid out without a width would render as a full-width stack in server HTML, jump at hydration and fetch every image in it.
@@ -49,6 +56,11 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Auth
 
+- New `stories` and `galleryPresets` functions use `signedOwnerQuery` / `signedOwnerMutation`, which reject unsigned requests even if `LEGACY_OWNER_ARG_AUTH` is enabled for older functions. App and skill signing use key id `gallery-actor-20261006`; private key stays in ignored local and production environment configuration, public keys in Convex JWKS.
+- Zod 4 `.partial()` retains nested defaults. Use the explicit no-default `storyPatchSchema` for partial updates so a body edit preserves kind, status, tags and source links.
+- Sparse global tag filters must continue past a first batch of nonmatches even when no collections are hidden. Reuse the bounded older-owner scan; collection queries retain membership-index scoping.
+- A later asset/collection deletion does not delete narrative text. `stories.getStoryLinkStatus` reports missing links; the editor lets the owner remove those links before saving, while prior revisions retain their source IDs.
+
 - Current auth: Telegram login via `/api/auth/telegram`. No WorkOS, no third-party auth provider.
 - Telegram auth now prefers `TELEGRAM_LOGIN_BOT_TOKEN` (with legacy fallback to `TELEGRAM_BOT_TOKEN` during migration).
 - Telegram auth is origin-bound. `https://oauth.telegram.org/embed/<bot>?origin=...` should return the widget HTML for the canonical production host and `"Bot domain invalid"` for unregistered Vercel aliases; keep aliases redirected to a single approved host.
@@ -62,10 +74,14 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Agent/MCP asset saves are collection-first: resolve requested names with `list_collections` and pass `folderIds` for multi-collection create/update. Do not translate "my gallery" into a legacy pillar such as `creators`.
 - Ingest idempotency key (`ingestKey`) prevents duplicate records on retries — always pass a stable key when ingesting programmatically.
 - `ingestKey` is not a patch key. Use `ingest:updateFromApi` or `ingest:deleteFromApi` for record changes after creation.
-- Agent ingest should use the local `laniameda-gallery` stdio MCP with `LANIAMEDA_GALLERY_AGENT_TOKEN`; direct `CONVEX_URL` + `KB_OWNER_USER_ID` skill calls are legacy and single-owner.
+- Prefer available hosted Gallery MCP; local stdio uses the same token API.
+  Direct local/admin scripts require signed Convex owner auth, not just owner args.
 - Local MCP intentionally exposes one visual save/read path: `save_asset` + `list_assets`/`search_gallery`. UI/design references are assets classified by tags, not separate MCP tools.
 - Agent customization should use MCP tools backed by `/api/agent/customize`; token auth derives the user for pillars, tags, and folders.
-- Canonical agent skill source is `skills/laniameda-gallery-ingest/` in this repo; installed copies under `.openclaw/.codex/.agents` should be treated as disposable `npx skills` installs.
+- Canonical public skill source is skills/laniameda-gallery. Local agent views
+  are symlinked; packaged plugins are versioned release snapshots. Private worlds
+  and maintenance content are owner agentInstructions data, fetched through the
+  skill resource contract. Old ingest/query skill directories were merged/removed.
 - Telegram ingest confirmations are sent by Convex using `TELEGRAM_NOTIFY_BOT_TOKEN` (legacy fallback `TELEGRAM_BOT_TOKEN`).
 - The Next.js Telegram webhook route has been removed; ingest is OpenClaw -> Convex action.
 - Prompt-only saves are explicit-only: use `allowPromptOnly=true` when intentionally storing text without media or design inspirations. Selected URLs alone do not count as persisted gallery records.
@@ -83,3 +99,21 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Clearing `.next` before type checks avoids stale route validator files breaking `tsc`.
 - Quality gates (`bun run lint` + `bun test`) are the reliable baseline; run before every commit.
 - Local `vercel --prod` deploys can upload the root `.env` into the build context unless `.vercelignore` excludes it; keep `.env*` and `convex/.env*` out of Vercel uploads so builds use project-configured envs instead of local secrets.
+
+## Agent contract audit corrections (7 October 2026)
+
+- LEGACY_OWNER_ARG_AUTH is disabled; unsigned owner arguments cannot authorize
+  private gallery reads. Native text/presets/instruction resources always require
+  signed auth. OAuth codes are single-use; unknown scopes and wrong redirects reject.
+- Use list_assets_page through isDone for complete inventories; list_assets is capped.
+- create_skill supports markdown-only reusable recipes and optional real step media.
+  Collections group ordinary assets; do not promote every prompt variation to a Skill.
+- set_video_poster changes only the thumbnail. An asset update with image media
+  replaces a video, so it is never a poster-only recipe.
+- Prevalidated folder IDs can still race with deletion. Partial results carry
+  persisted IDs/failedStep: repair that existing ID rather than create duplicates.
+- No mandatory passes-filters qualification/evidence gate. Keep source facts and
+  observed statistics separate from interpretations. Automatic YouTube frames are
+  approximate source stills, not exact timestamps or evidence of the opening.
+- Current human direction and fetched private world policy supersede old global
+  maps/historical memory. Never publish private anchor IDs in a public plugin/repo.

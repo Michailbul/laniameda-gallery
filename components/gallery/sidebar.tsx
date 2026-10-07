@@ -61,6 +61,8 @@ interface GallerySidebarProps {
   /** Opens the dedicated Storybooks masonry tab. */
   onStorybooksTab?: () => void;
   storybooksTabActive?: boolean;
+  onStoriesTab?: () => void;
+  storiesTabActive?: boolean;
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
@@ -133,6 +135,8 @@ export function GallerySidebar({
   featuredShelfActive = false,
   onStorybooksTab,
   storybooksTabActive = false,
+  onStoriesTab,
+  storiesTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
   showYouTubeTab = false,
@@ -366,6 +370,7 @@ export function GallerySidebar({
           active={
             isGalleryActive &&
             !storybooksTabActive &&
+            !storiesTabActive &&
             !bookmarksTabActive &&
             !motionTabActive &&
             !cinematographyTabActive &&
@@ -401,6 +406,9 @@ export function GallerySidebar({
             collapsed={collapsed}
             onClick={onStorybooksTab}
           />
+        )}
+        {onStoriesTab && (
+          <NavItem icon={BookOpenText} label="Stories / Scripts" href="#" active={storiesTabActive} collapsed={collapsed} onClick={onStoriesTab} />
         )}
         {onBookmarksTab && (
           <NavItem

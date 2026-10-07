@@ -13,10 +13,10 @@ This file is the implementation-facing contract for any agent skill that decides
 
 ## Canonical local agent ingestion path
 
-Claude/Codex agents use the local stdio MCP server. The MCP process runs on the
-user's machine and calls the app API with that user's token:
+Claude/Codex agents prefer the available hosted Gallery MCP. Local stdio and
+the dependency-free Bun client reach the same owner-token app APIs:
 
-- MCP server: `bun run mcp:gallery`
+- Hosted MCP: https://gallery.laniameda.space/api/mcp; local stdio: `bun run mcp:gallery`
 - Runtime env: `LANIAMEDA_GALLERY_API_URL` + `LANIAMEDA_GALLERY_AGENT_TOKEN`
 - Write route: `POST /api/agent/ingest`
 - Read/search route: `POST /api/agent/gallery`
@@ -32,7 +32,8 @@ Call Convex action directly:
 
 - Function: `ingest:ingestFromApi`
 - Requires: `CONVEX_URL` + Convex client
-- Caller must provide `ownerUserId`
+- Local/admin caller supplies ownerUserId plus signed actor JWT; owner arguments
+  alone never authorize private reads/writes.
 
 ### Optional app route wrapper
 `POST /api/ingest`
@@ -184,3 +185,14 @@ Dry-run check for ingest route failure capture:
 3. query pending failures
 4. submit corrected payload with same `ingestKey`
 5. verify status transitions to `resolved`
+
+## Object completeness and agent contract 1.5.0
+
+Use the canonical Skill for supported tool schemas and complete examples. Media
+saves need actual bytes/URL, provenance and agentDescription; reusable text recipes
+use create_skill, native scripts use save_story. Do not overload prompts/assets
+with a different object or expose retired pillars as choices. Complete media
+inventory uses list_assets_page until isDone. Private world policy is an
+authenticated agentInstructions resource, not a code-hardcoded world list.
+Collection races can return persisted HTTP207 partial results: read and repair
+that ID; don't retry with a fresh key. Asset image replacement is not poster edit.

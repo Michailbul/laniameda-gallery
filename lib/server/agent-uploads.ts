@@ -173,6 +173,16 @@ export type UploadedMediaFields = {
   posterFile?: Awaited<ReturnType<typeof posterFromImage>>;
 };
 
+/** Decode an owner-bound uploaded image as a poster, without replacing media. */
+export const resolveUploadedPoster = async (ownerUserId: string, uploadId: string) => {
+  const key = await keyFromUploadId(uploadId, ownerUserId);
+  const metadata = await readUploadedObject(ownerUserId, key);
+  const response = await fetch(metadata.url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new UploadError(`Could not read the uploaded poster (HTTP ${response.status}).`);
+  try { return await posterFromImage(Buffer.from(await response.arrayBuffer())); }
+  catch { throw new UploadError("The supplied poster upload is not a readable image."); }
+};
+
 /**
  * Turns an uploadId into the r2Key fields ingest:ingestFromApi takes. Images are
  * measured and get a card thumbnail. Videos are hashed; their thumbnail comes
@@ -221,14 +231,7 @@ export const resolveUploadedMedia = async (input: {
   const { contentHash, size } = await hashStream(metadata.url);
   let posterFile: UploadedMediaFields["posterFile"];
   if (input.posterUploadId) {
-    const posterKey = await keyFromUploadId(input.posterUploadId, input.ownerUserId);
-    const posterMeta = await readUploadedObject(input.ownerUserId, posterKey);
-    const posterResponse = await fetch(posterMeta.url);
-    if (posterResponse.ok) {
-      posterFile = await posterFromImage(Buffer.from(await posterResponse.arrayBuffer())).catch(
-        () => undefined,
-      );
-    }
+    posterFile = await resolveUploadedPoster(input.ownerUserId, input.posterUploadId);
   }
 
   return {

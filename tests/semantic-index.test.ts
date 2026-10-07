@@ -4,8 +4,10 @@ import {
   getAssetSourceForReindex,
   recordSemanticIndexFailure,
   resolveSemanticIndexFailure,
+  reindexAsset,
   upsertSemanticDocument,
 } from "../convex/semanticIndex";
+import { getFunctionName } from "convex/server";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 import { callAsOwner } from "./helpers/call-as-owner";
 
@@ -158,5 +160,55 @@ describe("semantic index backend", () => {
     const rows = harness.db.getTableDocs("semantic_index_failures");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("resolved");
+  });
+
+  test("a text-only provider failure schedules a text-only retry and preserves the pixel vector", async () => {
+    const names = ["SEMANTIC_EMBEDDINGS_ENABLED", "SEMANTIC_EMBEDDING_DIMENSIONS", "GEMINI_API_KEY"];
+    const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+    const originalFetch = globalThis.fetch;
+    process.env.SEMANTIC_EMBEDDINGS_ENABLED = "true";
+    process.env.SEMANTIC_EMBEDDING_DIMENSIONS = "3";
+    process.env.GEMINI_API_KEY = "fake-test-key-no-network";
+    const pixel = [0.1, 0.2, 0.3];
+    const semanticId = await callAsOwner(upsertSemanticDocument)(harness.ctx, {
+      ownerUserId: "owner", sourceType: "asset", sourceId: "assets:one", assetId: "assets:one", isPublic: false,
+      kind: "image", modality: "multimodal_image", searchText: "Old tags", contentHash: "old-pixel-hash",
+      embeddingModel: "gemini-embedding-2-preview", embeddingDimensions: 3, embedding: pixel,
+      textEmbedding: [0.2, 0.3, 0.4], textContentHash: "old-text-hash", scopeKey: "owner:owner:asset", sourceUpdatedAt: 1,
+    });
+    const requests: string[] = [];
+    const retries: Record<string, unknown>[] = [];
+    let fail = true;
+    globalThis.fetch = (async (input) => {
+      requests.push(String(input));
+      return fail ? new Response("Temporary text provider failure", { status: 429 }) : Response.json({ embedding: { values: [0.6, 0.7, 0.8] } });
+    }) as typeof fetch;
+    const ctx = {
+      ...harness.ctx,
+      runQuery: async (ref: Parameters<typeof getFunctionName>[0]) => getFunctionName(ref) === "semanticIndex:getAssetSourceForReindex"
+        ? { assetId: "assets:one", ownerUserId: "owner", kind: "image", contentType: "image/png", storageUrl: "https://example.com/image.png", tagNames: ["motion-design", "still-reference"], agentDescription: "A static motion reference", isPublic: false, sourceUpdatedAt: 1 }
+        : harness.db.get(semanticId),
+      runMutation: async (ref: Parameters<typeof getFunctionName>[0], args: Record<string, unknown>) => {
+        if (getFunctionName(ref) === "semanticIndex:upsertSemanticDocument") return callAsOwner(upsertSemanticDocument)(harness.ctx, args);
+        return null;
+      },
+      scheduler: { runAfter: async (_delay: number, _ref: unknown, args: Record<string, unknown>) => { retries.push(args); return null; } },
+    };
+    try {
+      const first = await callAsOwner(reindexAsset)(ctx, { assetId: "assets:one", textOnly: true });
+      expect(first).toMatchObject({ status: "skipped", retryScheduled: true });
+      expect(retries).toEqual([{ assetId: "assets:one", attempt: 1, textOnly: true }]);
+      fail = false;
+      const retried = await callAsOwner(reindexAsset)(ctx, retries[0]);
+      expect(retried).toMatchObject({ status: "indexed", retryScheduled: false });
+      const saved = await harness.db.get(semanticId);
+      expect(saved?.embedding).toEqual(pixel); expect(saved?.contentHash).toBe("old-pixel-hash");
+      expect(saved?.textEmbedding).toEqual([0.6, 0.7, 0.8]); expect(saved?.searchText).toContain("still-reference");
+      expect(requests).toHaveLength(2);
+      expect(requests.every(url => url.includes("gemini-embedding-001"))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
+    }
   });
 });

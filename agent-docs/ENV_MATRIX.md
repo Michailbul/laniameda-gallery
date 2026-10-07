@@ -1,6 +1,6 @@
 # Environment Matrix
 
-Last updated: 2026-03-07
+Last updated: 2026-10-07
 
 This is the canonical env map for running `laniameda.gallery` locally and in production.
 
@@ -9,8 +9,9 @@ This is the canonical env map for running `laniameda.gallery` locally and in pro
 Required to boot app:
 
 ```bash
-NEXT_PUBLIC_CONVEX_URL=...
-CONVEX_URL=...
+NEXT_PUBLIC_CONVEX_URL=https://perfect-buffalo-375.convex.cloud
+CONVEX_URL=https://perfect-buffalo-375.convex.cloud
+CONVEX_AUTH_PRIVATE_KEY=... # server/local-admin only
 SESSION_SECRET=... # min 32 chars
 ```
 
@@ -46,8 +47,9 @@ DEV_TELEGRAM_SIM_ALLOW_NON_LOCAL=false
 Set these in Vercel for the Next.js app:
 
 ```bash
-NEXT_PUBLIC_CONVEX_URL=...
-CONVEX_URL=...
+NEXT_PUBLIC_CONVEX_URL=https://perfect-buffalo-375.convex.cloud
+CONVEX_URL=https://perfect-buffalo-375.convex.cloud
+CONVEX_AUTH_PRIVATE_KEY=... # server/local-admin only
 SESSION_SECRET=... # min 32 chars
 TELEGRAM_LOGIN_BOT_TOKEN=...
 NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=...
@@ -105,7 +107,7 @@ Clients of the hosted MCP (`/api/mcp`) that cannot do OAuth (cloud sessions, Cod
 The hosted MCP itself needs no extra server env. Optional:
 
 ```bash
-MCP_ALLOWED_USER_IDS=278674008   # who may approve; defaults to KB_OWNER_USER_ID
+MCP_ALLOWED_USER_IDS=<configured_owner_id>   # who may approve; defaults to KB_OWNER_USER_ID
 MCP_OAUTH_SECRET=...             # signs OAuth clients/codes; defaults to SESSION_SECRET
 ```
 
@@ -113,7 +115,10 @@ Important:
 - Users create agent tokens while logged in through `/api/agent/tokens`.
 - The MCP server runs with `bun run mcp:gallery` and calls `/api/agent/*`.
 - Agents must not receive `CONVEX_URL` or `KB_OWNER_USER_ID` for production multi-user access.
-- The legacy `laniameda-gallery-ingest` and `laniameda-gallery-query` scripts still exist for local/admin migration workflows, but they are not the production agent boundary.
+- The single skills/laniameda-gallery package includes local/admin compatibility
+  scripts; retired separate ingest/query directories are absent.
+- Convex requires CONVEX_AUTH_JWKS; LEGACY_OWNER_ARG_AUTH is false. Detailed world
+  and maintenance policies live as private agentInstructions data, not public Git.
 
 ## 5) Telegram integration boundaries
 

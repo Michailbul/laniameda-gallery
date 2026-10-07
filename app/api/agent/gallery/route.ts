@@ -4,6 +4,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { CINEMATOGRAPHY_TAG, isCinematographySkill } from "@/lib/cinematography";
+import { makeFunctionReference } from "convex/server";
+import { galleryAssetPageInputSchema } from "@/lib/gallery-pagination";
 
 type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
@@ -132,6 +134,17 @@ export async function POST(request: Request) {
     }
 
     const client = getServerConvexClient(agent.ownerUserId);
+
+    if (action === "listAssetsPage") {
+      const { action: _action, ...input } = data;
+      const parsed = galleryAssetPageInputSchema.safeParse(input);
+      if (!parsed.success) return NextResponse.json({ error: "Invalid asset listing filters.", issues: parsed.error.issues }, { status: 400 });
+      const page = await client.query(makeFunctionReference<"query">("agentAssets:listAssetsPage"), {
+        ownerUserId: agent.ownerUserId,
+        ...parsed.data,
+      });
+      return NextResponse.json(page);
+    }
 
     if (action === "listAssets") {
       const assets = await client.query(api.assets.listGalleryAssets, {

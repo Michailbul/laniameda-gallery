@@ -607,6 +607,9 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
     designInspirationId: v.optional(v.id("designInspirations")),
     /** The bytes were already in the vault; assetId points at the original. */
     duplicateMedia: v.optional(v.boolean()),
+    partial: v.optional(v.boolean()),
+    failedStep: v.optional(v.string()),
+    error: v.optional(v.string()),
   }),
   handler: async (
     ctx,
@@ -616,6 +619,9 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
     promptId?: Id<"prompts">;
     designInspirationId?: Id<"designInspirations">;
     duplicateMedia?: boolean;
+    partial?: boolean;
+    failedStep?: string;
+    error?: string;
   }> => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -638,6 +644,15 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
       throw new ConvexError(
         "Prompt-only ingest requires allowPromptOnly=true.",
       );
+    }
+
+    // Resolve lineage sources before creating any prompt or media record.
+    // applyUpstreamInputs rechecks them after save to detect a deletion race.
+    for (const input of args.upstreamInputs ?? []) {
+      const source = input.type === "prompt"
+        ? await resolvePromptId(ctx, ownerUserId, { id: input.id as Id<"prompts"> | undefined, ingestKey: input.ingestKey })
+        : await resolveAssetId(ctx, ownerUserId, { id: input.id as Id<"assets"> | undefined, ingestKey: input.ingestKey });
+      if (!source) throw new ConvexError(`Upstream ${input.type} not found. Resolve source records before saving.`);
     }
 
     const inferredTagNames = normalizeTags([
@@ -853,16 +868,24 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
         await ctx.runMutation(internal.prompts.deletePrompt, { id: promptId });
       }
 
+      if (assetId || designInspirationId) return {
+        assetId, promptId, designInspirationId, partial: true,
+        failedStep: args.designInspiration ? "designInspiration" : "media",
+        error: "A record was saved before the remaining operation failed. Read the returned IDs before retrying.",
+      };
+
       throw error;
     }
 
     if (args.upstreamInputs && args.upstreamInputs.length > 0) {
-      await applyUpstreamInputs(ctx, {
+      try { await applyUpstreamInputs(ctx, {
         ownerUserId,
         upstreamInputs: args.upstreamInputs,
         targetAssetId: assetId,
         targetPromptId: promptId,
-      });
+      }); } catch {
+        return { assetId, promptId, designInspirationId, partial: true, failedStep: "upstreamInputs", error: "Saved records exist, but source lineage could not be completed. Read the returned IDs before retrying." };
+      }
     }
 
     const ingestKeyDuplicate = Boolean(args.ingestKey && !assetCreated);
@@ -901,6 +924,9 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
     promptId: v.optional(v.id("prompts")),
     assetId: v.optional(v.id("assets")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    partial: v.optional(v.boolean()),
+    failedStep: v.optional(v.string()),
+    error: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -924,6 +950,10 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
       if (!existing) {
         throw new ConvexError("Prompt not found.");
       }
+
+      const replacementMedia = args.file || args.url
+        ? await processMediaInput(ctx, { file: args.file, url: args.url })
+        : undefined;
 
       const nextPillar =
         hasOwn(args, "pillar") ? (args.pillar ?? undefined) : existing.pillar;
@@ -979,13 +1009,13 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
             : existing.promptProfile,
       })) as Id<"prompts">;
 
-      const hasMediaInput = Boolean(args.file || args.url);
-      if (hasMediaInput) {
-        const media = await processMediaInput(ctx, { file: args.file, url: args.url });
+      if (replacementMedia) {
+        const media = replacementMedia;
+        let resolvedAssetId: Id<"assets"> | null | undefined;
+        try {
         const assetIngestKey = args.assetIngestKey ??
           (args.ingestKey ? `${args.ingestKey}:img` : undefined);
 
-        let resolvedAssetId: Id<"assets"> | null | undefined;
         if (assetIngestKey) {
           resolvedAssetId = await resolveAssetId(ctx, ownerUserId, {
             ingestKey: assetIngestKey,
@@ -1067,6 +1097,9 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
           promptId: updatedPromptId,
           assetId,
         };
+        } catch {
+          return { target: "prompt" as const, promptId: updatedPromptId, ...(resolvedAssetId ? { assetId: resolvedAssetId } : {}), partial: true, failedStep: "media", error: "Prompt text was saved, but media replacement failed. Read the returned IDs before retrying." };
+        }
       }
 
       return {
@@ -1091,6 +1124,11 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
       if (!existing) {
         throw new ConvexError("Asset not found.");
       }
+
+      // Reject invalid replacement bytes/URLs before committing metadata.
+      const replacementMedia = args.file || args.url
+        ? await processMediaInput(ctx, { file: args.file, url: args.url })
+        : undefined;
 
       const nextPillar =
         hasOwn(args, "pillar") ? (args.pillar ?? undefined) : existing.pillar;
@@ -1150,10 +1188,10 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
           : {}),
       })) as Id<"assets">;
 
-      const hasMediaInput = Boolean(args.file || args.url);
-      if (hasMediaInput) {
-        const media = await processMediaInput(ctx, { file: args.file, url: args.url });
-        await ctx.runMutation(api.assets.replaceAssetMedia, {
+      if (replacementMedia) {
+        const media = replacementMedia;
+        try {
+          await ctx.runMutation(api.assets.replaceAssetMedia, {
           ownerUserId,
           assetId,
           storageId: media.storageId,
@@ -1169,7 +1207,10 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
           thumbSize: media.thumbSize,
           thumbWidth: media.thumbWidth,
           thumbHeight: media.thumbHeight,
-        });
+          });
+        } catch {
+          return { target: "asset" as const, assetId: updatedAssetId, partial: true, failedStep: "media", error: "Media replacement failed after metadata was saved. Read the asset before retrying." };
+        }
       }
 
       return {

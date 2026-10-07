@@ -1,494 +1,154 @@
-# Ingest: create, update, delete
+# Save, revise and file gallery objects
 
-**Agent fields on every create** (26 Sep 2026):
+Read SKILL.md first. Resolve the object: media, Skill, collection/World, native
+Story, X bookmark or YouTube reference. These are separate contracts. Human
+direction governs filing/publication; a valid API payload alone is not permission.
 
-- `agentDescription`: one or two sentences, 45 words at most; see the contract
-  in `SKILL.md`. Normalized to 400 characters. Updates take it too (`null`
-  clears). For a quick fix on an existing asset: `assets:setAgentDescription
-  {ownerUserId, assetId, agentDescription, overwrite?}`.
-- `sourceUrl`: the post or page permalink. Separate from `url`, which is where
-  the media bytes are fetched; when only `url` is given it doubles as the
-  source.
-- `folderIds` (script and MCP): several collections, first is primary.
-- The script prints `[tags] new tags will be created: …` on stderr when a tag
-  doesn't exist yet. Reuse an existing tag or alias the synonym
-  (`tags:addTagAliases`). Silence with `LANIAMEDA_WARN_NEW_TAGS=0`.
+## Media and collections
 
-The write path. Read `SKILL.md` first for the purpose, the tagging contract and the hard rules; this file is the payload-level detail. The data model it writes into is in `references/data-model.md`.
+1. Resolve existing names with list_collections. Creation must be requested or
+   approved when a named collection is missing.
+2. Inspect the actual media. Provide agentDescription, sourceUrl where applicable,
+   useful tags, assetRole, ingestSource: agent and a stable ingestKey.
+3. Upload local files with prepare_uploads, run the returned PUT commands and use
+   uploadId in save_asset/save_assets. A public image/video URL can use url.
+4. Pass folderIds for every requested membership; the first is primary.
+5. Inspect per-item results, then read the saved ID back. Verify original media,
+   prompt, provenance, tags and collection names.
 
-## Collection-first workflow
+save_assets accepts up to 50 items. Save retries with the same key/identical
+content hash reuse the original asset and merge requested organization
+additively. A create retry is not a replacement or general metadata update.
+API tags/description can be optional for compatibility; agent media saves still
+need meaningful retrieval fields. Keep description for Michael's caption and
+agentDescription for the agent's visual account.
 
-1. Call `list_collections` before saving whenever the user names a collection or asks to file content contextually.
-2. Match requested names case-insensitively against `name` and `normalizedName`.
-3. Reuse exact matches. Do not create a near-duplicate such as `love` when `LOVE` exists.
-4. Ask before creating a missing collection unless the user explicitly requested creation.
-5. Pass every requested collection ID in `folderIds` for asset saves. Preserve the user's order; the first ID becomes the primary/backward-compatible `folderId`.
-6. Verify the saved asset after ingest and confirm its collection names, not a legacy pillar label.
+create_collection supports parentFolderId for a plain child collection and
+kind: storybook for a root visual book. One nesting level is supported; books do
+not nest. Collection objects are folders internally. Piece types character,
+location, scene and inspiration are tags rather than section folders.
+Read the live update_collection schema for supported rename, parenting and other
+controls. Do not infer publication or cover changes from a collection save.
 
-When no collection is named, save uncategorized unless an obvious existing collection can be resolved with high confidence from the user's wording. Do not silently substitute a tag or pillar for a collection.
+## Update and partial results
 
-## Filing into a collection or a folder
+update_gallery_item with target: asset or prompt changes the specified record.
+tagNames and folderIds are full replacement sets; omitted fields are preserved,
+folderIds: [] clears memberships. For filing, read current values and make minimal
+deltas, preserving unrelated memberships/tags and all public/featured/liked flags.
+If additive fields are offered by the current schema, prefer them for additions.
 
-Resolve or create the destination BEFORE ingesting, then pass the resulting
-`folderId` on each save:
+Asset update with file/url replaces the underlying media. It does not update
+only a thumbnail. Prompt update with media attaches/replaces a linked asset using
+assetIngestKey. Use selectors from returned IDs/keys, not guessed IDs.
 
-```bash
-# a folder inside a collection — idempotent on (parent, name)
-folders:createFolder {ownerUserId, name: "Balcony", parentFolderId: "<collection id>"}
-```
+Requested collection IDs and upstream lineage sources are checked before writes;
+replacement media is processed before changing prompt text or asset metadata.
+A later media, lineage, inspiration or filing failure can return HTTP 207:
+ok:false, partial:true, persisted IDs/result, failedStep and error. Filing errors
+also include requestedFolderIds. Batch results report partial/persisted counts
+and persisted IDs per item. Read those IDs and repair the failed step; retry with
+the original stable key rather than creating another record.
 
-Then ingest with `folderId` (or `folderIds`) set to the collection or folder,
-and put the type in `tags` (`character` / `location` / `scene`). `createAsset`
-writes the `assetFolders` link from `folderId`, so one `folderId` is enough —
-do not also call an add-membership mutation.
+## Video and posters
 
-### Publishing — showcasing is not enough
+For hosted/local token tools, upload video plus JPEG/PNG poster and pass uploadId
+and posterUploadId. Invalid or foreign poster slots reject rather than silently
+discarding the poster. Supply real dimensions and inspect playback/audio when
+the task needs a verified video; a poster confirms only one still.
 
-A world page renders ONLY assets with `isPublic: true`. A showcased world full
-of private assets is a blank page. After ingesting into a world, curate:
-
-```bash
-assets:bulkSetAssetCuration {assetIds, actorUserId, isPublic: true, isFeatured?, adminSecret}
-```
-
-`adminSecret` must match `CURATION_ADMIN_SECRET`, and `actorUserId` must be in
-`CURATION_ADMIN_USER_IDS` (both set on the deployment and in `.env.local`).
-Asset-level `isFeatured` feeds the public home's featured reel; folder-level
-`showcaseFeatured` is a separate hero treatment.
-
-Or curate as part of the ingest, with `isPublic` / `featured` on the payload:
-
-```json
-{ "filePath": "/path/to/cut.mov", "featured": true }
-```
-
-**There is no private "featured" state.** `convex/assets.ts` force-ANDs
-`isFeatured` with `isPublic`, so asking for `featured` publishes the asset and
-puts it at the head of the reel on the public home page. Never set either flag
-because a filename or a folder implies polish — only when the user has actually
-asked to publish. If the secret is missing the ingest still succeeds and the
-asset stays private, so re-running with the same `ingestKey` is safe.
-
-Verify with `showcase:getWorld {slug}` before reporting done — it returns the
-world's `sections` exactly as the public page will render them. For the public
-home reel, `showcase:getShowcaseHome {}` returns `featuredReel` in render order.
-
-## Runtime env
-
-Local Claude/Codex agents should prefer the gallery MCP server and app API:
-
-- `LANIAMEDA_GALLERY_API_URL` — app host, e.g. `https://gallery.example.com`
-- `LANIAMEDA_GALLERY_AGENT_TOKEN` — user-issued token from `/api/agent/tokens`
-
-When MCP tools are available, use them directly:
-
-- Ingest: `save_asset`, `save_prompt`
-- Maintain records: `update_gallery_item`, `delete_gallery_item`
-- Customize the user's page: `list_tags`, `upsert_tag`, `upsert_tags`, `archive_tag`, `list_collections`, `create_collection`, `update_collection`, `delete_collection`
-
-Never send `ownerUserId` through MCP calls. The user-issued token selects the owner.
-
-### Timeouts and retries (script path)
-
-Every call the script makes is time-bounded and retried on transient failures
-(timeout, dropped socket, 408/425/429/5xx) with a 2s → 8s → 20s backoff.
-
-- `LANIAMEDA_INGEST_TIMEOUT_MS` — per-call budget, default `120000`. R2 uploads
-  get their own larger budget scaled to the file size.
-- Batches print `[n/total] <item>` to **stderr** as they run, so a slow run is
-  distinguishable from a stalled one. stdout stays pure JSON.
-- **Retries need an `ingestKey`.** A timeout does not say whether the server ran
-  the mutation, so a repeat is only safe when Convex can dedupe it. Updates and
-  deletes always retry; a create without an `ingestKey` fails after one attempt
-  and tells you to add one rather than risking a duplicate asset.
-
-Bulk ingests queue a background reindex per asset, and video reindexing is heavy
-(the clip is pulled from R2 and embedded). Following a large ingest immediately
-with another batch can hit a saturated deployment — the calls now fail with a
-clear timeout instead of hanging, and are safe to re-run.
-
-### Collections
-
-Collections are owner-scoped groupings stored in `folders`; "collection" is the product-facing term.
-
-- Pass `folderIds` to `save_asset` for one or more collections.
-- Pass `folderIds` to `update_gallery_item` with `target: "asset"` to replace an asset's collection memberships. Pass `[]` to clear them.
-- Pass `folderId` to `save_prompt`; prompt-only records retain a single primary collection.
-- Use raw IDs returned by `list_collections` / `create_collection`, never `folders:<id>` typed tokens.
-- Create or reuse collections with `create_collection`, which is idempotent by normalized name.
-- Leave assets uncategorized when no collection is requested or confidently resolved.
-- Tags and collections are both optional. An asset save with neither is valid and remains uncategorized.
-- Treat `folderId` as the primary/backward-compatible alias. Treat `folderIds` as the current asset collection contract.
-- A repeated asset create (same ingest key or identical content hash) reuses the
-  original asset row and additively merges newly requested tags and collection
-  membership. It never creates a second asset or removes earlier organization.
-
-The direct script reads `CONVEX_URL`/`KB_OWNER_USER_ID` from this repository's `.env.local`. It is the fallback for this local single-owner workspace and admin migrations when MCP is unavailable. Never use it for multi-user agents.
-
-## Supported content
-
-- Prompt-only saves with explicit `allowPromptOnly: true`
-- File uploads from local disk or inline base64 (images AND videos)
-- Remote URL ingestion (images AND videos)
-- Media bytes are delivered from R2 for both images and videos. Image thumbnails are also R2-backed; legacy Convex storage rows remain readable as fallbacks.
-- Visual references, including UI/design references, are saved as assets. Use tags such as `design`, `ui`, `website`, `component`, or `reference` instead of a separate design-specific MCP path.
-- **Video prompts**: prompts for AI video generation tools (e.g. Seedance 2.0) with attached `.mp4` / `.mov` / `.webm` output
-- Batched ingestion via JSON array
-- Metadata updates for prompts and assets
-- Idempotent deletes for prompts and assets
-- Automatic pack sync for multi-asset prompt variations that share a prompt record
-- **Skills** (ingest kind `workflow`): multi-step presets/tutorials that bundle prompt + media steps and a markdown body under one record via `operation: "workflow"`. They show as skill cards in the Skills tab, the default grid and the collections they are filed in; their step media stays out of the main grid on purpose.
-
-## Reading ingested content back (for agent handoff)
-
-After you create or update an asset/prompt/pack/design, the user can copy its ID from the gallery UI:
-
-- **Card corner button** (hover on desktop) — copies `asset:<id>` / `pack:<id>`
-- **Detail panel metadata strip** — a persistent, clickable `asset:<id>` chip sits next to the model/date badges and copies the same token
-- **Detail panel Copy dropdown** — "Copy asset/design ID" and "Copy pack ID" menu items
-
-When the user pastes one of these `kind:<id>` tokens to an agent, do **not** query via ingest. Switch to the read path in `references/query.md`:
-
-- `getById` accepts `asset:<id>` and `pack:<id>` and returns the hydrated record (prompt text, tag names, resolved media URL, thumbnail URL, model, pillar, folder, pack membership, etc.).
-- Use `get` / `getPack` when the ID type is already known.
-- Use `download` to pull raw bytes for local use.
-
-Agents should treat this as the canonical read path after an ingest. The ingest script intentionally exposes only create/update/delete — all reads live in `references/query.md`.
-
-## CRITICAL: Screenshots and prompt images
-
-When Michael sends a **screenshot of a prompt** or **image containing text/JSON**:
-- **DO NOT** use that image as the `imagePath` or asset
-- **DO** read the image, extract the text/prompt from it, and put it in `finalPrompt`
-- The image is the delivery mechanism, not the content
-- The content is the prompt text inside it
-
-Only use an image as `imagePath`/asset when it is a **generated output** (the result of a prompt), not when it contains text or code to be saved.
-
-## Video prompts
-
-Video generations ingest through the **same script and payload shape** as images. The only differences:
-
-- Use `imagePath` / `filePath` / `url` pointing at a video file (`.mp4`, `.mov`, `.webm`). The server detects `video/*` content-type automatically and stores the asset with `kind: "video"`.
-- Set `generationType: "video_gen"` and `promptType: "video_gen"`.
-- Preserve the model name only when the user provides it or reliable source metadata identifies it. Do not infer Seedance 2.0 from prompt structure alone.
-- The backend generates **no** thumbnail for video. `scripts/ingest.ts` extracts a poster frame for you (see "Video of any size" below) — set `posterAtSeconds` to pick the frame. Through MCP `save_asset`, which has no ffmpeg, you must supply the still yourself.
-- The same prompt-only rule applies: **never save a video prompt without the video file unless the user explicitly approves** `allowPromptOnly: true`.
-
-Example:
+To change an existing poster, upload the new still and call set_video_poster:
 
 ```json
-{
-  "promptText": "cinematic dolly-in on a neon-lit alleyway, rain falling, 5 seconds",
-  "promptType": "video_gen",
-  "generationType": "video_gen",
-  "filePath": "/path/to/output.mp4",
-  "folderIds": ["<resolved-collection-id>"],
-  "ingestKey": "gallery:neon-alley-dolly:v1",
-  "tagNames": ["video", "cinematic", "neon"]
-}
+{"assetId":"<video asset ID>","posterUploadId":"<uploaded still slot>"}
 ```
 
-Pass this payload to MCP `save_asset` or the script; both take `folderIds`.
+This thumbnail-only operation requires gallery:write and an owned video. It
+preserves video bytes, kind, prompt and filing. Never point normal media update at
+an image when the intended change is only a poster.
 
-Batched video prompt variations use the same `promptIngestKey` pattern as images — variants auto-group into an `assetPack`.
+The local/admin direct ingest.ts path prepares video with ffprobe dimensions,
+browser-compatible remux, poster extraction and direct R2 upload. The same path
+works for Skill step videos; r2Key, dimensions and posterFile are supported.
+Direct updateFromApi is a separate older base64 path and lacks R2 replacement.
+Prefer token tools; read authenticated maintenance notes for admin compatibility.
 
-### Video of any size — the script handles it
+## Skills
 
-Pass `filePath` and nothing else. `scripts/ingest.ts` detects video and runs the
-whole pipeline itself, so **do not hand-roll an R2 upload script**:
+A Skill is reusable knowledge: a technique, tutorial or recipe with a markdown
+body/how-to instructions and optional ordered prompt/media steps. Collections
+group ordinary assets. Shared prompts and asset packs group related media;
+they do not automatically turn that group into a reusable Skill.
 
-1. **ffprobe reads the real dimensions** (rotation applied). This matters more
-   than it looks: the R2 branch of `ingestFromApi` decodes nothing server-side,
-   so the dimensions the script sends are the only ones the asset will ever have.
-   Wrong or missing dims mean a 1:1 masonry cell and a cropped card.
-2. **Browser-hostile audio is remuxed.** `.mov` exports from DaVinci and
-   QuickTime routinely carry `pcm_s24le`, which browsers cannot decode — the
-   asset ingests clean, looks right in the grid, and plays **silent**. The video
-   stream is copied, so remuxing costs no quality. `.mov`/`.avi`/`.mkv`
-   containers are normalised to `.mp4` for the same reason.
-3. **A poster frame is extracted** at 15% of duration (clamped to 1–10s).
-   Videos get no server-generated thumbnail, so the poster IS the card. Override
-   with `posterAtSeconds` when the default lands on a fade or a murky shot.
-4. **Bytes go direct to R2**, then the asset is created with `r2Key`. Only the
-   poster rides base64. This is unconditional for video, not a size threshold —
-   `posterFile` is only honoured on the `r2Key` branch, so a base64 video could
-   never get a thumbnail.
-
-```bash
-bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
-  "filePath": "/path/to/episode1.mov",
-  "folderId": "<collection-id>",
-  "tagNames": ["cinematic"],
-  "ingestKey": "gallery:my-project:episode1:v1"
-}'
-```
-
-Requires `ffmpeg` and `ffprobe` on PATH (`brew install ffmpeg`); the script fails
-with that instruction rather than ingesting a dimensionless, posterless asset.
-
-**Images still ride base64** through the Convex argument, which caps near 10 MB —
-the server decodes them and builds the thumbnail. Oversized images fail with a
-"compress to JPEG first" error instead of a cryptic argument-size failure.
-
-**No R2 branch on `update`.** `updateFromApi` accepts base64 only, so replace a
-large video by ingesting it as a new `create`. Workflow steps DO take video
-(see "Skills" below) — the script prepares each step's video exactly as it
-prepares a standalone one.
-
-Verifying an upload by hand: `r2.dev` public URLs reject `HEAD` with 403. That is
-not a broken upload — use a range GET:
-
-```bash
-curl -s -o /dev/null -w "%{http_code} %{content_type}\n" -r 0-1023 "<r2-url>"
-```
-
-## Cinema Inspiration pillar (frames, no prompt)
-
-The `cinema-inspiration` pillar is for **cinematic frames, stills, and screenshots** — a reference vault of moments worth recreating. Unlike every other pillar, cinema frames **do not carry a prompt**. The cinematographic context lives in a dedicated `cinemaMetadata` struct on the asset.
-
-**Use a different mutation.** Cinema frames bypass the standard prompt-ingest contract entirely. Call the dedicated `cinemaInspiration:ingestCinemaFrame` Convex action instead of the generic ingest endpoint:
-
-```ts
-ctx.runAction(api.cinemaInspiration.ingestCinemaFrame, {
-  ownerUserId,
-  base64: imageBase64,
-  mimeType: "image/png",
-  fileName: "blade-runner-2049-001.png",
-  ingestSource: "agent",
-  cinemaMetadata: {
-    movieTitle: "Blade Runner 2049",
-    director: "Denis Villeneuve",
-    year: 2017,
-    scene: "Sea wall confrontation at Wallace HQ",
-    cinematographer: "Roger Deakins",
-    lens: "Panavision Primo 35mm",
-    aperture: "T1.4",
-    composition: "Centered vanishing point. Strong horizontal banding from monolithic wall. Subject in lower-third silhouette.",
-    lighting: "Single warm amber key from upper-right; deep cool ambient fill in shadows. Practical glow from holographic surfaces.",
-    cameraMovement: "Locked-off static shot.",
-    colorPalette: "Amber #d97742 against teal #2e4a55. ~92% of pixels in two-tone split.",
-    mood: "Apocalyptic stillness. Industrial sublime.",
-    agentDescription: "Optional: full cinematographic read used by downstream agents.",
-  },
-  ingestKey: "cinema:blade-runner-2049:wallace-confrontation:001",  // optional, makes ingest idempotent
-});
-```
-
-Required fields:
-- `ownerUserId`, `base64`, `cinemaMetadata.movieTitle`
-
-Everything else in `cinemaMetadata` is optional. Use `ingestKey` for idempotency when the same source is ingested twice.
-
-**No prompt is created.** No `prompts` row, no `promptType`, no `final_prompt`. The asset is stored with `pillar: "cinema-inspiration"`, `assetRole: "cinema_frame"`, `kind: "image"`, and `cinemaMetadata` populated. The image embedding is still computed automatically via `reindexAsset` — semantic search works the same way.
-
-**Storage:** image bytes go to R2 via the same `storeBlobToR2` path used for agent ingest. A 420px-wide thumbnail is generated and also stored to R2.
-
-**Manual UI ingest:** Michael uses `components/cinema-upload-panel.tsx` (drag-and-drop batch upload) for fast manual ingestion. Same backend contract.
-
-**Codex-driven enrichment:** when the codex agent ingests cinema frames, it should populate `cinemaMetadata.agentDescription` with a full cinematographic read (lens, focal length, composition principle, lighting setup, color theory, implied camera movement). See `agent-docs/features/cinema-inspiration/CODEX_INGEST_PRD.md` for the full contract, including the planned GPT Image 2 annotated-overlay feature.
-
-**Do NOT:**
-- ingest cinema frames through `agent_ingest:ingestFromAgentPayload` (will require a prompt, which doesn't make sense)
-- attach a prompt to a cinema asset — they are intentionally promptless
-- use the cinema-inspiration contract for AI-generated images — save those as ordinary gallery assets and organize them with collections/tags
-
-## Multi-stage workflows (prompt lineage)
-
-When a generation was produced from an earlier prompt or asset — e.g. a Seedance 2 video made from a GPT-Image-2 starting frame — capture the chain with `upstreamInputs`. Without this, the relationship is lost and agents cannot reproduce or remix the workflow.
-
-Pattern:
-
-1. Ingest each upstream step first. Use stable `ingestKey`s so you can reference them.
-2. Ingest the final/derivative step with an `upstreamInputs` array linking back to each upstream by `ingestKey` (or `id`).
-
-```bash
-# Step 1: save the GPT-Image-2 starting-frame prompt
-bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{  "promptText": "cinematic neon start frame, rain-slick street, 35mm",
-  "promptType": "image_gen",
-  "generationType": "image_gen",
-  "modelName": "GPT-Image-2",
-  "modelProvider": "openai",
-  "imagePath": "/path/to/start-frame.png",
-  "ingestKey": "creators:neon-alley:startframe:v1"
-}'
-
-# Step 2: save the Seedance 2 prompt + video with upstream link
-bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{  "promptText": "dolly-in 5s, rain intensifies, neon flicker",
-  "promptType": "video_gen",
-  "generationType": "video_gen",
-  "modelName": "Seedance 2.0",
-  "modelProvider": "other",
-  "imagePath": "/path/to/output.mp4",
-  "ingestKey": "creators:neon-alley:seedance:v1",
-  "upstreamInputs": [
-    {
-      "type": "prompt",
-      "ingestKey": "creators:neon-alley:startframe:v1",
-      "role": "starting_image_prompt",
-      "stageOrder": 1
-    },
-    {
-      "type": "asset",
-      "ingestKey": "creators:neon-alley:startframe:v1",
-      "role": "starting_image_asset",
-      "stageOrder": 1
-    }
-  ]
-}'
-```
-
-Rules:
-
-- `upstreamInputs[].type` is `"prompt"` or `"asset"`. One of `id` or `ingestKey` is required — prefer `ingestKey` for idempotency.
-- `role` uses the `lineageRoleValidator` enum: `starting_image_prompt`, `starting_image_asset`, `style_reference`, `motion_reference`, `upscale_source`, `variation_source`, `edit_source`, `other`.
-- Target resolution: when the ingest creates both a prompt and an asset, lineage attaches to the asset (the output). Prompt-only ingests attach lineage to the prompt.
-- Lineage rows are idempotent on `(owner, target, source, role)`. Re-ingest with the same keys updates `stageOrder`/`notes` without duplicating rows.
-- Unresolvable upstream `id`/`ingestKey` fails the ingest rather than silently dropping the link — ingest the upstream step first.
-
-## Skills (presets / tutorials / recipes)
-
-A **skill** bundles several prompt + media steps and an optional markdown document under one record: a reusable preset, tutorial or recipe. Use it when the knowledge is multi-step (an image-gen prompt + result images, then a video-gen prompt + result video) and worth keeping together rather than as scattered one-shot prompts. The UI calls it a skill; the table (`workflows`), the ingest kind (`operation: "workflow"`) and the copied id (`workflow:<id>`) keep the old name.
-
-Use `operation: "workflow"`. The script calls `workflows:ingestWorkflowFromApi`, which creates the skill row and ingests each step through the canonical ingest path, so every step's prompt and media become real gallery records.
-
-Skill-level fields:
-
-- `title`, `description` (one or two sentences, shown on the card)
-- `body`: the skill as a **markdown** post. Headings, lists, tables, fenced blocks all render. Embed gallery media inline with `![caption](asset:<id>)`. Opening the skill reads it top to bottom like a blog post, steps after the body.
-- `agentInstructions`: how to run it (rendered as a "How to run it" note)
-- `tagNames`: tags are how skills are filtered in the Skills tab and by `searchSkills`; give every skill a few (technique, model, medium, world)
-- `folderIds`: collections to file it into. A skill can sit in several collections and shows up inside each one among its pieces.
-
-Every save, edit and retag re-embeds the skill (text lane, `semanticDocuments.sourceType: "skill"`), so it is findable by meaning a moment later.
-
-### Where a skill shows up
-
-- The **Skills** tab in the sidebar (also the third view-mode button): every skill as a card, with semantic search, tag chips and collection chips. Packs tagged `cinematography` are the exception: they show in the **Cinematography** tab instead (`references/cinematography.md`) and stay out of Skills, the default grid and the agents' skill lists.
-- The main grid in its default state, as one card among the tiles by date.
-- Inside every collection it is filed in.
-- Step media is stored with `assetRole: "workflow_asset"`, and every owner-facing browse read drops that role, so a skill's intermediate frames never flood the grid. Semantic asset search still reaches step media on purpose ("find that depth map" keeps working). Deleting a skill clears the role and returns those assets to the grid.
-
-### Editing and filing after save
-
-Through the agent API / MCP (`update_skill`, `file_skill`) or `/api/agent/customize`:
+create_skill requires title and stable ingestKey, plus a body, agentInstructions
+or at least one step. Markdown-only Skills are supported without fabricated media
+or prompt-only approval. Optional description, tagNames and folderIds organize
+the card. Steps take promptText and optional modelName/modelProvider/tagNames/media;
+each media entry uses exactly one url, uploadId or fileBase64. Videos also take
+posterUploadId. Preserve factual source and stage provenance on step media.
 
 ```json
-{"action":"updateSkill","id":"skill:<id>","addTagNames":["seedance","depth-map"],"body":"# ..."}
-{"action":"addSkillToCollection","id":"skill:<id>","folderId":"<folderId>"}
-{"action":"removeSkillFromCollection","id":"skill:<id>","folderId":"<folderId>"}
+{"ingestKey":"skill:contact-sheet-review:v1","title":"Review a reference contact sheet","description":"Choose compatible references and preserve their source IDs.","body":"# Steps\n1. Narrow by tags.\n2. Inspect the numbered previews.\n3. Read the selected IDs back.","tagNames":["reference-review"]}
 ```
 
-`tagNames` replaces the set; `addTagNames` / `removeTagNames` adjust it. Michael can do the same from the open skill (Tags / Collections panel).
+Identical create_skill retries return the existing Skill unchanged. Reusing
+the same ingestKey with changed content rejects; use update_skill for edits.
+Incomplete multipart creation can return HTTP 207 with partial:true, skillId
+and failedStep. Retry the same request/key to resume, keeping its persisted
+Skill ID; do not create another recipe. Read with get_skill; list/search use
+list_skills/search_skills. update_skill
+changes body/metadata/tags; file_skill adds/removes collection membership.
+delete_skill deletes only the organizing
+recipe/filing and preserves original step prompts/media as standalone assets.
+Use only when Michael requests deletion; inspect the schema before use.
+Cinematography Skills carry cinematography and appear in their dedicated view.
+Skill steps are stored as workflow_asset and normally stay out of the main media
+grid; semantic search can still retrieve an intermediate frame.
 
-### `pillar` is REQUIRED on workflow ingest
+Internal storage/functions retain workflows/workflowFolders and legacy
+workflow:<id> handles. The local direct script still uses operation: workflow;
+these are wire compatibility names, not another agent-facing concept. The public
+create_skill contract has no pillar requirement; do not ask Michael to choose one.
 
-`ingestWorkflowFromApi` validates `pillar` as a bare `v.string()`, not `optionalPillarValidator`. Omitting it fails with `ArgumentValidationError: Object is missing the required field pillar` — this is the one place the otherwise-dormant pillar column is mandatory. Pass `"creators"` for creator/AI-filmmaking workflows (`designs`, `dump`, `cinema-inspiration` are the other live values).
+## Prompts, Stories and bookmarks
 
-### Large video in a step
+A saved generation prompt normally links to its actual image/video. Only use
+save_prompt/allowPromptOnly when Michael requested or approved a text-only prompt.
+Native Stories/Scripts are intentionally textual: save_story for ideas, scripts,
+style locks, without placeholders. Read references/stories.md for revision guards.
+An X bookmark stores post text/preview, not necessarily original attachments;
+read references/bookmarks.md and extraction.md for complete-media saves.
+YouTube research uses videoRefs, not ordinary media ingest.
 
-Workflow step media is base64-only — there is no R2 branch — so a video over ~10 MB cannot ride a step. Do NOT fall back to a step `url` either: the URL branch of `processMediaInput` derives no dimensions for non-image content types, so the asset lands dimensionless and posterless (1:1 masonry cell, no thumbnail).
+## World filing and public presentation
 
-Working pattern — ingest the video as its own `create`, sharing the step's prompt:
+Fetch authenticated references/worlds.md and the native style lock before filing
+or story production. Preserve exact look/cast, source membership and existing
+public routes, covers and flags. Pinterest is inspiration; source WebP policy is
+in the private world contract, with derived thumbnails explicitly exempt.
 
-1. `create` the video with `promptIngestKey` set to the step's key. This path runs ffprobe for real dimensions, remuxes browser-hostile audio, extracts a poster frame, and uploads direct to R2.
-2. Run the workflow ingest with that same `promptIngestKey` on the step and `allowPromptOnly: true`.
+Showcasing a collection publishes the set identity, never its private members.
+A world page shows individually public assets. Michael's curator star publishes
+and features a piece; unstarring leaves it public. isLiked is private/separate.
+Only perform requested publication. Verify the resulting public world/home reads
+before claiming a public change complete; backend flags alone do not prove routing.
 
-Prompts dedupe on `promptIngestKey`, so the step resolves to the prompt the video is already attached to. No media is dropped — `allowPromptOnly` here is bookkeeping, not a missing asset, and is the one sanctioned use of that flag without asking the user.
+## Cinema frames and generation lineage
 
-```bash
-bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '{
-  "operation": "workflow",
-  "title": "Neon alley cinematic loop",
-  "description": "Start frame in GPT-Image-2, then animate in Seedance 2.0.",
-  "agentInstructions": "Generate the still first, then feed it as the Seedance start frame.",  "tagNames": ["cinematic", "neon"],
-  "ingestKey": "creators:neon-alley:workflow:v1",
-  "steps": [
-    {
-      "stepLabel": "Base still",
-      "promptText": "cinematic neon start frame, rain-slick street, 35mm",
-      "promptType": "image_gen",
-      "generationType": "image_gen",
-      "modelName": "GPT-Image-2",
-      "modelProvider": "openai",
-      "media": [{ "filePath": "/path/to/start-frame.png" }]
-    },
-    {
-      "stepLabel": "Animate",
-      "promptText": "dolly-in 5s, rain intensifies, neon flicker",
-      "promptType": "video_gen",
-      "generationType": "video_gen",
-      "modelName": "Seedance 2.0",
-      "modelProvider": "other",
-      "media": [
-        { "filePath": "/path/to/start-frame.png", "description": "Start frame handed to Seedance" },
-        { "filePath": "/path/to/output.mp4", "description": "Final 5s cut", "posterAtSeconds": 2 }
-      ]
-    }
-  ]
-}'
-```
+Film frames have no generation prompt. The specialized local/admin
+cinemaInspiration:ingestCinemaFrame contract takes media and cinemaMetadata with
+movieTitle; use factual observations and mark uncertain camera/lens claims.
+Do not pretend an inferred focal length is source metadata. They carry the
+legacy cinema-inspiration pillar and cinema_frame role internally.
 
-How it reads back: a step's prompt is one `prompts` row with `workflowId` and
-`workflowStepOrder`; each file is an `assets` row pointing at it. The detail
-panel resolves everything through `prompts:getPromptContext {id, ownerUserId}`
-— sections (final / negative / notes), every file sharing the prompt with its
-caption, and the workflow with all sibling steps' prompts — so opening the
-video shows the image prompts that made its references.
+upstreamInputs records a result's starting image, edit source, style or motion
+reference. Use source IDs or stable keys already saved; unresolved sources reject.
+Lineage is separate from grouping a collection and separate from a reusable Skill.
 
-Rules:
+## Completion
 
-- `title` is required; provide at least one step.
-- Each step is one prompt. `media` is an array — multiple images in a step all attach to that step's prompt. A step with several images is `media: [{...}, {...}]`.
-- Step media accepts `filePath`/`imagePath` or `url`. Images ride base64; a video
-  (`.mp4`/`.mov`/`.webm`) goes through the same remux → probe → poster → R2
-  pipeline as a standalone create, so a 30 s cut sits in the same step as the
-  stills that fed it. `posterAtSeconds` picks the poster frame.
-- Give every media entry a `description` — the caption for THAT file within the
-  step ("start frame", "stand-in crop, not the real render", "final cut"). It
-  lands on the asset and prints under the figure in the workflow document and
-  in the detail panel's file strip. A step with several files and no captions
-  is a row of unlabelled thumbnails.
-- A prompt-only step needs `allowPromptOnly: true` on that step — same hard rule as elsewhere.
-- `ingestKey` makes the whole workflow idempotent; per-step `promptIngestKey` and per-media `ingestKey` are derived from it when omitted, so re-running is safe.
-- The workflow's cover thumbnail is auto-pinned from the first step's media.
-
-## CRITICAL: Never save without an image unless user approves
-
-**Do NOT use `allowPromptOnly: true` without explicit user approval.** This is a hard rule — no exceptions, no silent fallbacks.
-
-If you cannot attach an image (no file path, inline-only attachment, broken URL, extraction failure):
-1. **Stop.** Do not ingest.
-2. **Tell the user** exactly why the image is missing.
-3. **Ask:** "Should I save the prompt without the image, or do you have a file path for it?"
-4. Only proceed with `allowPromptOnly: true` if the user explicitly says yes.
-
-When ingesting from PDFs, documents, websites, or any source that contains both prompts and images:
-1. **Always extract images** alongside prompts — never skip them
-2. **Match each prompt to its image** by order/position in the source
-3. If images are too large (>5MB), compress to JPEG before uploading; the backend stores the final image and generated thumbnail in R2.
-4. **If images cannot be fetched or extracted, stop and ask the user** — never silently drop images
-
-Common trap: user shares an image inline in a chat conversation. You cannot extract inline attachments to a file path. **Ask the user for the local file path before ingesting.** Do not save prompt-only and "attach later" — get the path first.
-
-## Payload rules
-
-- Always provide content: `promptText`, `promptSections.finalPrompt`, `url`, `filePath` / `imagePath`, or `designInspiration`.
-- **Default: include `imagePath` or `filePath` with every prompt.** Never set `allowPromptOnly: true` without asking the user first.
-- Organize asset saves with `folderIds` and prompt-only saves with `folderId`. **Pillars are retired from the product** — do not set `pillar` on ordinary new saves. The schema column remains for backward compatibility and specialized internal contracts.
-- Prefer `typedTags` when category and source are known.
-- Use stable `ingestKey` values for retry safety.
-- Use `promptIngestKey` when multiple assets should attach to one prompt.
-- Reusing one `promptIngestKey` across multiple media ingests still creates or updates an `assetPack` automatically, but **packs no longer have a browse surface** — the Packs view became the Skills view. Packs are now an internal grouping only; to give a multi-media prompt a card the user can open, save it as a skill (`operation: "workflow"`).
-- Keep `ownerUserId` env-driven; callers never pass it directly.
-- `ingestKey` is only an idempotency key for `create`; it is not a general
-  metadata patch key. A repeated create only performs the safe additive
-  tag/collection merge described above. Use `update` for replacements or other
-  metadata changes.
-- For `update` and `delete`, pass `target` plus either `id` or `ingestKey`.
-- Design inspiration create/update payloads may include `sourceTitle`, `userNote`, `captureKind`, `saveIntent`, `templateKey`, `sourceFingerprint`, and `status` when the source carries that metadata.
-- `update` supports media attachment for prompts (`target: "prompt"` + `imagePath`/`filePath`) and media replacement for assets (`target: "asset"` + `imagePath`/`filePath`).
-- When attaching media to a prompt, an `assetIngestKey` is derived as `${ingestKey}:img` by default, or can be set explicitly.
-- Re-uploading media with the same `assetIngestKey` replaces the existing asset's file rather than creating a duplicate.
-- Legacy rows can be backfilled into explicit packs with `assetPacks:consolidateOwnerPromptPacks`.
-- Existing packs are converted to single-step workflows with `workflows:backfillPacksAsWorkflows {ownerUserId, dryRun?}`. It skips packs whose prompt already belongs to a workflow, leaves the pack rows in place (reversible), and deliberately does not stamp `workflow_asset` on their assets — those images predate the workflow concept and stay visible in the grid.
+Read back stable IDs, media, tags, source, prompts and requested memberships.
+Report created, reused, partial and skipped items accurately. Indexing happens
+later; media storage, searchable readiness and verified final quality are distinct.
+The signed local/admin scripts require CONVEX_AUTH_PRIVATE_KEY and owner env;
+token clients never supply ownerUserId. Never log credentials or signed upload URLs.

@@ -1,10 +1,10 @@
 # Auth — laniameda.gallery
 
-Last updated: 2026-03-17
+Last updated: 2026-10-07
 
 ## Current model
 
-- Auth is Telegram-only.
+- Human login uses Telegram; agents use scoped bearer tokens or hosted MCP OAuth.
 - The browser authenticates with the Telegram login widget.
 - Next.js owns the session via an HttpOnly `tg_session` cookie.
 - Convex user rows are resolved or created on the server from the Telegram session.
@@ -17,7 +17,9 @@ Last updated: 2026-03-17
 3. On success, the server writes the signed session cookie and redirects back to the requested page.
 4. The client calls `GET /api/auth/me`.
 5. `/api/auth/me` resolves or creates the matching Convex `users` row and returns the app user.
-6. Protected routes call `requireAppUser()` and use `ownerUserId` server-side when querying or mutating Convex.
+6. Protected routes derive ownerUserId from the session/token and sign a
+   short-lived RS256 actor token for Convex customJwt. Convex rejects unsigned or
+   mismatched ownership; the legacy owner-argument bridge is disabled.
 
 ## Visibility rules
 
@@ -29,6 +31,7 @@ Last updated: 2026-03-17
 
 ```bash
 NEXT_PUBLIC_CONVEX_URL=...
+CONVEX_AUTH_PRIVATE_KEY=...           # server/local-admin signing key, never public
 CONVEX_URL=...
 SESSION_SECRET=...                    # 32+ chars
 TELEGRAM_LOGIN_BOT_TOKEN=...
@@ -39,14 +42,19 @@ Convex-only runtime:
 
 ```bash
 TELEGRAM_NOTIFY_BOT_TOKEN=...         # "saved" notifications
+CONVEX_AUTH_JWKS=...                  # public verification keys
+LEGACY_OWNER_ARG_AUTH=false
 ```
 
-Agent and CLI ingestion:
+Agent clients:
 
 ```bash
-KB_OWNER_USER_ID=...                  # canonical owner for OpenClaw skill
-LOCAL_INGEST_OWNER_USER_ID=...        # optional override for local ingest script
+LANIAMEDA_GALLERY_AGENT_TOKEN=...    # owner-issued scoped token
+LANIAMEDA_GALLERY_API_URL=https://gallery.laniameda.space
 ```
+
+Direct local/admin compatibility scripts additionally need the repository owner
+env and signing key. Those credentials are not a cloud multi-user agent contract.
 
 ## Local dev bypass
 
@@ -92,3 +100,11 @@ APP_CANONICAL_HOST=gallery.laniameda.space
 | `app/api/auth/me/route.ts` | Current authenticated app user |
 | `app/api/auth/logout/route.ts` | Session teardown |
 | `convex/users.ts` | Convex user lookup and creation |
+
+## Hosted MCP OAuth
+
+Authorization codes are short-lived/single-use and bound to the client, redirect
+URI and PKCE verifier. Token exchange must provide the original redirect URI;
+unknown scopes reject with invalid_scope. Codes are consumed atomically when
+the scoped agent token is minted. Raw credentials/codes never enter metadata
+exports. Owner-only instruction resources use the same authenticated owner/scopes.

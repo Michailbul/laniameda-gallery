@@ -12,7 +12,7 @@ Counterpart to `references/ingest.md` (which writes).
 
 ## Runtime env
 
-Local Claude/Codex agents should prefer `bun run mcp:gallery` with:
+Prefer the available hosted Gallery MCP. A local stdio client uses:
 
 - `LANIAMEDA_GALLERY_API_URL`
 - `LANIAMEDA_GALLERY_AGENT_TOKEN`
@@ -28,7 +28,7 @@ The script below is direct-Convex access for this local single-owner workspace
 and admin migrations when MCP is unavailable:
 
 - `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` — required
-- `KB_OWNER_USER_ID` — required for owner-scoped reads (`scope: "mine"`)
+- `KB_OWNER_USER_ID` and `CONVEX_AUTH_PRIVATE_KEY` — required for signed owner-scoped reads (`scope: "mine"`)
 
 Best practice:
 
@@ -105,7 +105,7 @@ Example:
 | `pieceType` | `character` / `location` / `scene` / `inspiration` (plural and `still` spellings count) |
 | `medium` | `animation` (tagged animation) or `live-action` (everything else) |
 | `onlyLiked` | `isLiked` pieces only |
-| `onlyStarred` | starred = featured pieces only |
+| `onlyStarred` | starred pieces; Michael's curator stars are public/featured |
 | `folderId` | one collection; `list` also takes `includeDescendants` |
 
 Tag names match canonically: case, `-`, `_` and punctuation fold, plurals
@@ -166,6 +166,9 @@ contact-sheet JPEGs (thumbs, not originals) and write them to `outDir`
 
 ```json
 { "action": "preview", "query": "rainy neon alley at night", "pieceType": "location", "limit": 24, "outDir": "<scratchpad>/previews" }
+```
+
+```json
 { "action": "preview", "ids": ["asset:abc123", "asset:def456"], "outDir": "<scratchpad>/previews" }
 ```
 
@@ -251,13 +254,19 @@ Download one owner-scoped asset to local disk.
 
 ### Skills: `searchSkills`, `skills`, `getSkill`
 
-Skills (multi-step recipes, table `workflows`) are searched on their own, not
+Skills (text knowledge with optional ordered prompt/media steps, table `workflows`) are searched on their own, not
 through `search`. Each is embedded on its words: title, description, tags,
 models, step labels and markdown body.
 
 ```json
 { "action": "searchSkills", "query": "composition-first seedance control", "tagNames": ["seedance"], "limit": 5 }
+```
+
+```json
 { "action": "skills", "tagNames": ["cinematography"], "folderId": "<folderId>", "search": "dolly" }
+```
+
+```json
 { "action": "getSkill", "id": "skill:<id>" }
 ```
 
@@ -378,3 +387,33 @@ captions, prompts, tags and source metadata with its own text model. Hybrid
 search merges both lanes and applies the requested filters. A missing pixel
 embedding does not prevent text search. See `references/data-model.md` for
 model names and `references/maintenance.md` for paced backfill commands.
+
+
+## Complete inventories and the importable client
+
+list_assets is bounded. For an audit use list_assets_page with pageSize (1–200),
+its opaque cursor and the desired filters. Continue until isDone: true. Each page
+returns assets, cursor, isDone, scannedCount and order; an empty matching page
+can still have a continuation. Keep the same filters while following a cursor.
+Use includeDescendants when reading an organized world root. Do not infer totals
+from the first page or call a capped read a complete export.
+
+The dependency-free scripts/gallery-client.mjs exports createGalleryClient. Its
+assets.pages()/assets.all() helpers follow the complete surface; gallery.mjs
+all_assets writes the collected inventory with completion metadata. Read
+references/web-access.md for current usage and schema discovery.
+
+The cursor order is owner-candidate-createdAt-desc, not a global chronological
+merge. Default inventory includes hidden collection members and Skill step
+media. includeWorkflowAssets:false narrows those step assets; assetRole can
+explicitly select them. Only immediate child collections are included by
+includeDescendants. YouTube research has its own list_video_refs_page cursor surface. Ranked
+list_video_refs still caps at 2000; Skill/Story/bookmark lists cap at 200/500/500.
+Complete asset pagination does not make those other bounded lists complete. list_menu_filters returns the owner-curated IDs/labels/resolved tags
+and counts used by filter presets. Discover strict schemas: misspelled filters
+and owner override fields are rejected rather than silently ignored.
+
+Complete inventory helpers start at the beginning and reject a supplied starting
+cursor: a suffix traversal cannot claim complete:true. Use page/pages with a
+cursor to resume a suffix explicitly. Budget exhaustion or a repeated cursor
+throws an incomplete error rather than returning a false complete result.

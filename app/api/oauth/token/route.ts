@@ -1,4 +1,5 @@
 import { makeFunctionReference } from "convex/server";
+import { ConvexError } from "convex/values";
 import {
   createAgentTokenSecret,
   hashAgentToken,
@@ -51,15 +52,23 @@ export async function POST(request: Request) {
 
     const rawToken = createAgentTokenSecret();
     const expiresInSeconds = MCP_ACCESS_TOKEN_DAYS * 24 * 60 * 60;
-    await getServerConvexClient(redeemed.ownerUserId).mutation(createAgentTokenMutation, {
+    try {
+      await getServerConvexClient(redeemed.ownerUserId).mutation(createAgentTokenMutation, {
       serverSecret: requireAgentTokenIssuerSecret(),
       ownerUserId: redeemed.ownerUserId,
       tokenHash: hashAgentToken(rawToken),
+      oauthCodeHash: redeemed.codeHash,
       tokenPrefix: tokenPrefix(rawToken),
       label: `MCP · ${redeemed.clientName}`,
       scopes: redeemed.scopes,
       expiresAt: Date.now() + expiresInSeconds * 1000,
-    });
+      });
+    } catch (error) {
+      if (error instanceof ConvexError && error.data === "OAuth authorization code already used.") {
+        throw new OAuthError("invalid_grant", "The authorization code has already been used.");
+      }
+      throw error;
+    }
 
     return oauthJson({
       access_token: rawToken,

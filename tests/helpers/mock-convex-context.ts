@@ -64,6 +64,14 @@ class InMemoryQuery {
     return this.execute().slice(0, limit);
   }
 
+  async paginate({ cursor, numItems }: { cursor: string | null; numItems: number }) {
+    const offset = cursor === null ? 0 : Number(cursor);
+    if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid mock cursor");
+    const docs = this.execute();
+    const page = docs.slice(offset, offset + numItems);
+    return { page, isDone: offset + page.length >= docs.length, continueCursor: String(offset + page.length) };
+  }
+
   async unique() {
     const docs = this.execute();
     if (docs.length === 0) {

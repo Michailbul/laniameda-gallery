@@ -22,8 +22,8 @@ import { resolveUserIdCandidates } from "./authz";
 //   - folders (kind undefined) with showcased=true -> public collections
 //   - folders (kind "storybook") with showcased=true -> public storybooks
 //
-// A showcased collection/storybook exposes its WHOLE member set — the folder
-// is the curation unit, so members are not additionally filtered by isPublic.
+// Showcasing publishes collection navigation; only members individually
+// marked isPublic appear on the public page.
 // ---------------------------------------------------------------------------
 
 // The public showcase belongs to exactly one owner. Reads are scoped to it so
@@ -335,13 +335,16 @@ const worldChildFolders = async (
       .collect()
   ).filter((child) => child.kind === undefined);
 
-// Is this showcased folder a world (sectioned) rather than a flat set?
+// A published root with a world address remains a world when its assets
+// are organized with tags instead of sub-collections.
 const isWorldFolder = async (
   ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
   folder: Doc<"folders">,
 ) => {
+  if (folder.parentFolderId !== undefined) return false;
   if (folder.kind === "storybook") return true;
   if (folder.kind !== undefined) return false;
+  if (folder.slug?.trim()) return true;
   return (await worldChildFolders(ctx, folder)).length > 0;
 };
 
@@ -513,9 +516,8 @@ export const getShowcaseHome = query({
       (f) => isShowcaseOwner(f.ownerUserId) && f.parentFolderId === undefined,
     );
 
-    // --- Worlds: showcased collections that carry
-    // sub-collections (Dear Annette > Scenes / Characters / Locations). Both
-    // shapes present identically to a visitor.
+    // Published world addresses and older collections with sub-collections
+    // share the world surface. Flattening filing must not remove a world.
     const worldFolders: Doc<"folders">[] = [];
     const setFolders: Doc<"folders">[] = [];
     for (const folder of showcasedFolders) {

@@ -142,6 +142,15 @@ describe("agent uploads", () => {
     ).rejects.toThrow(/PUT the file/);
   });
 
+  test("poster uploads must be readable images and belong to the caller", async () => {
+    const [slot] = await uploads.prepareUploads(OWNER, 1);
+    putFile(slot!.uploadUrl, Buffer.from("video bytes"), "video/mp4");
+    await expect(uploads.resolveUploadedPoster(OWNER, slot!.uploadId)).rejects.toThrow("not a readable image");
+    await expect(uploads.resolveUploadedPoster("telegram:other", slot!.uploadId)).rejects.toThrow("uploadId");
+    putFile(slot!.uploadUrl, await png(400, 600), "image/png");
+    expect(await uploads.resolveUploadedPoster(OWNER, slot!.uploadId)).toMatchObject({ width: 400, height: 600, contentType: "image/jpeg" });
+  });
+
   test("ingestForAgent saves an upload, ignoring a raw r2Key", async () => {
     const [slot] = await uploads.prepareUploads(OWNER, 1);
     putFile(slot!.uploadUrl, await png(400, 600));

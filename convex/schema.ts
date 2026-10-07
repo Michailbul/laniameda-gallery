@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
   agentTokenScopeValidator,
   assetRoleValidator,
@@ -29,6 +30,32 @@ import {
 } from "./validators";
 
 export default defineSchema({
+  // Private agent reference documents, kept out of public repository bundles.
+  // These are instructions, not creative media or gallery Skills.
+  agentInstructions: defineTable({
+    ownerUserId: v.string(), resourcePath: v.string(), content: v.string(),
+    version: v.string(), sha256: v.string(), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_owner_path", ["ownerUserId", "resourcePath"]),
+  // Text is a first-class private save; no placeholder media or prompt needed.
+  stories: defineTable({
+    ownerUserId: v.string(), ...storyFields,
+    ingestKey: v.string(), revision: v.number(), searchText: v.string(),
+    createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"])
+    .index("by_owner_folder_updatedAt", ["ownerUserId", "folderId", "updatedAt"])
+    .searchIndex("search_text", { searchField: "searchText", filterFields: ["ownerUserId"] }),
+  storyRevisions: defineTable({
+    ownerUserId: v.string(), storyId: v.id("stories"), ...storyFields,
+    revision: v.number(), savedAt: v.number(),
+  }).index("by_story_revision", ["storyId", "revision"]),
+  galleryPresets: defineTable({
+    ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
+    filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   users: defineTable({
     telegramId: v.optional(v.string()),
     workosUserId: v.optional(v.string()),
@@ -46,6 +73,8 @@ export default defineSchema({
   agentTokens: defineTable({
     ownerUserId: v.string(),
     tokenHash: v.string(),
+    // Durable single-use OAuth code consumption, committed with token minting.
+    oauthCodeHash: v.optional(v.string()),
     tokenPrefix: v.string(),
     label: v.string(),
     scopes: v.array(agentTokenScopeValidator),
@@ -56,6 +85,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
+    .index("by_oauthCodeHash", ["oauthCodeHash"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   tags: defineTable({
     name: v.string(),
@@ -355,6 +385,10 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     ingestKey: v.optional(v.string()),
     // Optional pinned cover; carousel falls back to all step media.
+    // Agent Skill creation retries resume until finalized. Separate from
+    // editable content so replaying a creation never overwrites later edits.
+    creationFingerprint: v.optional(v.string()),
+    creationComplete: v.optional(v.boolean()),
     coverAssetId: v.optional(v.id("assets")),
     stepCount: v.number(),
     isPublic: v.optional(v.boolean()),
@@ -539,6 +573,8 @@ export default defineSchema({
       v.object({
         r2Key: v.string(),
         label: v.optional(v.string()),
+        sourceKind: v.optional(v.union(v.literal("youtube-auto-still"), v.literal("supplied-still"))),
+        sourceUrl: v.optional(v.string()),
       }),
     ),
     userNote: v.optional(v.string()),

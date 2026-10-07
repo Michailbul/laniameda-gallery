@@ -27,11 +27,13 @@ post link, says "bookmark this", or a post is worth keeping for its words
 Send the link. The gallery reads the post itself from public endpoints.
 
 ```bash
-bun run ~/.agents/skills/laniameda-gallery/scripts/bookmarks.ts \
-  '{"action":"save","items":[{"url":"https://x.com/<handle>/status/<id>","agentDescription":"…"}]}'
+bun <this skill>/scripts/gallery.mjs save_bookmarks \
+  '{"items":[{"url":"https://x.com/<handle>/status/<id>","agentDescription":"…"}]}'
 ```
 
 MCP: `save_bookmarks` with the same `items` (up to 12 per call).
+Local/admin bookmarks.ts remains a signed-owner compatibility path; hosted
+MCP or the token-only gallery.mjs client is preferred.
 
 Per item:
 

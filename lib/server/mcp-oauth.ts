@@ -1,15 +1,16 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import type { AgentTokenScope } from "@/lib/server/agent-auth";
 
 // OAuth 2.1 for the hosted MCP endpoint (/api/mcp), sized for one owner.
 //
-// Everything here is stateless: a registered client, a pending consent and an
+// Client registration and consent are stateless: a registered client, consent and an
 // authorization code are each a short HS256 JWT signed with MCP_OAUTH_SECRET
 // (falling back to SESSION_SECRET). Each kind carries its own audience, so one
 // can never stand in for another, or for a session cookie. The only durable
-// record is the agent token minted at the token endpoint, which shows up on
+// Authorization-code hashes are durably consumed in the same Convex transaction
+// that mints the agent token. The token shows up on
 // /agents and can be revoked there.
 
 export const MCP_RESOURCE_PATH = "/api/mcp";
@@ -211,8 +212,11 @@ export type AuthorizationRequest = {
 
 export const parseScopes = (raw: string | null | undefined): AgentTokenScope[] => {
   const requested = (raw ?? "").split(/\s+/).filter(Boolean);
+  if (requested.some((scope) => !MCP_SCOPES.includes(scope as AgentTokenScope))) {
+    throw new OAuthError("invalid_scope", "Unsupported gallery scope.");
+  }
   const granted = MCP_SCOPES.filter((scope) => requested.includes(scope));
-  // No (or no known) scope asked for: grant the full gallery set, which is what
+  // No scope asked for: grant the full gallery set, which is what
   // a generic connector expects. Read is always included.
   if (granted.length === 0) return [...MCP_SCOPES];
   return granted.includes("gallery:read") ? granted : ["gallery:read", ...granted];
@@ -270,6 +274,10 @@ export const validateAuthorizeParams = async (
     return fail("invalid_request", "code_challenge_method must be S256.");
   }
 
+  let scopes: AgentTokenScope[];
+  try { scopes = parseScopes(params.get("scope")); }
+  catch { return fail("invalid_scope", "Unsupported gallery scope."); }
+
   return {
     ok: true,
     request: {
@@ -278,7 +286,7 @@ export const validateAuthorizeParams = async (
       redirectUri,
       codeChallenge,
       state,
-      scopes: parseScopes(params.get("scope")),
+      scopes,
       resource: params.get("resource") ?? undefined,
     },
   };
@@ -311,6 +319,7 @@ export const issueAuthorizationCode = (request: AuthorizationRequest, ownerUserI
   signScopedJwt(
     {
       sub: ownerUserId,
+      jti: randomUUID(),
       cid: createHash("sha256").update(request.clientId).digest("base64url"),
       name: request.clientName,
       ruri: request.redirectUri,
@@ -331,6 +340,7 @@ export type RedeemedCode = {
   ownerUserId: string;
   clientName: string;
   scopes: AgentTokenScope[];
+  codeHash: string;
 };
 
 export const redeemAuthorizationCode = async (input: {
@@ -339,8 +349,8 @@ export const redeemAuthorizationCode = async (input: {
   redirectUri: string | null;
   codeVerifier: string | null;
 }): Promise<RedeemedCode> => {
-  if (!input.code || !input.codeVerifier) {
-    throw new OAuthError("invalid_request", "code and code_verifier are required.");
+  if (!input.code || !input.codeVerifier || !input.redirectUri) {
+    throw new OAuthError("invalid_request", "code, code_verifier and redirect_uri are required.");
   }
   if (!/^[A-Za-z0-9._~-]{43,128}$/.test(input.codeVerifier)) {
     throw new OAuthError("invalid_grant", "Malformed code_verifier.");
@@ -356,7 +366,7 @@ export const redeemAuthorizationCode = async (input: {
   if (clientHash !== payload.cid) {
     throw new OAuthError("invalid_grant", "The code was issued to a different client.");
   }
-  if (input.redirectUri && input.redirectUri !== payload.ruri) {
+  if (input.redirectUri !== payload.ruri) {
     throw new OAuthError("invalid_grant", "redirect_uri does not match the authorization request.");
   }
   if (!pkceMatches(input.codeVerifier, String(payload.cc))) {
@@ -370,6 +380,7 @@ export const redeemAuthorizationCode = async (input: {
     ownerUserId: payload.sub,
     clientName: cleanClientName(payload.name),
     scopes: Array.isArray(payload.scp) ? (payload.scp as AgentTokenScope[]) : [...MCP_SCOPES],
+    codeHash: createHash("sha256").update(input.code).digest("hex"),
   };
 };
 
