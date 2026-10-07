@@ -42,11 +42,13 @@ Asset update with file/url replaces the underlying media. It does not update
 only a thumbnail. Prompt update with media attaches/replaces a linked asset using
 assetIngestKey. Use selectors from returned IDs/keys, not guessed IDs.
 
-Requested collection IDs are validated before persistence. A later filing race
-can still return HTTP 207: ok:false, partial:true, persisted result, failedStep:
-collections, requestedFolderIds and error. Batch results report partial and
-persisted counts and persisted IDs per item. Read the existing ID and repair its
-memberships; do not retry with a fresh key and create a second asset.
+Requested collection IDs and upstream lineage sources are checked before writes;
+replacement media is processed before changing prompt text or asset metadata.
+A later media, lineage, inspiration or filing failure can return HTTP 207:
+ok:false, partial:true, persisted IDs/result, failedStep and error. Filing errors
+also include requestedFolderIds. Batch results report partial/persisted counts
+and persisted IDs per item. Read those IDs and repair the failed step; retry with
+the original stable key rather than creating another record.
 
 ## Video and posters
 

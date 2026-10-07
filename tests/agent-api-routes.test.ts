@@ -240,6 +240,18 @@ describe("agent API routes", () => {
     expect(state.actionCalls).toHaveLength(1);
   });
 
+  test("a partly persisted create reports its IDs and stops secondary filing", async () => {
+    state.actionResult = { promptId: "prompts:persisted", assetId: "assets:persisted", partial: true, failedStep: "upstreamInputs", error: "Source was deleted during the save." };
+    const { POST } = await import(ingestRoutePath);
+    const response = await POST(new Request("http://localhost/api/agent/ingest", {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer test" },
+      body: JSON.stringify({ url: "https://example.com/movie.mp4", ingestKey: "test:partial-create", folderIds: ["folders:valid"] }),
+    }));
+    expect(response.status).toBe(207);
+    expect(await response.json()).toMatchObject({ ok: false, partial: true, promptId: "prompts:persisted", assetId: "assets:persisted", failedStep: "upstreamInputs" });
+    expect(state.mutationCalls).toHaveLength(0);
+  });
+
   test("a partly persisted media update remains explicit at the HTTP boundary", async () => {
     state.actionResult = { target: "asset", assetId: "assets:persisted", partial: true, failedStep: "media", error: "Read before retrying." };
     const { POST } = await import(ingestUpdateRoutePath);

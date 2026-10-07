@@ -33,13 +33,13 @@ export const validateAgentFolders = async (
 };
 
 export class PartialAgentSaveError extends Error {
-  constructor(public readonly result: Record<string, unknown>, public readonly requestedFolderIds: string[], cause: unknown) {
+  constructor(public readonly result: Record<string, unknown>, public readonly requestedFolderIds: string[], cause: unknown, public readonly failedStep = "collections") {
     super(cause instanceof Error ? cause.message : "Collection filing failed after saving.");
     this.name = "PartialAgentSaveError";
   }
 
   toResult() {
-    return { ...this.result, ok: false, partial: true, result: this.result, failedStep: "collections", requestedFolderIds: this.requestedFolderIds, error: this.message };
+    return { ...this.result, ok: false, partial: true, result: this.result, failedStep: this.failedStep, requestedFolderIds: this.requestedFolderIds, error: this.message };
   }
 }
 
@@ -90,6 +90,7 @@ export const ingestForAgent = async (agent: AgentAuthContext, data: Record<strin
   };
 
   const result = await client.action(ingestAction, payload);
+  if (result.partial) throw new PartialAgentSaveError(result, folderIds ?? [], new Error(result.error ?? "A save is incomplete."), result.failedStep ?? "save");
   let collections;
   if (result.assetId && folderIds) {
     try {

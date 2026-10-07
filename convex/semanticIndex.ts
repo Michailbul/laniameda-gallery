@@ -932,6 +932,7 @@ const scheduleRetry = async (
   sourceType: "asset" | "prompt" | "designInspiration" | "skill",
   sourceId: string,
   attempt: number,
+  textOnly?: boolean,
 ) => {
   if (attempt >= RETRY_DELAYS_MS.length) {
     return false;
@@ -942,6 +943,7 @@ const scheduleRetry = async (
     await ctx.scheduler.runAfter(delay, reindexAssetActionRef, {
       assetId: sourceId as Id<"assets">,
       attempt: attempt + 1,
+      ...(textOnly !== undefined ? { textOnly } : {}),
     });
     return true;
   }
@@ -1144,7 +1146,7 @@ const reindexAssetSource = async (
       return {
         status: "indexed" as const,
         semanticDocumentId,
-        retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt),
+        retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt, textOnly),
       };
     }
     await ctx.runMutation(resolveFailureMutationRef, {
@@ -1169,7 +1171,7 @@ const reindexAssetSource = async (
 
     return {
       status: "skipped" as const,
-      retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt),
+      retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt, textOnly),
     };
   }
 };

@@ -401,3 +401,8 @@ expectedSha256; exact content/version retries are idempotent.
 
 Agent tokens may store an internal oauthCodeHash indexed for atomic one-time OAuth
 code consumption. It is not public token metadata and never contains a raw code.
+
+Ingest/update action results can include partial, failedStep and error together
+with persisted assetId/promptId/designInspirationId. Token APIs preserve these as
+HTTP 207 partial results, including per-item batch persistence counts. Lineage
+sources are resolved before saving; media is processed before metadata changes.

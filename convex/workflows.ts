@@ -1123,56 +1123,23 @@ export const ingestWorkflowFromApi = ownerAction({
 
     let failedStep = "steps";
     try {
-    let coverAssetId: Id<"assets"> | undefined;
+      let coverAssetId: Id<"assets"> | undefined;
 
-    for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
-      const step = args.steps[stepIndex]!;
-      const stepKeyBase =
-        step.promptIngestKey ??
-        (args.ingestKey ? `${args.ingestKey}:step${stepIndex}` : undefined);
-      const media = step.media ?? [];
+      for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
+        const step = args.steps[stepIndex]!;
+        const stepKeyBase =
+          step.promptIngestKey ??
+          (args.ingestKey ? `${args.ingestKey}:step${stepIndex}` : undefined);
+        const media = step.media ?? [];
 
-      let stepPromptId: Id<"prompts"> | undefined;
+        let stepPromptId: Id<"prompts"> | undefined;
 
-      if (media.length === 0) {
-        const result = (await ctx.runAction(api.ingest.ingestFromApi, {
-          ownerUserId,
-          promptText: step.promptText,
-          promptSections: step.promptSections,
-          allowPromptOnly: step.allowPromptOnly,
-          pillar: args.pillar,
-          promptType: step.promptType,
-          generationType: step.generationType,
-          workflowType: step.workflowType,
-          modelName: step.modelName,
-          modelProvider: step.modelProvider,
-          tagNames: step.tagNames,
-          ingestKey: stepKeyBase,
-          promptIngestKey: stepKeyBase,
-          ingestSource: "agent" as const,
-        })) as { promptId?: Id<"prompts">; assetId?: Id<"assets"> };
-        stepPromptId = result.promptId;
-      } else {
-        for (let mediaIndex = 0; mediaIndex < media.length; mediaIndex++) {
-          const item = media[mediaIndex]!;
+        if (media.length === 0) {
           const result = (await ctx.runAction(api.ingest.ingestFromApi, {
             ownerUserId,
             promptText: step.promptText,
             promptSections: step.promptSections,
-            url: item.url,
-            file: item.file,
-            description: item.description,
-            sourceUrl: item.sourceUrl,
-            agentDescription: item.agentDescription,
-            r2Key: item.r2Key,
-            r2Bucket: item.r2Bucket,
-            mediaContentHash: item.mediaContentHash,
-            mediaContentType: item.mediaContentType,
-            mediaSize: item.mediaSize,
-            mediaWidth: item.mediaWidth,
-            mediaHeight: item.mediaHeight,
-            mediaFileName: item.mediaFileName,
-            posterFile: item.posterFile,
+            allowPromptOnly: step.allowPromptOnly,
             pillar: args.pillar,
             promptType: step.promptType,
             generationType: step.generationType,
@@ -1180,44 +1147,77 @@ export const ingestWorkflowFromApi = ownerAction({
             modelName: step.modelName,
             modelProvider: step.modelProvider,
             tagNames: step.tagNames,
-            ingestKey:
-              item.ingestKey ??
-              (stepKeyBase ? `${stepKeyBase}:m${mediaIndex}` : undefined),
+            ingestKey: stepKeyBase,
             promptIngestKey: stepKeyBase,
-            assetRole: "workflow_asset" as const,
             ingestSource: "agent" as const,
           })) as { promptId?: Id<"prompts">; assetId?: Id<"assets"> };
-          if (!stepPromptId) stepPromptId = result.promptId;
-          if (!coverAssetId && result.assetId) coverAssetId = result.assetId;
+          stepPromptId = result.promptId;
+        } else {
+          for (let mediaIndex = 0; mediaIndex < media.length; mediaIndex++) {
+            const item = media[mediaIndex]!;
+            const result = (await ctx.runAction(api.ingest.ingestFromApi, {
+              ownerUserId,
+              promptText: step.promptText,
+              promptSections: step.promptSections,
+              url: item.url,
+              file: item.file,
+              description: item.description,
+              sourceUrl: item.sourceUrl,
+              agentDescription: item.agentDescription,
+              r2Key: item.r2Key,
+              r2Bucket: item.r2Bucket,
+              mediaContentHash: item.mediaContentHash,
+              mediaContentType: item.mediaContentType,
+              mediaSize: item.mediaSize,
+              mediaWidth: item.mediaWidth,
+              mediaHeight: item.mediaHeight,
+              mediaFileName: item.mediaFileName,
+              posterFile: item.posterFile,
+              pillar: args.pillar,
+              promptType: step.promptType,
+              generationType: step.generationType,
+              workflowType: step.workflowType,
+              modelName: step.modelName,
+              modelProvider: step.modelProvider,
+              tagNames: step.tagNames,
+              ingestKey:
+                item.ingestKey ??
+                (stepKeyBase ? `${stepKeyBase}:m${mediaIndex}` : undefined),
+              promptIngestKey: stepKeyBase,
+              assetRole: "workflow_asset" as const,
+              ingestSource: "agent" as const,
+            })) as { promptId?: Id<"prompts">; assetId?: Id<"assets"> };
+            if (!stepPromptId) stepPromptId = result.promptId;
+            if (!coverAssetId && result.assetId) coverAssetId = result.assetId;
+          }
+        }
+
+        if (stepPromptId) {
+          await ctx.runMutation(internal.workflows.linkPromptToWorkflow, {
+            promptId: stepPromptId,
+            workflowId,
+            workflowStepOrder: stepIndex,
+            workflowStepLabel: step.stepLabel,
+          });
         }
       }
 
-      if (stepPromptId) {
-        await ctx.runMutation(internal.workflows.linkPromptToWorkflow, {
-          promptId: stepPromptId,
-          workflowId,
-          workflowStepOrder: stepIndex,
-          workflowStepLabel: step.stepLabel,
+      failedStep = "collections";
+      for (const folderId of args.folderIds ?? []) {
+        await ctx.runMutation(api.workflows.addSkillToCollection, {
+          ownerUserId,
+          id: workflowId,
+          folderId,
         });
       }
-    }
 
-    failedStep = "collections";
-    for (const folderId of args.folderIds ?? []) {
-      await ctx.runMutation(api.workflows.addSkillToCollection, {
-        ownerUserId,
-        id: workflowId,
-        folderId,
+      failedStep = "finalize";
+      await ctx.runMutation(internal.workflows.finalizeWorkflow, {
+        workflowId,
+        coverAssetId,
       });
-    }
 
-    failedStep = "finalize";
-    await ctx.runMutation(internal.workflows.finalizeWorkflow, {
-      workflowId,
-      coverAssetId,
-    });
-
-    return { workflowId, stepCount: args.steps.length, created };
+      return { workflowId, stepCount: args.steps.length, created };
     } catch (error) {
       throw new ConvexError({ message: error instanceof Error ? error.message : "Skill creation failed.", failedStep, workflowId });
     }
