@@ -31,35 +31,30 @@ save into it and query it back: the `skills/laniameda-gallery` skill is the
 agent contract for saving, finding, and extracting liked items (X bookmarks,
 Instagram, sites) into the vault.
 
-### How the vault is organized (since 22 Sep 2026)
-- **Collections**, one level deep: a root collection holds folders. A showcased
-  root collection is a public world at `/w/<slug>`.
-- **Piece type is a tag**: `character`, `location`, `scene`, `inspiration`
-  (`lib/collection-sections.ts`). Never a folder.
-- **Medium**: the tag `animation`; everything else is Live action (`lib/medium.ts`).
-- **Typed tags** (`tags` / `userTags`) carry platform, content, style, model.
-  The island bar shows owner-curated `menuFilters`, never the raw tag cloud.
-- **Pillars are legacy.** The `pillar` column (`creators` / `designs` / `dump`
-  / `cinema-inspiration`) is dormant; only cinema frames and workflow ingest
-  still set it.
+### Agent-facing object model (7 Oct 2026)
+- **Skills** are reusable techniques/recipes with text and optional prompt/media steps.
+- **Worlds** are story universes represented by root **collections**. Collections
+  support one level of children; visual storybooks are collections of selected frames.
+- **Tags** classify piece type, medium, source, content and exact style. Characters,
+  Locations, Scenes and Inspirations are tags, not section folders.
+- **Stories / Scripts** is private native text with world/asset links and revision history.
+- **YouTube references** are separate research records with thematic label strings;
+  Motion/Cinematography are tagged asset/Skill views, not another storage model.
+- **Bookmarks** preserve X post text and can link actual saved attachments.
+- Legacy folders/workflows/pillars/assetPacks names are internal compatibility
+  details. Do not teach another product concept or turn every media group into a Skill.
 
-### Worlds (audited 6 Oct 2026)
-Michael's story universes include **DEAR ANNETE** (Animated, Unreal Engine,
-Piazza Graphic 2D, Dari, Animation Development), **DADDY ISSUES — RETRO-FUTURE**,
-**ANDROMEDA — ANN**, and the single main **CASSANDRA** collection. LIZ is the
-primary Dear Annete Animated format; its former root was merged and removed.
-Daddy and Retro-Future share a root while retaining separate exact style tags.
-Styles are tags, not folders; never mix rendering styles inside a storybook.
-
-Pinterest remains inspiration only, in inspiration collections with optional
-world-reference tags. Source `.webp` saves retain **INSPIRATION VAULT** membership
-and never enter worlds or storybooks; derived WebP thumbnails are exempt.
-**YOUTUBE — STORYTELL** is a separate channel-development/reference collection,
-distinct from YouTube Cars research. Native **Stories / Scripts** stores private
-text-only ideas, scripts and versioned style locks with links to their world,
-visual storybook and source assets. Detailed filing/style rules and live IDs are
-in `skills/laniameda-gallery/references/worlds.md`; read it before touching a world.
-CASSANDRA and ART remain protected from future reorganization unless Michael asks.
+### Current rules and private world policy
+Read skills/laniameda-gallery/SKILL.md and fetch the authenticated full
+references/worlds.md before world filing, reference selection or story production.
+Tracked public worlds.md is a fetch bootstrap; full policy is owner-scoped
+agentInstructions data. Current human directions override historical maps/memories.
+Do not copy private collection/anchor IDs into public GitHub or plugin bundles.
+Preserve existing media, publication flags and public world routes when filing.
+CASSANDRA and ART remain protected from reorganization unless Michael asks.
+Pinterest remains inspiration; source WebP saves retain INSPIRATION VAULT and
+never join worlds/storybooks, with derived thumbnails exempt. No mandatory
+YouTube qualification-evidence gate; factual metrics/source provenance still matter.
 
 ### How ingestion works
 1. An agent (Claude Code, Codex, OpenClaw) or the browser extension sends
@@ -93,7 +88,9 @@ CASSANDRA and ART remain protected from future reorganization unless Michael ask
 - The gallery's canonical Convex **dev deployment** is `dev:perfect-buffalo-375`.
 - The gallery's canonical Convex **cloud URL** is `https://perfect-buffalo-375.convex.cloud`.
 - If `CONVEX_DEPLOYMENT`, `CONVEX_URL`, or `NEXT_PUBLIC_CONVEX_URL` point anywhere else, treat that as drift and fix the env before running migrations or backend checks.
-- `bun run convex:dev` should target `dev:perfect-buffalo-375`. The helper in `scripts/lib/convex-dev-env.ts` intentionally strips inherited Convex env vars to avoid stale shell/session overrides.
+- The dev-labelled cloud deployment serves real gallery data. Use the sanitized
+  `bun run convex:dev` cloud command after verifying its target; isolated local
+  backend work must be an explicit mode. Never infer dev means an isolated database.
 - If Convex CLI output looks inconsistent with the repo env files, check for shell-level exported vars first; this desktop environment has previously carried stale Convex vars across sessions.
 
 ---
@@ -122,7 +119,7 @@ bun run dev          # Start Next.js (port 3317 by default)
 bun run lint         # Lint
 bun test             # Tests
 bun run typecheck    # TypeScript check
-bunx convex dev      # Start local Convex dev environment
+bun run convex:dev   # Sanitized canonical cloud backend; affects real gallery data
 ```
 
 ## Verification (required after every change)
@@ -130,7 +127,8 @@ bunx convex dev      # Start local Convex dev environment
 bun run lint
 bun test
 ```
-If Convex schema changed, also run `bunx convex dev` once.
+If Convex schema changed, validate with the canonical sanitized Convex command
+only when a backend push is authorized. Compile/codegen are not a deployment.
 
 ---
 
@@ -154,7 +152,7 @@ scripts/         Dev utility scripts
 | `AUTH.md` | Telegram auth setup |
 | `DESIGN.md` | UI design system and visual direction |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands and workflow |
-| `OPENCLAW-EXPLANATION.md` | How OpenClaw and the (now merged) laniameda-gallery skill work |
+| `MCP_AGENT_ACCESS.md` | Hosted/token client access and discovery |
 
 ## Feature PRD workflow
 - When starting a new feature on a new branch, do **not** add that feature's full PRD documents to `main`.

@@ -12,7 +12,7 @@
     "typecheck": "rm -rf .next && tsc --noEmit",
     "test": "bun test",
     "skills:install:local": "bunx skills add ./skills/laniameda-gallery -g -a openclaw -a cline -y",
-    "skills:install:github": "bunx skills add https://github.com/laniamedaHQ/laniameda-gallery/tree/main/skills/laniameda-gallery -g -a openclaw -a cline -y",
+    "skills:install:github": "bunx skills add https://github.com/Michailbul/laniameda-gallery/tree/main/skills/laniameda-gallery -g -a openclaw -a cline -y",
     "skills:update": "bunx skills check && bunx skills update",
     "mcp:gallery": "bun mcp/laniameda-gallery/server.ts",
     "backfill:semantic": "bun scripts/backfill-semantic-index.ts",

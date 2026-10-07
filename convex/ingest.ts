@@ -901,6 +901,9 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
     promptId: v.optional(v.id("prompts")),
     assetId: v.optional(v.id("assets")),
     designInspirationId: v.optional(v.id("designInspirations")),
+    partial: v.optional(v.boolean()),
+    failedStep: v.optional(v.string()),
+    error: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -1092,6 +1095,11 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
         throw new ConvexError("Asset not found.");
       }
 
+      // Reject invalid replacement bytes/URLs before committing metadata.
+      const replacementMedia = args.file || args.url
+        ? await processMediaInput(ctx, { file: args.file, url: args.url })
+        : undefined;
+
       const nextPillar =
         hasOwn(args, "pillar") ? (args.pillar ?? undefined) : existing.pillar;
       const shouldReplaceTags = args.tagNames !== undefined || args.typedTags !== undefined;
@@ -1150,10 +1158,10 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
           : {}),
       })) as Id<"assets">;
 
-      const hasMediaInput = Boolean(args.file || args.url);
-      if (hasMediaInput) {
-        const media = await processMediaInput(ctx, { file: args.file, url: args.url });
-        await ctx.runMutation(api.assets.replaceAssetMedia, {
+      if (replacementMedia) {
+        const media = replacementMedia;
+        try {
+          await ctx.runMutation(api.assets.replaceAssetMedia, {
           ownerUserId,
           assetId,
           storageId: media.storageId,
@@ -1169,7 +1177,10 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
           thumbSize: media.thumbSize,
           thumbWidth: media.thumbWidth,
           thumbHeight: media.thumbHeight,
-        });
+          });
+        } catch {
+          return { target: "asset" as const, assetId: updatedAssetId, partial: true, failedStep: "media", error: "Media replacement failed after metadata was saved. Read the asset before retrying." };
+        }
       }
 
       return {

@@ -2,12 +2,14 @@
 
 What the gallery is made of, read from `convex/schema.ts`, `convex/validators.ts`,
 `convex/menuFilters.ts`, `lib/collection-sections.ts` and `lib/medium.ts` on
-26 Sep 2026. **The code is the source of truth.** When this file and the code
-disagree, the code wins, and this file gets fixed in the same commit.
+7 Oct 2026. Human direction governs creative policy; code and live verified
+behavior define the runtime contract. Fix factual contract drift in the same
+change. The simple objects are media, Skills, Worlds (root collections),
+collections, tags, native Stories, bookmarks and separate YouTube references.
 
-## The five ways a piece is found
+## Media retrieval handles and reusable knowledge
 
-An agent (or Michael) finds a piece through exactly these handles. Every save
+An agent (or Michael) finds a piece through these handles. Every save
 should fill the ones that apply, because a handle left empty is a query that
 can never hit.
 
@@ -18,7 +20,7 @@ can never hit.
 | **Medium** | tag: `animation` (absent = live action) | `tagNames` / `typedTags` |
 | **Descriptive tags** | `tags` via `assetTags` / `promptTags`, typed by category | `typedTags` |
 | **Pixels and words** | `semanticDocuments`: pixel lane `embedding` + text lane `textEmbedding` | automatic after ingest |
-| **Skills** | `workflows` (`body` markdown, `tagIds`) + `workflowFolders` for collections; text lane `semanticDocuments.sourceType: "skill"` | `operation: "workflow"`, then `updateSkill` / `addSkillToCollection` |
+| **Skills** | `workflows` (`body` markdown, `tagIds`) + `workflowFolders` for collections; text lane `semanticDocuments.sourceType: "skill"` | create_skill / update_skill / file_skill |
 
 Plus the provenance fields that make a piece traceable: `sourceUrl`,
 `agentDescription`, `description`, `modelName`, `ingestSource`, `assetRole`,
@@ -50,7 +52,9 @@ own model (3072 dims both):
 
 - **Pixel lane** (`embedding`, index `by_embedding`, `gemini-embedding-2-preview`,
   multimodal): the image bytes only, so a text query finds what a picture looks
-  like. Imageless assets (video) embed a short prompt/file-name text here.
+  like. Legacy imageless video rows can retain a text-only vector in this column;
+  visual retrieval excludes text_only modality so a prompt cannot outrank
+  actual visual matches. Video semantics still do not establish motion.
 - **Text lane** (`textEmbedding`, index `by_text_embedding`,
   `gemini-embedding-001` via `TEXT_EMBEDDING_MODEL`, task type
   `RETRIEVAL_DOCUMENT`): the asset's words from `buildAssetTextLane` in
@@ -82,7 +86,8 @@ that nothing in the product navigates by any more. The values still in code are
 
 - Leave `pillar` unset on ordinary saves.
 - Set it only where a contract requires it: `cinema-inspiration` frames, and
-  workflow ingest, which validates `pillar` as required (use `creators`).
+  legacy internal contracts that explicitly require it; agent Skill creation
+  does not require a user-facing pillar choice.
 - `app/api/agent/customize` returns `Unsupported action` for pillar actions.
 - The extension's wire field `collectionPillar` is grandfathered: it carries a
   **section** (Characters / Locations / Scenes / Inspirations), not a pillar.
@@ -133,9 +138,9 @@ to him, and never creates or reorders them unless asked.
 
 ## Marks: star, featured, public, liked
 
-- **Star = featured.** Since 23 Sep 2026 the card star and `isFeatured` move
-  together. Starring publishes the piece onto the public featured reel;
-  unstarring takes it off the reel and leaves it public. `starredAt` records
+- **Michael's curator star = featured.** Starring publishes the piece onto the
+  public featured reel; unstarring takes it off the reel and leaves it public.
+  Other users' stars remain private. `starredAt` records
   when; `starNote` holds an optional note.
 - **`isPublic`** exposes a piece on public surfaces. Showcasing a collection
   publishes the set, never its private members.
@@ -266,7 +271,7 @@ only plain collections may be children. One level deep.
 - `semanticDocuments`
   - Async search index rows generated from assets, prompts, and legacy design inspirations.
   - Backend-managed fields include `sourceType`, `sourceId`, linked record IDs, `searchText`, `contentHash`, embedding data, and owner/public scope keys.
-  - **Embedding strategy (pure-v1):** Image assets are embedded as image-only (no text metadata) using Gemini `gemini-embedding-2-preview` multimodal embeddings. Prompt sources are embedded as prompt text only (no tags/pillar/model metadata). This lets cross-modal matching work natively — a text query like "car" matches images that visually contain cars. Tags and metadata are applied as post-filters, not embedded.
+  - The pixel lane uses image-only multimodal embeddings; the separate text lane includes agent description, caption, prompt and tags. Hybrid retrieval combines their ranks. Legacy video rows may store a text-only vector, which visual retrieval excludes; a poster or search hit does not establish motion understanding.
 
 - `semantic_index_failures`
   - Backend-managed retry/failure rows for semantic indexing failures.
@@ -364,7 +369,7 @@ These are maintained by backend mutations; callers usually pass tag names, typed
 - `app/api/agent/customize` exposes token-authenticated customization for user tags and collections (folders). Pillar actions are retired and return `Unsupported action`.
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
 - Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
-- Backfill existing records: `npx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
+- Backfill existing records: `CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,
@@ -383,3 +388,16 @@ and `savedAt`; access requires ownership of the current story.
 and media kind, boolean `onlyLiked`, `includeSkills`, `flattenStacks`, and sort
 order newest/featured/shuffle. Presets upsert by owner/normalized name. They
 change browsing, never public state. See `stories.md` for MCP/API examples.
+
+
+## Private agent instruction resources
+
+agentInstructions stores ownerUserId, resourcePath, content, version, sha256,
+createdAt and updatedAt, indexed by owner/path. Signed owner reads retrieve the
+private full worlds/maintenance resources; tracked public files only explain how
+to fetch them. Generic storage holds policy text without hardcoding world names
+or private IDs into backend logic. Resource replacement requires the last-read
+expectedSha256; exact content/version retries are idempotent.
+
+Agent tokens may store an internal oauthCodeHash indexed for atomic one-time OAuth
+code consumption. It is not public token metadata and never contains a raw code.

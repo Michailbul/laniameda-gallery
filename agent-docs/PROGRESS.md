@@ -2,7 +2,7 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ---
 
@@ -92,7 +92,7 @@ Last updated: 2026-10-06
 - Prompt-only workflows shipped: the dashboard now has a text-only prompt view, and prompt-only ingest requires explicit `allowPromptOnly` opt-in across maintained ingest paths
 
 ### 2026-03-13
-- Canonical repo-backed `laniameda-gallery-ingest` skill added under `skills/laniameda-gallery-ingest/` with GitHub/local `bunx skills` install workflows
+- Historical: separate ingest skill was introduced, then merged into the current skills/laniameda-gallery master Skill.
 - Skill contract docs now live with the project and are intended to ship in lockstep with ingest schema changes
 - Explicit ingest management contract added: `update` + `delete` actions/routes for prompts, assets, and design inspirations, plus skill support for all three operations
 
@@ -134,15 +134,16 @@ Last updated: 2026-10-06
 - Core Convex queries/mutations/actions for assets, prompts, tags, folders
 - Ingestion action with idempotency key (`ingestKey`)
 - `/api/ingest` route + ingest helpers
-- `laniameda-gallery-ingest` OpenClaw skill (Telegram → Convex ingest)
+- Historical OpenClaw ingest integration now uses the master laniameda-gallery Skill.
 - ESLint + Bun test baseline green (60 tests)
 
 ---
 
 ## 🔥 Active Sprint
 
-Dashboard Polish — SP-01 through SP-13.
-See `agent-docs/features/dashboard-polish/SPRINT.md` for ticket details.
+Current work is selected by the user request and branch-local feature docs.
+The dashboard-polish sprint file is historical; do not start its tickets without
+checking current BACKLOG and authorization.
 
 ---
 

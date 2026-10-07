@@ -12,12 +12,11 @@ import {
   generationTypeValidator,
   modelProviderValidator,
   optionalPillarValidator,
-  pillarValidator,
   promptSectionsValidator,
   promptTypeValidator,
   workflowTypeValidator,
 } from "./validators";
-import { ownerAction, ownerMutation, ownerQuery } from "./actor";
+import { ownerAction, ownerMutation, ownerQuery, signedOwnerAction } from "./actor";
 
 // A skill — stored in the `workflows` table, which predates the name — is an
 // ordered container of steps plus an optional markdown body. Users and agents
@@ -73,7 +72,7 @@ const skillCollectionValidator = v.object({
   parentFolderId: v.optional(v.id("folders")),
 });
 
-const workflowCardValidator = v.object({
+export const workflowCardValidator = v.object({
   _id: v.id("workflows"),
   title: v.string(),
   description: v.optional(v.string()),
@@ -502,6 +501,29 @@ export const getWorkflow = ownerQuery({
   },
 });
 
+const findSkillByIngestKey = async (
+  ctx: Pick<QueryCtx, "db">, ownerUserId: string, ingestKey: string,
+) => {
+  for (const owner of resolveUserIdCandidates(ownerUserId)) {
+    const row = await ctx.db.query("workflows").withIndex("by_owner_ingestKey", (q) =>
+      q.eq("ownerUserId", owner).eq("ingestKey", ingestKey),
+    ).unique();
+    if (row) return row;
+  }
+  return null;
+};
+
+export const getSkillCreation = internalQuery({
+  args: { ownerUserId: v.string(), ingestKey: v.string() },
+  returns: v.union(v.null(), v.object({
+    workflowId: v.id("workflows"), fingerprint: v.optional(v.string()), complete: v.boolean(), stepCount: v.number(),
+  })),
+  handler: async (ctx, args) => {
+    const row = await findSkillByIngestKey(ctx, args.ownerUserId, args.ingestKey);
+    return row ? { workflowId: row._id, fingerprint: row.creationFingerprint, complete: row.creationComplete === true, stepCount: row.stepCount } : null;
+  },
+});
+
 export const createWorkflow = ownerMutation({
   args: {
     ownerUserId: v.string(),
@@ -512,6 +534,7 @@ export const createWorkflow = ownerMutation({
     pillar: optionalPillarValidator,
     tagIds: v.optional(v.array(v.id("tags"))),
     ingestKey: v.optional(v.string()),
+    creationFingerprint: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
     isFeatured: v.optional(v.boolean()),
   },
@@ -527,16 +550,14 @@ export const createWorkflow = ownerMutation({
     }
 
     if (args.ingestKey) {
-      const existing = await ctx.db
-        .query("workflows")
-        .withIndex("by_owner_ingestKey", (q) =>
-          q.eq("ownerUserId", ownerUserId).eq("ingestKey", args.ingestKey),
-        )
-        .unique();
+      const existing = await findSkillByIngestKey(ctx, ownerUserId, args.ingestKey);
       if (existing) {
+        if (args.creationFingerprint && existing.creationFingerprint !== args.creationFingerprint) {
+          throw new ConvexError("This ingestKey already belongs to another Skill creation. Use a new key or update_skill.");
+        }
         // A re-run of the same ingest refreshes the document, not the steps.
         const body = args.body?.trim();
-        if (body && body !== existing.body) {
+        if (!args.creationFingerprint && body && body !== existing.body) {
           await ctx.db.patch(existing._id, { body, updatedAt: Date.now() });
         }
         return { workflowId: existing._id, created: false };
@@ -553,6 +574,8 @@ export const createWorkflow = ownerMutation({
       pillar: args.pillar,
       tagIds: args.tagIds ?? [],
       ingestKey: args.ingestKey,
+      creationFingerprint: args.creationFingerprint,
+      creationComplete: args.creationFingerprint ? false : undefined,
       stepCount: 0,
       isPublic: args.isPublic,
       isFeatured: args.isFeatured,
@@ -854,6 +877,7 @@ export const finalizeWorkflow = internalMutation({
 
     await ctx.db.patch(args.workflowId, {
       stepCount: steps.length,
+      ...(workflow.creationFingerprint ? { creationComplete: true } : {}),
       coverAssetId: workflow.coverAssetId ?? args.coverAssetId,
       updatedAt: Date.now(),
     });
@@ -999,7 +1023,10 @@ const stepMediaInputValidator = v.object({
   url: v.optional(v.string()),
   file: v.optional(stepFileValidator),
   description: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+  agentDescription: v.optional(v.string()),
   r2Key: v.optional(v.string()),
+  r2Bucket: v.optional(v.string()),
   mediaContentHash: v.optional(v.string()),
   mediaContentType: v.optional(v.string()),
   mediaSize: v.optional(v.number()),
@@ -1020,16 +1047,16 @@ const stepMediaInputValidator = v.object({
 // Single-call workflow ingest: creates the workflow row, then ingests each
 // step's prompt + media through the canonical `ingest:ingestFromApi` path so
 // steps inherit R2 storage, thumbnails, tagging and semantic indexing.
-export const ingestWorkflowFromApi = ownerAction({
-  args: {
+const skillIngestArgs = {
     ownerUserId: v.string(),
     ingestKey: v.optional(v.string()),
+    creationFingerprint: v.optional(v.string()),
     title: v.string(),
     description: v.optional(v.string()),
     agentInstructions: v.optional(v.string()),
     // The skill as a markdown document; `![caption](asset:<id>)` embeds an image.
     body: v.optional(v.string()),
-    pillar: pillarValidator,
+    pillar: optionalPillarValidator,
     tagNames: v.optional(v.array(v.string())),
     // Collections to file the skill into.
     folderIds: v.optional(v.array(v.id("folders"))),
@@ -1051,18 +1078,22 @@ export const ingestWorkflowFromApi = ownerAction({
         media: v.optional(v.array(stepMediaInputValidator)),
       }),
     ),
-  },
+};
+
+export const ingestWorkflowFromApi = ownerAction({
+  args: skillIngestArgs,
   returns: v.object({
     workflowId: v.id("workflows"),
     stepCount: v.number(),
+    created: v.boolean(),
   }),
-  handler: async (ctx, args): Promise<{ workflowId: Id<"workflows">; stepCount: number }> => {
+  handler: async (ctx, args): Promise<{ workflowId: Id<"workflows">; stepCount: number; created: boolean }> => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
-    if (args.steps.length === 0) {
-      throw new ConvexError("A workflow needs at least one step.");
+    if (args.steps.length === 0 && !args.body?.trim() && !args.agentInstructions?.trim()) {
+      throw new ConvexError("A Skill needs a markdown body, how-to instructions or at least one step.");
     }
 
     const workflowTagIds = args.tagNames?.length
@@ -1076,7 +1107,7 @@ export const ingestWorkflowFromApi = ownerAction({
         })) as Id<"tags">[])
       : [];
 
-    const { workflowId } = (await ctx.runMutation(api.workflows.createWorkflow, {
+    const { workflowId, created } = (await ctx.runMutation(api.workflows.createWorkflow, {
       ownerUserId,
       title: args.title,
       description: args.description,
@@ -1085,10 +1116,13 @@ export const ingestWorkflowFromApi = ownerAction({
       pillar: args.pillar,
       tagIds: workflowTagIds,
       ingestKey: args.ingestKey,
+      creationFingerprint: args.creationFingerprint,
       isPublic: args.isPublic,
       isFeatured: args.isFeatured,
     })) as { workflowId: Id<"workflows">; created: boolean };
 
+    let failedStep = "steps";
+    try {
     let coverAssetId: Id<"assets"> | undefined;
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
@@ -1128,7 +1162,10 @@ export const ingestWorkflowFromApi = ownerAction({
             url: item.url,
             file: item.file,
             description: item.description,
+            sourceUrl: item.sourceUrl,
+            agentDescription: item.agentDescription,
             r2Key: item.r2Key,
+            r2Bucket: item.r2Bucket,
             mediaContentHash: item.mediaContentHash,
             mediaContentType: item.mediaContentType,
             mediaSize: item.mediaSize,
@@ -1165,6 +1202,7 @@ export const ingestWorkflowFromApi = ownerAction({
       }
     }
 
+    failedStep = "collections";
     for (const folderId of args.folderIds ?? []) {
       await ctx.runMutation(api.workflows.addSkillToCollection, {
         ownerUserId,
@@ -1173,11 +1211,74 @@ export const ingestWorkflowFromApi = ownerAction({
       });
     }
 
+    failedStep = "finalize";
     await ctx.runMutation(internal.workflows.finalizeWorkflow, {
       workflowId,
       coverAssetId,
     });
 
-    return { workflowId, stepCount: args.steps.length };
+    return { workflowId, stepCount: args.steps.length, created };
+    } catch (error) {
+      throw new ConvexError({ message: error instanceof Error ? error.message : "Skill creation failed.", failedStep, workflowId });
+    }
+  },
+});
+
+// Public agent creation uses a stable key and a fingerprint of the original
+// request. Completed retries return the existing Skill without replaying media
+// or replacing later edits; interrupted requests resume the same step keys.
+export const skillCreationFingerprint = async (input: unknown) => {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(
+      Object.entries(value).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]),
+    );
+    return value;
+  };
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical(input))));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+export const createSkillFromApi = signedOwnerAction({
+  args: {
+    ...skillIngestArgs,
+    ingestKey: v.string(),
+  },
+  returns: v.object({ workflowId: v.id("workflows"), stepCount: v.number(), created: v.boolean() }),
+  handler: async (ctx, args): Promise<{ workflowId: Id<"workflows">; stepCount: number; created: boolean }> => {
+    if (!args.ingestKey.trim() || !args.title.trim()) throw new ConvexError("Skill ingestKey and title are required.");
+    if (args.steps.length > 50) throw new ConvexError("A Skill can have at most 50 steps.");
+    if (!args.steps.length && !args.body?.trim() && !args.agentInstructions?.trim()) {
+      throw new ConvexError("A Skill needs a markdown body, how-to instructions or at least one step.");
+    }
+    for (const step of args.steps) {
+      if (!step.promptText?.trim()) throw new ConvexError("Each Skill step needs promptText.");
+      if ((step.media?.length ?? 0) > 12) throw new ConvexError("A Skill step can have at most 12 media items.");
+      for (const media of step.media ?? []) {
+        if ([media.url, media.file, media.r2Key].filter(Boolean).length !== 1) {
+          throw new ConvexError("Each Skill media item needs exactly one URL, uploaded file or inline file.");
+        }
+      }
+    }
+    const { creationFingerprint: _ignored, ...input } = args;
+    void _ignored;
+    const fingerprint = await skillCreationFingerprint(input);
+    const existing: { workflowId: Id<"workflows">; fingerprint?: string; complete: boolean; stepCount: number } | null = await ctx.runQuery(internal.workflows.getSkillCreation, {
+      ownerUserId: args.ownerUserId, ingestKey: args.ingestKey,
+    });
+    if (existing && existing.fingerprint !== fingerprint) {
+      throw new ConvexError("This ingestKey already belongs to another Skill creation. Use a new key or update_skill.");
+    }
+    if (existing?.complete) return { workflowId: existing.workflowId, stepCount: existing.stepCount, created: false };
+    if (args.folderIds?.length) await ctx.runQuery(api.folders.validateOwnedFolders, { ownerUserId: args.ownerUserId, folderIds: args.folderIds });
+    try {
+      return await ctx.runAction(api.workflows.ingestWorkflowFromApi, { ...input, creationFingerprint: fingerprint });
+    } catch (error) {
+      const partial: { workflowId: Id<"workflows"> } | null = await ctx.runQuery(internal.workflows.getSkillCreation, { ownerUserId: args.ownerUserId, ingestKey: args.ingestKey });
+      const data = error instanceof ConvexError ? error.data : undefined;
+      const failedStep = data && typeof data === "object" && "failedStep" in data && typeof data.failedStep === "string" ? data.failedStep : "creation";
+      if (partial) throw new ConvexError({ message: "Skill creation is incomplete. Retry the same request with the same ingestKey.", partial: true, skillId: `skill:${partial.workflowId}`, failedStep, cause: error instanceof Error ? error.message : "Creation failed." });
+      throw error;
+    }
   },
 });

@@ -1,264 +1,171 @@
 ---
 name: laniameda-gallery
 description: >-
-  Michael's gallery (laniameda.gallery): the agent-readable vault of the work he
-  makes and the work he likes. Use it to save anything into the gallery
-  (prompts, images, videos, references, multi-step workflows), to update or
-  delete items, to find and pull things back out (semantic search, browse by
-  collection, tag, piece type, medium or liked, resolve a copied asset:ID or
-  pack:ID), and to extract liked items from X bookmarks, Instagram, Pinterest,
-  Dribbble or websites into it. Triggers: "add this to my gallery", "save this",
-  "put this in the Love collection", "file this under CASSANDRA", "sort these into
-  characters and locations", "what do I have for...", "find in my gallery",
-  "pull the prompt for asset:...", "show me what I have for...", "pick
-  references", "go through my X bookmarks", "save my
-  bookmarks to the gallery", "extract these into the gallery".
-version: 1.4.0
+  Michael's gallery: save and find media, references, reusable Skills, Worlds,
+  collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
+  research. Use for gallery saves, organization, reference selection and retrieval.
+version: 1.5.0
 ---
 
-# laniameda gallery
+# Laniameda Gallery
 
-## What the gallery is for
+The gallery holds Michael's production work and the work he likes. An agent
+should choose the correct object, preserve provenance, organize it for retrieval,
+and read it back before reporting a save complete.
 
-The gallery is Michael's taste and his production vault, kept so that agents can
-use it. What he makes and what he likes goes in with enough structure that an
-agent who has never heard of an item can find it months later and reuse it: the
-prompt that made a shot, every location in a world, the motion references he
-saved for a landing page.
+## Start with the current contract
 
-So **a save is only done when the item is findable.** Media, a source, an agent
-description and the right tags, not just a file in a bucket. A save with no
-tags and no description is a dead record.
+The discovery index is https://gallery.laniameda.space/llms.txt. Fetch
+https://gallery.laniameda.space/skills/laniameda-gallery/SKILL.md and its sibling
+manifest.json for the deployed version, content hashes and resource URLs.
+Public resources come from the deployed repository. Owner-only world and
+maintenance policies are private data served through the same skill paths;
+public repository copies contain fetch instructions rather than private IDs.
 
-The gallery's code is the source of truth (`convex/schema.ts`,
-`convex/validators.ts` in `~/AI-video-work/laniameda/laniameda.gallery`). This
-skill describes it; `references/data-model.md` has the detail with file
-references.
+With a connector, call get_skill_instructions for SKILL.md or a skill-relative
+reference, then check_connection and discover the live tool schemas. Without
+a connector, use the dependency-free Bun client described in references/web-access.md.
+Keep credentials in the environment; never print or paste tokens into reports.
+Local source can be newer than the deployed contract until publication.
 
-## How a piece is found
+## The object model
 
-| Handle | What it is | Example |
+| Object | Purpose | Tools / reference |
 |---|---|---|
-| **Collection / folder** | Where it lives. Root collections (worlds are ALL CAPS) hold one level of folders. | `DEAR ANNETE › Animated`, `LOVE` |
-| **Piece type** | What it IS. One tag of four: `character`, `location`, `scene`, `inspiration`. Never a folder. | a Dari portrait → `character` |
-| **Medium** | The exact tag `animation`; anything without it is Live action. | a clay short → `animation` |
-| **Descriptive tags** | Typed tags: platform, content, style, lighting, camera, model… | `x`, `landing-page`, `golden-hour` |
-| **Words** | Hybrid semantic search: the pixel lane (what it looks like) plus the text lane (agent description, caption, prompt, tags). Automatic. | "clay character waving in a doorway" |
+| Media asset | Generated image/video, production reference or external inspiration; may link to its prompt | save_asset / save_assets, list_assets_page, search_gallery, preview_assets; references/ingest.md |
+| Skill | Reusable technique, recipe or tutorial with text and optional ordered prompt/media steps | create_skill, list_skills, search_skills, get_skill, update_skill, file_skill, delete_skill; references/ingest.md |
+| World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
+| Collection | Where assets and Skills live; root plus at most one level of children | list_collections, create_collection, update_collection; references/ingest.md |
+| Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
+| Story | Private text idea, script or style lock, linked to a world, visual storybook and source assets | save_story, list_stories, get_story, update_story; references/stories.md |
+| X bookmark | The post's text, author, quote and note; linked to actual media when saved | save_bookmarks / list_bookmarks; references/bookmarks.md |
+| YouTube reference | Separate video/channel research and copied stills; themes are labels rather than collection IDs | save_video_refs / list_video_refs / get_video_ref; references/video-refs.md |
+| Curated view | Reusable gallery filter preset using owner menu-filter IDs | list_menu_filters, list_filter_presets, save_filter_preset; references/stories.md |
 
-Plus provenance on the record: `sourceUrl`, `agentDescription`, `description`,
-`modelName`, `assetRole`, `ingestSource`, the linked prompt.
+Motion and Cinematography are discovery views over tagged media/Skills, not new
+storage objects. Read references/motion.md or references/cinematography.md.
+An ordinary group of images belongs in a collection or asset pack. A Skill is
+reusable knowledge; do not turn every group or prompt variation into a Skill.
+Legacy table/function names containing workflow or folder are implementation
+details. Use Skill and collection in explanations to Michael.
 
-**Pillars are legacy.** The `pillar` column is a dormant free string. When
-Michael says "pillar" he means a piece type or one of his island-bar filters.
-Resolve it to those and leave `pillar` unset, except where a contract requires
-it (cinema frames, workflow ingest).
+## Make media findable
 
-## The tagging contract
+Resolve named collections with list_collections first. Reuse an exact existing
+name case-insensitively; ask before creating a missing collection unless creation
+was requested. Pass folderIds for multiple memberships; the first is primary.
+Leave a piece uncategorized when no destination was requested or clearly fits.
 
-Every save carries, where it applies:
+- Piece type: at most one of character, location, scene, inspiration. These are
+  tags, never folders. Vehicle and costume-study are additional content tags.
+- Medium: exact animation tag for illustrated, drawn, clay, stop-motion or
+  stylized animated work. The current Live action filter includes everything
+  without that tag, including photoreal rendered output; it does not prove footage
+  was photographed. Judge the actual visual rather than its filename.
+- Reuse existing tags; keep them lowercase, singular and hyphenated. Add about
+  4–10 useful tags. Use typedTags and source: agent for inferred labels. Preserve
+  the source's model name only when stated; never guess it from a look or prompt.
+- Write agentDescription on agent-created media and video references: one or two
+  plain sentences, at most about 45 words/400 characters, describing the actual
+  subject/look and why it was kept. Keep Michael's caption in description and his
+  own notes in userNote. Stories use title/body; Skills use title/description/body.
+- Preserve sourceUrl as the original post/page permalink, full prompt and
+  generation parameters, assetRole, ingestSource: agent, and stable ingestKey.
+  Use inspiration_capture for someone else's work, reference for material pulled
+  into production, generated_output for Michael's own result.
 
-1. **Piece type**: one of `character`, `location`, `scene`, `inspiration`.
-   Someone else's work he liked is `inspiration`. Pieces of his own worlds are
-   `character` / `location` / `scene`.
-2. **Medium**: `animation` for drawn, illustrated, anime, clay, stop-motion or
-   3D-animated work. Exactly that word; `animated` or `anime` alone don't count.
-3. **Platform** (`category: "platform"`): `x`, `instagram`, `pinterest`,
-   `dribbble`, `behance`, `awwwards`, `youtube`, `website`, `midjourney`,
-   `higgsfield`, `krea`.
-4. **What it is** (`content_type` or `design_type`): one to three, e.g.
-   `motion-design`, `landing-page`, `portrait`, `product-shot`, `title-card`.
-5. **How it looks** (`style`, `lighting`, `camera_angle`, `composition`,
-   `color`, `environment`): only what's visibly true, two to five.
-6. **Model** (`model_name`): only when Michael or the source names it. Never
-   infer a model from how a prompt reads.
+The API accepts some incomplete metadata for compatibility. An accepted upload
+is not yet a complete agent save if its provenance or retrieval fields are missing.
+Semantic indexing is asynchronous; stored readback and search readiness are
+separate checks. Leave the retired pillar field unset on ordinary saves.
 
-Rules for tags:
+## Find and inspect
 
-- **Reuse before inventing.** Read his tags first (query `tags`, or MCP
-  `list_tags`). If `cinematic` exists, don't add `filmic`; point the synonym at
-  it with `tags:addTagAliases` so later saves resolve it automatically. The
-  ingest script warns on stderr when a save would create a new tag.
-- Lowercase, singular, hyphenated: `golden-hour`. Matching folds case, `-`,
-  `_` and spaces, but not plurals.
-- Tags you infer get `source: "agent"` so his own tags stay distinguishable.
-- Keep it to about 4–10 tags. Tags are for retrieval, not for describing
-  everything.
+Use search_gallery for meaning or visual similarity; find_similar expands around
+an asset. Use list_assets_page with filters and its opaque cursor for a complete
+inventory. Continue until isDone: true; list_assets is a bounded convenience read.
+For a world, includeDescendants includes its parts; an empty root does not mean an
+empty world. The Bun client's all_assets command collects complete pages.
 
-And on the record itself:
+Use preview_assets to visually compare numbered references before selecting;
+get_gallery_item returns prompt, tags, source and media for asset:<id> or pack:<id>.
+Search Skills, Stories, bookmarks and YouTube references with their own tools;
+asset semantic search does not search every object. Inspect a video beyond its
+poster before claiming anything about movement or the first 30 seconds.
 
-- **`agentDescription`**, required on every agent save: one or two plain
-  sentences, 45 words at most, on what it shows (subject, setting, action) and
-  how it looks (medium, style, light, framing), plus why it was kept and
-  `by @handle` for someone else's work. Written for retrieval: it leads the
-  text lane of search and it's the first thing a future agent reads. Keep it
-  out of `description`, which is Michael's own caption. Anything saved without
-  one (extension, Telegram) gets an automatic description marked `auto`, which
-  an agent may replace; an agent-written one is never overwritten.
-- **`sourceUrl`**: the permalink of the post or page it came from.
-- **`assetRole`**: `inspiration_capture` (liked work), `reference` (pulled in
-  for a production), `generated_output` (his own generations).
-- **`ingestSource: "agent"`** and a stable **`ingestKey`**
-  (`<platform>:<native id>:<n>` for captures), so reruns merge instead of
-  duplicating.
-- **Collection**: only when Michael names one or the fit is certain. Match
-  existing names case-insensitively; ask before creating a missing one.
+## Filing and publication rules
 
-## Route the request
+Fetch authenticated references/worlds.md before filing, selecting world references,
+writing a world story or generating a character. Read its native style lock too.
+Current human direction governs creative intent; code/schema and live verified
+behavior define supported payloads. Old memories, copied lists and historical
+handoffs do not override a newer rule.
 
-| Michael wants | Go to |
-|---|---|
-| Save, find or revise a textual idea, script or world style lock; reusable gallery filters | `references/stories.md` |
-| Anything about a world: Dear Annete, Daddy Issues, Andromeda (Ann / Retro-future), its characters, locations, styles | `references/worlds.md` first |
-| Save a prompt, image, video or reference | `references/ingest.md` (examples: `references/ingest-examples.md`) |
-| File into a collection, folder or world; publish a world | `references/ingest.md`, "Filing" and "Publishing" |
-| A multi-step preset, tutorial or recipe: a **skill** (the table and ingest kind still say `workflow`) | `references/ingest.md`, "Skills" |
-| Find a skill, retag it, file it into a collection | `references/query.md`, "Skills" |
-| Camera moves or cinematography references: packs tagged `cinematography`, their own tab (not Skills) | `references/cinematography.md` |
-| A cinema frame (film still, no prompt) | `references/ingest.md`, "Cinema Inspiration" |
-| Update or delete an item | `references/ingest.md` and the update examples |
-| Find, browse, pull a prompt, download media | Query recipes below, then `references/query.md` |
-| Go through X bookmarks, Instagram, Pinterest, sites and save what he liked | `references/extraction.md` |
-| Save or find a YouTube video as research: competitors, formats, animation styles, what performs | `references/video-refs.md` |
-| Bookmark a post from X (link in, text kept), find posts by what they say | `references/bookmarks.md` |
-| Save or find motion design: animated UI, morph transitions, kinetic type, product-launch videos, templates | `references/motion.md` |
-| What a field, tag category or enum means | `references/data-model.md` |
-| Access, env, deployment, keeping this skill current | `references/maintenance.md` |
+- Keep worlds and exact rendering lanes coherent. Styles are tags; retain
+  established project parts. CASSANDRA and ART require Michael's request for
+  reorganization. Read-only inspection is allowed during an authorized audit.
+- Pinterest stays inspiration_capture in inspiration collections, with optional
+  world-reference tags. Source WebP saves retain INSPIRATION VAULT and never join
+  worlds/storybooks; derived WebP thumbnails are exempt.
+- A visual storybook is a collection of selected frames; its evolving text belongs
+  in native Stories/Scripts. Maintain links and revision history.
+- Preserve public, featured and liked flags when filing. Michael's curator star
+  publishes/features an asset; never star, publish, feature or set the public taste
+  collection unless requested. Non-curator stars are private; isLiked is separate.
+- Save a generation prompt with its actual result media. If that requested media
+  is unavailable, report it and ask before a prompt-only fallback. Native textual
+  Stories and explicitly requested text recipes need no placeholder media.
+- Extract text from a screenshot whose payload is a prompt; do not treat that
+  screenshot as the generated result. External inspiration and website screenshots
+  remain valid media assets when they are the requested reference.
+- For an X media save, capture every attachment, full prompt and every --sref;
+  use the post permalink, then link bookmark text. Bookmarking a post alone can
+  retain only its preview; that is not an original-video save.
 
-## Query recipes
+## Character-sheet generation
 
-Written for `scripts/query.ts` (see `references/query.md` for every field); with
-MCP tools or `scripts/gallery.mjs`, use the matching tool listed under Access.
+For Michael's character sheets, use `leera-character-reference-sheet`: generate
+a detailed face close-up first, review it, generate separate front/back body
+masters from the original design plus accepted face, then assemble with only
+one visible face. Suppress the front-body face in the final composite and retain
+the original masters. A one-call three-view sheet is not this workflow.
 
-- **"Find me X"**: `search` with a plain-language query. Hybrid by default: it
-  matches what pieces look like AND what their words say. Narrow with filters:
-  ```json
-  {"action":"search","query":"clay character waving","pieceType":"character","medium":"animation","limit":10}
-  ```
-  `mode: "visual"` for looks-only, `"text"` for described-alike. Results carry
-  `agentDescription`, `score`, `visualScore`, `textScore`.
-- **Browse by handle**: `list` with `tagNames` (all), `anyTagNames`,
-  `excludeTagNames`, `pieceType`, `medium`, `onlyLiked`, `onlyStarred`,
-  `folderId` (+ `includeDescendants`). Tag names match canonically.
-- **More like this**: `similar` with `assetId` (visual by default).
-- **"How did I do X" / "find the recipe for Y"**: skills are their own search.
-  `searchSkills` ranks by meaning over title, description, tags, models, step
-  labels and the markdown body; `skills` lists with `tagNames` / `folderId`;
-  `getSkill` (or `getById` with `skill:<id>` / `workflow:<id>`) reads one whole.
-  ```json
-  {"action":"searchSkills","query":"turn live footage into frame-by-frame paint","limit":5}
-  ```
-- **Look before you pick**: `preview` composes the hits of a search (or a
-  listing, or explicit `ids`) into numbered contact-sheet JPEGs. Read the
-  sheet, pick by number, map numbers to `asset:<id>` from `sheets[].cells`.
-  One image read shows up to 48 pieces, so browse visually instead of judging
-  from captions:
-  ```json
-  {"action":"preview","query":"moody rainy street at night","pieceType":"location","limit":24,"outDir":"<scratchpad>/previews"}
-  ```
-  Default to this whenever Michael asks you to find, choose or compare
-  references: search narrows by words, the sheet lets you judge by eye.
-- **Hand me N references**: `refs` searches (or lists), downloads the top
-  matches and writes `refs.json` + `refs.md` with each piece's description,
-  tags, prompt and source. The one call for "pull references for this task".
-- **YouTube research** ("what do car channels do", "a video in this style"):
-  video references are their own object with their own listing, sorted by views
-  or by date. `list_video_refs` / `scripts/video-refs.ts`:
-  ```json
-  {"action":"list","collection":"youtube-cars-competitors","sort":"views","limit":20}
-  ```
-  `search` over assets does not return them (`references/video-refs.md`).
-- **X posts he bookmarked** ("what did I save about alpha mattes", "posts by
-  @handle"): bookmarks keep the post's text. `list_bookmarks` /
-  `scripts/bookmarks.ts` matches words in the text, author or note; `search`
-  with `"tagNames":["bookmark"]` finds them by meaning, and each hit carries
-  `post` (`references/bookmarks.md`).
-  ```json
-  {"action":"list","search":"alpha matte","limit":10}
-  ```
-- **Already saved?**: `sources` with a list of permalinks, before any
-  extraction run.
-- **Which tags exist**: `tags` (optionally `search`), before inventing one.
-- **A copied ID** (`asset:<id>`, `pack:<id>`): `getById` with the token
-  verbatim.
-- **The bytes**: `download` to the session scratchpad.
+Dear Annete's live-action cast must read as believable human photography, like
+the Dari photoreal direction. Adding skin pores to a LIZ/Arcane/game-style face
+does not qualify. Keep LIZ animated anchors and new live-action interpretations
+separate in filing and storybooks; read `references/worlds.md` before generation.
+Respect the user's cumulative budget and test scope rather than launching the
+whole cast. Save full prompts, declared completions and stage/source provenance.
 
-## Hard rules
 
-- **Worlds are strict.** A piece joins a world only when its story world AND its look
-  match (`references/worlds.md`). Don't touch CASSANDRA or ART unless Michael asks.
-- **Never save a prompt without its image or video** unless Michael says yes to
-  `allowPromptOnly`. If the media can't be fetched, stop and ask.
-- **Textual stories are their own records.** Use `save_story` for ideas, scripts
-  and style locks. They need no image, no placeholder asset, and no `allowPromptOnly`.
-- **Pinterest is reference material.** File it into inspiration collections, with
-  `inspiration` and `inspiration_capture`; world tags make relevant references
-  accessible without turning them into the world's generated cast or scenes.
-- **A screenshot of a prompt is not the asset.** Read the text into
-  `promptText`; only generated outputs are assets.
-- **Never star, feature, publish or set the taste collection** unless Michael
-  asked to publish. Star equals featured, and featuring makes a piece public.
-- **Never create folders named Characters, Locations, Scenes or Inspirations.**
-  Those are tags.
-- **Write `agentDescription` on every save you make.** No description, no
-  save.
-- **Leave `pillar` unset** on ordinary saves.
-- **Read back after saving** and report the `asset:<id>`s, plus anything
-  skipped and why.
+## Access and safe completion
 
-## Access
-
-Three ways in, tried in this order. All three reach the same gallery.
-
-**1. Gallery MCP tools.** If tools named `check_connection`, `search_gallery`,
-`save_assets` … are in the session, use them. Start with `check_connection`;
-the token selects the owner. The server is hosted at
-`https://gallery.laniameda.space/api/mcp` (OAuth sign-in or a bearer token,
-owner only); the local stdio server is the same tools plus `filePath`.
-
-**2. `scripts/gallery.mjs`, when the session has no gallery MCP** (cloud
-sandboxes, a fresh machine). The same tools from a shell, no install: Node 18+
-or bun, and `LANIAMEDA_GALLERY_AGENT_TOKEN` in the environment.
+1. Prefer authenticated Gallery MCP at https://gallery.laniameda.space/api/mcp.
+2. Without MCP, run Bun scripts/gallery.mjs; token auth reaches the same tools.
+3. Direct Convex scripts are local/admin compatibility tools only and require
+   signed owner auth. Read authenticated references/maintenance.md first.
 
 ```bash
-node <this skill>/scripts/gallery.mjs check
-node <this skill>/scripts/gallery.mjs tools                 # every tool, one line each
-node <this skill>/scripts/gallery.mjs schema save_assets    # one tool: full input schema
-node <this skill>/scripts/gallery.mjs search_gallery '{"query":"rainy street at night","limit":8}'
-node <this skill>/scripts/gallery.mjs preview_assets '{"query":"clay character"}' --out <scratchpad>/previews
+bun <this skill>/scripts/gallery.mjs check
+bun <this skill>/scripts/gallery.mjs tools
+bun <this skill>/scripts/gallery.mjs schema save_assets
+bun <this skill>/scripts/gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
 ```
 
-Arguments are the tool's JSON (`@file.json` or `-` for stdin work too).
-`preview_assets` writes its contact sheet to `--out` and prints the path; read
-that image. If the token is missing, ask Michael for it; never guess one, and
-never print it. If the host is unreachable from a cloud sandbox, the
-environment's network allowlist is missing the gallery hosts
-(`references/maintenance.md`, "Cloud sessions").
+Upload local bytes with prepare_uploads, run its returned PUT commands, then
+save_assets using uploadId (up to 50 per batch). Supply posterUploadId for video
+cards. To change an existing video's poster, use set_video_poster; replacing media
+with an image changes the actual asset and is not a thumbnail edit.
 
-Local files go in the same way on both paths: `prepare_uploads` with the
-paths, run the returned `curl` commands, then one `save_assets` call with the
-`uploadId`s (up to 50 per call; videos also get a poster frame as
-`posterUploadId`).
+Read back persisted IDs, memberships, tags, source, prompt and media after saves.
+Partial saves can return HTTP 207 with ok:false, partial:true, persisted result,
+failedStep and requestedFolderIds. Inspect/repair that ID rather than creating a
+fresh duplicate. Batches report persisted and partial counts per item. Stable
+ingest keys make create retries safe; use update for replacements and additive
+membership/tag deltas for filing. Pass the last-read expectedRevision on Story
+changes; exact retries/new Stories have their own idempotent save behavior.
 
-**3. Direct Convex scripts, on Michael's own machine only.** They need the
-repo's `.env.local` (`CONVEX_URL`, `KB_OWNER_USER_ID`,
-`CONVEX_AUTH_PRIVATE_KEY`), so they do not exist in a cloud session, and they
-are never the path for multi-user agents.
-
-```bash
-bun run ~/.agents/skills/laniameda-gallery/scripts/ingest.ts '<JSON>'
-bun run ~/.agents/skills/laniameda-gallery/scripts/query.ts '<JSON>'
-```
-
-The recipes in this skill are written for `query.ts` / `ingest.ts`. On paths 1
-and 2 the same work is done by the MCP tools: `search` → `search_gallery`,
-`list` → `list_assets`, `similar` → `find_similar`, `preview` →
-`preview_assets`, `sources` → `check_sources`, `tags` → `list_tags`,
-`getById` → `get_gallery_item`, `searchSkills` / `skills` / `getSkill` →
-`search_skills` / `list_skills` / `get_skill`, a save → `save_asset` /
-`save_assets` / `save_prompt`, folders → `list_collections` and friends.
-Video references have their own tools on every path: `list_video_refs`,
-`get_video_ref`, `save_video_refs`, `update_video_ref`, `delete_video_ref`,
-or `scripts/video-refs.ts` directly. So do bookmarks: `save_bookmarks`,
-`list_bookmarks`, `set_bookmark_note`, or `scripts/bookmarks.ts`.
-Deployment rules for path 3 are in `references/maintenance.md` (one deployment,
-`dev:perfect-buffalo-375`; prefix `CONVEX_DEPLOYMENT` on every CLI call).
+See references/web-access.md for the importable client, references/ingest.md for
+writes, references/query.md for retrieval, and references/data-model.md for schema.
+Report what was saved, skipped or remains partial; never equate a running job,
+preview, draft or an API acceptance with a verified final asset.

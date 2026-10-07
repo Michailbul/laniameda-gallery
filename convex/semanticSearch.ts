@@ -18,6 +18,7 @@ import {
   optionalPillarValidator,
 } from "./validators";
 import { ownerAction } from "./actor";
+import { workflowCardValidator } from "./workflows";
 
 const getSemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentsByIds",
@@ -712,6 +713,10 @@ const listSkillCardsByIdsQueryRef = makeFunctionReference<"query">(
 const listWorkflowsQueryRef = makeFunctionReference<"query">(
   "workflows:listWorkflows",
 );
+const scoredSkillCardValidator = v.object({
+  ...workflowCardValidator.fields,
+  score: v.optional(v.number()),
+});
 
 // Skills ranked by meaning. Skills are embedded on their words only (title,
 // description, tags, models, step labels, markdown body), so this runs the
@@ -729,7 +734,7 @@ export const searchSkills = ownerAction({
     previewLimit: v.optional(v.number()),
   },
   // Same shape as workflows:listWorkflows cards, plus the text-lane score.
-  returns: v.array(v.any()),
+  returns: v.array(scoredSkillCardValidator),
   handler: async (ctx, args) => {
     const query = args.query.trim();
     const ownerCandidates = resolveScope("mine", args.ownerUserId);
@@ -770,8 +775,8 @@ export const searchSkills = ownerAction({
       excludeTagNames: args.excludeTagNames,
       folderId: args.folderId,
       previewLimit,
-    })) as Array<{ _id: string } & Record<string, unknown>>;
-    const results: Array<Record<string, unknown>> = ranked.map((card) => ({
+    })) as Array<Infer<typeof workflowCardValidator>>;
+    const results: Array<Infer<typeof scoredSkillCardValidator>> = ranked.map((card) => ({
       ...card,
       score: scored.get(card._id),
     }));
@@ -785,7 +790,7 @@ export const searchSkills = ownerAction({
         folderId: args.folderId,
         limit,
         previewLimit,
-      })) as Array<{ _id: string } & Record<string, unknown>>;
+      })) as Array<Infer<typeof workflowCardValidator>>;
       const seen = new Set(results.map((card) => card._id as string));
       for (const card of lexical) {
         if (results.length >= limit) break;

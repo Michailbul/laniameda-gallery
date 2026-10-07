@@ -25,8 +25,9 @@ status, and type filters and keyword search over the returned texts.
 
 ## Revise without losing the original
 
-`update_story` takes `id`, changed fields, and `expectedRevision` from the last
-read. Revisions preserve the old full text and metadata. A stale edit is rejected;
+`update_story` requires `id`, changed fields, and a positive `expectedRevision`
+from the last read. Re-saving changed text under an existing `ingestKey` also
+requires its last-read revision; omit it only for a new record or an exact retry. Revisions preserve the old full text and metadata. A stale edit is rejected;
 reload and reconcile instead of overwriting. Exact retries of `save_story` do not
 create extra versions. `get_story_revisions` retrieves older versions.
 Omitted fields are preserved on a patch; `folderId: null` and `storybookId: null`
@@ -43,15 +44,15 @@ Keep one `kind: "style-lock"` entry for each world/format/look, with a stable
 `ingestKey` such as `style-lock:<world>:<look>`. Lock rendering medium, geometry,
 palette, light, architecture, cast identity and wardrobe, forbidden mismatches,
 and actual anchor `assetIds`. Update the same record as the direction evolves,
-using `expectedRevision`. Read it and `worlds.md` before creating scenes or sheets.
+using `expectedRevision`. Read it and the authenticated content of `references/worlds.md` before creating scenes or sheets.
 
-Dear Annete's main animation direction is LIZ. Older painted/cel explorations
-are development material; Unreal Engine and real live action stay separate.
-The combined Daddy Issues / Retro-future universe has distinct look tags and
-never combines incompatible looks in one visual storybook.
+The private world policy records the current world map and exact rendering
+lanes. Read its current content rather than copying world identities into this
+public reference. A visual storybook keeps one coherent style and cast.
 
 ## Gallery presets
 
+`list_menu_filters` reads the owner-curated pill IDs.
 `list_filter_presets` reads saved filter combinations. `save_filter_preset`
 upserts by name. Filters are `selectedFilterIds` and `excludedFilterIds` of
 curated **menuFilters**, not tag IDs, plus `folderId`, `mediaKind`, `onlyLiked`,

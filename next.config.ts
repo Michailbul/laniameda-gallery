@@ -7,6 +7,18 @@ const nextConfig: NextConfig = {
   },
   // __dirname is undefined in ESM contexts on Vercel; use cwd for tracing root.
   outputFileTracingRoot: path.join(process.cwd()),
+  // Serve canonical skill sources from the deployment, including on Vercel.
+  outputFileTracingIncludes: {
+    "/llms.txt": ["./skills/laniameda-gallery/SKILL.md"],
+    "/skills/laniameda-gallery/\\[\\.\\.\\.resource\\]": [
+      "./skills/laniameda-gallery/SKILL.md",
+      "./skills/laniameda-gallery/references/*.md",
+      "./skills/laniameda-gallery/scripts/gallery.mjs",
+      "./skills/laniameda-gallery/scripts/gallery-client.mjs",
+    ],
+    "/api/agent/instructions": ["./skills/laniameda-gallery/**"],
+    "/api/mcp": ["./skills/laniameda-gallery/**"],
+  },
   webpack: (config, { dev }) => {
     if (dev) {
       const existingIgnored = config.watchOptions?.ignored;

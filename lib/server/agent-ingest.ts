@@ -7,11 +7,15 @@ const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const addAssetFoldersMutation = makeFunctionReference<"mutation">(
   "assets:addAssetFolders",
 );
+const validateOwnedFoldersQuery = makeFunctionReference<"query">("folders:validateOwnedFolders");
 
 export const MAX_INGEST_BATCH = 50;
 
-const readFolderIds = (value: unknown) => {
-  if (!Array.isArray(value)) return undefined;
+export const readAgentFolderIds = (value: unknown) => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 100 || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new Error("folderIds must be an array of at most 100 non-empty collection IDs.");
+  }
   return Array.from(
     new Set(
       value
@@ -21,6 +25,23 @@ const readFolderIds = (value: unknown) => {
     ),
   );
 };
+
+export const validateAgentFolders = async (
+  client: ReturnType<typeof getServerConvexClient>, ownerUserId: string, folderIds: string[],
+) => {
+  if (folderIds.length) await client.query(validateOwnedFoldersQuery, { ownerUserId, folderIds: [...new Set(folderIds)] });
+};
+
+export class PartialAgentSaveError extends Error {
+  constructor(public readonly result: Record<string, unknown>, public readonly requestedFolderIds: string[], cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Collection filing failed after saving.");
+    this.name = "PartialAgentSaveError";
+  }
+
+  toResult() {
+    return { ...this.result, ok: false, partial: true, result: this.result, failedStep: "collections", requestedFolderIds: this.requestedFolderIds, error: this.message };
+  }
+}
 
 const optionalString = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -40,8 +61,10 @@ export const ingestForAgent = async (agent: AgentAuthContext, data: Record<strin
     r2Key: _ignoredR2Key,
     ...rest
   } = data;
-  const folderIds = readFolderIds(rawFolderIds);
+  const folderIds = readAgentFolderIds(rawFolderIds);
   const requestedPrimaryFolderId = optionalString(rest.folderId) ?? folderIds?.[0];
+  const client = getServerConvexClient(agent.ownerUserId);
+  await validateAgentFolders(client, agent.ownerUserId, [...(folderIds ?? []), ...(requestedPrimaryFolderId ? [requestedPrimaryFolderId] : [])]);
 
   const uploadId = optionalString(rawUploadId);
   const media = uploadId
@@ -66,15 +89,16 @@ export const ingestForAgent = async (agent: AgentAuthContext, data: Record<strin
     ingestSource: typeof rest.ingestSource === "string" ? rest.ingestSource : "agent",
   };
 
-  const client = getServerConvexClient(agent.ownerUserId);
   const result = await client.action(ingestAction, payload);
-  const collections =
-    result.assetId && folderIds
-      ? await client.mutation(addAssetFoldersMutation, {
+  let collections;
+  if (result.assetId && folderIds) {
+    try {
+      collections = await client.mutation(addAssetFoldersMutation, {
           ownerUserId: agent.ownerUserId,
           assetId: result.assetId,
           folderIds,
-        })
-      : undefined;
+      });
+    } catch (error) { throw new PartialAgentSaveError(result, folderIds, error); }
+  }
   return { result, collections };
 };

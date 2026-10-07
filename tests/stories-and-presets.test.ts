@@ -31,6 +31,8 @@ describe("private textual stories", () => {
     const history = await callAsOwner(listStoryRevisions)(ctx, { ownerUserId: "owner", id: first.id });
     expect(history).toHaveLength(1); expect(history[0].body).toBe(text.body);
     await expect(callAsOwner(saveStory)(ctx, { ...text, body: "Stale overwrite", expectedRevision: 1 })).rejects.toThrow("Story changed");
+    await expect(callAsOwner(saveStory)(ctx, { ...text, body: "Stale overwrite without revision" })).rejects.toThrow("expectedRevision is required");
+    expect(await callAsOwner(saveStory)(ctx, { ...text, body: "She catches his sleeve before the tram moves." })).toEqual({ id: first.id, created: false, revision: 2 });
     const current = await callAsOwner(getStory)(ctx, { ownerUserId: "owner", id: first.id });
     expect(current.body).toBe("She catches his sleeve before the tram moves.");
     expect((await callAsOwner(listStoryRevisions)(ctx, { ownerUserId: "owner", id: first.id })).length).toBe(1);

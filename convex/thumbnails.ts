@@ -11,7 +11,7 @@ import {
   CARD_THUMB_MAX_WIDTH,
   CARD_THUMB_WEBP_QUALITY,
 } from "../lib/card-thumbnail";
-import { ownerAction } from "./actor";
+import { ownerAction, signedOwnerAction } from "./actor";
 
 // ── Card thumbnail encoder ──────────────────────────────────────────────────
 // One encoder for every ingest path, so a tile costs the same bytes whichever
@@ -153,6 +153,25 @@ export const storeCardThumbnail = async (
 const replaceAssetThumbnailRef = makeFunctionReference<"mutation">(
   "assets:replaceAssetThumbnail",
 );
+
+const getAssetRef = makeFunctionReference<"query">("assets:getAsset");
+
+// A separate contract prevents a poster image from replacing a playable video.
+export const setVideoPosterFromApi = signedOwnerAction({
+  args: { ownerUserId: v.string(), assetId: v.id("assets"), posterBase64: v.string() },
+  returns: v.id("assets"),
+  handler: async (ctx, args) => {
+    const asset = await ctx.runQuery(getAssetRef, { ownerUserId: args.ownerUserId, id: args.assetId });
+    if (!asset || asset.kind !== "video") throw new ConvexError("An owned video asset is required.");
+    if (args.posterBase64.length > 8_000_000) throw new ConvexError("Poster is too large.");
+    const thumb = await storeCardThumbnail(ctx, Buffer.from(args.posterBase64, "base64"));
+    if (!thumb) throw new ConvexError("The poster image could not be decoded.");
+    return await ctx.runMutation(replaceAssetThumbnailRef, {
+      ownerUserId: args.ownerUserId, assetId: args.assetId,
+      newThumbR2Key: thumb.r2Key, thumbWidth: thumb.width, thumbHeight: thumb.height, thumbSize: thumb.size,
+    }) as Id<"assets">;
+  },
+});
 
 export const processAndReplaceThumbnail = ownerAction({
   args: {

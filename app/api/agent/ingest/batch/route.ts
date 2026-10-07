@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAgentAuth, AgentAuthError } from "@/lib/server/agent-auth";
-import { MAX_INGEST_BATCH, ingestForAgent } from "@/lib/server/agent-ingest";
+import { MAX_INGEST_BATCH, ingestForAgent, PartialAgentSaveError } from "@/lib/server/agent-ingest";
 
 export const maxDuration = 300;
 
@@ -38,6 +38,10 @@ export async function POST(request: Request) {
           const { result, collections } = await ingestForAgent(agent, item as Record<string, unknown>);
           results[index] = { index, ok: true, ...result, collections };
         } catch (error) {
+          if (error instanceof PartialAgentSaveError) {
+            results[index] = { index, ...error.toResult() };
+            continue;
+          }
           results[index] = {
             index,
             ok: false,
@@ -49,7 +53,8 @@ export async function POST(request: Request) {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 
     const saved = results.filter((entry) => entry.ok).length;
-    return NextResponse.json({ ok: saved === items.length, saved, failed: items.length - saved, results });
+    const partial = results.filter((entry) => entry.partial).length;
+    return NextResponse.json({ ok: saved === items.length, saved, partial, persisted: saved + partial, failed: items.length - saved, results });
   } catch (error) {
     if (error instanceof AgentAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

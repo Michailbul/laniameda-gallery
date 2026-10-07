@@ -68,8 +68,8 @@ export const youTubeWatchUrl = (id: string) => `https://www.youtube.com/watch?v=
 export const youTubeEmbedUrl = (id: string, autoplay = false) =>
   `https://www.youtube-nocookie.com/embed/${id}?rel=0${autoplay ? "&autoplay=1" : ""}`;
 
-// YouTube's own stills: the uploaded thumbnail, and three frames it captures
-// at roughly 25, 50 and 75 percent of the video. Ordered best quality first.
+// YouTube's thumbnail and numbered auto stills. Numbered URLs do not prove
+// capture times or positions; chronological storyboards use a separate API.
 export const youTubeThumbnailCandidates = (id: string) =>
   ["maxresdefault", "sddefault", "hqdefault"].map(
     (name) => `https://i.ytimg.com/vi/${id}/${name}.jpg`,
@@ -79,6 +79,19 @@ export const youTubeFrameCandidates = (id: string, index: 1 | 2 | 3) =>
   [`maxres${index}`, `sd${index}`, `hq${index}`].map(
     (name) => `https://i.ytimg.com/vi/${id}/${name}.jpg`,
   );
+
+export const videoRefStillMetadata = (frame: { label?: string; sourceKind?: "youtube-auto-still" | "supplied-still"; sourceUrl?: string }, index: number) => {
+  // Legacy default labels were invented by ingest from still numbers. Avoid
+  // returning those percentages as if somebody had sought the source video.
+  const legacyAuto = /^(25|50|75)%$/.test(frame.label ?? "");
+  const sourceKind: "youtube-auto-still" | "supplied-still" | "legacy-unverified" = frame.sourceKind ?? (legacyAuto ? "youtube-auto-still" : "legacy-unverified");
+  return {
+    label: sourceKind === "youtube-auto-still" ? `YouTube still ${index + 1}` : frame.label,
+    sourceKind,
+    sourceUrl: frame.sourceUrl,
+    positionVerified: false as const,
+  };
+};
 
 export const normalizeLabel = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, "-");

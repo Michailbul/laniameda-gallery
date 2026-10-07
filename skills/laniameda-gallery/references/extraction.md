@@ -69,9 +69,8 @@ in `references/ingest.md`).
 ## No media
 
 A text post on X is saved as a bookmark: the gallery keeps the post's words and
-shows it as a post card (`references/bookmarks.md`). Threads worth digesting
-still go to `laniameda-x-post` / `laniameda-youtube-digest`, which digest into
-`laniameda-hq/content-kb/`.
+shows it as a post card (`references/bookmarks.md`). Longer digests may become a requested reusable Skill or native Story while
+retaining the original bookmark/source link.
 
 Articles and link-only items from other sources have nothing for the gallery
 to show. Don't save them prompt-only (that needs Michael's explicit yes); list

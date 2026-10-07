@@ -1,27 +1,25 @@
 # laniameda.gallery
 
-A personal vault for AI creators. Save prompts, generated images, reference shots,
-and design inspiration via Telegram — they land in a searchable gallery, organized
-by content pillar, tagged automatically, indexed for semantic search.
+A personal AI creatorship vault for production media and external references,
+organized so people and agents can find, reuse and preserve source provenance.
 
-Built originally as Michael's own creative-work vault. Open-sourced so anyone
-running their own AI generation workflows can self-host the same setup.
+## Objects and agent access
 
-## What it does
+- Media assets: images/videos with sources, descriptions, tags and linked prompts.
+- Skills: reusable techniques/recipes with text and optional prompt/media steps.
+- Worlds: story universes represented by root collections; collections group media
+  and Skills and support one child level. Exact rendering styles are tags.
+- Stories/Scripts: private text ideas, scripts and style locks with revision history.
+- X bookmarks: original post text and linked saved media.
+- YouTube references: separate video/channel research with copied stills and themes.
+  Motion/Cinematography are tagged asset/Skill views.
 
-You send an image, prompt, video, or URL to your Telegram bot. It gets ingested
-into Convex, classified into one of three pillars (creators / designs / dump),
-tagged by model and style, and made searchable in a web gallery. Agents can
-write to and query the same vault via a documented ingest API.
-
-| Pillar | What goes here |
-|---|---|
-| **Creators** | AI character / portrait / fashion prompts and outputs |
-| **Designs** | Website, UI, component, mobile design references |
-| **Dump** | Anything useful that doesn't fit the others |
-
-One repo-local agent skill handles the read and write paths:
-- `skills/laniameda-gallery` — save, update, delete, search, retrieve, and extract liked items from X / Instagram / sites into the gallery
+Start agents at /llms.txt, the canonical skills/laniameda-gallery/SKILL.md and
+authenticated Gallery MCP. Without a connector use the dependency-free Bun client.
+The deployed manifest reports version/fingerprints. Owner-only world/maintenance
+policy is private agentInstructions data; public copies are fetch bootstraps.
+Do not publish private IDs or credentials. Legacy pillar/workflow/folder/pack
+names are compatibility details, not additional user-facing organization.
 
 ## Stack
 
@@ -71,7 +69,7 @@ CURATION_ADMIN_SECRET=<any long random string>
 
 Run Convex dev (in one terminal):
 ```bash
-bunx convex dev
+bun run convex:dev
 ```
 
 Run the app (in another):
@@ -114,7 +112,7 @@ bun run dev          # Start Next.js
 bun run lint         # Lint
 bun test             # Run the complete backend, UI-helper, and extension suite
 bun run typecheck    # Type check
-bunx convex dev      # Convex local dev (run separately)
+bun run convex:dev   # Canonical cloud backend; serves real gallery data
 bunx convex codegen  # Regenerate Convex types after schema changes
 ```
 
@@ -123,9 +121,13 @@ bunx convex codegen  # Regenerate Convex types after schema changes
 See [`convex/schema.ts`](convex/schema.ts) for the data model. Key tables:
 
 - `prompts` — prompt text, type, domain, tags, owner scope
-- `assets` — images/videos with `modelName`, `pillar`, linked to prompts
+- `assets`, `assetFolders`, `assetTags` — media with source/prompt and multiple memberships
 - `designInspirations` — design references with platform/workflow type metadata
-- `assetPacks` — grouped collections (e.g. character pose packs)
+- `workflows`, `workflowFolders` — internal storage for reusable Skills
+- `assetPacks` — internal media grouping, distinct from collections/Skills
+- `stories`, `storyRevisions`, `galleryPresets` — private text and curated views
+- `bookmarks`, `videoRefs` — X post text and separate YouTube research
+- `agentInstructions` — private owner skill resources with version/hash guards
 - `tags` — tag system with categories (model_name, style, content_type, etc.)
 - `folders` — optional user-defined folder organization
 - `semanticDocuments` — vector index for semantic search
@@ -155,7 +157,7 @@ The `agent-docs/` directory has the full set:
 - [`ENV_MATRIX.md`](agent-docs/ENV_MATRIX.md) — every env var, where it's read, and what for
 - [`SEMANTIC_SEARCH.md`](agent-docs/SEMANTIC_SEARCH.md) — Gemini embedding + vector index setup
 - [`DESIGN.md`](agent-docs/DESIGN.md) — UI design system
-- [`OPENCLAW-EXPLANATION.md`](agent-docs/OPENCLAW-EXPLANATION.md) — agent ingest integration
+- [`MCP_AGENT_ACCESS.md`](agent-docs/MCP_AGENT_ACCESS.md) — agent access and schema discovery
 
 ## License
 

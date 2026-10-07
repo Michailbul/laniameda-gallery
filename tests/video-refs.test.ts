@@ -11,8 +11,13 @@ import {
   parseYouTubeId,
   youTubeEmbedUrl,
   youTubeFrameCandidates,
+  videoRefStillMetadata,
   type VideoRefSortable,
 } from "../lib/video-refs";
+import { getVideoRef, listVideoRefsPage, upsertVideoRef, updateVideoRef } from "../convex/videoRefs";
+import { videoRefsPageInputSchema } from "../lib/video-ref-contract";
+import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
+import { callAsOwner } from "./helpers/call-as-owner";
 
 const row = (overrides: Partial<VideoRefSortable>): VideoRefSortable => ({
   createdAt: 1,
@@ -42,6 +47,44 @@ test("embed and still URLs point at YouTube's own hosts", () => {
   expect(youTubeFrameCandidates("dqCGNrQ6N_o", 2)[0]).toBe(
     "https://i.ytimg.com/vi/dqCGNrQ6N_o/maxres2.jpg",
   );
+});
+
+test("legacy numbered stills never claim sought timestamps; supplied captions retain provenance", () => {
+  expect(videoRefStillMetadata({ label: "25%" }, 0)).toEqual({ label: "YouTube still 1", sourceKind: "youtube-auto-still", sourceUrl: undefined, positionVerified: false });
+  expect(videoRefStillMetadata({ label: "Custom selected close-up", sourceKind: "supplied-still", sourceUrl: "https://example.com/still.jpg" }, 1)).toEqual({ label: "Custom selected close-up", sourceKind: "supplied-still", sourceUrl: "https://example.com/still.jpg", positionVerified: false });
+  expect(videoRefStillMetadata({}, 0).sourceKind).toBe("legacy-unverified");
+});
+
+test("refreshing reference metadata preserves owner note, likes and stored still provenance", async () => {
+  const { ctx, db } = createMockConvexMutationCtx();
+  const saved = await callAsOwner(upsertVideoRef)(ctx, { ownerUserId: "owner", externalId: "dqCGNrQ6N_o", title: "Source", collections: ["first"], tagNames: ["reference"], frames: [{ r2Key: "custom", label: "selected close-up", sourceKind: "supplied-still", sourceUrl: "https://example.com/still.jpg" }] });
+  await callAsOwner(updateVideoRef)(ctx, { ownerUserId: "owner", id: saved.id, userNote: "Owner note", isLiked: true });
+  await callAsOwner(upsertVideoRef)(ctx, { ownerUserId: "owner", externalId: "dqCGNrQ6N_o", title: "Refreshed title", collections: ["second"], tagNames: [] });
+  const row = await db.get(saved.id);
+  expect(row).toMatchObject({ userNote: "Owner note", isLiked: true, collections: ["first", "second"] });
+  expect(row?.frames).toEqual([{ r2Key: "custom", label: "selected close-up", sourceKind: "supplied-still", sourceUrl: "https://example.com/still.jpg" }]);
+  const read = await callAsOwner(getVideoRef)(ctx, { ownerUserId: "owner", id: saved.id });
+  if (read?.frames.length) expect(read.frames[0]).toMatchObject({ sourceKind: "supplied-still", positionVerified: false });
+});
+
+test("paged input rejects ignored sorting and malformed filters", () => {
+  expect(videoRefsPageInputSchema.parse({ pageSize: 2, publishedAfter: "2026-10-01" }).publishedAfter).toBe(Date.parse("2026-10-01"));
+  for (const input of [{ sort: "views" }, { limit: 2000 }, { ownerUserId: "other" }, { publishedAfter: "yesterday-ish" }, { onlyLiked: "yes" }, { pageSize: 201 }]) expect(videoRefsPageInputSchema.safeParse(input).success).toBe(false);
+});
+
+test("paged inventory continues through empty filtered pages and traverses all owner spellings", async () => {
+  const { ctx, db } = createMockConvexMutationCtx();
+  for (let i = 0; i < 7; i++) await db.insert("videoRefs", { ownerUserId: i < 5 ? "123" : "telegram:123", platform: "youtube", externalId: `id${i}`, url: "https://youtube.com", title: `Video ${i}`, collections: [], tagNames: [], frames: [], searchText: i === 0 || i === 5 ? "match" : "other", createdAt: i, updatedAt: i });
+  let cursor: string | null = null;
+  const ids: string[] = []; let pages = 0; let emptyContinuations = 0;
+  do {
+    const result = await callAsOwner(listVideoRefsPage)(ctx, { ownerUserId: "123", cursor, pageSize: 2, search: "match" });
+    ids.push(...result.videos.map((video: { _id: string }) => video._id));
+    if (!result.videos.length && !result.isDone) emptyContinuations++;
+    cursor = result.cursor; pages++;
+    if (pages === 1) await expect(callAsOwner(listVideoRefsPage)(ctx, { ownerUserId: "123", cursor, pageSize: 2, search: "changed" })).rejects.toThrow("filters changed");
+  } while (cursor);
+  expect(ids).toHaveLength(2); expect(new Set(ids).size).toBe(2); expect(emptyContinuations).toBeGreaterThan(0);
 });
 
 test("matchesVideoRef applies every filter", () => {

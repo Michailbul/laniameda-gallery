@@ -40,6 +40,7 @@ const apiFetch = async (path: string, body: JsonRecord) => {
       authorization: `Bearer ${AGENT_TOKEN}`,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(300_000),
   });
 
   const responseText = await response.text();
@@ -74,7 +75,7 @@ const readLocalFile = (filePath: string) => {
 };
 
 const server = new McpServer(
-  { name: "laniameda-gallery", version: "0.2.0" },
+  { name: "laniameda-gallery", version: "0.3.0" },
   { instructions: GALLERY_MCP_INSTRUCTIONS },
 );
 

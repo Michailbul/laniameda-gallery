@@ -1,61 +1,39 @@
 # CLAUDE.md — laniameda.gallery
 
-## Product stance
+Use Bun. Read agent-docs/PROGRESS.md, agent-docs/OBSERVATIONS.md and convex/schema.ts
+before work. For gallery use follow the canonical skills/laniameda-gallery skill,
+discover live MCP tools/schemas and check authenticated access before claiming it.
 
-`laniameda.gallery` is becoming a dynamic, agentic website/app.
+## Current objects
 
-- The user-facing interaction should stay lightweight.
-- The backend should own durable logic, normalization, and future enrichment hooks.
-- Hardcoded frontend-only workflows are a last resort.
-- Prefer schemas, backend actions, templates/defaults, and metadata contracts that can later support:
-  - additional pillars
-  - user-configurable save flows
-  - semantic search
-  - generative classification
-  - under-the-hood agent behaviors
+Media assets hold images/videos, references and linked generation prompts. Skills
+hold reusable techniques/recipes, optionally ordered prompt/media steps. Worlds
+are root collections; collections group assets/Skills with at most one child level.
+Tags carry piece type, medium, source and exact style. Native Stories/Scripts hold
+private ideas/scripts/style locks with versions. X bookmarks retain post text.
+YouTube references are separate research objects; Motion and Cinematography are
+tagged asset/Skill views. Folder/workflow/pillar/pack are internal legacy names;
+ordinary grouped media does not need to become a Skill.
 
-## Current implementation rule
+Read authenticated references/worlds.md for the current world map and native style
+locks. Public files only bootstrap private policy retrieval; do not publish private
+world/anchor IDs. Current human direction governs intent. Preserve existing assets,
+flags and world routes. Use the current branch-local feature spec when one exists.
+Do not start an old handoff merely because a historical document names it active.
 
-Do not overbuild generic abstractions before the product earns them.
+## Runtime and verification
 
-- Ship the current scoped feature cleanly.
-- Keep contracts extensible.
-- Separate V1 explicit user metadata from future agent-derived metadata.
+Next authenticates Telegram sessions/agent tokens, derives the owner, and signs
+short-lived Convex actor JWTs. Private backend functions require signed owner auth;
+the legacy unsigned-owner bridge is disabled. Tokens belong in environment only.
+MCP/tool JSON never supplies ownerUserId. Discover the deployed skill at /llms.txt.
 
-## Content model (since 22 Sep 2026)
+Canonical cloud backend: dev:perfect-buffalo-375, serving real gallery data.
+Use the sanitized cloud wrapper and check inherited Convex env; backend pushes
+are publication, not read-only inspection. Public world identity is a showcased
+root regardless of whether it has children; private members remain private.
 
-- A folder is a collection. `kind` is undefined or `"storybook"`. There are no projects, beats or episodes any more; the beat board and review workspace were retired and their data folded into collections.
-- Nesting is one level deep: a root collection holds sub-collections (`parentFolderId`); a sub-collection holds none. A former project is a root collection and its beats are its sub-collections.
-- What a piece IS is a tag: `character`, `location`, `scene`, `inspiration`. The island bar's menu-filter pills toggle those tags inside any collection. Do not create sub-collections named Characters / Locations / Scenes / Inspirations; `convex/collectionCleanup.ts` flattens them back into tags.
-- Public worlds (`/w/<slug>`) are showcased root collections with sub-collections or a storybook. Sections come from tags and from section-named sub-collections.
-
-## Backend bias
-
-For gallery save flows:
-
-- treat visual preview as mandatory for gallery-visible entries
-- keep mutations idempotent
-- prefer dedicated backend contracts over overloading generic ingest routes
-- keep extension/backend boundaries authenticated even for single-user flows
-
-## Repo expectations
-
-- Use `bun`
-- Run `bun run lint` and `bun test` after changes
-- If `convex/schema.ts` changes, run `bunx convex codegen` and `bunx convex dev` when possible
-
-## Convex ground truth
-
-- This repo's gallery backend is `dev:perfect-buffalo-375`.
-- The canonical gallery cloud URL is `https://perfect-buffalo-375.convex.cloud`.
-- Do not trust inherited shell Convex env blindly. If CLI behavior does not match the repo, check exported `CONVEX_*` / `NEXT_PUBLIC_CONVEX_URL` vars and prefer the repo env files plus `scripts/lib/convex-dev-env.ts`.
-- For local app runtime, `.env.local` must stay aligned with the gallery backend (`CONVEX_URL`, `NEXT_PUBLIC_CONVEX_URL`, and `CONVEX_DEPLOYMENT` all pointing at `perfect-buffalo-375`).
-
-## Current handoff
-
-Design extension save is in frontend-completion mode.
-
-- Treat the backend as complete for V1 unless a manual extension test exposes a concrete defect.
-- Use `agent-docs/features/design-extension-save/HANDOFF.md` as the task handoff for the next pass.
-- The next agent should finish template UX, one-click extension flow, and live validation.
-- Once frontend work is fully done, update project docs and remove the remaining backlog/TODO entry rather than leaving it open.
+Keep durable normalization/ownership logic in the backend and avoid unnecessary
+abstractions. Use indexed queries, return validators and idempotent mutations.
+Keep skill/docs synchronized with contract changes. Run lint/tests after changes;
+type/runtime checks relevant to the actual change precede completion claims.

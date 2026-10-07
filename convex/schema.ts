@@ -30,6 +30,12 @@ import {
 } from "./validators";
 
 export default defineSchema({
+  // Private agent reference documents, kept out of public repository bundles.
+  // These are instructions, not creative media or gallery Skills.
+  agentInstructions: defineTable({
+    ownerUserId: v.string(), resourcePath: v.string(), content: v.string(),
+    version: v.string(), sha256: v.string(), createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_owner_path", ["ownerUserId", "resourcePath"]),
   // Text is a first-class private save; no placeholder media or prompt needed.
   stories: defineTable({
     ownerUserId: v.string(), ...storyFields,
@@ -67,6 +73,8 @@ export default defineSchema({
   agentTokens: defineTable({
     ownerUserId: v.string(),
     tokenHash: v.string(),
+    // Durable single-use OAuth code consumption, committed with token minting.
+    oauthCodeHash: v.optional(v.string()),
     tokenPrefix: v.string(),
     label: v.string(),
     scopes: v.array(agentTokenScopeValidator),
@@ -77,6 +85,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
+    .index("by_oauthCodeHash", ["oauthCodeHash"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   tags: defineTable({
     name: v.string(),
@@ -376,6 +385,10 @@ export default defineSchema({
     tagIds: v.array(v.id("tags")),
     ingestKey: v.optional(v.string()),
     // Optional pinned cover; carousel falls back to all step media.
+    // Agent Skill creation retries resume until finalized. Separate from
+    // editable content so replaying a creation never overwrites later edits.
+    creationFingerprint: v.optional(v.string()),
+    creationComplete: v.optional(v.boolean()),
     coverAssetId: v.optional(v.id("assets")),
     stepCount: v.number(),
     isPublic: v.optional(v.boolean()),
@@ -560,6 +573,8 @@ export default defineSchema({
       v.object({
         r2Key: v.string(),
         label: v.optional(v.string()),
+        sourceKind: v.optional(v.union(v.literal("youtube-auto-still"), v.literal("supplied-still"))),
+        sourceUrl: v.optional(v.string()),
       }),
     ),
     userNote: v.optional(v.string()),

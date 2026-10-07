@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { storyInputSchema, storyPatchSchema, presetFiltersSchema } from "../../lib/story-contract";
+import { createSkillInputSchema } from "../../lib/skill-contract";
+import { galleryAssetPageInputSchema } from "../../lib/gallery-pagination";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
 // and the hosted endpoint (app/api/mcp/route.ts). Every tool is a thin call into
@@ -25,6 +27,7 @@ export type GalleryToolOptions = {
 
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
+  "Fetch the current canonical skill from https://gallery.laniameda.space/llms.txt (entry: /skills/laniameda-gallery/SKILL.md; manifest.json lists its version and resources). Private world and maintenance references require the same owner-allowed gallery:read bearer token as MCP.",
   "Textual story ideas, scripts and versioned world style locks are private story records: save_story needs text and a stable ingestKey, never placeholder media. list_stories and get_story retrieve them; update_story preserves revisions. Gallery filter presets have list_filter_presets and save_filter_preset.",
   "Collections (folders) are one level deep; resolve names with list_collections before filing.",
   "What a piece IS is a tag: character, location, scene or inspiration. The animation tag marks animated work; no tag means live action.",
@@ -33,7 +36,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
   "YouTube videos kept as research (competitors, formats, animation styles) are video references, not assets: list_video_refs to read them, save_video_refs to add them.",
   "A post on X is saved as a bookmark with save_bookmarks: send the link, the gallery reads the author, text, media and counts itself, and links any piece already saved from that post. list_bookmarks reads saved posts as text; the tag `bookmark` narrows list_assets and search_gallery to them.",
-  "To add local files (e.g. from ~/Downloads): prepare_uploads with the paths, run the curl commands it returns, then save_assets with the uploadIds. Two tool calls for any batch size; public URLs go straight into save_assets.",
+  "To add local files (e.g. from ~/Downloads): prepare_uploads with up to 50 file names, run the curl commands it returns, then save_assets with up to 50 uploadIds. Public URLs go straight into save_assets. Inspect ok/partial and persisted IDs; do not automatically retry an unknown write outcome.",
 ].join(" ");
 
 export const guessMime = (fileName: string) => {
@@ -142,10 +145,48 @@ const namedFilterShape = {
 export function registerGalleryTools(server: McpServer, options: GalleryToolOptions) {
   const { apiFetch, apiUrl, readLocalFile } = options;
 
+  const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("get_gallery_contract", {
+    description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
+    inputSchema: {}, annotations: readAnnotations,
+  }, async () => jsonText({
+    contractVersion: "2026-10-07.2", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
+    scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
+    pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeWorkflowAssets: { default: true, false: "omits Skill-step assets unless explicitly requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
+    videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
+    limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
+    resources: ["assets", "collections", "menuFilters", "skills", "stories", "presets", "bookmarks", "videoRefs"],
+    policy: { source: "get_skill_instructions or authenticated canonical /skills/laniameda-gallery/ manifest resources", privateWorldRules: "references/worlds.md", sourceOfTruth: "Deployed schemas and scoped backend functions; instructions explain filing policy. Collections and menu filters are distinct from raw tags." },
+  }));
+
+  server.registerTool("list_assets_page", {
+    description: "Cursor page of owned assets with complete traversal, including hidden collections and Skill-step assets by default. Keep the same filters and follow cursor until isDone, even through empty filtered pages. Search includes captions, agent descriptions, prompts, tags and bookmark text. Results are stable within owner spellings, newest-first; records are live, not a frozen snapshot.",
+    annotations: readAnnotations,
+    inputSchema: galleryAssetPageInputSchema.shape,
+  }, async input => jsonText(await apiFetch("/api/agent/gallery", { action: "listAssetsPage", ...input })));
+
+  server.registerTool("list_menu_filters", { description: "Read curated menu-filter IDs, labels, mappings, resolved tag IDs, counts and missing-folder flags. These IDs are used by filter presets; tag IDs are a different resource.", inputSchema: {}, annotations: readAnnotations }, async () => jsonText(await apiFetch("/api/agent/customize", { action: "listMenuFilters" })));
+  server.registerTool("set_collection_option", {
+    description: "Set one owned collection's cover, pin, hidden-grid flag, showcase or featured-world hero. Showcase/featured change public collection presentation and require the user's publication instruction; private members remain private. A cover must already be a member.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: { folderId: z.string(), option: z.enum(["cover", "pinned", "hidden", "showcased", "featured"]), enabled: z.boolean().optional(), assetId: z.string().nullable().optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/customize", { action: "setCollectionOption", ...input })));
+  server.registerTool("create_skill", { description: "Create or reuse a private reusable Gallery Skill using a stable ingestKey, editable markdown/instructions and optional ordered prompt/media steps. Separate from text Stories and from gallery agent instructions. Readback is returned; no publication flag is accepted.", inputSchema: createSkillInputSchema.shape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } }, async input => jsonText(await apiFetch("/api/agent/skills", { action: "create", ...input })));
+  server.registerTool("delete_skill", { description: "Delete an owned reusable Gallery Skill recipe and its collection links after the user authorizes deletion. Preserves source prompts/media; formerly hidden step media becomes visible in the gallery. Requires gallery:delete.", inputSchema: { id: z.string().min(1).describe("skill:<id>, workflow:<id> or raw workflow ID.") }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } }, async input => jsonText(await apiFetch("/api/agent/skills", { action: "delete", ...input })));
+  server.registerTool("set_video_poster", { description: "Replace only an owned video's card poster using posterUploadId from prepare_uploads. Main video bytes and metadata are retained. Upload a JPEG/PNG poster first.", inputSchema: { assetId: z.string(), posterUploadId: z.string() }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, async input => jsonText(await apiFetch("/api/agent/poster", input)));
+
+  server.registerTool("get_skill_instructions", {
+    title: "Read Gallery Instructions",
+    description: "Read the canonical gallery agent skill or one of its references using this connection's existing authentication. This is distinct from reusable gallery Skills. Start with SKILL.md; before touching a world, fetch references/worlds.md. Private world/maintenance resources are restricted to Michael's owner identity. No token copying or local file access is needed.",
+    inputSchema: { resource: z.string().min(1).max(160).describe("Allowlisted skill-relative path: SKILL.md (default), manifest.json, references/worlds.md, references/video-refs.md, or another reference listed by the manifest.").optional() },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (input) => jsonText(await apiFetch("/api/agent/instructions", input)));
+
   server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
   server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
   server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
-  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
@@ -212,7 +253,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
 
   // Saves of a local file go straight to storage (prepare → PUT → uploadId),
   // the same path agents use from a shell, so size never hits a request cap.
-  // Updates still send base64: the update action only takes inline files.
+  // Updates may send inline files or an already prepared uploadId.
   const uploadLocalFile = async (filePath: string, contentType: string) => {
     const local = readLocalFile!(filePath);
     const prepared = await apiFetch("/api/agent/uploads", { count: 1 });
@@ -224,6 +265,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       method: "PUT",
       headers: { "content-type": contentType },
       body: Buffer.from(local.base64, "base64"),
+      signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
       throw new Error(`Upload of ${local.fileName} failed with HTTP ${response.status}.`);
@@ -252,6 +294,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "check_connection",
     {
       title: "Check Connection",
+      annotations: readAnnotations,
       description: "Verify the MCP server can authenticate with the gallery app API.",
       inputSchema: {},
     },
@@ -293,10 +336,10 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       ].join(" "),
       inputSchema: {
         fileNames: z
-          .array(z.string())
+          .array(z.string()).min(1).max(50)
           .describe("The local paths you will upload; each gets a ready curl command.")
           .optional(),
-        count: z.number().describe("How many slots, when you don't pass fileNames (1-50).").optional(),
+        count: z.number().int().min(1).max(50).describe("How many slots, when you don't pass fileNames (1-50).").optional(),
       },
     },
     async (input) => {
@@ -332,15 +375,21 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       inputSchema: {
         items: z
           .array(z.object({ ...commonIngestShape, ...localFileShape }))
+          .min(1).max(50)
           .describe("One entry per piece, max 50."),
       },
     },
-    async (input) =>
-      jsonText(
-        await apiFetch("/api/agent/ingest/batch", {
-          items: await Promise.all(input.items.map((item) => buildCreateBody(item as JsonRecord))),
-        }),
-      ),
+    async (input) => {
+      const prepared = await Promise.allSettled(input.items.map(item => buildCreateBody(item as JsonRecord)));
+      const ready = prepared.flatMap((entry, index) => entry.status === "fulfilled" ? [{ index, body: entry.value }] : []);
+      const response = ready.length ? await apiFetch("/api/agent/ingest/batch", { items: ready.map(entry => entry.body) }) : {};
+      const savedResults = Array.isArray(response.results) ? response.results as JsonRecord[] : [];
+      const results = prepared.map((entry, index) => entry.status === "rejected"
+        ? { index, ok: false, failedStep: "prepare", error: entry.reason instanceof Error ? entry.reason.message : "Preparation failed." }
+        : { ...(savedResults[ready.findIndex(item => item.index === index)] ?? { ok: false, error: "No save result returned." }), index });
+      const saved = results.filter(entry => entry.ok === true).length;
+      return jsonText({ ...response, ok: saved === input.items.length, saved, failed: input.items.length - saved, results });
+    },
   );
 
   server.registerTool(
@@ -391,6 +440,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
           .describe("Replace the asset's agent description; null clears it.")
           .optional(),
         sourceUrl: z.union([z.string(), z.null()]).optional(),
+        uploadId: z.string().describe("Prepared uploadId to replace media after the file was PUT; use set_video_poster for poster-only changes.").optional(),
+        posterUploadId: z.string().describe("Prepared JPEG/PNG poster accompanying a video replacement.").optional(),
         ...localFileShape,
         fileBase64: z.string().optional(),
         fileName: z.string().optional(),
@@ -411,6 +462,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "delete_gallery_item",
     {
       title: "Delete Gallery Item",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       description: "Delete a prompt or asset for the authenticated user.",
       inputSchema: {
         target: z.enum(["prompt", "asset"]),
@@ -425,6 +477,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_assets",
     {
       title: "List Assets",
+      annotations: readAnnotations,
       description: "List the authenticated user's gallery assets.",
       inputSchema: {
         kind: z.enum(["image", "video"]).optional(),
@@ -453,6 +506,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "search_gallery",
     {
       title: "Search Gallery",
+      annotations: { ...readAnnotations, openWorldHint: true },
       description:
         "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection filters. Results carry agentDescription, score, visualScore and textScore.",
       inputSchema: {
@@ -486,6 +540,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "find_similar",
     {
       title: "Find Similar",
+      annotations: { ...readAnnotations, openWorldHint: true },
       description:
         "More like this: pieces that look like (visual, default) or are about the same thing as (text / hybrid) a given asset. Takes the same filters as search_gallery.",
       inputSchema: {
@@ -562,6 +617,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "preview_assets",
     {
       title: "Preview Assets",
+      annotations: readAnnotations,
       description:
         "SEE gallery pieces instead of reading URLs. Returns ONE numbered contact-sheet image (up to 48 thumbs) plus a legend mapping each number to its asset:<id>, tags and description. Give `ids` to look at specific assets (1–4 ids render large for close inspection), or `query` to semantic-search and preview the hits, or only filters to preview a listing. Use it to browse, compare and pick references before pulling full records.",
       inputSchema: {
@@ -654,6 +710,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "check_sources",
     {
       title: "Check Sources",
+      annotations: readAnnotations,
       description:
         "Which of these source URLs (post permalinks, page URLs) are already saved in the gallery. Use before an extraction run to skip what's already in.",
       inputSchema: {
@@ -693,6 +750,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "get_gallery_item",
     {
       title: "Get Gallery Item",
+      annotations: readAnnotations,
       description: "Read a gallery asset, asset pack or skill by typed ID, such as asset:<id>, pack:<id> or skill:<id>.",
       inputSchema: {
         id: z.string(),
@@ -711,6 +769,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_tags",
     {
       title: "List Tags",
+      annotations: readAnnotations,
       description: "List the authenticated user's customized and used tags.",
       inputSchema: {
         includeArchived: z.boolean().optional(),
@@ -806,6 +865,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_collections",
     {
       title: "List Collections",
+      annotations: readAnnotations,
       description:
         "List the authenticated user's collections. Collections are owner-scoped folders used to organize saved assets and prompts.",
       inputSchema: {},
@@ -827,6 +887,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       inputSchema: {
         name: z.string(),
         description: z.string().optional(),
+        parentFolderId: z.string().describe("Owned root collection for a plain child folder; storybooks remain roots.").optional(),
+        kind: z.literal("storybook").optional(),
       },
     },
     async (input) =>
@@ -847,6 +909,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         folderId: z.string().describe("The collection id to update — the raw folderId from list_collections/create_collection."),
         name: z.string(),
         description: z.string().optional(),
+        parentFolderId: z.string().nullable().describe("Owned root parent; null moves a child to root. Omission preserves parentage.").optional(),
       },
     },
     async (input) =>
@@ -862,6 +925,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "delete_collection",
     {
       title: "Delete Collection",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       description:
         "Delete a collection (folder) and clear it from linked gallery records. The assets themselves are kept.",
       inputSchema: {
@@ -883,6 +947,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "search_skills",
     {
       title: "Search Skills",
+      annotations: { ...readAnnotations, openWorldHint: true },
       description:
         "Find saved skills by meaning (semantic search over title, description, tags, models, step labels and the markdown body). Use when the user asks how they did something, or for a recipe/workflow/technique. Cinematography packs (camera moves) are left out unless tagNames includes \"cinematography\".",
       inputSchema: {
@@ -900,6 +965,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_skills",
     {
       title: "List Skills",
+      annotations: readAnnotations,
       description:
         "List saved skills, newest first, optionally narrowed by tags (all must match), collection or keywords. Cinematography packs (camera moves) are left out unless tagNames includes \"cinematography\".",
       inputSchema: {
@@ -917,6 +983,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "get_skill",
     {
       title: "Get Skill",
+      annotations: readAnnotations,
       description:
         "Read one skill in full: markdown body, how-to-run notes, tags, collections and every step with its prompt and media URLs.",
       inputSchema: {
@@ -1027,7 +1094,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     thumbnailUrl: z.string().describe("Override; YouTube's own thumbnail is copied by default.").optional(),
     frameUrls: z
       .array(z.string())
-      .describe("Override, up to 6 https image URLs; YouTube's three auto-captured frames are copied by default.")
+      .max(6)
+      .describe("Up to 6 supplied still-image URLs; otherwise copies YouTube numbered auto stills. Returned sourceKind/sourceUrl identify provenance. positionVerified:false means no timestamp or 25/50/75 percent position is claimed; chronological storyboard preview is separate.")
       .optional(),
   };
 
@@ -1035,8 +1103,9 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_video_refs",
     {
       title: "List Video References",
+      annotations: readAnnotations,
       description:
-        "List saved YouTube video references with their style notes, stats, thumbnail and in-video frame URLs. Sorted by most views unless sort says otherwise. Filter by how the video is made (productionStyle), by language or by tags. Use for 'what competitors do', 'find a video in this style', 'what performs in cars', 'whiteboard videos in Spanish'.",
+        "List saved YouTube video references with their style notes, stats, thumbnail and still-image URLs/provenance. Numbered auto stills have unverified positions and are not chronological storyboards. Sorted by most views unless sort says otherwise. Filter by productionStyle, language or tags. Use for competitor, format and style research; use list_video_refs_page for a complete inventory.",
       inputSchema: {
         collection: z.string().describe("e.g. youtube-cars-competitors").optional(),
         topic: z.string().optional(),
@@ -1060,10 +1129,24 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "list", ...input })),
   );
 
+  server.registerTool("list_video_refs_page", {
+    title: "Page Video References",
+    description: "Complete cursor traversal of owned YouTube research, including empty filtered pages. Follow cursor with unchanged filters until isDone. Pages use owner spelling then newest saved first; sort the final collected inventory locally for views or upload dates. This does not extract chronological storyboard frames.",
+    annotations: readAnnotations,
+    inputSchema: {
+      cursor: z.string().nullable().optional(), pageSize: z.number().int().min(1).max(200).optional(),
+      collection: z.string().optional(), topic: z.string().optional(), styleFamily: z.string().optional(),
+      productionStyle: z.string().optional(), language: z.string().optional(), tagNames: z.array(z.string()).max(100).optional(),
+      channelHandle: z.string().optional(), search: z.string().optional(), onlyLiked: z.boolean().optional(), onlyChannelBest: z.boolean().optional(),
+      minViews: z.number().nonnegative().optional(), publishedAfter: z.union([z.number(), z.string()]).optional(),
+    },
+  }, async input => jsonText(await apiFetch("/api/agent/video-refs", { action: "list_page", ...input })));
+
   server.registerTool(
     "get_video_ref",
     {
       title: "Get Video Reference",
+      annotations: readAnnotations,
       description: "Read one video reference in full.",
       inputSchema: { id: z.string().describe("video:<id> or the bare id.") },
     },
@@ -1075,7 +1158,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Save Video References",
       description:
-        "Save up to 12 YouTube videos as references. The gallery copies each video's thumbnail and three in-video frames by itself; send the link, the title, the stats and the style notes, with productionStyle (how the picture is made), language and checkedAt (when the numbers were verified). Saving the same video again updates it and merges collections.",
+        "Save up to 12 YouTube videos as references. The gallery copies each thumbnail and numbered YouTube auto stills by default; their timestamps/percent positions are unverified. Send the link, title, stats and style notes, with productionStyle, language and checkedAt (when the numbers were verified). Saving the same video updates it and merges collections; omitted owner notes are preserved.",
       inputSchema: {
         items: z.array(z.object(videoRefShape)).min(1).max(12),
         refreshMedia: z.boolean().describe("Re-copy the thumbnail and frames.").optional(),
@@ -1103,6 +1186,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "delete_video_ref",
     {
       title: "Delete Video Reference",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       description: "Remove one video reference. Ask before deleting.",
       inputSchema: { id: z.string() },
     },
@@ -1160,6 +1244,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "list_bookmarks",
     {
       title: "List Bookmarked Posts",
+      annotations: readAnnotations,
       description:
         "Read saved X posts as text, newest first: author, full text, quoted post, counts, the owner's note and the gallery pieces of each post. Use for 'what did I bookmark about …', 'posts by @handle'. For a search by meaning, use search_gallery with tagNames ['bookmark'].",
       inputSchema: {

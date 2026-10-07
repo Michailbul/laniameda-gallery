@@ -27,7 +27,9 @@ export async function POST(request: Request) {
       const merged = existing ? { ...existing, ...patch } : body;
       const input = storyInputSchema.parse({ ...merged, folderId: merged.folderId ?? undefined, storybookId: merged.storybookId ?? undefined });
       const ingestKey = existing?.ingestKey ?? z.string().trim().min(1).max(300).parse(body.ingestKey);
-      const expectedRevision = body.expectedRevision === undefined ? existing?.revision : z.number().int().nonnegative().parse(body.expectedRevision);
+      const expectedRevision = action === "update"
+        ? z.number().int().positive().parse(body.expectedRevision)
+        : body.expectedRevision === undefined ? undefined : z.number().int().nonnegative().parse(body.expectedRevision);
       const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision });
       const story = await client.query(api.stories.getStory, { ownerUserId, id: result.id });
       return NextResponse.json({ ok: true, ...result, story });

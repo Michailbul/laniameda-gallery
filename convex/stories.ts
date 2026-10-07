@@ -114,7 +114,8 @@ export const saveStory = ownerMutation({
     // An exact retry is harmless even if its revision is now stale.
     const keys = Object.keys(data) as (keyof typeof data)[];
     if (keys.every((key) => JSON.stringify(existing![key]) === JSON.stringify(data[key]))) return { id: existing._id, created: false, revision: existing.revision };
-    if (expectedRevision !== undefined && expectedRevision !== existing.revision) throw new ConvexError("Story changed. Reload before saving.");
+    if (expectedRevision === undefined) throw new ConvexError("expectedRevision is required to change an existing Story. Read it before saving.");
+    if (expectedRevision !== existing.revision) throw new ConvexError("Story changed. Reload before saving.");
     const { _id, _creationTime, ingestKey: _oldKey, searchText: _search, createdAt: _created, updatedAt: _updated, ...snapshot } = existing;
     void _creationTime; void _oldKey; void _search; void _created; void _updated;
     await ctx.db.insert("storyRevisions", { ...snapshot, storyId: _id, savedAt: now });

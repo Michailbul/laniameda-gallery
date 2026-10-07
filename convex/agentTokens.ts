@@ -74,6 +74,7 @@ export const createAgentToken = mutation({
     serverSecret: v.string(),
     ownerUserId: v.string(),
     tokenHash: v.string(),
+    oauthCodeHash: v.optional(v.string()),
     tokenPrefix: v.string(),
     label: v.optional(v.string()),
     scopes: v.optional(v.array(agentTokenScopeValidator)),
@@ -101,10 +102,20 @@ export const createAgentToken = mutation({
       throw new ConvexError("Agent token already exists.");
     }
 
+    // Convex serializes this indexed read and insert atomically: concurrent
+    // exchanges of one authorization code cannot mint two access tokens.
+    const oauthCodeHash = args.oauthCodeHash?.trim();
+    if (oauthCodeHash) {
+      const redeemed = await ctx.db.query("agentTokens")
+        .withIndex("by_oauthCodeHash", (q) => q.eq("oauthCodeHash", oauthCodeHash)).unique();
+      if (redeemed) throw new ConvexError("OAuth authorization code already used.");
+    }
+
     const now = Date.now();
     const tokenId = await ctx.db.insert("agentTokens", {
       ownerUserId,
       tokenHash,
+      ...(oauthCodeHash ? { oauthCodeHash } : {}),
       tokenPrefix,
       label: normalizeLabel(args.label),
       scopes: normalizeScopes(args.scopes),

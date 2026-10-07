@@ -7,6 +7,7 @@ import {
   type AgentTokenScope,
 } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { videoRefsPageInputSchema } from "@/lib/video-ref-contract";
 
 // Video references for agents: list, get, save, update, delete. One route so
 // the read and write sides of the type stay next to each other; the scope a
@@ -14,6 +15,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 
 const SCOPE_BY_ACTION: Record<string, AgentTokenScope> = {
   list: "gallery:read",
+  list_page: "gallery:read",
   get: "gallery:read",
   save: "gallery:write",
   update: "gallery:write",
@@ -102,7 +104,7 @@ export async function POST(request: Request) {
     const scope = SCOPE_BY_ACTION[action];
     if (!scope) {
       return NextResponse.json(
-        { error: "action must be one of list, get, save, update, delete." },
+        { error: "action must be one of list, list_page, get, save, update, delete." },
         { status: 400 },
       );
     }
@@ -110,9 +112,14 @@ export async function POST(request: Request) {
     const client = getServerConvexClient(agent.ownerUserId);
     const ownerUserId = agent.ownerUserId;
 
+    if (action === "list_page") {
+      const { action: _action, ...input } = body;
+      void _action;
+      return NextResponse.json(await client.query(api.videoRefs.listVideoRefsPage, { ...videoRefsPageInputSchema.parse(input), ownerUserId }));
+    }
     if (action === "list") {
       const sort = stringValue(body.sort);
-      const videos = await client.query(api.videoRefs.listVideoRefs, {
+      const filters = {
         ownerUserId,
         collection: stringValue(body.collection),
         topic: stringValue(body.topic),
@@ -126,9 +133,8 @@ export async function POST(request: Request) {
         onlyChannelBest: body.onlyChannelBest === true ? true : undefined,
         minViews: numberValue(body.minViews),
         publishedAfter: timeValue(body.publishedAfter),
-        sort: sort && SORTS.has(sort) ? (sort as "views" | "recent" | "saved") : undefined,
-        limit: numberValue(body.limit),
-      });
+      };
+      const videos = await client.query(api.videoRefs.listVideoRefs, { ...filters, sort: sort && SORTS.has(sort) ? (sort as "views" | "recent" | "saved") : undefined, limit: numberValue(body.limit) });
       return NextResponse.json({ count: videos.length, videos });
     }
 

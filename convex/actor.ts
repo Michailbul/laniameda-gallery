@@ -110,4 +110,6 @@ export const signedOwnerQuery = ((definition: any) =>
   query(withSignedOwner(definition) as any)) as typeof query;
 export const signedOwnerMutation = ((definition: any) =>
   mutation(withSignedOwner(definition) as any)) as typeof mutation;
+export const signedOwnerAction = ((definition: any) =>
+  action(withSignedOwner(definition) as any)) as typeof action;
 /* eslint-enable @typescript-eslint/no-explicit-any */

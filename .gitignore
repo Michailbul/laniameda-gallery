@@ -49,3 +49,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# Owner-only skill policy snapshots; canonical private resources live in Convex.
+/recovery/gallery-contract-audit-2026-10-07/private-skill-references/
+/recovery/gallery-contract-audit-2026-10-07/
+/agent-docs/audits/gallery-contract-2026-10-07/
