@@ -88,6 +88,11 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Prompt-only persistence is now explicit: maintained ingest paths must set `allowPromptOnly=true` to keep text without a linked asset or design inspiration, and local/legacy ingest code should roll back newly created prompts on downstream asset failures.
 - Pack sync now lives in the asset/prompt mutation layer, not just ingest orchestration. Shared-prompt multi-image records auto-normalize into `assetPacks`, and older rows can be backfilled with `assetPacks:consolidateOwnerPromptPacks`.
 
+## YouTube frame previews
+
+- Public seek-storyboard metadata is cached for one hour; auth cookies, owner research and saved-video membership are checked outside that cache. API responses are private/no-store. Only saved IDs and HTTPS i.ytimg.com sprite URLs are accepted.
+- Timed storyboard levels use `M$M` sheet names. The final sheet can have fewer rows than its maximum grid; cropping must use its actual remaining row count. Saved hq1/2/3 stills have no guaranteed quarter/mid/end timestamps. Restricted sources or upstream network blocks fall back honestly.
+
 ## Dev workflow
 
 - Worktree automation copies `.env.example` and runs `bun install` automatically via `scripts/worktree-create.sh`.

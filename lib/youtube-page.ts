@@ -7,8 +7,7 @@ import { normalizeLabel } from "./video-refs";
 export const YOUTUBE_PATH = "/youtube";
 export const youtubeVideoPath = (externalId: string) => `${YOUTUBE_PATH}/${externalId}`;
 
-// What a visitor gets. Michael's own notes and the "bend it" idea (how he would
-// reuse the format) stay in the vault.
+// Owner fields are included by the server only for Michael's signed-in session.
 export type PublicVideo = {
   externalId: string;
   url: string;
@@ -31,6 +30,9 @@ export type PublicVideo = {
   titlePattern?: string;
   thumbnailPattern?: string;
   audience?: string;
+  bendIdea?: string;
+  userNote?: string;
+  isLiked?: boolean;
   // How the picture is made: "2D animation", "Stock footage", "AI pictures"…
   productionStyle?: string;
   language?: string;
@@ -43,6 +45,14 @@ export type PublicVideo = {
   frames: { url: string; label?: string }[];
 };
 
+// Legacy visual-style text sometimes embeds how the source was produced. Keep
+// its saved filter key, but show only the visual description in the gallery.
+export const styleLabel = (value?: string) => (value ?? "")
+  .replace(/\b(?:ai(?:[ -]generated)?|stock)\b[ -]*/gi, "")
+  .replace(/^[\s,;/&+-]+|[\s,;/&+-]+$/g, "")
+  .replace(/\s{2,}/g, " ")
+  .trim();
+
 // Cars first: that is the theme this research exists for. The rest follow in
 // the order the research was done. Anything unknown sorts after these.
 export const THEMES: { key: string; label: string; blurb: string }[] = [
@@ -50,6 +60,11 @@ export const THEMES: { key: string; label: string; blurb: string }[] = [
     key: "youtube-cars-competitors",
     label: "Cars",
     blurb: "Faceless car channels: what they make and what works.",
+  },
+  {
+    key: "channel-europe-self-sabotage",
+    label: "Europe / Germany",
+    blurb: "Channel in research: European industry and bureaucracy. Related stories, packaging, hooks and references; proposals remain private to the owner.",
   },
   {
     key: "youtube-niche-bend",
@@ -218,10 +233,9 @@ export const DEFAULT_THUMB_SIZE: ThumbSize = "shelf";
 const isThumbSize = (value: string | undefined): value is ThumbSize =>
   THUMB_SIZES.some((entry) => entry.key === value);
 
-export type ThumbGroup = "made" | "topic";
+export type ThumbGroup = "topic";
 
 export const THUMB_GROUPS: { key: ThumbGroup; label: string }[] = [
-  { key: "made", label: "Made with" },
   { key: "topic", label: "Niche" },
 ];
 
@@ -252,12 +266,13 @@ export type YouTubeFilters = {
   theme: string; // a collection label, or ALL_THEMES
   sort: YouTubeSort | ChannelSort;
   style?: string;
-  made?: string; // productionStyle
+  made?: string; // Legacy URL field, ignored by the browsing UI.
   since?: YouTubeSince;
   channel?: string; // channel handle or name, as shown in the URL
   query?: string;
   bestOnly?: boolean;
   fitsOnly?: boolean;
+  ideasOnly?: boolean;
   // Thumbnails view only.
   size?: ThumbSize;
   group?: ThumbGroup;
@@ -331,12 +346,12 @@ export const compareChannels = (sort: ChannelSort) => (a: ChannelSummary, b: Cha
 export const matchesFilters = (video: PublicVideo, filters: YouTubeFilters, now = Date.now()) => {
   if (filters.theme !== ALL_THEMES && !video.collections.includes(filters.theme)) return false;
   if (filters.style && video.styleFamily !== filters.style) return false;
-  if (filters.made && video.productionStyle !== filters.made) return false;
   if (filters.since) {
     const days = SINCE.find((entry) => entry.key === filters.since)?.days ?? 0;
     if (!video.publishedAt || video.publishedAt < now - days * DAY_MS) return false;
   }
   if (filters.fitsOnly && !video.tagNames.includes(FITS_TAG)) return false;
+  if (filters.ideasOnly && !video.bendIdea?.trim()) return false;
   if (filters.channel && channelId(video) !== filters.channel) return false;
   if (filters.bestOnly && !video.isChannelBest) return false;
   const terms = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -361,6 +376,8 @@ export const searchTextOf = (video: PublicVideo) =>
     video.hook,
     video.titlePattern,
     video.thumbnailPattern,
+    video.bendIdea,
+    video.userNote,
     video.tagNames.join(" "),
     video.collections.map((key) => themeLabel(key)).join(" "),
   ]
@@ -408,12 +425,12 @@ export const parseFilters = (params: Params, knownThemes: string[]): YouTubeFilt
     theme,
     sort,
     style: one(params.style) || undefined,
-    made: one(params.made) || undefined,
     since: isSince(rawSince) ? rawSince : undefined,
     channel: one(params.channel) || undefined,
     query: one(params.q)?.trim() || undefined,
     bestOnly: one(params.best) === "1" ? true : undefined,
     fitsOnly: one(params.fits) === "1" ? true : undefined,
+    ideasOnly: one(params.ideas) === "1" ? true : undefined,
     size: thumbnails && isThumbSize(rawSize) && rawSize !== DEFAULT_THUMB_SIZE ? rawSize : undefined,
     group: thumbnails && isThumbGroup(rawGroup) ? rawGroup : undefined,
   };
@@ -428,12 +445,12 @@ export const filtersToSearch = (filters: YouTubeFilters) => {
   const defaultSort = filters.view === "channels" ? DEFAULT_CHANNEL_SORT : DEFAULT_SORT;
   if (filters.sort !== defaultSort) search.set("sort", filters.sort);
   if (filters.style) search.set("style", filters.style);
-  if (filters.made) search.set("made", filters.made);
   if (filters.since) search.set("since", filters.since);
   if (filters.channel) search.set("channel", filters.channel);
   if (filters.query) search.set("q", filters.query);
   if (filters.bestOnly) search.set("best", "1");
   if (filters.fitsOnly) search.set("fits", "1");
+  if (filters.ideasOnly) search.set("ideas", "1");
   if (filters.view === "thumbnails") {
     if (filters.size && filters.size !== DEFAULT_THUMB_SIZE) search.set("size", filters.size);
     if (filters.group) search.set("group", filters.group);
@@ -450,13 +467,12 @@ export const countBy = <T>(items: T[], pick: (item: T) => string[]) => {
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 };
 
-// The thumbnail wall in sections: one per way of making the picture, or one per
-// niche. Videos with no label go last, under their own heading.
+// The thumbnail wall in niche sections. Videos with no label go last.
 export const groupVideos = (videos: PublicVideo[], group: ThumbGroup) => {
   const UNLABELLED = "Not labelled";
   const sections = new Map<string, PublicVideo[]>();
   for (const video of videos) {
-    const key = (group === "made" ? video.productionStyle : video.topic) || UNLABELLED;
+    const key = video.topic || UNLABELLED;
     sections.set(key, [...(sections.get(key) ?? []), video]);
   }
   return [...sections.entries()]

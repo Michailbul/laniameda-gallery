@@ -16,6 +16,10 @@ Last updated: 2026-10-07
 - Sparse tag filters now search older batches when recent items do not match, so presets can find older reference sheets and game views. Collection views retain their own indexed read path.
 - Gallery curation separates Pinterest inspiration from production worlds, Dear Annete's LIZ animation from development and Unreal Engine, and reusable references from Skills. The legacy `/w/liz` address redirects to `/w/dear-annete`. Full audit evidence is under `recovery/gallery-audit-2026-10-06/`; current filing/style rules are in the gallery skill's `references/worlds.md`.
 
+### 2026-10-05
+- YouTube cards and thumbnail wall reuse their existing overlay for up to 24 timed storyboard frames: auto-cycle, horizontal scrub and keyboard arrows/Home/End. Frames load only on hover/focus behind the existing gate, with stored stills as fallback. Removed material-origin badges, controls and source-look writeups; legacy metadata remains compatible.
+- The existing YouTube view now displays private niche-bending proposals for the signed-in owner: title, thumbnail layout, animation style, structure, first 30 seconds, demand/saturation thumbnail evidence and an external demand reading. Proposals use the existing `bendIdea` field and toolbar, with no new dashboard or schema. Shared-password visitors receive no private fields.
+
 ### 2026-10-03
 - Bookmarks from a link, with their text. Agents save an X post by its URL (`save_bookmarks` MCP tool, `scripts/bookmarks.ts`, `/api/agent/bookmarks`): the gallery reads the author, text, media, quoted post and counts itself, so text-only posts are saveable too. A post whose images or video were already in the gallery is linked to those pieces instead of copied; they keep their role and gain the post in the detail panel and in search. 25 posts behind 47 existing X pieces were linked this way.
 - The island bar has a **Bookmarks** pill (tag `bookmark`). With it on, each post shows once as a post card with its text. The vault's keyword search now matches post text, author and note; `list_bookmarks` reads saved posts as text for agents.

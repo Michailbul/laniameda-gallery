@@ -92,6 +92,13 @@ bun <this skill>/scripts/gallery.mjs all_video_refs '{"pageSize":200}' --out ./y
 
 ## Edit, sharing and privacy
 
+Private niche-bending proposals use bendIdea. Structured proposals are JSON version
+1 (at most 4000 characters), validated by lib/youtube-research.ts; the existing
+owner view displays title, thumbnail, animation style, structure, opening beats
+and the collected demand evidence. Plain-text legacy proposals remain compatible.
+Shared-password visitors never receive bendIdea, userNote or isLiked. These
+proposal fields are optional and do not create a qualification gate for saves.
+
 update_video_ref edits userNote/isLiked or replaces the complete collections
 theme list. delete_video_ref deletes the record; perform deletion only when
 Michael authorizes it. Local/admin scripts/video-refs.ts is a compatibility

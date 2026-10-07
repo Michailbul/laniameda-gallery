@@ -1067,13 +1067,13 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     productionStyle: z
       .string()
       .describe(
-        "How the picture is made. Use one of these names: 2D animation, Whiteboard animation, AI pictures, AI 2D, Stock footage, Game recording, 3D animation, Archive and paintings, AI presenter, Mixed.",
+        "Legacy optional classification. Omit in new research; do not infer AI-versus-stock or model origin from frames. Michael judges the material visually.",
       )
       .optional(),
     language: z.string().describe("Spoken language, lowercase ISO 639-1 code: en, es, id.").optional(),
     styleDescription: z
       .string()
-      .describe("What the picture is made of: materials, colour, type, how things move.")
+      .describe("Legacy source description. Omit material-origin diagnoses in new research; show actual frames for visual review.")
       .optional(),
     format: z.string().describe("How an episode is structured.").optional(),
     whyItWorks: z.string().optional(),
@@ -1158,7 +1158,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Save Video References",
       description:
-        "Save up to 12 YouTube videos as references. The gallery copies each thumbnail and numbered YouTube auto stills by default; their timestamps/percent positions are unverified. Send the link, title, stats and style notes, with productionStyle, language and checkedAt (when the numbers were verified). Saving the same video updates it and merges collections; omitted owner notes are preserved.",
+        "Save up to 12 YouTube videos as references. The gallery copies each thumbnail and numbered YouTube auto stills; their positions are unverified. The website separately loads up to 24 chronological storyboard frames when available. Supply factual title/stats and requested research notes; do not infer production methods from appearance. Saving the same video updates research and merges collections/tags, while preserving existing owner notes and likes.",
       inputSchema: {
         items: z.array(z.object(videoRefShape)).min(1).max(12),
         refreshMedia: z.boolean().describe("Re-copy the thumbnail and frames.").optional(),

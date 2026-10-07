@@ -12,13 +12,14 @@ import {
   channelId,
   themeLabel,
   youtubeVideoPath,
+  styleLabel,
   type PublicVideo,
 } from "@/lib/youtube-page";
 import { CopyLinkButton } from "./copy-link-button";
+import { ResearchNotes } from "./research-notes";
 import { VideoCard, formatDate } from "./video-card";
 
 const NOTE_ROWS: { key: keyof PublicVideo; label: string }[] = [
-  { key: "styleDescription", label: "The look" },
   { key: "whyItWorks", label: "Why it works" },
   { key: "format", label: "Format" },
   { key: "hook", label: "Hook" },
@@ -139,14 +140,9 @@ export function YouTubeVideoPage({ video, videos }: { video: PublicVideo; videos
             </div>
           </div>
 
-          {video.productionStyle || video.styleFamily ? (
+          {styleLabel(video.styleFamily) ? (
             <span className="yt-card-tags">
-              {video.productionStyle ? (
-                <span className="yt-tag yt-tag-large" data-kind="made">
-                  {video.productionStyle}
-                </span>
-              ) : null}
-              {video.styleFamily ? <span className="yt-tag yt-tag-large">{video.styleFamily}</span> : null}
+              {styleLabel(video.styleFamily) ? <span className="yt-tag yt-tag-large">{styleLabel(video.styleFamily)}</span> : null}
             </span>
           ) : null}
 
@@ -159,6 +155,7 @@ export function YouTubeVideoPage({ video, videos }: { video: PublicVideo; videos
               </p>
             ) : null;
           })}
+          <ResearchNotes value={video.bendIdea} userNote={video.userNote} />
 
           {video.checkedAt || video.channelLastUploadAt ? (
             <p className="yt-checked">

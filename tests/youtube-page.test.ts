@@ -12,6 +12,7 @@ import {
   matchesFilters,
   parseFilters,
   summarizeChannels,
+  styleLabel,
   themeLabel,
   topicLabel,
   typicalMultiple,
@@ -116,16 +117,16 @@ test("channels group their videos best first and sort", () => {
 
 test("the thumbnail wall keeps its view, size and grouping in the URL", () => {
   const filters = parseFilters(
-    { view: "thumbnails", sort: "velocity", made: "2D animation", since: "90d", fits: "1", size: "study", group: "made" },
+    { view: "thumbnails", sort: "velocity", made: "2D animation", since: "90d", fits: "1", size: "study", group: "topic" },
     known,
   );
   expect(filters.view).toBe("thumbnails");
   expect(filters.sort).toBe("velocity");
-  expect(filters.made).toBe("2D animation");
+  expect(filters.made).toBeUndefined();
   expect(filters.since).toBe("90d");
   expect(filters.fitsOnly).toBe(true);
   expect(filters.size).toBe("study");
-  expect(filters.group).toBe("made");
+  expect(filters.group).toBe("topic");
   expect(parseFilters(Object.fromEntries(new URLSearchParams(filtersToSearch(filters))), known)).toEqual(filters);
   // The default size is left out of the link, and the wall's controls mean nothing elsewhere.
   expect(filtersToSearch(parseFilters({ view: "thumbnails", size: "shelf" }, known))).toBe("?view=thumbnails");
@@ -135,13 +136,13 @@ test("the thumbnail wall keeps its view, size and grouping in the URL", () => {
   expect(videos.since).toBeUndefined();
 });
 
-test("filters narrow by how it is made, upload window and our checks", () => {
+test("legacy origin filters are ignored; upload windows and our checks still narrow", () => {
   const drawn = video({ productionStyle: "2D animation", publishedAt: NOW - 20 * DAY, tagNames: ["passes-filters"] });
   const stock = video({ productionStyle: "Stock footage", publishedAt: NOW - 120 * DAY });
   const undated = video({});
   const base = parseFilters({}, known);
   expect(matchesFilters(drawn, { ...base, made: "2D animation" }, NOW)).toBe(true);
-  expect(matchesFilters(stock, { ...base, made: "2D animation" }, NOW)).toBe(false);
+  expect(matchesFilters(stock, { ...base, made: "2D animation" }, NOW)).toBe(true);
   expect(matchesFilters(drawn, { ...base, since: "30d" }, NOW)).toBe(true);
   expect(matchesFilters(stock, { ...base, since: "90d" }, NOW)).toBe(false);
   expect(matchesFilters(stock, { ...base, since: "180d" }, NOW)).toBe(true);
@@ -169,18 +170,13 @@ test("views per day ranks what works now, and the multiple shows a video against
   expect(formatAge(undefined, NOW)).toBe("");
 });
 
-test("the wall groups by how it is made or by niche, unlabelled last", () => {
+test("the wall groups by niche, unlabelled last", () => {
   const rows = [
     video({ externalId: "a", productionStyle: "Stock footage", topic: "true-crime" }),
     video({ externalId: "b", productionStyle: "2D animation", topic: "history" }),
     video({ externalId: "c", productionStyle: "2D animation", topic: "history" }),
     video({ externalId: "d" }),
   ];
-  expect(groupVideos(rows, "made").map((section) => [section.label, section.videos.length])).toEqual([
-    ["2D animation", 2],
-    ["Stock footage", 1],
-    ["Not labelled", 1],
-  ]);
   expect(groupVideos(rows, "topic").map((section) => section.label)).toEqual(["History", "True Crime", "Not labelled"]);
 });
 
@@ -191,4 +187,21 @@ test("a channel carries how it is made and its last upload", () => {
   ]);
   expect(channel.made).toBe("Whiteboard animation");
   expect(channel.lastUploadAt).toBe(9);
+});
+
+test("legacy made links do not filter videos or expose a provenance group", () => {
+  const filters = parseFilters({ view: "thumbnails", made: "AI pictures", group: "made" }, known);
+  expect(filters.made).toBeUndefined();
+  expect(filters.group).toBeUndefined();
+  expect(filtersToSearch(filters)).toBe("?view=thumbnails");
+});
+
+test("legacy visual styles display without origin words while their keys still match", () => {
+  expect(styleLabel("AI stills with voiceover")).toBe("stills with voiceover");
+  expect(styleLabel("stock footage, charts and headline screenshots")).toBe("footage, charts and headline screenshots");
+  expect(styleLabel("AI-generated pictures & motion graphics")).toBe("pictures & motion graphics");
+  expect(styleLabel("AI / stock")).toBe("");
+  expect(styleLabel("3D animation")).toBe("3D animation");
+  const entry = video({ styleFamily: "AI stills with voiceover" });
+  expect(matchesFilters(entry, { ...parseFilters({}, known), style: entry.styleFamily })).toBe(true);
 });
