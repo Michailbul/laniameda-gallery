@@ -440,8 +440,6 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
           .describe("Replace the asset's agent description; null clears it.")
           .optional(),
         sourceUrl: z.union([z.string(), z.null()]).optional(),
-        uploadId: z.string().describe("Prepared uploadId to replace media after the file was PUT; use set_video_poster for poster-only changes.").optional(),
-        posterUploadId: z.string().describe("Prepared JPEG/PNG poster accompanying a video replacement.").optional(),
         ...localFileShape,
         fileBase64: z.string().optional(),
         fileName: z.string().optional(),
