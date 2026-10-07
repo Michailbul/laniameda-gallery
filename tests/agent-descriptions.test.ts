@@ -55,6 +55,31 @@ describe("agent description text", () => {
     expect(buildAssetTextLane({ tagNames: [] })).toBe("");
   });
 
+  test("long saved posts retain curated tags and provenance within the text limit", () => {
+    const source = {
+      agentDescription: "Minimal launch film with morphing UI shapes.",
+      bookmarkText: "A detailed editable animation recipe. ".repeat(400),
+      promptText: "Scene and timing instructions. ".repeat(200),
+      tagNames: ["motion-design", "video-reference", "ui-reference"],
+      modelName: "Code animation",
+      sourceUrl: "https://x.com/twoclipping/status/1",
+    };
+    const lane = buildAssetTextLane(source);
+    expect(lane.length).toBeLessThanOrEqual(6000);
+    expect(lane.startsWith(`${source.agentDescription}\n`)).toBeTrue();
+    expect(lane).toContain("tags: motion-design, video-reference, ui-reference");
+    expect(lane).toContain("model: Code animation");
+    expect(lane.endsWith("source: x.com")).toBeTrue();
+    const retagged = buildAssetTextLane({ ...source, tagNames: [...source.tagNames, "motion-product-launch"] });
+    expect(retagged).toContain("motion-product-launch");
+    expect(retagged.length).toBeLessThanOrEqual(6000);
+    expect(retagged).not.toBe(lane);
+  });
+
+  test("short text lanes retain their previous ordering and content", () => {
+    expect(buildAssetTextLane({ agentDescription: "Static poster reference.", description: "Owner note.", tagNames: ["motion-design", "still-reference"], sourceUrl: "https://x.com/a/status/1" })).toBe("Static poster reference.\nOwner note.\ntags: motion-design, still-reference\nsource: x.com");
+  });
+
   test("describe prompt carries archive context", () => {
     const prompt = buildDescribePrompt({
       assetId: "assets:1" as never,

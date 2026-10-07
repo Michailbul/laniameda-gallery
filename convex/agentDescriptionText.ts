@@ -63,17 +63,26 @@ export const buildAssetTextLane = (source: AssetTextLaneSource) => {
   const domain = clean(source.designSourceDomain) ?? sourceDomainOf(source.sourceUrl);
   const tagNames = source.tagNames.map((tag) => tag.trim()).filter(Boolean);
   const promptText = clean(source.promptText);
-  const parts = [
+  const body = [
     clean(source.agentDescription),
     clean(source.description),
     clean(source.designTitle),
     clean(source.designSummary),
     clean(source.bookmarkText),
     promptText ? promptText.slice(0, TEXT_LANE_PROMPT_MAX_LENGTH) : undefined,
+  ].filter((part): part is string => Boolean(part)).join("\n");
+  const metadata = [
     tagNames.length > 0 ? `tags: ${tagNames.join(", ")}` : undefined,
     clean(source.modelName) ? `model: ${clean(source.modelName)}` : undefined,
     domain ? `source: ${domain}` : undefined,
-  ].filter((part): part is string => Boolean(part));
+  ].filter((part): part is string => Boolean(part)).join("\n");
 
-  return parts.join("\n").slice(0, TEXT_LANE_MAX_LENGTH);
+  const full = [body, metadata].filter(Boolean).join("\n");
+  if (full.length <= TEXT_LANE_MAX_LENGTH) return full;
+  // Long saved social posts must not crowd curated tags and provenance out.
+  // Keep ordinary inputs byte-identical so their text embeddings stay reusable.
+  if (!metadata) return body.slice(0, TEXT_LANE_MAX_LENGTH);
+  const tail = metadata.slice(0, TEXT_LANE_MAX_LENGTH);
+  const bodyBudget = Math.max(0, TEXT_LANE_MAX_LENGTH - tail.length - 1);
+  return [body.slice(0, bodyBudget), tail].filter(Boolean).join("\n");
 };
