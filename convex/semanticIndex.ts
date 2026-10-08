@@ -74,6 +74,8 @@ const semanticDocumentValidator = v.object({
   assetId: v.optional(v.id("assets")),
   promptId: v.optional(v.id("prompts")),
   designInspirationId: v.optional(v.id("designInspirations")),
+  skillId: v.optional(v.id("skills")),
+  // Staging compatibility: old documents remain readable until migration.
   workflowId: v.optional(v.id("workflows")),
   pillar: optionalPillarValidator,
   isPublic: v.boolean(),
@@ -101,6 +103,7 @@ const semanticDocumentLookupValidator = v.object({
   sourceType: semanticSourceTypeValidator,
   sourceId: v.string(),
   assetId: v.optional(v.id("assets")),
+  skillId: v.optional(v.id("skills")),
   ownerUserId: v.string(),
   pillar: optionalPillarValidator,
   isPublic: v.boolean(),
@@ -179,7 +182,7 @@ const designSourceValidator = v.union(
 const skillSourceValidator = v.union(
   v.null(),
   v.object({
-    workflowId: v.id("workflows"),
+    skillId: v.id("skills"),
     ownerUserId: v.string(),
     title: v.string(),
     description: v.optional(v.string()),
@@ -472,6 +475,7 @@ export const getSemanticDocumentsByIds = internalQuery({
         sourceType: row.sourceType,
         sourceId: row.sourceId,
         assetId: row.assetId,
+        skillId: row.skillId,
         ownerUserId: row.ownerUserId,
         pillar: row.pillar,
         isPublic: row.isPublic,
@@ -599,22 +603,22 @@ export const getDesignSourceForReindex = internalQuery({
 
 export const getSkillSourceForReindex = internalQuery({
   args: {
-    workflowId: v.id("workflows"),
+    skillId: v.id("skills"),
   },
   returns: skillSourceValidator,
   handler: async (ctx, args) => {
-    const workflow = await ctx.db.get(args.workflowId);
-    if (!workflow?.ownerUserId) {
+    const skill = await ctx.db.get(args.skillId);
+    if (!skill?.ownerUserId) {
       return null;
     }
 
     const steps = await ctx.db
       .query("prompts")
-      .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", workflow._id))
+      .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skill._id))
       .order("asc")
       .collect();
     const stepLabels = steps
-      .map((step) => normalizeOptionalString(step.workflowStepLabel))
+      .map((step) => normalizeOptionalString(step.skillStepLabel))
       .filter((label): label is string => Boolean(label));
     const modelNames = Array.from(
       new Set(
@@ -625,18 +629,18 @@ export const getSkillSourceForReindex = internalQuery({
     );
 
     return {
-      workflowId: workflow._id,
-      ownerUserId: workflow.ownerUserId,
-      title: workflow.title,
-      description: workflow.description,
-      body: workflow.body,
-      agentInstructions: workflow.agentInstructions,
-      tagNames: await resolveTagNames(ctx, workflow.tagIds),
+      skillId: skill._id,
+      ownerUserId: skill.ownerUserId,
+      title: skill.title,
+      description: skill.description,
+      body: skill.body,
+      agentInstructions: skill.agentInstructions,
+      tagNames: await resolveTagNames(ctx, skill.tagIds),
       stepLabels,
       modelNames,
-      pillar: workflow.pillar,
-      isPublic: Boolean(workflow.isPublic),
-      sourceUpdatedAt: workflow.updatedAt,
+      pillar: skill.pillar,
+      isPublic: Boolean(skill.isPublic),
+      sourceUpdatedAt: skill.updatedAt,
     };
   },
 });
@@ -663,7 +667,7 @@ export const listBackfillSourceBatch = internalQuery({
               .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
               .collect()
           : args.sourceType === "skill"
-            ? await ctx.db.query("workflows").collect()
+            ? await ctx.db.query("skills").collect()
             : await ctx.db
                 .query("designInspirations")
                 .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
@@ -706,7 +710,7 @@ export const upsertSemanticDocument = internalMutation({
     assetId: v.optional(v.id("assets")),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
-    workflowId: v.optional(v.id("workflows")),
+    skillId: v.optional(v.id("skills")),
     pillar: optionalPillarValidator,
     isPublic: v.boolean(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -743,7 +747,7 @@ export const upsertSemanticDocument = internalMutation({
         assetId: args.assetId,
         promptId: args.promptId,
         designInspirationId: args.designInspirationId,
-        workflowId: args.workflowId,
+        skillId: args.skillId,
         pillar: args.pillar,
         isPublic: args.isPublic,
         kind: args.kind,
@@ -780,7 +784,7 @@ export const upsertSemanticDocument = internalMutation({
       assetId: args.assetId,
       promptId: args.promptId,
       designInspirationId: args.designInspirationId,
-      workflowId: args.workflowId,
+      skillId: args.skillId,
       pillar: args.pillar,
       isPublic: args.isPublic,
       kind: args.kind,
@@ -949,7 +953,7 @@ const scheduleRetry = async (
   }
   if (sourceType === "skill") {
     await ctx.scheduler.runAfter(delay, reindexSkillActionRef, {
-      workflowId: sourceId as Id<"workflows">,
+      skillId: sourceId as Id<"skills">,
       attempt: attempt + 1,
     });
     return true;
@@ -1439,15 +1443,15 @@ export const buildSkillTextLane = (source: {
 // Skills live in the text lane only: what a skill is about is in its words.
 const reindexSkillSource = async (
   ctx: ActionCtx,
-  workflowId: Id<"workflows">,
+  skillId: Id<"skills">,
   attempt: number,
 ): Promise<ReindexResult> => {
   if (!isSemanticEmbeddingsEnabled()) {
     return { status: "skipped" as const, retryScheduled: false };
   }
 
-  const source = await ctx.runQuery(getSkillSourceQueryRef, { workflowId });
-  const sourceId = String(workflowId);
+  const source = await ctx.runQuery(getSkillSourceQueryRef, { skillId });
+  const sourceId = String(skillId);
   if (!source) {
     await ctx.runMutation(deleteSemanticDocumentMutationRef, {
       sourceType: "skill",
@@ -1485,7 +1489,7 @@ const reindexSkillSource = async (
       ownerUserId: source.ownerUserId,
       sourceType: "skill",
       sourceId,
-      workflowId,
+      skillId,
       pillar: source.pillar,
       isPublic: source.isPublic,
       modality: "text_only",
@@ -1521,12 +1525,18 @@ const reindexSkillSource = async (
 
 export const reindexSkill = internalAction({
   args: {
-    workflowId: v.id("workflows"),
+    skillId: v.optional(v.id("skills")),
+    // Temporary bridge for already queued pre-migration calls, not new writes.
+    workflowId: v.optional(v.string()),
     attempt: v.optional(v.number()),
   },
   returns: reindexResultValidator,
   handler: async (ctx, args): Promise<ReindexResult> => {
-    return await reindexSkillSource(ctx, args.workflowId, args.attempt ?? 0);
+    const skillId: Id<"skills"> | null = args.skillId ?? (args.workflowId
+      ? await ctx.runQuery(makeFunctionReference<"query">("skills:resolveLegacySkillJob"), { sourceId: args.workflowId })
+      : null);
+    if (!skillId) return { status: "skipped", retryScheduled: false };
+    return await reindexSkillSource(ctx, skillId, args.attempt ?? 0);
   },
 });
 
@@ -1605,7 +1615,7 @@ export const backfillBatch = internalAction({
           : args.sourceType === "prompt"
             ? await reindexPromptSource(ctx, id as Id<"prompts">, 0)
             : args.sourceType === "skill"
-              ? await reindexSkillSource(ctx, id as Id<"workflows">, 0)
+              ? await reindexSkillSource(ctx, id as Id<"skills">, 0)
               : await reindexDesignSource(ctx, id as Id<"designInspirations">, 0);
 
       if (result.status === "indexed" || result.status === "deleted") {

@@ -78,7 +78,7 @@ interface GalleryDetailPanelProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
     promptId?: string;
     thumbSrc: string;
     fullSrc: string;
@@ -125,8 +125,8 @@ interface GalleryDetailPanelProps {
   onSlideIndexChange?: (index: number) => void;
   /** Who is looking — scopes the prompt-context read to the owner's rows. */
   ownerUserId?: string;
-  /** Opens the workflow document this asset's prompt is a step of. */
-  onOpenWorkflow?: (workflowId: string) => void;
+  /** Opens the Skill document this asset's prompt is a step of. */
+  onOpenSkill?: (skillId: string) => void;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -198,7 +198,7 @@ export function GalleryDetailPanel({
   slideIndex,
   onSlideIndexChange,
   ownerUserId,
-  onOpenWorkflow,
+  onOpenSkill,
   onClose,
   onPrev,
   onNext,
@@ -436,7 +436,7 @@ export function GalleryDetailPanel({
   const canEditThis = Boolean(canEditDetails && !isDesignView);
 
   // The prompt as a module: sections, the files that share it, and the
-  // workflow around it. Follows the carousel slide, so a pack's members each
+  // Skill around it. Follows the carousel slide, so a pack's members each
   // resolve their own prompt when they differ.
   const activePromptId = currentSlide.promptId ?? image.promptId;
   const promptContext = useQuery(
@@ -1361,18 +1361,18 @@ export function GalleryDetailPanel({
                     </Field>
                   )}
 
-                  {/* The workflow this prompt is a step of, with every
+                  {/* The Skill this prompt is a step of, with every
                       sibling step's prompt one tap away — the image prompts
                       that fed a video live right under the video. */}
-                  {promptContext?.workflow && (
+                  {promptContext?.skill && (
                     <Field
-                      label="Workflow"
+                      label="Skill"
                       action={
-                        onOpenWorkflow ? (
+                        onOpenSkill ? (
                           <TextAction
                             label="Open"
                             onClick={() =>
-                              onOpenWorkflow(promptContext.workflow!._id)
+                              onOpenSkill(promptContext.skill!._id)
                             }
                           />
                         ) : undefined
@@ -1385,7 +1385,7 @@ export function GalleryDetailPanel({
                           fontWeight: 600,
                         }}
                       >
-                        {promptContext.workflow.title}
+                        {promptContext.skill.title}
                       </p>
                       <p
                         style={{
@@ -1394,14 +1394,14 @@ export function GalleryDetailPanel({
                           marginTop: "2px",
                         }}
                       >
-                        Step {padIndex(promptContext.workflow.stepOrder + 1)} of{" "}
-                        {padIndex(promptContext.workflow.stepCount)}
-                        {promptContext.workflow.stepLabel
-                          ? ` · ${stripLeadingIndex(promptContext.workflow.stepLabel)}`
+                        Step {padIndex(promptContext.skill.stepOrder + 1)} of{" "}
+                        {padIndex(promptContext.skill.stepCount)}
+                        {promptContext.skill.stepLabel
+                          ? ` · ${stripLeadingIndex(promptContext.skill.stepLabel)}`
                           : ""}
                       </p>
                       <div className="mt-2 flex flex-col">
-                        {promptContext.workflow.steps.map((step) => {
+                        {promptContext.skill.steps.map((step) => {
                           const current = step.promptId === promptContext._id;
                           const label = step.stepLabel?.trim()
                             ? stripLeadingIndex(step.stepLabel)
@@ -1453,11 +1453,11 @@ export function GalleryDetailPanel({
                               <button
                                 type="button"
                                 onClick={() =>
-                                  onOpenWorkflow?.(promptContext.workflow!._id)
+                                  onOpenSkill?.(promptContext.skill!._id)
                                 }
                                 className="min-w-0 flex-1 border-none bg-transparent p-0 text-left"
                                 style={{
-                                  cursor: onOpenWorkflow ? "pointer" : "default",
+                                  cursor: onOpenSkill ? "pointer" : "default",
                                 }}
                               >
                                 <span

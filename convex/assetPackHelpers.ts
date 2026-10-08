@@ -146,6 +146,28 @@ export const syncPromptAssetPack = async (
     ),
   );
 
+  // A native Skill owns its examples. Never regenerate the retired side-effect
+  // pack when media/prompt metadata is edited or an ingest retry runs.
+  if (prompt.skillId) {
+    // A staged copy still has its old step pointer. Only the verified migration
+    // may retire those source packs and record their permanent redirects.
+    if (prompt.workflowId) {
+      return { packId: undefined, itemCount: orderedAssets.length, createdPack: false, removedPackCount: 0, updatedAssetCount: 0 };
+    }
+    let updatedAssetCount = 0;
+    for (const asset of orderedAssets) {
+      if (!asset.assetPackId) continue;
+      await ctx.db.patch(asset._id, { assetPackId: undefined, packSlotIndex: undefined });
+      updatedAssetCount += 1;
+    }
+    let removedPackCount = 0;
+    for (const packId of existingPackIds) {
+      const result = await reconcileAssetPackMembership(ctx, packId);
+      if (result.removed) removedPackCount += 1;
+    }
+    return { packId: undefined, itemCount: orderedAssets.length, createdPack: false, removedPackCount, updatedAssetCount };
+  }
+
   if (orderedAssets.length < 2) {
     for (const asset of orderedAssets) {
       if (!asset.assetPackId) {

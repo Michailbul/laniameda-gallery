@@ -60,9 +60,9 @@ export type GalleryAssetRecord = {
 export type GalleryEntryPreview = {
   id: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
   /** The prompt row this file was generated from — the detail panel reads
-   *  its sections and workflow context through `prompts.getPromptContext`. */
+   *  its sections and Skill context through `prompts.getPromptContext`. */
   promptId?: string;
   src: string;
   fullSrc: string;
@@ -80,7 +80,7 @@ export type GalleryEntry = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
   promptId?: string;
   src: string;
   fullSrc: string;
@@ -128,7 +128,7 @@ export type GalleryEntry = {
   packPromptCount?: number;
   /** Member count for stack entries (galleryItemType "storybook"). */
   storybookCount?: number;
-  /** Step count for workflow entries (galleryItemType "workflow"). */
+  /** Step count for native Skill entries (galleryItemType "skill"). */
   stepCount?: number;
   /** Skill cards: one or two plain sentences under the title. */
   excerpt?: string;

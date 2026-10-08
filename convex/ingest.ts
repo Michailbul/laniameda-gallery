@@ -819,7 +819,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
           modelName: args.modelName,
           pillar: args.pillar,
           generationType: args.generationType,
-          assetRole: args.assetRole,
+          assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,
           ingestSource: args.ingestSource ?? "api",
         })) as {
           assetId: Id<"assets">;
@@ -1082,7 +1082,7 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
                 : (existing.promptType as GenerationType | undefined),
             assetRole:
               hasOwn(args, "assetRole")
-                ? ((args.assetRole ?? undefined) as AssetRole)
+                ? ((args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole ?? undefined) as AssetRole)
                 : ("generated_output" as AssetRole),
             ingestSource:
               hasOwn(args, "ingestSource")
@@ -1177,7 +1177,7 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
             : existing.generationType,
         assetRole:
           hasOwn(args, "assetRole")
-            ? ((args.assetRole ?? undefined) as AssetRole)
+            ? ((args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole ?? undefined) as AssetRole)
             : existing.assetRole,
         ingestSource:
           hasOwn(args, "ingestSource")

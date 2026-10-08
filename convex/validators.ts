@@ -232,6 +232,8 @@ export const assetRoleValidator = v.optional(v.union(
   v.literal("generated_output"),
   v.literal("reference"),
   v.literal("inspiration_capture"),
+  v.literal("skill_example"),
+  // Legacy migration input only; new Skill writes use skill_example.
   v.literal("workflow_asset"),
   v.literal("cinema_frame"),
   // Preview image of a saved social post (see the `bookmarks` table). The

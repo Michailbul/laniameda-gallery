@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
-import { createSkillForAgent } from "@/lib/server/agent-skills";
+import { createSkillForAgent, resolveSkillForOwner } from "@/lib/server/agent-skills";
 import { createSkillInputSchema } from "@/lib/skill-contract";
 import { makeFunctionReference } from "convex/server";
 import { getServerConvexClient } from "@/lib/server/convex";
 
-const deleteSkillMutation = makeFunctionReference<"mutation">("workflows:deleteWorkflow");
-const getSkillQuery = makeFunctionReference<"query">("workflows:getWorkflow");
+const deleteSkillMutation = makeFunctionReference<"mutation">("skills:deleteSkill");
+const getSkillQuery = makeFunctionReference<"query">("skills:getSkill");
 
 export async function POST(request: Request) {
   try {
@@ -17,8 +17,9 @@ export async function POST(request: Request) {
     const agent = await requireAgentAuth(request, action === "delete" ? "gallery:delete" : "gallery:write");
     if (action === "delete") {
       const { id } = z.object({ id: z.string().trim().min(1) }).strict().parse(data);
-      const rawId = id.replace(/^(skill|workflow):/, "");
       const client = getServerConvexClient(agent.ownerUserId);
+      const rawId = await resolveSkillForOwner(client, agent.ownerUserId, id);
+      if (!rawId) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
       await client.mutation(deleteSkillMutation, { ownerUserId: agent.ownerUserId, id: rawId });
       const skill = await client.query(getSkillQuery, { ownerUserId: agent.ownerUserId, id: rawId });
       if (skill) throw new Error("The Skill deletion could not be verified.");

@@ -367,7 +367,6 @@ export const listAssetPacksWithCovers = ownerQuery({
       coverWidth: v.optional(v.number()),
       coverHeight: v.optional(v.number()),
       previewUrls: v.array(v.string()),
-      hasWorkflowAssets: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -434,18 +433,15 @@ export const listAssetPacksWithCovers = ownerQuery({
         // Aggregate member-asset tagIds and modelNames for filtering.
         const memberTagIds = new Set<string>();
         const memberModels = new Set<string>();
-        let hasWorkflowAssets = false;
         for (const member of members) {
           for (const tid of member.tagIds ?? []) memberTagIds.add(tid);
           if (member.modelName) memberModels.add(member.modelName);
-          if (member.generationType === "workflow") hasWorkflowAssets = true;
         }
         if (pack.modelName) memberModels.add(pack.modelName);
         for (const tid of pack.tagIds ?? []) memberTagIds.add(tid);
 
         return {
           pack,
-          hasWorkflowAssets,
           memberTagIds,
           memberModels,
           result: {
@@ -464,7 +460,6 @@ export const listAssetPacksWithCovers = ownerQuery({
             coverWidth,
             coverHeight,
             previewUrls,
-            hasWorkflowAssets,
           },
         };
       }),

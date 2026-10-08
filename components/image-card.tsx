@@ -51,7 +51,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
     promptId?: string;
     src: string;
     fullSrc: string;
@@ -94,7 +94,7 @@ interface ImageCardProps {
     previewImages: Array<{
       id: string;
       galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+      galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
       promptId?: string;
       src: string;
       fullSrc: string;
@@ -115,7 +115,7 @@ interface ImageCardProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
     promptId?: string;
     thumbSrc: string;
     fullSrc: string;
@@ -144,7 +144,7 @@ interface ImageCardProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+        galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
         promptId?: string;
         src: string;
         fullSrc: string;
@@ -276,11 +276,11 @@ export const ImageCard = memo(function ImageCard({
           contentType: image.contentType,
         },
       ];
-  // A pack renders as a self-rotating deck. Workflow cards keep their own
+  // A pack renders as a self-rotating deck. Skill cards keep their own
   // look, and cinema frames keep the shared-layout popout animation.
   const isPackDeck =
     previewImages.length > 1 &&
-    image.galleryItemType !== "workflow" &&
+    image.galleryItemType !== "skill" &&
     !isCinema;
   const [deckHovered, setDeckHovered] = useState(false);
   const deckRef = useRef<HTMLDivElement | null>(null);
@@ -440,12 +440,12 @@ export const ImageCard = memo(function ImageCard({
       ? "PACK ID COPIED"
       : galleryItemType === "design"
         ? "DESIGN ID COPIED"
-        : galleryItemType === "workflow"
+        : galleryItemType === "skill"
           ? isCinematographySkill(image.tagNames)
             ? "ID COPIED"
             : "SKILL ID COPIED"
           : "ASSET ID COPIED";
-  const isWorkflow = galleryItemType === "workflow";
+  const isSkill = galleryItemType === "skill";
 
   const hasThumb = Boolean(activeThumbSrc) && activeThumbSrc !== activeFullSrc;
 
@@ -657,7 +657,7 @@ export const ImageCard = memo(function ImageCard({
     );
   }
 
-  if (isWorkflow) {
+  if (isSkill) {
     const skillClasses = [
       "group relative cursor-pointer skill-card",
       isSelected && "skill-card-selected",

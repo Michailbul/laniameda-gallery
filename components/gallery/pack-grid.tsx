@@ -27,7 +27,6 @@ type PackWithCover = {
   coverWidth?: number;
   coverHeight?: number;
   previewUrls: string[];
-  hasWorkflowAssets: boolean;
 };
 
 type PackGridProps = {
@@ -63,7 +62,6 @@ const PackCard = memo(function PackCard({
   const coverSrc = pack.coverThumbUrl ?? pack.coverUrl;
   const accentColor = PILLAR_COLORS[pack.pillar ?? "creators"] ?? "var(--lm-coral)";
   const itemCount = pack.itemCount ?? 0;
-  const isWorkflow = pack.hasWorkflowAssets;
   // Slides: dedup cover + previews, cap at 10.
   const slides = buildSlides(coverSrc, pack.previewUrls).slice(0, 10);
   const hasCarousel = slides.length > 1;
@@ -182,37 +180,9 @@ const PackCard = memo(function PackCard({
           }}
         />
 
-        {/* Top row — workflow badge + count */}
+        {/* Top row — batch item count */}
         <div className="absolute inset-x-2.5 top-2.5 flex items-center justify-between gap-2 pointer-events-none">
-          {isWorkflow ? (
-            <div
-              className="flex items-center gap-1 px-2 py-[3px]"
-              style={{
-                background: "rgba(255,255,255,0.92)",
-                borderRadius: "7px",
-                border: "1px solid rgba(0,0,0,0.08)",
-                fontFamily: "var(--lm-font)",
-                fontSize: "8.5px",
-                fontWeight: 900,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "var(--lm-ink)",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.16)",
-              }}
-            >
-              <span
-                style={{
-                  width: "5px",
-                  height: "5px",
-                  borderRadius: "50%",
-                  backgroundColor: accentColor,
-                }}
-              />
-              Workflow
-            </div>
-          ) : (
-            <span />
-          )}
+          <span />
           <div
             className="flex items-center gap-1 px-2 py-0.5"
             style={{

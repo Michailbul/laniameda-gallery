@@ -17,6 +17,7 @@ type AssetRole =
   | "generated_output"
   | "reference"
   | "inspiration_capture"
+  | "skill_example"
   | "workflow_asset"
   | "other";
 type CaptureKind = "website" | "image" | "component" | "tutorial";
@@ -65,6 +66,24 @@ interface AssetListParams extends NamedFilters {
   assetRole?: AssetRole;
   search?: string;
   limit?: number;
+}
+
+interface AssetPageParams extends NamedFilters {
+  action: "listPage";
+  cursor?: string | null;
+  pageSize?: number;
+  kind?: AssetKind;
+  folderId?: string;
+  includeDescendants?: boolean;
+  includeSkillExamples?: boolean;
+  /** Backward input alias; prefer includeSkillExamples. */
+  includeWorkflowAssets?: boolean;
+  modelName?: string;
+  assetRole?: AssetRole;
+  tagIdGroups?: string[][];
+  excludeTagIds?: string[];
+  excludeFolderIds?: string[];
+  search?: string;
 }
 
 interface AssetSearchParams extends NamedFilters {
@@ -201,6 +220,7 @@ type Params =
   | SkillSearchParams
   | SkillGetParams
   | AssetListParams
+  | AssetPageParams
   | AssetSearchParams
   | AssetSimilarParams
   | SourcesParams
@@ -334,7 +354,7 @@ function normalizeGalleryIdKind(kind: string): GalleryIdKind | null {
     case "designInspiration":
     case "designInspirations":
       return "design";
-    // Skills live in the workflows table; the gallery copies workflow:<id>.
+    // Old copied workflow IDs are resolved through the native Skill alias map.
     case "skill":
     case "skills":
     case "workflow":
@@ -575,6 +595,15 @@ export async function handleList(params: AssetListParams, runtime?: QueryRuntime
 
   const assets = (await convexQuery(fnPath, args)) as Record<string, unknown>[];
   return { count: assets.length, assets: assets.map(compactAsset) };
+}
+
+export async function handleListPage(params: AssetPageParams, runtime?: QueryRuntime) {
+  const { convexQuery } = createHttpClient(runtime);
+  const { action: _action, ...filters } = params;
+  return await convexQuery("agentAssets:listAssetsPage", {
+    ...filters,
+    ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
+  });
 }
 
 export async function handleSearch(params: AssetSearchParams, runtime?: QueryRuntime) {
@@ -904,6 +933,8 @@ export async function handleGet(params: AssetGetParams, runtime?: QueryRuntime) 
 
 export async function handleGetPack(params: AssetPackGetParams, runtime?: QueryRuntime) {
   const { convexQuery } = createHttpClient(runtime);
+  const skillId = await resolveSkillId(params.packId, runtime);
+  if (skillId) return await handleGetSkill({ action: "getSkill", id: skillId }, runtime);
   const { id: packId } = parseGalleryId(params.packId, "pack");
   const packResult = (await convexQuery("assetPacks:getGalleryAssetPack", {
     packId,
@@ -922,6 +953,8 @@ export async function handleGetPack(params: AssetPackGetParams, runtime?: QueryR
 }
 
 export async function handleGetById(params: GalleryIdGetParams, runtime?: QueryRuntime) {
+  const skillId = await resolveSkillId(params.id, runtime);
+  if (skillId) return await handleGetSkill({ action: "getSkill", id: skillId }, runtime);
   const parsed = parseGalleryId(params.id);
   if (parsed.kind === "asset") {
     return await handleGet({ action: "get", assetId: parsed.id }, runtime);
@@ -930,7 +963,7 @@ export async function handleGetById(params: GalleryIdGetParams, runtime?: QueryR
     return await handleGetPack({ action: "getPack", packId: parsed.id }, runtime);
   }
   if (parsed.kind === "skill") {
-    return await handleGetSkill({ action: "getSkill", id: parsed.id }, runtime);
+    return await handleGetSkill({ action: "getSkill", id: params.id }, runtime);
   }
   return await handleGetDesign(
     { action: "getDesign", designInspirationId: parsed.id },
@@ -1041,7 +1074,7 @@ const compactSkill = (skill: Record<string, unknown>) => ({
 
 export async function handleListSkills(params: SkillListParams, runtime?: QueryRuntime) {
   const { convexQuery } = createHttpClient(runtime);
-  const skills = (await convexQuery("workflows:listWorkflows", {
+  const skills = (await convexQuery("skills:listSkills", {
     ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
     tagNames: params.tagNames,
     folderId: params.folderId,
@@ -1065,10 +1098,19 @@ export async function handleSearchSkills(params: SkillSearchParams, runtime?: Qu
   return { count: skills.length, skills: skills.map(compactSkill) };
 }
 
+async function resolveSkillId(reference: string, runtime?: QueryRuntime) {
+  const { convexQuery } = createHttpClient(runtime);
+  return await convexQuery("skills:resolveSkillReference", {
+    id: reference,
+    ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
+  }) as string | null;
+}
+
 export async function handleGetSkill(params: SkillGetParams, runtime?: QueryRuntime) {
   const { convexQuery } = createHttpClient(runtime);
-  const { id } = parseGalleryId(params.id, "skill");
-  const skill = (await convexQuery("workflows:getWorkflow", {
+  const id = await resolveSkillId(params.id, runtime);
+  if (!id) return { error: `Skill ${params.id} not found in the owner-scoped gallery.` };
+  const skill = (await convexQuery("skills:getSkill", {
     id,
     ownerUserId: resolveOwnerUserId(runtime?.ownerUserId),
   })) as Record<string, unknown> | null;
@@ -1088,6 +1130,8 @@ export async function runGalleryQuery(params: Params, runtime?: QueryRuntime) {
       return await handleGetSkill(params, runtime);
     case "list":
       return await handleList(params, runtime);
+    case "listPage":
+      return await handleListPage(params, runtime);
     case "search":
       return await handleSearch(params, runtime);
     case "similar":
@@ -1121,7 +1165,7 @@ async function main() {
   const rawInput = process.argv[2];
   if (!rawInput) {
     console.error(
-      "Usage: bun run query.ts '<json>'. Actions: list, search, similar, refs, preview, sources, tags, get, getById, getPack, download, listDesigns, getDesign.",
+      "Usage: bun run query.ts '<json>'. Actions: list, listPage, search, similar, refs, preview, sources, tags, get, getById, getPack, download, skills, searchSkills, getSkill, listDesigns, getDesign.",
     );
     process.exit(1);
   }

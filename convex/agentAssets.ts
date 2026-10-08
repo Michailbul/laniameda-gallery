@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { assetRoleValidator } from "./validators";
 import { galleryAssetResultValidator, hydrateGalleryAssetResults } from "./galleryAssetResults";
-import { buildMenuFilterPredicate, isHiddenWorkflowStepAsset, matchesMenuFilters, resolveNamedTagFilters } from "./assets";
+import { buildMenuFilterPredicate, isHiddenSkillExample, isSkillExampleRole, matchesAssetRole, matchesMenuFilters, resolveNamedTagFilters } from "./assets";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const ORDER = "owner-candidate-createdAt-desc" as const;
@@ -15,7 +15,7 @@ export const listAssetsPage = signedOwnerQuery({
     ownerUserId: v.string(), cursor: v.optional(v.union(v.string(), v.null())), pageSize: v.optional(v.number()),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     folderId: v.optional(v.id("folders")), includeDescendants: v.optional(v.boolean()),
-    includeWorkflowAssets: v.optional(v.boolean()), modelName: v.optional(v.string()), assetRole: assetRoleValidator,
+    includeSkillExamples: v.optional(v.boolean()), includeWorkflowAssets: v.optional(v.boolean()), modelName: v.optional(v.string()), assetRole: assetRoleValidator,
     tagNames: v.optional(v.array(v.string())), anyTagNames: v.optional(v.array(v.string())), excludeTagNames: v.optional(v.array(v.string())),
     tagIdGroups: v.optional(v.array(v.array(v.id("tags")))), excludeTagIds: v.optional(v.array(v.id("tags"))),
     excludeFolderIds: v.optional(v.array(v.id("folders"))),
@@ -23,7 +23,7 @@ export const listAssetsPage = signedOwnerQuery({
     medium: v.optional(v.union(v.literal("animation"), v.literal("live-action"))),
     onlyLiked: v.optional(v.boolean()), onlyStarred: v.optional(v.boolean()), search: v.optional(v.string()),
   },
-  returns: v.object({ assets: v.array(galleryAssetResultValidator), cursor: v.union(v.string(), v.null()), isDone: v.boolean(), scannedCount: v.number(), order: v.literal(ORDER), includesWorkflowAssets: v.boolean() }),
+  returns: v.object({ assets: v.array(galleryAssetResultValidator), cursor: v.union(v.string(), v.null()), isDone: v.boolean(), scannedCount: v.number(), order: v.literal(ORDER), includesSkillExamples: v.boolean(), includesWorkflowAssets: v.boolean() }),
   handler: async (ctx, input) => {
     const { cursor: rawCursor, pageSize: rawSize, ...filters } = input;
     const pageSize = rawSize ?? 100;
@@ -38,9 +38,9 @@ export const listAssetsPage = signedOwnerQuery({
         state = parsed;
       } catch { throw new ConvexError("Invalid cursor or listing filters changed. Restart the listing."); }
     }
-    const includesWorkflowAssets = input.includeWorkflowAssets !== false;
+    const includesWorkflowAssets = (input.includeSkillExamples ?? input.includeWorkflowAssets) !== false;
     const args = await resolveNamedTagFilters(ctx, input);
-    if (!args) return { assets: [], cursor: null, isDone: true, scannedCount: 0, order: ORDER, includesWorkflowAssets };
+    if (!args) return { assets: [], cursor: null, isDone: true, scannedCount: 0, order: ORDER, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
     let folders: Set<Id<"folders">> | undefined;
     if (args.folderId) {
       const folder = await ctx.db.get(args.folderId);
@@ -56,7 +56,7 @@ export const listAssetsPage = signedOwnerQuery({
       ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", q => q.eq("ownerUserId", owner).eq("isLiked", true))
       : args.modelName
         ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", q => q.eq("ownerUserId", owner).eq("modelName", args.modelName!))
-        : args.assetRole
+        : args.assetRole && !isSkillExampleRole(args.assetRole)
           ? ctx.db.query("assets").withIndex("by_owner_assetRole_createdAt", q => q.eq("ownerUserId", owner).eq("assetRole", args.assetRole))
           : args.kind
             ? ctx.db.query("assets").withIndex("by_owner_kind_createdAt", q => q.eq("ownerUserId", owner).eq("kind", args.kind!))
@@ -68,9 +68,9 @@ export const listAssetsPage = signedOwnerQuery({
     // loading every member of each excluded collection on every page.
     const predicate = await buildMenuFilterPredicate(ctx, { ...args, excludeFolderIds: undefined });
     const rows = batch.page.filter(asset =>
-      (includesWorkflowAssets || !isHiddenWorkflowStepAsset(asset, args.assetRole)) &&
+      (includesWorkflowAssets || !isHiddenSkillExample(asset, args.assetRole)) &&
       matchesMenuFilters(predicate, asset) && (!args.kind || asset.kind === args.kind) &&
-      (!args.assetRole || asset.assetRole === args.assetRole) && (!args.modelName || asset.modelName === args.modelName) &&
+      matchesAssetRole(asset.assetRole, args.assetRole) && (!args.modelName || asset.modelName === args.modelName) &&
       (!args.onlyLiked || asset.isLiked === true) && (!args.onlyStarred || Boolean(asset.starredAt)),
     );
     const hydrated = await hydrateGalleryAssetResults(ctx, rows);
@@ -79,6 +79,6 @@ export const listAssetsPage = signedOwnerQuery({
     const assets = hydrated.filter(asset => (!folders || asset.folderIds.some(id => folders.has(id))) && !asset.folderIds.some(id => excludedFolders.has(id)) && (!search || galleryAssetSearchText(asset).includes(search)));
     const isDone = batch.isDone && state.owner === owners.length - 1;
     const next: Cursor = batch.isDone ? { v: 1, key, owner: state.owner + 1, cursor: null } : { ...state, cursor: batch.continueCursor };
-    return { assets, cursor: isDone ? null : JSON.stringify(next), isDone, scannedCount: batch.page.length, order: ORDER, includesWorkflowAssets };
+    return { assets, cursor: isDone ? null : JSON.stringify(next), isDone, scannedCount: batch.page.length, order: ORDER, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
   },
 });

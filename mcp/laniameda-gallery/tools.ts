@@ -150,10 +150,10 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,
   }, async () => jsonText({
-    contractVersion: "2026-10-08.2", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    contractVersion: "2026-10-08.3", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
     transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
     scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", deletionApproval: "Delete scope grants technical access only. Obtain explicit user approval for the named collection/preset or listed batch before deletion. Existing approval for those targets in the current session persists.", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
-    pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeWorkflowAssets: { default: true, false: "omits Skill-step assets unless explicitly requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
+    pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeSkillExamples: { default: true, false: "omits Skill-step assets unless explicitly requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
     videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
     limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
     resources: ["assets", "collections", "menuFilters", "skills", "stories", "presets", "bookmarks", "videoRefs"],
@@ -173,7 +173,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     inputSchema: { folderId: z.string(), option: z.enum(["cover", "pinned", "hidden", "showcased", "featured"]), enabled: z.boolean().optional(), assetId: z.string().nullable().optional() },
   }, async input => jsonText(await apiFetch("/api/agent/customize", { action: "setCollectionOption", ...input })));
   server.registerTool("create_skill", { description: "Create or reuse a private reusable Gallery Skill using a stable ingestKey, editable markdown/instructions and optional ordered prompt/media steps. Separate from text Stories and from gallery agent instructions. Readback is returned; no publication flag is accepted.", inputSchema: createSkillInputSchema.shape, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } }, async input => jsonText(await apiFetch("/api/agent/skills", { action: "create", ...input })));
-  server.registerTool("delete_skill", { description: "Delete an owned reusable Gallery Skill recipe and its collection links after the user authorizes deletion. Preserves source prompts/media; formerly hidden step media becomes visible in the gallery. Requires gallery:delete.", inputSchema: { id: z.string().min(1).describe("skill:<id>, workflow:<id> or raw workflow ID.") }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } }, async input => jsonText(await apiFetch("/api/agent/skills", { action: "delete", ...input })));
+  server.registerTool("delete_skill", { description: "Delete an owned reusable Gallery Skill recipe and its collection links after the user authorizes deletion. Preserves source prompts/media; formerly hidden step media becomes visible in the gallery. Requires gallery:delete.", inputSchema: { id: z.string().min(1).describe("skill:<native-id>; old skill/workflow and retired pack identifiers resolve through owner aliases.") }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } }, async input => jsonText(await apiFetch("/api/agent/skills", { action: "delete", ...input })));
   server.registerTool("set_video_poster", { description: "Replace only an owned video's card poster using posterUploadId from prepare_uploads. Main video bytes and metadata are retained. Upload a JPEG/PNG poster first.", inputSchema: { assetId: z.string(), posterUploadId: z.string() }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, async input => jsonText(await apiFetch("/api/agent/poster", input)));
 
   server.registerTool("get_skill_instructions", {
@@ -944,7 +944,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   );
 
   // Skills: multi-step recipes saved as one document (markdown body + ordered
-  // prompt steps with their media). Ids read skill:<id> or workflow:<id>.
+  // prompt steps with their media). Canonical IDs read skill:<id>; legacy IDs resolve through owner-scoped aliases.
   server.registerTool(
     "search_skills",
     {
@@ -989,7 +989,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       description:
         "Read one skill in full: markdown body, how-to-run notes, tags, collections and every step with its prompt and media URLs.",
       inputSchema: {
-        id: z.string().describe("skill:<id>, workflow:<id> or the bare id."),
+        id: z.string().describe("skill:<native-id> or the bare native id. Previously copied skill/workflow IDs and retired pack IDs resolve to the native Skill."),
       },
     },
     async (input) =>

@@ -64,7 +64,8 @@ import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
-import type * as workflows from "../workflows.js";
+import type * as skills from "../skills.js";
+import type * as skillMigration from "../skillMigration.js";
 
 import type {
   ApiFromModules,
@@ -129,7 +130,8 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   validators: typeof validators;
   videoRefs: typeof videoRefs;
-  workflows: typeof workflows;
+  skills: typeof skills;
+  skillMigration: typeof skillMigration;
 }>;
 
 /**

@@ -85,3 +85,13 @@ scoped header in the private user config; do not copy its value into docs. Do no
 tokens, JWTs or signed upload slots. A configured connection is verified only after
 authenticated check_connection and representative reads; schema/source alone is
 not evidence a version is deployed.
+
+### Native Skill identifiers
+
+Gallery recipes use native `skills`/`skillFolders` storage and `skills:*` functions.
+New handles are `skill:<native-id>`; existing copied Skill/Workflow IDs and retired
+pack IDs resolve through owner-scoped aliases before reads or writes. The migration
+preserves original prompts, media, source metadata, ownership and publication flags;
+it does not resave examples or treat every media batch as a recipe. See
+[NATIVE_SKILLS_MIGRATION.md](NATIVE_SKILLS_MIGRATION.md) for the temporary staging
+schemas, guarded retirement and mandatory final removal.

@@ -8,7 +8,7 @@ import { basename, join } from "path";
 import { convexAuthHeaders } from "./convex-auth";
 
 type Pillar = string;
-type Operation = "create" | "update" | "delete" | "workflow";
+type Operation = "create" | "update" | "delete" | "skill" | "workflow";
 type Target = "prompt" | "asset" | "designInspiration";
 type GenerationType = "image_gen" | "video_gen" | "ui_design" | "workflow" | "other";
 type PromptType =
@@ -41,6 +41,7 @@ type AssetRole =
   | "generated_output"
   | "reference"
   | "inspiration_capture"
+  | "skill_example"
   | "workflow_asset"
   | "other";
 type IngestSource = "api" | "agent" | "telegram" | "manual" | "import";
@@ -226,6 +227,8 @@ type WorkflowStepMedia = {
   /** Caption for THIS file within the step — "start frame", "stand-in crop",
    *  "final cut". Lands on the asset's description and under the figure. */
   description?: string;
+  sourceUrl?: string;
+  agentDescription?: string;
   /** Video only: where to grab the poster frame. */
   posterAtSeconds?: number;
 };
@@ -246,7 +249,8 @@ type WorkflowStepInput = {
 };
 
 type WorkflowItem = {
-  operation: "workflow";
+  /** `workflow` is accepted only for older saved SDK requests. */
+  operation: "skill" | "workflow";
   ingestKey?: string;
   title: string;
   description?: string;
@@ -259,7 +263,7 @@ type WorkflowItem = {
   folderIds?: string[];
   isPublic?: boolean;
   isFeatured?: boolean;
-  steps: WorkflowStepInput[];
+  steps?: WorkflowStepInput[];
 };
 
 type SkillItem = CreateItem | UpdateItem | DeleteItem | WorkflowItem;
@@ -270,7 +274,9 @@ type SkillActionResult = {
   promptId?: string;
   assetId?: string;
   designInspirationId?: string;
-  workflowId?: string;
+  skillId?: string;
+  id?: string;
+  created?: boolean;
   stepCount?: number;
   isPublic?: boolean;
   isFeatured?: boolean;
@@ -279,6 +285,8 @@ type SkillActionResult = {
 };
 
 type SkillResult = SkillActionResult & {
+  partial?: boolean;
+  failedStep?: string;
   error?: string;
   input?: string;
 };
@@ -881,7 +889,7 @@ function isDeleteItem(item: SkillItem): item is DeleteItem {
 }
 
 function isWorkflowItem(item: SkillItem): item is WorkflowItem {
-  return getOperation(item) === "workflow";
+  return getOperation(item) === "skill" || getOperation(item) === "workflow";
 }
 
 function assertSelector(item: UpdateItem | DeleteItem) {
@@ -936,7 +944,7 @@ export function buildCreateArgs(
   if (item.workflowType) args.workflowType = item.workflowType;
   if (item.promptSections) args.promptSections = item.promptSections;
   if (item.promptProfile) args.promptProfile = item.promptProfile;
-  if (item.assetRole) args.assetRole = item.assetRole;
+  if (item.assetRole) args.assetRole = item.assetRole === "workflow_asset" ? "skill_example" : item.assetRole;
   if (item.domain) args.domain = item.domain;
   if (item.designInspiration) args.designInspiration = item.designInspiration;
   if (item.upstreamInputs?.length) args.upstreamInputs = item.upstreamInputs;
@@ -1057,7 +1065,7 @@ export function buildUpdateArgs(item: UpdateItem, ownerUserId: string): Record<s
     assignIfDefined(args, "agentDescription", item.agentDescription);
     assignIfDefined(args, "pillar", item.pillar);
     assignIfDefined(args, "generationType", item.generationType);
-    assignIfDefined(args, "assetRole", item.assetRole);
+    assignIfDefined(args, "assetRole", item.assetRole === "workflow_asset" ? "skill_example" : item.assetRole);
     assignIfDefined(args, "ingestSource", item.ingestSource);
     return args;
   }
@@ -1095,7 +1103,7 @@ export function buildDeleteArgs(item: DeleteItem, ownerUserId: string): Record<s
   return args;
 }
 
-// Workflows bundle multiple prompt + media steps under one organizing record.
+// Native Skills contain reusable words with optional prompt and media steps.
 // Each step is ingested through the canonical ingest path on the backend, so
 // step prompts/assets stay normal, independently-searchable gallery entries.
 export function buildWorkflowArgs(
@@ -1105,21 +1113,23 @@ export function buildWorkflowArgs(
 ): Record<string, unknown> {
   const title = item.title?.trim();
   if (!title) {
-    throw new Error("Workflow requires a `title`.");
+    throw new Error("Skill requires a `title`.");
   }
   // Pillars are retired: forward one only if explicitly provided (dormant column).
   const pillar = item.pillar?.trim() || undefined;
-  if (!item.steps?.length) {
-    throw new Error("Workflow requires at least one step.");
+  if (!item.steps?.length && !item.body?.trim() && !item.agentInstructions?.trim()) {
+    throw new Error("Skill requires a markdown body, instructions or at least one step.");
   }
 
-  const steps = item.steps.map((step, index) => {
+  const steps = (item.steps ?? []).map((step, index) => {
     const media = (step.media ?? []).map((entry, mediaIndex) => {
       const filePath = entry.filePath ?? entry.imagePath;
       const url = entry.url ?? entry.imageUrl;
       const out: Record<string, unknown> = {};
       assignIfDefined(out, "ingestKey", entry.ingestKey);
       assignIfDefined(out, "description", entry.description?.trim() || undefined);
+      assignIfDefined(out, "sourceUrl", entry.sourceUrl);
+      assignIfDefined(out, "agentDescription", entry.agentDescription);
       const preparedEntry = prepared?.get(`${index}:${mediaIndex}`);
       if (preparedEntry) {
         // A video: already remuxed, postered and sitting in R2.
@@ -1138,7 +1148,7 @@ export function buildWorkflowArgs(
         const resolvedContentType = entry.contentType ?? guessMime(resolvedFileName);
         if (resolvedContentType.startsWith("video/")) {
           throw new Error(
-            `Workflow step ${index + 1} media ${resolvedFileName} is a video — run it through prepareWorkflowMedia (mutateOne does) so it reaches R2 instead of the base64 argument.`,
+            `Skill step ${index + 1} media ${resolvedFileName} is a video — run it through prepareWorkflowMedia (mutateOne does) so it reaches R2 instead of the base64 argument.`,
           );
         }
         assertBase64Ingestible(filePath, resolvedFileName);
@@ -1152,7 +1162,7 @@ export function buildWorkflowArgs(
         out.url = url;
       } else {
         throw new Error(
-          `Workflow step ${index + 1} media entry needs a filePath or url.`,
+          `Skill step ${index + 1} media entry needs a filePath or url.`,
         );
       }
       return out;
@@ -1160,7 +1170,7 @@ export function buildWorkflowArgs(
 
     const stepArgs: Record<string, unknown> = {};
     assignIfDefined(stepArgs, "stepLabel", step.stepLabel);
-    assignIfDefined(stepArgs, "promptText", step.promptText?.trim());
+    assignIfDefined(stepArgs, "promptText", (step.promptText ?? step.promptSections?.finalPrompt)?.trim());
     assignIfDefined(stepArgs, "promptSections", step.promptSections);
     assignIfDefined(stepArgs, "promptType", step.promptType);
     assignIfDefined(stepArgs, "generationType", step.generationType);
@@ -1169,7 +1179,7 @@ export function buildWorkflowArgs(
     assignIfDefined(stepArgs, "modelProvider", step.modelProvider);
     if (step.tagNames?.length) stepArgs.tagNames = step.tagNames;
     assignIfDefined(stepArgs, "promptIngestKey", step.promptIngestKey);
-    if (step.allowPromptOnly) stepArgs.allowPromptOnly = true;
+    if (step.allowPromptOnly || !media.length) stepArgs.allowPromptOnly = true;
     if (media.length) stepArgs.media = media;
     return stepArgs;
   });
@@ -1186,7 +1196,8 @@ export function buildWorkflowArgs(
           [
             "workflow",
             title,
-            ...item.steps.map((step) => step.promptText ?? ""),
+            ...(item.steps ?? []).map((step) => step.promptText ?? ""),
+            ...(!item.steps?.length ? [item.body ?? "", item.agentInstructions ?? ""] : []),
           ].join("|"),
         )
         .digest("hex")
@@ -1210,7 +1221,7 @@ export function buildActionRequest(
 ): { path: string; args: Record<string, unknown> } {
   if (isWorkflowItem(item)) {
     return {
-      path: "workflows:ingestWorkflowFromApi",
+      path: "skills:createSkillFromApi",
       args: buildWorkflowArgs(item, ownerUserId, preparedWorkflow),
     };
   }
@@ -1237,7 +1248,7 @@ export function buildActionRequest(
 
 function summarizeInput(item: SkillItem): string {
   if (isWorkflowItem(item)) {
-    return `workflow:${item.title ?? item.ingestKey ?? "unknown"}`;
+    return `skill:${item.title ?? item.ingestKey ?? "unknown"}`;
   }
   if (isDeleteItem(item)) {
     return `${item.target}:${item.ingestKey ?? item.id ?? "unknown"}`;
@@ -1297,16 +1308,23 @@ export async function mutateOne(
       status?: string;
       value?: SkillActionResult;
       errorMessage?: string;
+      errorData?: { partial?: boolean; skillId?: string; failedStep?: string };
     };
 
     if (!response.ok || result.status !== "success") {
       return {
         error: result.errorMessage ?? `HTTP ${response.status}`,
+        ...(result.errorData?.partial ? {
+          partial: true,
+          id: result.errorData.skillId,
+          failedStep: result.errorData.failedStep,
+        } : {}),
         input: summarizeInput(item),
       };
     }
 
     const value: SkillActionResult = { ...(result.value ?? {}) };
+    if (isWorkflowItem(item) && value.skillId) value.id = `skill:${value.skillId}`;
 
     // Extra collections ride a second call once the asset exists.
     if (isCreateItem(item) && value.assetId && (item.folderIds?.length ?? 0) > 0) {

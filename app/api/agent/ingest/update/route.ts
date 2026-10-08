@@ -34,6 +34,7 @@ export async function POST(request: Request) {
       ...rest
     } = data;
     const folderIds = readAgentFolderIds(rawFolderIds);
+    if (rest.assetRole === "workflow_asset") rest.assetRole = "skill_example";
     if (folderIds && rest.target !== "asset") {
       return NextResponse.json(
         { error: "folderIds is supported only for asset updates." },

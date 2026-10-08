@@ -34,7 +34,7 @@ interface GalleryImage {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
   promptId?: string;
   src: string;
   fullSrc: string;
@@ -79,7 +79,7 @@ interface GalleryImage {
   previewImages: Array<{
     id: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
     promptId?: string;
     src: string;
     fullSrc: string;
@@ -146,7 +146,7 @@ interface MasonryGridProps {
     id: string;
     packId?: string;
     galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
     promptId?: string;
     thumbSrc: string;
     fullSrc: string;
@@ -173,7 +173,7 @@ interface MasonryGridProps {
       previewImages: Array<{
         id: string;
         galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+        galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
         promptId?: string;
         src: string;
         fullSrc: string;

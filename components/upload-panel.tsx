@@ -107,7 +107,7 @@ const GENERATION_TYPE_OPTIONS = [
   { value: "image_gen", label: "Image" },
   { value: "video_gen", label: "Video" },
   { value: "ui_design", label: "UI Design" },
-  { value: "workflow", label: "Workflow" },
+  { value: "workflow", label: "Recipe" },
   { value: "other", label: "Other" },
 ] as const;
 
@@ -117,7 +117,7 @@ const PROMPT_TYPE_OPTIONS = [
   { value: "ui_design", label: "UI Design" },
   { value: "cinematic", label: "Cinematic" },
   { value: "ugc_ad", label: "UGC Ad" },
-  { value: "workflow", label: "Workflow" },
+  { value: "workflow", label: "Recipe" },
   { value: "component_prompt", label: "Component Prompt" },
   { value: "page_prompt", label: "Page Prompt" },
   { value: "other", label: "Other" },
@@ -135,7 +135,7 @@ const ASSET_ROLE_OPTIONS = [
   { value: "generated_output", label: "Generated Output" },
   { value: "reference", label: "Reference" },
   { value: "inspiration_capture", label: "Inspiration Capture" },
-  { value: "workflow_asset", label: "Workflow Asset" },
+  { value: "skill_example", label: "Skill Example" },
   { value: "other", label: "Other" },
 ] as const;
 
@@ -1404,7 +1404,7 @@ export function UploadPanel({
 
                       {/* Workflow Type */}
                       <div className="flex flex-col gap-2.5">
-                        <FieldLabel htmlFor="workflow-type-select">Workflow type</FieldLabel>
+                        <FieldLabel htmlFor="workflow-type-select">Recipe type</FieldLabel>
                         <Select value={workflowType} onValueChange={(value) => setWorkflowType(value)}>
                           <SelectTrigger id="workflow-type-select" className={selectTriggerCls}>
                             <SelectValue placeholder="None" />

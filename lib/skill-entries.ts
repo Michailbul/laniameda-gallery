@@ -1,7 +1,7 @@
 import type { GalleryEntry } from "@/lib/gallery-entries";
 import { isCinematographySkill } from "@/lib/cinematography";
 
-// The card shape `workflows:listWorkflows` and `semanticSearch:searchSkills`
+// The card shape `skills:listSkills` and `semanticSearch:searchSkills`
 // return. Kept structural so both feeds map through one function.
 export type SkillCardData = {
   _id: string;
@@ -26,9 +26,8 @@ export type SkillCardData = {
   }>;
 };
 
-// A skill renders in any masonry grid as one card (galleryItemType "workflow",
-// the id prefix that predates the name). Its step media rides along as the
-// hover previews.
+// A Skill renders in any masonry grid as one native skill card. Its step
+// media rides along as the hover previews.
 export const skillCardToEntry = (skill: SkillCardData): GalleryEntry => {
   const previews = skill.previewImages
     .filter((preview) => preview.url || preview.thumbUrl)
@@ -48,7 +47,7 @@ export const skillCardToEntry = (skill: SkillCardData): GalleryEntry => {
   return {
     id: skill._id,
     galleryItemId: skill._id,
-    galleryItemType: "workflow",
+    galleryItemType: "skill",
     src: cover?.src ?? "/placeholder.svg",
     fullSrc: cover?.fullSrc ?? "/placeholder.svg",
     prompt: skill.title,

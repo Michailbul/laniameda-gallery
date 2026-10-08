@@ -98,5 +98,5 @@ not a verified final deliverable, nor a YouTube still exact-timestamp evidence.
 There is no mandatory channel-qualification/evidence policy; preserve facts and
 source provenance, and use editorial filters only when requested.
 
-Discover live schemas each session. Local contract 1.5.0 becomes cloud behavior
+Discover live schemas each session. Local contract 1.6.0 becomes cloud behavior
 only after backend/app publication and verification.

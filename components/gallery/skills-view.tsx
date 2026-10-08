@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import { BookOpenText, Film, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -48,6 +48,7 @@ export function SkillsView({
   selectedSkillId,
   onImageLoad,
 }: SkillsViewProps) {
+  const convex = useConvex();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -76,7 +77,7 @@ export function SkillsView({
 
   // The full set feeds the tag cloud, so the chips never shrink to whatever
   // the current filter left over.
-  const allSkills = useQuery(api.workflows.listWorkflows, {
+  const allSkills = useQuery(api.skills.listSkills, {
     ownerUserId,
     limit: 200,
     previewLimit: 6,
@@ -84,7 +85,7 @@ export function SkillsView({
     excludeTagNames,
   }) as SkillCardData[] | undefined;
   const filteredSkills = useQuery(
-    api.workflows.listWorkflows,
+    api.skills.listSkills,
     !debouncedQuery && (selectedTags.length > 0 || folderId)
       ? {
           ownerUserId,
@@ -131,7 +132,7 @@ export function SkillsView({
       });
   }, [baseTags, debouncedQuery, excludeTagNames, folderId, ownerUserId, searchSkills, selectedTags]);
 
-  const deleteSkill = useMutation(api.workflows.deleteWorkflow);
+  const deleteSkill = useMutation(api.skills.deleteSkill);
   const toast = useCoralToastSafe()?.toast;
 
   const tagCloud = useMemo(() => {
@@ -202,7 +203,12 @@ export function SkillsView({
   const handleDelete = async (skillId: string) => {
     setDeletingId(skillId);
     try {
-      await deleteSkill({ ownerUserId, id: skillId as Id<"workflows"> });
+      const id = await convex.query(api.skills.resolveSkillReference, {
+        ownerUserId,
+        id: skillId,
+      });
+      if (!id) throw new Error("Skill not found");
+      await deleteSkill({ ownerUserId, id });
       setRemovedIds((previous) => new Set(previous).add(skillId));
       toast?.("Deleted", copy.deleted, "success");
     } catch (error) {

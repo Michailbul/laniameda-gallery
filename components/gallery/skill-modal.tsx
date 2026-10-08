@@ -32,7 +32,7 @@ interface SkillModalProps {
   onClose: () => void;
 }
 
-type SkillResult = NonNullable<FunctionReturnType<typeof api.workflows.getWorkflow>>;
+type SkillResult = NonNullable<FunctionReturnType<typeof api.skills.getSkill>>;
 type SkillStep = SkillResult["steps"][number];
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -128,9 +128,9 @@ function FilingPanel({
   ownerUserId: string;
 }) {
   const toast = useCoralToastSafe()?.toast;
-  const updateSkill = useMutation(api.workflows.updateSkill);
-  const addToCollection = useMutation(api.workflows.addSkillToCollection);
-  const removeFromCollection = useMutation(api.workflows.removeSkillFromCollection);
+  const updateSkill = useMutation(api.skills.updateSkill);
+  const addToCollection = useMutation(api.skills.addSkillToCollection);
+  const removeFromCollection = useMutation(api.skills.removeSkillFromCollection);
   const folders = useQuery(api.folders.listFolders, { ownerUserId });
   const [tagDraft, setTagDraft] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -325,10 +325,15 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
   const [lightbox, setLightbox] = useState<SkillMediaRef | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  const skill = useQuery(
-    api.workflows.getWorkflow,
-    skillId ? { id: skillId as Id<"workflows">, ownerUserId } : "skip",
+  const resolvedSkillId = useQuery(
+    api.skills.resolveSkillReference,
+    skillId ? { id: skillId, ownerUserId } : "skip",
   );
+  const nativeSkill = useQuery(
+    api.skills.getSkill,
+    resolvedSkillId ? { id: resolvedSkillId, ownerUserId } : "skip",
+  );
+  const skill = resolvedSkillId === null ? null : nativeSkill;
   const isOwner = Boolean(skill && ownerUserId);
   // Cinematography packs open in the skill document under their own name.
   const isCinema = isCinematographySkill(skill?.tagNames);
@@ -366,10 +371,10 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
   );
 
   const downloadSkill = useCallback(async () => {
-    if (!skillId) return;
+    if (!resolvedSkillId) return;
     setDownloading(true);
     try {
-      const response = await fetch(`/api/workflows/${skillId}/skill`);
+      const response = await fetch(`/api/skills/${resolvedSkillId}/export`);
       if (!response.ok) throw new Error("Export failed");
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -388,7 +393,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
     } finally {
       setDownloading(false);
     }
-  }, [isCinema, skillId, skill?.title, toast]);
+  }, [isCinema, resolvedSkillId, skill?.title, toast]);
 
   // Everything the body can embed by id: its own `asset:` refs and step media.
   const mediaById = useMemo(() => {
@@ -460,7 +465,7 @@ export function SkillModal({ skillId, ownerUserId, onClose }: SkillModalProps) {
                   type="button"
                   onClick={() =>
                     void copyText(
-                      `workflow:${skill._id}`,
+                      `skill:${skill._id}`,
                       isCinema ? "ID COPIED" : "SKILL ID COPIED",
                     )
                   }

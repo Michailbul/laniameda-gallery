@@ -83,6 +83,7 @@ export const ingestForAgent = async (agent: AgentAuthContext, data: Record<strin
 
   const payload = {
     ...rest,
+    ...(rest.assetRole === "workflow_asset" ? { assetRole: "skill_example" } : {}),
     ...(media ?? {}),
     ...(requestedPrimaryFolderId ? { folderId: requestedPrimaryFolderId } : {}),
     ownerUserId: agent.ownerUserId,

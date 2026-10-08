@@ -1,6 +1,6 @@
 // Cinematography references: packs of camera moves, each step a reusable move
-// prompt with its looping example. They are stored as skills (the `workflows`
-// table), and one tag decides where they show: tagged `cinematography` they
+// prompt with its looping example. They are stored as native Skills, and
+// one tag decides where they show: tagged `cinematography` they
 // live in the Cinematography tab and stay out of the Skills tab, the default
 // grid and the agents' skill lists.
 

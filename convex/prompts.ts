@@ -15,7 +15,7 @@ import {
   promptTypeValidator,
   workflowTypeValidator,
 } from "./validators";
-import { ownerMutation, ownerQuery } from "./actor";
+import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 
 const pillarValidator = optionalPillarValidator;
 const reindexPromptAction = makeFunctionReference<"action">(
@@ -53,6 +53,13 @@ const promptResultFields = {
   workflowType: workflowTypeValidator,
   promptSections: promptSectionsValidator,
   promptProfile: promptProfileValidator,
+  skillId: v.optional(v.id("skills")),
+  skillStepOrder: v.optional(v.number()),
+  skillStepLabel: v.optional(v.string()),
+  // Temporary source pointers until native migration is verified and retired.
+  workflowId: v.optional(v.id("workflows")),
+  workflowStepOrder: v.optional(v.number()),
+  workflowStepLabel: v.optional(v.string()),
   createdAt: v.number(),
 } as const;
 
@@ -272,6 +279,49 @@ export const updatePrompt = ownerMutation({
   },
 });
 
+// Filing/tag cleanup must never replay generation metadata or regroup media.
+export const updatePromptOrganization = signedOwnerMutation({
+  args: {
+    ownerUserId: v.string(), id: v.id("prompts"), folderId: v.id("folders"),
+    tagIds: v.optional(v.array(v.id("tags"))), expectedText: v.string(),
+  },
+  returns: v.id("prompts"),
+  handler: async (ctx, args) => {
+    const prompt = await ctx.db.get(args.id);
+    if (!prompt || !canActorAccessOwnerUserId(args.ownerUserId, prompt.ownerUserId)) {
+      throw new ConvexError("Prompt is missing or belongs to another owner.");
+    }
+    if (prompt.text !== args.expectedText) throw new ConvexError("Prompt text changed since inventory. Refresh the organization plan.");
+    await ensureFolderOwnership(ctx, args.ownerUserId, args.folderId);
+    const tagIds = args.tagIds === undefined ? prompt.tagIds : dedupeIds(args.tagIds);
+    for (const id of tagIds) if (!await ctx.db.get(id)) throw new ConvexError("An organization tag no longer exists.");
+    const tagsChanged = tagIds.length !== prompt.tagIds.length || tagIds.some((id, index) => id !== prompt.tagIds[index]);
+    if (prompt.folderId === args.folderId && !tagsChanged) return args.id;
+    await ctx.db.patch(args.id, { folderId: args.folderId, ...(tagsChanged ? { tagIds } : {}) });
+    if (tagsChanged) {
+      const previous = new Set(prompt.tagIds);
+      const next = new Set(tagIds);
+      await bumpTagUsage(ctx, prompt.tagIds.filter((id) => !next.has(id)), -1);
+      await bumpTagUsage(ctx, tagIds.filter((id) => !previous.has(id)), 1);
+      const links = await ctx.db.query("promptTags").withIndex("by_prompt", (q) => q.eq("promptId", args.id)).collect();
+      for (const link of links) await ctx.db.delete(link._id);
+      for (const tagId of tagIds) await ctx.db.insert("promptTags", { promptId: args.id, tagId, createdAt: prompt.createdAt });
+    }
+    await ctx.scheduler.runAfter(0, reindexPromptAction, { promptId: args.id });
+    if (tagsChanged) {
+      for (const asset of await ctx.db.query("assets").withIndex("by_prompt_createdAt", (q) => q.eq("promptId", args.id).gte("createdAt", 0)).collect()) {
+        if (!canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) continue;
+        await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+      }
+      for (const inspiration of await ctx.db.query("designInspirations").withIndex("by_promptId", (q) => q.eq("promptId", args.id)).collect()) {
+        if (!canActorAccessOwnerUserId(args.ownerUserId, inspiration.ownerUserId)) continue;
+        await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, { designInspirationId: inspiration._id });
+      }
+    }
+    return args.id;
+  },
+});
+
 export const getPromptIdForIngestKey = internalQuery({
   args: {
     ownerUserId: v.string(),
@@ -319,6 +369,13 @@ export const getPrompt = ownerQuery({
       workflowType: workflowTypeValidator,
       promptSections: promptSectionsValidator,
       promptProfile: promptProfileValidator,
+      skillId: v.optional(v.id("skills")),
+      skillStepOrder: v.optional(v.number()),
+      skillStepLabel: v.optional(v.string()),
+      // Temporary source pointers until native migration is verified and retired.
+      workflowId: v.optional(v.id("workflows")),
+      workflowStepOrder: v.optional(v.number()),
+      workflowStepLabel: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),
@@ -360,7 +417,7 @@ const promptContextStepValidator = v.object({
 // Everything the detail panel needs to show a prompt as a MODULE rather than
 // a flat string: its sections, every file that shares it (a still and the cut
 // it came from, the four variations of a pack), and — when the prompt is a
-// workflow step — the workflow around it with every sibling step's prompt,
+// skill step — the skill around it with every sibling step's prompt,
 // so the image prompts that fed a video are one click away from the video.
 //
 // Deliberately a separate query from the grid read: the list path stays a
@@ -381,9 +438,9 @@ export const getPromptContext = ownerQuery({
       modelProvider: modelProviderValidator,
       createdAt: v.number(),
       media: v.array(promptContextMediaValidator),
-      workflow: v.optional(
+      skill: v.optional(
         v.object({
-          _id: v.id("workflows"),
+          _id: v.id("skills"),
           title: v.string(),
           stepCount: v.number(),
           stepOrder: v.number(),
@@ -398,15 +455,15 @@ export const getPromptContext = ownerQuery({
     const prompt = await ctx.db.get(args.id);
     if (!prompt) return null;
 
-    const workflow = prompt.workflowId
-      ? await ctx.db.get(prompt.workflowId)
+    const skill = prompt.skillId
+      ? await ctx.db.get(prompt.skillId)
       : null;
     const isOwner =
       Boolean(args.ownerUserId) &&
       canActorAccessOwnerUserId(args.ownerUserId!, prompt.ownerUserId);
-    // A public workflow's steps read like the workflow itself; anything else
+    // A public skill's steps read like the skill itself; anything else
     // is the owner's alone.
-    if (!isOwner && !workflow?.isPublic) return null;
+    if (!isOwner && !skill?.isPublic) return null;
 
     const assets = await ctx.db
       .query("assets")
@@ -430,12 +487,12 @@ export const getPromptContext = ownerQuery({
       });
     }
 
-    let workflowContext;
-    if (workflow) {
+    let skillContext;
+    if (skill) {
       const stepPrompts = await ctx.db
         .query("prompts")
-        .withIndex("by_workflow_stepOrder", (q) =>
-          q.eq("workflowId", workflow._id),
+        .withIndex("by_skill_stepOrder", (q) =>
+          q.eq("skillId", skill._id),
         )
         .order("asc")
         .collect();
@@ -452,8 +509,8 @@ export const getPromptContext = ownerQuery({
         const cover = stepAssets[0];
         steps.push({
           promptId: step._id,
-          stepOrder: step.workflowStepOrder ?? 0,
-          stepLabel: step.workflowStepLabel,
+          stepOrder: step.skillStepOrder ?? 0,
+          stepLabel: step.skillStepLabel,
           modelName: step.modelName,
           promptType: step.promptType,
           finalPrompt: step.promptSections?.finalPrompt?.trim() || step.text,
@@ -463,13 +520,13 @@ export const getPromptContext = ownerQuery({
         });
       }
 
-      workflowContext = {
-        _id: workflow._id,
-        title: workflow.title,
-        stepCount: workflow.stepCount,
-        stepOrder: prompt.workflowStepOrder ?? 0,
-        stepLabel: prompt.workflowStepLabel,
-        isPublic: workflow.isPublic,
+      skillContext = {
+        _id: skill._id,
+        title: skill.title,
+        stepCount: skill.stepCount,
+        stepOrder: prompt.skillStepOrder ?? 0,
+        stepLabel: prompt.skillStepLabel,
+        isPublic: skill.isPublic,
         steps,
       };
     }
@@ -483,7 +540,7 @@ export const getPromptContext = ownerQuery({
       modelProvider: prompt.modelProvider,
       createdAt: prompt.createdAt,
       media,
-      workflow: workflowContext,
+      skill: skillContext,
     };
   },
 });
@@ -512,6 +569,13 @@ export const listPrompts = ownerQuery({
       workflowType: workflowTypeValidator,
       promptSections: promptSectionsValidator,
       promptProfile: promptProfileValidator,
+      skillId: v.optional(v.id("skills")),
+      skillStepOrder: v.optional(v.number()),
+      skillStepLabel: v.optional(v.string()),
+      // Temporary source pointers until native migration is verified and retired.
+      workflowId: v.optional(v.id("workflows")),
+      workflowStepOrder: v.optional(v.number()),
+      workflowStepLabel: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),

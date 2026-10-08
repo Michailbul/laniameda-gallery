@@ -20,7 +20,7 @@ can never hit.
 | **Medium** | tag: `animation` (absent = live action) | `tagNames` / `typedTags` |
 | **Descriptive tags** | `tags` via `assetTags` / `promptTags`, typed by category | `typedTags` |
 | **Pixels and words** | `semanticDocuments`: pixel lane `embedding` + text lane `textEmbedding` | automatic after ingest |
-| **Skills** | `workflows` (`body` markdown, `tagIds`) + `workflowFolders` for collections; text lane `semanticDocuments.sourceType: "skill"` | create_skill / update_skill / file_skill |
+| **Skills** | `skills` (`body` markdown, `tagIds`) + `skillFolders` for collections; text lane `semanticDocuments.sourceType: "skill"` | create_skill / update_skill / file_skill |
 
 Plus the provenance fields that make a piece traceable: `sourceUrl`,
 `agentDescription`, `description`, `modelName`, `ingestSource`, `assetRole`,
@@ -79,7 +79,7 @@ the `search_text` keyword index covers it as well.
 
 ## Pillars: legacy, leave unset
 
-`pillar` still exists as a column on prompts, assets, tags, packs, workflows
+`pillar` still exists as a column on prompts, assets, tags, packs, skills
 and design inspirations, but it is a free string (`pillarValidator = v.string()`)
 that nothing in the product navigates by any more. The values still in code are
 `creators`, `designs`, `dump` and `cinema-inspiration`.
@@ -219,7 +219,7 @@ These are the valid enum values the Convex schema enforces — use these or inge
 **`parentFolderId` nesting:** only a plain root collection may be a parent, and
 only plain collections may be children. One level deep.
 
-**`assetRole`:** `generated_output`, `reference`, `inspiration_capture`, `workflow_asset`, `cinema_frame`, `bookmark` (a saved post's own preview; set by the bookmark save, never by hand), `other`
+**`assetRole`:** `generated_output`, `reference`, `inspiration_capture`, `skill_example`, `cinema_frame`, `bookmark` (a saved post's own preview; set by the bookmark save, never by hand), `other`
 
 **`ingestSource`:** `api`, `agent`, `telegram`, `manual`, `import`
 
@@ -419,3 +419,27 @@ Ingest/update action results can include partial, failedStep and error together
 with persisted assetId/promptId/designInspirationId. Token APIs preserve these as
 HTTP 207 partial results, including per-item batch persistence counts. Lineage
 sources are resolved before saving; media is processed before metadata changes.
+
+## Native Skills and legacy retirement
+
+Reusable recipes live in `skills`, with `skillFolders` collection memberships.
+Ordered prompt steps use `prompts.skillId`, `skillStepOrder`, and `skillStepLabel`.
+`skills:*` is the backend contract; the canonical download is
+`/api/skills/<id>/export`. New media examples use `assetRole: skill_example`;
+ordinary source references keep their existing roles. Body/instruction embeds
+continue to reference the original `asset:<id>`; no media is copied.
+
+Every external get/update/delete/filing entry point resolves previously copied
+`workflow:<id>`, old `skill:<workflow-id>`, and retired `pack:<id>` identifiers
+through the signed owner's `skillMigrationAliases` before touching native rows.
+New responses use `skill:<native-id>`. An alias grants no access to another owner.
+`workflow_asset` is an old read/input alias for `skill_example`, not a new stored
+role. New writes normalize it; complete traversal uses `includeSkillExamples`.
+The old `includeWorkflowAssets` option remains a wire alias for existing clients.
+
+Legacy Workflow tables and pointers exist only during the staged owner-authorized
+copy/verify/rewire/retire operation in `agent-docs/NATIVE_SKILLS_MIGRATION.md`.
+They must be removed after verified retirement; empty staging schemas are not
+the completed migration. Ordinary visual packs are not automatically recipes.
+Historical `generationType`, `promptType`, and `workflowType` values describe how
+a source was made and are preserved; they do not create legacy containers.

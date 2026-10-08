@@ -18,7 +18,7 @@ import {
   optionalPillarValidator,
 } from "./validators";
 import { ownerAction } from "./actor";
-import { workflowCardValidator } from "./workflows";
+import { skillCardValidator } from "./skills";
 
 const getSemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentsByIds",
@@ -376,7 +376,7 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
       return false;
     }
     if (filters.modelName && asset.modelName !== filters.modelName) return false;
-    if (filters.assetRole && asset.assetRole !== filters.assetRole) return false;
+    if (filters.assetRole && asset.assetRole !== filters.assetRole && !(["workflow_asset", "skill_example"].includes(filters.assetRole) && ["workflow_asset", "skill_example"].includes(asset.assetRole ?? ""))) return false;
     if (filters.kind && asset.kind !== filters.kind) return false;
     if (filters.onlyLiked && asset.isLiked !== true) return false;
     if (filters.onlyStarred && !asset.starredAt) return false;
@@ -707,14 +707,14 @@ export const findSimilarAssets = ownerAction({
   },
 });
 
-const listSkillCardsByIdsQueryRef = makeFunctionReference<"query">(
-  "workflows:listSkillCardsByIds",
+const getSkillCardsByIdsQueryRef = makeFunctionReference<"query">(
+  "skills:getSkillCardsByIds",
 );
-const listWorkflowsQueryRef = makeFunctionReference<"query">(
-  "workflows:listWorkflows",
+const listSkillsQueryRef = makeFunctionReference<"query">(
+  "skills:listSkills",
 );
 const scoredSkillCardValidator = v.object({
-  ...workflowCardValidator.fields,
+  ...skillCardValidator.fields,
   score: v.optional(v.number()),
 });
 
@@ -733,7 +733,7 @@ export const searchSkills = ownerAction({
     limit: v.optional(v.number()),
     previewLimit: v.optional(v.number()),
   },
-  // Same shape as workflows:listWorkflows cards, plus the text-lane score.
+  // Same shape as skills:listSkills cards, plus the text-lane score.
   returns: v.array(scoredSkillCardValidator),
   handler: async (ctx, args) => {
     const query = args.query.trim();
@@ -756,33 +756,33 @@ export const searchSkills = ownerAction({
       });
       const docs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
         ids: hits.map((hit) => hit._id),
-      })) as Array<{ _id: Id<"semanticDocuments">; sourceId: string; sourceType: string }>;
+      })) as Array<{ _id: Id<"semanticDocuments">; sourceId: string; sourceType: string; skillId?: Id<"skills"> }>;
       const sourceById = new Map(docs.map((doc) => [doc._id, doc]));
       const top = hits[0]?._score ?? 0;
       const cutoff = args.minRelativeScore ?? 0.8;
       for (const hit of hits) {
         const doc = sourceById.get(hit._id);
-        if (!doc || doc.sourceType !== "skill") continue;
+        if (!doc || doc.sourceType !== "skill" || !doc.skillId) continue;
         if (top > 0 && hit._score < top * cutoff) continue;
-        if (!scored.has(doc.sourceId)) scored.set(doc.sourceId, hit._score);
+        if (!scored.has(doc.skillId)) scored.set(doc.skillId, hit._score);
       }
     }
 
-    const ranked = (await ctx.runQuery(listSkillCardsByIdsQueryRef, {
+    const ranked = (await ctx.runQuery(getSkillCardsByIdsQueryRef, {
       ownerUserId,
-      ids: [...scored.keys()] as Id<"workflows">[],
+      ids: [...scored.keys()] as Id<"skills">[],
       tagNames: args.tagNames,
       excludeTagNames: args.excludeTagNames,
       folderId: args.folderId,
       previewLimit,
-    })) as Array<Infer<typeof workflowCardValidator>>;
+    })) as Array<Infer<typeof skillCardValidator>>;
     const results: Array<Infer<typeof scoredSkillCardValidator>> = ranked.map((card) => ({
       ...card,
       score: scored.get(card._id),
     }));
 
     if (results.length < limit) {
-      const lexical = (await ctx.runQuery(listWorkflowsQueryRef, {
+      const lexical = (await ctx.runQuery(listSkillsQueryRef, {
         ownerUserId,
         search: query,
         tagNames: args.tagNames,
@@ -790,7 +790,7 @@ export const searchSkills = ownerAction({
         folderId: args.folderId,
         limit,
         previewLimit,
-      })) as Array<Infer<typeof workflowCardValidator>>;
+      })) as Array<Infer<typeof skillCardValidator>>;
       const seen = new Set(results.map((card) => card._id as string));
       for (const card of lexical) {
         if (results.length >= limit) break;

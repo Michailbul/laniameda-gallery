@@ -24,7 +24,7 @@ const assetRoles = new Set([
   "generated_output",
   "reference",
   "inspiration_capture",
-  "workflow_asset",
+  "skill_example",
   "cinema_frame",
   "other",
 ]);
@@ -89,6 +89,9 @@ export async function PATCH(
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return NextResponse.json({ error: "JSON object body is required." }, { status: 400 });
     }
+
+    // Legacy clients can submit the old role, but new writes use the native role.
+    if (body.assetRole === "workflow_asset") body.assetRole = "skill_example";
 
     const tagNames = "tagNames" in body
       ? Array.isArray(body.tagNames)

@@ -102,13 +102,15 @@ delete_skill deletes only the organizing
 recipe/filing and preserves original step prompts/media as standalone assets.
 Use only when Michael requests deletion; inspect the schema before use.
 Cinematography Skills carry cinematography and appear in their dedicated view.
-Skill steps are stored as workflow_asset and normally stay out of the main media
+Skill examples are stored as skill_example and normally stay out of the main media
 grid; semantic search can still retrieve an intermediate frame.
 
-Internal storage/functions retain workflows/workflowFolders and legacy
-workflow:<id> handles. The local direct script still uses operation: workflow;
-these are wire compatibility names, not another agent-facing concept. The public
-create_skill contract has no pillar requirement; do not ask Michael to choose one.
+Native storage/functions are skills/skillFolders and skills:*. Canonical handles
+read skill:<native-id>. Previously copied workflow/Skill IDs and retired pack IDs
+resolve through owner aliases for read/update/delete/filing. They do not create
+new Workflow containers. The direct script supports operation: skill; the old
+operation spelling remains an input alias. The public create_skill contract has
+no pillar requirement; do not ask Michael to choose one.
 
 ## Prompts, Stories and bookmarks
 

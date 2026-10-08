@@ -44,7 +44,7 @@ import {
   ingestSourceValidator,
   optionalPillarValidator,
 } from "./validators";
-import { ownerMutation, ownerQuery } from "./actor";
+import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
@@ -79,6 +79,8 @@ const nullableAssetRoleValidator = v.optional(v.union(
   v.literal("generated_output"),
   v.literal("reference"),
   v.literal("inspiration_capture"),
+  v.literal("skill_example"),
+  // Legacy migration input only; new Skill writes use skill_example.
   v.literal("workflow_asset"),
   v.literal("cinema_frame"),
   v.literal("other"),
@@ -653,7 +655,7 @@ export const createAsset = ownerMutation({
       isLiked: false,
       pillar: args.pillar,
       generationType: args.generationType,
-      assetRole: args.assetRole,
+      assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,
       ingestSource: args.ingestSource,
       cinemaMetadata: args.cinemaMetadata,
       ...(agentDescription
@@ -772,6 +774,30 @@ export const setAgentDescription = ownerMutation({
       agentDescription: patch.agentDescription,
       updated: true,
     };
+  },
+});
+
+// Classification-only role edits must not rewrite sources or sync prompt packs.
+export const setAssetRole = signedOwnerMutation({
+  args: {
+    ownerUserId: v.string(), assetId: v.id("assets"), assetRole: assetRoleValidator,
+    expectedAssetRole: v.union(v.null(), v.string()),
+  },
+  returns: v.object({ assetId: v.id("assets"), assetRole: v.string(), updated: v.boolean() }),
+  handler: async (ctx, args) => {
+    if (!args.assetRole) throw new ConvexError("assetRole is required.");
+    const role = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Asset is missing or belongs to another owner.");
+    }
+    if (asset.assetRole === role) return { assetId: asset._id, assetRole: role, updated: false };
+    if ((asset.assetRole ?? null) !== args.expectedAssetRole) {
+      throw new ConvexError("Asset role changed since inventory. Refresh the plan.");
+    }
+    await ctx.db.patch(asset._id, { assetRole: role });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    return { assetId: asset._id, assetRole: role, updated: true };
   },
 });
 
@@ -1199,7 +1225,7 @@ export const updateAssetMetadata = ownerMutation({
       modelName: args.modelName,
       pillar: args.pillar,
       generationType: args.generationType,
-      assetRole: args.assetRole,
+      assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,
       ingestSource: args.ingestSource,
       ...agentDescriptionPatch(args.agentDescription, args.agentDescriptionSource),
     });
@@ -1396,7 +1422,7 @@ export const adminUpdateAsset = mutation({
         ? (args.generationType ?? undefined)
         : asset.generationType,
       assetRole: hasOwn(args, "assetRole")
-        ? (args.assetRole ?? undefined)
+        ? (args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole ?? undefined)
         : asset.assetRole,
       ingestSource: hasOwn(args, "ingestSource")
         ? (args.ingestSource ?? undefined)
@@ -1668,21 +1694,19 @@ const assetFolderIdSet = async (ctx: QueryCtx, asset: Doc<"assets">) => {
   return ids;
 };
 
-// Workflow step media belongs to its workflow, not to the vault at large. The
-// Workflows view is its only browse surface, so the grid, collection and
-// starred reads drop it — otherwise one workflow upload floods the gallery with
-// its own intermediate frames (depth maps, character sheets, poster stills).
-// An explicit `assetRole: "workflow_asset"` query still reaches it, which keeps
-// the admin tools working; semantic search runs on its own path and is
-// deliberately left alone so a step asset is still findable by searching for it.
-const WORKFLOW_STEP_ROLE = "workflow_asset" as const;
+// Skill examples stay in their document; explicit role queries and complete
+// agent traversal still reach them. Legacy roles remain readable during migration.
+const SKILL_EXAMPLE_ROLES = new Set(["skill_example", "workflow_asset"]);
 
-export const isHiddenWorkflowStepAsset = (
+export const isSkillExampleRole = (role?: string) => SKILL_EXAMPLE_ROLES.has(role ?? "");
+export const matchesAssetRole = (actual: string | undefined, requested: string | undefined) =>
+  !requested || actual === requested || (isSkillExampleRole(actual) && isSkillExampleRole(requested));
+
+export const isHiddenSkillExample = (
   asset: Doc<"assets">,
   requestedAssetRole?: string,
-) =>
-  asset.assetRole === WORKFLOW_STEP_ROLE &&
-  requestedAssetRole !== WORKFLOW_STEP_ROLE;
+) => SKILL_EXAMPLE_ROLES.has(asset.assetRole ?? "") &&
+  !SKILL_EXAMPLE_ROLES.has(requestedAssetRole ?? "");
 
 // ---------------------------------------------------------------------------
 // Curated menu-filter predicate (the gallery's filter pills).
@@ -1957,7 +1981,7 @@ export const listStarredAssets = ownerQuery({
         )
       ).flat(),
     )
-      .filter((asset) => !isHiddenWorkflowStepAsset(asset))
+      .filter((asset) => !isHiddenSkillExample(asset))
       .sort((a, b) => (b.starredAt ?? 0) - (a.starredAt ?? 0));
 
     const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
@@ -2113,7 +2137,7 @@ export const listGalleryAssets = ownerQuery({
               .order("desc")
               .take(queryTake);
           }
-          if (pillar && assetRole) {
+          if (pillar && assetRole && !isSkillExampleRole(assetRole)) {
             return await ctx.db
               .query("assets")
               .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
@@ -2138,7 +2162,7 @@ export const listGalleryAssets = ownerQuery({
               .order("desc")
               .take(queryTake);
           }
-          if (assetRole) {
+          if (assetRole && !isSkillExampleRole(assetRole)) {
             return await ctx.db
               .query("assets")
               .withIndex("by_owner_assetRole_createdAt", (q) =>
@@ -2205,7 +2229,7 @@ export const listGalleryAssets = ownerQuery({
         })
         .sort((a, b) => b.createdAt - a.createdAt);
       const filteredAssets = assets.filter((asset) => {
-        if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+        if (isHiddenSkillExample(asset, assetRole)) {
           return false;
         }
         if (!matchesMenuFilters(menuFilters, asset)) {
@@ -2214,7 +2238,7 @@ export const listGalleryAssets = ownerQuery({
         if (modelNameFilter && asset.modelName !== modelNameFilter) {
           return false;
         }
-        if (assetRole && asset.assetRole !== assetRole) {
+        if (!matchesAssetRole(asset.assetRole, assetRole)) {
           return false;
         }
         if (kind && asset.kind !== kind) {
@@ -2314,7 +2338,7 @@ export const galleryAssetFacets = ownerQuery({
       // Match the grid: workflow step media is not browsable here, so counting
       // it would advertise model pills that filter down to nothing.
       assets = dedupeAssetIds(rows).filter(
-        (asset) => !isHiddenWorkflowStepAsset(asset),
+        (asset) => !isHiddenSkillExample(asset),
       );
     } else if (args.isPublic) {
       assets = await ctx.db
@@ -2409,7 +2433,7 @@ export const listPublicGalleryAssets = query({
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
         return false;
       }
-      if (assetRole && asset.assetRole !== assetRole) {
+      if (!matchesAssetRole(asset.assetRole, assetRole)) {
         return false;
       }
       return true;
@@ -2543,7 +2567,7 @@ export const listGalleryAssetsPage = ownerQuery({
             .withIndex("by_owner_modelName_createdAt", (q) =>
               q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
             )
-        : pillar && assetRole
+        : pillar && assetRole && !isSkillExampleRole(assetRole)
           ? ctx.db
               .query("assets")
               .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
@@ -2555,7 +2579,7 @@ export const listGalleryAssetsPage = ownerQuery({
                 .withIndex("by_owner_pillar_createdAt", (q) =>
                   q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
                 )
-            : assetRole
+            : assetRole && !isSkillExampleRole(assetRole)
               ? ctx.db
                   .query("assets")
                   .withIndex("by_owner_assetRole_createdAt", (q) =>
@@ -2579,7 +2603,7 @@ export const listGalleryAssetsPage = ownerQuery({
     });
 
     const filtered = result.page.filter((asset) => {
-      if (isHiddenWorkflowStepAsset(asset, assetRole)) {
+      if (isHiddenSkillExample(asset, assetRole)) {
         return false;
       }
       if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
@@ -2588,7 +2612,7 @@ export const listGalleryAssetsPage = ownerQuery({
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
         return false;
       }
-      if (assetRole && asset.assetRole !== assetRole) {
+      if (!matchesAssetRole(asset.assetRole, assetRole)) {
         return false;
       }
       if (kind && asset.kind !== kind) {
@@ -2658,7 +2682,7 @@ export const listFolderAssetsPage = ownerQuery({
       )
     ).filter(
       (asset): asset is Doc<"assets"> =>
-        asset !== null && !isHiddenWorkflowStepAsset(asset),
+        asset !== null && !isHiddenSkillExample(asset),
     );
 
     const isLastCandidate = ownerIndex >= candidates.length - 1;
@@ -2748,7 +2772,7 @@ export const listPublicGalleryAssetsPage = query({
       if (modelNameFilter && asset.modelName !== modelNameFilter) {
         return false;
       }
-      if (assetRole && asset.assetRole !== assetRole) {
+      if (!matchesAssetRole(asset.assetRole, assetRole)) {
         return false;
       }
       if (kind && asset.kind !== kind) {
@@ -4467,6 +4491,16 @@ export const mergeDuplicateAssets = internalMutation({
       };
     }
 
+    const promptIds = [...new Set(docs.map((asset) => asset.promptId).filter((id): id is Id<"prompts"> => Boolean(id)))];
+    if (promptIds.length > 1) {
+      for (const id of promptIds) {
+        const prompt = await ctx.db.get(id);
+        if (prompt?.skillId || prompt?.workflowId) {
+          throw new ConvexError("Identical media used by different Skill prompts cannot be merged without preserving every step link.");
+        }
+      }
+    }
+
     const folderIdsFor = async (asset: Doc<"assets">) => {
       const links = await ctx.db
         .query("assetFolders")
@@ -4574,6 +4608,21 @@ export const mergeDuplicateAssets = internalMutation({
       for (const pack of coverPacks) {
         await ctx.db.patch(pack._id, { coverAssetId: keeper.asset._id });
         referencesRepointed += 1;
+      }
+      for (const candidate of resolveUserIdCandidates(ownerUserId)) {
+        for (const skill of await ctx.db.query("skills").withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", candidate)).collect()) {
+          const skillPatch: Partial<Doc<"skills">> = {};
+          if (skill.coverAssetId === loser.asset._id) skillPatch.coverAssetId = keeper.asset._id;
+          const oldReference = new RegExp(`asset:${loser.asset._id}\\b`, "g");
+          for (const field of ["body", "agentInstructions", "description"] as const) {
+            if (skill[field]?.includes(`asset:${loser.asset._id}`)) skillPatch[field] = skill[field]!.replace(oldReference, `asset:${keeper.asset._id}`);
+          }
+          if (Object.keys(skillPatch).length) {
+            await ctx.db.patch(skill._id, { ...skillPatch, updatedAt: Date.now() });
+            await ctx.scheduler.runAfter(0, makeFunctionReference<"action">("semanticIndex:reindexSkill"), { skillId: skill._id });
+            referencesRepointed += 1;
+          }
+        }
       }
       const coverWorkflows = await ctx.db
         .query("workflows")

@@ -18,6 +18,7 @@ import {
 } from "react";
 import {
   useAction,
+  useConvex,
   useMutation,
   usePaginatedQuery,
   useQuery,
@@ -108,7 +109,7 @@ type SelectedImage = {
   id: string;
   packId?: string;
   galleryItemId?: string;
-  galleryItemType?: "asset" | "pack" | "design" | "workflow" | "storybook" | "collection";
+  galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
   promptId?: string;
   stepCount?: number;
   thumbSrc: string;
@@ -305,6 +306,7 @@ export function GalleryDashboard({
   onSignOut,
   adminMode = false,
 }: GalleryDashboardProps) {
+  const convex = useConvex();
   const devOwnerUserIdOverride =
     process.env.NODE_ENV !== "production"
       ? process.env.NEXT_PUBLIC_DEV_OWNER_USER_ID?.trim() || null
@@ -325,7 +327,7 @@ export function GalleryDashboard({
   const [excludedFilters, setExcludedFilters] = useState<string[]>([]);
   const [likedOnly, setLikedOnly] = useState<boolean>(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
     null,
   );
   const [openStorybookId, setOpenStorybookId] = useState<string | null>(null);
@@ -380,7 +382,7 @@ export function GalleryDashboard({
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
     // Leaving the skills view closes whatever skill was open with it.
-    if (mode !== "skills") setSelectedWorkflowId(null);
+    if (mode !== "skills") setSelectedSkillId(null);
   }, []);
   // Grid tile size (0.4–1, 1 = full size), persisted across sessions.
   const [gridZoom, setGridZoomRaw] = useState(1);
@@ -1050,8 +1052,7 @@ export function GalleryDashboard({
       setDeletingAssetId(assetId);
 
       try {
-        // Only assets reach the grid now — workflows have their own view, and
-        // delete their own record from the card there.
+        // This handler deletes media; Skill cards use native Skill deletion.
         const response = await fetch(
           `/api/assets/${encodeURIComponent(assetId)}`,
           { method: "DELETE" },
@@ -1406,17 +1407,17 @@ export function GalleryDashboard({
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
   );
 
-  // Saved workflows join the default grid as one card each — an insert is a
+  // Saved Skills join the default grid as one card each — an insert is a
   // dated piece of work like any tile, and opens as its document. Its step
-  // media stays out of the feed (assetRole "workflow_asset"); the card is the
+  // media stays out of the feed (assetRole "skill_example"); the card is the
   // only place those frames surface.
-  const gridWorkflows = useQuery(
-    api.workflows.listWorkflows,
+  const gridSkills = useQuery(
+    api.skills.listSkills,
     canAccessMyGallery && galleryScope === "mine"
       ? { ownerUserId, previewLimit: 8, excludeTagNames: [CINEMATOGRAPHY_TAG] }
       : "skip",
   );
-  const deleteSkillMutation = useMutation(api.workflows.deleteWorkflow);
+  const deleteSkillMutation = useMutation(api.skills.deleteSkill);
 
   // Public-facing collections, derived from the data: any collection with at
   // least one public asset, counted over public assets only. Queried in both
@@ -2247,11 +2248,11 @@ export function GalleryDashboard({
     flattenStacks,
   ]);
 
-  // Workflow cards only join the grid in the default browse state: they are
+  // Skill cards only join the grid in the default browse state: they are
   // inserts, not assets, so any asset filter hides them and the Skills view
   // stays the place to browse them all. Storybooks never join the grid; they
   // live in the Storybooks tab.
-  const showWorkflowCards =
+  const showSkillCards =
     includeSkills &&
     galleryScope === "mine" &&
     viewMode === "grid" &&
@@ -2265,7 +2266,7 @@ export function GalleryDashboard({
 
   // Skills filed in the collection being browsed sit among its pieces.
   const folderSkills = useQuery(
-    api.workflows.listWorkflows,
+    api.skills.listSkills,
     canAccessMyGallery && galleryScope === "mine" && effectiveSelectedFolderId
       ? {
           ownerUserId,
@@ -2289,17 +2290,17 @@ export function GalleryDashboard({
   const skillIds = useMemo(
     () =>
       new Set<string>([
-        ...(gridWorkflows ?? []).map((skill) => String(skill._id)),
+        ...(gridSkills ?? []).map((skill) => String(skill._id)),
         ...(folderSkills ?? []).map((skill) => String(skill._id)),
       ]),
-    [folderSkills, gridWorkflows],
+    [folderSkills, gridSkills],
   );
 
-  const workflowEntries = useMemo<GalleryEntry[]>(() => {
-    const source = showFolderSkillCards ? folderSkills : gridWorkflows;
+  const skillEntries = useMemo<GalleryEntry[]>(() => {
+    const source = showFolderSkillCards ? folderSkills : gridSkills;
     if (!source || source.length === 0) return [];
     return source.map(skillCardToEntry);
-  }, [folderSkills, gridWorkflows, showFolderSkillCards]);
+  }, [folderSkills, gridSkills, showFolderSkillCards]);
 
   const storybookEntries = useMemo<GalleryEntry[]>(() => {
     if (!storybooks || storybooks.length === 0) return [];
@@ -2399,27 +2400,27 @@ export function GalleryDashboard({
         childCollectionIds.has(folderId),
       );
     });
-    // Workflow cards sit among the tiles by date, not on a shelf above them:
+    // Skill cards sit among the tiles by date, not on a shelf above them:
     // an insert saved yesterday belongs next to yesterday's other work. Under
     // any other sort they trail the tiles rather than fake a position.
-    const availableWorkflowCards =
-      showWorkflowCards || showFolderSkillCards ? workflowEntries : [];
-    const workflowCards = anyPaginationActive
+    const availableSkillCards =
+      showSkillCards || showFolderSkillCards ? skillEntries : [];
+    const skillCards = anyPaginationActive
       ? reachedGalleryInserts(
-          availableWorkflowCards,
+          availableSkillCards,
           activePagedAssets.results,
           activePagedAssets.status === "Exhausted",
           !folderPaginationActive,
         )
-      : availableWorkflowCards;
+      : availableSkillCards;
     const mixed =
-      workflowCards.length === 0
+      skillCards.length === 0
         ? assetTiles
         : sortOrder === "newest"
-          ? [...assetTiles, ...workflowCards].sort(
+          ? [...assetTiles, ...skillCards].sort(
               (left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0),
             )
-          : [...assetTiles, ...workflowCards];
+          : [...assetTiles, ...skillCards];
     // A collection's folders lead the grid when browsing one — shelves, not
     // dated assets.
     const ordered =
@@ -2438,9 +2439,9 @@ export function GalleryDashboard({
   }, [
     baseImages,
     featuredFirst,
-    showWorkflowCards,
+    showSkillCards,
     showFolderSkillCards,
-    workflowEntries,
+    skillEntries,
     sortOrder,
     showChildCollectionStacks,
     childCollectionIds,
@@ -2452,7 +2453,7 @@ export function GalleryDashboard({
   ]);
 
   const gridInsertsLoading =
-    (showWorkflowCards && gridWorkflows === undefined) ||
+    (showSkillCards && gridSkills === undefined) ||
     (showFolderSkillCards && folderSkills === undefined);
   const images = useGalleryStream(
     gridEntries,
@@ -2981,8 +2982,8 @@ export function GalleryDashboard({
   const removeAssetFromFolder = useCallback(
     async (imageId: string, folderId: string) => {
       const image = images.find((entry) => entry.id === imageId);
-      // `images` is a union — only asset entries carry folderIds; design/
-      // workflow entries have just folderId. Narrow safely.
+      // Gallery variants carry collection memberships or a primary folder.
+      // Narrow safely before changing the media's filing.
       const currentFolderIds: string[] = image
         ? "folderIds" in image && Array.isArray(image.folderIds)
           ? image.folderIds
@@ -3367,17 +3368,23 @@ export function GalleryDashboard({
   // card renders on the same frame the expanded view is trying to fade in.
   const handleCardDelete = useCallback(
     (imageId: string) => {
-      // A skill card's id is a workflows row, not an asset.
+      // A Skill card resolves to a native Skill, preserving legacy copied IDs.
       if (skillIds.has(imageId)) {
-        void deleteSkillMutation({
+        setDeleteAssetError(undefined);
+        void convex.query(api.skills.resolveSkillReference, {
           ownerUserId,
-          id: imageId as Id<"workflows">,
+          id: imageId,
+        }).then((id) => {
+          if (!id) throw new Error("Skill not found");
+          return deleteSkillMutation({ ownerUserId, id });
+        }).catch((error: unknown) => {
+          setDeleteAssetError(error instanceof Error ? error.message : "Failed to delete Skill");
         });
         return;
       }
       void deleteAsset(imageId);
     },
-    [deleteAsset, deleteSkillMutation, ownerUserId, skillIds],
+    [convex, deleteAsset, deleteSkillMutation, ownerUserId, skillIds],
   );
 
   const handleCardToggleLike = useCallback(
@@ -3494,9 +3501,9 @@ export function GalleryDashboard({
 
   const handleImageSelect = useCallback(
     (img: SelectedImage) => {
-      // Workflows open a dedicated scrollable modal, not the side panel.
-      if (img.galleryItemType === "workflow") {
-        setSelectedWorkflowId(img.id);
+      // Skills open their dedicated scrollable document modal.
+      if (img.galleryItemType === "skill") {
+        setSelectedSkillId(img.id);
         return;
       }
       // Storybooks expand into their own modal (images + editable story).
@@ -4077,7 +4084,7 @@ export function GalleryDashboard({
     { kind: "folder"; folderId: string; label: string } | null
   >(() => {
     // Same gate as the breadcrumb: a bucket may only claim a destination the
-    // grid is actually showing. The collections landing, workflows and the
+    // grid is actually showing. The collections landing, Skills and the
     // storybook shelf all keep the plain "opens the form" drop.
     if (!canAccessMyGallery || galleryScope !== "mine") return null;
     if (viewMode !== "grid" || storybooksView || bookmarksView || extraTabView) return null;
@@ -4342,11 +4349,11 @@ export function GalleryDashboard({
     canGoNext,
     imagePosition,
     ownerUserId,
-    // The workflow document sits under the detail overlay in the stack, so
-    // the panel steps aside before the workflow opens.
-    onOpenWorkflow: (workflowId: string) => {
+    // The Skill document sits under the detail overlay in the stack, so
+    // the panel steps aside before the Skill opens.
+    onOpenSkill: (skillId: string) => {
       closeSelectedImage();
-      setSelectedWorkflowId(workflowId);
+      setSelectedSkillId(skillId);
     },
     onDelete: canDeleteInCurrentView
       ? (imageId: string) => {
@@ -5077,8 +5084,8 @@ export function GalleryDashboard({
                       ? String(folder.parentFolderId)
                       : undefined,
                   }))}
-                  onSkillOpen={setSelectedWorkflowId}
-                  selectedSkillId={selectedWorkflowId}
+                  onSkillOpen={setSelectedSkillId}
+                  selectedSkillId={selectedSkillId}
                   onImageLoad={markImageLoaded}
                 />
               ) : bookmarksView ? (
@@ -5158,8 +5165,8 @@ export function GalleryDashboard({
                         ? String(folder.parentFolderId)
                         : undefined,
                     }))}
-                    onSkillOpen={setSelectedWorkflowId}
-                    selectedSkillId={selectedWorkflowId}
+                    onSkillOpen={setSelectedSkillId}
+                    selectedSkillId={selectedSkillId}
                     onImageLoad={markImageLoaded}
                   />
                 ) : (
@@ -5930,9 +5937,9 @@ export function GalleryDashboard({
       />
 
       <SkillModal
-        skillId={selectedWorkflowId}
+        skillId={selectedSkillId}
         ownerUserId={ownerUserId}
-        onClose={() => setSelectedWorkflowId(null)}
+        onClose={() => setSelectedSkillId(null)}
       />
 
       <StorybookModal

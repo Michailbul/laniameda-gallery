@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { requireSkillForOwner } from "@/lib/server/agent-skills";
 
 type AgentScope = "gallery:read" | "gallery:write" | "gallery:delete";
 
@@ -35,12 +36,6 @@ const tagNameArray = (value: unknown) =>
   Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : undefined;
-
-const skillIdValue = (value: unknown) => {
-  const raw = stringValue(value);
-  if (!raw) throw new Error("id is required.");
-  return raw.replace(/^(skill|skills|workflow|workflows):/, "") as Id<"workflows">;
-};
 
 const requiredScopeForAction = (action: string): AgentScope => {
   if (action.startsWith("list")) return "gallery:read";
@@ -191,12 +186,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, folderId, option });
     }
 
-    // Skills: words, tags and collection filing. The skill id may arrive bare
-    // or typed (skill:<id> / workflow:<id>).
+    // Resolve native Skill IDs and preserved workflow/pack references before writes.
     if (action === "updateSkill") {
-      const result = await client.mutation(api.workflows.updateSkill, {
+      const id = await requireSkillForOwner(client, agent.ownerUserId, data.id ?? data.skillId);
+      const result = await client.mutation(api.skills.updateSkill, {
         ownerUserId: agent.ownerUserId,
-        id: skillIdValue(data.id ?? data.skillId),
+        id,
         title: typeof data.title === "string" ? data.title : undefined,
         description: typeof data.description === "string" ? data.description : undefined,
         body: typeof data.body === "string" ? data.body : undefined,
@@ -210,15 +205,16 @@ export async function POST(request: Request) {
     }
 
     if (action === "addSkillToCollection" || action === "removeSkillFromCollection") {
+      const id = await requireSkillForOwner(client, agent.ownerUserId, data.id ?? data.skillId);
       const args = {
         ownerUserId: agent.ownerUserId,
-        id: skillIdValue(data.id ?? data.skillId),
+        id,
         folderId: stringValue(data.folderId) as Id<"folders">,
       };
       const result =
         action === "addSkillToCollection"
-          ? await client.mutation(api.workflows.addSkillToCollection, args)
-          : await client.mutation(api.workflows.removeSkillFromCollection, args);
+          ? await client.mutation(api.skills.addSkillToCollection, args)
+          : await client.mutation(api.skills.removeSkillFromCollection, args);
       return NextResponse.json(result);
     }
 

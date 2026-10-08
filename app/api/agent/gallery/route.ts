@@ -6,6 +6,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { CINEMATOGRAPHY_TAG, isCinematographySkill } from "@/lib/cinematography";
 import { makeFunctionReference } from "convex/server";
 import { galleryAssetPageInputSchema } from "@/lib/gallery-pagination";
+import { resolveSkillForOwner } from "@/lib/server/agent-skills";
 
 type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
@@ -65,6 +66,7 @@ type AssetRoleValue =
   | "generated_output"
   | "reference"
   | "inspiration_capture"
+  | "skill_example"
   | "workflow_asset"
   | "cinema_frame"
   | "other";
@@ -84,7 +86,7 @@ const normalizeGalleryIdKind = (kind: string): GalleryIdKind | null => {
     case "designInspiration":
     case "designInspirations":
       return "design";
-    // Skills live in the workflows table; the copied id reads workflow:<id>.
+    // Older copied workflow IDs remain readable through the native Skill resolver.
     case "skill":
     case "skills":
     case "workflow":
@@ -216,7 +218,14 @@ export async function POST(request: Request) {
     }
 
     if (action === "getById") {
-      const parsed = parseGalleryId(data.id);
+      const reference = stringValue(data.id);
+      if (!reference) throw new Error("id is required.");
+      const skillId = await resolveSkillForOwner(client, agent.ownerUserId, reference);
+      if (skillId) {
+        const skill = await client.query(api.skills.getSkill, { id: skillId, ownerUserId: agent.ownerUserId });
+        return NextResponse.json({ skill });
+      }
+      const parsed = parseGalleryId(reference);
       if (parsed.kind === "asset") {
         const asset = await client.query(api.assets.getGalleryAsset, {
           id: parsed.id as Id<"assets">,
@@ -225,11 +234,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ asset });
       }
       if (parsed.kind === "skill") {
-        const skill = await client.query(api.workflows.getWorkflow, {
-          id: parsed.id as Id<"workflows">,
-          ownerUserId: agent.ownerUserId,
-        });
-        return NextResponse.json({ skill });
+        return NextResponse.json({ skill: null });
       }
       if (parsed.kind === "pack") {
         const pack = await client.query(api.assetPacks.getGalleryAssetPack, {
@@ -255,7 +260,7 @@ export async function POST(request: Request) {
 
     if (action === "listSkills") {
       const tagNames = stringArrayValue(data.tagNames);
-      const skills = await client.query(api.workflows.listWorkflows, {
+      const skills = await client.query(api.skills.listSkills, {
         ownerUserId: agent.ownerUserId,
         tagNames,
         excludeTagNames: skillListExclusions(tagNames),
@@ -287,11 +292,10 @@ export async function POST(request: Request) {
     }
 
     if (action === "getSkill") {
-      const parsed = parseGalleryId(data.id ?? data.skillId, "skill");
-      const skill = await client.query(api.workflows.getWorkflow, {
-        id: parsed.id as Id<"workflows">,
-        ownerUserId: agent.ownerUserId,
-      });
+      const reference = stringValue(data.id ?? data.skillId);
+      if (!reference) throw new Error("id is required.");
+      const id = await resolveSkillForOwner(client, agent.ownerUserId, reference);
+      const skill = id ? await client.query(api.skills.getSkill, { id, ownerUserId: agent.ownerUserId }) : null;
       return NextResponse.json({ skill });
     }
 

@@ -607,12 +607,22 @@ export const cascadeDeleteFolder = async (
 
   // Skills filed here leave the collection; the skills themselves stay.
   const skillLinks = await ctx.db
-    .query("workflowFolders")
+    .query("skillFolders")
     .withIndex("by_folder_createdAt", (q) =>
       q.eq("folderId", folderId).gte("createdAt", 0),
     )
     .collect();
   for (const link of skillLinks) {
+    await ctx.db.delete(link._id);
+  }
+  // During migration, clear old membership pointers too; no content is deleted.
+  const legacySkillLinks = await ctx.db
+    .query("workflowFolders")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", folderId).gte("createdAt", 0),
+    )
+    .collect();
+  for (const link of legacySkillLinks) {
     await ctx.db.delete(link._id);
   }
 

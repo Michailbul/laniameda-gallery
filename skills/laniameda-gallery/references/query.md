@@ -254,7 +254,7 @@ Download one owner-scoped asset to local disk.
 
 ### Skills: `searchSkills`, `skills`, `getSkill`
 
-Skills (text knowledge with optional ordered prompt/media steps, table `workflows`) are searched on their own, not
+Skills (text knowledge with optional ordered prompt/media steps, table `skills`) are searched on their own, not
 through `search`. Each is embedded on its words: title, description, tags,
 models, step labels and markdown body.
 
@@ -275,7 +275,7 @@ missed. `skills` lists newest first; every `tagNames` entry must match
 (canonically). `getSkill` returns the full document: `body` (markdown),
 `agentInstructions`, `tagNames`, `collections`, `modelNames` and every step
 with its prompt sections and media URLs. `getById` accepts `skill:<id>` and the
-`workflow:<id>` the gallery copies.
+old `workflow:<id>` and retired pack IDs through owner aliases. New copies use `skill:<native-id>`.
 
 Packs tagged `cinematography` (camera moves, own tab) are left out of both lists
 unless `tagNames` includes `cinematography`; see `references/cinematography.md`.
@@ -405,7 +405,7 @@ references/web-access.md for current usage and schema discovery.
 
 The cursor order is owner-candidate-createdAt-desc, not a global chronological
 merge. Default inventory includes hidden collection members and Skill step
-media. includeWorkflowAssets:false narrows those step assets; assetRole can
+media. includeSkillExamples:false narrows those step assets; assetRole can
 explicitly select them. Only immediate child collections are included by
 includeDescendants. YouTube research has its own list_video_refs_page cursor surface. Ranked
 list_video_refs still caps at 2000; Skill/Story/bookmark lists cap at 200/500/500.

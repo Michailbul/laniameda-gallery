@@ -7,6 +7,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { ensureFolderOwnership } from "./folderHelpers";
+import { syncPromptAssetPack } from "./assetPackHelpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   generationTypeValidator,
@@ -18,15 +19,46 @@ import {
 } from "./validators";
 import { ownerAction, ownerMutation, ownerQuery, signedOwnerAction } from "./actor";
 
-// A skill — stored in the `workflows` table, which predates the name — is an
-// ordered container of steps plus an optional markdown body. Users and agents
-// both call it a skill; the table and the `workflow:` id prefix stay for
-// compatibility.
-//
-// A workflow is an ordered container of steps. Each step is a prompt
-// (extended with `workflowId` + `workflowStepOrder`) plus the assets linked
-// to that prompt via `promptId`. Steps stay normal grid citizens — the
-// workflow is purely an organizing layer on top.
+// Native Skills store reusable instructions, a markdown body and ordered
+// existing prompt steps. Media retains its identity; skill_example identifies
+// an example owned by the Skill rather than an ordinary gallery reference.
+
+// Compatibility identifiers resolve to native IDs under the authenticated owner.
+// The alias survives retirement of a legacy container; media IDs never change.
+export const resolveSkillReference = ownerQuery({
+  args: { ownerUserId: v.string(), id: v.string() },
+  returns: v.union(v.null(), v.id("skills")),
+  handler: async (ctx, args) => {
+    const raw = args.id.trim().replace(/^(skill|skills|workflow|workflows|pack|assetPacks):/, "");
+    const nativeId = ctx.db.normalizeId("skills", raw);
+    if (nativeId) {
+      const skill = await ctx.db.get(nativeId);
+      return skill && canActorAccessOwnerUserId(args.ownerUserId, skill.ownerUserId) ? nativeId : null;
+    }
+    for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+      const alias = await ctx.db.query("skillMigrationAliases")
+        .withIndex("by_owner_source", (q) => q.eq("ownerUserId", owner).eq("sourceId", raw))
+        .unique();
+      if (!alias || alias.phase === "copied") continue;
+      const skill = await ctx.db.get(alias.skillId);
+      if (skill && canActorAccessOwnerUserId(args.ownerUserId, skill.ownerUserId)) return skill._id;
+    }
+    return null;
+  },
+});
+
+// Internal bridge only for reindex calls queued before native migration.
+export const resolveLegacySkillJob = internalQuery({
+  args: { sourceId: v.string() },
+  returns: v.union(v.null(), v.id("skills")),
+  handler: async (ctx, args) => {
+    const alias = await ctx.db.query("skillMigrationAliases")
+      .withIndex("by_source", (q) => q.eq("sourceKind", "workflow").eq("sourceId", args.sourceId)).unique();
+    if (!alias || alias.phase === "copied") return null;
+    const skill = await ctx.db.get(alias.skillId);
+    return skill && canActorAccessOwnerUserId(alias.ownerUserId, skill.ownerUserId) ? skill._id : null;
+  },
+});
 
 const stepMediaValidator = v.object({
   id: v.id("assets"),
@@ -61,9 +93,9 @@ const reindexSkillRef = makeFunctionReference<"action">(
 );
 const scheduleSkillReindex = async (
   ctx: Pick<MutationCtx, "scheduler">,
-  workflowId: Id<"workflows">,
+  skillId: Id<"skills">,
 ) => {
-  await ctx.scheduler.runAfter(0, reindexSkillRef, { workflowId });
+  await ctx.scheduler.runAfter(0, reindexSkillRef, { skillId });
 };
 
 const skillCollectionValidator = v.object({
@@ -72,8 +104,8 @@ const skillCollectionValidator = v.object({
   parentFolderId: v.optional(v.id("folders")),
 });
 
-export const workflowCardValidator = v.object({
-  _id: v.id("workflows"),
+export const skillCardValidator = v.object({
+  _id: v.id("skills"),
   title: v.string(),
   description: v.optional(v.string()),
   /** First words of the markdown body, for card excerpts. */
@@ -104,22 +136,22 @@ const resolveTagNames = async (
 
 const listSkillFolderIds = async (
   ctx: QueryCtx,
-  workflowId: Id<"workflows">,
+  skillId: Id<"skills">,
 ): Promise<Id<"folders">[]> => {
   const links = await ctx.db
-    .query("workflowFolders")
-    .withIndex("by_workflow", (q) => q.eq("workflowId", workflowId))
+    .query("skillFolders")
+    .withIndex("by_skill", (q) => q.eq("skillId", skillId))
     .collect();
   return Array.from(new Set(links.map((link) => link.folderId)));
 };
 
 const listSkillModelNames = async (
   ctx: QueryCtx,
-  workflowId: Id<"workflows">,
+  skillId: Id<"skills">,
 ): Promise<string[]> => {
   const prompts = await ctx.db
     .query("prompts")
-    .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", workflowId))
+    .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skillId))
     .collect();
   return Array.from(
     new Set(
@@ -152,7 +184,7 @@ export const parseBodyAssetIds = (body: string | undefined) =>
     new Set(
       Array.from((body ?? "").matchAll(/asset:([a-z0-9]{20,40})/gi), (m) => m[1]!),
     ),
-  ).slice(0, 60);
+  );
 
 const skillMatchesTags = (tagNames: string[], required: string[]) => {
   if (required.length === 0) return true;
@@ -169,7 +201,7 @@ const skillHasExcludedTag = (tagNames: string[], excluded: string[]) => {
 };
 
 const skillMatchesSearch = (
-  workflow: Doc<"workflows">,
+  workflow: Doc<"skills">,
   tagNames: string[],
   search: string,
 ) => {
@@ -188,9 +220,13 @@ const skillMatchesSearch = (
   return needle.split(/\s+/).every((word) => haystack.includes(word));
 };
 
+const isUnwiredCopy = async (ctx: QueryCtx, skillId: Id<"skills">) =>
+  (await ctx.db.query("skillMigrationAliases").withIndex("by_skill", (q) => q.eq("skillId", skillId)).collect())
+    .some((alias) => alias.sourceKind === "workflow" && alias.phase === "copied");
+
 const buildSkillCard = async (
   ctx: QueryCtx,
-  workflow: Doc<"workflows">,
+  workflow: Doc<"skills">,
   previewLimit: number,
   tagNames?: string[],
 ) => ({
@@ -207,18 +243,19 @@ const buildSkillCard = async (
   isFeatured: workflow.isFeatured,
   createdAt: workflow.createdAt,
   updatedAt: workflow.updatedAt,
-  previewImages: await collectWorkflowPreviewMedia(ctx, workflow._id, previewLimit),
+  previewImages: await collectSkillPreviewMedia(ctx, workflow._id, previewLimit),
 });
 
 // Returns the workflow's prompt steps ordered by step index, each paired with
 // its linked assets resolved to playable/thumbnail URLs.
-const collectWorkflowSteps = async (
+const collectSkillSteps = async (
   ctx: QueryCtx,
-  workflowId: Id<"workflows">,
+  skillId: Id<"skills">,
+  viewerOwner?: string,
 ) => {
   const prompts = await ctx.db
     .query("prompts")
-    .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", workflowId))
+    .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skillId))
     .order("asc")
     .collect();
 
@@ -234,6 +271,7 @@ const collectWorkflowSteps = async (
 
     const media = [];
     for (const asset of assets) {
+      if (!asset.isPublic && !canActorAccessOwnerUserId(viewerOwner ?? "", asset.ownerUserId)) continue;
       media.push({
         id: asset._id,
         kind: asset.kind,
@@ -248,8 +286,8 @@ const collectWorkflowSteps = async (
 
     steps.push({
       promptId: prompt._id,
-      stepOrder: prompt.workflowStepOrder ?? 0,
-      stepLabel: prompt.workflowStepLabel,
+      stepOrder: prompt.skillStepOrder ?? 0,
+      stepLabel: prompt.skillStepLabel,
       promptText: prompt.text,
       promptSections: prompt.promptSections,
       promptType: prompt.promptType,
@@ -262,55 +300,42 @@ const collectWorkflowSteps = async (
   return steps;
 };
 
-const collectWorkflowPreviewMedia = async (
-  ctx: QueryCtx,
-  workflowId: Id<"workflows">,
-  previewLimit: number,
+const collectSkillPreviewMedia = async (
+  ctx: QueryCtx, skillId: Id<"skills">, previewLimit: number,
 ) => {
-  if (previewLimit <= 0) {
-    return [];
-  }
-
-  const prompts = await ctx.db
-    .query("prompts")
-    .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", workflowId))
-    .order("asc")
-    .take(Math.max(previewLimit, 1));
-
-  const media = [];
-  for (const prompt of prompts) {
-    const remaining = previewLimit - media.length;
-    if (remaining <= 0) break;
-
-    const assets = await ctx.db
-      .query("assets")
-      .withIndex("by_prompt_createdAt", (q) =>
-        q.eq("promptId", prompt._id).gte("createdAt", 0),
-      )
-      .order("asc")
-      .take(remaining);
-
-    for (const asset of assets) {
-      const [url, thumbUrl] = await Promise.all([
-        resolveAssetUrl(ctx, asset),
-        resolveAssetThumbUrl(ctx, asset),
-      ]);
-      media.push({
-        id: asset._id,
-        kind: asset.kind,
-        url,
-        thumbUrl,
-        contentType: asset.contentType,
-        width: asset.width,
-        height: asset.height,
-        description: asset.description,
-      });
+  const skill = await ctx.db.get(skillId);
+  if (!skill || previewLimit <= 0) return [];
+  const actor = (await ctx.auth.getUserIdentity())?.subject ?? "";
+  const media: Array<{ id: Id<"assets">; kind: "image" | "video"; url?: string; thumbUrl?: string; contentType?: string; width?: number; height?: number; description?: string }> = [];
+  const seen = new Set<string>();
+  const add = async (asset: Doc<"assets"> | null) => {
+    if (!asset || media.length >= previewLimit || seen.has(asset._id)) return;
+    if (!asset.isPublic && !canActorAccessOwnerUserId(actor, asset.ownerUserId)) return;
+    seen.add(asset._id);
+    media.push({ id: asset._id, kind: asset.kind, url: await resolveAssetUrl(ctx, asset),
+      thumbUrl: await resolveAssetThumbUrl(ctx, asset), contentType: asset.contentType,
+      width: asset.width, height: asset.height, description: asset.description });
+  };
+  if (skill.coverAssetId) await add(await ctx.db.get(skill.coverAssetId));
+  for (const prompt of await ctx.db.query("prompts")
+    .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skillId)).order("asc").collect()) {
+    if (media.length >= previewLimit) break;
+    for (const asset of await ctx.db.query("assets")
+      .withIndex("by_prompt_createdAt", (q) => q.eq("promptId", prompt._id).gte("createdAt", 0)).order("asc").collect()) {
+      await add(asset);
+      if (media.length >= previewLimit) break;
     }
+  }
+  const text = [skill.body, skill.agentInstructions, skill.description].filter(Boolean).join("\n");
+  for (const raw of parseBodyAssetIds(text)) {
+    if (media.length >= previewLimit) break;
+    const id = ctx.db.normalizeId("assets", raw);
+    if (id) await add(await ctx.db.get(id));
   }
   return media;
 };
 
-export const listWorkflows = ownerQuery({
+export const listSkills = ownerQuery({
   args: {
     ownerUserId: v.string(),
     pillar: optionalPillarValidator,
@@ -326,7 +351,7 @@ export const listWorkflows = ownerQuery({
     limit: v.optional(v.number()),
     previewLimit: v.optional(v.number()),
   },
-  returns: v.array(workflowCardValidator),
+  returns: v.array(skillCardValidator),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -336,26 +361,26 @@ export const listWorkflows = ownerQuery({
     const previewLimit = Math.min(Math.max(args.previewLimit ?? 8, 1), 24);
     const scope = args.scope ?? "mine";
 
-    let workflows: Doc<"workflows">[] = [];
+    let skills: Doc<"skills">[] = [];
     if (args.folderId) {
       const links = await ctx.db
-        .query("workflowFolders")
+        .query("skillFolders")
         .withIndex("by_folder_createdAt", (q) =>
           q.eq("folderId", args.folderId!).gte("createdAt", 0),
         )
         .collect();
       for (const link of links) {
-        const workflow = await ctx.db.get(link.workflowId);
+        const workflow = await ctx.db.get(link.skillId);
         if (!workflow) continue;
         const visible =
           scope === "public"
             ? workflow.isPublic === true
             : canActorAccessOwnerUserId(ownerUserId, workflow.ownerUserId);
-        if (visible) workflows.push(workflow);
+        if (visible) skills.push(workflow);
       }
     } else if (scope === "public") {
-      workflows = await ctx.db
-        .query("workflows")
+      skills = await ctx.db
+        .query("skills")
         .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
         .order("desc")
         .take(limit);
@@ -363,23 +388,23 @@ export const listWorkflows = ownerQuery({
       for (const owner of resolveUserIdCandidates(ownerUserId)) {
         const rows = args.pillar
           ? await ctx.db
-              .query("workflows")
+              .query("skills")
               .withIndex("by_owner_pillar_createdAt", (q) =>
                 q.eq("ownerUserId", owner).eq("pillar", args.pillar),
               )
               .order("desc")
               .take(limit)
           : await ctx.db
-              .query("workflows")
+              .query("skills")
               .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", owner))
               .order("desc")
               .take(limit);
-        workflows.push(...rows);
+        skills.push(...rows);
       }
     }
 
     const seen = new Set<string>();
-    const deduped = workflows
+    const deduped = skills
       .filter((w) => {
         if (seen.has(w._id)) return false;
         seen.add(w._id);
@@ -393,6 +418,7 @@ export const listWorkflows = ownerQuery({
     const cards = [];
     for (const workflow of deduped) {
       if (cards.length >= limit) break;
+      if (await isUnwiredCopy(ctx, workflow._id)) continue;
       const tagNames = await resolveTagNames(ctx, workflow.tagIds);
       if (!skillMatchesTags(tagNames, requiredTags)) continue;
       if (skillHasExcludedTag(tagNames, excludedTags)) continue;
@@ -405,15 +431,15 @@ export const listWorkflows = ownerQuery({
   },
 });
 
-export const getWorkflow = ownerQuery({
+export const getSkill = ownerQuery({
   args: {
-    id: v.id("workflows"),
+    id: v.id("skills"),
     ownerUserId: v.optional(v.string()),
   },
   returns: v.union(
     v.null(),
     v.object({
-      _id: v.id("workflows"),
+      _id: v.id("skills"),
       ownerUserId: v.optional(v.string()),
       title: v.string(),
       description: v.optional(v.string()),
@@ -435,7 +461,7 @@ export const getWorkflow = ownerQuery({
   ),
   handler: async (ctx, args) => {
     const workflow = await ctx.db.get(args.id);
-    if (!workflow) return null;
+    if (!workflow || await isUnwiredCopy(ctx, workflow._id)) return null;
 
     const isOwner =
       Boolean(args.ownerUserId) &&
@@ -457,7 +483,7 @@ export const getWorkflow = ownerQuery({
     }
 
     const bodyMedia = [];
-    for (const assetId of parseBodyAssetIds(workflow.body)) {
+    for (const assetId of parseBodyAssetIds([workflow.body, workflow.agentInstructions, workflow.description].filter(Boolean).join("\n"))) {
       const normalized = ctx.db.normalizeId("assets", assetId);
       const asset = normalized ? await ctx.db.get(normalized) : null;
       if (!asset) continue;
@@ -496,7 +522,7 @@ export const getWorkflow = ownerQuery({
       isFeatured: workflow.isFeatured,
       createdAt: workflow.createdAt,
       updatedAt: workflow.updatedAt,
-      steps: await collectWorkflowSteps(ctx, workflow._id),
+      steps: await collectSkillSteps(ctx, workflow._id, isOwner ? args.ownerUserId : undefined),
     };
   },
 });
@@ -505,7 +531,7 @@ const findSkillByIngestKey = async (
   ctx: Pick<QueryCtx, "db">, ownerUserId: string, ingestKey: string,
 ) => {
   for (const owner of resolveUserIdCandidates(ownerUserId)) {
-    const row = await ctx.db.query("workflows").withIndex("by_owner_ingestKey", (q) =>
+    const row = await ctx.db.query("skills").withIndex("by_owner_ingestKey", (q) =>
       q.eq("ownerUserId", owner).eq("ingestKey", ingestKey),
     ).unique();
     if (row) return row;
@@ -516,15 +542,15 @@ const findSkillByIngestKey = async (
 export const getSkillCreation = internalQuery({
   args: { ownerUserId: v.string(), ingestKey: v.string() },
   returns: v.union(v.null(), v.object({
-    workflowId: v.id("workflows"), fingerprint: v.optional(v.string()), complete: v.boolean(), stepCount: v.number(),
+    skillId: v.id("skills"), fingerprint: v.optional(v.string()), complete: v.boolean(), stepCount: v.number(),
   })),
   handler: async (ctx, args) => {
     const row = await findSkillByIngestKey(ctx, args.ownerUserId, args.ingestKey);
-    return row ? { workflowId: row._id, fingerprint: row.creationFingerprint, complete: row.creationComplete === true, stepCount: row.stepCount } : null;
+    return row ? { skillId: row._id, fingerprint: row.creationFingerprint, complete: row.creationComplete === true, stepCount: row.stepCount } : null;
   },
 });
 
-export const createWorkflow = ownerMutation({
+export const createSkillRecord = ownerMutation({
   args: {
     ownerUserId: v.string(),
     title: v.string(),
@@ -538,7 +564,7 @@ export const createWorkflow = ownerMutation({
     isPublic: v.optional(v.boolean()),
     isFeatured: v.optional(v.boolean()),
   },
-  returns: v.object({ workflowId: v.id("workflows"), created: v.boolean() }),
+  returns: v.object({ skillId: v.id("skills"), created: v.boolean() }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
@@ -546,7 +572,7 @@ export const createWorkflow = ownerMutation({
     }
     const title = args.title.trim();
     if (!title) {
-      throw new ConvexError("Workflow title is required.");
+      throw new ConvexError("Skill title is required.");
     }
 
     if (args.ingestKey) {
@@ -560,12 +586,12 @@ export const createWorkflow = ownerMutation({
         if (!args.creationFingerprint && body && body !== existing.body) {
           await ctx.db.patch(existing._id, { body, updatedAt: Date.now() });
         }
-        return { workflowId: existing._id, created: false };
+        return { skillId: existing._id, created: false };
       }
     }
 
     const now = Date.now();
-    const workflowId = await ctx.db.insert("workflows", {
+    const skillId = await ctx.db.insert("skills", {
       ownerUserId,
       title,
       description: args.description?.trim() || undefined,
@@ -582,51 +608,55 @@ export const createWorkflow = ownerMutation({
       createdAt: now,
       updatedAt: now,
     });
-    return { workflowId, created: true };
+    return { skillId, created: true };
   },
 });
 
-export const deleteWorkflow = ownerMutation({
-  args: { ownerUserId: v.string(), id: v.id("workflows") },
+export const deleteSkill = ownerMutation({
+  args: { ownerUserId: v.string(), id: v.id("skills") },
   returns: v.null(),
   handler: async (ctx, args) => {
     const workflow = await ctx.db.get(args.id);
     if (!workflow) return null;
     if (!canActorAccessOwnerUserId(args.ownerUserId, workflow.ownerUserId)) {
-      throw new ConvexError("Workflow does not belong to this user.");
+      throw new ConvexError("Skill does not belong to this user.");
     }
 
-    // Unlink step prompts — prompts/assets survive as standalone grid entries.
-    const prompts = await ctx.db
-      .query("prompts")
-      .withIndex("by_workflow_stepOrder", (q) => q.eq("workflowId", args.id))
-      .collect();
+    // Preserve shared examples; release only media whose final Skill is removed.
+    const candidates = new Set<Id<"assets">>();
+    const text = [workflow.body, workflow.agentInstructions, workflow.description].filter(Boolean).join("\n");
+    for (const raw of parseBodyAssetIds(text)) {
+      const id = ctx.db.normalizeId("assets", raw);
+      if (id) candidates.add(id);
+    }
+    if (workflow.coverAssetId) candidates.add(workflow.coverAssetId);
+    const prompts = await ctx.db.query("prompts")
+      .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", args.id)).collect();
     for (const prompt of prompts) {
-      await ctx.db.patch(prompt._id, {
-        workflowId: undefined,
-        workflowStepOrder: undefined,
-        workflowStepLabel: undefined,
-      });
-      // The grid hides `workflow_asset` media because its workflow is the only
-      // place it belongs. Once that workflow is gone the role would strand the
-      // asset in no view at all, so clear it and let the media back into the
-      // grid — which is what "survive as standalone grid entries" means.
-      const stepAssets = await ctx.db
-        .query("assets")
-        .withIndex("by_prompt_createdAt", (q) =>
-          q.eq("promptId", prompt._id).gte("createdAt", 0),
-        )
-        .collect();
-      for (const asset of stepAssets) {
-        if (asset.assetRole === "workflow_asset") {
-          await ctx.db.patch(asset._id, { assetRole: undefined });
-        }
+      if (!canActorAccessOwnerUserId(args.ownerUserId, prompt.ownerUserId)) throw new ConvexError("A Skill step belongs to another owner.");
+      for (const asset of await ctx.db.query("assets")
+        .withIndex("by_prompt_createdAt", (q) => q.eq("promptId", prompt._id).gte("createdAt", 0)).collect()) candidates.add(asset._id);
+      await ctx.db.patch(prompt._id, { skillId: undefined, skillStepOrder: undefined, skillStepLabel: undefined });
+    }
+    const shared = new Set<string>();
+    for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+      for (const other of await ctx.db.query("skills").withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", owner)).collect()) {
+        if (other._id === args.id) continue;
+        if (other.coverAssetId) shared.add(other.coverAssetId);
+        for (const id of parseBodyAssetIds([other.body, other.agentInstructions, other.description].filter(Boolean).join("\n"))) shared.add(id);
       }
+    }
+    for (const id of candidates) {
+      const asset = await ctx.db.get(id);
+      if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId) || shared.has(id)) continue;
+      const remainingPrompt = asset.promptId ? await ctx.db.get(asset.promptId) : null;
+      if (remainingPrompt?.skillId && remainingPrompt.skillId !== args.id) continue;
+      if (asset.assetRole === "skill_example" || asset.assetRole === "workflow_asset") await ctx.db.patch(id, { assetRole: undefined });
     }
 
     const links = await ctx.db
-      .query("workflowFolders")
-      .withIndex("by_workflow", (q) => q.eq("workflowId", args.id))
+      .query("skillFolders")
+      .withIndex("by_skill", (q) => q.eq("skillId", args.id))
       .collect();
     for (const link of links) {
       await ctx.db.delete(link._id);
@@ -642,7 +672,7 @@ export const deleteWorkflow = ownerMutation({
 const resolveOrCreateTagIds = async (
   ctx: MutationCtx,
   names: string[],
-  pillar: Doc<"workflows">["pillar"],
+  pillar: Doc<"skills">["pillar"],
 ): Promise<Id<"tags">[]> => {
   const ids: Id<"tags">[] = [];
   for (const raw of names) {
@@ -674,7 +704,7 @@ const resolveOrCreateTagIds = async (
 const requireOwnedSkill = async (
   ctx: MutationCtx,
   ownerUserId: string,
-  id: Id<"workflows">,
+  id: Id<"skills">,
 ) => {
   const workflow = await ctx.db.get(id);
   if (!workflow) {
@@ -692,7 +722,7 @@ const requireOwnedSkill = async (
 export const updateSkill = ownerMutation({
   args: {
     ownerUserId: v.string(),
-    id: v.id("workflows"),
+    id: v.id("skills"),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     body: v.optional(v.string()),
@@ -701,10 +731,10 @@ export const updateSkill = ownerMutation({
     addTagNames: v.optional(v.array(v.string())),
     removeTagNames: v.optional(v.array(v.string())),
   },
-  returns: v.object({ id: v.id("workflows"), tagNames: v.array(v.string()) }),
+  returns: v.object({ id: v.id("skills"), tagNames: v.array(v.string()) }),
   handler: async (ctx, args) => {
     const workflow = await requireOwnedSkill(ctx, args.ownerUserId, args.id);
-    const patch: Partial<Doc<"workflows">> = {};
+    const patch: Partial<Doc<"skills">> = {};
 
     if (args.title !== undefined) {
       const title = args.title.trim();
@@ -750,7 +780,7 @@ export const updateSkill = ownerMutation({
 export const addSkillToCollection = ownerMutation({
   args: {
     ownerUserId: v.string(),
-    id: v.id("workflows"),
+    id: v.id("skills"),
     folderId: v.id("folders"),
   },
   returns: v.object({ added: v.boolean() }),
@@ -758,15 +788,15 @@ export const addSkillToCollection = ownerMutation({
     const workflow = await requireOwnedSkill(ctx, args.ownerUserId, args.id);
     await ensureFolderOwnership(ctx, args.ownerUserId, args.folderId);
     const existing = await ctx.db
-      .query("workflowFolders")
-      .withIndex("by_workflow_folder", (q) =>
-        q.eq("workflowId", args.id).eq("folderId", args.folderId),
+      .query("skillFolders")
+      .withIndex("by_skill_folder", (q) =>
+        q.eq("skillId", args.id).eq("folderId", args.folderId),
       )
       .first();
     if (existing) return { added: false };
-    await ctx.db.insert("workflowFolders", {
+    await ctx.db.insert("skillFolders", {
       ownerUserId: workflow.ownerUserId ?? args.ownerUserId,
-      workflowId: args.id,
+      skillId: args.id,
       folderId: args.folderId,
       createdAt: Date.now(),
     });
@@ -778,16 +808,16 @@ export const addSkillToCollection = ownerMutation({
 export const removeSkillFromCollection = ownerMutation({
   args: {
     ownerUserId: v.string(),
-    id: v.id("workflows"),
+    id: v.id("skills"),
     folderId: v.id("folders"),
   },
   returns: v.object({ removed: v.boolean() }),
   handler: async (ctx, args) => {
     await requireOwnedSkill(ctx, args.ownerUserId, args.id);
     const links = await ctx.db
-      .query("workflowFolders")
-      .withIndex("by_workflow_folder", (q) =>
-        q.eq("workflowId", args.id).eq("folderId", args.folderId),
+      .query("skillFolders")
+      .withIndex("by_skill_folder", (q) =>
+        q.eq("skillId", args.id).eq("folderId", args.folderId),
       )
       .collect();
     for (const link of links) {
@@ -798,17 +828,17 @@ export const removeSkillFromCollection = ownerMutation({
 });
 
 // Hydrates ranked search hits into cards, keeping rank order and applying the
-// same tag / collection filters as listWorkflows.
-export const listSkillCardsByIds = internalQuery({
+// same tag / collection filters as listSkills.
+export const getSkillCardsByIds = internalQuery({
   args: {
     ownerUserId: v.string(),
-    ids: v.array(v.id("workflows")),
+    ids: v.array(v.id("skills")),
     tagNames: v.optional(v.array(v.string())),
     excludeTagNames: v.optional(v.array(v.string())),
     folderId: v.optional(v.id("folders")),
     previewLimit: v.optional(v.number()),
   },
-  returns: v.array(workflowCardValidator),
+  returns: v.array(skillCardValidator),
   handler: async (ctx, args) => {
     const previewLimit = Math.min(Math.max(args.previewLimit ?? 6, 1), 24);
     const requiredTags = (args.tagNames ?? []).filter((tag) => tag.trim());
@@ -816,16 +846,16 @@ export const listSkillCardsByIds = internalQuery({
     const cards = [];
     for (const id of args.ids) {
       const workflow = await ctx.db.get(id);
-      if (!workflow) continue;
+      if (!workflow || await isUnwiredCopy(ctx, workflow._id)) continue;
       if (!canActorAccessOwnerUserId(args.ownerUserId, workflow.ownerUserId)) continue;
       const tagNames = await resolveTagNames(ctx, workflow.tagIds);
       if (!skillMatchesTags(tagNames, requiredTags)) continue;
       if (skillHasExcludedTag(tagNames, excludedTags)) continue;
       if (args.folderId) {
         const link = await ctx.db
-          .query("workflowFolders")
-          .withIndex("by_workflow_folder", (q) =>
-            q.eq("workflowId", id).eq("folderId", args.folderId!),
+          .query("skillFolders")
+          .withIndex("by_skill_folder", (q) =>
+            q.eq("skillId", id).eq("folderId", args.folderId!),
           )
           .first();
         if (!link) continue;
@@ -838,19 +868,25 @@ export const listSkillCardsByIds = internalQuery({
 
 // Links an already-ingested prompt to a workflow as a step. Idempotent —
 // re-running an ingest re-patches the same prompt without side effects.
-export const linkPromptToWorkflow = internalMutation({
+export const linkPromptToSkill = internalMutation({
   args: {
     promptId: v.id("prompts"),
-    workflowId: v.id("workflows"),
-    workflowStepOrder: v.number(),
-    workflowStepLabel: v.optional(v.string()),
+    skillId: v.id("skills"),
+    skillStepOrder: v.number(),
+    skillStepLabel: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const skill = await ctx.db.get(args.skillId);
+    const prompt = await ctx.db.get(args.promptId);
+    if (!skill?.ownerUserId || !prompt || !canActorAccessOwnerUserId(skill.ownerUserId, prompt.ownerUserId)) {
+      throw new ConvexError("A Skill step must belong to the same owner.");
+    }
+    if (prompt.skillId && prompt.skillId !== args.skillId) throw new ConvexError("This prompt already belongs to another Skill.");
     await ctx.db.patch(args.promptId, {
-      workflowId: args.workflowId,
-      workflowStepOrder: args.workflowStepOrder,
-      workflowStepLabel: args.workflowStepLabel,
+      skillId: args.skillId,
+      skillStepOrder: args.skillStepOrder,
+      skillStepLabel: args.skillStepLabel,
     });
     return null;
   },
@@ -858,153 +894,40 @@ export const linkPromptToWorkflow = internalMutation({
 
 // Recomputes the denormalized stepCount and pins a cover asset from the
 // first available step media when one is not already set.
-export const finalizeWorkflow = internalMutation({
+export const finalizeSkill = internalMutation({
   args: {
-    workflowId: v.id("workflows"),
+    skillId: v.id("skills"),
     coverAssetId: v.optional(v.id("assets")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const workflow = await ctx.db.get(args.workflowId);
+    const workflow = await ctx.db.get(args.skillId);
     if (!workflow) return null;
 
     const steps = await ctx.db
       .query("prompts")
-      .withIndex("by_workflow_stepOrder", (q) =>
-        q.eq("workflowId", args.workflowId),
+      .withIndex("by_skill_stepOrder", (q) =>
+        q.eq("skillId", args.skillId),
       )
       .collect();
 
-    await ctx.db.patch(args.workflowId, {
+    // Multi-media ingest can create a side-effect pack before its prompt is
+    // linked. Retire that transient group once the native Skill owns the step.
+    for (const step of steps) {
+      if (!step.ownerUserId || !canActorAccessOwnerUserId(workflow.ownerUserId ?? "", step.ownerUserId)) {
+        throw new ConvexError("A Skill step must belong to the same owner.");
+      }
+      await syncPromptAssetPack(ctx, { ownerUserId: step.ownerUserId, promptId: step._id });
+    }
+
+    await ctx.db.patch(args.skillId, {
       stepCount: steps.length,
       ...(workflow.creationFingerprint ? { creationComplete: true } : {}),
       coverAssetId: workflow.coverAssetId ?? args.coverAssetId,
       updatedAt: Date.now(),
     });
-    await scheduleSkillReindex(ctx, args.workflowId);
+    await scheduleSkillReindex(ctx, args.skillId);
     return null;
-  },
-});
-
-// One-time backfill: asset packs and workflows were two names for the same
-// idea — a group of media that shares one prompt — and only workflows have a
-// browse surface now. Each pack becomes a single-step workflow whose step is
-// the prompt its assets already share.
-//
-// Deliberately does NOT stamp `assetRole: "workflow_asset"` on the converted
-// assets. Those images have always been ordinary grid content; giving them the
-// workflow role would yank them out of the gallery, which is a different
-// decision than "give this pack a workflows-view card". The pack rows are left
-// in place too — nothing reads them anymore, and keeping them makes this
-// reversible.
-export const backfillPacksAsWorkflows = ownerMutation({
-  args: {
-    ownerUserId: v.string(),
-    dryRun: v.optional(v.boolean()),
-  },
-  returns: v.object({
-    packsScanned: v.number(),
-    converted: v.number(),
-    skippedAlreadyWorkflow: v.number(),
-    skippedNoPrompt: v.number(),
-    titles: v.array(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
-    const dryRun = args.dryRun === true;
-
-    const packs: Doc<"assetPacks">[] = [];
-    for (const owner of resolveUserIdCandidates(ownerUserId)) {
-      const rows = await ctx.db
-        .query("assetPacks")
-        .withIndex("by_owner_createdAt", (q) =>
-          q.eq("ownerUserId", owner).gte("createdAt", 0),
-        )
-        .collect();
-      packs.push(...rows);
-    }
-
-    let converted = 0;
-    let skippedAlreadyWorkflow = 0;
-    let skippedNoPrompt = 0;
-    const titles: string[] = [];
-
-    for (const pack of packs) {
-      const members = await ctx.db
-        .query("assets")
-        .withIndex("by_assetPack_packSlotIndex", (q) =>
-          q.eq("assetPackId", pack._id),
-        )
-        .collect();
-
-      // A pack exists because its members share a prompt; that prompt is the
-      // step. If members disagree, the earliest-created one wins.
-      const promptIds = members
-        .map((asset) => asset.promptId)
-        .filter((promptId): promptId is Id<"prompts"> => Boolean(promptId));
-      if (promptIds.length === 0) {
-        skippedNoPrompt += 1;
-        continue;
-      }
-      const prompt = await ctx.db.get(promptIds[0]!);
-      if (!prompt) {
-        skippedNoPrompt += 1;
-        continue;
-      }
-      // Packs that a workflow ingest created as a side effect of one step
-      // sharing a promptIngestKey across several media. Their parent workflow
-      // already represents them.
-      if (prompt.workflowId) {
-        skippedAlreadyWorkflow += 1;
-        continue;
-      }
-
-      if (dryRun) {
-        converted += 1;
-        titles.push(pack.title);
-        continue;
-      }
-
-      const now = Date.now();
-      const workflowId = await ctx.db.insert("workflows", {
-        ownerUserId: pack.ownerUserId,
-        title: pack.title,
-        description: pack.description,
-        pillar: pack.pillar,
-        tagIds: pack.tagIds,
-        ingestKey: pack.ingestKey
-          ? `${pack.ingestKey}:as-workflow`
-          : undefined,
-        coverAssetId: pack.coverAssetId,
-        stepCount: 1,
-        isPublic: pack.isPublic,
-        isFeatured: pack.isFeatured,
-        createdAt: pack.createdAt,
-        updatedAt: now,
-      });
-
-      await ctx.db.patch(prompt._id, {
-        workflowId,
-        workflowStepOrder: 0,
-        workflowStepLabel: pack.modelName
-          ? `${pack.modelName} — ${members.length} ${members.length === 1 ? "output" : "outputs"}`
-          : `${members.length} ${members.length === 1 ? "output" : "outputs"}`,
-      });
-
-      converted += 1;
-      titles.push(pack.title);
-    }
-
-    return {
-      packsScanned: packs.length,
-      converted,
-      skippedAlreadyWorkflow,
-      skippedNoPrompt,
-      titles,
-    };
   },
 });
 
@@ -1080,14 +1003,14 @@ const skillIngestArgs = {
     ),
 };
 
-export const ingestWorkflowFromApi = ownerAction({
+export const ingestSkillFromApi = ownerAction({
   args: skillIngestArgs,
   returns: v.object({
-    workflowId: v.id("workflows"),
+    skillId: v.id("skills"),
     stepCount: v.number(),
     created: v.boolean(),
   }),
-  handler: async (ctx, args): Promise<{ workflowId: Id<"workflows">; stepCount: number; created: boolean }> => {
+  handler: async (ctx, args): Promise<{ skillId: Id<"skills">; stepCount: number; created: boolean }> => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
@@ -1107,7 +1030,7 @@ export const ingestWorkflowFromApi = ownerAction({
         })) as Id<"tags">[])
       : [];
 
-    const { workflowId, created } = (await ctx.runMutation(api.workflows.createWorkflow, {
+    const { skillId, created } = (await ctx.runMutation(api.skills.createSkillRecord, {
       ownerUserId,
       title: args.title,
       description: args.description,
@@ -1119,7 +1042,7 @@ export const ingestWorkflowFromApi = ownerAction({
       creationFingerprint: args.creationFingerprint,
       isPublic: args.isPublic,
       isFeatured: args.isFeatured,
-    })) as { workflowId: Id<"workflows">; created: boolean };
+    })) as { skillId: Id<"skills">; created: boolean };
 
     let failedStep = "steps";
     try {
@@ -1184,7 +1107,7 @@ export const ingestWorkflowFromApi = ownerAction({
                 item.ingestKey ??
                 (stepKeyBase ? `${stepKeyBase}:m${mediaIndex}` : undefined),
               promptIngestKey: stepKeyBase,
-              assetRole: "workflow_asset" as const,
+              assetRole: "skill_example" as const,
               ingestSource: "agent" as const,
             })) as { promptId?: Id<"prompts">; assetId?: Id<"assets"> };
             if (!stepPromptId) stepPromptId = result.promptId;
@@ -1193,33 +1116,33 @@ export const ingestWorkflowFromApi = ownerAction({
         }
 
         if (stepPromptId) {
-          await ctx.runMutation(internal.workflows.linkPromptToWorkflow, {
+          await ctx.runMutation(internal.skills.linkPromptToSkill, {
             promptId: stepPromptId,
-            workflowId,
-            workflowStepOrder: stepIndex,
-            workflowStepLabel: step.stepLabel,
+            skillId,
+            skillStepOrder: stepIndex,
+            skillStepLabel: step.stepLabel,
           });
         }
       }
 
       failedStep = "collections";
       for (const folderId of args.folderIds ?? []) {
-        await ctx.runMutation(api.workflows.addSkillToCollection, {
+        await ctx.runMutation(api.skills.addSkillToCollection, {
           ownerUserId,
-          id: workflowId,
+          id: skillId,
           folderId,
         });
       }
 
       failedStep = "finalize";
-      await ctx.runMutation(internal.workflows.finalizeWorkflow, {
-        workflowId,
+      await ctx.runMutation(internal.skills.finalizeSkill, {
+        skillId,
         coverAssetId,
       });
 
-      return { workflowId, stepCount: args.steps.length, created };
+      return { skillId, stepCount: args.steps.length, created };
     } catch (error) {
-      throw new ConvexError({ message: error instanceof Error ? error.message : "Skill creation failed.", failedStep, workflowId });
+      throw new ConvexError({ message: error instanceof Error ? error.message : "Skill creation failed.", failedStep, skillId });
     }
   },
 });
@@ -1244,8 +1167,8 @@ export const createSkillFromApi = signedOwnerAction({
     ...skillIngestArgs,
     ingestKey: v.string(),
   },
-  returns: v.object({ workflowId: v.id("workflows"), stepCount: v.number(), created: v.boolean() }),
-  handler: async (ctx, args): Promise<{ workflowId: Id<"workflows">; stepCount: number; created: boolean }> => {
+  returns: v.object({ skillId: v.id("skills"), stepCount: v.number(), created: v.boolean() }),
+  handler: async (ctx, args): Promise<{ skillId: Id<"skills">; stepCount: number; created: boolean }> => {
     if (!args.ingestKey.trim() || !args.title.trim()) throw new ConvexError("Skill ingestKey and title are required.");
     if (args.steps.length > 50) throw new ConvexError("A Skill can have at most 50 steps.");
     if (!args.steps.length && !args.body?.trim() && !args.agentInstructions?.trim()) {
@@ -1263,21 +1186,21 @@ export const createSkillFromApi = signedOwnerAction({
     const { creationFingerprint: _ignored, ...input } = args;
     void _ignored;
     const fingerprint = await skillCreationFingerprint(input);
-    const existing: { workflowId: Id<"workflows">; fingerprint?: string; complete: boolean; stepCount: number } | null = await ctx.runQuery(internal.workflows.getSkillCreation, {
+    const existing: { skillId: Id<"skills">; fingerprint?: string; complete: boolean; stepCount: number } | null = await ctx.runQuery(internal.skills.getSkillCreation, {
       ownerUserId: args.ownerUserId, ingestKey: args.ingestKey,
     });
     if (existing && existing.fingerprint !== fingerprint) {
       throw new ConvexError("This ingestKey already belongs to another Skill creation. Use a new key or update_skill.");
     }
-    if (existing?.complete) return { workflowId: existing.workflowId, stepCount: existing.stepCount, created: false };
+    if (existing?.complete) return { skillId: existing.skillId, stepCount: existing.stepCount, created: false };
     if (args.folderIds?.length) await ctx.runQuery(api.folders.validateOwnedFolders, { ownerUserId: args.ownerUserId, folderIds: args.folderIds });
     try {
-      return await ctx.runAction(api.workflows.ingestWorkflowFromApi, { ...input, creationFingerprint: fingerprint });
+      return await ctx.runAction(api.skills.ingestSkillFromApi, { ...input, creationFingerprint: fingerprint });
     } catch (error) {
-      const partial: { workflowId: Id<"workflows"> } | null = await ctx.runQuery(internal.workflows.getSkillCreation, { ownerUserId: args.ownerUserId, ingestKey: args.ingestKey });
+      const partial: { skillId: Id<"skills"> } | null = await ctx.runQuery(internal.skills.getSkillCreation, { ownerUserId: args.ownerUserId, ingestKey: args.ingestKey });
       const data = error instanceof ConvexError ? error.data : undefined;
       const failedStep = data && typeof data === "object" && "failedStep" in data && typeof data.failedStep === "string" ? data.failedStep : "creation";
-      if (partial) throw new ConvexError({ message: "Skill creation is incomplete. Retry the same request with the same ingestKey.", partial: true, skillId: `skill:${partial.workflowId}`, failedStep, cause: error instanceof Error ? error.message : "Creation failed." });
+      if (partial) throw new ConvexError({ message: "Skill creation is incomplete. Retry the same request with the same ingestKey.", partial: true, skillId: `skill:${partial.skillId}`, failedStep, cause: error instanceof Error ? error.message : "Creation failed." });
       throw error;
     }
   },
