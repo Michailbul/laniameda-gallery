@@ -149,6 +149,13 @@ Current work is selected by the user request and branch-local feature docs.
 The dashboard-polish sprint file is historical; do not start its tickets without
 checking current BACKLOG and authorization.
 
+- 2026-10-08: Restored the gallery's main address as a login entry when signed
+  out, including missing/expired sessions and Telegram callback errors. The
+  public selected-work navigation now links visibly to **My gallery**. Returning
+  from Telegram to the original signed-out tab refreshes the session and opens
+  the gallery without a manual reload. Canonical-host redirects and signed
+  session renewal remain in place.
+
 - 2026-10-08: Gallery pagination holds older Skills behind the loaded asset
   frontier and preserves exposed tile order as batches arrive. Page prefetching
   no longer waits for every local tile to mount. Gallery, pack and Motion video

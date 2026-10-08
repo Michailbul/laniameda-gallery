@@ -6,7 +6,6 @@ import {
   signSession,
   verifySession,
 } from "@/lib/session-jwt";
-import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
 
 const FALLBACK_CANONICAL_HOST = "gallery.laniameda.space";
 
@@ -52,34 +51,7 @@ const withRenewedSession = async (
   return response;
 };
 
-// `/` is the owner's gallery workbench. A visitor with no session has nothing to
-// see there, so send them to the public surface instead of the gallery's
-// auth splash. This also makes being signed out legible to the owner: the URL
-// changes, rather than the vault silently becoming someone else's portfolio.
-const isSignedOutRoot = async (request: NextRequest) => {
-  if (request.nextUrl.pathname !== "/") return false;
-
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) return true;
-
-  return (await verifySession(token)) === null;
-};
-
-const publicSurfaceRedirect = (request: NextRequest) => {
-  const redirectUrl = request.nextUrl.clone();
-  // Straight to the Featured view, not the bare path — that would only redirect
-  // again, costing the visitor a second round trip on their first page load.
-  redirectUrl.pathname = PUBLIC_HOME_PATH;
-  // 307, not 308: whether `/` belongs to the visitor or the owner depends on a
-  // cookie, so this hop must never be cached as permanent.
-  return NextResponse.redirect(redirectUrl, 307);
-};
-
 export async function proxy(request: NextRequest) {
-  if (await isSignedOutRoot(request)) {
-    return publicSurfaceRedirect(request);
-  }
-
   if (process.env.VERCEL_ENV !== "production") {
     return withRenewedSession(request, NextResponse.next());
   }

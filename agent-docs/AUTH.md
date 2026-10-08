@@ -1,18 +1,24 @@
 # Auth — laniameda.gallery
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Current model
 
 - Human login uses Telegram; agents use scoped bearer tokens or hosted MCP OAuth.
-- The browser authenticates with the Telegram login widget.
+- The main address, `https://gallery.laniameda.space/`, renders Telegram login
+  when signed out and the private gallery when signed in. It does not redirect
+  signed-out owners to the public profile.
+- Public selected-work pages have a visible **My gallery** link back to `/`.
+- Telegram opens in a separate tab/app; returning to a signed-out login tab
+  refreshes its session so the newly authenticated gallery opens there too.
 - Next.js owns the session via an HttpOnly `tg_session` cookie.
 - Convex user rows are resolved or created on the server from the Telegram session.
 - Private gallery access goes through Next API routes, not direct client-side Convex calls.
 
 ## Runtime flow
 
-1. The Telegram widget redirects to `/api/auth/telegram?returnTo=...` with the signed Telegram payload.
+1. The gallery's login link opens the Telegram bot. Its signed **Open Gallery**
+   link returns to `/api/auth/telegram?returnTo=/` with the Telegram payload.
 2. The server verifies the Telegram payload hash with `TELEGRAM_LOGIN_BOT_TOKEN`.
 3. On success, the server writes the signed session cookie and redirects back to the requested page.
 4. The client calls `GET /api/auth/me`.

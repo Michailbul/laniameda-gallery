@@ -12,7 +12,6 @@ export const LEGACY_TASTE_PROFILE_PATH = `/${OWNER_HANDLE}/taste_profile`;
 // a visitor who likes the work has one obvious way out to the person behind it.
 export const OWNER_SITE_URL = "https://mishabuloichyk.com";
 
-// The way in. `/` is auth-split — signed out it bounces to the public surface,
-// so it can't double as a sign-in. This path can: signed out it renders the
-// login, signed in it is the curation console (or the vault, for a non-admin).
+// Curation console. `/` is the normal gallery/login entry; this separate admin
+// route also renders login when signed out and enforces its own admin check.
 export const ADMIN_PATH = "/admin";
