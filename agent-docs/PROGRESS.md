@@ -149,6 +149,14 @@ Current work is selected by the user request and branch-local feature docs.
 The dashboard-polish sprint file is historical; do not start its tickets without
 checking current BACKLOG and authorization.
 
+- 2026-10-08: Batch **Delete selected** is implemented in the owner gallery toolbar,
+  using the existing authenticated asset-delete endpoint. Confirmation snapshots
+  the selected IDs; progress locks other bulk actions; successful deletions leave
+  the grid and failures stay selected for retry. The mobile toolbar uses the screen
+  width instead of reserving space for the hidden sidebar. Local browser checks cover
+  cancellation, mixed results, retry and mobile visibility with intercepted
+  DELETE requests; these checks do not delete real gallery assets.
+
 ---
 
 ## Quality Gates

@@ -24,7 +24,9 @@ import {
 } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { Download, Eye, EyeOff, FolderPlus, Loader2, Plus, Search as SearchIcon, Star, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
+import { deleteAssetSelection } from "@/lib/bulk-delete";
+import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
 import {
   assetDownloadHref,
@@ -539,6 +541,11 @@ export function GalleryDashboard({
   const [bulkCurationError, setBulkCurationError] = useState<string>();
   const [bulkCurationStatus, setBulkCurationStatus] = useState<string>();
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const bulkDeletingRef = useRef(false);
+  const bulkLikingRef = useRef(false);
+  const [bulkLikeState, setBulkLikeState] = useState<boolean | null>(null);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [bulkDeleteNotice, setBulkDeleteNotice] = useState<DashboardNotice>();
   // "Move to" sorting panel — declared up here because card drag opens it.
   const [addToPanelOpen, setAddToPanelOpen] = useState(false);
   // The featured shelf — owner-only control over the public home reel.
@@ -749,6 +756,7 @@ export function GalleryDashboard({
 
   const toggleAssetSelection = useCallback(
     (assetId: string, mode: "toggle" | "range" = "toggle") => {
+      if (bulkDeletingRef.current || bulkLikingRef.current) return;
       setBulkCurationError(undefined);
       setBulkCurationStatus(undefined);
 
@@ -783,12 +791,14 @@ export function GalleryDashboard({
 
   // Replace the whole selection set — used by shift+drag box-select in the grid.
   const replaceAssetSelection = useCallback((ids: string[]) => {
+    if (bulkDeletingRef.current || bulkLikingRef.current) return;
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
     setSelectedAssetIds(new Set(ids));
   }, []);
 
   const clearAssetSelection = useCallback(() => {
+    if (bulkDeletingRef.current || bulkLikingRef.current) return;
     setSelectedAssetIds((current) => (current.size === 0 ? current : new Set()));
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
@@ -796,7 +806,7 @@ export function GalleryDashboard({
 
   const runBulkCuration = useCallback(
     async (isPublic: boolean, overrideIds?: string[], isFeatured?: boolean) => {
-      if (bulkCurationLoading || !canCuratePublic) return;
+      if (bulkDeletingRef.current || bulkLikingRef.current || bulkCurationLoading || !canCuratePublic) return;
       const ids = overrideIds ?? Array.from(selectedAssetIds);
       if (ids.length === 0) return;
 
@@ -1013,7 +1023,7 @@ export function GalleryDashboard({
 
   const deleteAsset = useCallback(
     async (assetId: string) => {
-      if (deletingAssetId) return;
+      if (bulkDeletingRef.current || bulkLikingRef.current || deletingAssetId) return;
       if (!canDeleteInCurrentView) {
         setDeleteAssetError(
           "Switch to My Gallery to delete assets.",
@@ -2445,8 +2455,98 @@ export function GalleryDashboard({
   selectableAssetIdsRef.current = allVisibleAssetIds;
 
   const selectAllVisibleAssets = useCallback(() => {
+    if (bulkDeletingRef.current || bulkLikingRef.current) return;
     setSelectedAssetIds(new Set(allVisibleAssetIds));
   }, [allVisibleAssetIds]);
+
+  const deleteSelectedAssets = useCallback(async () => {
+    if (
+      !canDeleteInCurrentView || bulkDeletingRef.current || bulkLikingRef.current || deletingAssetId ||
+      bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+    ) return;
+    // Snapshot the exact selection before confirmation; later grid updates must
+    // never expand the destructive operation to a new set of assets.
+    const ids = Array.from(selectedAssetIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(
+      `Permanently delete ${ids.length} selected asset${ids.length === 1 ? "" : "s"} and their stored files from Gallery? This removes them from every collection and cannot be undone.`,
+    )) return;
+
+    bulkDeletingRef.current = true;
+    setBulkActionLoading(true);
+    setBulkDeleteProgress({ completed: 0, total: ids.length });
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    try {
+      const results = await deleteAssetSelection(ids, {
+        onResult: (result, completed, total) => {
+          setBulkDeleteProgress({ completed, total });
+          if (!result.ok) return;
+          loadedImageIdsRef.current.delete(result.assetId);
+          setHiddenAssetIds((current) => new Set([...current, result.assetId]));
+          setSelectedAssetIds((current) => {
+            const next = new Set(current);
+            next.delete(result.assetId);
+            return next;
+          });
+        },
+      });
+      const failed = results.filter((result) => !result.ok);
+      const deletedCount = results.length - failed.length;
+      const message = `Deleted ${deletedCount} asset${deletedCount === 1 ? "" : "s"}.`;
+      setBulkDeleteNotice({
+        title: message,
+        message: failed.length ? `${failed.length} failed and remain selected for retry.` : undefined,
+        type: failed.length ? "warning" : "success",
+        at: Date.now(),
+      });
+      if (failed.length) {
+        setBulkCurationError(`${message} ${failed.length} failed and remain selected. ${failed[0]!.error}`);
+      }
+    } finally {
+      bulkDeletingRef.current = false;
+      setBulkDeleteProgress(null);
+      setBulkActionLoading(false);
+    }
+  }, [
+    canDeleteInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
+    bulkAddBusy, bulkTypeBusy, selectedAssetIds,
+  ]);
+
+  const likeSelectedAssets = useCallback(async (isLiked: boolean) => {
+    if (
+      !canManageFoldersInCurrentView || bulkLikingRef.current || bulkDeletingRef.current ||
+      deletingAssetId || bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+    ) return;
+    const ids = Array.from(selectedAssetIds);
+    if (!ids.length) return;
+    bulkLikingRef.current = true;
+    setBulkActionLoading(true);
+    setBulkLikeState(isLiked);
+    setBulkCurationError(undefined);
+    setBulkCurationStatus(undefined);
+    try {
+      const { updatedIds, failures } = await setAssetSelectionLiked(ids, isLiked,
+        (assetId, liked) => setAssetLikedMutation({ ownerUserId, assetId: assetId as Id<"assets">, isLiked: liked }),
+        (assetId) => {
+          setSelectedImage((current) => current?.id === assetId ? { ...current, isLiked } : current);
+        },
+      );
+      if (failures.length) {
+        // Retain failures even when successful unlike operations disappear from
+        // a favourites-only grid, so retry never silently loses the remainder.
+        setSelectedAssetIds(new Set(failures.map((failure) => failure.assetId)));
+        setBulkCurationError(`${updatedIds.length} updated. ${failures.length} failed and remain selected. ${failures[0]!.error}`);
+      } else {
+        setBulkCurationStatus(`${isLiked ? "Liked" : "Unliked"} ${updatedIds.length} asset${updatedIds.length === 1 ? "" : "s"}.`);
+      }
+    } finally {
+      bulkLikingRef.current = false;
+      setBulkLikeState(null);
+      setBulkActionLoading(false);
+    }
+  }, [canManageFoldersInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
+    bulkAddBusy, bulkTypeBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
 
   const publishAllAssetIds = useMemo(() => {
     return images
@@ -4312,6 +4412,7 @@ export function GalleryDashboard({
         silent no-op. */}
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
+    <NoticeToast notice={bulkDeleteNotice} />
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar="creators"
@@ -5441,20 +5542,17 @@ export function GalleryDashboard({
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
       {(canCuratePublic || canManageFoldersInCurrentView) &&
-        selectedAssetIds.size > 0 && (
+        (selectedAssetIds.size > 0 || bulkDeleteProgress) && (
         <div
-          className="fixed z-[55] flex justify-center pointer-events-none"
+          className={`fixed left-4 right-4 z-[55] flex justify-center pointer-events-none md:right-0 ${sidebarCollapsed ? "md:left-[var(--lm-sidebar-collapsed)]" : "md:left-[var(--lm-sidebar-width)]"}`}
           style={{
-            left: sidebarCollapsed
-              ? "var(--lm-sidebar-collapsed)"
-              : "var(--lm-sidebar-width)",
-            right: "0",
             bottom: "104px",
             transition:
               "left var(--lm-duration-normal) ease-out, right var(--lm-duration-normal) ease-out",
           }}
           role="region"
           aria-label="Bulk curation toolbar"
+          aria-busy={Boolean(bulkDeleteProgress)}
         >
           <div
             className="pointer-events-auto flex flex-col gap-2 px-4 py-3"
@@ -5550,6 +5648,7 @@ export function GalleryDashboard({
                   onClick={() => setAddToPanelOpen(true)}
                   disabled={
                     bulkCurationLoading ||
+                    bulkActionLoading ||
                     bulkAddBusy ||
                     bulkTypeBusy !== null
                   }
@@ -5561,12 +5660,14 @@ export function GalleryDashboard({
                     fontSize: "11px",
                     opacity:
                       bulkCurationLoading ||
+                      bulkActionLoading ||
                       bulkAddBusy ||
                       bulkTypeBusy !== null
                         ? 0.55
                         : 1,
                     cursor:
                       bulkCurationLoading ||
+                      bulkActionLoading ||
                       bulkAddBusy ||
                       bulkTypeBusy !== null
                         ? "not-allowed"
@@ -5585,6 +5686,39 @@ export function GalleryDashboard({
                   MOVE TO
                 </button>
               )}
+              {canManageFoldersInCurrentView && ([true, false] as const).map((isLiked) => (
+                <button
+                  key={String(isLiked)}
+                  type="button"
+                  onClick={() => { void likeSelectedAssets(isLiked); }}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  className="lm-btn-ghost inline-flex items-center gap-1.5"
+                  style={{ border: "2px solid var(--lm-border-strong)", borderRadius: "10px", padding: "6px 12px", fontSize: "11px" }}
+                  aria-label={isLiked ? "Like selected assets" : "Unlike selected assets"}
+                >
+                  {bulkLikeState === isLiked ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isLiked ? <Heart className="h-3.5 w-3.5" /> : <HeartOff className="h-3.5 w-3.5" />}
+                  {isLiked ? "LIKE SELECTED" : "UNLIKE SELECTED"}
+                </button>
+              ))}
+              {canDeleteInCurrentView && (
+                <button
+                  type="button"
+                  onClick={() => { void deleteSelectedAssets(); }}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  className="lm-btn-ghost inline-flex items-center gap-1.5"
+                  style={{
+                    border: "2px solid var(--lm-coral)",
+                    color: "var(--lm-coral)",
+                    borderRadius: "10px",
+                    padding: "6px 12px",
+                    fontSize: "11px",
+                  }}
+                  aria-label="Delete selected assets"
+                >
+                  {bulkDeleteProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  {bulkDeleteProgress ? `DELETING ${bulkDeleteProgress.completed}/${bulkDeleteProgress.total}` : "DELETE SELECTED"}
+                </button>
+              )}
               {canCuratePublic && (
               <>
               <button
@@ -5592,14 +5726,14 @@ export function GalleryDashboard({
                 onClick={() => {
                   void runBulkCuration(true, undefined, true);
                 }}
-                disabled={bulkCurationLoading}
+                disabled={bulkCurationLoading || bulkActionLoading}
                 className="lm-btn-brutal inline-flex items-center gap-1.5"
                 style={{
                   borderRadius: "10px",
                   padding: "6px 12px",
                   fontSize: "11px",
-                  opacity: bulkCurationLoading ? 0.55 : 1,
-                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                  opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading || bulkActionLoading ? "not-allowed" : "pointer",
                 }}
                 aria-label="Feature selected assets on the public taste profile"
                 title="Feature on the taste profile (also makes them public)"
@@ -5616,14 +5750,14 @@ export function GalleryDashboard({
                 onClick={() => {
                   void runBulkCuration(true);
                 }}
-                disabled={bulkCurationLoading}
+                disabled={bulkCurationLoading || bulkActionLoading}
                 className="lm-btn-brutal inline-flex items-center gap-1.5"
                 style={{
                   borderRadius: "10px",
                   padding: "6px 12px",
                   fontSize: "11px",
-                  opacity: bulkCurationLoading ? 0.55 : 1,
-                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                  opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading || bulkActionLoading ? "not-allowed" : "pointer",
                 }}
                 aria-label="Make selected assets public"
               >
@@ -5639,15 +5773,15 @@ export function GalleryDashboard({
                 onClick={() => {
                   void runBulkCuration(false);
                 }}
-                disabled={bulkCurationLoading}
+                disabled={bulkCurationLoading || bulkActionLoading}
                 className="lm-btn-ghost inline-flex items-center gap-1.5"
                 style={{
                   border: "2px solid var(--lm-border-strong)",
                   borderRadius: "10px",
                   padding: "6px 12px",
                   fontSize: "11px",
-                  opacity: bulkCurationLoading ? 0.55 : 1,
-                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                  opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  cursor: bulkCurationLoading || bulkActionLoading ? "not-allowed" : "pointer",
                 }}
                 aria-label="Make selected assets private"
               >
@@ -5675,7 +5809,7 @@ export function GalleryDashboard({
                   textTransform: "uppercase",
                   color: "var(--lm-text-secondary)",
                   backgroundColor: "transparent",
-                  cursor: bulkCurationLoading ? "not-allowed" : "pointer",
+                  cursor: bulkCurationLoading || bulkActionLoading ? "not-allowed" : "pointer",
                 }}
                 aria-label="Clear selection"
               >
