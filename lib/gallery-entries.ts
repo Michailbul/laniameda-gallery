@@ -1,5 +1,4 @@
 import { isCardThumbSharp } from "./card-thumbnail";
-import { clusterPromptFamilies } from "./prompt-family";
 import type { BookmarkPost } from "./bookmarks";
 
 export type CinemaMetadata = {
@@ -31,6 +30,8 @@ export type GalleryAssetRecord = {
   url?: string;
   sourceUrl?: string;
   description?: string;
+  name?: string;
+  agentDescription?: string;
   promptText?: string;
   fileName?: string;
   thumbWidth?: number;
@@ -70,10 +71,21 @@ export type GalleryEntryPreview = {
    *  file itself, which an <img> can't paint. */
   posterSrc?: string;
   prompt: string;
+  name?: string;
+  agentDescription?: string;
+  tagNames?: string[];
+  folderId?: string;
+  folderIds?: string[];
+  collectionLabels?: string[];
+  typeLabel?: string;
   width?: number;
   height?: number;
   kind?: "image" | "video";
   contentType?: string;
+  isPublic?: boolean;
+  isLiked?: boolean;
+  starredAt?: number;
+  starNote?: string;
 };
 
 export type GalleryEntry = {
@@ -100,6 +112,8 @@ export type GalleryEntry = {
   tagNames?: string[];
   sourceUrl?: string;
   description?: string;
+  name?: string;
+  agentDescription?: string;
   fileName?: string;
   designInspirationId?: string;
   /** The post this piece came from (author, text, counts), when one is saved. */
@@ -247,23 +261,24 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   posterSrc: asset.kind === "video" ? asset.thumbUrl : undefined,
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
+  name: asset.name,
+  agentDescription: asset.agentDescription,
+  tagNames: asset.tagNames,
+  folderId: asset.folderId,
+  folderIds: asset.folderIds ?? (asset.folderId ? [asset.folderId] : []),
   ...resolvePreviewDimensions(asset),
   kind: asset.kind,
   contentType: asset.contentType,
+  isPublic: asset.isPublic,
+  isLiked: asset.isLiked,
+  starredAt: asset.starredAt,
+  starNote: asset.starNote,
 });
 
 // A post's own preview asset, as opposed to a media piece that is linked to
 // the post it came from.
 const isPostPreview = (asset: Pick<GalleryAssetRecord, "bookmark" | "assetRole">) =>
   Boolean(asset.bookmark) && asset.assetRole === "bookmark";
-
-// Web bookmarks carry a page title as their "prompt", saved posts carry the
-// post, and cinema frames open one by one in the cinema popout — none is a
-// generation prompt.
-const canJoinPromptFamily = (asset: GalleryAssetRecord) =>
-  !asset.designInspirationId &&
-  !isPostPreview(asset) &&
-  asset.pillar !== "cinema-inspiration";
 
 const sortPackMembers = (
   left: GalleryAssetRecord,
@@ -284,9 +299,12 @@ const buildEntry = (
 ): GalleryEntry => {
   // A flattened member is a plain asset tile, not a one-frame pack.
   const packId = standalone ? undefined : cover.assetPackId;
-  const tagNames = Array.from(
-    new Set(members.flatMap((member) => member.tagNames ?? [])),
-  );
+  // A card's tags describe its real cover, not the union of different pieces.
+  // Each rotating member carries its own labels and memberships.
+  const tagNames = cover.tagNames ?? [];
+  const folderIds = Array.from(new Set(members.flatMap((member) =>
+    member.folderIds ?? (member.folderId ? [member.folderId] : []),
+  )));
 
   const totalSize = members.reduce(
     (acc, member) => acc + (member.size ?? 0),
@@ -316,6 +334,8 @@ const buildEntry = (
     tagNames,
     sourceUrl: cover.sourceUrl ?? undefined,
     description: cover.description ?? undefined,
+    name: cover.name,
+    agentDescription: cover.agentDescription,
     fileName: cover.fileName ?? undefined,
     designInspirationId: cover.designInspirationId ?? undefined,
     bookmark: cover.bookmark ?? undefined,
@@ -325,7 +345,7 @@ const buildEntry = (
     postCard: isPostPreview(cover),
     createdAt: Math.max(...members.map((member) => member.createdAt)),
     folderId: cover.folderId ?? undefined,
-    folderIds: cover.folderIds ?? (cover.folderId ? [cover.folderId] : []),
+    folderIds,
     isPublic: cover.isPublic ?? false,
     isFeatured: cover.isFeatured ?? false,
     isLiked: cover.isLiked ?? false,
@@ -429,7 +449,10 @@ export const buildGalleryEntries = ({
     const groupingKey = asset.assetPackId
       ? `pack:${asset.assetPackId}`
       : asset.promptId
-        ? `prompt:${asset.promptId}`
+        ? `prompt:${asset.promptId}:${JSON.stringify([
+            [...new Set(asset.folderIds ?? (asset.folderId ? [asset.folderId] : []))].sort(),
+            [...new Set((asset.tagNames ?? []).map((tag) => tag.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ")))].sort(),
+          ])}`
         : null;
     const existing = groupingKey ? groupIndexByKey.get(groupingKey) : undefined;
     if (existing !== undefined) {
@@ -444,27 +467,12 @@ export const buildGalleryEntries = ({
     [...members].sort(sortPackMembers),
   );
 
-  // Then the same prompt saved as separate rows, and its variations, fold
-  // into one pack: a family's newest group leads and supplies the cover.
-  const families = clusterPromptFamilies(
-    orderedGroups.map((members) => ({
-      createdAt: Math.max(...members.map((member) => member.createdAt)),
-      promptTexts: members
-        .filter(canJoinPromptFamily)
-        .map((member) => member.promptText),
-    })),
-  );
-
-  // Arrival position of each entry, for the "relevance" order: a pack sits
-  // where its best-ranked member did.
+  // Prompt wording, URLs and style flags are source data, never proof that
+  // independently saved packs, characters or projects belong to one stack.
   const entryRank = new Map<GalleryEntry, number>();
-  const entries = families.map((groupIndices) => {
-    const members = groupIndices.flatMap((index) => orderedGroups[index]!);
+  const entries = orderedGroups.map((members, index) => {
     const entry = buildEntry(members[0]!, members, loadedAssetIds);
-    entryRank.set(
-      entry,
-      Math.min(...groupIndices.map((index) => groupRank[index]!)),
-    );
+    entryRank.set(entry, groupRank[index]!);
     return entry;
   });
 

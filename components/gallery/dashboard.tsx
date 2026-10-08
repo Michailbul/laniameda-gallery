@@ -222,6 +222,9 @@ const canonicalTagKey = (value: string) =>
 
 const buildAssetSearchHaystack = (
   asset: {
+    name?: string;
+    description?: string;
+    agentDescription?: string;
     promptText?: string;
     fileName?: string;
     sourceUrl?: string;
@@ -246,6 +249,9 @@ const buildAssetSearchHaystack = (
     : [];
 
   return [
+    asset.name,
+    asset.description,
+    asset.agentDescription,
     asset.promptText,
     asset.fileName,
     asset.sourceUrl,
@@ -1192,7 +1198,7 @@ export function GalleryDashboard({
     return badges;
   }, [folders]);
   const resolveEntryBadges = useCallback(
-    (entry: GalleryEntry) => {
+    (entry: Pick<GalleryEntry, "folderIds" | "tagNames">) => {
       const labels: string[] = [];
       let sectionFromFolder: CollectionSectionKey | null = null;
       for (const folderId of entry.folderIds ?? []) {
@@ -2234,7 +2240,11 @@ export function GalleryDashboard({
     return visibleEntries.map((entry) => {
       const badges = resolveEntryBadges(entry);
       const postCard = entry.postCard || (bookmarkFilterOn && Boolean(entry.bookmark));
-      return { ...entry, ...(badges ?? {}), postCard };
+      const previewImages = entry.previewImages.map((preview) => ({
+        ...preview,
+        ...(resolveEntryBadges(preview) ?? {}),
+      }));
+      return { ...entry, ...(badges ?? {}), previewImages, postCard };
     });
   }, [
     bookmarkFilterOn,

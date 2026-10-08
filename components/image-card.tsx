@@ -21,6 +21,7 @@ import {
 } from "@/components/collection-menu";
 import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
+import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
 
 const CINEMA_PILLAR = "cinema-inspiration";
@@ -56,6 +57,8 @@ interface ImageCardProps {
     src: string;
     fullSrc: string;
     prompt: string;
+    name?: string;
+    agentDescription?: string;
     author: string;
     likes: number;
     width?: number;
@@ -91,20 +94,7 @@ interface ImageCardProps {
     bookmark?: BookmarkPost;
     /** Render the tile as a post card instead of bare media. */
     postCard?: boolean;
-    previewImages: Array<{
-      id: string;
-      galleryItemId?: string;
-      galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
-      promptId?: string;
-      src: string;
-      fullSrc: string;
-      posterSrc?: string;
-      prompt: string;
-      width?: number;
-      height?: number;
-      kind?: "image" | "video";
-      contentType?: string;
-    }>;
+    previewImages: GalleryEntryPreview[];
   };
   eager?: boolean;
   /** Native `loading` for the tile's <img>. The masonry grid windows its own
@@ -120,6 +110,8 @@ interface ImageCardProps {
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
+    name?: string;
+    agentDescription?: string;
     width?: number;
     height?: number;
     kind?: "image" | "video";
@@ -141,20 +133,7 @@ interface ImageCardProps {
       /** The pack member on show when the card was clicked — the expanded
           view opens on it rather than on the cover. */
       activePreviewId?: string;
-      previewImages: Array<{
-        id: string;
-        galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
-        promptId?: string;
-        src: string;
-        fullSrc: string;
-        posterSrc?: string;
-        prompt: string;
-        width?: number;
-        height?: number;
-        kind?: "image" | "video";
-        contentType?: string;
-      }>;
+      previewImages: GalleryEntryPreview[];
     }) => void;
   selectedId?: string;
   initiallyLoaded?: boolean;
@@ -260,7 +239,7 @@ export const ImageCard = memo(function ImageCard({
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
 
-  const previewImages = image.previewImages.length > 0
+  const previewImages: GalleryEntryPreview[] = image.previewImages.length > 0
     ? image.previewImages
     : [
         {
@@ -270,10 +249,21 @@ export const ImageCard = memo(function ImageCard({
           src: image.src,
           fullSrc: image.fullSrc,
           prompt: image.prompt,
+          name: image.name,
+          agentDescription: image.agentDescription,
+          tagNames: image.tagNames,
+          folderId: image.folderId,
+          folderIds: image.folderIds,
+          collectionLabels: image.collectionLabels,
+          typeLabel: image.typeLabel,
           width: image.width,
           height: image.height,
           kind: image.kind,
           contentType: image.contentType,
+          isPublic: image.isPublic,
+          isLiked: image.isLiked,
+          starredAt: image.starredAt,
+          starNote: image.starNote,
         },
       ];
   // A pack renders as a self-rotating deck. Skill cards keep their own
@@ -300,6 +290,15 @@ export const ImageCard = memo(function ImageCard({
 
   const activeKind = activePreview.kind ?? image.kind;
   const activeContentType = activePreview.contentType ?? image.contentType;
+  const displayedMember = isPackDeck ? activePreview : image;
+  const displayedAssetId = isPackDeck ? activePreview.id : image.id;
+  const displayedTags = displayedMember.tagNames ?? [];
+  const displayedCollections = displayedMember.collectionLabels ?? [];
+  const displayedTypeLabel = displayedMember.typeLabel;
+  const displayLabel = isPackDeck
+    ? activePreview.agentDescription || activePreview.name || activePreview.prompt || "Gallery asset"
+    : image.agentDescription || image.name || activePreview.prompt || "Gallery asset";
+  const displayedLiked = isPackDeck ? Boolean(activePreview.isLiked) : liked;
   const activeThumbSrc = activePreview.src || image.src;
   const activeFullSrc = activePreview.fullSrc || image.fullSrc;
   const isVideo =
@@ -501,8 +500,8 @@ export const ImageCard = memo(function ImageCard({
   // Focus dimming: selected stays full, others dim when there is a selection
   const dimmed = hasSelection && !isSelected;
 
-  const isStarred = Boolean(image.starredAt);
-  const starNote = isStarred ? image.starNote?.trim() || undefined : undefined;
+  const isStarred = Boolean(displayedMember.starredAt);
+  const starNote = isStarred ? displayedMember.starNote?.trim() || undefined : undefined;
 
   // A deck's tabs run along the top edge; its hover toolbars sit just below.
   const toolbarTop = isPackDeck ? "top-5" : "top-2";
@@ -527,13 +526,13 @@ export const ImageCard = memo(function ImageCard({
   const handleToggleLike = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onToggleLike?.(image.id, !liked);
+    onToggleLike?.(displayedAssetId, !displayedLiked);
   };
 
   const handleToggleStar = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onToggleStar?.(image.id, !isStarred);
+    onToggleStar?.(displayedAssetId, !isStarred);
   };
 
   // One click, one file: the same-origin proxy sets the attachment header and
@@ -554,7 +553,7 @@ export const ImageCard = memo(function ImageCard({
     event.preventDefault();
     event.stopPropagation();
     if (deleting) return;
-    onDelete?.(image.id);
+    onDelete?.(displayedAssetId);
   };
 
   // One click drops the piece from the collection being browsed. The tile is
@@ -567,16 +566,16 @@ export const ImageCard = memo(function ImageCard({
       if (!onExcludeFromView || excluding) return;
       setExcluding(true);
       try {
-        await onExcludeFromView(image.id);
+        await onExcludeFromView(displayedAssetId);
       } finally {
         setExcluding(false);
       }
     },
-    [excluding, image.id, onExcludeFromView],
+    [excluding, displayedAssetId, onExcludeFromView],
   );
 
   const memberFolderIds =
-    image.folderIds ?? (image.folderId ? [image.folderId] : []);
+    displayedMember.folderIds ?? (displayedMember.folderId ? [displayedMember.folderId] : []);
   const canExclude =
     Boolean(onExcludeFromView) &&
     Boolean(excludeLabel) &&
@@ -587,10 +586,10 @@ export const ImageCard = memo(function ImageCard({
       event.preventDefault();
       event.stopPropagation();
 
-      await navigator.clipboard.writeText(image.prompt);
+      await navigator.clipboard.writeText(activePreview.prompt);
       toastFn?.("Copied", "PROMPT COPIED", "success");
     },
-    [image.prompt, toastFn],
+    [activePreview.prompt, toastFn],
   );
 
   // Prompt sheet visibility: revealed by hovering the "prompt" chip (not the
@@ -734,7 +733,7 @@ export const ImageCard = memo(function ImageCard({
             )}
             <Image
               src={currentSrc || "/placeholder.svg"}
-              alt={activePreview.prompt}
+              alt={displayLabel}
               fill
               sizes={responsiveSizes}
               priority={eager}
@@ -930,7 +929,7 @@ export const ImageCard = memo(function ImageCard({
             {hasThumb && (
               <Image
                 src={activeThumbSrc || "/placeholder.svg"}
-                alt={activePreview.prompt}
+                alt={displayLabel}
                 fill
                 sizes={responsiveSizes}
                 priority={eager}
@@ -969,7 +968,7 @@ export const ImageCard = memo(function ImageCard({
         ) : (
           <Image
             src={currentSrc || "/placeholder.svg"}
-            alt={activePreview.prompt}
+            alt={displayLabel}
             fill
             sizes={responsiveSizes}
             priority={eager}
@@ -1081,10 +1080,8 @@ export const ImageCard = memo(function ImageCard({
         {/* Move/copy to collection — hover control with a floating menu. */}
         {collections && onMoveToCollection && onCopyToCollection && (
           <CardCollectionButton
-            imageId={image.id}
-            currentFolderIds={
-              image.folderIds ?? (image.folderId ? [image.folderId] : [])
-            }
+            imageId={displayedAssetId}
+            currentFolderIds={memberFolderIds}
             collections={collections}
             onMove={onMoveToCollection}
             onCopy={onCopyToCollection}
@@ -1136,9 +1133,9 @@ export const ImageCard = memo(function ImageCard({
           the row sits to its right. Suppressed on cinema-inspiration. */}
       {!isCinema &&
         (image.modelName ||
-          image.typeLabel ||
-          (image.collectionLabels?.length ?? 0) > 0 ||
-          (showPublicBadge && image.isPublic)) && (
+          displayedTypeLabel ||
+          (displayedCollections?.length ?? 0) > 0 ||
+          (showPublicBadge && displayedMember.isPublic)) && (
         <div
           className={`absolute bottom-2 z-10 flex max-w-[70%] flex-wrap items-center gap-1.5 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 ${
             hasPrompt && showPromptChip ? "left-[5.75rem]" : "left-2"
@@ -1146,7 +1143,7 @@ export const ImageCard = memo(function ImageCard({
         >
           {/* What the piece IS — character / location / scene. Coral so it
               reads apart from the neutral provenance badges beside it. */}
-          {image.typeLabel && (
+          {displayedTypeLabel && (
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
               style={{
@@ -1156,12 +1153,12 @@ export const ImageCard = memo(function ImageCard({
                   "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
               }}
             >
-              {image.typeLabel}
+              {displayedTypeLabel}
             </div>
           )}
           {/* Where it's filed. Two collections fit; the rest collapse into a
               +N whose tooltip names them. */}
-          {(image.collectionLabels ?? [])
+          {(displayedCollections ?? [])
             .slice(0, MAX_COLLECTION_BADGES)
             .map((label) => (
               <div
@@ -1177,7 +1174,7 @@ export const ImageCard = memo(function ImageCard({
                 {label}
               </div>
             ))}
-          {(image.collectionLabels?.length ?? 0) > MAX_COLLECTION_BADGES && (
+          {(displayedCollections?.length ?? 0) > MAX_COLLECTION_BADGES && (
             <div
               className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
               style={{
@@ -1185,9 +1182,9 @@ export const ImageCard = memo(function ImageCard({
                 color: "var(--image-card-badge-text)",
                 border: "1px solid var(--image-card-badge-border)",
               }}
-              title={image.collectionLabels!.join(" · ")}
+              title={displayedCollections!.join(" · ")}
             >
-              +{image.collectionLabels!.length - MAX_COLLECTION_BADGES}
+              +{displayedCollections!.length - MAX_COLLECTION_BADGES}
             </div>
           )}
           {image.modelName && (
@@ -1202,7 +1199,7 @@ export const ImageCard = memo(function ImageCard({
               {image.modelName}
             </div>
           )}
-          {showPublicBadge && image.isPublic && (
+          {showPublicBadge && displayedMember.isPublic && (
             <div
               className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
               style={{
@@ -1225,15 +1222,15 @@ export const ImageCard = memo(function ImageCard({
       {/* Tag chips — owner-only, bottom-right on hover. Clicking a chip
           removes that tag from the asset (the reactive query refreshes the
           row). The play chip fades out on hover, so the corner is free. */}
-      {!isCinema && onRemoveTag && (image.tagNames?.length ?? 0) > 0 && (
+      {!isCinema && onRemoveTag && (displayedTags?.length ?? 0) > 0 && (
         <div className="pointer-events-none absolute bottom-2 right-2 z-30 flex max-w-[72%] flex-wrap justify-end gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100">
-          {image.tagNames!.map((tag) => (
+          {displayedTags!.map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onRemoveTag(image.id, tag);
+                onRemoveTag(displayedAssetId, tag);
               }}
               className="flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase tracking-wider"
               style={{
@@ -1484,19 +1481,19 @@ export const ImageCard = memo(function ImageCard({
               type="button"
               onClick={handleToggleLike}
               className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border ${
-                liked
+                displayedLiked
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               }`}
-              data-active={liked ? "light" : undefined}
-              aria-label={liked ? "Unlike asset" : "Like asset"}
-              aria-pressed={liked}
-              title={liked ? "Liked — click to unlike" : "Like"}
+              data-active={displayedLiked ? "light" : undefined}
+              aria-label={displayedLiked ? "Unlike asset" : "Like asset"}
+              aria-pressed={displayedLiked}
+              title={displayedLiked ? "Liked — click to unlike" : "Like"}
             >
               <Heart
                 className="h-4 w-4"
                 strokeWidth={2.25}
-                fill={liked ? "currentColor" : "none"}
+                fill={displayedLiked ? "currentColor" : "none"}
               />
             </button>
           )}

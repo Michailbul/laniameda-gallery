@@ -12,6 +12,7 @@ import {
   type LayoutInput,
 } from "@/lib/masonry-layout";
 import { bookmarkCardLayout, type BookmarkPost } from "@/lib/bookmarks";
+import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -39,6 +40,8 @@ interface GalleryImage {
   src: string;
   fullSrc: string;
   prompt: string;
+  name?: string;
+  agentDescription?: string;
   author: string;
   likes: number;
   width?: number;
@@ -76,20 +79,7 @@ interface GalleryImage {
   bookmark?: BookmarkPost;
   /** Lay the tile out and render it as a post card. */
   postCard?: boolean;
-  previewImages: Array<{
-    id: string;
-    galleryItemId?: string;
-    galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
-    promptId?: string;
-    src: string;
-    fullSrc: string;
-    posterSrc?: string;
-    prompt: string;
-    width?: number;
-    height?: number;
-    kind?: "image" | "video";
-    contentType?: string;
-  }>;
+  previewImages: GalleryEntryPreview[];
 }
 
 interface MasonryGridProps {
@@ -151,6 +141,8 @@ interface MasonryGridProps {
     thumbSrc: string;
     fullSrc: string;
     prompt: string;
+  name?: string;
+  agentDescription?: string;
     width?: number;
     height?: number;
     kind?: "image" | "video";
@@ -170,20 +162,7 @@ interface MasonryGridProps {
       starNote?: string;
       bookmark?: BookmarkPost;
       activePreviewId?: string;
-      previewImages: Array<{
-        id: string;
-        galleryItemId?: string;
-        galleryItemType?: "asset" | "pack" | "design" | "skill" | "storybook" | "collection";
-        promptId?: string;
-        src: string;
-        fullSrc: string;
-        posterSrc?: string;
-        prompt: string;
-        width?: number;
-        height?: number;
-        kind?: "image" | "video";
-        contentType?: string;
-      }>;
+      previewImages: GalleryEntryPreview[];
     }) => void;
   onImageLoad?: (imageId: string) => void;
   loading?: boolean;

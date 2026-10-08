@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
   research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.6.0
+version: 1.6.1
 ---
 
 # Laniameda Gallery
@@ -56,14 +56,14 @@ name case-insensitively; ask before creating a missing collection unless creatio
 was requested. Pass folderIds for multiple memberships; the first is primary.
 Leave a piece uncategorized when no destination was requested or clearly fits.
 
-- Piece type: at most one of character, location, scene, inspiration. These are
+- Piece type: exactly one of character, location, scene, inspiration. These are
   tags, never folders. Vehicle and costume-study are additional content tags.
 - Medium: exact animation tag for illustrated, drawn, clay, stop-motion or
   stylized animated work. The current Live action filter includes everything
   without that tag, including photoreal rendered output; it does not prove footage
   was photographed. Judge the actual visual rather than its filename.
 - Reuse existing tags; keep them lowercase, singular and hyphenated. Add about
-  4–10 useful tags. Use typedTags and source: agent for inferred labels. Preserve
+  up to 5 useful tags. Use typedTags and source: agent for inferred labels. Preserve
   the source's model name only when stated; never guess it from a look or prompt.
 - Write agentDescription on agent-created media and video references: one or two
   plain sentences, at most about 45 words/400 characters, describing the actual
@@ -101,12 +101,16 @@ Current human direction governs creative intent; code/schema and live verified
 behavior define supported payloads. Old memories, copied lists and historical
 handoffs do not override a newer rule.
 
-- Keep worlds and exact rendering lanes coherent. Styles are tags; retain
-  established project parts. CASSANDRA and ART require Michael's request for
-  reorganization. Read-only inspection is allowed during an authorized audit.
-- Pinterest stays inspiration_capture in inspiration collections, with optional
-  world-reference tags. Source WebP saves retain INSPIRATION VAULT and never join
-  worlds/storybooks; derived WebP thumbnails are exempt.
+- Keep real project/world material together, including useful outside references
+  and alternate styles. Select a coherent rendering lane for each produced scene
+  or storybook; style alone does not decide world membership. CASSANDRA and ART
+  require Michael's request for reorganization. A full-gallery audit and sorting
+  request supplies that authorization; read-only inspection is always allowed.
+- Pinterest and other outside work stay inspiration_capture with the inspiration
+  piece type and source credit. Use ART/DESIGN and cross-file into genuine projects
+  or worlds when useful; a reference remains a reference. File extensions do not
+  determine ownership. Do not recreate INSPIRATION VAULT, REUSABLE ASSETS or
+  exploration/development shelves.
 - A visual storybook is a collection of selected frames; its evolving text belongs
   in native Stories/Scripts. Maintain links and revision history.
 - Preserve public, featured and liked flags when filing. Michael's curator star
