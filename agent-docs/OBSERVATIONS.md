@@ -25,6 +25,12 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
+- Bulk asset deletion must run sequentially: cascades update shared tag usage,
+  collection counts and pack membership, so parallel DELETE requests can exhaust
+  Convex's conflict retries. Only retry a reported
+  `OptimisticConcurrencyControlFailure`, with bounded backoff; network failures
+  have an unknown commit outcome and must remain selected for manual retry.
+
 - Skills are a complete query while gallery assets are cursor-paginated. A dated
   Skill insert must wait until the asset frontier passes its timestamp (strictly,
   since equal dates can span pages). Collection cursors use membership dates, so
