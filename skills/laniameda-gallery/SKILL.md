@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
   research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.5.1
+version: 1.5.2
 ---
 
 # Laniameda Gallery

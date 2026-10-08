@@ -504,7 +504,7 @@ export const getVideoRef = ownerQuery({
   },
 });
 
-// The owner's own edits: note, like, and which collections it sits in.
+// The owner's own edits: note, like, collections and replacement tags.
 export const updateVideoRef = ownerMutation({
   args: {
     ownerUserId: v.string(),
@@ -512,6 +512,7 @@ export const updateVideoRef = ownerMutation({
     userNote: v.optional(v.string()),
     isLiked: v.optional(v.boolean()),
     collections: v.optional(v.array(v.string())),
+    tagNames: v.optional(v.array(v.string())),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -521,11 +522,13 @@ export const updateVideoRef = ownerMutation({
     }
     const userNote = args.userNote === undefined ? row.userNote : clip(args.userNote);
     const collections = args.collections ? cleanLabels(args.collections) : row.collections;
+    const tagNames = args.tagNames === undefined ? row.tagNames : cleanLabels(args.tagNames);
     await ctx.db.patch(row._id, {
       userNote,
       isLiked: args.isLiked ?? row.isLiked,
       collections,
-      searchText: searchTextFor({ ...row, userNote, collections }),
+      tagNames,
+      searchText: searchTextFor({ ...row, userNote, collections, tagNames }),
       updatedAt: Date.now(),
     });
     return null;

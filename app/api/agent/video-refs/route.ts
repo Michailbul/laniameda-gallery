@@ -166,12 +166,16 @@ export async function POST(request: Request) {
     if (!id) return NextResponse.json({ error: "id is required." }, { status: 400 });
 
     if (action === "update") {
+      if (body.tagNames !== undefined && (!Array.isArray(body.tagNames) || body.tagNames.some((tag) => typeof tag !== "string"))) {
+        return NextResponse.json({ error: "tagNames must be an array of strings." }, { status: 400 });
+      }
       await client.mutation(api.videoRefs.updateVideoRef, {
         ownerUserId,
         id,
         userNote: typeof body.userNote === "string" ? body.userNote : undefined,
         isLiked: booleanValue(body.isLiked),
         collections: stringArrayValue(body.collections),
+        tagNames: stringArrayValue(body.tagNames),
       });
       return NextResponse.json({ ok: true });
     }

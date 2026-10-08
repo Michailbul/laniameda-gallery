@@ -306,6 +306,12 @@ thumbnail and in-video frames. Idempotent on (owner, video id). Not in the
 semantic index. Detail: `references/video-refs.md`; code: `convex/videoRefs.ts`,
 `lib/video-refs.ts`.
 
+`updateVideoRef` / `update_video_ref` can replace `tagNames` on an owned record.
+Omission preserves the existing set; `[]` clears it. The replacement uses existing
+label normalization/deduplication and recomputes `searchText`, preserving research,
+source/media, statistics, notes and likes unless those editable fields are supplied.
+`save_video_refs` continues merging tags; it does not truncate them automatically.
+
 Four optional fields say how a video is made and how fresh its numbers are
 (added 4 Oct 2026; older rows do not have them):
 

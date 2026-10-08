@@ -100,7 +100,13 @@ Shared-password visitors never receive bendIdea, userNote or isLiked. These
 proposal fields are optional and do not create a qualification gate for saves.
 
 update_video_ref edits userNote/isLiked or replaces the complete collections
-theme list. delete_video_ref deletes the record; perform deletion only when
+theme list and/or tagNames set. Omit tagNames to keep existing tags; pass [] to
+clear them. Replacement tags use the existing label normalization/deduplication
+and update keyword search. Tag-only edits preserve all research, source, copied
+media, statistics, owner notes and likes. save_video_refs merges tags instead;
+use update_video_ref with the full desired set when curating or reducing tags.
+There is no automatic tag truncation on save. delete_video_ref deletes the record;
+perform deletion only when
 Michael authorizes it. Local/admin scripts/video-refs.ts is a compatibility
 path requiring signed owner access; hosted MCP is preferred.
 

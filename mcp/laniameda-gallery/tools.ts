@@ -150,7 +150,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,
   }, async () => jsonText({
-    contractVersion: "2026-10-08.1", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    contractVersion: "2026-10-08.2", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
     transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
     scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", deletionApproval: "Delete scope grants technical access only. Obtain explicit user approval for the named collection/preset or listed batch before deletion. Existing approval for those targets in the current session persists.", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
     pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeWorkflowAssets: { default: true, false: "omits Skill-step assets unless explicitly requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
@@ -1173,12 +1173,13 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "update_video_ref",
     {
       title: "Update Video Reference",
-      description: "Set the owner's note, the like, or the collections of a video reference.",
+      description: "Edit the owner's note/like or replace collections/tags of an owned video reference. Omitted tagNames preserves existing tags; [] clears them. Tags are normalized and deduplicated, and search is updated. Research, source, copied media and statistics stay intact. Saves merge tags; use this update to curate the complete replacement set.",
       inputSchema: {
         id: z.string(),
         userNote: z.string().optional(),
         isLiked: z.boolean().optional(),
         collections: z.array(z.string()).describe("Replaces the whole set.").optional(),
+        tagNames: z.array(z.string()).describe("Replaces the complete tag set; omission preserves tags and [] clears them.").optional(),
       },
     },
     async (input) => jsonText(await apiFetch("/api/agent/video-refs", { action: "update", ...input })),
