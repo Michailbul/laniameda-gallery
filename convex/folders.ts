@@ -615,17 +615,6 @@ export const cascadeDeleteFolder = async (
   for (const link of skillLinks) {
     await ctx.db.delete(link._id);
   }
-  // During migration, clear old membership pointers too; no content is deleted.
-  const legacySkillLinks = await ctx.db
-    .query("workflowFolders")
-    .withIndex("by_folder_createdAt", (q) =>
-      q.eq("folderId", folderId).gte("createdAt", 0),
-    )
-    .collect();
-  for (const link of legacySkillLinks) {
-    await ctx.db.delete(link._id);
-  }
-
   // Promote sub-collections to root instead of orphaning them. Their
   // canonical name is re-scoped; on a rare root-level name collision the
   // old (parent-prefixed) normalizedName is kept — still unique, and only

@@ -2108,7 +2108,7 @@ export const listGalleryAssets = ownerQuery({
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
-    const assetRole = args.assetRole;
+    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
     // One read of the owner's newest assets, older than `before`. `full`
     // means some owner candidate filled its window, so older rows may remain.
@@ -2395,7 +2395,7 @@ export const listPublicGalleryAssets = query({
     const search = args.search?.trim().toLowerCase();
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
-    const assetRole = args.assetRole;
+    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
 
     const baseAssets = await (pillar
@@ -2549,7 +2549,7 @@ export const listGalleryAssetsPage = ownerQuery({
     const onlyLiked = args.onlyLiked === true;
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
-    const assetRole = args.assetRole;
+    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
     const tagFilter =
       args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
@@ -2736,7 +2736,7 @@ export const listPublicGalleryAssetsPage = query({
       : null;
     const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
-    const assetRole = args.assetRole;
+    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
 
     const indexed = pillar
@@ -4495,7 +4495,7 @@ export const mergeDuplicateAssets = internalMutation({
     if (promptIds.length > 1) {
       for (const id of promptIds) {
         const prompt = await ctx.db.get(id);
-        if (prompt?.skillId || prompt?.workflowId) {
+        if (prompt?.skillId) {
           throw new ConvexError("Identical media used by different Skill prompts cannot be merged without preserving every step link.");
         }
       }
@@ -4624,15 +4624,6 @@ export const mergeDuplicateAssets = internalMutation({
           }
         }
       }
-      const coverWorkflows = await ctx.db
-        .query("workflows")
-        .filter((q) => q.eq(q.field("coverAssetId"), loser.asset._id))
-        .collect();
-      for (const workflow of coverWorkflows) {
-        await ctx.db.patch(workflow._id, { coverAssetId: keeper.asset._id });
-        referencesRepointed += 1;
-      }
-
       // The cascade deletes the loser's R2 objects. Identical bytes normally
       // mean separate uploads and separate keys, but if a key IS shared with
       // the keeper, clear it first or the survivor loses its media.

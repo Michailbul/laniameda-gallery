@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
   agentTokenScopeValidator,
-  assetRoleValidator,
+  storedAssetRoleValidator,
   cinemaMetadataValidator,
   designCaptureKindValidator,
   designInspirationStatusValidator,
@@ -225,11 +225,8 @@ export default defineSchema({
     promptSections: promptSectionsValidator,
     promptProfile: promptProfileValidator,
     skillId: v.optional(v.id("skills")),
-    workflowId: v.optional(v.id("workflows")),
     skillStepOrder: v.optional(v.number()),
     skillStepLabel: v.optional(v.string()),
-    workflowStepOrder: v.optional(v.number()),
-    workflowStepLabel: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_ingestKey", ["ingestKey"])
@@ -239,7 +236,6 @@ export default defineSchema({
     .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
     .index("by_skill_stepOrder", ["skillId", "skillStepOrder"])
-    .index("by_workflow_stepOrder", ["workflowId", "workflowStepOrder"])
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .searchIndex("search_text", { searchField: "text" }),
@@ -313,7 +309,7 @@ export default defineSchema({
     curatedAt: v.optional(v.number()),
     pillar: optionalPillarValidator,
     generationType: generationTypeValidator,
-    assetRole: assetRoleValidator,
+    assetRole: storedAssetRoleValidator,
     ingestSource: ingestSourceValidator,
     assetPackId: v.optional(v.id("assetPacks")),
     packSlotIndex: v.optional(v.number()),
@@ -425,6 +421,14 @@ export default defineSchema({
     skillId: v.id("skills"),
     phase: v.union(v.literal("copied"), v.literal("rewired"), v.literal("retired")),
     sourceSnapshot: v.string(),
+    // Append-only owner-reviewed external deletions; sourceSnapshot is immutable.
+    effectiveCheckpoints: v.optional(v.array(v.object({
+      phase: v.union(v.literal("rewired"), v.literal("retired")),
+      missingAssetIds: v.array(v.id("assets")),
+      compactedPackIds: v.array(v.id("assetPacks")),
+      effectiveSnapshot: v.string(),
+      recordedAt: v.number(),
+    }))),
     // Repair only a proven missing/foreign cover using an existing owned example.
     coverRepairAssetId: v.optional(v.id("assets")),
     createdAt: v.number(),
@@ -434,50 +438,6 @@ export default defineSchema({
     .index("by_source", ["sourceKind", "sourceId"])
     .index("by_skill", ["skillId"])
     .index("by_owner_phase", ["ownerUserId", "phase"]),
-  // Temporary source tables for the staged native Skill migration. Remove
-  // only after all owned source records, links and references are retired.
-  workflows: defineTable({
-    ownerUserId: v.optional(v.string()),
-    title: v.string(),
-    description: v.optional(v.string()),
-    // Knowledge body used to generate the downloadable agent skill.
-    agentInstructions: v.optional(v.string()),
-    // The skill as a document: markdown, read top to bottom like a post.
-    // `![caption](asset:<id>)` embeds a gallery image inline. Optional — a
-    // skill without a body reads as its description, instructions and steps.
-    body: v.optional(v.string()),
-    pillar: optionalPillarValidator,
-    tagIds: v.array(v.id("tags")),
-    ingestKey: v.optional(v.string()),
-    // Optional pinned cover; carousel falls back to all step media.
-    // Agent Skill creation retries resume until finalized. Separate from
-    // editable content so replaying a creation never overwrites later edits.
-    creationFingerprint: v.optional(v.string()),
-    creationComplete: v.optional(v.boolean()),
-    coverAssetId: v.optional(v.id("assets")),
-    stepCount: v.number(),
-    isPublic: v.optional(v.boolean()),
-    isFeatured: v.optional(v.boolean()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
-    .index("by_ingestKey", ["ingestKey"])
-    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
-    .index("by_owner_pillar_createdAt", ["ownerUserId", "pillar", "createdAt"])
-    .index("by_isPublic_createdAt", ["isPublic", "createdAt"]),
-  // Skill (workflows row) <-> collection membership. A skill can sit in any
-  // number of collections, like an asset through assetFolders. Skills never
-  // count toward folders.memberCount, which counts assets.
-  workflowFolders: defineTable({
-    ownerUserId: v.string(),
-    workflowId: v.id("workflows"),
-    folderId: v.id("folders"),
-    createdAt: v.number(),
-  })
-    .index("by_workflow", ["workflowId"])
-    .index("by_workflow_folder", ["workflowId", "folderId"])
-    .index("by_folder_createdAt", ["folderId", "createdAt"]),
   designInspirations: defineTable({
     ownerUserId: v.optional(v.string()),
     // Originally limited to "designs"; now stores web bookmarks across any pillar.
@@ -676,7 +636,6 @@ export default defineSchema({
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
     skillId: v.optional(v.id("skills")),
-    workflowId: v.optional(v.id("workflows")),
     pillar: optionalPillarValidator,
     isPublic: v.boolean(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),

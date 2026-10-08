@@ -57,9 +57,6 @@ const promptResultFields = {
   skillStepOrder: v.optional(v.number()),
   skillStepLabel: v.optional(v.string()),
   // Temporary source pointers until native migration is verified and retired.
-  workflowId: v.optional(v.id("workflows")),
-  workflowStepOrder: v.optional(v.number()),
-  workflowStepLabel: v.optional(v.string()),
   createdAt: v.number(),
 } as const;
 
@@ -373,9 +370,6 @@ export const getPrompt = ownerQuery({
       skillStepOrder: v.optional(v.number()),
       skillStepLabel: v.optional(v.string()),
       // Temporary source pointers until native migration is verified and retired.
-      workflowId: v.optional(v.id("workflows")),
-      workflowStepOrder: v.optional(v.number()),
-      workflowStepLabel: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),
@@ -573,9 +567,6 @@ export const listPrompts = ownerQuery({
       skillStepOrder: v.optional(v.number()),
       skillStepLabel: v.optional(v.string()),
       // Temporary source pointers until native migration is verified and retired.
-      workflowId: v.optional(v.id("workflows")),
-      workflowStepOrder: v.optional(v.number()),
-      workflowStepLabel: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),

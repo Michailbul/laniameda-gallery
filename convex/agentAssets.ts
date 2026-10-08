@@ -52,12 +52,13 @@ export const listAssetsPage = signedOwnerQuery({
       }
     }
     const owner = owners[state.owner];
+    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const query = args.onlyLiked
       ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", q => q.eq("ownerUserId", owner).eq("isLiked", true))
       : args.modelName
         ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", q => q.eq("ownerUserId", owner).eq("modelName", args.modelName!))
-        : args.assetRole && !isSkillExampleRole(args.assetRole)
-          ? ctx.db.query("assets").withIndex("by_owner_assetRole_createdAt", q => q.eq("ownerUserId", owner).eq("assetRole", args.assetRole))
+        : assetRole && !isSkillExampleRole(assetRole)
+          ? ctx.db.query("assets").withIndex("by_owner_assetRole_createdAt", q => q.eq("ownerUserId", owner).eq("assetRole", assetRole))
           : args.kind
             ? ctx.db.query("assets").withIndex("by_owner_kind_createdAt", q => q.eq("ownerUserId", owner).eq("kind", args.kind!))
             : ctx.db.query("assets").withIndex("by_owner_createdAt", q => q.eq("ownerUserId", owner));

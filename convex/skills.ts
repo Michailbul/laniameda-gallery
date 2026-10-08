@@ -47,19 +47,6 @@ export const resolveSkillReference = ownerQuery({
   },
 });
 
-// Internal bridge only for reindex calls queued before native migration.
-export const resolveLegacySkillJob = internalQuery({
-  args: { sourceId: v.string() },
-  returns: v.union(v.null(), v.id("skills")),
-  handler: async (ctx, args) => {
-    const alias = await ctx.db.query("skillMigrationAliases")
-      .withIndex("by_source", (q) => q.eq("sourceKind", "workflow").eq("sourceId", args.sourceId)).unique();
-    if (!alias || alias.phase === "copied") return null;
-    const skill = await ctx.db.get(alias.skillId);
-    return skill && canActorAccessOwnerUserId(alias.ownerUserId, skill.ownerUserId) ? skill._id : null;
-  },
-});
-
 const stepMediaValidator = v.object({
   id: v.id("assets"),
   kind: v.union(v.literal("image"), v.literal("video")),
@@ -651,7 +638,7 @@ export const deleteSkill = ownerMutation({
       if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId) || shared.has(id)) continue;
       const remainingPrompt = asset.promptId ? await ctx.db.get(asset.promptId) : null;
       if (remainingPrompt?.skillId && remainingPrompt.skillId !== args.id) continue;
-      if (asset.assetRole === "skill_example" || asset.assetRole === "workflow_asset") await ctx.db.patch(id, { assetRole: undefined });
+      if (asset.assetRole === "skill_example") await ctx.db.patch(id, { assetRole: undefined });
     }
 
     const links = await ctx.db

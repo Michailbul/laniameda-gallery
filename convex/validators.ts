@@ -228,18 +228,23 @@ export const designSaveTemplateDefaultsValidator = v.object({
   tagNames: v.optional(v.array(v.string())),
 });
 
-export const assetRoleValidator = v.optional(v.union(
+const storedAssetRoleValueValidator = v.union(
   v.literal("generated_output"),
   v.literal("reference"),
   v.literal("inspiration_capture"),
   v.literal("skill_example"),
-  // Legacy migration input only; new Skill writes use skill_example.
-  v.literal("workflow_asset"),
   v.literal("cinema_frame"),
-  // Preview image of a saved social post (see the `bookmarks` table). The
-  // asset carries `bookmarkId`; the post itself lives on the bookmark row.
+  // Preview image of a saved social post; its post lives on the bookmark row.
   v.literal("bookmark"),
   v.literal("other"),
+);
+
+// Stored media can never regain the retired Workflow example role.
+export const storedAssetRoleValidator = v.optional(storedAssetRoleValueValidator);
+// Historical agent inputs remain compatible, normalized before any write.
+export const assetRoleValidator = v.optional(v.union(
+  storedAssetRoleValueValidator,
+  v.literal("workflow_asset"),
 ));
 
 // Social post bookmarks. "x" = a post on x.com / twitter.com. New platforms
@@ -346,7 +351,7 @@ export const semanticSourceTypeValidator = v.union(
   v.literal("asset"),
   v.literal("prompt"),
   v.literal("designInspiration"),
-  // A skill (workflows row), embedded on its words only.
+  // A native Skill, embedded on its words only.
   v.literal("skill"),
 );
 
@@ -414,7 +419,7 @@ export const assetDocValidator = v.object({
   curatedAt: v.optional(v.number()),
   pillar: optionalPillarValidator,
   generationType: generationTypeValidator,
-  assetRole: assetRoleValidator,
+  assetRole: storedAssetRoleValidator,
   ingestSource: ingestSourceValidator,
   assetPackId: v.optional(v.id("assetPacks")),
   packSlotIndex: v.optional(v.number()),

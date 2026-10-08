@@ -149,11 +149,6 @@ export const syncPromptAssetPack = async (
   // A native Skill owns its examples. Never regenerate the retired side-effect
   // pack when media/prompt metadata is edited or an ingest retry runs.
   if (prompt.skillId) {
-    // A staged copy still has its old step pointer. Only the verified migration
-    // may retire those source packs and record their permanent redirects.
-    if (prompt.workflowId) {
-      return { packId: undefined, itemCount: orderedAssets.length, createdPack: false, removedPackCount: 0, updatedAssetCount: 0 };
-    }
     let updatedAssetCount = 0;
     for (const asset of orderedAssets) {
       if (!asset.assetPackId) continue;

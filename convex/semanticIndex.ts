@@ -75,8 +75,6 @@ const semanticDocumentValidator = v.object({
   promptId: v.optional(v.id("prompts")),
   designInspirationId: v.optional(v.id("designInspirations")),
   skillId: v.optional(v.id("skills")),
-  // Staging compatibility: old documents remain readable until migration.
-  workflowId: v.optional(v.id("workflows")),
   pillar: optionalPillarValidator,
   isPublic: v.boolean(),
   kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -1525,18 +1523,12 @@ const reindexSkillSource = async (
 
 export const reindexSkill = internalAction({
   args: {
-    skillId: v.optional(v.id("skills")),
-    // Temporary bridge for already queued pre-migration calls, not new writes.
-    workflowId: v.optional(v.string()),
+    skillId: v.id("skills"),
     attempt: v.optional(v.number()),
   },
   returns: reindexResultValidator,
   handler: async (ctx, args): Promise<ReindexResult> => {
-    const skillId: Id<"skills"> | null = args.skillId ?? (args.workflowId
-      ? await ctx.runQuery(makeFunctionReference<"query">("skills:resolveLegacySkillJob"), { sourceId: args.workflowId })
-      : null);
-    if (!skillId) return { status: "skipped", retryScheduled: false };
-    return await reindexSkillSource(ctx, skillId, args.attempt ?? 0);
+    return await reindexSkillSource(ctx, args.skillId, args.attempt ?? 0);
   },
 });
 

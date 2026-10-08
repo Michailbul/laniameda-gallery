@@ -443,3 +443,12 @@ They must be removed after verified retirement; empty staging schemas are not
 the completed migration. Ordinary visual packs are not automatically recipes.
 Historical `generationType`, `promptType`, and `workflowType` values describe how
 a source was made and are preserved; they do not create legacy containers.
+
+Migration aliases retain their initial `sourceSnapshot` unchanged. A signed,
+source- and phase-guarded staging reconciliation can append `effectiveCheckpoints`
+for an exact reviewed set of externally missing examples. It verifies absent IDs,
+all surviving source bytes and the full native prompt/media closure; only an
+explicitly approved contiguous pack-slot compaction is accepted. Its checkpoint
+retains the observed compact pack, while retired pack redirects archive the
+initial pack record. The final conservation verifier is read-only and checks the
+surviving effective graph alongside that immutable original archive.
