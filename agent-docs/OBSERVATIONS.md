@@ -69,6 +69,11 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Auth
 
+- Keep `/` as the gallery/login entry for both valid and missing/expired
+  sessions. Redirecting a signed-out root visit to the public profile strands
+  the owner and hides Telegram callback errors. Public previews use their own
+  selected-work URLs; `/admin` remains a separate curation console/login.
+
 - New `stories` and `galleryPresets` functions use `signedOwnerQuery` / `signedOwnerMutation`, which reject unsigned requests even if `LEGACY_OWNER_ARG_AUTH` is enabled for older functions. App and skill signing use key id `gallery-actor-20261006`; private key stays in ignored local and production environment configuration, public keys in Convex JWKS.
 - Zod 4 `.partial()` retains nested defaults. Use the explicit no-default `storyPatchSchema` for partial updates so a body edit preserves kind, status, tags and source links.
 - Sparse global tag filters must continue past a first batch of nonmatches even when no collections are hidden. Reuse the bounded older-owner scan; collection queries retain membership-index scoping.

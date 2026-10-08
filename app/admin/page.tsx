@@ -13,9 +13,8 @@ export const metadata = {
 export default async function AdminPage() {
   const user = await getAppUser();
 
-  // No session: sign in here rather than redirect. `/` would have bounced a
-  // signed-out visitor to the public profile, which left the owner with no
-  // address to type when their session lapsed — this is that address.
+  // Keep admin sign-in available here too; the main gallery now has its own
+  // login entry at `/`.
   if (!user) {
     return <AdminSignIn />;
   }

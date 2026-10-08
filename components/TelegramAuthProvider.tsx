@@ -70,6 +70,24 @@ export function TelegramAuthProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchMe]);
 
+  // Telegram opens in another tab/app. When the owner returns to the original
+  // login tab, pick up the new cookie without requiring a manual reload.
+  useEffect(() => {
+    if (user || isLoading) return;
+    let checking = false;
+    const checkSession = () => {
+      if (document.visibilityState !== "visible" || checking) return;
+      checking = true;
+      void fetchMe().finally(() => { checking = false; });
+    };
+    window.addEventListener("focus", checkSession);
+    document.addEventListener("visibilitychange", checkSession);
+    return () => {
+      window.removeEventListener("focus", checkSession);
+      document.removeEventListener("visibilitychange", checkSession);
+    };
+  }, [fetchMe, isLoading, user]);
+
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {

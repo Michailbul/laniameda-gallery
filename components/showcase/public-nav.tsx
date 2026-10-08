@@ -95,6 +95,9 @@ export function PublicNav({
               })}
             </div>
           )}
+          <Link href="/" style={itemStyle(false)}>
+            My gallery
+          </Link>
           {/* The handle is the way out to the person behind the work. */}
           <a
             href={OWNER_SITE_URL}

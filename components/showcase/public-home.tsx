@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -17,7 +18,7 @@ import {
 import { MEDIUM_OPTIONS, mediumOf, type Medium } from "@/lib/medium";
 import { WorldsMasonry, type WorldSummary } from "./worlds-masonry";
 import type { FirstScreenData, ShowcaseAsset } from "./types";
-import { ADMIN_PATH, OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
+import { OWNER_HANDLE, OWNER_SITE_URL } from "@/lib/routes";
 
 // `mode` comes from the URL segment, not from state — each view is its own
 // page, so switching views is a navigation and survives refresh and sharing.
@@ -222,17 +223,14 @@ export function PublicHome({
       >
         <span>● MISHA BULOICHYK</span>
         <span style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          {/* Points at /admin rather than straight out to the Telegram deep
-              link: that page renders the auth panel, which reports what went
-              wrong when a login fails, and it still works for someone without
-              Telegram installed. */}
+          {/* The main gallery address renders login when signed out. */}
           {!previewAuthed && !authPending && (
-            <a
-              href={ADMIN_PATH}
+            <Link
+              href="/"
               style={{ color: "var(--lm-text-ghost)", textDecoration: "none" }}
             >
               Owner sign-in
-            </a>
+            </Link>
           )}
           <a
             href={OWNER_SITE_URL}

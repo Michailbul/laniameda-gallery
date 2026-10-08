@@ -3,6 +3,8 @@ import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { GalleryDashboard } from "@/components/gallery/dashboard";
+import { TelegramLoginButton } from "@/components/telegram-login-button";
+import Link from "next/link";
 import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
 
 function PageInner() {
@@ -12,19 +14,32 @@ function PageInner() {
   // surface now has exactly one URL, so this just forwards to it.
   const previewVisitor = useSearchParams().get("preview") === "visitor";
 
-  // `/` is the gallery workbench, for the owner only. `proxy.ts` already bounces
-  // signed-out visitors to the public surface at the edge; this covers the paths
-  // that never touch the edge (bfcache restores, a session that dies mid-visit)
-  // so the vault shell can't sit here empty for someone with no session.
-  const leaveRoot = !isLoading && (!user || previewVisitor);
+  // Public previews have their own address. The gallery address itself stays
+  // accessible when signed out so an expired session leads straight to login.
+  const leaveRoot = !isLoading && previewVisitor;
   useEffect(() => {
     if (leaveRoot) router.replace(PUBLIC_HOME_PATH);
   }, [leaveRoot, router]);
 
-  // Wait for auth to resolve so the owner never flashes the public gallery
-  // scope before their private vault mounts. `!user` is redundant with
-  // `leaveRoot` but keeps the vault behind a check the compiler can see.
-  if (isLoading || leaveRoot || !user) return <RootSplash />;
+  if (isLoading || leaveRoot) return <RootSplash />;
+  if (!user) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[var(--lm-paper)] px-4">
+        <div className="w-full max-w-sm">
+          <h1 className="mb-6 text-center text-2xl font-semibold text-[var(--lm-text-primary)]">
+            Laniameda Gallery
+          </h1>
+          <TelegramLoginButton size="large" />
+          <Link
+            href={PUBLIC_HOME_PATH}
+            className="mt-6 block text-center text-sm text-[var(--lm-text-secondary)] underline underline-offset-4"
+          >
+            View selected work
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   const dashboardUser = {
     id: user.ownerUserId,
