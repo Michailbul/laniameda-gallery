@@ -149,6 +149,14 @@ Current work is selected by the user request and branch-local feature docs.
 The dashboard-polish sprint file is historical; do not start its tickets without
 checking current BACKLOG and authorization.
 
+- 2026-10-08: Gallery pagination holds older Skills behind the loaded asset
+  frontier and preserves exposed tile order as batches arrive. Page prefetching
+  no longer waits for every local tile to mount. Gallery, pack and Motion video
+  previews use delayed horizontal frame scrubbing with bounded seeking instead
+  of hover autoplay; idle poster cards do not request videos by default. Browser
+  fixtures verify row stability, view resets, cursor seeking, swept-hover gating
+  and cancellation on scroll.
+
 - 2026-10-08: Batch **Delete selected** is implemented in the owner gallery toolbar,
   using the existing authenticated asset-delete endpoint. Confirmation snapshots
   the selected IDs; progress locks other bulk actions; successful deletions leave

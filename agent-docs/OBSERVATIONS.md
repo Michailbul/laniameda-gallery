@@ -25,6 +25,19 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
+- Skills are a complete query while gallery assets are cursor-paginated. A dated
+  Skill insert must wait until the asset frontier passes its timestamp (strictly,
+  since equal dates can span pages). Collection cursors use membership dates, so
+  their Skills wait for exhaustion. Keep exposed entry order stable while pages
+  append, and reset it when the view changes; sorting every mixed batch inserts
+  late assets above already-read Skills. Prefetch at the data frontier separately
+  from the locally mounted tile frontier.
+- Gallery and pack video previews remain paused and scrub 24 sampled frames from
+  horizontal pointer position after a 250 ms rest. Seeking is throttled to 10/s,
+  coalesces to the latest target, and waits for any in-flight seek. Posters render
+  without video requests by default; leaving, scrolling or hiding the page cancels
+  preview work. Explicit lightbox/modal playback keeps its normal controls.
+
 - Published world identity follows a root's slug, not whether it still has child folders. Compare the public world route, home world cards and featured-piece world labels after curation; preserving asset flags alone misses navigation regressions. Keep internal audit notes out of public world descriptions.
 
 - A toolbar popup closes as soon as the browser loses focus, so local Finder/file-manager drag-and-drop must live in the extension's persistent Side Panel (`side_panel.default_path` + `openPanelOnActionClick`), not `action.default_popup`.

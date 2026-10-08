@@ -86,6 +86,8 @@ import {
   type GalleryEntry,
   type GalleryEntryPreview,
 } from "@/lib/gallery-entries";
+import { reachedGalleryInserts } from "@/lib/gallery-stream";
+import { useGalleryStream } from "./use-gallery-stream";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
@@ -2387,7 +2389,7 @@ export function GalleryDashboard({
     [childCollectionStacks, showChildCollectionStacks],
   );
 
-  const images = useMemo(() => {
+  const gridEntries = useMemo(() => {
     const childCollections = showChildCollectionStacks
       ? childCollectionEntries
       : [];
@@ -2400,8 +2402,16 @@ export function GalleryDashboard({
     // Workflow cards sit among the tiles by date, not on a shelf above them:
     // an insert saved yesterday belongs next to yesterday's other work. Under
     // any other sort they trail the tiles rather than fake a position.
-    const workflowCards =
+    const availableWorkflowCards =
       showWorkflowCards || showFolderSkillCards ? workflowEntries : [];
+    const workflowCards = anyPaginationActive
+      ? reachedGalleryInserts(
+          availableWorkflowCards,
+          activePagedAssets.results,
+          activePagedAssets.status === "Exhausted",
+          !folderPaginationActive,
+        )
+      : availableWorkflowCards;
     const mixed =
       workflowCards.length === 0
         ? assetTiles
@@ -2435,7 +2445,25 @@ export function GalleryDashboard({
     showChildCollectionStacks,
     childCollectionIds,
     childCollectionEntries,
+    anyPaginationActive,
+    activePagedAssets.results,
+    activePagedAssets.status,
+    folderPaginationActive,
   ]);
+
+  const gridInsertsLoading =
+    (showWorkflowCards && gridWorkflows === undefined) ||
+    (showFolderSkillCards && folderSkills === undefined);
+  const images = useGalleryStream(
+    gridEntries,
+    anyPaginationActive && filteredSemanticResults === null && !gridInsertsLoading
+      ? JSON.stringify([
+          ownerUserId, galleryScope, effectiveSelectedFolderId, sortOrder,
+          selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
+          assetSearchQuery, showChildCollectionStacks,
+        ])
+      : null,
+  );
 
   // Every selectable (plain asset) entry currently in the grid — the target
   // set for the bulk toolbar's SELECT ALL.
@@ -3876,7 +3904,8 @@ export function GalleryDashboard({
 
   // Distinguish loading / empty / no-matches / has-images
   const isLoading =
-    showChildCollectionStacks && childCollectionStacks === undefined
+    gridInsertsLoading ||
+    (showChildCollectionStacks && childCollectionStacks === undefined)
       ? true
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
@@ -5223,7 +5252,8 @@ export function GalleryDashboard({
                     onCollectionOpen={handleCardCollectionOpen}
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
-                      anyPaginationActive ? loadNextGalleryPage : undefined
+                      anyPaginationActive && activePagedAssets.status !== "Exhausted"
+                        ? loadNextGalleryPage : undefined
                     }
                     zoom={gridZoom}
                   />

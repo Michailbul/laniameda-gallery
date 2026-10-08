@@ -2,7 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element -- R2 thumbnails, sized by CSS */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
 import { useQuery } from "convex/react";
 import { ArrowUpRight, Clapperboard, Copy, Heart, Play, Search, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -259,23 +260,12 @@ function MotionCard({
   onOpen: () => void;
   facetOfTag: FacetMap;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [hover, setHover] = useState(false);
+  const scrub = useVideoScrub({ enabled: asset.kind === "video" });
   const techniques = asset.tagNames
     .map(canonicalTag)
     .filter((tag) => facetOfTag.get(tag) === "motion_technique")
     .slice(0, 3);
   const handle = handleOf(asset.sourceUrl);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (hover) void video.play().catch(() => undefined);
-    else {
-      video.pause();
-      video.currentTime = 0;
-    }
-  }, [hover]);
 
   return (
     <button
@@ -283,15 +273,11 @@ function MotionCard({
       className="vref-card"
       data-liked={asset.isLiked ? "true" : undefined}
       onClick={onOpen}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
     >
-      <span className="vref-thumb motion-thumb">
+      <span className="vref-thumb motion-thumb" {...scrub.handlers}>
         {asset.thumbUrl ? <img src={asset.thumbUrl} alt="" loading="lazy" /> : null}
-        {asset.kind === "video" && asset.url && hover ? (
-          <video ref={videoRef} src={asset.url} muted loop playsInline preload="none" />
+        {asset.kind === "video" && asset.url && scrub.active ? (
+          <VideoScrubPreview src={asset.url} poster={asset.thumbUrl} scrub={scrub} />
         ) : null}
         {asset.isLiked && (
           <span className="vref-badge vref-badge-liked">

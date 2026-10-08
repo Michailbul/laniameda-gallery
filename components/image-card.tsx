@@ -21,6 +21,7 @@ import {
 } from "@/components/collection-menu";
 import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
+import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -179,11 +180,9 @@ interface ImageCardProps {
   /** Hide the hover "Prompt" chip and its sheet. The public surface keeps
       prompts to the lightbox. */
   showPromptChip?: boolean;
-  /** How long the pointer rests on a video tile before it plays. 0 plays on
-      hover; the vault's default waits out a swept cursor. */
+  /** Pointer rest before frame scrubbing starts; waits out a swept cursor. */
   videoHoverDelayMs?: number;
-  /** Keep the <video> element mounted while idle (metadata preloaded), so a
-      hover starts playback without a mount and a fetch first. */
+  /** Optionally preload metadata after the poster paints. Videos stay paused. */
   mountVideoAtRest?: boolean;
   collections?: CollectionOption[];
   onMoveToCollection?: (imageId: string, folderId: string) => Promise<void> | void;
@@ -207,20 +206,7 @@ interface ImageCardProps {
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
-const ENABLE_VIDEO_HOVER_PLAYBACK = true;
 const ENTRANCE_ANIMATION_LIMIT = 12;
-
-// Module-level singleton: only one card video plays at a time. When a new card
-// starts hover-playback it pauses any previous one — prevents a "swept cursor"
-// from stacking concurrent decodes.
-let activeHoverVideo: HTMLVideoElement | null = null;
-function claimActiveHoverVideo(next: HTMLVideoElement | null) {
-  if (activeHoverVideo && activeHoverVideo !== next) {
-    activeHoverVideo.pause();
-    activeHoverVideo.currentTime = 0;
-  }
-  activeHoverVideo = next;
-}
 
 export const ImageCard = memo(function ImageCard({
   image,
@@ -270,7 +256,6 @@ export const ImageCard = memo(function ImageCard({
   // Skill delete is two clicks: the first arms it, the second commits.
   const [skillDeleteArmed, setSkillDeleteArmed] = useState(false);
   const [previewCycling, setPreviewCycling] = useState(false);
-  const [videoActive, setVideoActive] = useState(false);
   const [excluding, setExcluding] = useState(false);
   const coralCtx = useCoralToastSafe();
   const toastFn = coralCtx?.toast;
@@ -322,6 +307,10 @@ export const ImageCard = memo(function ImageCard({
       kind: activeKind,
       contentType: activeContentType,
     }) === "video";
+  const videoScrub = useVideoScrub({
+    enabled: isVideo || isPackDeck,
+    delayMs: videoHoverDelayMs,
+  });
   const slotKind = layoutPreview.kind ?? image.kind;
   const slotContentType = layoutPreview.contentType ?? image.contentType;
 
@@ -424,7 +413,8 @@ export const ImageCard = memo(function ImageCard({
   const [posterSettled, setPosterSettled] = useState(false);
   const attachPosterNode = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete) setPosterSettled(true);
-  }, []);
+    if (node?.complete && node.naturalWidth > 0) settleLoaded();
+  }, [settleLoaded]);
 
   const handleVideoPosterError = () => {
     setIsLoading(false);
@@ -457,56 +447,7 @@ export const ImageCard = memo(function ImageCard({
           : "ASSET ID COPIED";
   const isWorkflow = galleryItemType === "workflow";
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const videoHoverTimerRef = useRef<number | null>(null);
   const hasThumb = Boolean(activeThumbSrc) && activeThumbSrc !== activeFullSrc;
-
-  const clearVideoHoverTimer = useCallback(() => {
-    if (videoHoverTimerRef.current === null) {
-      return;
-    }
-    window.clearTimeout(videoHoverTimerRef.current);
-    videoHoverTimerRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    if (!isVideo || !videoActive || !videoRef.current) {
-      return;
-    }
-
-    const video = videoRef.current;
-    const play = () => {
-      claimActiveHoverVideo(video);
-      void video.play().catch(() => {});
-    };
-
-    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      play();
-      return;
-    }
-
-    video.addEventListener("loadeddata", play, { once: true });
-    return () => video.removeEventListener("loadeddata", play);
-  }, [activeFullSrc, isVideo, videoActive]);
-
-  useEffect(() => clearVideoHoverTimer, [clearVideoHoverTimer]);
-
-  // Release the module-level singleton on unmount so the global ref doesn't
-  // outlive a detached <video>. Reading videoRef.current at unmount time is
-  // intentional — we need the latest ref, which is exactly what the linter
-  // warning is about.
-  useEffect(() => {
-    return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      const video = videoRef.current;
-      if (!video) return;
-      if (activeHoverVideo === video) {
-        claimActiveHoverVideo(null);
-      } else {
-        video.pause();
-      }
-    };
-  }, []);
 
   const selectImage = () =>
     onSelect?.({
@@ -912,42 +853,21 @@ export const ImageCard = memo(function ImageCard({
         animationFillMode: shouldAnimateEntrance ? "backwards" : undefined,
       }}
       onClick={handleCardClick}
+      {...videoScrub.handlers}
       onMouseEnter={() => {
         if (isPackDeck) {
-          // Hover holds the deck on the frame you're looking at; a video
-          // frame plays in place.
+          // Hold the deck on the current frame while the pointer scrubs it.
           setDeckHovered(true);
           return;
         }
         if (previewImages.length > 1) {
           setPreviewCycling(true);
         }
-        if (isVideo && ENABLE_VIDEO_HOVER_PLAYBACK) {
-          clearVideoHoverTimer();
-          if (videoHoverDelayMs <= 0) {
-            setVideoActive(true);
-          } else {
-            videoHoverTimerRef.current = window.setTimeout(() => {
-              setVideoActive(true);
-              videoHoverTimerRef.current = null;
-            }, videoHoverDelayMs);
-          }
-        }
       }}
       onMouseLeave={() => {
         setDeckHovered(false);
         setPreviewCycling(false);
         setActivePreviewIndex(0);
-        clearVideoHoverTimer();
-        if (isVideo && videoRef.current) {
-          if (activeHoverVideo === videoRef.current) {
-            claimActiveHoverVideo(null);
-          } else {
-            videoRef.current.pause();
-            videoRef.current.currentTime = 0;
-          }
-        }
-        setVideoActive(false);
         cancelPromptClose();
         setPromptOpen(false);
       }}
@@ -998,7 +918,7 @@ export const ImageCard = memo(function ImageCard({
           <PackDeckMedia
             frames={previewImages}
             index={deck.index}
-            playing={deckHovered}
+            scrub={videoScrub}
             eager={eager || mediaLoading === "eager"}
             onCoverLoad={() => {
               settleLoaded();
@@ -1027,24 +947,12 @@ export const ImageCard = memo(function ImageCard({
                 unoptimized
               />
             )}
-            {(videoActive || !hasThumb || (mountVideoAtRest && posterSettled)) && (
-              <video
-                ref={videoRef}
+            {(videoScrub.active || !hasThumb || (mountVideoAtRest && posterSettled)) && (
+              <VideoScrubPreview
                 src={activeFullSrc}
-                muted
-                loop
-                playsInline
-                preload={videoActive ? "auto" : "metadata"}
+                scrub={videoScrub}
                 poster={hasThumb ? activeThumbSrc : undefined}
                 className="absolute inset-0 h-full w-full object-contain"
-                onLoadedMetadata={(e) => {
-                  // Nudge currentTime so the browser actually paints the
-                  // first frame as a poster. Without this, Chrome/Safari
-                  // leave the slot blank until the video plays.
-                  if (!hasThumb && e.currentTarget.currentTime === 0) {
-                    e.currentTarget.currentTime = 0.001;
-                  }
-                }}
                 onLoadedData={() => {
                   setIsLoading(false);
                   onLoad?.(image.id);
@@ -1081,7 +989,7 @@ export const ImageCard = memo(function ImageCard({
       </div>
 
       {/* Video play mark — a quiet glass chip. It identifies video cards at
-          rest and fades away on hover, when the video itself starts playing. */}
+          rest and fades away while the pointer previews its frames. */}
       {isVideo && (
         <div
           className={`pointer-events-none absolute right-2 z-20 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-0 ${
