@@ -41,7 +41,7 @@ export function ShowcaseMasonry({
   /** Owner-only: make the open piece this set's thumbnail. */
   onSetCover?: (asset: ShowcaseAsset) => Promise<void> | void;
   coverAssetId?: string;
-  /** Keep video tiles mounted at rest and play on hover without a delay —
+  /** Keep video metadata mounted at rest and scrub on hover without a delay —
       for a grid that is mostly motion. */
   preloadVideos?: boolean;
 }) {

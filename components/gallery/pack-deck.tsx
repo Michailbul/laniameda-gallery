@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { resolveLayoutKind } from "@/lib/masonry-layout";
+import { VideoScrubPreview, type VideoScrubState } from "@/components/video-scrub-preview";
 
 /**
  * A pack in the grid is a deck: the frames of one prompt (and its variations)
@@ -109,16 +110,15 @@ export function usePackRotation({
 
 function DeckFrameMedia({
   frame,
-  playing = false,
+  scrub,
   eager = false,
   onLoad,
 }: {
   frame: PackDeckFrame;
-  playing?: boolean;
+  scrub?: VideoScrubState;
   eager?: boolean;
   onLoad?: () => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const reportedRef = useRef<string | null>(null);
   const isVideo = isVideoFrame(frame);
   const still = isVideo ? frame.posterSrc : frame.src;
@@ -130,40 +130,19 @@ function DeckFrameMedia({
     onLoad();
   };
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (playing) {
-      void video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
-  }, [playing]);
-
-  // A video with no poster, or one being played, needs the real element; a
-  // still is enough for everything else.
-  if (isVideo && (playing || !still)) {
+  // Only the active video can fetch media. Neighboring frames use posters.
+  if (isVideo && scrub && (scrub.active || !still)) {
     return (
-      <video
-        ref={videoRef}
+      <VideoScrubPreview
         src={frame.fullSrc}
         poster={still}
-        muted
-        loop
-        playsInline
-        preload={playing ? "auto" : "metadata"}
+        scrub={scrub}
         className="absolute inset-0 h-full w-full object-contain"
-        style={{ backgroundColor: "var(--media-stage-bg)" }}
-        onLoadedMetadata={(event) => {
-          // Nudge off 0 so the browser paints the first frame as a poster.
-          if (!still && event.currentTarget.currentTime === 0) {
-            event.currentTarget.currentTime = 0.001;
-          }
-        }}
         onLoadedData={reportLoad}
       />
     );
   }
+  if (isVideo && !still) return <div className="absolute inset-0 bg-[var(--media-stage-bg)]" />;
 
   return (
     <img
@@ -192,13 +171,13 @@ function DeckFrameMedia({
 export function PackDeckMedia({
   frames,
   index,
-  playing,
+  scrub,
   eager,
   onCoverLoad,
 }: {
   frames: PackDeckFrame[];
   index: number;
-  playing: boolean;
+  scrub: VideoScrubState;
   eager?: boolean;
   onCoverLoad?: () => void;
 }) {
@@ -232,7 +211,7 @@ export function PackDeckMedia({
             <DeckFrameMedia
               frame={frame}
               eager={eager && frameIndex === 0}
-              playing={role === "active" && playing}
+              scrub={role === "active" ? scrub : undefined}
               onLoad={frameIndex === 0 ? onCoverLoad : undefined}
             />
           </div>

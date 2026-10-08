@@ -190,9 +190,9 @@ interface MasonryGridProps {
   showPublicBadge?: boolean;
   /** Card hover "Prompt" chip; off on the public surface. */
   showPromptChip?: boolean;
-  /** Pointer rest before a video tile plays; 0 plays on hover. */
+  /** Pointer rest before a video tile starts frame scrubbing. */
   videoHoverDelayMs?: number;
-  /** Keep video elements mounted while idle so hover playback is instant. */
+  /** Optionally preload video metadata after the poster paints. */
   mountVideoAtRest?: boolean;
   /**
    * Called when the scroll frontier nears the end of the images already in
@@ -435,7 +435,7 @@ export function MasonryGrid({
   // mount, then mount whole rows up to (and including) the row that holds the
   // visible-count cutoff. Mounting whole rows means the frontier is always a
   // complete edge-to-edge row — no half-filled trailing row.
-  const { mounted, mountedHeight, hasMore } = useMemo(() => {
+  const { mounted, mountedHeight, loadedHeight, hasMore } = useMemo(() => {
     // Unmeasured means server-rendered or the first client pass. The browser
     // measures before it paints, so tiles laid out without a width would only
     // ever show in server HTML, as a stack of full-width cards that jumps into
@@ -445,6 +445,7 @@ export function MasonryGrid({
       return {
         mounted: [] as Array<{ image: (typeof images)[number]; tile: JustifiedTile | undefined }>,
         mountedHeight: undefined as number | undefined,
+        loadedHeight: undefined as number | undefined,
         hasMore: false,
       };
     }
@@ -456,7 +457,7 @@ export function MasonryGrid({
       ((contentWidth - gap * (columnCount - 1)) / columnCount) *
       effectiveZoom *
       baseScale;
-    const { tiles } = layoutJustified(images.map(resolveGridLayoutInput), {
+    const { tiles, totalHeight } = layoutJustified(images.map(resolveGridLayoutInput), {
       containerWidth: contentWidth,
       gap,
       targetRowHeight,
@@ -478,7 +479,7 @@ export function MasonryGrid({
     for (const { tile } of mounted) {
       if (tile) mountedHeight = Math.max(mountedHeight, tile.top + tile.height);
     }
-    return { mounted, mountedHeight, hasMore: cutoff < images.length };
+    return { mounted, mountedHeight, loadedHeight: totalHeight, hasMore: cutoff < images.length };
   }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom, baseScale]);
 
   // The mounted tiles' rects, mirrored into a ref. A drag holds its handlers
@@ -498,23 +499,25 @@ export function MasonryGrid({
   // `viewport bottom + margin` means the user is at or past the frontier.
   useEffect(() => {
     if (!hasMore && !onEndReached) return;
-    let ticking = false;
+    let frame = 0;
     const check = () => {
-      ticking = false;
+      frame = 0;
       const sentinel = sentinelRef.current;
       if (!sentinel) return;
       const top = sentinel.getBoundingClientRect().top;
       if (top < window.innerHeight + LOAD_MORE_MARGIN_PX) {
-        // Mount more of what we already have first; once everything in hand
-        // is mounted, ask the owner for the next page of data.
         if (hasMore) loadMore();
-        else onEndReached?.();
+      }
+      // Prefetch against the data frontier independently of the mount frontier:
+      // do not wait for every local tile to mount before starting the next fetch.
+      const dataTop = top + (loadedHeight ?? 0) - (mountedHeight ?? 0);
+      if (dataTop < window.innerHeight + LOAD_MORE_MARGIN_PX) {
+        onEndReached?.();
       }
     };
     const schedule = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(check);
+      if (frame) return;
+      frame = requestAnimationFrame(check);
     };
     // Run once immediately: chains batches until the frontier clears the
     // viewport (initial fill, and after every batch mounts).
@@ -525,10 +528,11 @@ export function MasonryGrid({
     });
     window.addEventListener("resize", schedule);
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
     };
-  }, [hasMore, mountedHeight, loadMore, onEndReached]);
+  }, [hasMore, mountedHeight, loadedHeight, loadMore, onEndReached]);
 
   // Skeleton still uses CSS columns (order doesn't matter for placeholders)
   const skeletonColumnClasses = compactColumns

@@ -339,9 +339,6 @@ function FeaturedMode({
             // The lead pieces run half again as large as the Browse grid.
             baseScale={1.5}
             compact={false}
-            // Mostly motion: keep the video elements mounted so a hover plays
-            // at once instead of after a mount and a fetch.
-            preloadVideos
           />
         )}
       </div>
