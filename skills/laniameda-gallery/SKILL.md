@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
   research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.5.0
+version: 1.5.1
 ---
 
 # Laniameda Gallery
@@ -139,6 +139,24 @@ whole cast. Save full prompts, declared completions and stage/source provenance.
 
 
 ## Access and safe completion
+
+Deletion needs both technical access and the user's explicit approval. Before
+calling delete_collection or delete_filter_preset, name the targets and explain
+the consequences, then obtain approval for that named collection/preset or
+clearly listed batch. Approval already given for those targets in this session
+persists; do not ask again after access is granted. General organization, vague
+cleanup requests, Write access and enabling Delete do not approve future deletions.
+
+The `gallery:delete` scope is a separate permission gate. If it is missing, the
+signed-in owner can edit an active manual token's permissions at `/agents`.
+Delete is off by default. OAuth tokens require reconnection and fresh owner
+consent; agents cannot upgrade themselves or bypass permission checks.
+
+Deleting a collection removes its shell and membership links, preserving assets,
+prompts, Skills and native story text. Children become root collections. Its
+route disappears and story/preset links may need repair. Deleting a filter preset
+removes only that saved view. These approval rules are agent instructions, not a
+claim that an agent-supplied flag proves human consent.
 
 1. Prefer authenticated Gallery MCP at https://gallery.laniameda.space/api/mcp.
 2. Without MCP, run Bun scripts/gallery.mjs; token auth reaches the same tools.

@@ -280,6 +280,13 @@ only plain collections may be children. One level deep.
   - Per-user bearer tokens for MCP/agent access.
   - Stores `ownerUserId`, `tokenHash`, `tokenPrefix`, `label`, `scopes`, expiry/revocation/use timestamps.
   - Raw token secrets are returned once by `/api/agent/tokens` and are never stored.
+  - Public owner metadata includes `canEditScopes`; only active manual tokens
+    can have scopes changed by the same-origin owner-session PATCH endpoint.
+    The issuer-protected backend checks ownership, active status and nonempty
+    allowed scopes. OAuth grants are immutable here and require fresh consent
+    on reconnect. Existing token secrets and read/write defaults are preserved.
+    `gallery:delete` supplies technical access; agents still need explicit user
+    approval for each named deletion target or listed batch.
 
 - `tags`
   - Normalized tags with metadata: `category`, `pillar`, `source`.

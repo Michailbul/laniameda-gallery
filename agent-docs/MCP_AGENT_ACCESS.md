@@ -1,6 +1,6 @@
 # Agent access and contract discovery
 
-Updated 7 October 2026. One tool surface lives in mcp/laniameda-gallery/tools.ts;
+Updated 8 October 2026. One tool surface lives in mcp/laniameda-gallery/tools.ts;
 hosted HTTP and local stdio call authenticated /api/agent/* routes. Tools derive
 owner from the token; agents never supply ownerUserId or server signing keys.
 
@@ -37,6 +37,43 @@ repair persisted IDs, avoiding duplicate creates. Preserve public/liked flags.
 Token scopes gallery:read/write/delete gate the relevant actions; discovery reads
 do not authorize requested content writes. OAuth codes are single-use and bound
 to redirect/PKCE; unknown scopes reject.
+
+## Missing Delete permission
+
+An active token without the requested scope receives HTTP 403 with the exact
+missing scope. Invalid, revoked or expired tokens receive HTTP 401. A hosted MCP
+tool reports the same actionable permission message when its API call is denied.
+
+Manual tokens default to Read and Write. Deleting collections, presets or pieces
+also requires `gallery:delete`; Write alone does not authorize deletion. The
+signed-in owner can open Permissions on an active manual token at `/agents`,
+select Delete and save. This updates the existing connection without replacing
+or revealing its secret. Defaults remain Read and Write, with Delete off.
+
+`PATCH /api/agent/tokens/:tokenId` requires a same-origin authenticated owner
+session. The server derives the owner, validates the allowed nonempty scopes,
+and checks token ownership and active status through the issuer-protected backend.
+Agent bearer authentication never authorizes this endpoint. OAuth tokens, including
+legacy MCP-labeled tokens, cannot be edited: reconnect and approve the requested
+scopes in the OAuth consent screen. No token is automatically upgraded.
+
+## Approval to delete
+
+Delete scope grants technical access only. Before deleting, an agent must obtain
+explicit user approval for the named collection/preset or clearly listed batch,
+after explaining the effects. Existing approval for those targets in the current
+session persists; restoring access does not require asking again. A general
+organization or vague cleanup request, Write access, and enabling Delete do not
+authorize unrelated or future deletions. Tool descriptions, destructive MCP
+annotations and the canonical skill carry this requirement. It is an agent
+approval rule; no agent-provided boolean is treated as proof of human consent.
+
+Collection deletion removes its shell and asset/prompt/Skill membership links.
+Media, prompts, Skills and native story text remain; child collections become
+roots. The collection's route disappears. Stories retain their earlier links
+and revision history and may report missing references; saved views pointing to
+the collection may need repair. Filter-preset deletion removes only the saved
+view and preserves assets, collections and tags.
 
 ## Local configuration
 

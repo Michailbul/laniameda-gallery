@@ -86,6 +86,19 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     if (error instanceof AgentAuthError) {
+      if (error.status === 403) {
+        return withCors(
+          Response.json(
+            { error: "insufficient_scope", error_description: error.message },
+            {
+              status: 403,
+              headers: {
+                "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl(origin)}", error="insufficient_scope", scope="gallery:read"`,
+              },
+            },
+          ),
+        );
+      }
       return unauthorized(origin, error.message, hadToken);
     }
     throw error;

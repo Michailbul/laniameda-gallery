@@ -12,6 +12,7 @@ const agentTokenPublicValidator = v.object({
   tokenPrefix: v.string(),
   label: v.string(),
   scopes: v.array(agentTokenScopeValidator),
+  canEditScopes: v.boolean(),
   expiresAt: v.optional(v.number()),
   revokedAt: v.optional(v.number()),
   lastUsedAt: v.optional(v.number()),
@@ -55,6 +56,11 @@ const normalizeScopes = (scopes: AgentTokenScope[] | undefined) => {
   return Array.from(new Set(values));
 };
 
+// The label check conservatively protects older OAuth tokens minted before
+// durable oauthCodeHash storage. Neither kind of OAuth grant is editable here.
+const isOAuthToken = (token: Doc<"agentTokens">) =>
+  Boolean(token.oauthCodeHash) || token.label.startsWith("MCP · ");
+
 const toPublicToken = (token: Doc<"agentTokens">) => ({
   _id: token._id,
   _creationTime: token._creationTime,
@@ -62,6 +68,10 @@ const toPublicToken = (token: Doc<"agentTokens">) => ({
   tokenPrefix: token.tokenPrefix,
   label: token.label,
   scopes: token.scopes,
+  canEditScopes:
+    !isOAuthToken(token) &&
+    !token.revokedAt &&
+    !(token.expiresAt && token.expiresAt <= Date.now()),
   expiresAt: token.expiresAt,
   revokedAt: token.revokedAt,
   lastUsedAt: token.lastUsedAt,
@@ -191,6 +201,51 @@ export const revokeAgentToken = mutation({
       updatedAt: Date.now(),
     });
     return { tokenId: args.tokenId, revoked: true };
+  },
+});
+
+// Only the owner-session API supplies the issuer secret and derives the owner.
+// Agent bearer tokens cannot call this operation to grant themselves scopes.
+export const updateAgentTokenScopes = mutation({
+  args: {
+    serverSecret: v.string(),
+    ownerUserId: v.string(),
+    tokenId: v.id("agentTokens"),
+    scopes: v.array(agentTokenScopeValidator),
+  },
+  returns: agentTokenPublicValidator,
+  handler: async (ctx, args) => {
+    assertServerSecret(args.serverSecret);
+
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const scopes = Array.from(new Set(args.scopes));
+    if (scopes.length === 0) {
+      throw new ConvexError("Select at least one permission.");
+    }
+
+    const token = await ctx.db.get(args.tokenId);
+    if (!token || token.ownerUserId !== ownerUserId) {
+      throw new ConvexError("Agent token not found.");
+    }
+    if (isOAuthToken(token)) {
+      throw new ConvexError("Reconnect this OAuth connection to approve different permissions.");
+    }
+    const now = Date.now();
+    if (token.revokedAt || (token.expiresAt && token.expiresAt <= now)) {
+      throw new ConvexError("Only an active token's permissions can be changed.");
+    }
+    if (
+      scopes.length === token.scopes.length &&
+      scopes.every((scope) => token.scopes.includes(scope))
+    ) {
+      return toPublicToken(token);
+    }
+
+    await ctx.db.patch(token._id, { scopes, updatedAt: now });
+    return toPublicToken({ ...token, scopes, updatedAt: now });
   },
 });
 

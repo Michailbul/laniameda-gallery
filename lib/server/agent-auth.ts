@@ -72,11 +72,22 @@ export const requireAgentAuth = async (
   const client = getServerConvexClient();
   const auth = (await client.mutation(authenticateAgentTokenMutation, {
     tokenHash: hashAgentToken(token),
-    requiredScope,
   })) as AgentAuthContext | null;
 
   if (!auth) {
-    throw new AgentAuthError("Invalid agent token or missing scope.");
+    throw new AgentAuthError(
+      "Invalid or expired agent token. Create a new token at /agents or reconnect the gallery.",
+    );
+  }
+
+  // Authentication and permission failures need different responses. A valid
+  // token without Delete permission must not be treated as an expired token,
+  // and reconnecting never grants a scope without the owner's consent.
+  if (!auth.scopes.includes(requiredScope)) {
+    throw new AgentAuthError(
+      `This agent token lacks ${requiredScope}. The signed-in gallery owner can edit this active token's permissions at /agents, or reconnect the gallery and approve that permission. Permission grants do not approve any deletion.`,
+      403,
+    );
   }
 
   return auth;

@@ -150,9 +150,9 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,
   }, async () => jsonText({
-    contractVersion: "2026-10-07.2", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    contractVersion: "2026-10-08.1", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
     transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
-    scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
+    scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", deletionApproval: "Delete scope grants technical access only. Obtain explicit user approval for the named collection/preset or listed batch before deletion. Existing approval for those targets in the current session persists.", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
     pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeWorkflowAssets: { default: true, false: "omits Skill-step assets unless explicitly requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
     videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
     limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
@@ -191,7 +191,11 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
   server.registerTool("save_filter_preset", { description: "Save/update a reusable filter preset by name. Use menu filter IDs from the gallery, not raw tag IDs. Owner-scoped; no publication changes.", inputSchema: { name: z.string(), filters: presetFiltersSchema } }, async (input) => jsonText(await apiFetch("/api/agent/presets", { action: "save", ...input })));
-  server.registerTool("delete_filter_preset", { description: "Delete an owner filter preset when requested.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/presets", { action: "delete", ...input })));
+  server.registerTool("delete_filter_preset", {
+    description: "Delete a saved owner filter preset only after explicit user approval for that named preset or listed batch. Approval already given for those targets in this session persists. Requires gallery:delete; this scope alone does not approve deletion. Removes only the saved view, preserving assets, collections and tags.",
+    inputSchema: { id: z.string() },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, async (input) => jsonText(await apiFetch("/api/agent/presets", { action: "delete", ...input })));
 
   // `filePath` only exists where the server can read the caller's disk.
   // Typed as always present so both modes share one handler signature; the
@@ -923,9 +927,9 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "delete_collection",
     {
       title: "Delete Collection",
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       description:
-        "Delete a collection (folder) and clear it from linked gallery records. The assets themselves are kept.",
+        "Delete an owned collection shell only after explicit user approval for that named collection or listed batch. Approval already given for those targets in this session persists. Requires gallery:delete; the scope alone does not approve deletion. Clears its asset/prompt/Skill membership, keeps media and linked story text, and promotes child collections to root. Story links may require repair; the collection's route disappears.",
       inputSchema: {
         folderId: z.string().describe("The collection id to delete — the raw folderId from list_collections/create_collection."),
       },
