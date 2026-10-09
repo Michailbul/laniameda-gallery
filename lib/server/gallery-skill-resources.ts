@@ -21,6 +21,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/query.md", title: "Media and Skill retrieval", access: "public" },
   { path: "references/data-model.md", title: "Data model and field meanings", access: "public" },
   { path: "references/stories.md", title: "Stories, style locks and filter presets", access: "public" },
+  { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
   { path: "references/bookmarks.md", title: "X post bookmarks", access: "public" },
   { path: "references/video-refs.md", title: "YouTube research", access: "public" },
   { path: "references/motion.md", title: "Motion media and facets", access: "public" },

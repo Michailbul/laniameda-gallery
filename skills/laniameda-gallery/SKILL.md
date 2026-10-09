@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
   research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.6.1
+version: 1.6.2
 ---
 
 # Laniameda Gallery
@@ -37,7 +37,8 @@ Local source can be newer than the deployed contract until publication.
 | World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
 | Collection | Where assets and Skills live; root plus at most one level of children | list_collections, create_collection, update_collection; references/ingest.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
-| Story | Private text idea, script or style lock, linked to a world, visual storybook and source assets | save_story, list_stories, get_story, update_story; references/stories.md |
+| Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
+| Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |
 | X bookmark | The post's text, author, quote and note; linked to actual media when saved | save_bookmarks / list_bookmarks; references/bookmarks.md |
 | YouTube reference | Separate video/channel research and copied stills; themes are labels rather than collection IDs | save_video_refs / list_video_refs / get_video_ref; references/video-refs.md |
 | Curated view | Reusable gallery filter preset using owner menu-filter IDs | list_menu_filters, list_filter_presets, save_filter_preset; references/stories.md |
@@ -111,8 +112,12 @@ handoffs do not override a newer rule.
   or worlds when useful; a reference remains a reference. File extensions do not
   determine ownership. Do not recreate INSPIRATION VAULT, REUSABLE ASSETS or
   exploration/development shelves.
-- A visual storybook is a collection of selected frames; its evolving text belongs
-  in native Stories/Scripts. Maintain links and revision history.
+- A storybook is a production package, not a grid of frames. Before creating,
+  auditing or editing one, read references/storybooks.md. It must carry a plain
+  60-second-or-shorter episode, a character sheet in the original style for every
+  character, a plate and description for every location, the asset links to feed
+  Seedance 2.5, and a status with explicit gap flags. Never leave a missing
+  character or place unflagged. Longer or source text lives in a native Story.
 - Preserve public, featured and liked flags when filing. Michael's curator star
   publishes/features an asset; never star, publish, feature or set the public taste
   collection unless requested. Non-curator stars are private; isLiked is separate.
@@ -132,7 +137,10 @@ For Michael's character sheets, use `leera-character-reference-sheet`: generate
 a detailed face close-up first, review it, generate separate front/back body
 masters from the original design plus accepted face, then assemble with only
 one visible face. Suppress the front-body face in the final composite and retain
-the original masters. A one-call three-view sheet is not this workflow.
+the original masters. A one-call three-view sheet is not this workflow. A sheet
+is drawn in the same style as the original reference with an identical face; a
+new character such as a daughter is designed from the anchor's look first.
+Every character in a storybook needs one (references/storybooks.md).
 
 Dear Annete's live-action cast must read as believable human photography, like
 the Dari photoreal direction. Adding skin pores to a LIZ/Arcane/game-style face

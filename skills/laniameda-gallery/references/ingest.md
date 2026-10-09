@@ -24,7 +24,8 @@ need meaningful retrieval fields. Keep description for Michael's caption and
 agentDescription for the agent's visual account.
 
 create_collection supports parentFolderId for a plain child collection and
-kind: storybook for a root visual book. One nesting level is supported; books do
+kind: storybook for a root visual book. Read references/storybooks.md before
+making or editing a storybook: it defines the required contents and gap flags. One nesting level is supported; books do
 not nest. Collection objects are folders internally. Piece types character,
 location, scene and inspiration are tags rather than section folders.
 Read the live update_collection schema for supported rename, parenting and other
@@ -116,8 +117,10 @@ no pillar requirement; do not ask Michael to choose one.
 
 A saved generation prompt normally links to its actual image/video. Only use
 save_prompt/allowPromptOnly when Michael requested or approved a text-only prompt.
-Native Stories/Scripts are intentionally textual: save_story for ideas, scripts,
-style locks, without placeholders. Read references/stories.md for revision guards.
+Native Stories/Scripts are intentionally textual: save_story for any story worth
+keeping (found narration, posts, premises, own ideas), scripts and world style
+locks, without placeholders and without tying them to a world. Read
+references/stories.md for capture rules and revision guards.
 An X bookmark stores post text/preview, not necessarily original attachments;
 read references/bookmarks.md and extraction.md for complete-media saves.
 YouTube research uses videoRefs, not ordinary media ingest.
