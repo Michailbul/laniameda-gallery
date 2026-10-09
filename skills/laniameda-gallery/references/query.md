@@ -404,9 +404,10 @@ all_assets writes the collected inventory with completion metadata. Read
 references/web-access.md for current usage and schema discovery.
 
 The cursor order is owner-candidate-createdAt-desc, not a global chronological
-merge. Default inventory includes hidden collection members and Skill step
-media. includeSkillExamples:false narrows those step assets; assetRole can
-explicitly select them. Only immediate child collections are included by
+merge. Default inventory includes hidden collection members but not Skill
+step media, which belongs to its Skill. includeSkillExamples:true adds those
+step assets; assetRole can explicitly select them. Semantic search follows the
+same rule. Only immediate child collections are included by
 includeDescendants. YouTube research has its own list_video_refs_page cursor surface. Ranked
 list_video_refs still caps at 2000; Skill/Story/bookmark lists cap at 200/500/500.
 Complete asset pagination does not make those other bounded lists complete. list_menu_filters returns the owner-curated IDs/labels/resolved tags

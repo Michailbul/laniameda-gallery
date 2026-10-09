@@ -38,7 +38,8 @@ export const listAssetsPage = signedOwnerQuery({
         state = parsed;
       } catch { throw new ConvexError("Invalid cursor or listing filters changed. Restart the listing."); }
     }
-    const includesWorkflowAssets = (input.includeSkillExamples ?? input.includeWorkflowAssets) !== false;
+    // Skill examples belong to their Skill; list them only on request.
+    const includesWorkflowAssets = (input.includeSkillExamples ?? input.includeWorkflowAssets) === true;
     const args = await resolveNamedTagFilters(ctx, input);
     if (!args) return { assets: [], cursor: null, isDone: true, scannedCount: 0, order: ORDER, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
     let folders: Set<Id<"folders">> | undefined;

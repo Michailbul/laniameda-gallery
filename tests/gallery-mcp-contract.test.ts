@@ -26,5 +26,5 @@ test("MCP reads have read hints and destructive recipe/media tools disclose dele
   for (const name of ["list_assets_page", "get_gallery_contract", "get_skill_instructions", "list_menu_filters", "list_collections", "list_video_refs_page", "list_assets", "list_skills", "get_skill", "get_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
   for (const name of ["delete_skill", "delete_collection", "delete_video_ref", "delete_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
   const result = await tools.get("get_gallery_contract")!.handler({});
-  expect(JSON.parse(result.content[0].text)).toMatchObject({ serverVersion: "0.3.0", pagination: { includeWorkflowAssets: { default: true } }, videoReferencePagination: { tool: "list_video_refs_page" }, scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete" } });
+  expect(JSON.parse(result.content[0].text)).toMatchObject({ serverVersion: "0.3.0", pagination: { includeSkillExamples: { default: false } }, videoReferencePagination: { tool: "list_video_refs_page" }, scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete" } });
 });
