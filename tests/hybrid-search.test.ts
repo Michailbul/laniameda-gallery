@@ -50,6 +50,13 @@ describe("asset filters", () => {
     ...extra,
   });
 
+  test("skill examples stay out of search unless their role is requested", () => {
+    const example = asset([], { assetRole: "skill_example" });
+    expect(buildAssetFilter({}, "mine")(example)).toBeFalse();
+    expect(buildAssetFilter({ assetRole: "skill_example" }, "mine")(example)).toBeTrue();
+    expect(buildAssetFilter({}, "mine")(asset([], { assetRole: "reference" }))).toBeTrue();
+  });
+
   test("tag names match canonically; all / any / exclude", () => {
     const keep = buildAssetFilter(
       { tagNames: ["Golden Hour"], anyTagNames: ["x", "instagram"], excludeTagNames: ["draft"] },

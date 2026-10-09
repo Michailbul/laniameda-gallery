@@ -375,6 +375,11 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
     ) {
       return false;
     }
+    // Skill examples live inside their Skill; search returns them only when the
+    // caller asks for that role, so a Skill never shows up twice.
+    const isExample = asset.assetRole === "skill_example" || asset.assetRole === "workflow_asset";
+    const wantsExamples = filters.assetRole === "skill_example" || filters.assetRole === "workflow_asset";
+    if (isExample && !wantsExamples) return false;
     if (filters.modelName && asset.modelName !== filters.modelName) return false;
     if (filters.assetRole && asset.assetRole !== filters.assetRole && !(["workflow_asset", "skill_example"].includes(filters.assetRole) && ["workflow_asset", "skill_example"].includes(asset.assetRole ?? ""))) return false;
     if (filters.kind && asset.kind !== filters.kind) return false;

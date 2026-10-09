@@ -51,17 +51,18 @@ describe("scoped complete asset paging", () => {
       expect(old.map(asset => asset._id)).toEqual([id]);
     }
   });
-  test("all scope includes hidden and workflow assets; filters can exclude them", async () => {
+  test("all scope includes hidden collections but leaves Skill examples out unless asked", async () => {
     const root = await harness.db.insert("folders", { ownerUserId: OWNER, name: "Hidden", hiddenFromGallery: true });
     const child = await harness.db.insert("folders", { ownerUserId: OWNER, name: "Child", parentFolderId: root });
     const direct = await asset({ folderId: root });
     const descendant = await asset({ folderId: child });
     const step = await asset({ assetRole: "workflow_asset" });
-    expect(new Set(await all())).toEqual(new Set([direct, descendant, step]));
+    expect(new Set(await all())).toEqual(new Set([direct, descendant]));
+    expect(new Set(await all({ includeSkillExamples: true }))).toEqual(new Set([direct, descendant, step]));
     expect(await all({ folderId: root })).toEqual([direct]);
     expect(new Set(await all({ folderId: root, includeDescendants: true }))).toEqual(new Set([direct, descendant]));
     expect(new Set(await all({ includeWorkflowAssets: false }))).toEqual(new Set([direct, descendant]));
-    expect(await all({ excludeFolderIds: [root, child] })).toEqual([step]);
+    expect(await all({ excludeFolderIds: [root, child], includeSkillExamples: true })).toEqual([step]);
   });
   test("cursor rejects changed filters and invalid page budgets", async () => {
     await asset();
