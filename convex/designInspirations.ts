@@ -153,13 +153,16 @@ const ensureLinkedOwnership = async (
   ctx: MutationCtx,
   ownerUserId: string,
   args: { assetId?: Id<"assets">; promptId?: Id<"prompts"> },
-) => {
+): Promise<{ assetId?: Id<"assets">; promptId?: Id<"prompts"> }> => {
+  let assetId = args.assetId;
+  let promptId = args.promptId;
   if (args.assetId) {
     const asset = await ctx.db.get(args.assetId);
     if (!asset) {
-      throw new ConvexError("Linked asset not found.");
-    }
-    if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      // A previously linked asset may have been deleted independently. Keep
+      // the inspiration record usable and discard only the stale reference.
+      assetId = undefined;
+    } else if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
       throw new ConvexError("Linked asset does not belong to this user.");
     }
   }
@@ -167,12 +170,13 @@ const ensureLinkedOwnership = async (
   if (args.promptId) {
     const prompt = await ctx.db.get(args.promptId);
     if (!prompt) {
-      throw new ConvexError("Linked prompt not found.");
-    }
-    if (!canActorAccessOwnerUserId(ownerUserId, prompt.ownerUserId)) {
+      promptId = undefined;
+    } else if (!canActorAccessOwnerUserId(ownerUserId, prompt.ownerUserId)) {
       throw new ConvexError("Linked prompt does not belong to this user.");
     }
   }
+
+  return { assetId, promptId };
 };
 
 export const createDesignInspiration = ownerMutation({
@@ -215,6 +219,10 @@ export const createDesignInspiration = ownerMutation({
     const sourceUrl = args.sourceUrl?.trim() || undefined;
     const sourceTitle = args.sourceTitle?.trim() || undefined;
     const userNote = args.userNote?.trim() || undefined;
+    const linked = await ensureLinkedOwnership(ctx, ownerUserId, {
+      assetId: args.assetId,
+      promptId: args.promptId,
+    });
     if (
       !title &&
       !summary &&
@@ -222,18 +230,13 @@ export const createDesignInspiration = ownerMutation({
       !sourceUrl &&
       !sourceTitle &&
       !userNote &&
-      !args.assetId &&
-      !args.promptId
+      !linked.assetId &&
+      !linked.promptId
     ) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
 
     await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
-    await ensureLinkedOwnership(ctx, ownerUserId, {
-      assetId: args.assetId,
-      promptId: args.promptId,
-    });
-
     if (args.ingestKey) {
       const existing = await ctx.db
         .query("designInspirations")
@@ -270,8 +273,8 @@ export const createDesignInspiration = ownerMutation({
       tagIds,
       folderId: args.folderId,
       ingestKey: args.ingestKey,
-      assetId: args.assetId,
-      promptId: args.promptId,
+      assetId: linked.assetId,
+      promptId: linked.promptId,
       createdAt: now,
       updatedAt: now,
     });
@@ -285,15 +288,15 @@ export const createDesignInspiration = ownerMutation({
     }
     await bumpTagUsage(ctx, tagIds, 1);
 
-    if (args.assetId) {
-      await ctx.db.patch(args.assetId, { designInspirationId });
+    if (linked.assetId) {
+      await ctx.db.patch(linked.assetId, { designInspirationId });
     }
     await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
       designInspirationId,
     });
-    if (args.assetId) {
+    if (linked.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
-        assetId: args.assetId,
+        assetId: linked.assetId,
       });
     }
 
@@ -341,7 +344,7 @@ export const updateDesignInspiration = ownerMutation({
     }
 
     await ensureFolderOwnership(ctx, ownerUserId, args.folderId);
-    await ensureLinkedOwnership(ctx, ownerUserId, {
+    const linked = await ensureLinkedOwnership(ctx, ownerUserId, {
       assetId: args.assetId,
       promptId: args.promptId,
     });
@@ -359,8 +362,8 @@ export const updateDesignInspiration = ownerMutation({
       !sourceUrl &&
       !sourceTitle &&
       !userNote &&
-      !args.assetId &&
-      !args.promptId
+      !linked.assetId &&
+      !linked.promptId
     ) {
       throw new ConvexError("Design inspiration requires content or linked records.");
     }
@@ -386,8 +389,8 @@ export const updateDesignInspiration = ownerMutation({
       status: args.status ?? "active",
       tagIds,
       folderId: args.folderId,
-      assetId: args.assetId,
-      promptId: args.promptId,
+      assetId: linked.assetId,
+      promptId: linked.promptId,
       updatedAt,
     };
     if (args.pillar !== undefined) {
@@ -415,14 +418,14 @@ export const updateDesignInspiration = ownerMutation({
       });
     }
 
-    if (existing.assetId && existing.assetId !== args.assetId) {
+    if (existing.assetId && existing.assetId !== linked.assetId) {
       const previousAsset = await ctx.db.get(existing.assetId);
       if (previousAsset?.designInspirationId === args.id) {
         await ctx.db.patch(existing.assetId, { designInspirationId: undefined });
       }
     }
-    if (args.assetId) {
-      await ctx.db.patch(args.assetId, { designInspirationId: args.id });
+    if (linked.assetId) {
+      await ctx.db.patch(linked.assetId, { designInspirationId: args.id });
     }
     await ctx.scheduler.runAfter(0, reindexDesignInspirationAction, {
       designInspirationId: args.id,
@@ -432,9 +435,9 @@ export const updateDesignInspiration = ownerMutation({
         assetId: existing.assetId,
       });
     }
-    if (args.assetId && args.assetId !== existing.assetId) {
+    if (linked.assetId && linked.assetId !== existing.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
-        assetId: args.assetId,
+        assetId: linked.assetId,
       });
     }
 

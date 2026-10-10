@@ -8,6 +8,9 @@ Last updated: 2026-10-07
 
 ## ✔ Shipped
 
+### 2026-10-09
+- Gallery bookmark cards remain visible in the regular grid and now have a dedicated owner-only filter-bar toggle, separate from curated tag filters and the Bookmarks view. Design inspirations discard stale linked asset/prompt IDs during create/update while retaining ownership checks for links that still exist.
+
 ### 2026-10-06
 - Restored world cards on Featured and published flat-world routes such as `/w/cassandra`. World addresses no longer depend on retaining subfolders; private members remain excluded. Cassandra's public presentation retains its original published assets and omits internal audit notes.
 - Private **Stories / Scripts**: text-only ideas, scripts and world style locks, with world/type/status filtering, search, linked visual boards, revision history and stale-edit protection. The owner UI, scoped agent API, hosted/stdio MCP and canonical gallery skill share the same contract. Original and rewritten text from 14 audited storybooks is preserved in this section.
