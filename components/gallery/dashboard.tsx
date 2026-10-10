@@ -333,6 +333,7 @@ export function GalleryDashboard({
   // Menu-filter ids the user pushed to the NEGATIVE side (minus on the pill).
   const [excludedFilters, setExcludedFilters] = useState<string[]>([]);
   const [likedOnly, setLikedOnly] = useState<boolean>(false);
+  const [bookmarksOnly, setBookmarksOnly] = useState(false);
   const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
     null,
@@ -1567,21 +1568,27 @@ export function GalleryDashboard({
       if (entry.kind !== "tag" || !selectedSet.has(entry._id)) continue;
       if (entry.tagIds.length > 0) groups.push(entry.tagIds);
     }
+    if (bookmarksOnly) {
+      const bookmarkTagIds = (tags ?? [])
+        .filter((tag) => canonicalTagKey(tag.name) === "bookmark")
+        .map((tag) => tag._id);
+      if (bookmarkTagIds.length > 0) groups.push(bookmarkTagIds);
+    }
     return groups.length > 0 ? groups : undefined;
-  }, [activeSmartCollectionFilter, selectedTags, menuFilterEntries]);
+  }, [activeSmartCollectionFilter, bookmarksOnly, selectedTags, menuFilterEntries, tags]);
 
   // The Bookmarks pill is about the posts: with it on, every piece that came
   // from a saved post shows as that post (author, text, media), not as bare
   // media.
   const bookmarkFilterOn = useMemo(() => {
     const selectedSet = new Set(selectedTags);
-    return menuFilterEntries.some(
+    return bookmarksOnly || menuFilterEntries.some(
       (entry) =>
         entry.kind === "tag" &&
         selectedSet.has(entry._id) &&
         (entry.tagNames ?? []).some((name) => name.trim().toLowerCase() === "bookmark"),
     );
-  }, [selectedTags, menuFilterEntries]);
+  }, [bookmarksOnly, selectedTags, menuFilterEntries]);
 
   // The negative side of the same pills (minus button on a pill's left edge).
   // Tag pills exclude their tags; collection pills exclude the collection's
@@ -1618,7 +1625,7 @@ export function GalleryDashboard({
   // Any curated pill predicate at all — positive or negative. Every read path
   // that can't post-filter a cursor page cleanly keys off this.
   const menuFilterActive = Boolean(
-    selectedTagIdGroups || excludedTagIds || excludedFolderIds,
+    selectedTagIdGroups || excludedTagIds || excludedFolderIds || bookmarksOnly,
   );
   const selectedTagsForFilterBar = useMemo(() => {
     if (!activeSmartCollectionFilter) return selectedTags;
@@ -2099,6 +2106,7 @@ export function GalleryDashboard({
   const handleClearAll = () => {
     setSelectedTags([]);
     setExcludedFilters([]);
+    setBookmarksOnly(false);
   };
   // Clears EVERYTHING hasFilters counts — including the search/semantic mode.
   // (The empty state's "clear all filters" used to leave the search active,
@@ -2106,6 +2114,7 @@ export function GalleryDashboard({
   const handleClearFilters = () => {
     setSelectedTags([]);
     setExcludedFilters([]);
+    setBookmarksOnly(false);
     setSelectedFolderId(null);
     setSelectedModelName(null);
     setMediaKind(null);
@@ -2135,14 +2144,16 @@ export function GalleryDashboard({
 
   const lexicalFilteredAssets = useMemo(() => {
     const search = assetSearchQuery.trim().toLowerCase();
-    let result = baseGalleryAssets;
+    let result = bookmarksOnly
+      ? baseGalleryAssets.filter((asset) => Boolean(asset.bookmark))
+      : baseGalleryAssets;
     if (search) {
       result = result.filter((asset) =>
         buildAssetSearchHaystack(asset, folderNameById).includes(search),
       );
     }
     return result;
-  }, [assetSearchQuery, baseGalleryAssets, folderNameById]);
+  }, [assetSearchQuery, baseGalleryAssets, bookmarksOnly, folderNameById]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -4801,6 +4812,12 @@ export function GalleryDashboard({
                 selectedFolderId={effectiveSelectedFolderId}
                 onCollectionToggle={handleMenuCollectionToggle}
                 onClearAllTags={handleClearAll}
+                bookmarksOnly={bookmarksOnly}
+                onBookmarksOnlyChange={
+                  galleryScope === "mine" && canAccessMyGallery
+                    ? setBookmarksOnly
+                    : undefined
+                }
                 canManageMenuFilters={
                   galleryScope === "mine" && canAccessMyGallery
                 }

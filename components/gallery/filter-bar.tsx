@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Video,
   BookOpenText,
+  Bookmark,
   X,
 } from "lucide-react";
 import { MenuFilterAdmin } from "./menu-filter-admin";
@@ -48,6 +49,8 @@ interface GalleryFilterBarProps {
   selectedFolderId?: string | null;
   onCollectionToggle: (folderId: string) => void;
   onClearAllTags: () => void;
+  bookmarksOnly?: boolean;
+  onBookmarksOnlyChange?: (next: boolean) => void;
   /** Owner may open the manage panel and edit the menu (mine scope only). */
   canManageMenuFilters?: boolean;
   ownerUserId: string;
@@ -88,6 +91,8 @@ export function GalleryFilterBar({
   selectedFolderId,
   onCollectionToggle,
   onClearAllTags,
+  bookmarksOnly = false,
+  onBookmarksOnlyChange,
   canManageMenuFilters = false,
   ownerUserId,
   likedOnly = false,
@@ -109,7 +114,7 @@ export function GalleryFilterBar({
     () => new Set(excludedFilters),
     [excludedFilters],
   );
-  const activeFilterCount = selectedTags.length + excludedFilters.length;
+  const activeFilterCount = selectedTags.length + excludedFilters.length + Number(bookmarksOnly);
   const [adminOpen, setAdminOpen] = useState(false);
   // Which pill is showing its minus affordance (hover or keyboard focus).
   const [hoveredFilterId, setHoveredFilterId] = useState<string | null>(null);
@@ -124,7 +129,8 @@ export function GalleryFilterBar({
 
   // Menu pills filter assets; the Skills view has its own tag and collection chips.
   const showMenuRow =
-    viewMode !== "skills" && (menuFilters.length > 0 || canManageMenuFilters);
+    viewMode !== "skills" &&
+    (menuFilters.length > 0 || canManageMenuFilters || Boolean(onBookmarksOnlyChange));
 
   return (
     <div
@@ -337,6 +343,29 @@ export function GalleryFilterBar({
                   element.scrollLeft += event.deltaY;
                 }}
               >
+                {onBookmarksOnlyChange ? (
+                  <button
+                    type="button"
+                    onClick={() => onBookmarksOnlyChange(!bookmarksOnly)}
+                    aria-pressed={bookmarksOnly}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors"
+                    style={{
+                      background: bookmarksOnly
+                        ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+                        : "var(--lm-surface-1)",
+                      color: bookmarksOnly ? "#fff" : "var(--lm-text-secondary)",
+                      border: bookmarksOnly ? "1px solid transparent" : "1px solid var(--lm-border-strong)",
+                      fontFamily: "var(--lm-font)",
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    <Bookmark className="h-3 w-3" />
+                    Bookmarks
+                  </button>
+                ) : null}
                 {visibleMenuFilters.length > 0 ? (
                   visibleMenuFilters.map((entry) => (
                     <MenuFilterPill
