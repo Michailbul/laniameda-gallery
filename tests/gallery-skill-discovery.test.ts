@@ -23,14 +23,14 @@ describe("website gallery skill discovery", () => {
   });
 
   test("llms index provides a small startup path and task links", () => {
-    const index = buildGalleryLlmsIndex("1.6.2");
+    const index = buildGalleryLlmsIndex("1.6.3");
     expect(index.startsWith("# Laniameda Gallery\n\n>")).toBe(true);
     expect(index).toContain("/SKILL.md");
     expect(index).toContain("/manifest.json");
     expect(index).toContain("check_connection");
     expect(index).toContain("Owner-only resources");
     expect(index).toContain("gallery:read");
-    expect(index).toContain("1.6.2");
+    expect(index).toContain("1.6.3");
   });
 
   test("SKILL.md is the exact canonical file, with version and revalidation", async () => {
@@ -39,7 +39,7 @@ describe("website gallery skill discovery", () => {
     expect(await response.text()).toBe(await readFile(join(process.cwd(), "skills/laniameda-gallery/SKILL.md"), "utf8"));
     expect(response.headers.get("content-type")).toContain("text/markdown");
     expect(response.headers.get("cache-control")).toContain("must-revalidate");
-    expect(response.headers.get("x-gallery-skill-version")).toBe("1.6.2");
+    expect(response.headers.get("x-gallery-skill-version")).toBe("1.6.3");
     expect(response.headers.get("etag")).toBeTruthy();
   });
 
@@ -78,7 +78,7 @@ describe("website gallery skill discovery", () => {
   });
 
   test("conditional requests track source changes instead of a stale public copy", async () => {
-    let source = "---\nversion: 1.6.2\n---\nFirst";
+    let source = "---\nversion: 1.6.3\n---\nFirst";
     const dependencies = { ...permit, readSource: async () => source };
     const first = await gallerySkillResourceResponse(request("SKILL.md"), ["SKILL.md"], dependencies);
     const etag = first.headers.get("etag")!;

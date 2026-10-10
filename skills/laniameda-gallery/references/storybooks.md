@@ -17,8 +17,11 @@ text, if any, lives in a native Story (references/stories.md) linked by
 Write the description as plain text in this order. Use the headings as written so
 every book reads the same way.
 
-1. **Header.** Title, runtime in seconds (60 at most, aim for 15 to 45), style
-   lane, and one status line: `READY` or `NOT READY: <n> blocking gaps`.
+1. **Header.** Two lines, written exactly like this because the gallery reads
+   them to filter and badge the book:
+   `TITLE · about 40 seconds · style-lane (animation)` (or `(live action)`)
+   then `READY` or `NOT READY: <n> blocking gaps`. The collection name is
+   `WORLD · Title`; the world before the dot becomes the world filter.
 2. **STORY.** The episode in plain language, 4 to 8 numbered beats. Each beat is
    one visible action a camera can film, with the place and who is in it. About
    5 to 8 seconds per beat. No abstract feeling that cannot be seen.
@@ -73,6 +76,36 @@ extras with a close-up, or characters who appear for one beat.
 - One sheet per costume the episode uses.
 - A source reference is not a sheet. If only an inspiration image exists, flag
   `NO SHEET` and say what the image is.
+
+## Generating characters and wardrobes: ground every image in the world
+
+Never invent a look from text alone. In a world with an existing cast, the
+costume language, materials, proportions and rendering belong to that cast, and
+a generated person who does not look like they live there is a failed
+generation, whatever the model made.
+
+- **Read the cast first.** Pull the world's character sheets with
+  `preview_assets` and look at them before writing any prompt. Note the
+  actual garments, fabrics, metals, colours and how mechanical parts are worn.
+- **Pass references on every call.** A new character is made with an image-edit
+  model and two or three of the world's own sheets as reference images, each
+  named in the prompt for what it contributes ("reference 1 shows the ruff
+  collar, reference 2 the black Baroque tailoring, reference 3 the brass limb").
+  Say that the result is a new, different person and must not copy any
+  reference face.
+- **Re-clothing takes a real garment.** Dress an existing character in a
+  garment that already exists on another character, passed as a reference
+  image and named in the prompt, with the face anchor passed as a second
+  reference. Write what stays fixed (face, hair, build, mechanical limb,
+  backdrop) and what changes. Ordinary clothes with no source in the world
+  (aprons, waistcoats, a tram coat) are not wardrobe for this cast.
+- **Identity carries by derivation.** Make the face close-up from the full-body
+  master with the master as the reference, not from a fresh description.
+- **Show your references.** Every generated still on a review board lists the
+  gallery asset IDs it was built from, next to its prompt.
+- **Stories follow the cast.** Write episodes for the characters and costumes
+  that exist, and name the costume each character wears. A trade or job with no
+  place in the world (baker, waiter) is a sign the story is not for this world.
 
 ## Locations
 

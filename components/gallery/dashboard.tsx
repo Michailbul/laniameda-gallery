@@ -61,6 +61,7 @@ import { MasonryGrid } from "@/components/masonry-grid";
 import { SkillsView } from "./skills-view";
 import { StoriesView } from "./stories-view";
 import { FilterPresets } from "./filter-presets";
+import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
 import {
@@ -2312,42 +2313,20 @@ export function GalleryDashboard({
     return source.map(skillCardToEntry);
   }, [folderSkills, gridSkills, showFolderSkillCards]);
 
-  const storybookEntries = useMemo<GalleryEntry[]>(() => {
-    if (!storybooks || storybooks.length === 0) return [];
-    return storybooks.map((storybook) => {
-      const previews = storybook.previewAssets.map((preview) => ({
-        id: preview.assetId,
-        galleryItemId: preview.assetId,
-        galleryItemType: "asset" as const,
-        src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
-        fullSrc: preview.url ?? preview.thumbUrl ?? "/placeholder.svg",
-        prompt: storybook.name,
-        width: preview.thumbWidth ?? preview.width,
-        height: preview.thumbHeight ?? preview.height,
-        kind: preview.kind,
-        contentType: preview.contentType,
-      }));
-      const cover = previews[0];
-      return {
-        id: `storybook:${storybook._id}`,
-        galleryItemId: storybook._id as string,
-        galleryItemType: "storybook" as const,
-        src: cover?.src ?? "/placeholder.svg",
-        fullSrc: cover?.fullSrc ?? "/placeholder.svg",
-        prompt: storybook.name,
-        author: "Storybook",
-        likes: 0,
-        width: cover?.width,
-        height: cover?.height,
-        kind: cover?.kind,
-        contentType: cover?.contentType,
-        description: storybook.story,
-        createdAt: storybook.updatedAt ?? storybook.createdAt,
-        storybookCount: storybook.count,
-        previewImages: previews,
-      };
-    });
-  }, [storybooks]);
+  const shelfBooks = useMemo<ShelfBook[]>(
+    () =>
+      (storybooks ?? []).map((storybook) => ({
+        id: storybook._id as string,
+        name: storybook.name,
+        story: storybook.story,
+        count: storybook.count,
+        previews: storybook.previewAssets.map((preview) => ({
+          src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
+          kind: preview.kind,
+        })),
+      })),
+    [storybooks],
+  );
 
   const childCollectionEntries = useMemo<GalleryEntry[]>(() => {
     if (!childCollectionStacks || childCollectionStacks.length === 0) {
@@ -4754,28 +4733,6 @@ export function GalleryDashboard({
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
-          storybooks={
-            canManageFoldersInCurrentView
-              ? (storybooks ?? []).map((storybook) => ({
-                  _id: storybook._id,
-                  name: storybook.name,
-                  count: storybook.count,
-                }))
-              : []
-          }
-          onStorybookOpen={
-            canManageFoldersInCurrentView
-              ? setOpenStorybookId
-              : undefined
-          }
-          onCreateStorybook={
-            canManageFoldersInCurrentView ? createStorybook : undefined
-          }
-          onAssetsDropOnStorybook={
-            canManageFoldersInCurrentView
-              ? handleAssetsDropOnStorybook
-              : undefined
-          }
           onRenameFolder={
             canManageFoldersInCurrentView ? handleRenameFolder : undefined
           }
@@ -4882,32 +4839,34 @@ export function GalleryDashboard({
                 }}
               />
             )}
-            {storybooksView && (
-              <div className="flex items-center justify-between px-4 pb-2 pt-4">
-                <h2
-                  style={{
-                    fontFamily: "var(--lm-font)",
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
-                    color: "var(--lm-text-primary)",
+            {/* Storybooks shelf — lives on the main page, with its own filters. */}
+            {!storybooksView &&
+              !bookmarksView &&
+              !extraTabView &&
+              viewMode === "grid" &&
+              canManageFoldersInCurrentView &&
+              galleryScope === "mine" &&
+              !effectiveSelectedFolderId &&
+              selectedTags.length === 0 &&
+              excludedFilters.length === 0 &&
+              !assetSearchQuery &&
+              !likedOnly &&
+              shelfBooks.length > 0 && (
+                <StorybookShelf
+                  mode="shelf"
+                  books={shelfBooks}
+                  onOpen={setOpenStorybookId}
+                  onCreate={createStorybook}
+                  onSeeAll={() => {
+                    setBookmarksView(false);
+                    setMotionView(false);
+                    setCinematographyView(false);
+                    setStoriesView(false);
+                    setStorybooksView(true);
                   }}
-                >
-                  Storybooks
-                  <span
-                    style={{
-                      marginLeft: "8px",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "var(--lm-text-tertiary)",
-                    }}
-                  >
-                    {storybookEntries.length}
-                  </span>
-                </h2>
-              </div>
-            )}
+                  onDropAssets={handleAssetsDropOnStorybook}
+                />
+              )}
 
             {/* Search Vault is now in the bottom dock */}
 
@@ -5112,29 +5071,13 @@ export function GalleryDashboard({
                   onImageLoad={markImageLoaded}
                 />
               ) : storybooksView ? (
-                storybookEntries.length > 0 ? (
-                  <MasonryGrid
-                    images={storybookEntries}
-                    compactColumns={false}
-                    onStorybookOpen={setOpenStorybookId}
-                    onImageLoad={markImageLoaded}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in">
-                    <p
-                      style={{
-                        fontFamily: "var(--lm-font)",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: "var(--lm-text-tertiary)",
-                      }}
-                    >
-                      No storybooks yet. Create one from the sidebar.
-                    </p>
-                  </div>
-                )
+                <StorybookShelf
+                  mode="grid"
+                  books={shelfBooks}
+                  onOpen={setOpenStorybookId}
+                  onCreate={createStorybook}
+                  onDropAssets={handleAssetsDropOnStorybook}
+                />
               ) : viewMode === "collections" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
                   <CollectionsGrid

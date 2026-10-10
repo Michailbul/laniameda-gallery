@@ -3,7 +3,7 @@ import { getResource, saveResource } from "../convex/agentInstructions";
 import { callAsOwner } from "./helpers/call-as-owner";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
-const input = { ownerUserId: "telegram:42", resourcePath: "references/worlds.md", content: "# Private filing rules\n\nResolve worlds from live collections.", version: "1.6.2" };
+const input = { ownerUserId: "telegram:42", resourcePath: "references/worlds.md", content: "# Private filing rules\n\nResolve worlds from live collections.", version: "1.6.3" };
 
 describe("private agent instruction resources", () => {
   test("keeps exact owner data, resolves aliases and deduplicates exact retries", async () => {
