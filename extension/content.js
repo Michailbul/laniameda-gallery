@@ -1135,16 +1135,30 @@
     const lastFolderId = String(cfg[LAST_FOLDER_ID_KEY] || "").trim();
     const hasPreset = Array.isArray(cfg[LAST_FOLDER_IDS_KEY]);
 
-    return {
-      defaultFolderId,
-      hasPreset,
-      // Before the first save the popup default seeds the picker; a single
-      // lastFolderId covers presets written by an older build.
-      folderIds: hasPreset
-        ? normalizeFolderIdList(cfg[LAST_FOLDER_IDS_KEY])
-        : normalizeFolderIdList([defaultFolderId || lastFolderId]),
-      collectionPillar: normalizeCollectionPillar(cfg[LAST_COLLECTION_PILLAR_KEY]),
-    };
+    // Before the first save the popup default seeds the picker; a single
+    // lastFolderId covers presets written by an older build.
+    let folderIds = hasPreset
+      ? normalizeFolderIdList(cfg[LAST_FOLDER_IDS_KEY])
+      : normalizeFolderIdList([defaultFolderId || lastFolderId]);
+    const collectionPillar = normalizeCollectionPillar(cfg[LAST_COLLECTION_PILLAR_KEY]);
+
+    // A remembered collection can be deleted or merged in the gallery. Sending
+    // its id makes the save fail with "Folder not found", so drop ids the vault
+    // no longer has. Only prune against a successful load: a failed load says
+    // nothing about which collections exist.
+    if (folderIds.length) {
+      const { folders, error } = await loadFoldersCached();
+      if (!error) {
+        const live = new Set(folders.map((folder) => folder.id));
+        const pruned = folderIds.filter((id) => live.has(id));
+        if (pruned.length !== folderIds.length) {
+          folderIds = pruned;
+          rememberSavePreset({ folderIds, collectionPillar });
+        }
+      }
+    }
+
+    return { defaultFolderId, hasPreset, folderIds, collectionPillar };
   }
 
   function rememberSavePreset({ folderIds, collectionPillar }) {
