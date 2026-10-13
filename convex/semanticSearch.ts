@@ -23,6 +23,9 @@ import { skillCardValidator } from "./skills";
 const getSemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentsByIds",
 );
+const getLegacySemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
+  "semanticIndex:getLegacySemanticDocumentsByIds",
+);
 const getSemanticDocumentForAssetQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentForAsset",
 );
@@ -451,6 +454,36 @@ type ScopeSpec = {
 };
 
 type VectorHit = { _id: Id<"semanticDocuments">; _score: number };
+type SemanticHitIdentity = {
+  _id: Id<"semanticDocuments">;
+  sourceType: string;
+  sourceId: string;
+  assetId?: Id<"assets">;
+  skillId?: Id<"skills">;
+  modality: "multimodal_image" | "text_only";
+};
+
+const resolveSemanticIdentities = async (
+  ctx: ActionCtx, hitIds: Id<"semanticDocuments">[],
+): Promise<SemanticHitIdentity[]> => {
+  const ids = [...new Set(hitIds)];
+  if (ids.length === 0) return [];
+  const compact = await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
+    ids, metadataOnly: true,
+  }) as SemanticHitIdentity[];
+  const found = new Set(compact.map((doc) => doc._id));
+  const missing = ids.filter((id) => !found.has(id));
+  // Compact rows share one read pass. Only migration-period misses read full
+  // documents, in <=8-document queries (~8 MiB worst-case, including text).
+  // Resolving the union before batching still deduplicates across both lanes.
+  const batches: Array<Promise<SemanticHitIdentity[]>> = [];
+  for (let start = 0; start < missing.length; start += 8) {
+    batches.push(ctx.runQuery(getLegacySemanticDocumentsByIdsQueryRef, {
+      ids: missing.slice(start, start + 8),
+    }) as Promise<SemanticHitIdentity[]>);
+  }
+  return [...compact, ...(await Promise.all(batches)).flat()];
+};
 
 const runLane = async (
   ctx: ActionCtx,
@@ -490,16 +523,10 @@ const hydrateLanes = async (
   lanes: Partial<Record<LaneName, VectorHit[]>>,
   excludeAssetId?: Id<"assets">,
 ): Promise<Partial<Record<LaneName, LaneHit[]>>> => {
-  const ids = [...new Set(Object.values(lanes).flatMap((hits) =>
+  const ids = Object.values(lanes).flatMap((hits) =>
     hits?.map((hit) => hit._id) ?? [],
-  ))];
-  const semanticDocs = (ids.length === 0 ? [] : await ctx.runQuery(
-    getSemanticDocumentsByIdsQueryRef, { ids },
-  )) as Array<{
-    _id: Id<"semanticDocuments">;
-    assetId?: Id<"assets">;
-    modality: "multimodal_image" | "text_only";
-  }>;
+  );
+  const semanticDocs = await resolveSemanticIdentities(ctx, ids);
   // The pixel lane is for pixels. An imageless asset (a video) stores a short
   // text there, and query-text against that text outscores every real
   // cross-modal match, so it would crowd the images out of the lane. Those
@@ -773,9 +800,7 @@ export const searchSkills = ownerAction({
             ...ownerCandidates.map((owner) => q.eq("scopeKey", `owner:${owner}:skill`)),
           ),
       });
-      const docs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
-        ids: hits.map((hit) => hit._id),
-      })) as Array<{ _id: Id<"semanticDocuments">; sourceId: string; sourceType: string; skillId?: Id<"skills"> }>;
+      const docs = await resolveSemanticIdentities(ctx, hits.map((hit) => hit._id));
       const sourceById = new Map(docs.map((doc) => [doc._id, doc]));
       const top = hits[0]?._score ?? 0;
       const cutoff = args.minRelativeScore ?? 0.8;

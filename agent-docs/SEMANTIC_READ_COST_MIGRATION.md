@@ -22,6 +22,14 @@ migration. A draft PR does not authorize either action.
 - A missing identity falls back to the original document, so existing data
   remains searchable throughout rollout. No completeness flag or early cutover
   can hide legacy hits.
+- Identity resolution is two-phase: one compact-only query for the unique hit
+  IDs, followed by miss-only legacy queries with a server-enforced maximum of
+  eight full documents each. This stays below the 16 MiB query read limit even
+  when a document approaches Convex's 1 MiB document-size limit; vector bytes
+  alone are not a safe bound because `searchText` can be large. Both asset lanes
+  and Skill search use this resolver. The fully migrated path remains one
+  identity query; migration-period misses trade extra query calls for bounded
+  reads without truncation, score changes, or lost candidates.
 - Source reindex backfill uses bounded native cursor pages instead of collecting
   and sorting a whole source table for every batch. Cursors are opaque; callers
   must use `done`, not `processed === 0`, as EOF. Old `createdAt::id` checkpoints
@@ -62,6 +70,11 @@ legacy fallback, source timestamp ties and empty-page resume, lookup read budget
 shared lane lookup, unchanged rank fusion, and owner/public scope filters.
 Regression cases also cover stale public/owner vector metadata for ordinary
 search, similarity results, and similarity-source authorization.
+Fallback budget tests resolve two disjoint 256-hit lanes with zero, half, and
+full identity coverage, checking all 512 candidates and the final rank/score.
+Near-limit documents with 900 KB of search text plus dual 3072-vectors verify
+that eight-document fallback batches read less than 8 MiB of serialized fixture
+data; a ninth ID is rejected server-side before any reads.
 These mock-based checks count rows/payload bytes and are not a production bill
 measurement or a substitute for the authorized deployment's readback.
 

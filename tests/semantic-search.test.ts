@@ -179,7 +179,7 @@ describe("semantic search actions", () => {
     expect(identityRequests).toEqual([[
       "semanticDocuments:video", "semanticDocuments:a", "semanticDocuments:b",
       "semanticDocuments:duplicate-a", "semanticDocuments:deleted",
-    ]]);
+    ], ["semanticDocuments:deleted"]]);
     expect(result.map((row) => row._id)).toEqual(["assets:a", "assets:b", "assets:video"]);
     expect(result[0]?.score).toBeCloseTo((1 + 61 / 62) / 2, 12);
     expect(result[1]?.score).toBeCloseTo((1 + 61 / 62) / 2, 12);

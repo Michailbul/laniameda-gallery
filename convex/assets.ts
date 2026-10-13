@@ -23,6 +23,8 @@ import {
 import { ANIMATION_TAG_KEY, PIECE_TYPE_KEYS, type Medium, type PieceType } from "./tagFilters";
 import { ensureFolderOwnership, recountFolderMembers } from "./folderHelpers";
 import { publicCollectionCountsReady, syncPublicCollectionMembership } from "./publicCollectionCounts";
+import { mergedStream, stream, type QueryStream } from "convex-helpers/server/stream";
+import schema from "./schema";
 import { r2 } from "./r2";
 import {
   galleryAssetResultValidator,
@@ -2509,6 +2511,8 @@ const galleryPageValidator = v.object({
   page: v.array(galleryAssetResultValidator),
   isDone: v.boolean(),
   continueCursor: v.string(),
+  splitCursor: v.optional(v.string()),
+  pageStatus: v.optional(v.union(v.literal("SplitRequired"), v.literal("SplitRecommended"))),
 });
 
 type WrappedCursor = { o: number; c: string | null };
@@ -2593,6 +2597,9 @@ export const listGalleryAssetsPage = ownerQuery({
     ...pageMenuFilterValidators,
     folderId: v.optional(v.id("folders")),
     includeDescendants: v.optional(v.boolean()),
+    // Newest filtered/world views merge legacy owner spellings by asset date.
+    // Opt-in keeps old clients and their wrapped native cursors compatible.
+    mergeOwners: v.optional(v.boolean()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -2622,58 +2629,85 @@ export const listGalleryAssetsPage = ownerQuery({
     const kind = args.kind;
 
     // Same index priority as listGalleryAssets; leftover filters post-filter.
-    const indexed = onlyLiked
-      ? ctx.db
+    const indexedForOwner = (ownerCandidate: string) => {
+      const db = args.mergeOwners ? stream(ctx.db, schema) : ctx.db;
+      return onlyLiked
+      ? db
           .query("assets")
           .withIndex("by_owner_isLiked_createdAt", (q) =>
             q.eq("ownerUserId", ownerCandidate).eq("isLiked", true).gte("createdAt", 0),
           )
       : modelNameFilter
-        ? ctx.db
+        ? db
             .query("assets")
             .withIndex("by_owner_modelName_createdAt", (q) =>
               q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
             )
         : pillar && assetRole && !isSkillExampleRole(assetRole)
-          ? ctx.db
+          ? db
               .query("assets")
               .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
                 q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
               )
           : pillar
-            ? ctx.db
+            ? db
                 .query("assets")
                 .withIndex("by_owner_pillar_createdAt", (q) =>
                   q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
                 )
             : assetRole && !isSkillExampleRole(assetRole)
-              ? ctx.db
+              ? db
                   .query("assets")
                   .withIndex("by_owner_assetRole_createdAt", (q) =>
                     q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
                   )
               : kind
-                ? ctx.db
+                ? db
                     .query("assets")
                     .withIndex("by_owner_kind_createdAt", (q) =>
                       q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
                     )
-                : ctx.db
+                : db
                     .query("assets")
                     .withIndex("by_owner_createdAt", (q) =>
                       q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
                     );
+    };
 
-    const result = await indexed.order("desc").paginate({
-      numItems: Math.min(Math.max(1, args.paginationOpts.numItems), 100),
-      cursor: cursor.c,
-    });
+    const numItems = Math.min(Math.max(1, args.paginationOpts.numItems), 100);
+    const result = args.mergeOwners
+      ? await mergedStream(candidates.map((owner) =>
+          indexedForOwner(owner).order("desc") as QueryStream<Doc<"assets">>,
+        ), ["createdAt"]).paginate({
+          ...args.paginationOpts,
+          numItems,
+          maximumRowsRead: 120,
+          maximumBytesRead: 4 * 1024 * 1024,
+        })
+      : await indexedForOwner(ownerCandidate).order("desc").paginate({
+          numItems,
+          cursor: cursor.c,
+        });
 
     const filtered = await filterGalleryPageAssets(ctx, result.page, args, hiddenFolderIds);
+    const page = await hydrateGalleryAssetResults(ctx, filtered.assets, filtered);
+
+    if (args.mergeOwners) {
+      // The matching convex-helpers React hook pins each page's end before
+      // loading the next one. Keep that end even when a growing pinned page
+      // hits a budget: the split's second child must cover the unread tail.
+      return {
+        page,
+        isDone: result.isDone,
+        continueCursor: args.paginationOpts.endCursor ?? result.continueCursor,
+        pageStatus: result.pageStatus ?? undefined,
+        splitCursor: result.splitCursor ?? undefined,
+      };
+    }
 
     const isLastCandidate = ownerIndex >= candidates.length - 1;
     return {
-      page: await hydrateGalleryAssetResults(ctx, filtered.assets, filtered),
+      page,
       isDone: result.isDone && isLastCandidate,
       continueCursor:
         result.isDone && !isLastCandidate

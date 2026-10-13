@@ -518,6 +518,9 @@ export const getExistingSemanticDocumentForSource = internalQuery({
 export const getSemanticDocumentsByIds = internalQuery({
   args: {
     ids: v.array(v.id("semanticDocuments")),
+    // Search first resolves compact identities, then fetches only misses in
+    // separately bounded queries. Default preserves older internal callers.
+    metadataOnly: v.optional(v.boolean()),
   },
   returns: v.array(semanticDocumentLookupValidator),
   handler: async (ctx, args) => {
@@ -532,10 +535,28 @@ export const getSemanticDocumentsByIds = internalQuery({
           _creationTime: identity.semanticDocumentCreationTime,
         });
       }
+      if (args.metadataOnly) return null;
       // Additive rollout: older documents remain searchable before the
       // metadata-only backfill completes. Only these misses read vectors.
       const legacy = await ctx.db.get(id);
       return legacy ? semanticIdentity(legacy) : null;
+    }));
+    return rows.filter((row): row is SemanticIdentity => row !== null);
+  },
+});
+
+export const getLegacySemanticDocumentsByIds = internalQuery({
+  args: { ids: v.array(v.id("semanticDocuments")) },
+  returns: v.array(semanticDocumentLookupValidator),
+  handler: async (ctx, args) => {
+    const ids = dedupeIds(args.ids);
+    // A semantic document can approach Convex's 1 MiB document limit when
+    // searchText is large. Eight direct reads stay below the 16 MiB query
+    // limit regardless of vector size; do not batch by vector bytes alone.
+    if (ids.length > 8) throw new ConvexError("Legacy semantic lookups are limited to 8 documents per query.");
+    const rows = await Promise.all(ids.map(async (id) => {
+      const row = await ctx.db.get(id);
+      return row ? semanticIdentity(row) : null;
     }));
     return rows.filter((row): row is SemanticIdentity => row !== null);
   },

@@ -1,6 +1,7 @@
 type Constraint =
   | { type: "eq"; field: string; value: unknown }
   | { type: "gte"; field: string; value: unknown }
+  | { type: "gt"; field: string; value: unknown }
   | { type: "lt"; field: string; value: unknown }
   | { type: "lte"; field: string; value: unknown };
 
@@ -20,6 +21,11 @@ class QueryBuilder {
 
   gte(field: string, value: unknown) {
     this.constraints.push({ type: "gte", field, value });
+    return this;
+  }
+
+  gt(field: string, value: unknown) {
+    this.constraints.push({ type: "gt", field, value });
     return this;
   }
 
@@ -60,6 +66,12 @@ class InMemoryQuery {
     return this.execute();
   }
 
+  async *[Symbol.asyncIterator]() {
+    // Convex helpers consume the underlying indexed iterator, including the
+    // creation-time and ID tie breakers of real Convex indexes.
+    yield* this.execute(true);
+  }
+
   async take(limit: number) {
     return this.execute().slice(0, limit);
   }
@@ -88,7 +100,7 @@ class InMemoryQuery {
     return docs.length > 0 ? docs[0] : null;
   }
 
-  private execute() {
+  private execute(indexTieBreakers = false) {
     const docs = this.db.getTableDocs(this.table).filter((doc) => {
       for (const constraint of this.constraints) {
         const value = doc[constraint.field];
@@ -114,7 +126,9 @@ class InMemoryQuery {
         if (value === undefined || value === null) {
           return false;
         }
-        if ((value as string | number) < (constraint.value as string | number)) {
+        if (constraint.type === "gt"
+          ? (value as string | number) <= (constraint.value as string | number)
+          : (value as string | number) < (constraint.value as string | number)) {
           return false;
         }
       }
@@ -131,7 +145,9 @@ class InMemoryQuery {
 
       const a = Number(left.createdAt ?? left._creationTime);
       const b = Number(right.createdAt ?? right._creationTime);
-      return a - b;
+      if (a !== b || !indexTieBreakers) return a - b;
+      const time = left._creationTime - right._creationTime;
+      return time || (left._id < right._id ? -1 : left._id > right._id ? 1 : 0);
     });
 
     if (this.beat === "desc") {

@@ -23,6 +23,7 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
+import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
@@ -1731,12 +1732,11 @@ export function GalleryDashboard({
     canAccessMyGallery &&
     Boolean(effectiveSelectedFolderId) &&
     !activeSmartCollectionFilter &&
-    sortOrder === "newest";
+    sortOrder === "newest" &&
+    !menuFilterActive && !selectedModelName && !mediaKind && !likedOnly;
   const paginationActive = sortOrder === "newest" && !folderPaginationActive;
 
-  const minePagedAssets = usePaginatedQuery(
-    api.assets.listGalleryAssetsPage,
-    paginationActive && galleryScope === "mine" && canAccessMyGallery
+  const minePageArgs = paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
           modelName: selectedModelName ?? undefined,
@@ -1748,9 +1748,20 @@ export function GalleryDashboard({
           folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
             ? effectiveSelectedFolderId as Id<"folders"> : undefined,
           includeDescendants: browsingWorldFolder || undefined,
+          mergeOwners: menuFilterActive || Boolean(effectiveSelectedFolderId) || undefined,
           skipHiddenCollections: !effectiveSelectedFolderId || undefined,
         }
-      : "skip",
+      : "skip" as const;
+  const minePagedAssets = usePaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && !minePageArgs.mergeOwners ? minePageArgs : "skip",
+    { initialNumItems: 60 },
+  );
+  // This helper hook supplies endCursor as pages load, keeping the merged
+  // chronological stream contiguous through reactive inserts and deletions.
+  const mineCreatedPagedAssets = useStreamPaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && minePageArgs.mergeOwners ? minePageArgs : "skip",
     { initialNumItems: 60 },
   );
   const publicPagedAssets = usePaginatedQuery(
@@ -1787,7 +1798,8 @@ export function GalleryDashboard({
   const activePagedAssets = folderPaginationActive
     ? folderPagedAssets
     : galleryScope === "mine"
-      ? minePagedAssets
+      ? minePageArgs !== "skip" && minePageArgs.mergeOwners
+        ? mineCreatedPagedAssets : minePagedAssets
       : publicPagedAssets;
   const anyPaginationActive = paginationActive || folderPaginationActive;
   // The grid calls this repeatedly while its frontier is exposed; loadMore is

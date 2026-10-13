@@ -81,7 +81,10 @@ the `search_text` keyword index covers it as well.
 resolve vector-hit IDs without loading either embedding. Both lanes share one
 deduplicated lookup. Semantic mutations maintain the projection atomically;
 legacy rows use a full-document fallback until the metadata-only migration
-completes. This does not change agent search inputs, results, or permissions.
+completes. The compact lookup and miss-only fallback are separate queries;
+fallback batches contain at most eight full documents to remain below database
+read limits even with large search text. This does not change agent search
+inputs, results, or permissions.
 Deployment and migration require separate authorization; see
 `agent-docs/SEMANTIC_READ_COST_MIGRATION.md` for rollout and verification.
 

@@ -17,8 +17,12 @@ provider API call, billing-setting change or production write is included.
    Traversal has no 600/2,000-result ceiling. Membership tests read only the
    current candidate's links, and hydration reuses those results. Worlds walk
    owner assets, so parent-plus-child membership is deduplicated and legacy
-   primary-only membership still works. Single collections retain their
-   indexed membership cursor.
+   primary-only membership still works. Filtered collections use asset creation
+   dates, not filing dates. These newly paged views merge owner spellings into
+   one chronological stream using the official Convex stream helpers and their
+   matching React pagination hook. Pinned page boundaries remain contiguous
+   through reactive inserts/deletes and read-budget splits. Unfiltered single
+   collections retain their existing indexed membership cursor.
 3. **Public collection counts:** maintain transactional per-asset contribution
    snapshots and folder counters. After migration readiness, public count reads
    touch folder rows rather than every public asset and membership. Private
@@ -49,10 +53,9 @@ sparse filters can traverse many short pages.
   currently determines automatic prompt-family grouping, lexical search and
   card display; removing it without a compatible summary/grouping model would
   change results. Pagination reduces how many cards are hydrated initially.
-- Owner feeds retain the existing sequential legacy-ID candidate cursors.
-  With data split across both owner spellings, stable appended pages are not
-  a globally merged chronological stream. No rows are omitted, but this needs
-  a dedicated merged-cursor solution before claiming strict cross-alias order.
+- Existing unfiltered owner feeds retain their sequential legacy-ID candidate
+  cursors for backward compatibility. Newly paged filtered/world feeds use the
+  merged chronological path; they do not inherit that ordering limitation.
 - The single-collection cursor retains its existing membership-date order and
   its assumption that legacy primary membership is mirrored to join rows.
 
@@ -69,8 +72,8 @@ contracts and legacy fallbacks remain available during migration.
 ## Verification environment
 
 - Bun 1.4.3; dependencies installed from the committed lockfile.
-- Full ESLint and TypeScript checks pass. The 11 affected suites pass all
-  80 tests with 370 assertions. Independent review reproduced and verified
+- Full ESLint and TypeScript checks pass. All 89 tests in 12 affected suites
+  pass, with 435 assertions. Independent review reproduced and verified
   the legacy-primary-only collection-flattening fix and reviewed the final
   semantic authorization follow-up.
 - Offline Convex code generation used the installed CLI's local
@@ -86,8 +89,8 @@ contracts and legacy fallbacks remain available during migration.
 
 ## Existing test-suite failures
 
-The aggregate `bun test` run is not green. Running all 111 test files in separate
-processes reports 698 passing tests and 10 failures across seven files. This
+The aggregate `bun test` run is not green. Running all 112 test files in separate
+processes reports 707 passing tests and 10 failures across seven files. This
 removes cross-file mock pollution; the same seven failing files also
 fail on untouched main at `bbb9de84500680afd76c587ebf5525bc2efae5d5`:
 
