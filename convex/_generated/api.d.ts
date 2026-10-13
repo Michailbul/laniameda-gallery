@@ -8,6 +8,11 @@
  * @module
  */
 
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
 import type * as actor from "../actor.js";
 import type * as agentAssets from "../agentAssets.js";
 import type * as agentDescriptionText from "../agentDescriptionText.js";
@@ -45,6 +50,7 @@ import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
+import type * as publicCollectionCounts from "../publicCollectionCounts.js";
 import type * as publicSurface from "../publicSurface.js";
 import type * as r2 from "../r2.js";
 import type * as r2_store from "../r2_store.js";
@@ -53,6 +59,8 @@ import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as showcase from "../showcase.js";
+import type * as skillMigration from "../skillMigration.js";
+import type * as skills from "../skills.js";
 import type * as stories from "../stories.js";
 import type * as storyValidators from "../storyValidators.js";
 import type * as storybooks from "../storybooks.js";
@@ -64,15 +72,15 @@ import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
-import type * as skills from "../skills.js";
-import type * as skillMigration from "../skillMigration.js";
 
-import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
-} from "convex/server";
-
+/**
+ * A utility for referencing Convex functions in your app's API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
 declare const fullApi: ApiFromModules<{
   actor: typeof actor;
   agentAssets: typeof agentAssets;
@@ -111,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   menuFilters: typeof menuFilters;
   notifications: typeof notifications;
   prompts: typeof prompts;
+  publicCollectionCounts: typeof publicCollectionCounts;
   publicSurface: typeof publicSurface;
   r2: typeof r2;
   r2_store: typeof r2_store;
@@ -119,6 +128,8 @@ declare const fullApi: ApiFromModules<{
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
   showcase: typeof showcase;
+  skillMigration: typeof skillMigration;
+  skills: typeof skills;
   stories: typeof stories;
   storyValidators: typeof storyValidators;
   storybooks: typeof storybooks;
@@ -130,31 +141,11 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   validators: typeof validators;
   videoRefs: typeof videoRefs;
-  skills: typeof skills;
-  skillMigration: typeof skillMigration;
 }>;
-
-/**
- * A utility for referencing Convex functions in your app's public API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
- * ```
- */
 export declare const api: FilterApi<
   typeof fullApi,
   FunctionReference<any, "public">
 >;
-
-/**
- * A utility for referencing Convex functions in your app's internal API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = internal.myModule.myFunction;
- * ```
- */
 export declare const internal: FilterApi<
   typeof fullApi,
   FunctionReference<any, "internal">

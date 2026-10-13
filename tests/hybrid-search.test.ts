@@ -148,7 +148,9 @@ describe("hybrid searchAssets", () => {
         }));
       }
       if (payload.items) {
-        return payload.items.map((item) => ({ ...hydrated[item.assetId], ...item }));
+        return payload.items.map((item) => ({
+          ...hydrated[item.assetId], ...item, ownerUserId: "278674008",
+        }));
       }
       return null;
     },

@@ -77,6 +77,14 @@ hydrating. In hybrid mode a rate-limited pixel model degrades the search to the
 text lane instead of failing it. `searchText` on the row holds the text lane, so
 the `search_text` keyword index covers it as well.
 
+`semanticDocumentIdentities` is an internal lightweight projection used to
+resolve vector-hit IDs without loading either embedding. Both lanes share one
+deduplicated lookup. Semantic mutations maintain the projection atomically;
+legacy rows use a full-document fallback until the metadata-only migration
+completes. This does not change agent search inputs, results, or permissions.
+Deployment and migration require separate authorization; see
+`agent-docs/SEMANTIC_READ_COST_MIGRATION.md` for rollout and verification.
+
 ## Pillars: legacy, leave unset
 
 `pillar` still exists as a column on prompts, assets, tags, packs, skills
@@ -197,6 +205,15 @@ section as that section.
 Naming convention: world collections are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
 Folder names are scoped to their parent, so "Balcony" can exist under several
 collections.
+
+Public collection counts are stored in `folders.publicMemberCount`, maintained
+transactionally by `publicCollectionMemberships` snapshots whenever asset
+publication or membership changes. They count distinct public assets across
+`assetFolders` and the legacy primary pointer, excluding private assets.
+`folders:listFolders` exposes this optional count only when the bounded
+`publicCollectionCounts:backfill` has completed; missing means not ready, not
+zero. Until then `assets:listPublicCollections` preserves the exact legacy
+read. These internal bookkeeping tables do not change save/filing arguments.
 
 ## Validator quick reference
 
