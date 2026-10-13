@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { resolveUserIdCandidates } from "./authz";
 import { cascadeDeleteFolder } from "./folders";
 import { recountFolderMembers } from "./folderHelpers";
+import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import {
   bumpTagUsage,
   canonicalTagKey,
@@ -234,6 +235,10 @@ export const flattenSectionCollections = internalMutation({
             usageDelta.set(tagId, (usageDelta.get(tagId) ?? 0) + 1);
           }
         }
+        // A primary-only legacy member no longer points to this child after
+        // the patch above, so the deletion cascade cannot rediscover it.
+        // Reconcile here as well as in the cascade for linked child members.
+        if (!dryRun) await syncPublicCollectionMembership(ctx, asset._id);
       }
 
       report.push({

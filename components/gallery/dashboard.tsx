@@ -23,6 +23,7 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
+import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
 import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
@@ -103,6 +104,8 @@ import {
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
+import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
+import { isSrefCollection } from "@/lib/midjourney-srefs";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 
@@ -1248,6 +1251,9 @@ export function GalleryDashboard({
     );
     const mappings = new Map<string, (typeof tagFilters)[number]>();
     for (const folder of collectionFoldersWithCounts) {
+      // World parts are actual membership collections. A child named Live
+      // Action must not become the global Live action tag view.
+      if (folder.parentFolderId) continue;
       const folderKey = canonicalTagKey(folder.name);
       if (!folderKey) continue;
       const matchingFilter = tagFilters.find((entry) =>
@@ -1427,11 +1433,17 @@ export function GalleryDashboard({
   );
   const deleteSkillMutation = useMutation(api.skills.deleteSkill);
 
-  // Public-facing collections, derived from the data: any collection with at
-  // least one public asset, counted over public assets only. Queried in both
-  // scopes — the public tab lists them, the mine tab uses them to mark which
-  // collections are currently published.
-  const publicCollections = useQuery(api.assets.listPublicCollections, {});
+  // Owner folder rows carry the saved public counts once their migration is
+  // complete. Keep the exact legacy fallback during rollout, then private
+  // browsing no longer subscribes to the entire public gallery's counts.
+  const ownerPublicCountsReady = folders !== undefined &&
+    folders.every((folder) => folder.publicMemberCount !== undefined);
+  const publicCollections = useQuery(
+    api.assets.listPublicCollections,
+    galleryScope === "public" || (canAccessMyGallery && !ownerPublicCountsReady)
+      ? {}
+      : "skip",
+  );
   const publicFoldersWithCounts = useMemo(
     () =>
       (publicCollections ?? []).map((entry) => ({
@@ -1450,8 +1462,11 @@ export function GalleryDashboard({
   // decides whether the row's publish toggle reads as "publish" or "unpublish".
   const publishedFolderIds = useMemo(
     () =>
-      new Set((publicCollections ?? []).map((entry) => String(entry.folderId))),
-    [publicCollections],
+      new Set(galleryScope === "mine" && ownerPublicCountsReady
+        ? (folders ?? []).filter((folder) => (folder.publicMemberCount ?? 0) > 0)
+            .map((folder) => String(folder._id))
+        : (publicCollections ?? []).map((entry) => String(entry.folderId))),
+    [folders, galleryScope, ownerPublicCountsReady, publicCollections],
   );
 
   const [folderPublishNotice, setFolderPublishNotice] = useState<
@@ -1634,12 +1649,10 @@ export function GalleryDashboard({
     );
   }, [activeSmartCollectionFilter, selectedTags]);
 
-  // Cursor pagination serves the default browse (newest, no folder): pages of
-  // 60 stream in as the grid's scroll frontier nears the end of what's loaded,
-  // so the whole gallery is never read in one query — and reactive re-runs
-  // only re-read the page that changed. Folder views and the
-  // featured/popular/largest sorts need the full set in hand (they join or
-  // globally re-order), so they keep the one-shot query, now capped at 600.
+  // Newest browsing streams source pages of 60, including sparse filters and
+  // flattened worlds. Global featured/shuffle ordering retains its complete
+  // window until it has a server-side ordered cursor; shuffling only the first
+  // page would silently bias the result toward recent pieces.
   // Breadcrumb above the grid while browsing inside a set. Roots return to
   // the collections (landing) view.
   const breadcrumbSegments = useMemo<BreadcrumbSegment[]>(() => {
@@ -1679,23 +1692,9 @@ export function GalleryDashboard({
     viewMode,
   ]);
 
-  // Menu-filter predicates also take the one-shot path: the page query
-  // post-filters each 60-item page, so a sparse tag can hand the grid an empty
-  // first page (it reads as "no matches") even when hundreds match. The
-  // one-shot query returns the full filtered set, keeping the grid consistent
-  // with the menu pill counts.
-  const paginationActive =
-    sortOrder === "newest" &&
-    !effectiveSelectedFolderId &&
-    !menuFilterActive;
-
-  // Collection browsing gets its own cursor pagination over the membership
-  // links, so a collection of ANY size streams fully (no 600-item cap).
-  // Combining the folder with another asset filter falls back to the capped
-  // one-shot query, same as before.
-  // A world = a collection with sub-collections. Browsing one unions the whole
-  // tree, which the single-folder cursor query can't paginate over, so world
-  // browse falls back to the capped one-shot read.
+  // A single collection pages its links. A world pages owner assets and tests
+  // their memberships, so assets filed in both parent and child appear once
+  // and legacy primary-folder pointers remain reachable without a backfill.
   const childFolderParentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const folder of folders ?? []) {
@@ -1716,11 +1715,15 @@ export function GalleryDashboard({
         (folder) => folder.parentFolderId === activeCollectionFolder._id,
       ).length
     : 0;
+  const srefsCollectionView = galleryScope === "mine" && viewMode === "grid" &&
+    !storybooksView && !bookmarksView && !extraTabView &&
+    isSrefCollection(activeCollectionFolder?.name);
   const collectionAssetsExpanded =
     browsingWorldFolder &&
     !activeSmartCollectionFilter &&
     (flattenStacks || expandedCollectionId === effectiveSelectedFolderId);
   const collectionStackViewAvailable =
+    !srefsCollectionView &&
     Boolean(effectiveSelectedFolderId) &&
     !activeSmartCollectionFilter &&
     galleryScope === "mine" &&
@@ -1733,29 +1736,42 @@ export function GalleryDashboard({
     !assetSearchQuery.trim();
 
   const folderPaginationActive =
+    !srefsCollectionView &&
     !browsingWorldFolder &&
     galleryScope === "mine" &&
     canAccessMyGallery &&
     Boolean(effectiveSelectedFolderId) &&
+    !activeSmartCollectionFilter &&
     sortOrder === "newest" &&
-    !menuFilterActive &&
-    !selectedModelName &&
-    !mediaKind &&
-    !likedOnly;
+    !menuFilterActive && !selectedModelName && !mediaKind && !likedOnly;
+  const paginationActive = !srefsCollectionView && sortOrder === "newest" && !folderPaginationActive;
 
-  // Both paged reads only run while no menu filter is set (see above), so they
-  // never carry a tag predicate.
-  const minePagedAssets = usePaginatedQuery(
-    api.assets.listGalleryAssetsPage,
-    paginationActive && galleryScope === "mine" && canAccessMyGallery
+  const minePageArgs = paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          skipHiddenCollections: true,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
+            ? effectiveSelectedFolderId as Id<"folders"> : undefined,
+          includeDescendants: browsingWorldFolder || undefined,
+          mergeOwners: menuFilterActive || Boolean(effectiveSelectedFolderId) || undefined,
+          skipHiddenCollections: !effectiveSelectedFolderId || undefined,
         }
-      : "skip",
+      : "skip" as const;
+  const minePagedAssets = usePaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && !minePageArgs.mergeOwners ? minePageArgs : "skip",
+    { initialNumItems: 60 },
+  );
+  // This helper hook supplies endCursor as pages load, keeping the merged
+  // chronological stream contiguous through reactive inserts and deletions.
+  const mineCreatedPagedAssets = useStreamPaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && minePageArgs.mergeOwners ? minePageArgs : "skip",
     { initialNumItems: 60 },
   );
   const publicPagedAssets = usePaginatedQuery(
@@ -1764,6 +1780,11 @@ export function GalleryDashboard({
       ? {
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
+            ? effectiveSelectedFolderId as Id<"folders"> : undefined,
         }
       : "skip",
     { initialNumItems: 60 },
@@ -1774,6 +1795,12 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           folderId: effectiveSelectedFolderId as Id<"folders">,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
+          onlyLiked: likedOnly || undefined,
         }
       : "skip",
     { initialNumItems: 60 },
@@ -1781,7 +1808,8 @@ export function GalleryDashboard({
   const activePagedAssets = folderPaginationActive
     ? folderPagedAssets
     : galleryScope === "mine"
-      ? minePagedAssets
+      ? minePageArgs !== "skip" && minePageArgs.mergeOwners
+        ? mineCreatedPagedAssets : minePagedAssets
       : publicPagedAssets;
   const anyPaginationActive = paginationActive || folderPaginationActive;
   // The grid calls this repeatedly while its frontier is exposed; loadMore is
@@ -1792,21 +1820,6 @@ export function GalleryDashboard({
       activePagedAssets.loadMore(60);
     }
   }, [anyPaginationActive, activePagedAssets]);
-  // Hidden collections are filtered out of each page on the server, so a page
-  // can come back empty while later pages still hold visible pieces. With
-  // nothing rendered the grid never mounts its end-of-list sentinel, so keep
-  // pulling pages here until something shows or the list is exhausted.
-  const pagedFrontierEmpty =
-    anyPaginationActive &&
-    activePagedAssets.results.length === 0 &&
-    (activePagedAssets.status === "CanLoadMore" ||
-      activePagedAssets.status === "LoadingMore");
-  useEffect(() => {
-    if (pagedFrontierEmpty && activePagedAssets.status === "CanLoadMore") {
-      activePagedAssets.loadMore(60);
-    }
-  }, [pagedFrontierEmpty, activePagedAssets]);
-
   // A collection with folders inside leads its grid with one stack card per
   // folder, until the owner flattens it into plain assets.
   const showChildCollectionStacks =
@@ -1814,7 +1827,8 @@ export function GalleryDashboard({
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
-    !paginationActive &&
+    !srefsCollectionView &&
+      !paginationActive &&
       !folderPaginationActive &&
       galleryScope === "mine" &&
       canAccessMyGallery
@@ -1834,9 +1848,8 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          // A flattened world is explicitly an "all assets" view. The backend
-          // caps this query at 2,000, which covers the full current vault and
-          // avoids preserving the overview's older 600-item ceiling.
+          // Only global featured/shuffle sorts use the legacy one-shot window.
+          // Newest flattened worlds now traverse pages without this cap.
           limit: collectionAssetsExpanded ? 2000 : 600,
         }
       : "skip",
@@ -1855,7 +1868,7 @@ export function GalleryDashboard({
   // so a starred asset is never exempt from a filter the user set.
   const starredAssets = useQuery(
     api.assets.listStarredAssets,
-    galleryScope === "mine" && canAccessMyGallery && featuredFirst
+    !srefsCollectionView && galleryScope === "mine" && canAccessMyGallery && featuredFirst
       ? {
           ownerUserId,
           folderId:
@@ -2462,9 +2475,23 @@ export function GalleryDashboard({
           ownerUserId, galleryScope, effectiveSelectedFolderId, sortOrder,
           selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
           assetSearchQuery, showChildCollectionStacks,
+          selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly,
         ])
       : null,
   );
+
+  // Sparse filters can produce many empty source pages, and child stacks or
+  // lexical search can hide every loaded tile. No tile means no scroll
+  // sentinel, so advance until a visible match or source exhaustion. Never
+  // declare an empty first page to be "no matches".
+  const pagedFrontierEmpty = anyPaginationActive &&
+    filteredSemanticResults === null && images.length === 0 &&
+    (activePagedAssets.status === "CanLoadMore" || activePagedAssets.status === "LoadingMore");
+  useEffect(() => {
+    if (pagedFrontierEmpty && activePagedAssets.status === "CanLoadMore") {
+      activePagedAssets.loadMore(60);
+    }
+  }, [pagedFrontierEmpty, activePagedAssets]);
 
   // Every selectable (plain asset) entry currently in the grid — the target
   // set for the bulk toolbar's SELECT ALL.
@@ -4740,7 +4767,15 @@ export function GalleryDashboard({
           onSignOut={onSignOut}
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
-          onFolderSelect={(id) => { setStoriesView(false); setSelectedFolderId(id); }}
+          onFolderSelect={(id) => {
+            setStoriesView(false);
+            if (id && isSrefCollection(folderNameById.get(id))) {
+              setStorybooksView(false); setBookmarksView(false);
+              setMotionView(false); setCinematographyView(false);
+              setViewMode("grid");
+            }
+            setSelectedFolderId(id);
+          }}
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
@@ -4799,7 +4834,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !extraTabView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4839,7 +4874,7 @@ export function GalleryDashboard({
             )}
 
             {/* Storybooks tab header */}
-            {!storybooksView && !bookmarksView && !extraTabView && viewMode === "grid" && canManageFoldersInCurrentView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && viewMode === "grid" && canManageFoldersInCurrentView && (
               <FilterPresets
                 ownerUserId={ownerUserId}
                 includeSkills={includeSkills}
@@ -5087,6 +5122,8 @@ export function GalleryDashboard({
                   selectedImageId={selectedImage?.id}
                   onImageLoad={markImageLoaded}
                 />
+              ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
+                <MidjourneySrefsView key={activeCollectionFolder._id} ownerUserId={ownerUserId} folderId={activeCollectionFolder._id as Id<"folders">} />
               ) : storybooksView ? (
                 <StorybookShelf
                   mode="grid"

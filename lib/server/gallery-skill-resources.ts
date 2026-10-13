@@ -23,6 +23,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/stories.md", title: "Stories, style locks and filter presets", access: "public" },
   { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
   { path: "references/bookmarks.md", title: "X post bookmarks", access: "public" },
+  { path: "references/midjourney-srefs.md", title: "Midjourney style reference library", access: "public" },
   { path: "references/video-refs.md", title: "YouTube research", access: "public" },
   { path: "references/motion.md", title: "Motion media and facets", access: "public" },
   { path: "references/cinematography.md", title: "Cinematography Skill packs", access: "public" },

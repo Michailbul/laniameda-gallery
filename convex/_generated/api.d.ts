@@ -43,8 +43,10 @@ import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
+import type * as midjourneySrefs from "../midjourneySrefs.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
+import type * as publicCollectionCounts from "../publicCollectionCounts.js";
 import type * as publicSurface from "../publicSurface.js";
 import type * as r2 from "../r2.js";
 import type * as r2_store from "../r2_store.js";
@@ -53,6 +55,8 @@ import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as showcase from "../showcase.js";
+import type * as skillMigration from "../skillMigration.js";
+import type * as skills from "../skills.js";
 import type * as stories from "../stories.js";
 import type * as storyValidators from "../storyValidators.js";
 import type * as storybooks from "../storybooks.js";
@@ -64,8 +68,6 @@ import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
-import type * as skills from "../skills.js";
-import type * as skillMigration from "../skillMigration.js";
 
 import type {
   ApiFromModules,
@@ -109,8 +111,10 @@ declare const fullApi: ApiFromModules<{
   ingest_failures: typeof ingest_failures;
   membershipAudit: typeof membershipAudit;
   menuFilters: typeof menuFilters;
+  midjourneySrefs: typeof midjourneySrefs;
   notifications: typeof notifications;
   prompts: typeof prompts;
+  publicCollectionCounts: typeof publicCollectionCounts;
   publicSurface: typeof publicSurface;
   r2: typeof r2;
   r2_store: typeof r2_store;
@@ -119,6 +123,8 @@ declare const fullApi: ApiFromModules<{
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
   showcase: typeof showcase;
+  skillMigration: typeof skillMigration;
+  skills: typeof skills;
   stories: typeof stories;
   storyValidators: typeof storyValidators;
   storybooks: typeof storybooks;
@@ -130,8 +136,6 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   validators: typeof validators;
   videoRefs: typeof videoRefs;
-  skills: typeof skills;
-  skillMigration: typeof skillMigration;
 }>;
 
 /**

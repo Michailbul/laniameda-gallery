@@ -66,6 +66,9 @@ const main = async () => {
       totalProcessed += batch.processed;
       totalSuccess += batch.successCount;
       totalFailure += batch.failureCount;
+      if (!batch.done && (!batch.nextCursor || batch.nextCursor === cursor)) {
+        throw new Error("Backfill returned a non-advancing cursor.");
+      }
       cursor = batch.nextCursor;
       done = batch.done;
 
@@ -73,9 +76,8 @@ const main = async () => {
         `[${sourceType}] processed=${batch.processed} success=${batch.successCount} failure=${batch.failureCount} cursor=${batch.nextCursor ?? "done"}`,
       );
 
-      if (batch.processed === 0) {
-        done = true;
-      }
+      // A bounded native page can contain no eligible legacy-cursor rows.
+      // Only the server's done flag indicates that the source is exhausted.
     }
 
     console.log(

@@ -18,6 +18,7 @@ import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { compareCollectionSectionNames } from "../lib/collection-sections";
 import { ownerMutation, ownerQuery, signedOwnerQuery } from "./actor";
+import { publicCollectionCountsReady, syncPublicCollectionMembership } from "./publicCollectionCounts";
 
 export const validateOwnedFolders = signedOwnerQuery({
   args: { ownerUserId: v.string(), folderIds: v.array(v.id("folders")) },
@@ -59,6 +60,7 @@ const folderReturnValidator = v.object({
   tasteCollection: v.optional(v.boolean()),
   hiddenFromGallery: v.optional(v.boolean()),
   memberCount: v.optional(v.number()),
+  publicMemberCount: v.optional(v.number()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -233,9 +235,15 @@ export const listFolders = ownerQuery({
       folders.push(...foldersForOwner);
     }
 
-    return dedupeById(folders).sort((left, right) =>
-      String(left.normalizedName ?? "").localeCompare(String(right.normalizedName ?? "")),
-    );
+    const countsReady = await publicCollectionCountsReady(ctx);
+    return dedupeById(folders)
+      .map((folder) => ({
+        ...folder,
+        publicMemberCount: countsReady ? (folder.publicMemberCount ?? 0) : undefined,
+      }))
+      .sort((left, right) =>
+        String(left.normalizedName ?? "").localeCompare(String(right.normalizedName ?? "")),
+      );
   },
 });
 
@@ -589,6 +597,9 @@ export const cascadeDeleteFolder = async (
   }
   for (const link of dedupeById(assetFolderLinks)) {
     await ctx.db.delete(link._id);
+  }
+  for (const asset of dedupeById(assets)) {
+    await syncPublicCollectionMembership(ctx, asset._id);
   }
 
   const prompts = [];

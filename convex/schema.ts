@@ -169,6 +169,9 @@ export default defineSchema({
     // recountFolderMembers (self-healing recount after membership writes) —
     // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.
     memberCount: v.optional(v.number()),
+    // Exact public assets, deduped across links + the legacy primary pointer.
+    // Only readable as complete after publicCollectionCountBackfill is done.
+    publicMemberCount: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -179,7 +182,22 @@ export default defineSchema({
     .index("by_showcased", ["showcased"])
     .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])
+    .index("by_publicMemberCount", ["publicMemberCount"])
     .index("by_parent", ["parentFolderId"]),
+
+  // The counted contribution of each public asset. Reconciliation applies
+  // set differences in the same transaction as the source mutation, so
+  // retries, duplicate links and backfill/live-write overlap cannot drift.
+  publicCollectionMemberships: defineTable({
+    assetId: v.id("assets"),
+    folderIds: v.array(v.id("folders")),
+  }).index("by_asset", ["assetId"]),
+  publicCollectionCountBackfill: defineTable({
+    key: v.literal("v1"),
+    cursor: v.union(v.string(), v.null()),
+    complete: v.boolean(),
+    scanned: v.number(),
+  }).index("by_key", ["key"]),
 
   // Curated filter pills on the main gallery menu. The owner manages these
   // from the filter bar's admin panel — the raw tag cloud never surfaces
@@ -695,6 +713,22 @@ export default defineSchema({
         "publicScopePillarKey",
       ],
     }),
+  // Small, transactional projection for vector-hit hydration. Reading a
+  // semanticDocuments row just to resolve its source otherwise also reads
+  // both 3072-dimensional vectors. Legacy rows fall back until backfilled.
+  semanticDocumentIdentities: defineTable({
+    semanticDocumentId: v.id("semanticDocuments"),
+    semanticDocumentCreationTime: v.number(),
+    ownerUserId: v.string(),
+    sourceType: semanticSourceTypeValidator,
+    sourceId: v.string(),
+    assetId: v.optional(v.id("assets")),
+    skillId: v.optional(v.id("skills")),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    modality: semanticModalityValidator,
+  }).index("by_semanticDocument", ["semanticDocumentId"]),
   // Cache of query-text embeddings so repeat searches (especially from the
   // public showcase) never re-hit the Gemini embedding endpoint, whose RPM
   // quota is small enough that live per-search calls 429 under light bursts.

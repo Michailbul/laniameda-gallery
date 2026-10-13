@@ -36,6 +36,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
   "YouTube videos kept as research (competitors, formats, animation styles) are video references, not assets: list_video_refs to read them, save_video_refs to add them.",
   "A post on X is saved as a bookmark with save_bookmarks: send the link, the gallery reads the author, text, media and counts itself, and links any piece already saved from that post. list_bookmarks reads saved posts as text; the tag `bookmark` narrows list_assets and search_gallery to them.",
+  "Liked Midjourney srefs live in the Midjourney Srefs collection. list_srefs reads exact recipes with version settings and examples; save_sref saves a private text recipe. Save all actual source attachments with their full ALT prompts, then link the bookmark. Read references/midjourney-srefs.md.",
   "To add local files (e.g. from ~/Downloads): prepare_uploads with up to 50 file names, run the curl commands it returns, then save_assets with up to 50 uploadIds. Public URLs go straight into save_assets. Inspect ok/partial and persisted IDs; do not automatically retry an unknown write outcome.",
 ].join(" ");
 
@@ -146,6 +147,17 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   const { apiFetch, apiUrl, readLocalFile } = options;
 
   const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_srefs", {
+    title: "List Midjourney srefs", annotations: readAnnotations,
+    description: "Read every reusable Midjourney sref recipe in an owned collection, grouped by exact codes, weights and versions. Includes saved example images, full prompts, notes and source links. Resolve the Midjourney Srefs collection with list_collections first.",
+    inputSchema: { folderId: z.string(), search: z.string().optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/srefs", { action: "list", ...input })));
+  server.registerTool("save_sref", {
+    title: "Save Midjourney sref",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Save a private reusable Midjourney sref recipe in a collection. Accepts numeric codes, weighted mixtures or image URLs with optional --sw, --sv and --v. Exact retries retain the first note. Save actual examples separately with save_assets and their full source prompts; this text recipe needs no placeholder image. Never publishes or stars anything.",
+    inputSchema: { folderId: z.string(), parameters: z.string().min(1).max(2000), title: z.string().max(200).optional(), note: z.string().max(2000).optional(), sourceUrl: z.url().optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/srefs", { action: "save", ...input })));
   server.registerTool("get_gallery_contract", {
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,

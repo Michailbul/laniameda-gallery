@@ -23,6 +23,9 @@ import { skillCardValidator } from "./skills";
 const getSemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentsByIds",
 );
+const getLegacySemanticDocumentsByIdsQueryRef = makeFunctionReference<"query">(
+  "semanticIndex:getLegacySemanticDocumentsByIds",
+);
 const getSemanticDocumentForAssetQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getSemanticDocumentForAsset",
 );
@@ -450,15 +453,46 @@ type ScopeSpec = {
   pillar?: string;
 };
 
+type VectorHit = { _id: Id<"semanticDocuments">; _score: number };
+type SemanticHitIdentity = {
+  _id: Id<"semanticDocuments">;
+  sourceType: string;
+  sourceId: string;
+  assetId?: Id<"assets">;
+  skillId?: Id<"skills">;
+  modality: "multimodal_image" | "text_only";
+};
+
+const resolveSemanticIdentities = async (
+  ctx: ActionCtx, hitIds: Id<"semanticDocuments">[],
+): Promise<SemanticHitIdentity[]> => {
+  const ids = [...new Set(hitIds)];
+  if (ids.length === 0) return [];
+  const compact = await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
+    ids, metadataOnly: true,
+  }) as SemanticHitIdentity[];
+  const found = new Set(compact.map((doc) => doc._id));
+  const missing = ids.filter((id) => !found.has(id));
+  // Compact rows share one read pass. Only migration-period misses read full
+  // documents, in <=8-document queries (~8 MiB worst-case, including text).
+  // Resolving the union before batching still deduplicates across both lanes.
+  const batches: Array<Promise<SemanticHitIdentity[]>> = [];
+  for (let start = 0; start < missing.length; start += 8) {
+    batches.push(ctx.runQuery(getLegacySemanticDocumentsByIdsQueryRef, {
+      ids: missing.slice(start, start + 8),
+    }) as Promise<SemanticHitIdentity[]>);
+  }
+  return [...compact, ...(await Promise.all(batches)).flat()];
+};
+
 const runLane = async (
   ctx: ActionCtx,
   index: "by_embedding" | "by_text_embedding",
   vector: number[],
   take: number,
   spec: ScopeSpec,
-  excludeAssetId?: Id<"assets">,
-): Promise<LaneHit[]> => {
-  const vectorResults = await ctx.vectorSearch("semanticDocuments", index, {
+): Promise<VectorHit[]> => {
+  return await ctx.vectorSearch("semanticDocuments", index, {
     vector,
     limit: take,
     filter: (q) => {
@@ -480,42 +514,39 @@ const runLane = async (
       );
     },
   });
-  if (vectorResults.length === 0) {
-    return [];
-  }
+};
 
-  const semanticDocs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
-    ids: vectorResults.map((result) => result._id),
-  })) as Array<{
-    _id: Id<"semanticDocuments">;
-    assetId?: Id<"assets">;
-    modality: "multimodal_image" | "text_only";
-  }>;
+// Both vector lanes often return the same documents. Resolve their union
+// once, then keep each lane's original scores/ranks for reciprocal-rank fusion.
+const hydrateLanes = async (
+  ctx: ActionCtx,
+  lanes: Partial<Record<LaneName, VectorHit[]>>,
+  excludeAssetId?: Id<"assets">,
+): Promise<Partial<Record<LaneName, LaneHit[]>>> => {
+  const ids = Object.values(lanes).flatMap((hits) =>
+    hits?.map((hit) => hit._id) ?? [],
+  );
+  const semanticDocs = await resolveSemanticIdentities(ctx, ids);
   // The pixel lane is for pixels. An imageless asset (a video) stores a short
   // text there, and query-text against that text outscores every real
   // cross-modal match, so it would crowd the images out of the lane. Those
   // assets are found by their words in the text lane instead.
-  const docById = new Map(
-    semanticDocs
-      .filter((doc) => index !== "by_embedding" || doc.modality === "multimodal_image")
-      .map((doc) => [doc._id, doc] as const),
-  );
-
-  return dedupeScoredAssets(
-    vectorResults.flatMap((result) => {
+  const docById = new Map(semanticDocs.map((doc) => [doc._id, doc]));
+  const hydrated: Partial<Record<LaneName, LaneHit[]>> = {};
+  for (const lane of ["visual", "text"] as const) {
+    const hits = lanes[lane];
+    if (!hits) continue;
+    hydrated[lane] = dedupeScoredAssets(hits.flatMap((result) => {
       const doc = docById.get(result._id);
-      if (!doc?.assetId || doc.assetId === excludeAssetId) {
-        return [];
-      }
-      return [
-        {
-          assetId: doc.assetId,
-          score: result._score,
-          ...(doc.modality === "text_only" ? { textOnly: true } : {}),
-        },
-      ];
-    }),
-  );
+      if (!doc?.assetId || doc.assetId === excludeAssetId ||
+          (lane === "visual" && doc.modality !== "multimodal_image")) return [];
+      return [{
+        assetId: doc.assetId, score: result._score,
+        ...(doc.modality === "text_only" ? { textOnly: true } : {}),
+      }];
+    }));
+  }
+  return hydrated;
 };
 
 // Hydrate fused hits in order, chunk by chunk, keeping only those that pass
@@ -527,6 +558,7 @@ const hydrateFiltered = async (
   fused: FusedHit[],
   keep: (asset: FilterableAsset) => boolean,
   limit: number,
+  spec: ScopeSpec,
 ): Promise<ScoredAsset[]> => {
   const results: ScoredAsset[] = [];
   for (let start = 0; start < fused.length && results.length < limit; start += HYDRATE_CHUNK) {
@@ -535,7 +567,12 @@ const hydrateFiltered = async (
       items: chunk,
     })) as ScoredAsset[];
     for (const asset of hydrated) {
-      if (keep(asset)) {
+      // Reindexing is asynchronous. Vector/identity scope is only candidate
+      // selection; current asset visibility is the final authority.
+      const inScope = spec.scope === "public"
+        ? asset.isPublic === true
+        : Boolean(asset.ownerUserId && spec.ownerCandidates.includes(asset.ownerUserId));
+      if (inScope && keep(asset)) {
         results.push(asset);
         if (results.length >= limit) break;
       }
@@ -591,7 +628,7 @@ export const searchAssets = ownerAction({
     // Each lane embeds the query with its own model. In hybrid mode a
     // rate-limited pixel model degrades the search to the text lane rather
     // than failing it.
-    const [visual, text] = await Promise.all([
+    const [visualHits, textHits] = await Promise.all([
       mode === "text"
         ? undefined
         : getQueryEmbedding(ctx, query, pixelQueryModel())
@@ -612,6 +649,8 @@ export const searchAssets = ownerAction({
           ),
     ]);
 
+    const { visual, text } = await hydrateLanes(ctx, { visual: visualHits, text: textHits });
+
     const fused = fuseLanes({
       ...(visual ? { visual: applyRelativeCutoff(visual, cutoffFor("visual")) } : {}),
       ...(text ? { text: applyRelativeCutoff(text, cutoffFor("text")) } : {}),
@@ -625,6 +664,7 @@ export const searchAssets = ownerAction({
       fused,
       buildAssetFilter(filters, args.scope),
       limit,
+      spec,
     );
   },
 });
@@ -647,19 +687,15 @@ export const findSimilarAssets = ownerAction({
       return [];
     }
 
+    const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
     const sourceDoc = await ctx.runQuery(getSemanticDocumentForAssetQueryRef, {
-      assetId: args.assetId,
+      assetId: args.assetId, scope: args.scope, ownerCandidates,
     });
     if (!sourceDoc) {
       return [];
     }
 
     const limit = Math.min(Math.max(args.limit ?? 12, 1), 100);
-    const ownerCandidates =
-      args.scope === "mine"
-        ? resolveUserIdCandidates(args.ownerUserId?.trim() ?? "")
-        : [];
-
     if (args.scope === "mine" && !ownerCandidates.includes(sourceDoc.ownerUserId)) {
       return [];
     }
@@ -683,16 +719,20 @@ export const findSimilarAssets = ownerAction({
     const pixelVector =
       sourceDoc.modality === "multimodal_image" ? sourceDoc.embedding : undefined;
 
-    const [visual, text] = await Promise.all([
+    const [visualHits, textHits] = await Promise.all([
       mode === "text" || !pixelVector
         ? undefined
-        : runLane(ctx, "by_embedding", pixelVector, take, spec, args.assetId),
+        : runLane(ctx, "by_embedding", pixelVector, take, spec),
       // Visual mode falls back to the text lane while the pixel lane is pending
       // or the source has no pixels.
       !textVector || (mode === "visual" && pixelVector)
         ? undefined
-        : runLane(ctx, "by_text_embedding", textVector, take, spec, args.assetId),
+        : runLane(ctx, "by_text_embedding", textVector, take, spec),
     ]);
+
+    const { visual, text } = await hydrateLanes(
+      ctx, { visual: visualHits, text: textHits }, args.assetId,
+    );
 
     const fused = fuseLanes({
       ...(visual ? { visual: applyRelativeCutoff(visual, cutoffFor("visual")) } : {}),
@@ -708,6 +748,7 @@ export const findSimilarAssets = ownerAction({
       fused,
       (asset) => asset._id !== args.assetId && keep(asset),
       limit,
+      spec,
     );
   },
 });
@@ -759,9 +800,7 @@ export const searchSkills = ownerAction({
             ...ownerCandidates.map((owner) => q.eq("scopeKey", `owner:${owner}:skill`)),
           ),
       });
-      const docs = (await ctx.runQuery(getSemanticDocumentsByIdsQueryRef, {
-        ids: hits.map((hit) => hit._id),
-      })) as Array<{ _id: Id<"semanticDocuments">; sourceId: string; sourceType: string; skillId?: Id<"skills"> }>;
+      const docs = await resolveSemanticIdentities(ctx, hits.map((hit) => hit._id));
       const sourceById = new Map(docs.map((doc) => [doc._id, doc]));
       const top = hits[0]?._score ?? 0;
       const cutoff = args.minRelativeScore ?? 0.8;

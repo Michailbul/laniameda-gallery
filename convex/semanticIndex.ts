@@ -3,11 +3,12 @@ import {
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { makeFunctionReference } from "convex/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { dedupeIds } from "./helpers";
 import {
   optionalPillarValidator,
@@ -21,6 +22,7 @@ import { buildBookmarkSearchText } from "./bookmarkHelpers";
 
 const RETRY_DELAYS_MS = [30_000, 300_000, 1_800_000] as const;
 const MAX_QUERY_BATCH = 50;
+const MAX_BACKFILL_BYTES = 4 * 1024 * 1024;
 
 const getExistingSemanticDocumentQueryRef = makeFunctionReference<"query">(
   "semanticIndex:getExistingSemanticDocumentForSource",
@@ -108,6 +110,50 @@ const semanticDocumentLookupValidator = v.object({
   kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
   modality: semanticModalityValidator,
 });
+
+type SemanticIdentity = Infer<typeof semanticDocumentLookupValidator>;
+
+const semanticIdentity = (row: SemanticIdentity): SemanticIdentity => ({
+  _id: row._id,
+  _creationTime: row._creationTime,
+  sourceType: row.sourceType,
+  sourceId: row.sourceId,
+  assetId: row.assetId,
+  skillId: row.skillId,
+  ownerUserId: row.ownerUserId,
+  pillar: row.pillar,
+  isPublic: row.isPublic,
+  kind: row.kind,
+  modality: row.modality,
+});
+
+const identityFields = (row: SemanticIdentity) => {
+  const { _id, _creationTime, ...fields } = semanticIdentity(row);
+  return {
+    ...fields,
+    semanticDocumentId: _id,
+    semanticDocumentCreationTime: _creationTime,
+  };
+};
+
+const identityMatches = (
+  stored: Doc<"semanticDocumentIdentities"> | null,
+  fields: ReturnType<typeof identityFields>,
+) => stored !== null && (Object.keys(fields) as Array<keyof typeof fields>)
+  .every((field) => stored[field] === fields[field]);
+
+// Called in the same transaction as the vector write/delete, never by an
+// asynchronous scheduler. Metadata must not lag the searchable document.
+const upsertSemanticIdentity = async (ctx: MutationCtx, row: SemanticIdentity) => {
+  const fields = identityFields(row);
+  const existing = await ctx.db.query("semanticDocumentIdentities")
+    .withIndex("by_semanticDocument", (q) => q.eq("semanticDocumentId", row._id))
+    .unique();
+  if (identityMatches(existing, fields)) return false;
+  if (existing) await ctx.db.patch(existing._id, fields);
+  else await ctx.db.insert("semanticDocumentIdentities", fields);
+  return true;
+};
 
 type ReindexResult = {
   status: "indexed" | "deleted" | "skipped";
@@ -222,30 +268,41 @@ const compactSearchText = (parts: Array<string | undefined>) =>
     .filter((part): part is string => Boolean(part))
     .join("\n");
 
-const parseCursor = (cursor?: string) => {
-  if (!cursor) {
-    return null;
+type SourceCursor = {
+  sourceType: Infer<typeof semanticSourceTypeValidator>;
+  position: string | null;
+  // Accept a pre-migration timestamp::id checkpoint once, then carry its
+  // boundary through native pages (including pages of timestamp ties).
+  legacy?: { createdAt: number; id: string };
+};
+const SOURCE_CURSOR_PREFIX = "semantic-v2:";
+const parseSourceCursor = (
+  sourceType: SourceCursor["sourceType"], cursor?: string,
+): SourceCursor => {
+  if (!cursor) return { sourceType, position: null };
+  if (cursor.startsWith(SOURCE_CURSOR_PREFIX)) {
+    try {
+      const parsed = JSON.parse(cursor.slice(SOURCE_CURSOR_PREFIX.length)) as SourceCursor;
+      if (parsed.sourceType === sourceType && typeof parsed.position === "string" &&
+          (!parsed.legacy || (Number.isFinite(parsed.legacy.createdAt) && typeof parsed.legacy.id === "string"))) {
+        return parsed;
+      }
+    } catch { /* Invalid opaque cursor: fail rather than silently restart. */ }
+    throw new ConvexError("Invalid semantic backfill cursor for this source type.");
   }
-
-  const [createdAtRaw, id] = cursor.split("::");
+  const [createdAtRaw, id, extra] = cursor.split("::");
   const createdAt = Number(createdAtRaw);
-  if (!Number.isFinite(createdAt) || !id) {
-    return null;
+  if (createdAtRaw && Number.isFinite(createdAt) && id && extra === undefined) {
+    return { sourceType, position: null, legacy: { createdAt, id } };
   }
-
-  return { createdAt, id };
+  throw new ConvexError("Invalid semantic backfill cursor.");
 };
 
-const buildCursor = (createdAt: number, id: string) => `${createdAt}::${id}`;
-
-const compareCursor = (
-  left: { createdAt: number; id: string },
-  right: { createdAt: number; id: string },
-) => {
-  if (left.createdAt !== right.createdAt) {
-    return left.createdAt - right.createdAt;
+const boundedBatchSize = (requested = 25) => {
+  if (!Number.isFinite(requested) || !Number.isInteger(requested) || requested < 1) {
+    throw new ConvexError("batchSize must be a positive integer.");
   }
-  return left.id.localeCompare(right.id);
+  return Math.min(requested, MAX_QUERY_BATCH);
 };
 
 const isSemanticEmbeddingsEnabled = () =>
@@ -461,34 +518,116 @@ export const getExistingSemanticDocumentForSource = internalQuery({
 export const getSemanticDocumentsByIds = internalQuery({
   args: {
     ids: v.array(v.id("semanticDocuments")),
+    // Search first resolves compact identities, then fetches only misses in
+    // separately bounded queries. Default preserves older internal callers.
+    metadataOnly: v.optional(v.boolean()),
   },
   returns: v.array(semanticDocumentLookupValidator),
   handler: async (ctx, args) => {
-    const rows = await Promise.all(args.ids.map(async (id) => await ctx.db.get(id)));
-    return rows
-      .filter((row): row is NonNullable<typeof row> => Boolean(row))
-      .map((row) => ({
-        _id: row._id,
-        _creationTime: row._creationTime,
-        sourceType: row.sourceType,
-        sourceId: row.sourceId,
-        assetId: row.assetId,
-        skillId: row.skillId,
-        ownerUserId: row.ownerUserId,
-        pillar: row.pillar,
-        isPublic: row.isPublic,
-        kind: row.kind,
-        modality: row.modality,
-      }));
+    const rows = await Promise.all(dedupeIds(args.ids).map(async (id) => {
+      const identity = await ctx.db.query("semanticDocumentIdentities")
+        .withIndex("by_semanticDocument", (q) => q.eq("semanticDocumentId", id))
+        .unique();
+      if (identity) {
+        return semanticIdentity({
+          ...identity,
+          _id: identity.semanticDocumentId,
+          _creationTime: identity.semanticDocumentCreationTime,
+        });
+      }
+      if (args.metadataOnly) return null;
+      // Additive rollout: older documents remain searchable before the
+      // metadata-only backfill completes. Only these misses read vectors.
+      const legacy = await ctx.db.get(id);
+      return legacy ? semanticIdentity(legacy) : null;
+    }));
+    return rows.filter((row): row is SemanticIdentity => row !== null);
+  },
+});
+
+export const getLegacySemanticDocumentsByIds = internalQuery({
+  args: { ids: v.array(v.id("semanticDocuments")) },
+  returns: v.array(semanticDocumentLookupValidator),
+  handler: async (ctx, args) => {
+    const ids = dedupeIds(args.ids);
+    // A semantic document can approach Convex's 1 MiB document limit when
+    // searchText is large. Eight direct reads stay below the 16 MiB query
+    // limit regardless of vector size; do not batch by vector bytes alone.
+    if (ids.length > 8) throw new ConvexError("Legacy semantic lookups are limited to 8 documents per query.");
+    const rows = await Promise.all(ids.map(async (id) => {
+      const row = await ctx.db.get(id);
+      return row ? semanticIdentity(row) : null;
+    }));
+    return rows.filter((row): row is SemanticIdentity => row !== null);
+  },
+});
+
+// This migration copies metadata only. It never calls an embedding provider,
+// schedules a reindex, changes vector values, or removes the legacy fallback.
+export const backfillSemanticIdentities = internalMutation({
+  args: { cursor: v.optional(v.string()), batchSize: v.optional(v.number()) },
+  returns: v.object({
+    scanned: v.number(), written: v.number(), nextCursor: v.optional(v.string()), done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("semanticDocuments").paginate({
+      cursor: args.cursor ?? null, numItems: boundedBatchSize(args.batchSize),
+      maximumBytesRead: MAX_BACKFILL_BYTES,
+    });
+    let written = 0;
+    for (const row of page.page) {
+      if (await upsertSemanticIdentity(ctx, row)) written += 1;
+    }
+    return {
+      scanned: page.page.length, written,
+      nextCursor: page.isDone ? undefined : page.continueCursor, done: page.isDone,
+    };
+  },
+});
+
+export const auditSemanticIdentities = internalQuery({
+  args: { cursor: v.optional(v.string()), batchSize: v.optional(v.number()) },
+  returns: v.object({
+    scanned: v.number(), missing: v.number(), mismatched: v.number(),
+    nextCursor: v.optional(v.string()), done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("semanticDocuments").paginate({
+      cursor: args.cursor ?? null, numItems: boundedBatchSize(args.batchSize),
+      maximumBytesRead: MAX_BACKFILL_BYTES,
+    });
+    let missing = 0;
+    let mismatched = 0;
+    for (const row of page.page) {
+      const identity = await ctx.db.query("semanticDocumentIdentities")
+        .withIndex("by_semanticDocument", (q) => q.eq("semanticDocumentId", row._id))
+        .unique();
+      if (!identity) missing += 1;
+      else if (!identityMatches(identity, identityFields(row))) mismatched += 1;
+    }
+    return {
+      scanned: page.page.length, missing, mismatched,
+      nextCursor: page.isDone ? undefined : page.continueCursor, done: page.isDone,
+    };
   },
 });
 
 export const getSemanticDocumentForAsset = internalQuery({
   args: {
     assetId: v.id("assets"),
+    scope: v.union(v.literal("mine"), v.literal("public")),
+    ownerCandidates: v.array(v.string()),
   },
   returns: v.union(v.null(), semanticDocumentValidator),
   handler: async (ctx, args) => {
+    // Source publication/ownership can change before scheduled reindexing.
+    // Never use stale vector metadata to authorize a similarity request.
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || (args.scope === "public"
+      ? asset.isPublic !== true
+      : !asset.ownerUserId || !args.ownerCandidates.includes(asset.ownerUserId))) {
+      return null;
+    }
     return await ctx.db
       .query("semanticDocuments")
       .withIndex("by_asset", (q) => q.eq("assetId", args.assetId))
@@ -651,51 +790,41 @@ export const listBackfillSourceBatch = internalQuery({
   },
   returns: backfillBatchQueryResultValidator,
   handler: async (ctx, args) => {
-    const batchSize = Math.min(Math.max(args.batchSize ?? 25, 1), MAX_QUERY_BATCH);
-    const cursor = parseCursor(args.cursor);
-    const rows =
+    const batchSize = boundedBatchSize(args.batchSize);
+    const cursor = parseSourceCursor(args.sourceType, args.cursor);
+    const lowerBound = cursor.legacy?.createdAt ?? 0;
+    const query =
       args.sourceType === "asset"
-        ? await ctx.db
+        ? ctx.db
             .query("assets")
-            .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
-            .collect()
+            .withIndex("by_createdAt", (q) => q.gte("createdAt", lowerBound))
         : args.sourceType === "prompt"
-          ? await ctx.db
+          ? ctx.db
               .query("prompts")
-              .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
-              .collect()
+              .withIndex("by_createdAt", (q) => q.gte("createdAt", lowerBound))
           : args.sourceType === "skill"
-            ? await ctx.db.query("skills").collect()
-            : await ctx.db
+            ? ctx.db.query("skills")
+            : ctx.db
                 .query("designInspirations")
-                .withIndex("by_createdAt", (q) => q.gte("createdAt", 0))
-                .collect();
-
-    const ordered = [...rows].sort((left, right) =>
-      compareCursor(
-        { createdAt: Number(left.createdAt ?? 0), id: left._id },
-        { createdAt: Number(right.createdAt ?? 0), id: right._id },
-      ),
-    );
-
-    const startIndex = cursor
-      ? ordered.findIndex((row) =>
-          compareCursor(
-            { createdAt: Number(row.createdAt ?? 0), id: row._id },
-            cursor,
-          ) > 0,
-        )
-      : 0;
-    const sliceStart = startIndex < 0 ? ordered.length : startIndex;
-    const batch = ordered.slice(sliceStart, sliceStart + batchSize);
-    const last = batch.at(-1);
+                .withIndex("by_createdAt", (q) => q.gte("createdAt", lowerBound));
+    // Native cursor paging reads only this page, including across equal
+    // createdAt timestamps. A legacy checkpoint may yield an empty page;
+    // callers must follow done/nextCursor rather than treating that as EOF.
+    const page = await query.paginate({
+      cursor: cursor.position, numItems: batchSize, maximumBytesRead: MAX_BACKFILL_BYTES,
+    });
+    const legacy = cursor.legacy;
+    const batch = legacy ? page.page.filter((row) =>
+      row.createdAt > legacy.createdAt ||
+      (row.createdAt === legacy.createdAt && row._id.localeCompare(legacy.id) > 0),
+    ) : page.page;
 
     return {
       ids: batch.map((row) => row._id),
-      nextCursor: last
-        ? buildCursor(Number(last.createdAt ?? 0), last._id)
-        : undefined,
-      done: sliceStart + batch.length >= ordered.length,
+      nextCursor: page.isDone ? undefined : SOURCE_CURSOR_PREFIX + JSON.stringify({
+        ...cursor, position: page.continueCursor,
+      }),
+      done: page.isDone,
     };
   },
 });
@@ -768,6 +897,9 @@ export const upsertSemanticDocument = internalMutation({
         sourceUpdatedAt: args.sourceUpdatedAt,
         updatedAt: now,
       });
+      await upsertSemanticIdentity(ctx, {
+        ...args, _id: existing._id, _creationTime: existing._creationTime,
+      });
       return existing._id;
     }
 
@@ -775,7 +907,7 @@ export const upsertSemanticDocument = internalMutation({
       throw new ConvexError("New semantic documents require an embedding in at least one lane.");
     }
 
-    return await ctx.db.insert("semanticDocuments", {
+    const id = await ctx.db.insert("semanticDocuments", {
       ownerUserId: args.ownerUserId,
       sourceType: args.sourceType,
       sourceId: args.sourceId,
@@ -802,6 +934,10 @@ export const upsertSemanticDocument = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    // Preserve the exact source _creationTime in the lookup contract.
+    const inserted = await ctx.db.get(id);
+    if (inserted) await upsertSemanticIdentity(ctx, inserted);
+    return id;
   },
 });
 
@@ -823,6 +959,10 @@ export const deleteSemanticDocumentForSource = internalMutation({
       return { deleted: false };
     }
 
+    const identity = await ctx.db.query("semanticDocumentIdentities")
+      .withIndex("by_semanticDocument", (q) => q.eq("semanticDocumentId", existing._id))
+      .unique();
+    if (identity) await ctx.db.delete(identity._id);
     await ctx.db.delete(existing._id);
     return { deleted: true };
   },

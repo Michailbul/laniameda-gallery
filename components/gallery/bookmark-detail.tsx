@@ -15,6 +15,8 @@ import {
   BookmarkAuthorRow,
   BookmarkQuotedPost,
 } from "@/components/gallery/bookmark-post-card";
+import { extractMidjourneySrefs } from "@/lib/midjourney-srefs";
+import { SrefCopyButton } from "./sref-copy-button";
 
 const labelStyle: React.CSSProperties = {
   fontSize: "10px",
@@ -107,6 +109,13 @@ export function BookmarkDetail({
       ) : null}
 
       {post.quotedPost ? <BookmarkQuotedPost quoted={post.quotedPost} /> : null}
+
+      {extractMidjourneySrefs([post.text, ...post.media.map(media => media.alt)].filter(Boolean).join("\n")).map(ref => (
+        <div key={ref.parameters} className="flex flex-wrap items-center gap-2">
+          <code className="select-text break-all text-xs">{ref.parameters}</code>
+          <SrefCopyButton text={ref.parameters} label="Copy sref settings" />
+        </div>
+      ))}
 
       {post.media.length > 1 ? (
         <div className="grid grid-cols-2 gap-1.5">
