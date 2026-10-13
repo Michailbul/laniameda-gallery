@@ -1,7 +1,9 @@
 # Convex read-cost reduction: review and verification
 
-This is a code-only draft. No deployment, live backfill, storage deletion,
-provider API call, billing-setting change or production write is included.
+The backend was deployed to the canonical real-gallery deployment on
+13 October 2026. The metadata and public-count migrations completed with
+the live readbacks below. No storage deletion, embedding regeneration or
+billing-setting change was part of the rollout.
 
 ## Changes and expected cost mechanism
 
@@ -71,6 +73,52 @@ contracts and legacy fallbacks remain available during migration.
 
 ## Verification environment
 
+### Live rollout checkpoint, 13 October 2026
+
+- The sanitized backend push passed type checking and live schema validation,
+  adding four indexes. All existing function contracts were retained, including
+  the already-live Midjourney Sref functions.
+- Semantic metadata backfill scanned 6,345 rows and wrote 6,336 identities.
+  A fresh full audit scanned 6,345 rows with `missing: 0`, `mismatched: 0`
+  and `done: true`. Concurrent normal writers accounted for already-present rows.
+- Public collection backfill scanned 5,490 assets in batches of 25 and reached
+  `complete: true`. All 42 public collection counts matched the exact inventory
+  captured before migration, with empty collections and storybooks excluded.
+- Live cursor traversal exhausted 4,578 owner-visible assets, 78 sparse
+  character-sheet matches across 92 pages, 122 Cassandra members, and 863 public
+  assets. Newest order, duplicate freedom and private visibility passed.
+  Only one owner spelling was observed in live data; mixed spellings are covered
+  by the focused regression fixtures.
+- Live keyword and hybrid semantic searches each returned 12 valid results.
+  The hybrid query was a normal search operation; no asset embeddings were
+  regenerated. This does not establish billing-account or provider-project linkage.
+- Mac lint, application/backend type checks, production build and 77 affected
+  tests with 411 assertions passed before the source-preservation integration.
+  The build used the documented loopback backend placeholder. At this checkpoint
+  the Mac was locked; post-release browser QA follows source integration.
+
+### Preserve the existing live frontend
+
+The production frontend was a manual deployment from `codex/midjourney-srefs`
+on 12 October, based on `bbb9de8` with uncommitted Sref source changes.
+Deploying the original read-cost branch alone would remove that existing UI.
+The preservation update retains its Sref view, bookmark copy controls, scoped
+agent route, hosted/stdio MCP tools, public contract documentation and tests.
+All 17 preservation source files matched the live deployment's content hashes.
+The dashboard and data-model document were merged against the shared base so
+the reviewed read-cost changes remain. The Sref view also skips unused ordinary
+gallery subscriptions while it is displayed. This is source reconciliation of
+the existing feature, not another schema or data migration.
+
+The combined source passed 97 tests with 514 assertions, full ESLint and
+application TypeScript checks, and a completed production build with the
+documented loopback backend placeholder. Independent source review found no
+blocking integration issue and checked owner aliases, authentication,
+idempotency, and private-media exclusion. The full suite was not rerun for this
+preservation update; its documented baseline failures below remain explicit.
+
+### Original implementation verification
+
 - Bun 1.4.3; dependencies installed from the committed lockfile.
 - Full ESLint and TypeScript checks pass. All 89 tests in 12 affected suites
   pass, with 435 assertions. Independent review reproduced and verified
@@ -103,6 +151,6 @@ fail on untouched main at `bbb9de84500680afd76c587ebf5525bc2efae5d5`:
 
 These unrelated failures are not silently changed as part of billing work.
 Focused behavioral tests cover semantic lookup/migration, counter readiness and
-write paths, and full sparse/world pagination. Live billing attribution,
-schema validation against deployed records, and authenticated browser flows
-remain rollout validation tasks.
+write paths, and full sparse/world pagination. Schema validation against deployed
+records passed during the backend push. Live billing attribution and
+authenticated browser flows remain unverified at this checkpoint.

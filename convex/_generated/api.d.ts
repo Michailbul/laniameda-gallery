@@ -8,11 +8,6 @@
  * @module
  */
 
-import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
-} from "convex/server";
 import type * as actor from "../actor.js";
 import type * as agentAssets from "../agentAssets.js";
 import type * as agentDescriptionText from "../agentDescriptionText.js";
@@ -48,6 +43,7 @@ import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
+import type * as midjourneySrefs from "../midjourneySrefs.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
 import type * as publicCollectionCounts from "../publicCollectionCounts.js";
@@ -73,14 +69,12 @@ import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
 
-/**
- * A utility for referencing Convex functions in your app's API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
- * ```
- */
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
 declare const fullApi: ApiFromModules<{
   actor: typeof actor;
   agentAssets: typeof agentAssets;
@@ -117,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   ingest_failures: typeof ingest_failures;
   membershipAudit: typeof membershipAudit;
   menuFilters: typeof menuFilters;
+  midjourneySrefs: typeof midjourneySrefs;
   notifications: typeof notifications;
   prompts: typeof prompts;
   publicCollectionCounts: typeof publicCollectionCounts;
@@ -142,10 +137,28 @@ declare const fullApi: ApiFromModules<{
   validators: typeof validators;
   videoRefs: typeof videoRefs;
 }>;
+
+/**
+ * A utility for referencing Convex functions in your app's public API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
 export declare const api: FilterApi<
   typeof fullApi,
   FunctionReference<any, "public">
 >;
+
+/**
+ * A utility for referencing Convex functions in your app's internal API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = internal.myModule.myFunction;
+ * ```
+ */
 export declare const internal: FilterApi<
   typeof fullApi,
   FunctionReference<any, "internal">

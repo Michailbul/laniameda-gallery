@@ -12,9 +12,11 @@ import { POST as presetsPost } from "@/app/api/agent/presets/route";
 import { POST as instructionsPost } from "@/app/api/agent/instructions/route";
 import { POST as posterPost } from "@/app/api/agent/poster/route";
 import { POST as skillsPost } from "@/app/api/agent/skills/route";
+import { POST as srefsPost } from "@/app/api/agent/srefs/route";
 
 // The /api/agent/* handlers the hosted MCP calls in-process, keyed by path.
 export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response>> = {
+  "/api/agent/srefs": srefsPost,
   "/api/agent/skills": skillsPost,
   "/api/agent/instructions": instructionsPost,
   "/api/agent/poster": posterPost,

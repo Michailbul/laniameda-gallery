@@ -23,8 +23,19 @@ test("MCP batch preflight reports a failed file while preserving successful item
 });
 test("MCP reads have read hints and destructive recipe/media tools disclose deletion", async () => {
   const tools = registry(async () => ({}));
-  for (const name of ["list_assets_page", "get_gallery_contract", "get_skill_instructions", "list_menu_filters", "list_collections", "list_video_refs_page", "list_assets", "list_skills", "get_skill", "get_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["list_srefs", "list_assets_page", "get_gallery_contract", "get_skill_instructions", "list_menu_filters", "list_collections", "list_video_refs_page", "list_assets", "list_skills", "get_skill", "get_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
   for (const name of ["delete_skill", "delete_collection", "delete_video_ref", "delete_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
   const result = await tools.get("get_gallery_contract")!.handler({});
   expect(JSON.parse(result.content[0].text)).toMatchObject({ serverVersion: "0.3.0", pagination: { includeSkillExamples: { default: false } }, videoReferencePagination: { tool: "list_video_refs_page" }, scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete" } });
+});
+test("sref tools reach the same scoped route for hosted and stdio clients", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  await tools.get("list_srefs")!.handler({ folderId: "collection", search: "3534013297" });
+  await tools.get("save_sref")!.handler({ folderId: "collection", parameters: "--sref 3534013297 --v 8.2" });
+  expect(calls).toEqual([
+    { path: "/api/agent/srefs", input: { action: "list", folderId: "collection", search: "3534013297" } },
+    { path: "/api/agent/srefs", input: { action: "save", folderId: "collection", parameters: "--sref 3534013297 --v 8.2" } },
+  ]);
+  expect(tools.get("save_sref")!.config.annotations).toMatchObject({ destructiveHint: false, idempotentHint: true });
 });

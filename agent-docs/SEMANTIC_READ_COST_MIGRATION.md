@@ -1,6 +1,9 @@
 # Semantic identity read-cost migration
 
-This change is additive and has not been deployed or run against gallery data.
+The additive backend and initial metadata migration were deployed on 13 October
+2026. Backfill wrote 6,336 identities; a full audit checked 6,345 rows with zero
+missing or mismatched rows and `done: true`. Keep the procedure below for
+authorized maintenance, and do not rerun a completed migration blindly.
 The dev-labelled canonical Convex deployment contains real gallery data. Obtain
 separate authorization before publishing the schema/functions or running a write
 migration. A draft PR does not authorize either action.

@@ -1,7 +1,9 @@
 # Public collection count rollout
 
-This change is code only until deployment and database backfill are separately
-authorized. The canonical `dev:perfect-buffalo-375` deployment contains real
+The complete backend and initial count backfill were deployed on 13 October
+2026 after authorization. The stored cursor scanned 5,490 assets in 220 batches
+and reached `complete: true`; all 42 public collections matched their original
+exact counts. The canonical `dev:perfect-buffalo-375` deployment contains real
 gallery data. Do not infer permission from its dev label.
 
 ## What changes

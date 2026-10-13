@@ -104,6 +104,8 @@ import {
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
+import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
+import { isSrefCollection } from "@/lib/midjourney-srefs";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 
@@ -1249,6 +1251,9 @@ export function GalleryDashboard({
     );
     const mappings = new Map<string, (typeof tagFilters)[number]>();
     for (const folder of collectionFoldersWithCounts) {
+      // World parts are actual membership collections. A child named Live
+      // Action must not become the global Live action tag view.
+      if (folder.parentFolderId) continue;
       const folderKey = canonicalTagKey(folder.name);
       if (!folderKey) continue;
       const matchingFilter = tagFilters.find((entry) =>
@@ -1710,11 +1715,15 @@ export function GalleryDashboard({
         (folder) => folder.parentFolderId === activeCollectionFolder._id,
       ).length
     : 0;
+  const srefsCollectionView = galleryScope === "mine" && viewMode === "grid" &&
+    !storybooksView && !bookmarksView && !extraTabView &&
+    isSrefCollection(activeCollectionFolder?.name);
   const collectionAssetsExpanded =
     browsingWorldFolder &&
     !activeSmartCollectionFilter &&
     (flattenStacks || expandedCollectionId === effectiveSelectedFolderId);
   const collectionStackViewAvailable =
+    !srefsCollectionView &&
     Boolean(effectiveSelectedFolderId) &&
     !activeSmartCollectionFilter &&
     galleryScope === "mine" &&
@@ -1727,6 +1736,7 @@ export function GalleryDashboard({
     !assetSearchQuery.trim();
 
   const folderPaginationActive =
+    !srefsCollectionView &&
     !browsingWorldFolder &&
     galleryScope === "mine" &&
     canAccessMyGallery &&
@@ -1734,7 +1744,7 @@ export function GalleryDashboard({
     !activeSmartCollectionFilter &&
     sortOrder === "newest" &&
     !menuFilterActive && !selectedModelName && !mediaKind && !likedOnly;
-  const paginationActive = sortOrder === "newest" && !folderPaginationActive;
+  const paginationActive = !srefsCollectionView && sortOrder === "newest" && !folderPaginationActive;
 
   const minePageArgs = paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
@@ -1817,7 +1827,8 @@ export function GalleryDashboard({
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
-    !paginationActive &&
+    !srefsCollectionView &&
+      !paginationActive &&
       !folderPaginationActive &&
       galleryScope === "mine" &&
       canAccessMyGallery
@@ -1857,7 +1868,7 @@ export function GalleryDashboard({
   // so a starred asset is never exempt from a filter the user set.
   const starredAssets = useQuery(
     api.assets.listStarredAssets,
-    galleryScope === "mine" && canAccessMyGallery && featuredFirst
+    !srefsCollectionView && galleryScope === "mine" && canAccessMyGallery && featuredFirst
       ? {
           ownerUserId,
           folderId:
@@ -4756,7 +4767,15 @@ export function GalleryDashboard({
           onSignOut={onSignOut}
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
-          onFolderSelect={(id) => { setStoriesView(false); setSelectedFolderId(id); }}
+          onFolderSelect={(id) => {
+            setStoriesView(false);
+            if (id && isSrefCollection(folderNameById.get(id))) {
+              setStorybooksView(false); setBookmarksView(false);
+              setMotionView(false); setCinematographyView(false);
+              setViewMode("grid");
+            }
+            setSelectedFolderId(id);
+          }}
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
@@ -4815,7 +4834,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !extraTabView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4855,7 +4874,7 @@ export function GalleryDashboard({
             )}
 
             {/* Storybooks tab header */}
-            {!storybooksView && !bookmarksView && !extraTabView && viewMode === "grid" && canManageFoldersInCurrentView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && viewMode === "grid" && canManageFoldersInCurrentView && (
               <FilterPresets
                 ownerUserId={ownerUserId}
                 includeSkills={includeSkills}
@@ -5103,6 +5122,8 @@ export function GalleryDashboard({
                   selectedImageId={selectedImage?.id}
                   onImageLoad={markImageLoaded}
                 />
+              ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
+                <MidjourneySrefsView key={activeCollectionFolder._id} ownerUserId={ownerUserId} folderId={activeCollectionFolder._id as Id<"folders">} />
               ) : storybooksView ? (
                 <StorybookShelf
                   mode="grid"

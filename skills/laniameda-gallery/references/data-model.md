@@ -1,5 +1,12 @@
 # Data model
 
+Midjourney sref libraries use normal collections and existing media/bookmarks.
+Explicit text recipes use prompts with domain `midjourney-sref`, promptType
+`other`, workflowType `asset_recipe` and modelProvider `midjourney`. `promptSections.finalPrompt` is the
+normalized --sref recipe including stated --sw/--sv/--v; generationNotes is JSON
+with optional title/note/sourceUrl. No new table or schema field is added.
+See [midjourney-srefs.md](midjourney-srefs.md) for save_sref/list_srefs and readback.
+
 What the gallery is made of, read from `convex/schema.ts`, `convex/validators.ts`,
 `convex/menuFilters.ts`, `lib/collection-sections.ts` and `lib/medium.ts` on
 7 Oct 2026. Human direction governs creative policy; code and live verified
