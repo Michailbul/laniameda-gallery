@@ -57,8 +57,12 @@ When Michael sends raw material with a project name ("this is for Anya",
 "cars", "NOISE"), run the intake procedure in references/intake.md: sort each
 item to its world, save a clean UI-free source as inspiration, make the world's
 own processed version by its native style lock, save both with lineage, show
-the batch on the project board and report. Be proactive; ask only about a truly
-ambiguous destination or a cost above the limits there.
+the batch on the project board and report. A video or scene whose story he
+likes runs further: take it apart into frames, beats and a source-analysis Story,
+then, once he names a world, write the treatment, do pre-production (cast sheets,
+location plates, style frames) and package it as a storybook. Be proactive; ask
+only about a truly ambiguous destination, a casting choice that is his, or a
+cost above the limits there.
 
 ## Make media findable
 

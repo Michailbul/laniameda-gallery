@@ -76,6 +76,59 @@ and show them. A paid video run needs Michael's explicit go for that run.
 - The chat reply lists what was saved where, what was processed, what failed
   and the spend. Keep it short; the board carries the detail.
 
+## From a video or scene to a storybook
+
+Some inspiration is a story, not a look: a reel, a film clip, a scene whose
+vibe Michael likes. Those run through four stages and end as a storybook
+(references/storybooks.md). Storybooks are the end of the pipeline: packaged
+episodes ready to send to the video model. Some grow into a series.
+
+**Stage 1. Take the source apart (no project needed).**
+- Get the media. Social video is often login-walled for command-line tools;
+  if so, play it in the browser pane (the user's session) and capture frames.
+  Never ask for a password or export cookies.
+- Capture 6 to 10 key frames that cover every beat, plus the caption, author,
+  audio track and length. Save the frames as inspiration_capture with the post
+  permalink, author credit, LOVE/ART memberships by subject, and the world only
+  once Michael has named one.
+- Save a native Story (kind idea, status idea) as the source analysis: source
+  block, what the film is (camera, light, place, wardrobe, sound), the beats as
+  filmed with timestamps, why it works, what transfers to our worlds, two or
+  three adaptation pitches in named worlds with real cast, and open questions.
+  Link the frames with assetIds.
+- Put it on the Storybook Studio board (one entry per source, stages along the
+  top, versions V1, V2…): frames, beats, notes and the pitches as concept cards.
+  Michael picks a pitch or names a world, and comments.
+
+**Stage 2. Treatment (after Michael names the world).**
+- Read the world's style lock and cast. Prefer existing characters from the
+  gallery; ask only when the story needs a choice Michael must make (which
+  couple, which child). A new character is designed from the world's sheets,
+  never from text alone.
+- Write the episode for that cast: logline, 4 to 8 filmable beats, the vibe in
+  one paragraph, wardrobe per character, locations, props, runtime under 60 s.
+  Save it as a second Story (kind script, status draft) that links back to the
+  source analysis. Keep the source's wording out of the adaptation.
+
+**Stage 3. Pre-production.**
+- Cast: the character sheets each beat needs, from the gallery or made by the
+  sheet procedure. Locations: a plate in the world's lane for every place, plus a
+  close angle where a beat needs one. Props with references when a beat depends
+  on one.
+- Style frames: one key still per beat in the lane, built from those sheets and
+  plates as references. Every round goes on the Studio board as a new version;
+  picks anchor the next round, comments steer it, archived items never return.
+- Iterate until Michael's picks cover every beat.
+
+**Stage 4. Package.**
+- Create the storybook collection (`WORLD · Title`, kind storybook) with the
+  description in the storybooks.md order, every gap flagged, the picked sheets,
+  plates and frames as members, and the treatment Story linked by storybookId.
+  The source frames stay inspiration and are never storybook members; the
+  Story links them.
+- Read the book back and report status (READY or the gaps with their cheapest
+  fix and price). The video run waits for Michael's go.
+
 ## Cost
 
 State the per-image cost and the batch total before generating. Stills up to
