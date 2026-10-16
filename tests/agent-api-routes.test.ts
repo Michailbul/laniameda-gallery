@@ -18,6 +18,7 @@ const ingestUpdateRoutePath = new URL(
 ).pathname;
 const galleryRoutePath = new URL("../app/api/agent/gallery/route.ts", import.meta.url).pathname;
 const customizeRoutePath = new URL("../app/api/agent/customize/route.ts", import.meta.url).pathname;
+const charactersRoutePath = new URL("../app/api/agent/characters/route.ts", import.meta.url).pathname;
 
 class MockAgentAuthError extends Error {
   constructor(
@@ -90,6 +91,25 @@ describe("agent API routes", () => {
     expect(response.status).toBe(200);
     expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "folders:1", includeDescendants: true, includeWorkflowAssets: false, cursor: "cursor", pageSize: 100 });
     expect(state.requiredScopes.every(scope => scope === "gallery:read")).toBe(true);
+  });
+
+  test("character route strips copied ID prefixes and scopes each action", async () => {
+    const { POST } = await import(charactersRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/characters", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(200);
+    expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "asset:a1", role: "sheet", costumeCode: "C01" }] })).status).toBe(200);
+    expect((await send({ action: "update", character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "asset:f1" })).status).toBe(200);
+    expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "a1", role: "cameo" }] })).status).toBe(400);
+    expect((await send({ action: "delete", character: "DA-CH-001" })).status).toBe(200);
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, worldFolderId: "w1" });
+    expect(state.mutationCalls.map(call => call.payload)).toEqual([
+      { ownerUserId: state.ownerUserId, character: "DA-CH-001", links: [{ assetId: "a1", role: "sheet", costumeCode: "C01" }] },
+      { ownerUserId: state.ownerUserId, character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "f1" },
+      { ownerUserId: state.ownerUserId, character: "DA-CH-001" },
+    ]);
   });
 
   test("menu discovery is read-scoped and child storybooks are write-scoped", async () => {

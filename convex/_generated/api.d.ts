@@ -24,6 +24,8 @@ import type * as authz from "../authz.js";
 import type * as bookmarkHelpers from "../bookmarkHelpers.js";
 import type * as bookmarkSaves from "../bookmarkSaves.js";
 import type * as bookmarks from "../bookmarks.js";
+import type * as characterValidators from "../characterValidators.js";
+import type * as characters from "../characters.js";
 import type * as cinemaInspiration from "../cinemaInspiration.js";
 import type * as collectionCleanup from "../collectionCleanup.js";
 import type * as contentHash from "../contentHash.js";
@@ -92,6 +94,8 @@ declare const fullApi: ApiFromModules<{
   bookmarkHelpers: typeof bookmarkHelpers;
   bookmarkSaves: typeof bookmarkSaves;
   bookmarks: typeof bookmarks;
+  characterValidators: typeof characterValidators;
+  characters: typeof characters;
   cinemaInspiration: typeof cinemaInspiration;
   collectionCleanup: typeof collectionCleanup;
   contentHash: typeof contentHash;

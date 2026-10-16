@@ -152,6 +152,13 @@ export function createGalleryClient(options = {}) {
     tags: { list: named("list_tags"), upsert: named("upsert_tag"), upsertMany: named("upsert_tags"), archive: named("archive_tag"), aliases: named("add_tag_aliases") },
     skills: { list: named("list_skills"), get: byId("get_skill"), search: named("search_skills"), create: named("create_skill"), update: named("update_skill"), file: named("file_skill"), delete: byId("delete_skill") },
     stories: { list: named("list_stories"), get: byId("get_story"), save: named("save_story"), update: named("update_story"), revisions: byId("get_story_revisions"), delete: byId("delete_story") },
+    characters: {
+      list: named("list_characters"), get: character => call("get_character", { character }), create: named("create_character"),
+      update: named("update_character"), saveCostume: named("save_character_costume"), removeCostume: named("remove_character_costume"),
+      link: (character, links) => call("link_character_assets", { character, links }),
+      unlink: (character, assetIds) => call("unlink_character_assets", { character, assetIds }),
+      delete: character => call("delete_character", { character }),
+    },
     presets: { list: named("list_filter_presets"), save: named("save_filter_preset"), delete: byId("delete_filter_preset") },
     bookmarks: { list: named("list_bookmarks"), save: named("save_bookmarks"), setNote: named("set_bookmark_note") },
     videoRefs: {

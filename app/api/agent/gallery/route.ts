@@ -231,7 +231,15 @@ export async function POST(request: Request) {
           id: parsed.id as Id<"assets">,
           ownerUserId: agent.ownerUserId,
         });
-        return NextResponse.json({ asset });
+        // Who the piece shows, by character code. Additive: a backend without
+        // the character registry yet still answers the asset read.
+        const characters = asset
+          ? await client.query(api.characters.listCharactersForAsset, {
+              assetId: parsed.id as Id<"assets">,
+              ownerUserId: agent.ownerUserId,
+            }).catch(() => [])
+          : [];
+        return NextResponse.json({ asset, characters });
       }
       if (parsed.kind === "skill") {
         return NextResponse.json({ skill: null });

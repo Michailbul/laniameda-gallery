@@ -410,6 +410,23 @@ These are maintained by backend mutations; callers usually pass tag names, typed
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
 - Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
 - Backfill existing records: `CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
+# Characters (16 October 2026)
+
+`characters` holds one named person per world: `ownerUserId`, `worldFolderId`
+(a root collection), `code` (`DA-CH-001`), `prefix`, `number`, `name`, optional
+`alias`, `normalizedName` (unique per world), `otherNames`, optional `role`,
+`lane` (live-action/animation), `status` (concept/approved/sheeted/retired),
+optional `sheetAssetId`, `faceAssetId`, `nameTag`, `notes`, `costumes`
+(`code` C01…, `name`, `status`, optional sheet/face/notes),
+`lastCostumeNumber`, `linkCount`, `revision`, `createdAt`, `updatedAt`.
+
+`characterWorlds` keeps each world's prefix and last issued number, so codes
+are never reissued and two worlds never share a prefix. `characterAssets` is
+the typed link: `characterId`, `assetId`, `role`
+(concept/sheet/face/costume/appears-in/reference), optional `costumeCode` and
+`note`. One row per character and asset; asset deletion removes its rows and
+clears sheet/face pointers. See `characters.md`.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,
