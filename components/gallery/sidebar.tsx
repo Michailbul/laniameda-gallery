@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import {
   BookOpen,
   BookOpenText,
+  UsersRound,
   Bookmark,
   ChevronLeft,
   ChevronRight,
@@ -63,6 +64,8 @@ interface GallerySidebarProps {
   storybooksTabActive?: boolean;
   onStoriesTab?: () => void;
   storiesTabActive?: boolean;
+  onCharactersTab?: () => void;
+  charactersTabActive?: boolean;
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
@@ -131,6 +134,8 @@ export function GallerySidebar({
   storybooksTabActive = false,
   onStoriesTab,
   storiesTabActive = false,
+  onCharactersTab,
+  charactersTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
   showYouTubeTab = false,
@@ -341,6 +346,7 @@ export function GallerySidebar({
             isGalleryActive &&
             !storybooksTabActive &&
             !storiesTabActive &&
+            !charactersTabActive &&
             !bookmarksTabActive &&
             !motionTabActive &&
             !cinematographyTabActive &&
@@ -379,6 +385,9 @@ export function GallerySidebar({
         )}
         {onStoriesTab && (
           <NavItem icon={BookOpenText} label="Stories / Scripts" href="#" active={storiesTabActive} collapsed={collapsed} onClick={onStoriesTab} />
+        )}
+        {onCharactersTab && (
+          <NavItem icon={UsersRound} label="Characters" href="#" active={charactersTabActive} collapsed={collapsed} onClick={onCharactersTab} />
         )}
         {onBookmarksTab && (
           <NavItem

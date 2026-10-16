@@ -20,7 +20,7 @@ import {
   Play,
   Star,
 } from "lucide-react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
@@ -443,6 +443,14 @@ export function GalleryDetailPanel({
     api.prompts.getPromptContext,
     activePromptId && !isDesignView
       ? { id: activePromptId as Id<"prompts">, ownerUserId }
+      : "skip",
+  );
+  // Named people this piece is linked to in the character registry.
+  const { isAuthenticated } = useConvexAuth();
+  const assetCharacters = useQuery(
+    api.characters.listCharactersForAsset,
+    isAuthenticated && ownerUserId && canEditDetails && !isDesignView && currentAssetId
+      ? { assetId: currentAssetId as Id<"assets">, ownerUserId }
       : "skip",
   );
   const promptSections = useMemo(
@@ -1635,6 +1643,27 @@ export function GalleryDetailPanel({
                   </p>
                 )}
               </Field>
+
+              {assetCharacters && assetCharacters.length > 0 && (
+                <Field label="Characters">
+                  <div className="flex flex-wrap gap-1.5">
+                    {assetCharacters.map((entry) => (
+                      <span
+                        key={entry.characterId}
+                        title={`${entry.code}${entry.costumeCode ? `-${entry.costumeCode}` : ""} · ${entry.role}`}
+                        className="inline-flex items-center gap-1.5 rounded-[4px] border px-1.5 py-[3px] text-[10px] font-semibold uppercase leading-none tracking-[0.1em]"
+                        style={{ fontFamily: "var(--lm-font)", borderColor: "var(--lm-border)", color: "var(--lm-text-secondary)" }}
+                      >
+                        <span style={{ color: "var(--lm-coral)" }}>{entry.code}</span>
+                        {entry.name}
+                        <span style={{ color: "var(--lm-text-ghost)" }}>
+                          {entry.role}{entry.costumeCode ? ` ${entry.costumeCode}` : ""}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </Field>
+              )}
 
               {(modelName || image.sourceUrl) && !isDesignView && (
                 <Field label="Origin">

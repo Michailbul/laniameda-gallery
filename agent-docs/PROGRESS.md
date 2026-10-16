@@ -8,6 +8,9 @@ Last updated: 2026-10-07
 
 ## ✔ Shipped
 
+### 2026-10-16
+- Named characters are first-class: each person in a world gets a stable code (`DA-CH-001`), costumes as `-C01`, a canonical sheet and face, and typed links to every asset that shows them. Agents use nine MCP tools (list/get/create/update characters, costumes, link/unlink, delete); `get_gallery_item` names the people in an asset. The sidebar's Characters view shows the cast by world and status and a page per character. Detail: `features/characters/README.md`.
+
 ### 2026-10-09
 - Gallery bookmark cards remain visible in the regular grid and now have a dedicated owner-only filter-bar toggle, separate from curated tag filters and the Bookmarks view. Design inspirations discard stale linked asset/prompt IDs during create/update while retaining ownership checks for links that still exist.
 
