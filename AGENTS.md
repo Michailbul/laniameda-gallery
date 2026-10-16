@@ -19,6 +19,12 @@ otherwise `bun skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
 which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
 `gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
 `gallery.mjs check`. If the token is missing, ask Michael; never print it.
+When Michael sends inspiration (a link, a reel, screenshots, photos), with or
+without a project name, run the intake procedure in
+`skills/laniameda-gallery/references/intake.md`: clean source saved as
+inspiration, processed stills for worlds with a locked style, and for a video
+or scene he likes, the full pipeline from source analysis to treatment,
+pre-production and a packaged storybook.
 
 ---
 

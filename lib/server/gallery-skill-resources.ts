@@ -28,6 +28,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/motion.md", title: "Motion media and facets", access: "public" },
   { path: "references/cinematography.md", title: "Cinematography Skill packs", access: "public" },
   { path: "references/extraction.md", title: "Reference capture and provenance", access: "public" },
+  { path: "references/intake.md", title: "Inspiration intake: file, clean and process what Michael sends", access: "public" },
   { path: "references/worlds.md", title: "Michael's current world rules and IDs", access: "owner" },
   { path: "references/maintenance.md", title: "Private installation and deployment notes", access: "owner" },
   { path: "scripts/gallery.mjs", title: "Standalone Bun MCP client", access: "public" },

@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
   research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.7.0
+version: 1.8.0
 ---
 
 # Laniameda Gallery
@@ -50,6 +50,19 @@ An ordinary group of images belongs in a collection or asset pack. A Skill is
 reusable knowledge; do not turn every group or prompt variation into a Skill.
 Legacy table/function names containing workflow or folder are implementation
 details. Use Skill and collection in explanations to Michael.
+
+## Inspiration intake
+
+When Michael sends raw material with a project name ("this is for Anya",
+"cars", "NOISE"), run the intake procedure in references/intake.md: sort each
+item to its world, save a clean UI-free source as inspiration, make the world's
+own processed version by its native style lock, save both with lineage, show
+the batch on the project board and report. A video or scene whose story he
+likes runs further: take it apart into frames, beats and a source-analysis Story,
+then, once he names a world, write the treatment, do pre-production (cast sheets,
+location plates, style frames) and package it as a storybook. Be proactive; ask
+only about a truly ambiguous destination, a casting choice that is his, or a
+cost above the limits there.
 
 ## Make media findable
 
