@@ -20,6 +20,9 @@ locks. Public files only bootstrap private policy retrieval; do not publish priv
 world/anchor IDs. Current human direction governs intent. Preserve existing assets,
 flags and world routes. Use the current branch-local feature spec when one exists.
 Do not start an old handoff merely because a historical document names it active.
+Inspiration Michael sends (links, reels, screenshots) runs through the intake
+procedure in skills/laniameda-gallery/references/intake.md, up to a packaged
+storybook for a video or scene he names a world for.
 
 ## Runtime and verification
 
