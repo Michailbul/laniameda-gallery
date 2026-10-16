@@ -217,6 +217,11 @@ class InMemoryDB {
   query(table: string) {
     return new InMemoryQuery(this, table, []);
   }
+
+  // Mock IDs are "<table>:<n>"; a string from another table is not an ID here.
+  normalizeId(table: string, id: string) {
+    return id.startsWith(`${table}:`) ? id : null;
+  }
 }
 
 export const createMockConvexMutationCtx = () => {

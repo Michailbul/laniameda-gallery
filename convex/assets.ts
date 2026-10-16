@@ -48,6 +48,7 @@ import {
   optionalPillarValidator,
 } from "./validators";
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
+import { detachAssetFromCharacters } from "./characters";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
@@ -3994,6 +3995,10 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   for (const link of links) {
     await ctx.db.delete(link._id);
   }
+
+  // Character links and sheet/face pointers drop with the asset; the
+  // character itself stays.
+  await detachAssetFromCharacters(ctx, asset._id);
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.

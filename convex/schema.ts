@@ -2,6 +2,9 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
+  characterCostumeValidator, characterLaneValidator, characterLinkRoleValidator, characterStatusValidator,
+} from "./characterValidators";
+import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
   cinemaMetadataValidator,
@@ -50,6 +53,44 @@ export default defineSchema({
     ownerUserId: v.string(), storyId: v.id("stories"), ...storyFields,
     revision: v.number(), savedAt: v.number(),
   }).index("by_story_revision", ["storyId", "revision"]),
+  // Named people of a world. `code` (DA-CH-001) is the stable ID agents and
+  // storybook CAST blocks cite; costumes are -C01, -C02 variants on the row.
+  characters: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    code: v.string(), prefix: v.string(), number: v.number(),
+    name: v.string(), alias: v.optional(v.string()), normalizedName: v.string(),
+    otherNames: v.array(v.string()), role: v.optional(v.string()),
+    lane: v.optional(characterLaneValidator), status: characterStatusValidator,
+    sheetAssetId: v.optional(v.id("assets")), faceAssetId: v.optional(v.id("assets")),
+    nameTag: v.optional(v.string()), notes: v.optional(v.string()),
+    costumes: v.array(characterCostumeValidator), lastCostumeNumber: v.number(),
+    // Count of characterAssets rows, kept by every link write and the asset
+    // delete cascade so listing the cast never reads every link.
+    linkCount: v.number(),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_code", ["ownerUserId", "code"])
+    .index("by_owner_world_number", ["ownerUserId", "worldFolderId", "number"])
+    .index("by_owner_world_normalizedName", ["ownerUserId", "worldFolderId", "normalizedName"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // Per-world code prefix and counter, so a deleted character's number is
+  // never handed out again and two worlds never share a prefix.
+  characterWorlds: defineTable({
+    ownerUserId: v.string(), folderId: v.id("folders"), prefix: v.string(),
+    lastNumber: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_folder", ["ownerUserId", "folderId"])
+    .index("by_owner_prefix", ["ownerUserId", "prefix"]),
+  // Typed asset-to-character link. One row per (character, asset); a sheet or
+  // face pointer on the character always has a row here.
+  characterAssets: defineTable({
+    ownerUserId: v.string(), characterId: v.id("characters"), assetId: v.id("assets"),
+    role: characterLinkRoleValidator, costumeCode: v.optional(v.string()),
+    note: v.optional(v.string()), createdAt: v.number(),
+  })
+    .index("by_character_createdAt", ["characterId", "createdAt"])
+    .index("by_character_asset", ["characterId", "assetId"])
+    .index("by_asset", ["assetId"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),

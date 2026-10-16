@@ -25,7 +25,8 @@ every book reads the same way.
 2. **STORY.** The episode in plain language, 4 to 8 numbered beats. Each beat is
    one visible action a camera can film, with the place and who is in it. About
    5 to 8 seconds per beat. No abstract feeling that cannot be seen.
-3. **CAST.** One entry per character who appears: name, one line on look and
+3. **CAST.** One entry per character who appears: name, character code with
+   costume (`DA-CH-007-C01`, from list_characters), one line on look and
    wardrobe, the `asset:<id>` of the character sheet, and the sheet's status.
 4. **LOCATIONS.** One entry per place: name, a description (time of day, light,
    key props, layout, what is in the background), and the `asset:<id>` of each

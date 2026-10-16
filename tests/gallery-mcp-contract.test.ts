@@ -39,3 +39,18 @@ test("sref tools reach the same scoped route for hosted and stdio clients", asyn
   ]);
   expect(tools.get("save_sref")!.config.annotations).toMatchObject({ destructiveHint: false, idempotentHint: true });
 });
+test("character tools reach one scoped route and disclose their effects", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  for (const name of ["list_characters", "get_character"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["unlink_character_assets", "remove_character_costume", "delete_character"]) expect(tools.get(name)!.config.annotations).toMatchObject({ destructiveHint: true });
+  expect(tools.get("create_character")!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
+  await tools.get("get_character")!.handler({ character: "DA-CH-001" });
+  await tools.get("link_character_assets")!.handler({ character: "DA-CH-001", links: [{ assetId: "asset:abc", role: "sheet", costumeCode: "C01" }] });
+  expect(calls).toEqual([
+    { path: "/api/agent/characters", input: { action: "get", character: "DA-CH-001" } },
+    { path: "/api/agent/characters", input: { action: "link", character: "DA-CH-001", links: [{ assetId: "asset:abc", role: "sheet", costumeCode: "C01" }] } },
+  ]);
+  const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
+  expect(contract.resources).toContain("characters");
+});

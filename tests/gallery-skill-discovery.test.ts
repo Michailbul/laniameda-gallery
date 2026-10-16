@@ -39,7 +39,7 @@ describe("website gallery skill discovery", () => {
     expect(await response.text()).toBe(await readFile(join(process.cwd(), "skills/laniameda-gallery/SKILL.md"), "utf8"));
     expect(response.headers.get("content-type")).toContain("text/markdown");
     expect(response.headers.get("cache-control")).toContain("must-revalidate");
-    expect(response.headers.get("x-gallery-skill-version")).toBe("1.8.0");
+    expect(response.headers.get("x-gallery-skill-version")).toBe("1.9.0");
     expect(response.headers.get("etag")).toBeTruthy();
   });
 
