@@ -69,4 +69,18 @@ describe("standalone Bun inventory CLI", () => {
       expect(statusCalls).toBe(2);
     } finally { server.stop(); await rm(output, { recursive: true, force: true }); }
   });
+  test("all_assets falls back to a live traversal when the export is unavailable", async () => {
+    const server = Bun.serve({ port: 0, fetch: async request => {
+      if (new URL(request.url).pathname === "/api/agent/inventory") return Response.json({ error: "Could not find public function" }, { status: 400 });
+      const rpc = await request.json();
+      expect(rpc.params.name).toBe("list_assets_page");
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: JSON.stringify({ assets: [{ _id: "asset-live" }], cursor: null, isDone: true, scannedCount: 1 }) }] } });
+    } });
+    try {
+      const child = Bun.spawn([process.execPath, script, "all_assets"], { env: { ...process.env, LANIAMEDA_GALLERY_AGENT_TOKEN: "test-token", LANIAMEDA_GALLERY_API_URL: `http://localhost:${server.port}` }, stdout: "pipe", stderr: "pipe" });
+      expect(await child.exited).toBe(0);
+      expect(JSON.parse(await new Response(child.stdout).text())).toMatchObject({ complete: true, source: "live", count: 1 });
+      expect(await new Response(child.stderr).text()).toContain("paging the live table");
+    } finally { server.stop(); }
+  });
 });

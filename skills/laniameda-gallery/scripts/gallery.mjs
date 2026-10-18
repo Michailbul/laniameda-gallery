@@ -159,9 +159,11 @@ const exportedInventory = async ({ refresh, maxAgeMinutes }) => {
       action: "status", ...(refresh ? { refresh: true } : {}), ...(maxAgeMinutes ? { maxAgeMinutes } : {}),
     });
     const status = await statusResponse.json().catch(() => ({}));
-    if (!statusResponse.ok) fail(`Inventory export failed: ${status.error ?? statusResponse.status}. Pass {"live":true} to page the live table.`);
-    if (!Array.isArray(status.parts) || typeof status.generatedAt !== "number") {
-      fail('Deployed gallery has no inventory export yet; pass {"live":true} to page the live table.');
+    // A deployment without the export (or with it failing) still answers
+    // with a complete live traversal.
+    if (!statusResponse.ok || !Array.isArray(status.parts) || typeof status.generatedAt !== "number") {
+      process.stderr.write(`Inventory export unavailable (${status.error ?? `HTTP ${statusResponse.status}`}); paging the live table instead.\n`);
+      return null;
     }
     const rows = new Map();
     let folders = [];
@@ -280,8 +282,10 @@ const main = async () => {
     const { pageSize: _pageSize, ...filters } = rest;
     if (!live && Object.keys(filters).length === 0) {
       const inventory = await exportedInventory({ refresh, maxAgeMinutes });
-      writeInventory(inventory, "assets", outDir);
-      return;
+      if (inventory) {
+        writeInventory(inventory, "assets", outDir);
+        return;
+      }
     }
   }
 
