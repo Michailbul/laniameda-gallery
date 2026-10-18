@@ -74,4 +74,25 @@ describe("extension saved-status client", () => {
     await Promise.all([client.check(urls.slice(0, 8)), client.check(urls.slice(8))]);
     expect(requests.map((request) => request.length)).toEqual([8, 4]);
   });
+  test("a save forgets cached \"not saved\" answers and outranks a lookup in flight", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { client, requests } = setup();
+    await client.check(["https://cdn/grid-variant.webp"]);
+    client.markSaved("https://cdn/full.png");
+    // The variant is asked again: the server now matches it through the saved original.
+    await client.check(["https://cdn/grid-variant.webp"]);
+    expect(requests).toHaveLength(2);
+
+    const slow = api.createAssetStatusClient({
+      batchDelayMs: 1,
+      fetchStatuses: async (urls) => { await gate; return { ok: true, statuses: urls.map((url) => ({ url, saved: false })) }; },
+    });
+    const pending = slow.check(["https://cdn/racing.png"]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    slow.markSaved("https://cdn/racing.png");
+    release!();
+    expect(await pending).toEqual({ ok: true, statuses: [{ url: "https://cdn/racing.png", saved: true }] });
+    expect(await slow.check(["https://cdn/racing.png"])).toEqual({ ok: true, statuses: [{ url: "https://cdn/racing.png", saved: true }] });
+  });
 });

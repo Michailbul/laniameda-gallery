@@ -165,6 +165,10 @@ const exportedInventory = async ({ refresh, maxAgeMinutes }) => {
       process.stderr.write(`Inventory export unavailable (${status.error ?? `HTTP ${statusResponse.status}`}); paging the live table instead.\n`);
       return null;
     }
+    if (status.newerTruncated) {
+      process.stderr.write("More assets were saved since the inventory export than it can append; paging the live table instead.\n");
+      return null;
+    }
     const rows = new Map();
     let folders = [];
     let restarted = false;

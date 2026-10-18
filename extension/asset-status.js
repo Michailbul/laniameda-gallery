@@ -5,7 +5,10 @@
 //   - lookups that arrive within BATCH_DELAY_MS share one request of up to
 //     MAX_URLS urls (the route's limit);
 //   - answers are cached: saved for SAVED_TTL_MS, not saved for UNSAVED_TTL_MS
-//     (it may be saved from another tab), and a save marks its url saved;
+//     (it may be saved from another tab). A save marks its url saved and
+//     forgets every cached "not saved": the route also matches other urls of
+//     the same Midjourney image, and a lookup in flight during the save may
+//     already be stale;
 //   - after a failed request no request is made for FAILURE_BACKOFF_MS, so an
 //     outage or a bad token is not retried on every page scan.
 (function attachAssetStatus(globalScope) {
@@ -22,6 +25,8 @@
     let queue = [];
     let timer = null;
     let backoffUntil = 0;
+    // Bumped by every save; a lookup that started before it caches no "not saved".
+    let saves = 0;
 
     const remember = (url, saved) => {
       if (cache.size >= MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
@@ -50,6 +55,7 @@
           for (const item of waiting) item.resolve({ ok: false, error: "Saved-status lookups are paused after a failure." });
           continue;
         }
+        const savesAtStart = saves;
         let result;
         try {
           result = await fetchStatuses(chunk);
@@ -62,10 +68,13 @@
           continue;
         }
         const statuses = Array.isArray(result.statuses) ? result.statuses : [];
-        for (const url of chunk) {
-          remember(url, Boolean(statuses.find((status) => status?.url === url)?.saved));
+        const answered = new Map(chunk.map((url) => [url, Boolean(statuses.find((status) => status?.url === url)?.saved)]));
+        for (const [url, saved] of answered) {
+          if (saved || saves === savesAtStart) remember(url, saved);
         }
-        for (const item of waiting) item.resolve({ ok: true, statuses: [{ url: item.url, saved: cached(item.url) === true }] });
+        for (const item of waiting) {
+          item.resolve({ ok: true, statuses: [{ url: item.url, saved: answered.get(item.url) || cached(item.url) === true }] });
+        }
       }
     };
 
@@ -91,7 +100,12 @@
 
     const markSaved = (imageUrl) => {
       const url = typeof imageUrl === "string" ? imageUrl.trim() : "";
-      if (url) remember(url, true);
+      if (!url) return;
+      saves += 1;
+      for (const [key, entry] of cache) {
+        if (!entry.saved) cache.delete(key);
+      }
+      remember(url, true);
     };
 
     return { check, markSaved };

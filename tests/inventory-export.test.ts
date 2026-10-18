@@ -52,8 +52,10 @@ const traversals = () => h.calls.filter((name) => name === "inventoryExport:list
 
 describe("cached inventory export", () => {
   test("builds the default inventory once, then serves the snapshot plus newer assets", async () => {
-    for (let index = 0; index < 150; index += 1) await addAsset(index);
-    await addAsset(150, { assetRole: "skill_example" });
+    // Ten minutes apart: wider than the 5-minute overlap newer assets are read with.
+    const TEN_MINUTES = 600_000;
+    for (let index = 0; index < 150; index += 1) await addAsset(index * TEN_MINUTES);
+    await addAsset(150 * TEN_MINUTES, { assetRole: "skill_example" });
     await h.db.insert("folders", { ownerUserId: OWNER, name: "Dear Annete", createdAt: 1 });
 
     const first = await status();
@@ -63,12 +65,24 @@ describe("cached inventory export", () => {
     expect(traversals()).toBe(3);
 
     h.calls.length = 0;
-    await addAsset(500);
+    await addAsset(200 * TEN_MINUTES);
     const second = await status();
     expect(second.rebuilt).toBe(false);
     expect(second.generatedAt).toBe(first.generatedAt);
     expect(traversals()).toBe(0);
-    expect(second.newerAssets.map((asset) => asset.createdAt)).toEqual([500]);
+    // The overlap also returns the snapshot's newest asset; clients drop duplicates.
+    expect(second.newerAssets.map((asset) => asset.createdAt)).toEqual([200 * TEN_MINUTES, 149 * TEN_MINUTES]);
+    expect(second.newerTruncated).toBe(false);
+  });
+
+  test("too many saves since a fresh snapshot are reported, not silently dropped", async () => {
+    await addAsset(1);
+    await status();
+    for (let index = 0; index < 201; index += 1) await addAsset(Date.now() + index);
+    const result = await status();
+    // The snapshot is under 15 minutes old, so it is not rebuilt yet.
+    expect(result.rebuilt).toBe(false);
+    expect(result.newerTruncated).toBe(true);
   });
 
   test("refresh rebuilds only once the snapshot is 15 minutes old; a stale age always rebuilds", async () => {

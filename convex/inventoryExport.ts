@@ -35,6 +35,10 @@ const PAGE_SIZE = 100;
 // Vercel caps a function response at 4.5 MB; the route streams one part.
 const PART_BYTES = 3 * 1024 * 1024;
 const NEWER_ASSET_LIMIT = 200;
+// createdAt is stamped when a save starts, not when it commits, so a save in
+// flight during a build can land below the snapshot's newest asset. Newer
+// assets are read from this far back; clients drop the duplicates.
+const NEWER_ASSET_OVERLAP_MS = 5 * 60 * 1000;
 
 const getExportRowRef = makeFunctionReference<"query">("inventoryExport:getExportRow");
 const claimBuildRef = makeFunctionReference<"mutation">("inventoryExport:claimExportBuild");
@@ -223,7 +227,9 @@ export const listAssetsCreatedAfter = internalQuery({
 
 const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
 
-const buildExport = async (ctx: ActionCtx, ownerUserId: string, generatedAt: number) => {
+// Every uploaded key is pushed to `uploaded` first, so a failed build can
+// delete what it wrote.
+const buildExport = async (ctx: ActionCtx, ownerUserId: string, generatedAt: number, uploaded: string[]) => {
   const folders = (await ctx.runQuery(listFoldersRef, { ownerUserId })) as ExportFolder[];
   const parts: ExportPart[] = [];
   let pending: string[] = [];
@@ -242,6 +248,7 @@ const buildExport = async (ctx: ActionCtx, ownerUserId: string, generatedAt: num
       type: "application/json",
       cacheControl: "private, no-store",
     });
+    uploaded.push(key);
     parts.push({ key, count: pending.length, bytes: utf8Bytes(body) });
     pending = [];
     pendingBytes = 0;
@@ -273,24 +280,31 @@ const buildExport = async (ctx: ActionCtx, ownerUserId: string, generatedAt: num
   };
 };
 
-const rebuild = async (ctx: ActionCtx, ownerUserId: string) => {
-  const buildStartedAt = Date.now();
-  if (!(await ctx.runMutation(claimBuildRef, { ownerUserId, now: buildStartedAt }))) return false;
-  let built;
-  try {
-    built = await buildExport(ctx, ownerUserId, buildStartedAt);
-  } catch (error) {
-    await ctx.runMutation(releaseBuildRef, { ownerUserId, buildStartedAt });
-    throw error;
-  }
-  const { staleKeys } = (await ctx.runMutation(finishBuildRef, { ownerUserId, buildStartedAt, ...built })) as {
-    published: boolean; staleKeys: string[];
-  };
-  for (const key of staleKeys) {
+const deleteParts = async (ctx: ActionCtx, keys: string[]) => {
+  for (const key of keys) {
     await r2.deleteObject(ctx, key).catch((error: unknown) => {
       console.warn(`[inventoryExport] could not delete ${key}: ${error instanceof Error ? error.message : error}`);
     });
   }
+};
+
+const rebuild = async (ctx: ActionCtx, ownerUserId: string) => {
+  const buildStartedAt = Date.now();
+  if (!(await ctx.runMutation(claimBuildRef, { ownerUserId, now: buildStartedAt }))) return false;
+  const uploaded: string[] = [];
+  let staleKeys: string[];
+  try {
+    const built = await buildExport(ctx, ownerUserId, buildStartedAt, uploaded);
+    ({ staleKeys } = (await ctx.runMutation(finishBuildRef, { ownerUserId, buildStartedAt, ...built })) as {
+      published: boolean; staleKeys: string[];
+    });
+  } catch (error) {
+    // The parts hold the private inventory: never leave a failed build's behind.
+    await deleteParts(ctx, uploaded);
+    await ctx.runMutation(releaseBuildRef, { ownerUserId, buildStartedAt });
+    throw error;
+  }
+  await deleteParts(ctx, staleKeys);
   return true;
 };
 
@@ -317,6 +331,9 @@ export const getInventoryExport = ownerAction({
     byteSize: v.number(),
     parts: v.array(v.object({ index: v.number(), count: v.number(), bytes: v.number() })),
     newerAssets: v.array(galleryAssetResultValidator),
+    // More assets were saved since the snapshot than newerAssets holds and it
+    // could not be rebuilt yet: the snapshot plus newerAssets is incomplete.
+    newerTruncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -335,12 +352,12 @@ export const getInventoryExport = ownerAction({
       throw new ConvexError("The inventory export is being built. Try again in a minute.");
     }
     let newer = (await ctx.runQuery(listNewerRef, {
-      ownerUserId, after: row.newestCreatedAt ?? row.generatedAt, limit: NEWER_ASSET_LIMIT,
+      ownerUserId, after: (row.newestCreatedAt ?? row.generatedAt) - NEWER_ASSET_OVERLAP_MS, limit: NEWER_ASSET_LIMIT,
     })) as { assets: unknown[]; hasMore: boolean };
     if (newer.hasMore && !rebuilt && age(row) > MIN_REBUILD_INTERVAL_MINUTES * 60_000) {
       await tryRebuild();
       newer = (await ctx.runQuery(listNewerRef, {
-        ownerUserId, after: row!.newestCreatedAt ?? row!.generatedAt!, limit: NEWER_ASSET_LIMIT,
+        ownerUserId, after: (row!.newestCreatedAt ?? row!.generatedAt!) - NEWER_ASSET_OVERLAP_MS, limit: NEWER_ASSET_LIMIT,
       })) as { assets: unknown[]; hasMore: boolean };
     }
     const current = row!;
@@ -354,6 +371,7 @@ export const getInventoryExport = ownerAction({
       byteSize: current.byteSize,
       parts: current.parts.map((part, index) => ({ index, count: part.count, bytes: part.bytes })),
       newerAssets: newer.assets as never,
+      newerTruncated: newer.hasMore,
     };
   },
 });
