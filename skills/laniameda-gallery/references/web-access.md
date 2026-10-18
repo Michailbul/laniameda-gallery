@@ -22,7 +22,7 @@ curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniame
 bun gallery.mjs check
 bun gallery.mjs tools
 bun gallery.mjs schema save_assets
-bun gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
+bun gallery.mjs all_assets --out ./inventory
 bun gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
 ```
 
@@ -41,7 +41,12 @@ bookmarks, YouTube references and presets. Use
 assets.pages()/assets.all() and videoRefs.pages()/videoRefs.all() for complete reads and filter/aggregate locally
 before printing concise results. assets.inventory() also returns completion, page
 count and scan metadata. The CLI --out takes a directory; all_assets writes
-<directory>/assets.json. Avoid printing private full inventory data unless
+<directory>/assets.json. Without filters all_assets reads the cached export
+(POST /api/agent/inventory: one snapshot rebuilt at most daily, with assets
+saved since appended; {"refresh":true} rebuilds it if older than 15 minutes,
+{"maxAgeMinutes":60} tightens the age). The snapshot does not reflect later
+edits or deletions: read single records with get_gallery_item before changing
+them. assets.pages()/all() page live and cost a full read every time. Avoid printing private full inventory data unless
 that export is requested. Read the actual module and tool schema for option names.
 
 ```javascript
@@ -87,8 +92,9 @@ Do not guess rules from old installed copies if access is unavailable.
 - Video posters: supply posterUploadId on creation; set_video_poster edits only
   the thumbnail while preserving the owned video and its links.
 
-list_assets remains bounded; follow list_assets_page until isDone true for an
-audit. Include descendants when reading a world root. Empty matching pages can
+list_assets remains bounded; follow list_assets_page until isDone true for a
+filtered or exact live audit, and use the cached export (all_assets) for a
+complete unfiltered inventory. Include descendants when reading a world root. Empty matching pages can
 have a continuation. Plain keyword matching and semantic search differ; inspect
 the schema rather than assuming every field is in every read/search surface.
 

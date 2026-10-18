@@ -1,5 +1,8 @@
 # Semantic identity read-cost migration
 
+> Superseded on 18 October 2026 by split storage (`SEMANTIC_SPLIT_RUNBOOK.md`).
+> Each `--check` or `--apply` pass below reads every vector row: ~357 MB.
+
 The additive backend and initial metadata migration were deployed on 13 October
 2026. Backfill wrote 6,336 identities; a full audit checked 6,345 rows with zero
 missing or mismatched rows and `done: true`. Keep the procedure below for

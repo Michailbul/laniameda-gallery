@@ -2,11 +2,22 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-07
+Last updated: 2026-10-18
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-18 (branch, awaiting deploy approval)
+- Convex Database I/O cuts after the Free-plan deployment was disabled. Search
+  asks each lane for 2× its limit (32–96) before widening to 256, cuts split
+  lanes by score before mapping hits, and hydrates about its limit instead of
+  60 assets. Unchanged reindexes no longer rewrite the 56 KB legacy row.
+  Optional split semantic storage (`SEMANTIC_STORAGE`) keeps vectors at 768
+  values in their own rows, with a provider-free, resumable migration and a
+  10-query eval. The cached inventory export replaces paging every asset; the
+  extension batches and caches saved-status lookups. Figures in
+  `DATABASE_IO.md`, steps in `SEMANTIC_SPLIT_RUNBOOK.md`.
 
 ### 2026-10-16
 - Named characters are first-class: each person in a world gets a stable code (`DA-CH-001`), costumes as `-C01`, a canonical sheet and face, and typed links to every asset that shows them. Agents use nine MCP tools (list/get/create/update characters, costumes, link/unlink, delete); `get_gallery_item` names the people in an asset. The sidebar's Characters view shows the cast by world and status and a page per character. Detail: `features/characters/README.md`.
