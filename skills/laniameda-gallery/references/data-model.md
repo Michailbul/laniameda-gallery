@@ -54,8 +54,17 @@ Michael's own caption, so user metadata and agent-derived metadata never mix.
 
 ## Semantic search: two lanes
 
-Each asset has one `semanticDocuments` row with two embeddings, each from its
-own model (3072 dims both):
+Storage moves between two layouts (`SEMANTIC_STORAGE`, `convex/semanticStorage.ts`):
+legacy keeps one `semanticDocuments` row per source with both lanes at 3072
+values (~56 KB); split keeps a slim `semanticEntries` row per asset or Skill
+plus one row per lane in `semanticPixelVectors` / `semanticTextVectors`, each
+the normalized first 768 values of the same embedding. Search and the lane
+rules below are the same in both. Split storage holds no prompt or
+design-inspiration vectors (nothing searches them) and no pixel vector for
+imageless assets.
+
+In legacy storage each asset has one `semanticDocuments` row with two
+embeddings, each from its own model (3072 dims both):
 
 - **Pixel lane** (`embedding`, index `by_embedding`, `gemini-embedding-2-preview`,
   multimodal): the image bytes only, so a text query finds what a picture looks

@@ -398,9 +398,15 @@ can still have a continuation. Keep the same filters while following a cursor.
 Use includeDescendants when reading an organized world root. Do not infer totals
 from the first page or call a capped read a complete export.
 
+For a complete unfiltered inventory, prefer gallery.mjs all_assets: it reads
+the cached export (rebuilt at most daily, assets saved since appended, folders
+included) instead of re-reading every asset, which costs the gallery's
+database ~15 MB a time. Pass {"refresh":true} when the snapshot must be newer
+than 15 minutes; the snapshot does not show later edits or deletions.
+
 The dependency-free scripts/gallery-client.mjs exports createGalleryClient. Its
-assets.pages()/assets.all() helpers follow the complete surface; gallery.mjs
-all_assets writes the collected inventory with completion metadata. Read
+assets.pages()/assets.all() helpers follow the live paged surface; gallery.mjs
+all_assets with filters (or {"live":true}) does the same. Read
 references/web-access.md for current usage and schema discovery.
 
 The cursor order is owner-candidate-createdAt-desc, not a global chronological

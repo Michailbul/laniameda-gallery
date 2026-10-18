@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.9.0
+version: 1.10.0
 ---
 
 # Laniameda Gallery
@@ -101,7 +101,10 @@ Use search_gallery for meaning or visual similarity; find_similar expands around
 an asset. Use list_assets_page with filters and its opaque cursor for a complete
 inventory. Continue until isDone: true; list_assets is a bounded convenience read.
 For a world, includeDescendants includes its parts; an empty root does not mean an
-empty world. The Bun client's all_assets command collects complete pages.
+empty world. For a complete unfiltered inventory use the Bun client's
+all_assets command: it downloads the cached export (rebuilt at most daily, plus
+assets saved since) instead of reading every asset again. With filters, or
+{"live":true}, it pages list_assets_page.
 
 Use preview_assets to visually compare numbered references before selecting;
 get_gallery_item returns prompt, tags, source and media for asset:<id> or pack:<id>.
@@ -194,7 +197,7 @@ claim that an agent-supplied flag proves human consent.
 bun <this skill>/scripts/gallery.mjs check
 bun <this skill>/scripts/gallery.mjs tools
 bun <this skill>/scripts/gallery.mjs schema save_assets
-bun <this skill>/scripts/gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
+bun <this skill>/scripts/gallery.mjs all_assets --out ./inventory
 ```
 
 Upload local bytes with prepare_uploads, run its returned PUT commands, then

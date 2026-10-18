@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-10-07
+Last updated: 2026-10-18
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -22,6 +22,16 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
 - Folders are owner-scoped in backend APIs; always pass `ownerUserId` to `folders.listFolders` and validate folder ownership before writing `folderId` to assets/prompts.
 - Child collection cards should be read with `folders.listChildCollectionEntries`, which uses the `folders.by_parent` index and returns count + preview data without loading every collection in the vault.
+
+- Database I/O counts whole documents, reads and writes: a patch rewrites the
+  row, and any read of a legacy `semanticDocuments` row costs ~56 KB (two
+  3,072-float vectors). Compare before patching, keep vectors in their own
+  rows (split storage), and budget migrations/audits by rows × size before
+  running them: one pass over semanticDocuments is ~357 MB, a third of the
+  Free plan's month. Per-function figures: `DATABASE_IO.md`.
+- Bun's `toMatchObject` with asymmetric matchers (`expect.any(String)`) can
+  write the matcher objects into the received object. Never pass a mock
+  database's stored row to it; assert field types instead.
 
 ## Gallery / UI
 
@@ -129,7 +139,9 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - LEGACY_OWNER_ARG_AUTH is disabled; unsigned owner arguments cannot authorize
   private gallery reads. Native text/presets/instruction resources always require
   signed auth. OAuth codes are single-use; unknown scopes and wrong redirects reject.
-- Use list_assets_page through isDone for complete inventories; list_assets is capped.
+- Complete unfiltered inventories come from the cached export (gallery.mjs
+  all_assets, /api/agent/inventory); filtered or live ones page list_assets_page
+  through isDone. list_assets is capped.
 - create_skill supports markdown-only reusable recipes and optional real step media.
   Collections group ordinary assets; do not promote every prompt variation to a Skill.
 - set_video_poster changes only the thumbnail. An asset update with image media
