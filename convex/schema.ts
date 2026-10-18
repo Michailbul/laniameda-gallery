@@ -31,6 +31,17 @@ import {
   tagSourceValidator,
   workflowTypeValidator,
 } from "./validators";
+import { SEMANTIC_VECTOR_DIMENSIONS } from "./semanticStorage";
+
+// A split-storage vector row: the lane's vector plus the scope keys the
+// vector filter needs. Everything else about the source lives in its entry.
+const semanticVectorFields = {
+  scopeKey: v.string(),
+  scopePillarKey: v.optional(v.string()),
+  publicScopeKey: v.optional(v.string()),
+  publicScopePillarKey: v.optional(v.string()),
+  embedding: v.array(v.float64()),
+};
 
 export default defineSchema({
   // Private agent reference documents, kept out of public repository bundles.
@@ -770,6 +781,61 @@ export default defineSchema({
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
     modality: semanticModalityValidator,
   }).index("by_semanticDocument", ["semanticDocumentId"]),
+  // Split semantic storage (SEMANTIC_STORAGE=dual|split, convex/semanticStorage.ts).
+  // One slim entry per asset or Skill maps a vector hit to its source and
+  // holds each lane's content hash; each lane's vector is a row of its own,
+  // so mapping hits, reindexing and authorizing a similarity search never read
+  // a vector they do not use. No entry for prompts or design inspirations:
+  // nothing searches them.
+  semanticEntries: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.optional(v.id("assets")),
+    skillId: v.optional(v.id("skills")),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    modality: semanticModalityValidator,
+    // Only real image embeddings; an imageless asset is found by its words.
+    pixelVectorId: v.optional(v.id("semanticPixelVectors")),
+    // Absent beside a vector = kept for search but due for re-embedding.
+    pixelHash: v.optional(v.string()),
+    textVectorId: v.optional(v.id("semanticTextVectors")),
+    textHash: v.optional(v.string()),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_skill", ["skillId"])
+    .index("by_pixelVector", ["pixelVectorId"])
+    .index("by_textVector", ["textVectorId"]),
+  semanticPixelVectors: defineTable(semanticVectorFields)
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: SEMANTIC_VECTOR_DIMENSIONS,
+      filterFields: ["scopeKey", "scopePillarKey", "publicScopeKey", "publicScopePillarKey"],
+    }),
+  semanticTextVectors: defineTable(semanticVectorFields)
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: SEMANTIC_VECTOR_DIMENSIONS,
+      filterFields: ["scopeKey", "scopePillarKey", "publicScopeKey", "publicScopePillarKey"],
+    }),
+  // Cached agent inventory (convex/inventoryExport.ts): the complete default
+  // asset listing written to R2 as JSON parts, so an agent downloads one
+  // snapshot instead of paging every asset with its prompt, tags and
+  // collections. One row per owner; a rebuild writes new objects, then
+  // deletes the previous ones.
+  inventoryExports: defineTable({
+    ownerUserId: v.string(),
+    generatedAt: v.optional(v.number()),
+    assetCount: v.number(),
+    folderCount: v.number(),
+    byteSize: v.number(),
+    parts: v.array(v.object({ key: v.string(), count: v.number(), bytes: v.number() })),
+    // Newest asset createdAt in the snapshot: later reads append assets saved
+    // since without reading the rest again.
+    newestCreatedAt: v.optional(v.number()),
+    // Set while a rebuild runs, so concurrent requests do not build twice.
+    buildingSince: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_owner", ["ownerUserId"]),
   // Cache of query-text embeddings so repeat searches (especially from the
   // public showcase) never re-hit the Gemini embedding endpoint, whose RPM
   // quota is small enough that live per-search calls 429 under light bursts.

@@ -84,7 +84,8 @@ describe("semantic search actions", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]?._id).toBe("assets:1");
-    expect(results[0]?.score).toBe(0.93);
+    // The fused score; each lane keeps its raw cosine score.
+    expect(results[0]).toMatchObject({ score: 1, visualScore: 0.93, textScore: 0.93 });
   });
 
   test("findSimilarAssets excludes the source asset", async () => {
