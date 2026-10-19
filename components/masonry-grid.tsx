@@ -123,6 +123,11 @@ interface MasonryGridProps {
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
   /** Owner-only: the card's collection menu offers "Add to moodboard…". */
   onAddAssetToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
+  /** Assets shown as already taken (e.g. on the moodboard being filled);
+      they cannot be selected. */
+  markedAssetIds?: Set<string>;
+  /** The label laid over a marked card. */
+  markedLabel?: string;
   /** Owner-only: card hover surfaces tag chips; clicking one removes it. */
   onRemoveAssetTag?: (imageId: string, tagName: string) => void;
   /** One-click exclude on card hover: drops the piece from the collection
@@ -340,6 +345,8 @@ export function MasonryGrid({
   onCreateCollection,
   onRenameCollection,
   onAddAssetToMoodboard,
+  markedAssetIds,
+  markedLabel = "Taken",
   onRemoveAssetTag,
   onExcludeAssetFromView,
   excludeLabel,
@@ -918,9 +925,11 @@ export function MasonryGrid({
                 index={originalIndex}
                 selectable={
                   selectable &&
+                  !markedAssetIds?.has(image.id) &&
                   (image.galleryItemType === "asset" ||
                     image.galleryItemType === undefined)
                 }
+                marked={markedAssetIds?.has(image.id) ? markedLabel : undefined}
                 selected={Boolean(selectedAssetIds?.has(image.id))}
                 selectionActive={Boolean(selectedAssetIds && selectedAssetIds.size > 0)}
                 onToggleSelect={onToggleAssetSelect}

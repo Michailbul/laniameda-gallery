@@ -46,9 +46,9 @@ export type MoodboardAssetSummary = {
   promptText?: string;
 };
 
-const mono: CSSProperties = { fontFamily: "var(--lm-font)" };
-const display: CSSProperties = { fontFamily: "var(--lm-font-display)" };
-const RADIUS = "var(--lm-radius)";
+export const mono: CSSProperties = { fontFamily: "var(--lm-font)" };
+export const display: CSSProperties = { fontFamily: "var(--lm-font-display)" };
+export const RADIUS = "var(--lm-radius)";
 const STATUS_COLOR: Record<MoodboardStatus, string> = {
   draft: "var(--lm-text-tertiary)",
   "in-midjourney": "var(--lm-coral)",
@@ -67,7 +67,7 @@ const errorText = (error: unknown, fallback: string) => {
   return error instanceof Error ? error.message.replace(/^.*Uncaught ConvexError: /, "").split("\n")[0] : fallback;
 };
 
-const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+export const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 // "Styles / DA FILM" for a grouped child; the group is left out when it only
 // repeats the name.
@@ -94,7 +94,7 @@ const copyText = async (value: string) => {
 
 /* ── Small pieces ─────────────────────────────────────────────────────────── */
 
-function Micro({ children, color, className }: { children: ReactNode; color?: string; className?: string }) {
+export function Micro({ children, color, className }: { children: ReactNode; color?: string; className?: string }) {
   return <span className={`text-[10px] font-bold uppercase tracking-[0.14em] ${className ?? ""}`}
     style={{ ...mono, color: color ?? "var(--lm-text-tertiary)" }}>{children}</span>;
 }
@@ -104,7 +104,7 @@ function Code({ children }: { children: ReactNode }) {
   return <span style={{ textTransform: "none", letterSpacing: "0.02em" }}>{children}</span>;
 }
 
-function Badge({ children, color, title }: { children: ReactNode; color?: string; title?: string }) {
+export function Badge({ children, color, title }: { children: ReactNode; color?: string; title?: string }) {
   return <span title={title} className="inline-flex items-center gap-1.5 border px-1.5 py-[3px] text-[10px] font-semibold uppercase leading-none tracking-[0.12em]"
     style={{ ...mono, borderRadius: RADIUS, borderColor: "var(--lm-border)", color: color ?? "var(--lm-text-secondary)" }}>{children}</span>;
 }
@@ -143,7 +143,7 @@ const TONE: Record<Tone, CSSProperties> = {
   danger: { background: "transparent", color: "var(--lm-coral)", border: "1px solid var(--lm-coral)" },
 };
 
-function ActionButton({ tone = "ghost", icon, children, busy, className, ...props }:
+export function ActionButton({ tone = "ghost", icon, children, busy, className, ...props }:
   { tone?: Tone; icon?: ReactNode; busy?: boolean } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type="button" {...props}
     className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] transition-[opacity,background-color,color] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 ${className ?? ""}`}
@@ -216,7 +216,7 @@ function Mosaic({ previews, total, name }: { previews: Row["previewItems"]; tota
 
 // A board deleted elsewhere (by an agent, in another tab) makes its read
 // fail. Say so in place instead of taking the gallery down with it.
-class BoardBoundary extends Component<{ children: ReactNode; onBack: () => void; resetKey: string }, { failed: boolean }> {
+export class BoardBoundary extends Component<{ children: ReactNode; onBack: () => void; resetKey: string; backLabel?: string }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidUpdate(previous: { resetKey: string }) {
@@ -224,10 +224,11 @@ class BoardBoundary extends Component<{ children: ReactNode; onBack: () => void;
   }
   render() {
     if (!this.state.failed) return this.props.children;
+    const backLabel = this.props.backLabel ?? "All moodboards";
     return <section className="px-4 py-14 text-center md:px-6">
       <p className="text-sm font-black uppercase tracking-tight" style={display}>This moodboard is no longer here</p>
       <p className="mx-auto mt-2 max-w-sm text-xs leading-5" style={{ color: "var(--lm-text-tertiary)" }}>It was deleted or moved out of your gallery.</p>
-      <ActionButton className="mt-5" icon={<ArrowLeft size={13} />} onClick={this.props.onBack}>All moodboards</ActionButton>
+      <ActionButton className="mt-5" icon={<ArrowLeft size={13} />} onClick={this.props.onBack}>{backLabel}</ActionButton>
     </section>;
   }
 }
@@ -265,13 +266,21 @@ type ViewProps = {
   collections: MoodboardCollectionOption[];
   onBack: () => void;
   onOpenAsset: (asset: MoodboardAssetSummary) => void;
+  /** Opens the gallery in picking mode to add images to this board. */
+  onChooseFromGallery?: (board: MoodboardPickTarget) => void;
+  /** The board to open on mount, e.g. after returning from picking. */
+  initialBoardId?: string;
 };
 
+/** The board a "Choose from gallery" round adds to. */
+export type MoodboardPickTarget = { id: string; name: string; folderId: string };
+
 export function MoodboardsView(props: ViewProps) {
-  const [openId, setOpenId] = useState<Id<"moodboards"> | null>(null);
+  const [openId, setOpenId] = useState<Id<"moodboards"> | null>((props.initialBoardId as Id<"moodboards"> | undefined) ?? null);
   return <BoardBoundary onBack={() => setOpenId(null)} resetKey={openId ?? "list"}>
     {openId
-      ? <MoodboardDetail {...props} moodboardId={openId} onClose={() => setOpenId(null)} />
+      ? <MoodboardDetail ownerUserId={props.ownerUserId} collections={props.collections} onOpenAsset={props.onOpenAsset}
+        onChooseFromGallery={props.onChooseFromGallery} moodboardId={openId} onClose={() => setOpenId(null)} />
       : <MoodboardList {...props} onOpenBoard={setOpenId} />}
   </BoardBoundary>;
 }
@@ -354,7 +363,9 @@ function MoodboardList({ ownerUserId, collection, collections, onBack, onOpenBoa
   </section>;
 }
 
-function BoardCard({ row, onOpen }: { row: Row; onOpen: () => void }) {
+export type MoodboardRow = Row;
+
+export function BoardCard({ row, onOpen, place }: { row: Row; onOpen: () => void; place?: string }) {
   return <article role="button" tabIndex={0} onClick={onOpen} aria-label={`Moodboard ${row.name}, ${plural(row.itemCount, "image")}`}
     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
     className="group cursor-pointer overflow-hidden border border-[var(--lm-border-strong)] outline-none transition-[transform,border-color] duration-200 hover:-translate-y-[2px] hover:border-[var(--lm-text-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--lm-coral)]"
@@ -365,6 +376,7 @@ function BoardCard({ row, onOpen }: { row: Row; onOpen: () => void }) {
     </div>
     <div className="grid gap-2 p-3">
       <div className="min-w-0">
+        {place && <p className="mb-1 truncate"><Micro color="var(--lm-text-ghost)">{place}</Micro></p>}
         <h3 className="truncate text-[15px] font-black uppercase leading-tight tracking-tight" style={display}>{row.name}</h3>
         {row.description && <p className="mt-1 truncate text-xs" style={{ color: "var(--lm-text-tertiary)" }} title={row.description}>{row.description}</p>}
       </div>
@@ -377,7 +389,7 @@ function BoardCard({ row, onOpen }: { row: Row; onOpen: () => void }) {
   </article>;
 }
 
-function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
+export function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
   ownerUserId: string; owners: MoodboardCollectionOption[]; defaultFolderId: string; onCreated: (id: Id<"moodboards">) => void;
 }) {
   const create = useMutation(api.moodboards.createMoodboard);
@@ -389,7 +401,7 @@ function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
   const [error, setError] = useState("");
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !name.trim()) return;
+    if (busy || !name.trim() || !folderId) return;
     setBusy(true); setError("");
     try {
       const result = await create({
@@ -404,7 +416,8 @@ function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
     <Field label="Name"><input required autoFocus maxLength={MOODBOARD_LIMITS.name} className={fieldClass} style={fieldStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="DA FILM · Golden" /></Field>
     <Field label="Style tag"><input maxLength={MOODBOARD_LIMITS.styleTag} className={fieldClass} style={{ ...fieldStyle, ...mono }} value={styleTag} onChange={(e) => setStyleTag(e.target.value)} placeholder="da-film" /></Field>
     <Field label="Belongs to">
-      <select className={fieldClass} style={fieldStyle} value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={owners.length < 2}>
+      <select required className={fieldClass} style={fieldStyle} value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={owners.length < 2}>
+        {!folderId && <option value="" disabled>Choose a world or collection</option>}
         {owners.map((owner) => <option key={owner._id} value={owner._id}>{collectionLabel(owner)}</option>)}
       </select>
     </Field>
@@ -413,8 +426,8 @@ function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
         placeholder="Warm 35mm film look for Dear Annete exteriors: golden hour, halation, soft grain." />
     </Field>
     <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
-      <ActionButton type="submit" tone="coral" busy={busy} disabled={busy || !name.trim()} icon={<Plus size={13} aria-hidden />}>{busy ? "Creating…" : "Create moodboard"}</ActionButton>
-      <Micro color="var(--lm-text-ghost)">Add images from any card menu or a selection</Micro>
+      <ActionButton type="submit" tone="coral" busy={busy} disabled={busy || !name.trim() || !folderId} icon={<Plus size={13} aria-hidden />}>{busy ? "Creating…" : "Create moodboard"}</ActionButton>
+      <Micro color="var(--lm-text-ghost)">Then choose its images from the gallery</Micro>
       {error && <p role="alert" className="text-xs" style={{ color: "var(--lm-coral)" }}>{error}</p>}
     </div>
   </form>;
@@ -466,7 +479,18 @@ function TilePlane<T>({ items, inputs, render, keyOf, label }: {
 
 /* ── Detail ───────────────────────────────────────────────────────────────── */
 
-function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose, onOpenAsset }: ViewProps & { moodboardId: Id<"moodboards">; onClose: () => void }) {
+export type MoodboardDetailProps = {
+  ownerUserId: string;
+  moodboardId: Id<"moodboards">;
+  /** Collections the board may move between in Edit. */
+  collections: MoodboardCollectionOption[];
+  onClose: () => void;
+  onOpenAsset: (asset: MoodboardAssetSummary) => void;
+  onChooseFromGallery?: (board: MoodboardPickTarget) => void;
+  backLabel?: string;
+};
+
+export function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose, onOpenAsset, onChooseFromGallery, backLabel }: MoodboardDetailProps) {
   const { isAuthenticated } = useConvexAuth();
   const [deleting, setDeleting] = useState(false);
   // Skipped once a delete starts, so the read never outlives its board.
@@ -556,13 +580,14 @@ function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose, onOpe
   };
 
   const sync = moodboardSyncState(board, detail.items.map((item) => item.addedAt));
+  const pickTarget: MoodboardPickTarget = { id: board._id, name: board.name, folderId: board.folderId };
   const collectionPath = detail.parentFolderName ? `${detail.parentFolderName} / ${detail.folderName}` : detail.folderName;
   const restoreStatus: MoodboardStatus = board.mjCode || board.mjMoodboardId ? "in-midjourney" : "draft";
 
   return <section className="px-4 pb-16 pt-4 md:px-6" style={{ color: "var(--lm-text-primary)" }}>
-    <BackLink onClick={onClose}>All moodboards</BackLink>
+    <BackLink onClick={onClose}>{backLabel ?? "All moodboards"}</BackLink>
 
-    <header className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_auto]">
+    <header className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_auto]">
       <div className="grid min-w-0 gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill status={board.status} />
@@ -580,7 +605,9 @@ function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose, onOpe
             </div>)}
         </dl>
       </div>
-      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+      <div className="flex flex-wrap items-center gap-2 2xl:max-w-[560px] 2xl:justify-end">
+        {onChooseFromGallery && <ActionButton tone="coral" icon={<Plus size={13} aria-hidden />}
+          onClick={() => onChooseFromGallery(pickTarget)} title="Open the gallery and pick images to add">Choose from gallery</ActionButton>}
         <SendToMidjourney board={board} items={detail.items} />
         <ActionButton aria-expanded={editing} icon={editing ? <X size={13} aria-hidden /> : <Pencil size={13} aria-hidden />} onClick={() => setEditing(!editing)}>{editing ? "Close" : "Edit"}</ActionButton>
         {board.status === "archived"
@@ -610,8 +637,10 @@ function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose, onOpe
       ? <div className="border border-dashed px-6 py-12 text-center" style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)" }}>
         <p className="text-sm font-black uppercase tracking-tight" style={display}>An empty board</p>
         <p className="mx-auto mt-2 max-w-md text-xs leading-5" style={{ color: "var(--lm-text-tertiary)" }}>
-          Open a card&rsquo;s collection menu and choose Add to moodboard, or select several images and use Add to moodboard in the selection bar.
+          Choose its images from the gallery, with every filter, or use Add to moodboard from a card&rsquo;s collection menu.
         </p>
+        {onChooseFromGallery && <ActionButton tone="coral" className="mt-5" icon={<Plus size={13} aria-hidden />}
+          onClick={() => onChooseFromGallery(pickTarget)}>Choose from gallery</ActionButton>}
       </div>
       : <BoardItems items={items} coverAssetId={board.coverAssetId} onOpen={(item) => onOpenAsset(item)}
         onMove={move} onDrop={dropOnto} onRemove={(id) => void remove(id)} onMakeCover={(id) => void makeCover(id)} />}
@@ -728,7 +757,7 @@ function SendToMidjourney({ board, items }: { board: Board; items: Item[] }) {
       icon={progress ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <Download size={13} aria-hidden />}>
       Send to Midjourney<ChevronDown size={13} aria-hidden />
     </ActionButton>
-    {open && <div role="menu" aria-label="Send to Midjourney" className="absolute right-0 top-[calc(100%+6px)] z-40 grid w-[300px] max-w-[calc(100vw-32px)] border py-1"
+    {open && <div role="menu" aria-label="Send to Midjourney" className="absolute left-0 top-[calc(100%+6px)] z-40 grid w-[300px] max-w-[calc(100vw-32px)] border py-1 max-sm:fixed max-sm:inset-x-4 max-sm:bottom-[calc(var(--mobile-bottom-nav-height,64px)+12px)] max-sm:top-auto max-sm:w-auto max-sm:max-w-none 2xl:left-auto 2xl:right-0"
       style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-lg)" }}>
       {rows.map((row) => <button key={row.key} type="button" role="menuitem" disabled={row.disabled} onClick={row.run}
         className="grid grid-cols-[18px_minmax(0,1fr)] items-start gap-x-2.5 px-3 py-2.5 text-left transition-colors hover:bg-[var(--lm-surface-2)] disabled:cursor-not-allowed disabled:opacity-45">

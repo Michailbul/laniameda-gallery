@@ -98,6 +98,11 @@ publish, star or re-file the board's images as part of a sync.
 
 ## Rules
 
+- A board is its own record, never a collection. Do not make a collection
+  that mirrors a board (the per-board collections under `Midjourney Srefs`
+  are legacy; Michael decides whether they go). In the app, boards live in
+  the Moodboards tab and in their world's Moodboards panel, where Choose from
+  gallery adds images with the full gallery filters.
 - Make a board in the collection whose look it carries: a world's film look
   in that world (or its Styles child), a place in its place collection.
 - Cite boards by name and code in prompts and notes. Keep the recipe partners
