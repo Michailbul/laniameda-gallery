@@ -8,6 +8,14 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/moodboards-tab`, frontend only)
+- Collection tabs under the breadcrumb: Pieces, Folders (in a world) and
+  Moodboards with its board count, on every world root and style branch and
+  on any other collection that has boards. They replace the small Moodboards
+  link at the end of the breadcrumb. Saved views and smart filters no longer
+  hide or close the Moodboards panel. Icons drop below 640 px so the three
+  tabs fit a phone.
+
 ### 2026-10-19 (branch `claude/empty-folder-prompt`, frontend only)
 - No empty collections left behind: when a collection's last piece leaves
   (deleted, moved, removed, or filed elsewhere by an agent) and it has no
