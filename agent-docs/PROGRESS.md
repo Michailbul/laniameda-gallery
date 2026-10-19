@@ -8,6 +8,16 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/asset-comments`, needs a Convex backend push)
+- Comments on every asset: a thread in the detail panel (Details tab, under
+  Description), oldest first, Enter to send, delete on hover; agent replies
+  are marked Agent. Table `assetComments`, functions in
+  `convex/assetComments.ts`, removed with the asset. Agents read a thread in
+  `get_gallery_item` (`comments`), list one thread or the newest across the
+  vault with `list_asset_comments`, and reply with `add_asset_comment`
+  (`/api/agent/comments`). Until the backend is pushed, the panel hides the
+  section and `get_gallery_item` returns `comments: []`.
+
 ### 2026-10-19 (branch `claude/empty-folder-prompt`, frontend only)
 - No empty collections left behind: when a collection's last piece leaves
   (deleted, moved, removed, or filed elsewhere by an agent) and it has no

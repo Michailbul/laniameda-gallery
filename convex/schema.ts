@@ -150,6 +150,18 @@ export default defineSchema({
     .index("by_moodboard_position", ["moodboardId", "position"])
     .index("by_moodboard_asset", ["moodboardId", "assetId"])
     .index("by_asset", ["assetId"]),
+  // Notes on one asset, newest last: Michael's comments from the detail panel
+  // and agents' replies. Agents read them with the asset and act on them.
+  assetComments: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    body: v.string(),
+    author: v.union(v.literal("owner"), v.literal("agent")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_asset_createdAt", ["assetId", "createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),

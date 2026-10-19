@@ -239,7 +239,15 @@ export async function POST(request: Request) {
               ownerUserId: agent.ownerUserId,
             }).catch(() => [])
           : [];
-        return NextResponse.json({ asset, characters });
+        // Michael's comments on the piece and agents' replies, oldest first.
+        // Additive like characters: an older backend answers without them.
+        const comments = asset
+          ? await client.query(api.assetComments.listAssetComments, {
+              assetId: parsed.id as Id<"assets">,
+              ownerUserId: agent.ownerUserId,
+            }).catch(() => [])
+          : [];
+        return NextResponse.json({ asset, characters, comments });
       }
       if (parsed.kind === "skill") {
         return NextResponse.json({ skill: null });

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
+import { AssetComments } from "./asset-comments";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
 import { triggerAssetDownload } from "@/lib/download-image";
@@ -1571,6 +1572,12 @@ export function GalleryDetailPanel({
                     )}
                   </Field>
                 </>
+              )}
+
+              {/* Comments: Michael's notes on this piece, agents' replies. */}
+              {canEditDetails && ownerUserId && !isDesignView && currentAssetId &&
+                (!image.galleryItemType || image.galleryItemType === "asset" || image.galleryItemType === "pack") && (
+                <AssetComments assetId={currentAssetId} ownerUserId={ownerUserId} />
               )}
 
               {/* Tags — one editable line, comma separated. */}
