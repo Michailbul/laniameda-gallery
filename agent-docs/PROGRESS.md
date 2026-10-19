@@ -8,6 +8,19 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `fix/folder-tree-read-limit`, backend hotfix)
+- `assets:listGalleryAssets` no longer fails with "Too many reads (limit:
+  4096)" on a big world. A world view under the FEATURED or SHUFFLE sort (and
+  agents' `list_assets` with `includeDescendants`) read up to 2,000 links per
+  folder for the root and every shelf, one `db.get` per link, then hydrated
+  every piece. DEAR ANNETE (about 1,400 pieces, 30 shelves) sat at about 3,950
+  reads. The world's link ranges are now merged newest first and deduped
+  before any piece is fetched, and one call spends at most about 3,000 reads
+  (`QUERY_READ_BUDGET`): it returns the newest pieces that fit. Searches and
+  hidden-collection checks pay from the same budget. Folder helpers fetch at
+  most 2,000 members. The NEWEST world view already pages through
+  `listGalleryAssetsPage` and is complete.
+
 ### 2026-10-19 (branch `claude/empty-folder-prompt`, frontend only)
 - No empty collections left behind: when a collection's last piece leaves
   (deleted, moved, removed, or filed elsewhere by an agent) and it has no
