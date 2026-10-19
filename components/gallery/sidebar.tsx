@@ -11,7 +11,6 @@ import {
   Orbit,
   Search as SearchIcon,
   X,
-  UsersRound,
   Bookmark,
   ChevronLeft,
   ChevronRight,
@@ -85,8 +84,6 @@ interface GallerySidebarProps {
   storybooksTabActive?: boolean;
   onStoriesTab?: () => void;
   storiesTabActive?: boolean;
-  onCharactersTab?: () => void;
-  charactersTabActive?: boolean;
   /** Opens the Moodboards tab: every board, grouped by world. */
   onMoodboardsTab?: () => void;
   moodboardsTabActive?: boolean;
@@ -160,8 +157,6 @@ export function GallerySidebar({
   storybooksTabActive = false,
   onStoriesTab,
   storiesTabActive = false,
-  onCharactersTab,
-  charactersTabActive = false,
   onMoodboardsTab,
   moodboardsTabActive = false,
   onBookmarksTab,
@@ -649,7 +644,6 @@ export function GallerySidebar({
             isGalleryActive &&
             !storybooksTabActive &&
             !storiesTabActive &&
-            !charactersTabActive &&
             !moodboardsTabActive &&
             !bookmarksTabActive &&
             !motionTabActive &&
@@ -689,9 +683,6 @@ export function GallerySidebar({
         )}
         {onStoriesTab && (
           <NavItem icon={BookOpenText} label="Stories" href="#" active={storiesTabActive} collapsed={collapsed} onClick={onStoriesTab} />
-        )}
-        {onCharactersTab && (
-          <NavItem icon={UsersRound} label="Characters" href="#" active={charactersTabActive} collapsed={collapsed} onClick={onCharactersTab} />
         )}
         {onMoodboardsTab && (
           <NavItem icon={LayoutGrid} label="Moodboards" href="#" active={moodboardsTabActive} collapsed={collapsed} onClick={onMoodboardsTab} />
