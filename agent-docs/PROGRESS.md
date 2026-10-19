@@ -2,11 +2,27 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
+- Moodboards: ordered sets of gallery images that define one look, mirrored to
+  a Midjourney moodboard and its `--profile` code. Each belongs to a plain
+  collection. A collection's header has `Moodboards · N`, which opens board
+  cards with cover mosaics, a board page (drag to reorder, cover, remove,
+  Send to Midjourney: zip, image links or an agent request, sync state and
+  "Made with this board") and `New moodboard`. Any card menu or a selection
+  adds images through a picker with ticks. Agents use nine MCP tools on
+  `/api/agent/moodboards` and record the code with `set_moodboard_midjourney`.
+  Asset and collection deletes cascade. Skill 1.11.0, contract 2026-10-19.1.
+- Collection groups: a child collection can carry a display `group` (Styles,
+  Places, Cast) and `sortOrder`. A world page shows its child stacks under
+  group headings; the sidebar and collection cards list children group by
+  group. Ungrouped children keep today's order. Detail:
+  `features/collection-moodboards/README.md`.
 
 ### 2026-10-18 (branch, awaiting deploy approval)
 - Convex Database I/O cuts after the Free-plan deployment was disabled. Search

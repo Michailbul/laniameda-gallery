@@ -47,6 +47,8 @@ import type * as inventoryExport from "../inventoryExport.js";
 import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
 import type * as midjourneySrefs from "../midjourneySrefs.js";
+import type * as moodboardValidators from "../moodboardValidators.js";
+import type * as moodboards from "../moodboards.js";
 import type * as notifications from "../notifications.js";
 import type * as prompts from "../prompts.js";
 import type * as publicCollectionCounts from "../publicCollectionCounts.js";
@@ -119,6 +121,8 @@ declare const fullApi: ApiFromModules<{
   membershipAudit: typeof membershipAudit;
   menuFilters: typeof menuFilters;
   midjourneySrefs: typeof midjourneySrefs;
+  moodboardValidators: typeof moodboardValidators;
+  moodboards: typeof moodboards;
   notifications: typeof notifications;
   prompts: typeof prompts;
   publicCollectionCounts: typeof publicCollectionCounts;

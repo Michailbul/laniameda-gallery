@@ -19,6 +19,7 @@ const ingestUpdateRoutePath = new URL(
 const galleryRoutePath = new URL("../app/api/agent/gallery/route.ts", import.meta.url).pathname;
 const customizeRoutePath = new URL("../app/api/agent/customize/route.ts", import.meta.url).pathname;
 const charactersRoutePath = new URL("../app/api/agent/characters/route.ts", import.meta.url).pathname;
+const moodboardsRoutePath = new URL("../app/api/agent/moodboards/route.ts", import.meta.url).pathname;
 
 class MockAgentAuthError extends Error {
   constructor(
@@ -410,5 +411,50 @@ describe("agent API routes", () => {
       ownerUserId: "telegram:278674008",
       folderId: "folders:1",
     });
+  });
+  test("moodboard route strips copied ID prefixes and scopes each action", async () => {
+    const { POST } = await import(moodboardsRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/moodboards", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "list", folderId: "collection:w1", includeChildren: true, ownerUserId: "attacker" })).status).toBe(200);
+    expect((await send({ action: "add", moodboardId: "moodboard:m1", assetIds: ["asset:a1", "a2"] })).status).toBe(200);
+    expect((await send({ action: "save", moodboardId: "moodboard:m1", expectedRevision: 3, description: null, coverAssetId: "asset:a2" })).status).toBe(200);
+    expect((await send({ action: "set_midjourney", moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2 })).status).toBe(200);
+    expect((await send({ action: "reorder", moodboardId: "m1", assetIds: ["a2", "asset:a1"] })).status).toBe(200);
+    expect((await send({ action: "delete", moodboardId: "moodboard:m1" })).status).toBe(200);
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "w1", includeChildren: true });
+    expect(state.mutationCalls.map((call) => call.payload)).toEqual([
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a1", "a2"] },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", expectedRevision: 3, description: null, coverAssetId: "a2" },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2 },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a2", "a1"] },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1" },
+    ]);
+  });
+
+  test("moodboard create needs a collection and a name, and leaves patch-only fields to a patch", async () => {
+    const { POST } = await import(moodboardsRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/moodboards", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "save", name: "Golden" })).status).toBe(400);
+    expect((await send({ action: "save", folderId: "w1", name: "Golden", status: "archived" })).status).toBe(400);
+    expect((await send({ action: "add", moodboardId: "m1", assetIds: [] })).status).toBe(400);
+    expect((await send({ action: "sync" })).status).toBe(400);
+    expect(state.mutationCalls).toHaveLength(0);
+  });
+
+  test("collection create and update pass a display group; update keeps an omitted name", async () => {
+    const { POST } = await import(customizeRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/customize", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "createFolder", name: "DA FILM", parentFolderId: "folders:w1", group: "Styles", sortOrder: 1 })).status).toBe(200);
+    expect((await send({ action: "updateFolder", folderId: "folders:c1", group: null, sortOrder: 2 })).status).toBe(200);
+    expect(state.mutationCalls[0]?.payload).toMatchObject({ name: "DA FILM", group: "Styles", sortOrder: 1 });
+    expect(state.mutationCalls[1]?.payload).toMatchObject({ folderId: "folders:c1", group: null, sortOrder: 2 });
+    expect(state.mutationCalls[1]?.payload.name).toBeUndefined();
   });
 });

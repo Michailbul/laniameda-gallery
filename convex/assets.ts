@@ -49,6 +49,7 @@ import {
 } from "./validators";
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 import { detachAssetFromCharacters } from "./characters";
+import { detachAssetFromMoodboards } from "./moodboards";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
@@ -3999,6 +4000,9 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   // Character links and sheet/face pointers drop with the asset; the
   // character itself stays.
   await detachAssetFromCharacters(ctx, asset._id);
+  // So does its place on any moodboard; the board keeps an exact count and
+  // a cover that is still on it.
+  await detachAssetFromMoodboards(ctx, asset._id);
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.

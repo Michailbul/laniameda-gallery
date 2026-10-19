@@ -225,6 +225,15 @@ Naming convention: world collections are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
 Folder names are scoped to their parent, so "Balcony" can exist under several
 collections.
 
+A child folder can carry `folders.group` (optional display text of at most 40
+characters, e.g. `Styles`, `Places`, `Cast`) and `folders.sortOrder` (optional
+number). Both are accepted on roots and ignored there. Children list group by
+group: groups in order of their smallest member `sortOrder`, then group name;
+members by `sortOrder`, then name; ungrouped children last in the old order
+(sections first, then name). With no group set nothing changes.
+`createFolder`/`updateFolder` take both (`null` clears) and `updateFolder` keeps
+the name when it is omitted. Groups never move assets.
+
 Public collection counts are stored in `folders.publicMemberCount`, maintained
 transactionally by `publicCollectionMemberships` snapshots whenever asset
 publication or membership changes. They count distinct public assets across
@@ -435,6 +444,26 @@ the typed link: `characterId`, `assetId`, `role`
 (concept/sheet/face/costume/appears-in/reference), optional `costumeCode` and
 `note`. One row per character and asset; asset deletion removes its rows and
 clears sheet/face pointers. See `characters.md`.
+
+# Moodboards (19 October 2026)
+
+`moodboards` holds one look per row: `ownerUserId`, `folderId` (a plain root
+or child collection, never a storybook), `name`, `normalizedName` (unique per
+owner and folder), optional `description`, `styleTag` (lowercase hyphenated,
+at most 48), `status` (draft/in-midjourney/archived), optional `mjCode` (the
+personalization code, a string kept as given), `mjMoodboardId`, `mjUrl`,
+`mjSyncedAt`, `mjSyncedItemCount`, `mjCodeHistory` (`code`, `at`, optional
+`note`), `notes`, `coverAssetId` (always an item), `itemCount` (exact),
+`revision`, `createdAt`, `updatedAt`. Indexes: owner/folder/normalizedName,
+owner/updatedAt, owner/mjCode.
+
+`moodboardItems` is one asset on one board: `ownerUserId`, `moodboardId`,
+`assetId`, `position` (ascending display order; an append takes the last
+position + 1), optional `note`, `addedAt`. One row per board and asset;
+indexes by board/position, board/asset and asset. Deleting an asset removes
+its rows and repairs `itemCount` and `coverAssetId`. Deleting a child
+collection moves its boards to the parent (renamed `<name> · <child>` on a
+clash); deleting a root deletes its boards and items. See `moodboards.md`.
 
 # Text records and filter presets (6 October 2026)
 

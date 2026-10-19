@@ -4,7 +4,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
 import { fitChipsInRows } from "@/lib/chip-rows";
-import { compareCollectionSectionNames } from "@/lib/collection-sections";
+import { orderChildCollections } from "@/lib/collection-groups";
 
 // A collection card's data: summary from folders.listCollectionSummaries
 // merged with the dashboard's live folderAssetCounts.
@@ -13,6 +13,9 @@ export interface CollectionCardData {
   name: string;
   description?: string;
   parentFolderId?: string;
+  /** Display group of a child inside its world, and its order. */
+  group?: string;
+  sortOrder?: number;
   count: number;
   previewAssets: Array<{
     assetId: string;
@@ -57,8 +60,8 @@ export function CollectionsGrid({
       }
     }
     rootList.sort((a, b) => a.name.localeCompare(b.name));
-    for (const list of children.values()) {
-      list.sort((a, b) => compareCollectionSectionNames(a.name, b.name));
+    for (const [parentId, list] of children) {
+      children.set(parentId, orderChildCollections(list));
     }
     return { roots: rootList, childrenByParent: children };
   }, [collections]);

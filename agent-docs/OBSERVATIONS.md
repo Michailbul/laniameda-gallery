@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -9,6 +9,12 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 ## Convex
 
 - Adding new Convex tables/functions requires `bunx convex codegen` — otherwise `convex/_generated/*` drifts and breaks references.
+- Plain `convex codegen` (with or without `--typecheck disable`) loads the
+  selected deployment's credentials and starts a push to analyse the bundle,
+  so with the live `.env.local` it talks to production. `--system-udfs` stays
+  local but writes the system template, which drops the `components` (r2)
+  declaration from `api.d.ts`/`api.js`. For a new module, adding its two lines
+  to `convex/_generated/api.d.ts` by hand matches what codegen lists.
 - Queries and mutations must NOT call external APIs; always use actions for that.
 - Card thumbnails come from one encoder, `encodeCardThumbnail` in `convex/thumbnails.ts`: sharp, WebP q78, fit inside 1440×960, never upscaled. `convex.json` lists sharp under `node.externalPackages`, so Convex installs the right platform binary on the server rather than bundling the Mac one. Jimp stays only as a JPEG fallback if sharp fails to load. The contract (box, WebP, when a thumb is sharp enough for a tile) lives in `lib/card-thumbnail.ts` and is shared by the grid and the backfill.
 - Every server-side R2 write (`storeBlobToR2`) sets `Cache-Control: public, max-age=31536000, immutable`. Keys are fresh UUIDs and the R2 component refuses to store over an existing key, so this is safe. Objects uploaded straight from the browser via presigned PUT carry no Cache-Control.
@@ -32,6 +38,11 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Bun's `toMatchObject` with asymmetric matchers (`expect.any(String)`) can
   write the matcher objects into the received object. Never pass a mock
   database's stored row to it; assert field types instead.
+- The mock Convex context orders every index read by `normalizedName` or
+  creation time. A test that depends on a real index order (positions,
+  updatedAt) declares it: `createMockConvexMutationCtx({ indexOrder:
+  { "moodboardItems.by_moodboard_position": ["moodboardId", "position"] } })`.
+  `withSearchIndex` matches any query term as a substring.
 
 ## Gallery / UI
 
@@ -68,6 +79,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   piece-type navigation uses tags and owner-curated menuFilters.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- Midjourney codes (`88ji6bg`) are case-sensitive. Uppercase mono microcopy
+  must not transform them: render a code inside a `text-transform: none` span.
 - `MasonryGrid` mounts no tiles until it has measured its width; the server HTML shows the skeleton instead. Tiles laid out without a width would render as a full-width stack in server HTML, jump at hydration and fetch every image in it.
 - Public pages hand their first screen to the client from the server (`app/misha.buloy/selected_work/first-screen.ts`) and hint its thumbnails with `preload()`. Next prefetches the sibling public pages, and their hints fire too, so Chrome logs "preloaded but not used" for them; that is expected and makes switching views instant.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.

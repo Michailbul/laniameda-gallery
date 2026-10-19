@@ -5,6 +5,11 @@ named `Midjourney Srefs`. Resolve its ID with `list_collections`. Reuse the exac
 name case-insensitively; create it only when requested. This is a shared style
 library, not a fictional world or a native reusable Skill.
 
+An sref recipe is a style code to reuse. A look built from gallery images and
+mirrored to a Midjourney moodboard (a `--profile` code) is a moodboard, not an
+sref: see references/moodboards.md. A board's notes can name the sref or
+profile codes it pairs with.
+
 ## Save a source
 
 For an X post, call `save_bookmarks`, then read back `list_bookmarks` to extract

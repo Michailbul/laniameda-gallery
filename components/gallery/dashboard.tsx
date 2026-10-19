@@ -26,7 +26,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, LayoutGrid, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -106,6 +106,14 @@ import {
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
 import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
+import {
+  MoodboardsToggle,
+  MoodboardsView,
+  type MoodboardAssetSummary,
+} from "@/components/gallery/moodboards-view";
+import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
+import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
+import { groupChildCollections } from "@/lib/collection-groups";
 import { isSrefCollection } from "@/lib/midjourney-srefs";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
@@ -368,6 +376,16 @@ export function GalleryDashboard({
   const [expandedCollectionId, setExpandedCollectionId] = useState<
     string | null
   >(null);
+  // The plain collection whose Moodboards panel holds the main area. Keyed
+  // by id like the expansion above: leaving the collection returns to its grid.
+  const [moodboardsCollectionId, setMoodboardsCollectionId] = useState<
+    string | null
+  >(null);
+  // "Add to moodboard…" from a card menu or the selection bar.
+  const [moodboardPicker, setMoodboardPicker] = useState<{
+    assetIds: string[];
+    anchor: DOMRect | null;
+  } | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<
     string | null
   >(null);
@@ -1718,6 +1736,28 @@ export function GalleryDashboard({
         (folder) => folder.parentFolderId === activeCollectionFolder._id,
       ).length
     : 0;
+  const moodboardsViewActive = Boolean(
+    activeCollectionFolder &&
+      !activeSmartCollectionFilter &&
+      moodboardsCollectionId === activeCollectionFolder._id &&
+      canManageFoldersInCurrentView &&
+      viewMode === "grid" &&
+      !storybooksView && !bookmarksView && !extraTabView,
+  );
+  // The world the active collection belongs to: its root and plain children.
+  // A board here may belong to any of them.
+  const moodboardWorldCollections = useMemo(() => {
+    if (!activeCollectionFolder) return [];
+    const rootId = activeCollectionFolder.parentFolderId ?? activeCollectionFolder._id;
+    return collectionFoldersWithCounts
+      .filter((folder) => folder._id === rootId || folder.parentFolderId === rootId)
+      .map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        group: folder.group,
+      }));
+  }, [activeCollectionFolder, collectionFoldersWithCounts]);
   const srefsCollectionView = galleryScope === "mine" && viewMode === "grid" &&
     !storybooksView && !bookmarksView && !extraTabView &&
     isSrefCollection(activeCollectionFolder?.name);
@@ -2355,11 +2395,19 @@ export function GalleryDashboard({
     [storybooks],
   );
 
-  const childCollectionEntries = useMemo<GalleryEntry[]>(() => {
+  // Child collections as stack entries, split by display group: grouped
+  // children render under their group headings above the grid; the rest
+  // lead the grid as before.
+  const { childCollectionEntries, groupedChildSections } = useMemo(() => {
     if (!childCollectionStacks || childCollectionStacks.length === 0) {
-      return [];
+      return {
+        childCollectionEntries: [] as GalleryEntry[],
+        groupedChildSections: [] as { key: string; label: string; entries: GalleryEntry[] }[],
+      };
     }
-    return childCollectionStacks.map((collection) => {
+    const toEntry = (
+      collection: (typeof childCollectionStacks)[number],
+    ): GalleryEntry => {
       const previews = collection.previewAssets.map((preview) => ({
         id: preview.assetId,
         galleryItemId: preview.assetId,
@@ -2391,7 +2439,16 @@ export function GalleryDashboard({
         storybookCount: collection.count,
         previewImages: previews,
       };
-    });
+    };
+    const { groups, ungrouped } = groupChildCollections(childCollectionStacks);
+    return {
+      childCollectionEntries: ungrouped.map(toEntry),
+      groupedChildSections: groups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        entries: group.members.map(toEntry),
+      })),
+    };
   }, [childCollectionStacks]);
 
   const childCollectionIds = useMemo(
@@ -3618,6 +3675,34 @@ export function GalleryDashboard({
     [handleImageSelect],
   );
 
+  // A moodboard item opens the normal asset detail; the live read fills in
+  // its tags, filing and flags.
+  const openMoodboardAsset = useCallback(
+    (asset: MoodboardAssetSummary) => {
+      handleImageSelect({
+        id: asset.assetId,
+        galleryItemId: asset.assetId,
+        galleryItemType: "asset",
+        thumbSrc: asset.thumbUrl ?? asset.url ?? "/placeholder.svg",
+        fullSrc: asset.url ?? asset.thumbUrl ?? "/placeholder.svg",
+        prompt: asset.promptText ?? "",
+        width: asset.width,
+        height: asset.height,
+        kind: asset.kind,
+        contentType: asset.contentType,
+        previewImages: [],
+      });
+    },
+    [handleImageSelect],
+  );
+
+  const addAssetToMoodboard = useCallback(
+    (assetId: string, anchor: DOMRect | null) =>
+      setMoodboardPicker({ assetIds: [assetId], anchor }),
+    [],
+  );
+  const closeMoodboardPicker = useCallback(() => setMoodboardPicker(null), []);
+
   const isDetailPanelEntry = useCallback(
     (entry: (typeof images)[number]) =>
       entry.galleryItemType !== "storybook" &&
@@ -3960,7 +4045,12 @@ export function GalleryDashboard({
     assetSearchQuery.trim().length > 0 ||
     semanticMode?.kind === "similar";
   const hasImages = images.length > 0;
-  const isNoMatches = !isLoading && !hasImages && hasFilters;
+  // Grouped child collections render under their group headings above the
+  // grid, so a world whose children are all grouped is not "empty".
+  const showGroupedChildStacks =
+    showChildCollectionStacks && groupedChildSections.length > 0;
+  const isNoMatches =
+    !isLoading && !hasImages && !showGroupedChildStacks && hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
     ? "var(--lm-sidebar-collapsed)"
@@ -5035,8 +5125,8 @@ export function GalleryDashboard({
                   segments={breadcrumbSegments}
                   trailing={
                     activeCollectionFolder && !activeSmartCollectionFilter ? (
-                      <span className="flex items-center gap-4">
-                        {!activeCollectionFolder.parentFolderId && (
+                      <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                        {!activeCollectionFolder.parentFolderId && !moodboardsViewActive && (
                           <CollectionViewActions
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
@@ -5056,6 +5146,21 @@ export function GalleryDashboard({
                           />
                         )}
                         {canManageFoldersInCurrentView && (
+                          <MoodboardsToggle
+                            key={`moodboards-${activeCollectionFolder._id}`}
+                            ownerUserId={ownerUserId}
+                            collectionId={activeCollectionFolder._id}
+                            includeChildren={!activeCollectionFolder.parentFolderId}
+                            active={moodboardsViewActive}
+                            onToggle={() => {
+                              setViewMode("grid");
+                              setMoodboardsCollectionId(
+                                moodboardsViewActive ? null : activeCollectionFolder._id,
+                              );
+                            }}
+                          />
+                        )}
+                        {canManageFoldersInCurrentView && !moodboardsViewActive && (
                           <>
                             <input
                               ref={collectionCoverInputRef}
@@ -5128,6 +5233,22 @@ export function GalleryDashboard({
                   onImageSelect={handleImageSelect}
                   selectedImageId={selectedImage?.id}
                   onImageLoad={markImageLoaded}
+                />
+              ) : moodboardsViewActive && ownerUserId && activeCollectionFolder ? (
+                <MoodboardsView
+                  key={activeCollectionFolder._id}
+                  ownerUserId={ownerUserId}
+                  collection={{
+                    _id: String(activeCollectionFolder._id),
+                    name: activeCollectionFolder.name,
+                    parentFolderId: activeCollectionFolder.parentFolderId
+                      ? String(activeCollectionFolder.parentFolderId)
+                      : undefined,
+                    group: activeCollectionFolder.group,
+                  }}
+                  collections={moodboardWorldCollections}
+                  onBack={() => setMoodboardsCollectionId(null)}
+                  onOpenAsset={openMoodboardAsset}
                 />
               ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
                 <MidjourneySrefsView key={activeCollectionFolder._id} ownerUserId={ownerUserId} folderId={activeCollectionFolder._id as Id<"folders">} />
@@ -5207,8 +5328,25 @@ export function GalleryDashboard({
                   onImageSelect={handleImageSelect}
                   onImageLoad={markImageLoaded}
                 />
-              ) : hasImages ? (
-                (
+              ) : hasImages || showGroupedChildStacks ? (
+                <>
+                  {showGroupedChildStacks && (
+                    <CollectionStackGroups
+                      sections={groupedChildSections}
+                      separated={hasImages}
+                      renderGrid={(entries) => (
+                        <MasonryGrid
+                          images={entries}
+                          compactColumns={false}
+                          onImageSelect={handleImageSelect}
+                          onImageLoad={markImageLoaded}
+                          onCollectionOpen={handleCardCollectionOpen}
+                          zoom={gridZoom}
+                        />
+                      )}
+                    />
+                  )}
+                  {hasImages && (
                   <MasonryGrid
                     images={images}
                     // The desktop expanded view is a full-screen opaque
@@ -5271,6 +5409,9 @@ export function GalleryDashboard({
                     excludeFolderId={excludeScope?.folderId}
                     onStorybookOpen={setOpenStorybookId}
                     onCollectionOpen={handleCardCollectionOpen}
+                    onAddAssetToMoodboard={
+                      canManageFoldersInCurrentView ? addAssetToMoodboard : undefined
+                    }
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       anyPaginationActive && activePagedAssets.status !== "Exhausted"
@@ -5278,7 +5419,8 @@ export function GalleryDashboard({
                     }
                     zoom={gridZoom}
                   />
-                )
+                  )}
+                </>
               ) : isNoMatches ? (
                 <div
                   className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in"
@@ -5737,6 +5879,36 @@ export function GalleryDashboard({
                   MOVE TO
                 </button>
               )}
+              {canManageFoldersInCurrentView && (
+                <button
+                  type="button"
+                  data-moodboard-picker-trigger
+                  onClick={(event) => {
+                    const anchor = event.currentTarget.getBoundingClientRect();
+                    setMoodboardPicker((current) =>
+                      current
+                        ? null
+                        : { assetIds: Array.from(selectedAssetIds), anchor },
+                    );
+                  }}
+                  disabled={bulkCurationLoading || bulkActionLoading}
+                  className="lm-btn-ghost inline-flex items-center gap-1.5"
+                  style={{
+                    border: "2px solid var(--lm-border-strong)",
+                    borderRadius: "10px",
+                    padding: "6px 12px",
+                    fontSize: "11px",
+                    opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  }}
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(moodboardPicker)}
+                  aria-label="Add selected assets to a moodboard"
+                  title="Add the selection to a moodboard"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  ADD TO MOODBOARD
+                </button>
+              )}
               {canManageFoldersInCurrentView && ([true, false] as const).map((isLiked) => (
                 <button
                   key={String(isLiked)}
@@ -5972,6 +6144,24 @@ export function GalleryDashboard({
             const match = images.find((image) => image.id === assetId);
             if (match) setSelectedImage(match as unknown as SelectedImage);
           }}
+        />
+      )}
+
+      {canAccessMyGallery && moodboardPicker && (
+        <MoodboardPicker
+          ownerUserId={ownerUserId}
+          assetIds={moodboardPicker.assetIds}
+          anchor={moodboardPicker.anchor}
+          currentFolderId={effectiveSelectedFolderId}
+          collections={(folders ?? []).map((folder) => ({
+            _id: String(folder._id),
+            name: folder.name,
+            parentFolderId: folder.parentFolderId
+              ? String(folder.parentFolderId)
+              : undefined,
+            kind: folder.kind,
+          }))}
+          onClose={closeMoodboardPicker}
         />
       )}
 

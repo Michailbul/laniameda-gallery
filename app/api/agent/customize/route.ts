@@ -24,6 +24,17 @@ const stringValue = (value: unknown) =>
 const numberValue = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+// A collection's display group and order: omitted keeps the stored value,
+// null (or a blank group) clears it.
+const groupValue = (value: unknown) =>
+  value === null || (typeof value === "string" && !value.trim())
+    ? null
+    : typeof value === "string"
+      ? value
+      : undefined;
+const sortOrderValue = (value: unknown) =>
+  value === null ? null : numberValue(value);
+
 const tagInputArray = (value: unknown) =>
   Array.isArray(value)
     ? value.filter(
@@ -154,6 +165,8 @@ export async function POST(request: Request) {
         description: stringValue(data.description),
         parentFolderId: stringValue(data.parentFolderId) as Id<"folders"> | undefined,
         kind: data.kind === "storybook" ? "storybook" : undefined,
+        group: groupValue(data.group),
+        sortOrder: sortOrderValue(data.sortOrder),
       });
       return NextResponse.json(result);
     }
@@ -162,9 +175,12 @@ export async function POST(request: Request) {
       const result = await client.mutation(api.folders.updateFolder, {
         ownerUserId: agent.ownerUserId,
         folderId: stringValue(data.folderId) as Id<"folders">,
-        name: stringValue(data.name) ?? "",
+        // Omitted keeps the current name; a blank one is still refused.
+        name: typeof data.name === "string" ? data.name : undefined,
         description: stringValue(data.description),
         parentFolderId: data.parentFolderId === null ? null : stringValue(data.parentFolderId) as Id<"folders"> | undefined,
+        group: groupValue(data.group),
+        sortOrder: sortOrderValue(data.sortOrder),
       });
       return NextResponse.json({ folderId: result });
     }
