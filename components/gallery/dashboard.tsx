@@ -61,7 +61,6 @@ import {
 import { MasonryGrid } from "@/components/masonry-grid";
 import { SkillsView } from "./skills-view";
 import { StoriesView } from "./stories-view";
-import { CharactersView } from "./characters-view";
 import { FilterPresets } from "./filter-presets";
 import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
@@ -370,7 +369,6 @@ export function GalleryDashboard({
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
   const [storiesView, setStoriesView] = useState(false);
-  const [charactersView, setCharactersView] = useState(false);
   const [includeSkills, setIncludeSkills] = useState(true);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
@@ -383,9 +381,8 @@ export function GalleryDashboard({
   const [moodboardsTab, setMoodboardsTab] = useState(false);
   const [moodboardsTabBoardId, setMoodboardsTabBoardId] = useState<string | null>(null);
   const activeStoriesView = storiesView && canAccessMyGallery && galleryScope === "mine";
-  const activeCharactersView = charactersView && canAccessMyGallery && galleryScope === "mine";
   const activeMoodboardsTab = moodboardsTab && canAccessMyGallery && galleryScope === "mine";
-  const extraTabView = motionView || cinematographyView || activeStoriesView || activeCharactersView || activeMoodboardsTab;
+  const extraTabView = motionView || cinematographyView || activeStoriesView || activeMoodboardsTab;
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -3970,7 +3967,6 @@ export function GalleryDashboard({
       }
       setStorybooksView(false);
       setStoriesView(false);
-      setCharactersView(false);
       setBookmarksView(false);
       setMotionView(false);
       setCinematographyView(false);
@@ -3991,7 +3987,6 @@ export function GalleryDashboard({
       setMoodboardPick({ board, returnTo });
       setStorybooksView(false);
       setStoriesView(false);
-      setCharactersView(false);
       setBookmarksView(false);
       setMotionView(false);
       setCinematographyView(false);
@@ -5145,10 +5140,8 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
           storiesTabActive={activeStoriesView}
-          onCharactersTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setMoodboardsTab(false); setCharactersView(true); setViewMode("grid"); } : undefined}
-          charactersTabActive={activeCharactersView}
           onMoodboardsTab={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsTabActive={activeMoodboardsTab}
           onStorybooksTab={
@@ -5157,7 +5150,7 @@ export function GalleryDashboard({
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
-                  setStoriesView(false); setCharactersView(false); setMoodboardsTab(false); setStorybooksView(true);
+                  setStoriesView(false); setMoodboardsTab(false); setStorybooksView(true);
                 }
               : undefined
           }
@@ -5165,7 +5158,7 @@ export function GalleryDashboard({
           onBookmarksTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(true);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -5177,7 +5170,7 @@ export function GalleryDashboard({
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(true);
                   setCinematographyView(false);
@@ -5188,7 +5181,7 @@ export function GalleryDashboard({
           onCinematographyTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(true);
@@ -5200,7 +5193,7 @@ export function GalleryDashboard({
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -5212,7 +5205,7 @@ export function GalleryDashboard({
             viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
           onGalleryHome={() => {
-            setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+            setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
             setBookmarksView(false);
             setMotionView(false);
             setCinematographyView(false);
@@ -5223,7 +5216,7 @@ export function GalleryDashboard({
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={(id) => {
-            setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+            setStoriesView(false); setMoodboardsTab(false);
             if (id && isSrefCollection(folderNameById.get(id))) {
               setStorybooksView(false); setBookmarksView(false);
               setMotionView(false); setCinematographyView(false);
@@ -5387,7 +5380,7 @@ export function GalleryDashboard({
                     setBookmarksView(false);
                     setMotionView(false);
                     setCinematographyView(false);
-                    setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
+                    setStoriesView(false); setMoodboardsTab(false);
                     setStorybooksView(true);
                   }}
                   onDropAssets={handleAssetsDropOnStorybook}
@@ -5617,8 +5610,6 @@ export function GalleryDashboard({
                   onOpenAsset={openMoodboardAsset}
                   onChooseFromGallery={(board) => startMoodboardPick(board, null)}
                 />
-              ) : activeCharactersView && ownerUserId ? (
-                <CharactersView ownerUserId={ownerUserId} worlds={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : activeStoriesView && ownerUserId ? (
                 <StoriesView ownerUserId={ownerUserId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : motionView && ownerUserId ? (
@@ -6128,7 +6119,7 @@ export function GalleryDashboard({
         <MobileBottomNav
           onAddClick={openAddModal}
           onHomeClick={() => {
-            setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+            setStorybooksView(false); setStoriesView(false);
             setBookmarksView(false); setMotionView(false); setCinematographyView(false);
             setMoodboardsTab(false);
             setViewMode("grid");
