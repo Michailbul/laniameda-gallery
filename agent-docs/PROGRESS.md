@@ -8,6 +8,24 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/moodboards-feature`, frontend only)
+- Moodboards are their own feature. A Moodboards tab in the sidebar and the
+  mobile nav (Boards) lists every board grouped by its world, with previews,
+  status, image count and the Midjourney code, filtered by world and status
+  (remembered per browser). Opening a board shows it in order with reorder,
+  remove, the look line, the code and Send to Midjourney.
+- Choose from gallery: a board's button opens the normal grid in picking
+  mode on the board's collection. Collections, saved views, pills, search,
+  piece type and liked all work; a click selects, a bar says "Adding to
+  <board> · n selected" with All visible, Clear, Cancel and Add n. Pieces
+  already on the board are marked "On board" and cannot be picked. Adding
+  (batches of 100) or cancelling returns to the board, in the tab or in the
+  world's Moodboards panel. The card menu's Add to moodboard stays.
+- Files: `components/gallery/moodboards-tab.tsx`,
+  `components/gallery/moodboard-pick-bar.tsx`; `markedAssetIds` on
+  `MasonryGrid`/`ImageCard`. No Convex change: it uses the deployed
+  `listMoodboards`, `getMoodboard` and `addMoodboardItems`.
+
 ### 2026-10-19 (#56, #60; backend pushed 19 Oct 23:25 CEST, live)
 - Comments on every asset: a thread in the detail panel (Details tab, under
   Description), oldest first, Enter to send, delete on hover; agent replies
@@ -24,6 +42,7 @@ Last updated: 2026-10-19
   link at the end of the breadcrumb. Saved views and smart filters no longer
   hide or close the Moodboards panel. Icons drop below 640 px so the three
   tabs fit a phone.
+
 ### 2026-10-19 (branch `fix/folder-tree-read-limit`, backend hotfix)
 - `assets:listGalleryAssets` no longer fails with "Too many reads (limit:
   4096)" on a big world. A world view under the FEATURED or SHUFFLE sort (and

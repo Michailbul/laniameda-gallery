@@ -17,6 +17,7 @@ import {
   FolderOpen,
   Globe,
   Home,
+  LayoutGrid,
   MonitorPlay,
   Moon,
   Pencil,
@@ -73,6 +74,9 @@ interface GallerySidebarProps {
   storiesTabActive?: boolean;
   onCharactersTab?: () => void;
   charactersTabActive?: boolean;
+  /** Opens the Moodboards tab: every board, grouped by world. */
+  onMoodboardsTab?: () => void;
+  moodboardsTabActive?: boolean;
   /** Opens the Bookmarks tab: saved X posts. */
   onBookmarksTab?: () => void;
   bookmarksTabActive?: boolean;
@@ -143,6 +147,8 @@ export function GallerySidebar({
   storiesTabActive = false,
   onCharactersTab,
   charactersTabActive = false,
+  onMoodboardsTab,
+  moodboardsTabActive = false,
   onBookmarksTab,
   bookmarksTabActive = false,
   showYouTubeTab = false,
@@ -354,6 +360,7 @@ export function GallerySidebar({
             !storybooksTabActive &&
             !storiesTabActive &&
             !charactersTabActive &&
+            !moodboardsTabActive &&
             !bookmarksTabActive &&
             !motionTabActive &&
             !cinematographyTabActive &&
@@ -395,6 +402,9 @@ export function GallerySidebar({
         )}
         {onCharactersTab && (
           <NavItem icon={UsersRound} label="Characters" href="#" active={charactersTabActive} collapsed={collapsed} onClick={onCharactersTab} />
+        )}
+        {onMoodboardsTab && (
+          <NavItem icon={LayoutGrid} label="Moodboards" href="#" active={moodboardsTabActive} collapsed={collapsed} onClick={onMoodboardsTab} />
         )}
         {onBookmarksTab && (
           <NavItem

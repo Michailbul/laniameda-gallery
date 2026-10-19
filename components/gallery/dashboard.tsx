@@ -118,8 +118,11 @@ import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view"
 import {
   MoodboardsView,
   type MoodboardAssetSummary,
+  type MoodboardPickTarget,
 } from "@/components/gallery/moodboards-view";
 import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
+import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
+import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
 import { groupChildCollections } from "@/lib/collection-groups";
 import { isSrefCollection } from "@/lib/midjourney-srefs";
@@ -372,9 +375,13 @@ export function GalleryDashboard({
   // The Cinematography tab: camera-move packs, shown as skill cards under
   // their own name and kept out of the Skills tab.
   const [cinematographyView, setCinematographyView] = useState(false);
+  // The Moodboards tab: every board, grouped by world, and the one open in it.
+  const [moodboardsTab, setMoodboardsTab] = useState(false);
+  const [moodboardsTabBoardId, setMoodboardsTabBoardId] = useState<string | null>(null);
   const activeStoriesView = storiesView && canAccessMyGallery && galleryScope === "mine";
   const activeCharactersView = charactersView && canAccessMyGallery && galleryScope === "mine";
-  const extraTabView = motionView || cinematographyView || activeStoriesView || activeCharactersView;
+  const activeMoodboardsTab = moodboardsTab && canAccessMyGallery && galleryScope === "mine";
+  const extraTabView = motionView || cinematographyView || activeStoriesView || activeCharactersView || activeMoodboardsTab;
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -401,6 +408,16 @@ export function GalleryDashboard({
     assetIds: string[];
     anchor: DOMRect | null;
   } | null>(null);
+  // "Choose from gallery": the normal grid picks images for this board, then
+  // returns to it, in the Moodboards tab (returnTo null) or in the
+  // collection's Moodboards panel (returnTo its id).
+  const [moodboardPick, setMoodboardPick] = useState<{
+    board: MoodboardPickTarget;
+    returnTo: string | null;
+  } | null>(null);
+  // The board a collection's Moodboards panel opens on, after picking.
+  const [collectionBoardToOpen, setCollectionBoardToOpen] = useState<string | null>(null);
+  const [moodboardNotice, setMoodboardNotice] = useState<DashboardNotice | undefined>(undefined);
   const [selectedModelName, setSelectedModelName] = useState<
     string | null
   >(null);
@@ -854,6 +871,27 @@ export function GalleryDashboard({
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
   }, []);
+
+  // The board being filled while choosing from the gallery, and the pieces
+  // already on it: they are marked in the grid and cannot be picked twice.
+  const moodboardPickDetail = useQuery(
+    api.moodboards.getMoodboard,
+    moodboardPick && canAccessMyGallery
+      ? { ownerUserId, moodboardId: moodboardPick.board.id as Id<"moodboards"> }
+      : "skip",
+  );
+  const pickOnBoardIds = useMemo(
+    () =>
+      new Set<string>([
+        ...(moodboardPickDetail?.items ?? []).map((item) => String(item.assetId)),
+        ...(moodboardPickDetail?.missingAssetIds ?? []).map(String),
+      ]),
+    [moodboardPickDetail],
+  );
+  const moodboardPickRef = useRef(moodboardPick);
+  moodboardPickRef.current = moodboardPick;
+  const pickOnBoardIdsRef = useRef(pickOnBoardIds);
+  pickOnBoardIdsRef.current = pickOnBoardIds;
 
   const runBulkCuration = useCallback(
     async (isPublic: boolean, overrideIds?: string[], isFeatured?: boolean) => {
@@ -2755,6 +2793,17 @@ export function GalleryDashboard({
   // earlier in the component than the memo it needs.
   selectableAssetIdsRef.current = allVisibleAssetIds;
 
+  // While choosing for a moodboard: what can still be added, and what is
+  // picked (the board's own pieces never count).
+  const pickSelectableIds = useMemo(
+    () => moodboardPick ? allVisibleAssetIds.filter((id) => !pickOnBoardIds.has(id)) : [],
+    [allVisibleAssetIds, moodboardPick, pickOnBoardIds],
+  );
+  const pickSelectedIds = useMemo(
+    () => moodboardPick ? Array.from(selectedAssetIds).filter((id) => !pickOnBoardIds.has(id)) : [],
+    [moodboardPick, pickOnBoardIds, selectedAssetIds],
+  );
+
   const selectAllVisibleAssets = useCallback(() => {
     if (bulkDeletingRef.current || bulkLikingRef.current) return;
     setSelectedAssetIds(new Set(allVisibleAssetIds));
@@ -3773,6 +3822,24 @@ export function GalleryDashboard({
 
   const handleImageSelect = useCallback(
     (img: SelectedImage) => {
+      // Choosing images for a moodboard: a click selects a piece, never
+      // opens it. Pieces already on the board stay as they are.
+      if (moodboardPickRef.current) {
+        const isAsset =
+          img.galleryItemType === "asset" || img.galleryItemType === undefined;
+        if (!isAsset) return;
+        if (pickOnBoardIdsRef.current.has(img.id)) {
+          setMoodboardNotice({
+            title: "Already on the board",
+            message: moodboardPickRef.current.board.name,
+            type: "warning",
+            at: Date.now(),
+          });
+          return;
+        }
+        toggleAssetSelection(img.id);
+        return;
+      }
       // Skills open their dedicated scrollable document modal.
       if (img.galleryItemType === "skill") {
         setSelectedSkillId(img.id);
@@ -3811,7 +3878,7 @@ export function GalleryDashboard({
         ),
       });
     },
-    [images],
+    [images, toggleAssetSelection],
   );
 
   const selectImageByEntry = useCallback(
@@ -3879,6 +3946,82 @@ export function GalleryDashboard({
       });
     },
     [handleImageSelect],
+  );
+
+  const openMoodboardsTab = useCallback(
+    (boardId?: string) => {
+      // Opening the tab ends any half-done pick.
+      if (moodboardPickRef.current) {
+        setMoodboardPick(null);
+        clearAssetSelection();
+      }
+      setStorybooksView(false);
+      setStoriesView(false);
+      setCharactersView(false);
+      setBookmarksView(false);
+      setMotionView(false);
+      setCinematographyView(false);
+      setViewMode("grid");
+      setMoodboardsTabBoardId(boardId ?? null);
+      setMoodboardsTab(true);
+    },
+    [clearAssetSelection, setViewMode],
+  );
+
+  // "Choose from gallery" on a board: the grid opens on the board's own
+  // collection with every filter at hand, and a click selects.
+  const startMoodboardPick = useCallback(
+    (board: MoodboardPickTarget, returnTo: string | null) => {
+      setSelectedImage(null);
+      clearAssetSelection();
+      setMoodboardPicker(null);
+      setMoodboardPick({ board, returnTo });
+      setStorybooksView(false);
+      setStoriesView(false);
+      setCharactersView(false);
+      setBookmarksView(false);
+      setMotionView(false);
+      setCinematographyView(false);
+      setMoodboardsTab(false);
+      setMoodboardsCollectionId(null);
+      setCollectionBoardToOpen(null);
+      setViewMode("grid");
+      setSelectedFolderId(board.folderId);
+      // Start at the top, where the filters are.
+      document
+        .getElementById("gallery-main-content")
+        ?.closest(".overflow-y-auto")
+        ?.scrollTo({ top: 0 });
+    },
+    [clearAssetSelection, setViewMode],
+  );
+
+  // Added or cancelled: back to the board where the round started.
+  const finishMoodboardPick = useCallback(() => {
+    const pick = moodboardPickRef.current;
+    setMoodboardPick(null);
+    clearAssetSelection();
+    if (!pick) return;
+    if (pick.returnTo) {
+      setViewMode("grid");
+      setSelectedFolderId(pick.returnTo);
+      setCollectionBoardToOpen(pick.board.id);
+      setMoodboardsCollectionId(pick.returnTo);
+      return;
+    }
+    openMoodboardsTab(pick.board.id);
+  }, [clearAssetSelection, openMoodboardsTab, setViewMode]);
+
+  const moodboardTabFolders = useMemo(
+    () =>
+      (folders ?? []).map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        group: folder.group,
+        kind: folder.kind,
+      })),
+    [folders],
   );
 
   const addAssetToMoodboard = useCallback(
@@ -4761,6 +4904,7 @@ export function GalleryDashboard({
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
     <NoticeToast notice={bulkDeleteNotice} />
+    <NoticeToast notice={moodboardNotice} />
     {galleryScope === "mine" && canAccessMyGallery && canManageFoldersInCurrentView && (
       <EmptyFolderPrompt
         ownerUserId={ownerUserId}
@@ -4988,17 +5132,19 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setCharactersView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
           storiesTabActive={activeStoriesView}
-          onCharactersTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setCharactersView(true); setViewMode("grid"); } : undefined}
+          onCharactersTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setMoodboardsTab(false); setCharactersView(true); setViewMode("grid"); } : undefined}
           charactersTabActive={activeCharactersView}
+          onMoodboardsTab={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
+          moodboardsTabActive={activeMoodboardsTab}
           onStorybooksTab={
             canManageFoldersInCurrentView
               ? () => {
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
-                  setStoriesView(false); setCharactersView(false); setStorybooksView(true);
+                  setStoriesView(false); setCharactersView(false); setMoodboardsTab(false); setStorybooksView(true);
                 }
               : undefined
           }
@@ -5006,7 +5152,7 @@ export function GalleryDashboard({
           onBookmarksTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
                   setBookmarksView(true);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -5018,7 +5164,7 @@ export function GalleryDashboard({
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(true);
                   setCinematographyView(false);
@@ -5029,7 +5175,7 @@ export function GalleryDashboard({
           onCinematographyTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(true);
@@ -5041,7 +5187,7 @@ export function GalleryDashboard({
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+                  setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -5053,7 +5199,7 @@ export function GalleryDashboard({
             viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
           onGalleryHome={() => {
-            setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+            setStorybooksView(false); setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
             setBookmarksView(false);
             setMotionView(false);
             setCinematographyView(false);
@@ -5064,7 +5210,7 @@ export function GalleryDashboard({
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
           onFolderSelect={(id) => {
-            setStoriesView(false); setCharactersView(false);
+            setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
             if (id && isSrefCollection(folderNameById.get(id))) {
               setStorybooksView(false); setBookmarksView(false);
               setMotionView(false); setCinematographyView(false);
@@ -5123,6 +5269,22 @@ export function GalleryDashboard({
           transition: `margin-left var(--lm-duration-normal) ease-out`,
         }}
       >
+        {moodboardPick && ownerUserId && (
+          <MoodboardPickBar
+            ownerUserId={ownerUserId}
+            boardId={moodboardPick.board.id}
+            boardName={moodboardPick.board.name}
+            selectedIds={pickSelectedIds}
+            onBoardCount={moodboardPickDetail ? pickOnBoardIds.size : undefined}
+            selectableCount={pickSelectableIds.length}
+            onSelectAllVisible={() =>
+              setSelectedAssetIds((current) => new Set([...current, ...pickSelectableIds]))
+            }
+            onClearSelection={clearAssetSelection}
+            onAdded={finishMoodboardPick}
+            onCancel={finishMoodboardPick}
+          />
+        )}
         <div className="flex min-h-0 flex-1">
           <div
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
@@ -5209,7 +5371,7 @@ export function GalleryDashboard({
                     setBookmarksView(false);
                     setMotionView(false);
                     setCinematographyView(false);
-                    setStoriesView(false); setCharactersView(false);
+                    setStoriesView(false); setCharactersView(false); setMoodboardsTab(false);
                     setStorybooksView(true);
                   }}
                   onDropAssets={handleAssetsDropOnStorybook}
@@ -5424,7 +5586,16 @@ export function GalleryDashboard({
                   onSelect={selectStyleScope}
                 />
               )}
-              {activeCharactersView && ownerUserId ? (
+              {activeMoodboardsTab && ownerUserId ? (
+                <MoodboardsTab
+                  ownerUserId={ownerUserId}
+                  folders={moodboardTabFolders}
+                  openBoardId={moodboardsTabBoardId}
+                  onOpenBoardChange={setMoodboardsTabBoardId}
+                  onOpenAsset={openMoodboardAsset}
+                  onChooseFromGallery={(board) => startMoodboardPick(board, null)}
+                />
+              ) : activeCharactersView && ownerUserId ? (
                 <CharactersView ownerUserId={ownerUserId} worlds={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : activeStoriesView && ownerUserId ? (
                 <StoriesView ownerUserId={ownerUserId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
@@ -5461,7 +5632,11 @@ export function GalleryDashboard({
                 />
               ) : moodboardsViewActive && ownerUserId && activeCollectionFolder ? (
                 <MoodboardsView
-                  key={activeCollectionFolder._id}
+                  key={`${activeCollectionFolder._id}-${collectionBoardToOpen ?? "list"}`}
+                  initialBoardId={collectionBoardToOpen ?? undefined}
+                  onChooseFromGallery={(board) =>
+                    startMoodboardPick(board, String(activeCollectionFolder._id))
+                  }
                   ownerUserId={ownerUserId}
                   collection={{
                     _id: String(activeCollectionFolder._id),
@@ -5472,7 +5647,10 @@ export function GalleryDashboard({
                     group: activeCollectionFolder.group,
                   }}
                   collections={moodboardWorldCollections}
-                  onBack={() => setMoodboardsCollectionId(null)}
+                  onBack={() => {
+                    setCollectionBoardToOpen(null);
+                    setMoodboardsCollectionId(null);
+                  }}
                   onOpenAsset={openMoodboardAsset}
                 />
               ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
@@ -5644,6 +5822,8 @@ export function GalleryDashboard({
                     onAddAssetToMoodboard={
                       canManageFoldersInCurrentView ? addAssetToMoodboard : undefined
                     }
+                    markedAssetIds={moodboardPick ? pickOnBoardIds : undefined}
+                    markedLabel="On board"
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
                       anyPaginationActive && activePagedAssets.status !== "Exhausted"
@@ -5925,6 +6105,14 @@ export function GalleryDashboard({
       {!selectedImage && (
         <MobileBottomNav
           onAddClick={openAddModal}
+          onHomeClick={() => {
+            setStorybooksView(false); setStoriesView(false); setCharactersView(false);
+            setBookmarksView(false); setMotionView(false); setCinematographyView(false);
+            setMoodboardsTab(false);
+            setViewMode("grid");
+          }}
+          onMoodboardsClick={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
+          moodboardsActive={activeMoodboardsTab}
           user={user}
           onSignOut={onSignOut}
         />
@@ -5966,7 +6154,7 @@ export function GalleryDashboard({
       )}
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
-      {(canCuratePublic || canManageFoldersInCurrentView) &&
+      {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&
         (selectedAssetIds.size > 0 || bulkDeleteProgress) && (
         <div
           className={`fixed left-4 right-4 z-[55] flex justify-center pointer-events-none md:right-0 ${sidebarCollapsed ? "md:left-[var(--lm-sidebar-collapsed)]" : "md:left-[var(--lm-sidebar-width)]"}`}
