@@ -8,6 +8,15 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/asset-comments`, needs a Convex backend push)
+- Comments on every asset: a thread in the detail panel (Details tab, under
+  Description), oldest first, Enter to send, delete on hover; agent replies
+  are marked Agent. Table `assetComments`, functions in
+  `convex/assetComments.ts`, removed with the asset. Agents read a thread in
+  `get_gallery_item` (`comments`), list one thread or the newest across the
+  vault with `list_asset_comments`, and reply with `add_asset_comment`
+  (`/api/agent/comments`). Until the backend is pushed, the panel hides the
+  section and `get_gallery_item` returns `comments: []`.
 ### 2026-10-19 (branch `claude/moodboards-tab`, frontend only)
 - Collection tabs under the breadcrumb: Pieces, Folders (in a world) and
   Moodboards with its board count, on every world root and style branch and

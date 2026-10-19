@@ -50,6 +50,7 @@ import {
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 import { detachAssetFromCharacters } from "./characters";
 import { detachAssetFromMoodboards } from "./moodboards";
+import { deleteCommentsForAsset } from "./assetComments";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
@@ -4145,6 +4146,8 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   // So does its place on any moodboard; the board keeps an exact count and
   // a cover that is still on it.
   await detachAssetFromMoodboards(ctx, asset._id);
+  // Its comment thread goes with it.
+  await deleteCommentsForAsset(ctx, asset._id);
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.
