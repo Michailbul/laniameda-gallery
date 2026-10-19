@@ -8,6 +8,20 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/style-scoped-folders`, frontend only)
+- Styles as the parent of a world's shelves. A world's children in the
+  `Styles` group (DEAR ANNETE: Film · Live Action, 3D Animation) scope its
+  other folders. Opening a style branch shows the world's shelves as stacks
+  holding only that style's pieces (counted from the branch's own pages);
+  opening one keeps the scope (breadcrumb Collections › DEAR ANNETE › Film ›
+  Streets). A `STYLE` switcher under the breadcrumb (All styles plus each
+  style with pieces) appears in worlds with two or more styles. Logic in
+  `lib/style-scope.ts`; membership only, no Convex change.
+- The folders view opened inside a collection shows that world's children
+  under their group headings, with a `Collections` crumb back to every folder.
+- A world whose pieces all sit in its folders (DEAR ANNETE — ART DECO) shows
+  its grouped stacks at once instead of a skeleton until the world scan ends.
+
 ### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
 - Moodboards: ordered sets of gallery images that define one look, mirrored to
   a Midjourney moodboard and its `--profile` code. Each belongs to a plain

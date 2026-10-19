@@ -71,6 +71,13 @@ import {
   type BreadcrumbSegment,
 } from "./browse-breadcrumb";
 import { CollectionViewActions } from "./collection-view-actions";
+import { StyleScopeSwitcher } from "./style-scope-switcher";
+import {
+  buildStyleShelfStacks,
+  filterAssetsToStyle,
+  resolveFoldersViewWorld,
+  resolveWorldStyleScope,
+} from "@/lib/style-scope";
 import { FeaturedPanel } from "./featured-panel";
 import {
   GalleryDetailPanel,
@@ -381,6 +388,13 @@ export function GalleryDashboard({
   const [moodboardsCollectionId, setMoodboardsCollectionId] = useState<
     string | null
   >(null);
+  // The style last chosen inside a world (its Styles group): its shelves then
+  // show that style only. Opening a style branch sets it, the world root
+  // clears it (lib/style-scope).
+  const [rememberedStyle, setRememberedStyle] = useState<{
+    worldId: string;
+    styleId: string;
+  } | null>(null);
   // "Add to moodboard…" from a card menu or the selection bar.
   const [moodboardPicker, setMoodboardPicker] = useState<{
     assetIds: string[];
@@ -1559,6 +1573,80 @@ export function GalleryDashboard({
     }
   }, [effectiveSelectedFolderId, selectedFolderId]);
 
+  // Styles as the parent of a world's shelves (lib/style-scope).
+  const scopeFolders = useMemo(
+    () =>
+      collectionFoldersWithCounts.map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        description: folder.description,
+        parentFolderId: folder.parentFolderId
+          ? String(folder.parentFolderId)
+          : undefined,
+        group: folder.group,
+        sortOrder: folder.sortOrder,
+        count: folder.count,
+      })),
+    [collectionFoldersWithCounts],
+  );
+  const worldStyleScope = useMemo(
+    () =>
+      galleryScope === "mine"
+        ? resolveWorldStyleScope({
+            folders: scopeFolders,
+            activeFolderId: effectiveSelectedFolderId,
+            rememberedStyle,
+          })
+        : null,
+    [effectiveSelectedFolderId, galleryScope, rememberedStyle, scopeFolders],
+  );
+  useEffect(() => {
+    if (!worldStyleScope) return;
+    const { worldId, activeStyleId, atStyleBranch, atWorldRoot } = worldStyleScope;
+    if (atStyleBranch && activeStyleId) {
+      setRememberedStyle((current) =>
+        current?.worldId === worldId && current.styleId === activeStyleId
+          ? current
+          : { worldId, styleId: activeStyleId },
+      );
+    } else if (atWorldRoot) {
+      setRememberedStyle((current) => (current?.worldId === worldId ? null : current));
+    }
+  }, [worldStyleScope]);
+  // A style branch shows the world's shelves, each holding only its pieces.
+  const styleBranchWithShelves = Boolean(
+    worldStyleScope?.atStyleBranch && worldStyleScope.shelves.length > 0,
+  );
+  // On a shelf, the remembered style narrows the shelf to that style.
+  const styleShelfFilterId =
+    worldStyleScope && !worldStyleScope.atStyleBranch && !worldStyleScope.atWorldRoot
+      ? worldStyleScope.activeStyleId
+      : null;
+  const activeStyleFolder = styleShelfFilterId
+    ? worldStyleScope?.styles.find((style) => style._id === styleShelfFilterId)
+    : undefined;
+  const selectStyleScope = useCallback(
+    (styleId: string | null) => {
+      if (!worldStyleScope) return;
+      const { worldId, atStyleBranch, atWorldRoot } = worldStyleScope;
+      if (atWorldRoot || atStyleBranch) {
+        // At the top of the world a style is a place: open its branch.
+        setSelectedFolderId(styleId ?? worldId);
+        return;
+      }
+      setRememberedStyle(styleId ? { worldId, styleId } : null);
+    },
+    [worldStyleScope],
+  );
+  // Inside a world, the folders view shows that world's children.
+  const foldersViewWorldId = useMemo(
+    () =>
+      galleryScope === "mine"
+        ? resolveFoldersViewWorld(scopeFolders, effectiveSelectedFolderId)
+        : null,
+    [effectiveSelectedFolderId, galleryScope, scopeFolders],
+  );
+
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
     for (const tag of tags ?? []) {
@@ -1677,7 +1765,18 @@ export function GalleryDashboard({
   // Breadcrumb above the grid while browsing inside a set. Roots return to
   // the collections (landing) view.
   const breadcrumbSegments = useMemo<BreadcrumbSegment[]>(() => {
-    if (galleryScope !== "mine" || viewMode !== "grid") return [];
+    if (galleryScope !== "mine") return [];
+    if (viewMode === "collections") {
+      const world = foldersViewWorldId
+        ? foldersWithCounts.find((entry) => entry._id === foldersViewWorldId)
+        : undefined;
+      if (!world) return [];
+      return [
+        { label: "Collections", onClick: () => setSelectedFolderId(null) },
+        { label: world.name },
+      ];
+    }
+    if (viewMode !== "grid") return [];
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -1701,12 +1800,20 @@ export function GalleryDashboard({
           onClick: () => setSelectedFolderId(parent._id),
         });
       }
+      if (activeStyleFolder) {
+        segments.push({
+          label: activeStyleFolder.name,
+          onClick: () => setSelectedFolderId(activeStyleFolder._id),
+        });
+      }
       segments.push({ label: folder.name });
       return segments;
     }
     return [];
   }, [
+    activeStyleFolder,
     effectiveSelectedFolderId,
+    foldersViewWorldId,
     foldersWithCounts,
     galleryScope,
     setViewMode,
@@ -1762,7 +1869,7 @@ export function GalleryDashboard({
     !storybooksView && !bookmarksView && !extraTabView &&
     isSrefCollection(activeCollectionFolder?.name);
   const collectionAssetsExpanded =
-    browsingWorldFolder &&
+    (browsingWorldFolder || styleBranchWithShelves) &&
     !activeSmartCollectionFilter &&
     (flattenStacks || expandedCollectionId === effectiveSelectedFolderId);
   const collectionStackViewAvailable =
@@ -1867,6 +1974,10 @@ export function GalleryDashboard({
   // folder, until the owner flattens it into plain assets.
   const showChildCollectionStacks =
     collectionStackViewAvailable && !collectionAssetsExpanded;
+  // The shelf stacks of a style branch are counted from the branch's own
+  // pieces, so the whole branch loads (it is one collection, not the world).
+  const styleBranchStacksActive =
+    styleBranchWithShelves && showChildCollectionStacks;
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
@@ -1893,7 +2004,7 @@ export function GalleryDashboard({
           onlyLiked: likedOnly || undefined,
           // Only global featured/shuffle sorts use the legacy one-shot window.
           // Newest flattened worlds now traverse pages without this cap.
-          limit: collectionAssetsExpanded ? 2000 : 600,
+          limit: collectionAssetsExpanded || styleBranchStacksActive ? 2000 : 600,
         }
       : "skip",
   );
@@ -1928,6 +2039,7 @@ export function GalleryDashboard({
     api.folders.listChildCollectionEntries,
     effectiveSelectedFolderId &&
       showChildCollectionStacks &&
+      !styleBranchWithShelves &&
       canAccessMyGallery
       ? {
           ownerUserId,
@@ -1935,6 +2047,15 @@ export function GalleryDashboard({
         }
       : "skip",
   );
+  useEffect(() => {
+    if (
+      styleBranchStacksActive &&
+      folderPaginationActive &&
+      folderPagedAssets.status === "CanLoadMore"
+    ) {
+      folderPagedAssets.loadMore(200);
+    }
+  }, [folderPagedAssets, folderPaginationActive, styleBranchStacksActive]);
 
   const publicGalleryAssets = useQuery(
     api.assets.listPublicGalleryAssets,
@@ -1959,7 +2080,7 @@ export function GalleryDashboard({
     : galleryScope === "mine"
       ? mineGalleryAssets
       : publicGalleryAssets;
-  const baseGalleryAssets = useMemo(() => {
+  const unscopedGalleryAssets = useMemo(() => {
     const base = galleryAssets ?? [];
     if (!starredAssets || starredAssets.length === 0) return base;
     const present = new Set(base.map((asset) => asset._id));
@@ -2003,6 +2124,13 @@ export function GalleryDashboard({
     selectedTagIdGroups,
     starredAssets,
   ]);
+  const baseGalleryAssets = useMemo(
+    () =>
+      styleShelfFilterId
+        ? filterAssetsToStyle(unscopedGalleryAssets, styleShelfFilterId)
+        : unscopedGalleryAssets,
+    [styleShelfFilterId, unscopedGalleryAssets],
+  );
   const isSimilarMode = semanticMode?.kind === "similar";
 
   useEffect(() => {
@@ -2226,6 +2354,12 @@ export function GalleryDashboard({
       ) {
         return false;
       }
+      if (
+        styleShelfFilterId &&
+        !filterAssetsToStyle([asset], styleShelfFilterId).length
+      ) {
+        return false;
+      }
       if (selectedModelName && asset.modelName !== selectedModelName) {
         return false;
       }
@@ -2271,6 +2405,7 @@ export function GalleryDashboard({
     selectedModelName,
     selectedTagIdGroups,
     semanticResults,
+    styleShelfFilterId,
   ]);
 
   const displayGalleryAssets =
@@ -2398,15 +2533,45 @@ export function GalleryDashboard({
   // Child collections as stack entries, split by display group: grouped
   // children render under their group headings above the grid; the rest
   // lead the grid as before.
+  // In a style branch the world's shelves stand in for children, counted from
+  // the branch's loaded pieces.
+  const styleShelfStacks = useMemo(() => {
+    if (!styleBranchStacksActive || !worldStyleScope) return null;
+    return buildStyleShelfStacks(worldStyleScope.shelves, galleryAssets ?? []).map(
+      ({ shelf, count, previews }) => ({
+        _id: shelf._id,
+        name: shelf.name,
+        description: shelf.description,
+        group: shelf.group,
+        sortOrder: shelf.sortOrder,
+        count,
+        updatedAt: undefined as number | undefined,
+        createdAt: undefined as number | undefined,
+        previewAssets: previews.map((asset) => ({
+          assetId: String(asset._id),
+          kind: asset.kind,
+          contentType: asset.contentType,
+          url: asset.url,
+          thumbUrl: asset.thumbUrl,
+          width: asset.width,
+          height: asset.height,
+          thumbWidth: asset.thumbWidth,
+          thumbHeight: asset.thumbHeight,
+        })),
+      }),
+    );
+  }, [galleryAssets, styleBranchStacksActive, worldStyleScope]);
+  const stackCollections = styleShelfStacks ?? childCollectionStacks;
+
   const { childCollectionEntries, groupedChildSections } = useMemo(() => {
-    if (!childCollectionStacks || childCollectionStacks.length === 0) {
+    if (!stackCollections || stackCollections.length === 0) {
       return {
         childCollectionEntries: [] as GalleryEntry[],
         groupedChildSections: [] as { key: string; label: string; entries: GalleryEntry[] }[],
       };
     }
     const toEntry = (
-      collection: (typeof childCollectionStacks)[number],
+      collection: (typeof stackCollections)[number],
     ): GalleryEntry => {
       const previews = collection.previewAssets.map((preview) => ({
         id: preview.assetId,
@@ -2440,7 +2605,7 @@ export function GalleryDashboard({
         previewImages: previews,
       };
     };
-    const { groups, ungrouped } = groupChildCollections(childCollectionStacks);
+    const { groups, ungrouped } = groupChildCollections(stackCollections);
     return {
       childCollectionEntries: ungrouped.map(toEntry),
       groupedChildSections: groups.map((group) => ({
@@ -2449,18 +2614,25 @@ export function GalleryDashboard({
         entries: group.members.map(toEntry),
       })),
     };
-  }, [childCollectionStacks]);
+  }, [stackCollections]);
 
   const childCollectionIds = useMemo(
     () =>
       showChildCollectionStacks
         ? new Set<string>(
-            (childCollectionStacks ?? []).map((collection) =>
-              String(collection._id),
-            ),
+            styleBranchStacksActive && worldStyleScope
+              ? worldStyleScope.shelves.map((shelf) => shelf._id)
+              : (childCollectionStacks ?? []).map((collection) =>
+                  String(collection._id),
+                ),
           )
         : null,
-    [childCollectionStacks, showChildCollectionStacks],
+    [
+      childCollectionStacks,
+      showChildCollectionStacks,
+      styleBranchStacksActive,
+      worldStyleScope,
+    ],
   );
 
   const gridEntries = useMemo(() => {
@@ -2536,6 +2708,7 @@ export function GalleryDashboard({
           selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
           assetSearchQuery, showChildCollectionStacks,
           selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly,
+          styleShelfFilterId,
         ])
       : null,
   );
@@ -4025,13 +4198,20 @@ export function GalleryDashboard({
   }, [clearAssetSelection, selectedAssetIds.size, selectedImage]);
 
   // Distinguish loading / empty / no-matches / has-images
+  // Once grouped stacks are up, the rest keeps loading behind them: a world
+  // whose pieces all sit in its folders (DEAR ANNETE — ART DECO) has no loose
+  // tile to end the wait, and a style branch counts its stacks from its pages.
+  const groupedStacksShowing =
+    showChildCollectionStacks && groupedChildSections.length > 0;
   const isLoading =
     gridInsertsLoading ||
-    (showChildCollectionStacks && childCollectionStacks === undefined)
+    (showChildCollectionStacks && !styleBranchWithShelves &&
+      childCollectionStacks === undefined)
       ? true
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
-          (activePagedAssets.status === "LoadingFirstPage" || pagedFrontierEmpty)
+          (activePagedAssets.status === "LoadingFirstPage" ||
+            (pagedFrontierEmpty && !groupedStacksShowing))
         : galleryScope === "mine"
           ? canAccessMyGallery &&
             mineGalleryAssets === undefined
@@ -5124,19 +5304,23 @@ export function GalleryDashboard({
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
-                    activeCollectionFolder && !activeSmartCollectionFilter ? (
+                    viewMode === "grid" && activeCollectionFolder && !activeSmartCollectionFilter ? (
                       <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-                        {!activeCollectionFolder.parentFolderId && !moodboardsViewActive && (
+                        {(!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && (
                           <CollectionViewActions
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
                             childCount={
                               collectionStackViewAvailable && !flattenStacks
-                                ? activeChildCollectionCount
+                                ? styleBranchWithShelves
+                                  ? (styleShelfStacks?.length ?? 0)
+                                  : activeChildCollectionCount
                                 : 0
                             }
                             expanded={collectionAssetsExpanded}
-                            canCreateFolder={canManageFoldersInCurrentView}
+                            // Collections are one level deep: a style branch
+                            // borrows its world's shelves and holds none.
+                            canCreateFolder={canManageFoldersInCurrentView && !styleBranchWithShelves}
                             onExpandedChange={(expanded) =>
                               setExpandedCollectionId(
                                 expanded ? activeCollectionFolder._id : null,
@@ -5197,6 +5381,15 @@ export function GalleryDashboard({
                       </span>
                     ) : undefined
                   }
+                />
+              )}
+              {!storybooksView && !bookmarksView && !extraTabView &&
+                viewMode === "grid" && !moodboardsViewActive &&
+                worldStyleScope && worldStyleScope.styles.length > 1 && (
+                <StyleScopeSwitcher
+                  styles={worldStyleScope.styles}
+                  activeStyleId={worldStyleScope.activeStyleId}
+                  onSelect={selectStyleScope}
                 />
               )}
               {activeCharactersView && ownerUserId ? (
@@ -5263,7 +5456,14 @@ export function GalleryDashboard({
               ) : viewMode === "collections" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
                   <CollectionsGrid
-                    collections={collectionCards}
+                    collections={
+                      foldersViewWorldId
+                        ? collectionCards.filter(
+                            (card) => card.parentFolderId === foldersViewWorldId,
+                          )
+                        : collectionCards
+                    }
+                    grouped={Boolean(foldersViewWorldId)}
                     onOpenCollection={openCollectionFromCard}
                     onRenameCollection={
                       canManageFoldersInCurrentView
