@@ -5570,6 +5570,12 @@ export function GalleryDashboard({
                         : "pieces"
                   }
                   onSelect={(tab) => {
+                    // The panel opens on its list; a half-done pick ends.
+                    setCollectionBoardToOpen(null);
+                    if (tab === "moodboards" && moodboardPick) {
+                      setMoodboardPick(null);
+                      clearAssetSelection();
+                    }
                     setViewMode(tab === "folders" ? "collections" : "grid");
                     setMoodboardsCollectionId(
                       tab === "moodboards" ? activeCollectionFolder._id : null,
