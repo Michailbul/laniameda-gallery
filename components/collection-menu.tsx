@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, FolderPlus, Loader2, Pencil, X } from "lucide-react";
+import { Check, FolderPlus, LayoutGrid, Loader2, Pencil, X } from "lucide-react";
 
 export type CollectionOption = {
   id: string;
@@ -34,6 +34,8 @@ interface CardCollectionButtonProps {
   onCreate?: (name: string) => Promise<string | null>;
   /** Rename a collection in place, so a wrong name is fixable where it's seen. */
   onRename?: (folderId: string, name: string) => Promise<void> | void;
+  /** Hands the asset to the moodboard picker, anchored where this menu was. */
+  onAddToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Positioning classes from the host card (absolute offsets). */
   positionClassName: string;
 }
@@ -58,6 +60,7 @@ export function CardCollectionButton({
   onRemove,
   onCreate,
   onRename,
+  onAddToMoodboard,
   positionClassName,
 }: CardCollectionButtonProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -499,6 +502,31 @@ export function CardCollectionButton({
               )}
 
             </div>
+
+            {onAddToMoodboard && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={(event) => {
+                  stop(event);
+                  const anchor = buttonRef.current?.getBoundingClientRect() ?? null;
+                  close();
+                  onAddToMoodboard(imageId, anchor);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-75"
+                style={{
+                  color: "var(--lm-text-primary)",
+                  borderTop: "1px solid var(--lm-border-strong)",
+                }}
+                title="Add this image to a moodboard"
+              >
+                <LayoutGrid
+                  className="h-3.5 w-3.5 shrink-0"
+                  style={{ color: "var(--lm-coral)" }}
+                />
+                Add to moodboard…
+              </button>
+            )}
 
             {onCreate && (
               <div style={{ borderTop: "1px solid var(--lm-border-strong)" }}>

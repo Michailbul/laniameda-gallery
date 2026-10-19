@@ -121,6 +121,8 @@ interface MasonryGridProps {
   ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
+  /** Owner-only: the card's collection menu offers "Add to moodboard…". */
+  onAddAssetToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Owner-only: card hover surfaces tag chips; clicking one removes it. */
   onRemoveAssetTag?: (imageId: string, tagName: string) => void;
   /** One-click exclude on card hover: drops the piece from the collection
@@ -337,6 +339,7 @@ export function MasonryGrid({
   onRemoveAssetFromCollection,
   onCreateCollection,
   onRenameCollection,
+  onAddAssetToMoodboard,
   onRemoveAssetTag,
   onExcludeAssetFromView,
   excludeLabel,
@@ -945,6 +948,9 @@ export function MasonryGrid({
                 }
                 onRenameCollection={
                   isAssetCard ? onRenameCollection : undefined
+                }
+                onAddToMoodboard={
+                  isAssetCard ? onAddAssetToMoodboard : undefined
                 }
                 onRemoveTag={isAssetCard ? onRemoveAssetTag : undefined}
                 onExcludeFromView={

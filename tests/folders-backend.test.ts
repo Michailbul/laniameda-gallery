@@ -12,7 +12,9 @@ import {
   deleteFolder,
   listChildCollectionEntries,
   listFolders,
+  updateFolder,
 } from "../convex/folders";
+import { groupChildCollections, orderChildCollections } from "../lib/collection-groups";
 import { createPrompt } from "../convex/prompts";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 import { callAsOwner } from "./helpers/call-as-owner";
@@ -136,6 +138,55 @@ describe("folders backend", () => {
       expect(entry.count).toBe(0);
       expect(entry.previewAssets).toEqual([]);
     }
+  });
+
+  test("child collections carry a display group and list group by group", async () => {
+    const owner = { ownerUserId: "user-1" };
+    const world = await callAsOwner(createFolder)(harness.ctx as never, { ...owner, name: "Dear Annete" });
+    const child = (name: string, extra: Record<string, unknown> = {}) =>
+      callAsOwner(createFolder)(harness.ctx as never, { ...owner, name, parentFolderId: world.folderId, ...extra });
+    await child("Characters");
+    await child("Zeta");
+    const golden = await child("DA FILM Golden", { group: " Styles ", sortOrder: 2 });
+    await child("DA FILM Night", { group: "styles", sortOrder: 1 });
+    await child("Tram depot", { group: "Places" });
+    await child("Mood one", { group: "Moods", sortOrder: 0 });
+
+    const entries = await callAsOwner(listChildCollectionEntries)(harness.ctx as never, { ...owner, parentFolderId: world.folderId });
+    expect(entries.map((entry) => entry.name)).toEqual([
+      "Mood one", "DA FILM Night", "DA FILM Golden", "Tram depot", "Characters", "Zeta",
+    ]);
+    expect(entries.find((entry) => entry.name === "DA FILM Golden")).toMatchObject({ group: "Styles", sortOrder: 2 });
+
+    // A group change needs no name; null clears; a retry of create keeps it.
+    await callAsOwner(updateFolder)(harness.ctx as never, { ...owner, folderId: golden.folderId, group: "Looks" });
+    let listed = await callAsOwner(listFolders)(harness.ctx as never, owner);
+    expect(listed.find((folder) => folder._id === golden.folderId)).toMatchObject({ name: "DA FILM Golden", group: "Looks", sortOrder: 2 });
+    await child("DA FILM Golden");
+    listed = await callAsOwner(listFolders)(harness.ctx as never, owner);
+    expect(listed.find((folder) => folder._id === golden.folderId)?.group).toBe("Looks");
+    await callAsOwner(updateFolder)(harness.ctx as never, { ...owner, folderId: golden.folderId, group: null, sortOrder: null });
+    listed = await callAsOwner(listFolders)(harness.ctx as never, owner);
+    const cleared = listed.find((folder) => folder._id === golden.folderId);
+    expect(cleared?.group).toBeUndefined();
+    expect(cleared?.sortOrder).toBeUndefined();
+
+    await expect(
+      callAsOwner(updateFolder)(harness.ctx as never, { ...owner, folderId: golden.folderId, group: "x".repeat(41) }),
+    ).rejects.toThrow("at most 40 characters");
+    await expect(
+      callAsOwner(updateFolder)(harness.ctx as never, { ...owner, folderId: golden.folderId, name: "  " }),
+    ).rejects.toThrow("Folder name is required.");
+  });
+
+  test("group ordering keeps today's order when no child has a group", () => {
+    const plain = [{ name: "Scenes" }, { name: "Alpha" }, { name: "Characters" }];
+    expect(orderChildCollections(plain).map((child) => child.name)).toEqual(["Characters", "Scenes", "Alpha"]);
+    const { groups, ungrouped } = groupChildCollections([
+      { name: "B", group: "cast" }, { name: "A", group: "Cast ", sortOrder: 5 }, { name: "C" },
+    ]);
+    expect(groups).toEqual([{ key: "cast", label: "Cast", members: [{ name: "A", group: "Cast ", sortOrder: 5 }, { name: "B", group: "cast" }] }]);
+    expect(ungrouped.map((child) => child.name)).toEqual(["C"]);
   });
 
   test("blocks child collection entries for another owner", async () => {

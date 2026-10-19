@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   BookOpen,
   BookOpenText,
@@ -35,7 +35,11 @@ import {
   hasAssetDragPayload,
   readAssetDragPayload,
 } from "@/lib/asset-drag";
-import { compareCollectionSectionNames } from "@/lib/collection-sections";
+import {
+  collectionGroupKey,
+  normalizeCollectionGroup,
+  orderChildCollections,
+} from "@/lib/collection-groups";
 
 interface User {
   email?: string | null;
@@ -50,6 +54,9 @@ interface Folder {
   count?: number;
   /** Set when this collection is nested inside another (one level deep). */
   parentFolderId?: string;
+  /** Display group of a child inside its world ("Styles"), and its order. */
+  group?: string;
+  sortOrder?: number;
 }
 
 interface GallerySidebarProps {
@@ -240,10 +247,10 @@ export function GallerySidebar({
         roots.push(folder);
       }
     }
-    for (const childrenForParent of children.values()) {
-      childrenForParent.sort((left, right) =>
-        compareCollectionSectionNames(left.name, right.name),
-      );
+    // Grouped children lead, group by group; without groups this is the
+    // section-then-name order.
+    for (const [parentId, childrenForParent] of children) {
+      children.set(parentId, orderChildCollections(childrenForParent));
     }
     return { rootFolders: roots, childrenByParent: children };
   }, [folders]);
@@ -669,9 +676,45 @@ export function GallerySidebar({
                         />
                       </div>
                     )}
-                    {open && children.map((child) => (
+                    {open && children.map((child, index) => {
+                      // A small label opens each display group; a hairline
+                      // closes the groups before the ungrouped children.
+                      const groupKey = collectionGroupKey(child.group);
+                      const previousKey = collectionGroupKey(children[index - 1]?.group);
+                      const groupLabel =
+                        groupKey && groupKey !== previousKey
+                          ? normalizeCollectionGroup(child.group)
+                          : undefined;
+                      return (
+                      <Fragment key={child._id}>
+                      {!groupKey && previousKey && (
+                        <div
+                          aria-hidden
+                          style={{
+                            margin: "6px 12px 4px 34px",
+                            height: "1px",
+                            backgroundColor: "var(--lm-sidebar-divider)",
+                          }}
+                        />
+                      )}
+                      {groupLabel && (
+                        <div
+                          aria-hidden
+                          className="truncate"
+                          style={{
+                            padding: "8px 12px 2px 34px",
+                            fontFamily: "var(--lm-font)",
+                            fontSize: "9px",
+                            fontWeight: 700,
+                            letterSpacing: "0.16em",
+                            textTransform: "uppercase",
+                            color: "var(--lm-sidebar-text-ghost)",
+                          }}
+                        >
+                          {groupLabel}
+                        </div>
+                      )}
                       <FilterRow
-                        key={child._id}
                         indent
                         label={child.name}
                         count={child.count}
@@ -717,7 +760,9 @@ export function GallerySidebar({
                             : undefined
                         }
                       />
-                    ))}
+                      </Fragment>
+                      );
+                    })}
                   </div>
                   );
                 })}

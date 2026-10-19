@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.10.0
+version: 1.11.0
 ---
 
 # Laniameda Gallery
@@ -36,7 +36,8 @@ Local source can be newer than the deployed contract until publication.
 | Skill | Reusable technique, recipe or tutorial with text and optional ordered prompt/media steps | create_skill, list_skills, search_skills, get_skill, update_skill, file_skill, delete_skill; references/ingest.md |
 | World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
 | Character | A named person in one world with a stable code (DA-CH-001), costumes (-C01), a canonical sheet and face, and typed links to every asset that shows them | list_characters, get_character, create_character, update_character, save_character_costume, link_character_assets; references/characters.md |
-| Collection | Where assets and Skills live; root plus at most one level of children | list_collections, create_collection, update_collection; references/ingest.md |
+| Collection | Where assets and Skills live; root plus at most one level of children. A child can carry a display group (Styles, Places, Cast) and sortOrder | list_collections, create_collection, update_collection; references/ingest.md |
+| Moodboard | An ordered set of gallery images that defines one look, mirrored to a Midjourney moodboard and its --profile code; belongs to one collection | list_moodboards, get_moodboard, save_moodboard, add_moodboard_items, reorder_moodboard_items, set_moodboard_midjourney, list_moodboard_generations; references/moodboards.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
 | Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |

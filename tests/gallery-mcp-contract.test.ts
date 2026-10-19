@@ -54,3 +54,46 @@ test("character tools reach one scoped route and disclose their effects", async 
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
   expect(contract.resources).toContain("characters");
 });
+test("moodboard tools reach one scoped route, describe the Midjourney loop and disclose their effects", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  const names = ["list_moodboards", "get_moodboard", "save_moodboard", "add_moodboard_items", "remove_moodboard_items",
+    "reorder_moodboard_items", "set_moodboard_midjourney", "list_moodboard_generations", "delete_moodboard"];
+  for (const name of names) expect(tools.has(name)).toBe(true);
+  for (const name of ["list_moodboards", "get_moodboard", "list_moodboard_generations"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["save_moodboard", "add_moodboard_items", "reorder_moodboard_items", "set_moodboard_midjourney"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
+  for (const name of ["remove_moodboard_items", "delete_moodboard"]) expect(tools.get(name)!.config.annotations).toMatchObject({ destructiveHint: true });
+  expect(String(tools.get("get_moodboard")!.config.description)).toContain("imageUrls");
+  expect(String(tools.get("set_moodboard_midjourney")!.config.description)).toContain("--profile m<id>");
+  const schemas = Object.fromEntries(names.map((name) => [name, Object.keys(tools.get(name)!.config.inputSchema as JsonRecord)]));
+  expect(schemas.save_moodboard).toEqual(expect.arrayContaining(["moodboardId", "folderId", "name", "mjCode", "mjMoodboardId", "mjUrl", "expectedRevision"]));
+  expect(schemas.add_moodboard_items).toEqual(["moodboardId", "assetIds", "note"]);
+  expect(schemas.set_moodboard_midjourney).toEqual(["moodboardId", "mjCode", "mjMoodboardId", "mjUrl", "syncedItemCount", "note"]);
+
+  await tools.get("get_moodboard")!.handler({ moodboardId: "moodboard:m1" });
+  await tools.get("add_moodboard_items")!.handler({ moodboardId: "m1", assetIds: ["asset:a1"] });
+  await tools.get("set_moodboard_midjourney")!.handler({ moodboardId: "m1", mjCode: "88ji6bg" });
+  await tools.get("list_moodboard_generations")!.handler({ moodboardId: "m1" });
+  expect(calls).toEqual([
+    { path: "/api/agent/moodboards", input: { action: "get", moodboardId: "moodboard:m1" } },
+    { path: "/api/agent/moodboards", input: { action: "add", moodboardId: "m1", assetIds: ["asset:a1"] } },
+    { path: "/api/agent/moodboards", input: { action: "set_midjourney", moodboardId: "m1", mjCode: "88ji6bg" } },
+    { path: "/api/agent/moodboards", input: { action: "generations", moodboardId: "m1" } },
+  ]);
+  const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
+  expect(contract.contractVersion).toBe("2026-10-19.1");
+  expect(contract.resources).toContain("moodboards");
+  expect(contract.limits).toMatchObject({ moodboardItems: 1000, addMoodboardItems: 100 });
+});
+test("collection tools take a display group and update without resending the name", () => {
+  const tools = registry(async () => ({}));
+  const create = tools.get("create_collection")!.config.inputSchema as Record<string, { safeParse: (value: unknown) => { success: boolean } }>;
+  const update = tools.get("update_collection")!.config.inputSchema as Record<string, { safeParse: (value: unknown) => { success: boolean } }>;
+  for (const shape of [create, update]) {
+    expect(shape.group.safeParse("Styles").success).toBe(true);
+    expect(shape.group.safeParse(null).success).toBe(true);
+    expect(shape.group.safeParse("x".repeat(41)).success).toBe(false);
+    expect(shape.sortOrder.safeParse(2).success).toBe(true);
+  }
+  expect(update.name.safeParse(undefined).success).toBe(true);
+});

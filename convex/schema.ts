@@ -4,6 +4,7 @@ import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
   characterCostumeValidator, characterLaneValidator, characterLinkRoleValidator, characterStatusValidator,
 } from "./characterValidators";
+import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./moodboardValidators";
 import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
@@ -101,6 +102,53 @@ export default defineSchema({
   })
     .index("by_character_createdAt", ["characterId", "createdAt"])
     .index("by_character_asset", ["characterId", "assetId"])
+    .index("by_asset", ["assetId"]),
+  // An ordered set of gallery assets that defines one look, mirrored to a
+  // Midjourney moodboard (personalization code). Belongs to one plain
+  // collection: a world root or one of its children, never a storybook.
+  moodboards: defineTable({
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    name: v.string(),
+    // Unique per (owner, folder); a retried create returns the same board.
+    normalizedName: v.string(),
+    // What the board carries and when to use it.
+    description: v.optional(v.string()),
+    // Lowercase hyphenated style key, e.g. "da-film".
+    styleTag: v.optional(v.string()),
+    status: moodboardStatusValidator,
+    // Short personalization code ("88ji6bg"), kept as a string as given.
+    mjCode: v.optional(v.string()),
+    // Midjourney's moodboard id; prompts can use --profile m<id>.
+    mjMoodboardId: v.optional(v.string()),
+    mjUrl: v.optional(v.string()),
+    mjSyncedAt: v.optional(v.number()),
+    mjSyncedItemCount: v.optional(v.number()),
+    mjCodeHistory: v.optional(v.array(moodboardCodeHistoryEntryValidator)),
+    // Agent and owner notes: like rates, recipe partners ("+ DARI h2eu2z6").
+    notes: v.optional(v.string()),
+    coverAssetId: v.optional(v.id("assets")),
+    // Kept exact by every item write and the asset delete cascade.
+    itemCount: v.number(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_folder_normalizedName", ["ownerUserId", "folderId", "normalizedName"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"])
+    .index("by_owner_mjCode", ["ownerUserId", "mjCode"]),
+  // One asset on one board. `position` ascends in display order; an append
+  // takes the last position + 1. One row per (board, asset).
+  moodboardItems: defineTable({
+    ownerUserId: v.string(),
+    moodboardId: v.id("moodboards"),
+    assetId: v.id("assets"),
+    position: v.number(),
+    note: v.optional(v.string()),
+    addedAt: v.number(),
+  })
+    .index("by_moodboard_position", ["moodboardId", "position"])
+    .index("by_moodboard_asset", ["moodboardId", "assetId"])
     .index("by_asset", ["assetId"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
@@ -217,6 +265,13 @@ export default defineSchema({
     // everything, and search still finds its pieces. Hiding a root collection
     // hides its sub-collections too. Undefined = shown.
     hiddenFromGallery: v.optional(v.boolean()),
+    // Display group of a child collection inside its world ("Styles",
+    // "Places", "Cast"), at most 40 characters. Accepted on roots, ignored
+    // there. Undefined = ungrouped (listed after the groups, as before).
+    group: v.optional(v.string()),
+    // Order of a child inside its group, and of the group by its smallest
+    // member. Lower first; undefined after any set value.
+    sortOrder: v.optional(v.number()),
     // Denormalized count of assetFolders links pointing here. Maintained by
     // recountFolderMembers (self-healing recount after membership writes) —
     // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.

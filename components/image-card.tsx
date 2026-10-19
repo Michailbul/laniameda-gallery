@@ -170,6 +170,8 @@ interface ImageCardProps {
   onCreateCollection?: (name: string) => Promise<string | null>;
   /** Rename a collection from the card's collection menu. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
+  /** "Add to moodboard…" from the card's collection menu. */
+  onAddToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Owner-only: hover surfaces the asset's tags as chips; clicking one
       removes that tag from the asset. */
   onRemoveTag?: (imageId: string, tagName: string) => void;
@@ -219,6 +221,7 @@ export const ImageCard = memo(function ImageCard({
   onRemoveFromCollection,
   onCreateCollection,
   onRenameCollection,
+  onAddToMoodboard,
   onRemoveTag,
   onExcludeFromView,
   excludeLabel,
@@ -1088,6 +1091,7 @@ export const ImageCard = memo(function ImageCard({
             onRemove={onRemoveFromCollection}
             onCreate={onCreateCollection}
             onRename={onRenameCollection}
+            onAddToMoodboard={onAddToMoodboard}
             positionClassName="pointer-events-auto z-20"
           />
         )}

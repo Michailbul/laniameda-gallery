@@ -159,6 +159,15 @@ export function createGalleryClient(options = {}) {
       unlink: (character, assetIds) => call("unlink_character_assets", { character, assetIds }),
       delete: character => call("delete_character", { character }),
     },
+    moodboards: {
+      list: named("list_moodboards"), get: moodboardId => call("get_moodboard", { moodboardId }), save: named("save_moodboard"),
+      add: (moodboardId, assetIds, note) => call("add_moodboard_items", { moodboardId, assetIds, ...(note ? { note } : {}) }),
+      remove: (moodboardId, assetIds) => call("remove_moodboard_items", { moodboardId, assetIds }),
+      reorder: (moodboardId, assetIds) => call("reorder_moodboard_items", { moodboardId, assetIds }),
+      setMidjourney: named("set_moodboard_midjourney"),
+      generations: (moodboardId, limit) => call("list_moodboard_generations", { moodboardId, ...(limit ? { limit } : {}) }),
+      delete: moodboardId => call("delete_moodboard", { moodboardId }),
+    },
     presets: { list: named("list_filter_presets"), save: named("save_filter_preset"), delete: byId("delete_filter_preset") },
     bookmarks: { list: named("list_bookmarks"), save: named("save_bookmarks"), setNote: named("set_bookmark_note") },
     videoRefs: {
