@@ -2,10 +2,15 @@
 
 import Image from "next/image";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   BookOpenText,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Orbit,
+  Search as SearchIcon,
+  X,
   UsersRound,
   Bookmark,
   ChevronLeft,
@@ -40,6 +45,11 @@ import {
   normalizeCollectionGroup,
   orderChildCollections,
 } from "@/lib/collection-groups";
+import {
+  collectionNameMatches,
+  isMarkedWorld,
+  partitionWorlds,
+} from "@/lib/collection-worlds";
 
 interface User {
   email?: string | null;
@@ -57,6 +67,9 @@ interface Folder {
   /** Display group of a child inside its world ("Styles"), and its order. */
   group?: string;
   sortOrder?: number;
+  /** A showcased root is a world even without the World mark. */
+  showcased?: boolean;
+  pinnedAt?: number;
 }
 
 interface GallerySidebarProps {
@@ -108,6 +121,8 @@ interface GallerySidebarProps {
   featuredFolderIds?: Set<string>;
   /** Toggle featured; featuring an unpublished set also publishes it. */
   onToggleFeatured?: (folderId: string, next: boolean) => void;
+  /** Marks a root collection as a world (it then leads every list). */
+  onToggleWorld?: (folderId: string, next: boolean) => void;
   /** Create a sub-collection inside a root collection. */
   onCreateSubCollection?: (
     parentFolderId: string,
@@ -165,6 +180,7 @@ export function GallerySidebar({
   onToggleShowcase,
   featuredFolderIds,
   onToggleFeatured,
+  onToggleWorld,
   onCreateSubCollection,
   onCreateCollection,
   tasteFolderId,
@@ -180,7 +196,13 @@ export function GallerySidebar({
 
   // Root collections whose sub-collections are showing. The selected one
   // (or the parent of a selected sub-collection) is always open.
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  // Remembered per browser, so the tree reopens the way it was left.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() =>
+    readExpandedIds(),
+  );
+  useEffect(() => {
+    writeExpandedIds(expandedIds);
+  }, [expandedIds]);
   const toggleExpanded = (folderId: string, next?: boolean) =>
     setExpandedIds((prev) => {
       const open = next ?? !prev.has(folderId);
@@ -254,6 +276,273 @@ export function GallerySidebar({
     }
     return { rootFolders: roots, childrenByParent: children };
   }, [folders]);
+
+  // Worlds first, then the shared collections. The search narrows both and
+  // opens a root whose folders match, so a child is one keystroke away.
+  const [query, setQuery] = useState("");
+  const searching = query.trim().length > 0;
+  const { visibleWorlds, visibleCollections } = useMemo(() => {
+    const { worlds, collections } = partitionWorlds(rootFolders);
+    const filter = (roots: Folder[]) =>
+      roots.flatMap((folder) => {
+        const children = childrenByParent.get(folder._id) ?? [];
+        if (!searching) return [{ folder, children, forcedOpen: false }];
+        const rootMatch = collectionNameMatches(folder.name, query);
+        const childMatches = children.filter((child) =>
+          collectionNameMatches(child.name, query),
+        );
+        if (!rootMatch && childMatches.length === 0) return [];
+        return [
+          {
+            folder,
+            children: childMatches.length > 0 ? childMatches : children,
+            forcedOpen: childMatches.length > 0,
+          },
+        ];
+      });
+    return {
+      visibleWorlds: filter(worlds),
+      visibleCollections: filter(collections),
+    };
+  }, [rootFolders, childrenByParent, query, searching]);
+
+  const expandableIds = useMemo(
+    () =>
+      rootFolders
+        .filter((folder) => (childrenByParent.get(folder._id) ?? []).length > 0)
+        .map((folder) => folder._id),
+    [rootFolders, childrenByParent],
+  );
+  const allExpanded =
+    expandableIds.length > 0 && expandableIds.every((id) => expandedIds.has(id));
+
+  const renderRoot = (
+    {
+      folder,
+      children,
+      forcedOpen,
+    }: { folder: Folder; children: Folder[]; forcedOpen: boolean },
+    world: boolean,
+  ) => {
+    const open =
+      forcedOpen ||
+      expandedIds.has(folder._id) ||
+      selectedFolderId === folder._id ||
+      children.some((child) => child._id === selectedFolderId);
+    return (
+      <div key={folder._id}>
+        <FilterRow
+          variant="root"
+          label={folder.name}
+          count={folder.count}
+          expanded={children.length > 0 ? open : undefined}
+          onToggleExpand={
+            children.length > 0
+              ? () => toggleExpanded(folder._id, !open)
+              : undefined
+          }
+          onDragEnterRow={
+            children.length > 0
+              ? () => toggleExpanded(folder._id, true)
+              : undefined
+          }
+          active={selectedFolderId === folder._id}
+          onClick={() => {
+            onFolderSelect?.(
+              selectedFolderId === folder._id ? null : folder._id,
+            );
+            // Opening a root also unfolds it: its folders are the next step.
+            if (children.length > 0 && selectedFolderId !== folder._id) {
+              toggleExpanded(folder._id, true);
+            }
+          }}
+          onDropAssets={
+            onAssetsDropOnFolder
+              ? (assetIds) => onAssetsDropOnFolder(folder._id, assetIds)
+              : undefined
+          }
+          onRename={
+            onRenameFolder
+              ? (name) => onRenameFolder(folder._id, name)
+              : undefined
+          }
+          onDelete={
+            onDeleteFolder ? () => onDeleteFolder(folder._id) : undefined
+          }
+          world={world}
+          worldLocked={world && !isMarkedWorld(folder)}
+          onToggleWorld={
+            onToggleWorld
+              ? (next) => onToggleWorld(folder._id, next)
+              : undefined
+          }
+          showcased={showcasedFolderIds?.has(folder._id)}
+          onToggleShowcase={
+            onToggleShowcase
+              ? (next) => onToggleShowcase(folder._id, next)
+              : undefined
+          }
+          featured={featuredFolderIds?.has(folder._id)}
+          onToggleFeatured={
+            onToggleFeatured
+              ? (next) => onToggleFeatured(folder._id, next)
+              : undefined
+          }
+          taste={tasteFolderId === folder._id}
+          onToggleTaste={
+            onToggleTaste
+              ? (next) => onToggleTaste(folder._id, next)
+              : undefined
+          }
+          published={publicFolderIds?.has(folder._id)}
+          onTogglePublish={
+            onToggleFolderPublic
+              ? (next) => onToggleFolderPublic(folder._id, next)
+              : undefined
+          }
+          hidden={hiddenFolderIds?.has(folder._id)}
+          onToggleHidden={
+            onToggleHidden
+              ? (next) => onToggleHidden(folder._id, next)
+              : undefined
+          }
+          onAddSub={
+            onCreateSubCollection
+              ? () => {
+                  setSubCreateFor((prev) =>
+                    prev === folder._id ? null : folder._id,
+                  );
+                  toggleExpanded(folder._id, true);
+                  setSubDraft("");
+                }
+              : undefined
+          }
+        />
+        {subCreateFor === folder._id && (
+          <div className="pb-2.5 pl-10 pr-4">
+            <input
+              autoFocus
+              value={subDraft}
+              disabled={subBusy}
+              onChange={(event) => setSubDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void submitSubDraft();
+                }
+                if (event.key === "Escape") {
+                  setSubCreateFor(null);
+                  setSubDraft("");
+                }
+              }}
+              placeholder={`Folder inside ${folder.name}`}
+              className="w-full bg-transparent pb-1 outline-none"
+              style={{
+                fontSize: "11.5px",
+                color: "var(--lm-sidebar-text)",
+                borderBottom: "1px solid var(--lm-coral)",
+                caretColor: "var(--lm-coral)",
+                opacity: subBusy ? 0.5 : 1,
+              }}
+              aria-label={`New sub-collection inside ${folder.name}`}
+            />
+          </div>
+        )}
+        {open && children.length > 0 && (
+          <div className="relative pb-1.5">
+            {/* The tree's spine: ties a root's folders to it. */}
+            <span
+              aria-hidden
+              className="absolute"
+              style={{
+                left: "22px",
+                top: 0,
+                bottom: "8px",
+                width: "1px",
+                background: "var(--lm-sidebar-divider)",
+              }}
+            />
+            {children.map((child, index) => {
+              // A small label opens each display group.
+              const groupKey = collectionGroupKey(child.group);
+              const previousKey = collectionGroupKey(children[index - 1]?.group);
+              const groupLabel =
+                groupKey && groupKey !== previousKey
+                  ? normalizeCollectionGroup(child.group)
+                  : !groupKey && previousKey
+                    ? "Other"
+                    : undefined;
+              return (
+                <Fragment key={child._id}>
+                  {groupLabel && (
+                    <div
+                      aria-hidden
+                      className="truncate"
+                      style={{
+                        padding: "8px 12px 3px 34px",
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "8.5px",
+                        fontWeight: 800,
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                        color: "var(--lm-sidebar-text-ghost)",
+                      }}
+                    >
+                      {groupLabel}
+                    </div>
+                  )}
+                  <FilterRow
+                    variant="child"
+                    label={child.name}
+                    count={child.count}
+                    active={selectedFolderId === child._id}
+                    onClick={() =>
+                      onFolderSelect?.(
+                        selectedFolderId === child._id ? null : child._id,
+                      )
+                    }
+                    onDropAssets={
+                      onAssetsDropOnFolder
+                        ? (assetIds) => onAssetsDropOnFolder(child._id, assetIds)
+                        : undefined
+                    }
+                    onRename={
+                      onRenameFolder
+                        ? (name) => onRenameFolder(child._id, name)
+                        : undefined
+                    }
+                    onDelete={
+                      onDeleteFolder
+                        ? () => onDeleteFolder(child._id)
+                        : undefined
+                    }
+                    published={publicFolderIds?.has(child._id)}
+                    onTogglePublish={
+                      onToggleFolderPublic
+                        ? (next) => onToggleFolderPublic(child._id, next)
+                        : undefined
+                    }
+                    hidden={
+                      hiddenFolderIds?.has(child._id) ||
+                      hiddenFolderIds?.has(folder._id)
+                    }
+                    hiddenByParent={
+                      !hiddenFolderIds?.has(child._id) &&
+                      hiddenFolderIds?.has(folder._id)
+                    }
+                    onToggleHidden={
+                      onToggleHidden
+                        ? (next) => onToggleHidden(child._id, next)
+                        : undefined
+                    }
+                  />
+                </Fragment>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const sidebarWidth = collapsed
     ? "var(--lm-sidebar-collapsed)"
@@ -340,9 +629,10 @@ export function GallerySidebar({
         )}
       </div>
 
-      {/* Navigation */}
+      {/* Navigation — two columns when open, so the tabs take half the
+          height and the collections tree below gets the room. */}
       <div
-        className="flex flex-col py-1"
+        className={collapsed ? "flex flex-col py-1" : "grid grid-cols-2 py-1.5"}
         style={{ borderBottom: "1px solid var(--lm-sidebar-divider)" }}
       >
         <NavItem
@@ -391,7 +681,7 @@ export function GallerySidebar({
           />
         )}
         {onStoriesTab && (
-          <NavItem icon={BookOpenText} label="Stories / Scripts" href="#" active={storiesTabActive} collapsed={collapsed} onClick={onStoriesTab} />
+          <NavItem icon={BookOpenText} label="Stories" href="#" active={storiesTabActive} collapsed={collapsed} onClick={onStoriesTab} />
         )}
         {onCharactersTab && (
           <NavItem icon={UsersRound} label="Characters" href="#" active={charactersTabActive} collapsed={collapsed} onClick={onCharactersTab} />
@@ -470,50 +760,85 @@ export function GallerySidebar({
                 public-facing allowlist for "public"), so no scope gate here. */}
             {(folders.length > 0 || Boolean(onCreateCollection)) &&
               onFolderSelect && (
-              <div style={{ borderBottom: "1px solid var(--lm-sidebar-divider)" }}>
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <span
+              <div className="pb-4">
+                {/* Find + tree controls. The search filters roots and their
+                    folders together and opens any root whose folder matches. */}
+                <div
+                  className="sticky top-0 z-10 flex items-center gap-1.5 px-3 pb-2 pt-3"
+                  style={{ background: "var(--lm-sidebar-bg)" }}
+                >
+                  <label
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5"
                     style={{
-                      fontSize: "8px",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.20em",
-                      color: "var(--lm-sidebar-text-ghost)",
+                      height: "30px",
+                      border: "1px solid var(--lm-sidebar-border)",
+                      background: "var(--lm-sidebar-hover-fill)",
                     }}
                   >
-                    COLLECTIONS
-                  </span>
-                  <span className="flex items-center gap-2">
-                    {selectedFolderId && (
+                    <SearchIcon
+                      className="h-3.5 w-3.5 flex-shrink-0"
+                      style={{ color: "var(--lm-sidebar-text-ghost)" }}
+                    />
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setQuery("");
+                      }}
+                      placeholder="Find a world or collection"
+                      aria-label="Find a world or collection"
+                      className="min-w-0 flex-1 bg-transparent outline-none"
+                      style={{
+                        fontSize: "11.5px",
+                        color: "var(--lm-sidebar-text)",
+                        caretColor: "var(--lm-coral)",
+                      }}
+                    />
+                    {query && (
                       <button
                         type="button"
-                        onClick={() => onFolderSelect(null)}
-                        style={{
-                          fontSize: "8px",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.12em",
-                          color: "var(--lm-coral)",
-                        }}
+                        onClick={() => setQuery("")}
+                        aria-label="Clear search"
+                        style={{ color: "var(--lm-sidebar-text-ghost)" }}
                       >
-                        CLEAR
+                        <X className="h-3 w-3" />
                       </button>
                     )}
-                    {onCreateCollection && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCreatingCollection((prev) => !prev);
-                          setCollectionDraft("");
-                        }}
-                        aria-label="New collection"
-                        title="New collection"
-                        style={{ color: "var(--lm-coral)" }}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
+                  </label>
+                  {expandableIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedIds(
+                          allExpanded ? new Set() : new Set(expandableIds),
+                        )
+                      }
+                      className="lm-glass-icon-btn"
+                      aria-label={allExpanded ? "Collapse all" : "Expand all"}
+                      title={allExpanded ? "Collapse all" : "Expand all"}
+                    >
+                      {allExpanded ? (
+                        <ChevronsDownUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronsUpDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+                  {onCreateCollection && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreatingCollection((prev) => !prev);
+                        setCollectionDraft("");
+                      }}
+                      className="lm-glass-icon-btn"
+                      aria-label="New collection"
+                      title="New collection"
+                      style={{ color: "var(--lm-coral)" }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
                 {creatingCollection && (
                   <div className="px-4 pb-2.5">
@@ -549,223 +874,47 @@ export function GallerySidebar({
                     />
                   </div>
                 )}
-                <FilterRow
-                  icon={FolderOpen}
-                  label="All collections"
-                  active={
-                    selectedFolderId === null ||
-                    selectedFolderId === undefined
-                  }
-                  onClick={() => onFolderSelect(null)}
-                />
-                {rootFolders.map((folder) => {
-                  const children = childrenByParent.get(folder._id) ?? [];
-                  const open =
-                    expandedIds.has(folder._id) ||
-                    selectedFolderId === folder._id ||
-                    children.some((child) => child._id === selectedFolderId);
-                  return (
-                  <div key={folder._id}>
-                    <FilterRow
-                      label={folder.name}
-                      count={folder.count}
-                      expanded={children.length > 0 ? open : undefined}
-                      onToggleExpand={
-                        children.length > 0
-                          ? () => toggleExpanded(folder._id, !open)
-                          : undefined
-                      }
-                      onDragEnterRow={
-                        children.length > 0
-                          ? () => toggleExpanded(folder._id, true)
-                          : undefined
-                      }
-                      active={selectedFolderId === folder._id}
-                      onClick={() =>
-                        onFolderSelect(
-                          selectedFolderId === folder._id ? null : folder._id,
-                        )
-                      }
-                      onDropAssets={
-                        onAssetsDropOnFolder
-                          ? (assetIds) =>
-                              onAssetsDropOnFolder(folder._id, assetIds)
-                          : undefined
-                      }
-                      onRename={
-                        onRenameFolder
-                          ? (name) => onRenameFolder(folder._id, name)
-                          : undefined
-                      }
-                      onDelete={
-                        onDeleteFolder
-                          ? () => onDeleteFolder(folder._id)
-                          : undefined
-                      }
-                      showcased={showcasedFolderIds?.has(folder._id)}
-                      onToggleShowcase={
-                        onToggleShowcase
-                          ? (next) => onToggleShowcase(folder._id, next)
-                          : undefined
-                      }
-                      featured={featuredFolderIds?.has(folder._id)}
-                      onToggleFeatured={
-                        onToggleFeatured
-                          ? (next) => onToggleFeatured(folder._id, next)
-                          : undefined
-                      }
-                      taste={tasteFolderId === folder._id}
-                      onToggleTaste={
-                        onToggleTaste
-                          ? (next) => onToggleTaste(folder._id, next)
-                          : undefined
-                      }
-                      published={publicFolderIds?.has(folder._id)}
-                      onTogglePublish={
-                        onToggleFolderPublic
-                          ? (next) => onToggleFolderPublic(folder._id, next)
-                          : undefined
-                      }
-                      hidden={hiddenFolderIds?.has(folder._id)}
-                      onToggleHidden={
-                        onToggleHidden
-                          ? (next) => onToggleHidden(folder._id, next)
-                          : undefined
-                      }
-                      onAddSub={
-                        onCreateSubCollection
-                          ? () => {
-                              setSubCreateFor((prev) =>
-                                prev === folder._id ? null : folder._id,
-                              );
-                              toggleExpanded(folder._id, true);
-                              setSubDraft("");
-                            }
-                          : undefined
-                      }
-                    />
-                    {subCreateFor === folder._id && (
-                      <div className="pb-2.5 pl-9 pr-4">
-                        <input
-                          autoFocus
-                          value={subDraft}
-                          disabled={subBusy}
-                          onChange={(event) => setSubDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              void submitSubDraft();
-                            }
-                            if (event.key === "Escape") {
-                              setSubCreateFor(null);
-                              setSubDraft("");
-                            }
-                          }}
-                          placeholder={`Inside ${folder.name}`}
-                          className="w-full bg-transparent pb-1 outline-none"
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: 600,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.10em",
-                            color: "var(--lm-sidebar-text)",
-                            borderBottom: "1px solid var(--lm-coral)",
-                            caretColor: "var(--lm-coral)",
-                            opacity: subBusy ? 0.5 : 1,
-                          }}
-                          aria-label={`New sub-collection inside ${folder.name}`}
-                        />
-                      </div>
-                    )}
-                    {open && children.map((child, index) => {
-                      // A small label opens each display group; a hairline
-                      // closes the groups before the ungrouped children.
-                      const groupKey = collectionGroupKey(child.group);
-                      const previousKey = collectionGroupKey(children[index - 1]?.group);
-                      const groupLabel =
-                        groupKey && groupKey !== previousKey
-                          ? normalizeCollectionGroup(child.group)
-                          : undefined;
-                      return (
-                      <Fragment key={child._id}>
-                      {!groupKey && previousKey && (
-                        <div
-                          aria-hidden
-                          style={{
-                            margin: "6px 12px 4px 34px",
-                            height: "1px",
-                            backgroundColor: "var(--lm-sidebar-divider)",
-                          }}
-                        />
-                      )}
-                      {groupLabel && (
-                        <div
-                          aria-hidden
-                          className="truncate"
-                          style={{
-                            padding: "8px 12px 2px 34px",
-                            fontFamily: "var(--lm-font)",
-                            fontSize: "9px",
-                            fontWeight: 700,
-                            letterSpacing: "0.16em",
-                            textTransform: "uppercase",
-                            color: "var(--lm-sidebar-text-ghost)",
-                          }}
-                        >
-                          {groupLabel}
-                        </div>
-                      )}
-                      <FilterRow
-                        indent
-                        label={child.name}
-                        count={child.count}
-                        active={selectedFolderId === child._id}
-                        onClick={() =>
-                          onFolderSelect(
-                            selectedFolderId === child._id ? null : child._id,
-                          )
-                        }
-                        onDropAssets={
-                          onAssetsDropOnFolder
-                            ? (assetIds) =>
-                                onAssetsDropOnFolder(child._id, assetIds)
-                            : undefined
-                        }
-                        onRename={
-                          onRenameFolder
-                            ? (name) => onRenameFolder(child._id, name)
-                            : undefined
-                        }
-                        onDelete={
-                          onDeleteFolder
-                            ? () => onDeleteFolder(child._id)
-                            : undefined
-                        }
-                        published={publicFolderIds?.has(child._id)}
-                        onTogglePublish={
-                          onToggleFolderPublic
-                            ? (next) => onToggleFolderPublic(child._id, next)
-                            : undefined
-                        }
-                        hidden={
-                          hiddenFolderIds?.has(child._id) ||
-                          hiddenFolderIds?.has(folder._id)
-                        }
-                        hiddenByParent={
-                          !hiddenFolderIds?.has(child._id) &&
-                          hiddenFolderIds?.has(folder._id)
-                        }
-                        onToggleHidden={
-                          onToggleHidden
-                            ? (next) => onToggleHidden(child._id, next)
-                            : undefined
-                        }
-                      />
-                      </Fragment>
-                      );
-                    })}
-                  </div>
-                  );
-                })}
+                {!searching && (
+                  <FilterRow
+                    variant="root"
+                    icon={FolderOpen}
+                    label="Everything"
+                    active={
+                      selectedFolderId === null ||
+                      selectedFolderId === undefined
+                    }
+                    onClick={() => onFolderSelect(null)}
+                  />
+                )}
+                {visibleWorlds.length > 0 && (
+                  <SectionLabel
+                    icon={Orbit}
+                    label="Worlds"
+                    count={visibleWorlds.length}
+                  />
+                )}
+                {visibleWorlds.map((entry) => renderRoot(entry, true))}
+                {visibleCollections.length > 0 && (
+                  <SectionLabel
+                    icon={FolderOpen}
+                    label="Collections"
+                    count={visibleCollections.length}
+                  />
+                )}
+                {visibleCollections.map((entry) => renderRoot(entry, false))}
+                {searching &&
+                  visibleWorlds.length === 0 &&
+                  visibleCollections.length === 0 && (
+                    <p
+                      className="px-4 py-3"
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--lm-sidebar-text-ghost)",
+                      }}
+                    >
+                      Nothing called &ldquo;{query.trim()}&rdquo;.
+                    </p>
+                  )}
               </div>
             )}
 
@@ -957,13 +1106,14 @@ function NavItem({
     <div
       className="flex w-full items-center"
       style={{
-        padding: collapsed ? "12px 0" : "11px 16px",
+        padding: collapsed ? "12px 0" : "8px 6px 8px 14px",
         justifyContent: collapsed ? "center" : "flex-start",
-        gap: collapsed ? "0" : "12px",
+        gap: collapsed ? "0" : "8px",
+        minWidth: 0,
       }}
     >
       <Icon
-        className="h-4 w-4 flex-shrink-0"
+        className={collapsed ? "h-4 w-4 flex-shrink-0" : "h-3.5 w-3.5 flex-shrink-0"}
         style={{
           color: active
             ? "var(--lm-coral)"
@@ -973,11 +1123,12 @@ function NavItem({
       />
       {!collapsed && (
         <span
+          className="truncate"
           style={{
-            fontSize: "10px",
+            fontSize: "9px",
             fontWeight: active ? 800 : 600,
             textTransform: "uppercase",
-            letterSpacing: "0.16em",
+            letterSpacing: "0.04em",
           }}
         >
           {label}
@@ -997,7 +1148,7 @@ function NavItem({
         href={href}
         className={`${sharedClass} block`}
         data-active={active ? "true" : "false"}
-        title={collapsed ? label : undefined}
+        title={label}
         onClick={onClick}
       >
         {inner}
@@ -1011,10 +1162,83 @@ function NavItem({
       className={sharedClass}
       data-active={active ? "true" : "false"}
       onClick={onClick}
-      title={collapsed ? label : undefined}
+      title={label}
     >
       {inner}
     </button>
+  );
+}
+
+const EXPANDED_STORAGE_KEY = "lm-sidebar-expanded-collections";
+
+function readExpandedIds() {
+  try {
+    const raw = window.localStorage.getItem(EXPANDED_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeExpandedIds(ids: Set<string>) {
+  try {
+    window.localStorage.setItem(
+      EXPANDED_STORAGE_KEY,
+      JSON.stringify(Array.from(ids)),
+    );
+  } catch {
+    // Private windows and blocked storage just forget the tree state.
+  }
+}
+
+/* Section label — WORLDS / COLLECTIONS. */
+
+function SectionLabel({
+  icon: Icon,
+  label,
+  count,
+}: {
+  icon: React.ElementType;
+  label: string;
+  count: number;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-4 pb-1.5 pt-4"
+      style={{ color: "var(--lm-sidebar-text-ghost)" }}
+    >
+      <Icon className="h-3 w-3 flex-shrink-0" />
+      <span
+        style={{
+          fontSize: "8.5px",
+          fontWeight: 800,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </span>
+      <span
+        aria-hidden
+        className="h-px flex-1"
+        style={{ background: "var(--lm-sidebar-divider)" }}
+      />
+      <span
+        style={{
+          fontFamily: "var(--lm-font-mono, var(--lm-font))",
+          fontSize: "9px",
+          fontWeight: 700,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {count}
+      </span>
+    </div>
   );
 }
 
@@ -1041,7 +1265,10 @@ function FilterRow({
   hiddenByParent = false,
   onToggleHidden,
   onAddSub,
-  indent = false,
+  world = false,
+  worldLocked = false,
+  onToggleWorld,
+  variant = "root",
   expanded,
   onToggleExpand,
   onDragEnterRow,
@@ -1080,8 +1307,14 @@ function FilterRow({
   onToggleHidden?: (next: boolean) => void;
   /** When set, the row shows an add-sub-collection control. */
   onAddSub?: () => void;
-  /** Renders as a nested sub-collection row. */
-  indent?: boolean;
+  /** True for a world root (marked World, or showcased). */
+  world?: boolean;
+  /** A showcased world stays a world; the toggle is then read-only. */
+  worldLocked?: boolean;
+  /** When set, the row shows a mark-as-world toggle. */
+  onToggleWorld?: (next: boolean) => void;
+  /** "root" is a top-level collection; "child" a folder inside one. */
+  variant?: "root" | "child";
   /** Set on a collection that has sub-collections: shows a chevron. */
   expanded?: boolean;
   onToggleExpand?: () => void;
@@ -1100,8 +1333,10 @@ function FilterRow({
       onToggleTaste ||
       onTogglePublish ||
       onToggleHidden ||
+      onToggleWorld ||
       onAddSub,
   );
+  const child = variant === "child";
 
   const commitRename = () => {
     const name = (renameDraft ?? "").trim();
@@ -1159,33 +1394,37 @@ function FilterRow({
         onClick={renameDraft !== null ? undefined : onClick}
         className="flex min-w-0 flex-1 cursor-pointer items-center self-stretch text-left"
         style={{
-          gap: "10px",
-          padding: `6px 0 6px ${indent ? "34px" : "16px"}`,
+          gap: child ? "8px" : "6px",
+          padding: child ? "5px 0 5px 34px" : "6px 0 6px 8px",
           color: "inherit",
         }}
       >
-      {expanded !== undefined && onToggleExpand ? (
-        <span
-          role="button"
-          tabIndex={-1}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleExpand();
-          }}
-          className="-ml-1 flex h-3 w-3 flex-shrink-0 items-center justify-center"
-          style={{ color: "var(--lm-sidebar-text-ghost)" }}
-          aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
-          aria-expanded={expanded}
-        >
-          <ChevronRight
-            className="h-3 w-3"
-            style={{
-              transform: expanded ? "rotate(90deg)" : undefined,
-              transition: "transform var(--lm-duration-fast)",
+      {!child && (
+        expanded !== undefined && onToggleExpand ? (
+          <span
+            role="button"
+            tabIndex={-1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleExpand();
             }}
-          />
-        </span>
-      ) : null}
+            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md hover:bg-[var(--lm-sidebar-hover-fill)]"
+            style={{ color: "var(--lm-sidebar-text-muted)" }}
+            aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
+            aria-expanded={expanded}
+          >
+            <ChevronRight
+              className="h-3.5 w-3.5"
+              style={{
+                transform: expanded ? "rotate(90deg)" : undefined,
+                transition: "transform var(--lm-duration-fast)",
+              }}
+            />
+          </span>
+        ) : (
+          <span aria-hidden className="h-5 w-5 flex-shrink-0" />
+        )
+      )}
       {Icon ? (
         <Icon
           className="h-3 w-3 flex-shrink-0"
@@ -1228,14 +1467,25 @@ function FilterRow({
         />
       ) : (
         <span
-          className="min-w-0 flex-1 truncate text-left"
-          style={{
-            fontSize: "10px",
-            fontWeight: active ? 700 : 500,
-            textTransform: "uppercase",
-            letterSpacing: "0.10em",
-            opacity: hidden && !active ? 0.5 : undefined,
-          }}
+          className="line-clamp-2 min-w-0 flex-1 break-words text-left"
+          style={
+            child
+              ? {
+                  fontSize: "11.5px",
+                  lineHeight: 1.3,
+                  fontWeight: active ? 700 : 500,
+                  opacity: hidden && !active ? 0.5 : undefined,
+                }
+              : {
+                  fontSize: "10.5px",
+                  lineHeight: 1.3,
+                  fontWeight: active ? 800 : 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  color: active ? undefined : "var(--lm-sidebar-text)",
+                  opacity: hidden && !active ? 0.5 : undefined,
+                }
+          }
         >
           {label}
         </span>
@@ -1306,6 +1556,35 @@ function FilterRow({
               title="New sub-collection"
             >
               <Plus className="h-2.5 w-2.5" />
+            </button>
+          )}
+          {onToggleWorld && (
+            <button
+              type="button"
+              disabled={worldLocked}
+              aria-pressed={world}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleWorld(!world);
+              }}
+              className="flex h-4 w-4 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--lm-coral)]"
+              style={{
+                color: world
+                  ? "var(--lm-coral)"
+                  : "var(--lm-sidebar-text-ghost)",
+                opacity: worldLocked ? 0.5 : undefined,
+                cursor: worldLocked ? "default" : undefined,
+              }}
+              aria-label={world ? `Unmark ${label} as a world` : `Mark ${label} as a world`}
+              title={
+                worldLocked
+                  ? "A world: it is showcased publicly"
+                  : world
+                    ? "A world: listed first everywhere. Click to make it a plain collection."
+                    : "Mark as a world: it moves to the top of every collection list."
+              }
+            >
+              <Orbit className="h-2.5 w-2.5" />
             </button>
           )}
           {onToggleTaste && (

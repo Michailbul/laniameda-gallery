@@ -105,7 +105,6 @@ import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
   AddToPanel,
-  type PanelAssetType,
   type PanelCollection,
 } from "./add-to-panel";
 import {
@@ -121,8 +120,13 @@ import {
 } from "@/components/gallery/moodboards-view";
 import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
-import { groupChildCollections } from "@/lib/collection-groups";
+import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
 import { isSrefCollection } from "@/lib/midjourney-srefs";
+import {
+  WORLD_GROUP,
+  isWorldCollection,
+  orderRootCollections,
+} from "@/lib/collection-worlds";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 
@@ -602,7 +606,6 @@ export function GalleryDashboard({
   // The featured shelf — owner-only control over the public home reel.
   const [featuredPanelOpen, setFeaturedPanelOpen] = useState(false);
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
-  const [bulkTypeBusy, setBulkTypeBusy] = useState<PanelAssetType | null>(null);
   // Feedback chip for collection membership changes and drag & drop.
   const [moveStatus, setMoveStatus] = useState<{
     text: string;
@@ -2763,7 +2766,7 @@ export function GalleryDashboard({
   const deleteSelectedAssets = useCallback(async () => {
     if (
       !canDeleteInCurrentView || bulkDeletingRef.current || bulkLikingRef.current || deletingAssetId ||
-      bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+      bulkActionLoading || bulkCurationLoading || bulkAddBusy
     ) return;
     // Snapshot the exact selection before confirmation; later grid updates must
     // never expand the destructive operation to a new set of assets.
@@ -2811,13 +2814,13 @@ export function GalleryDashboard({
     }
   }, [
     canDeleteInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
-    bulkAddBusy, bulkTypeBusy, selectedAssetIds,
+    bulkAddBusy, selectedAssetIds,
   ]);
 
   const likeSelectedAssets = useCallback(async (isLiked: boolean) => {
     if (
       !canManageFoldersInCurrentView || bulkLikingRef.current || bulkDeletingRef.current ||
-      deletingAssetId || bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+      deletingAssetId || bulkActionLoading || bulkCurationLoading || bulkAddBusy
     ) return;
     const ids = Array.from(selectedAssetIds);
     if (!ids.length) return;
@@ -2847,7 +2850,7 @@ export function GalleryDashboard({
       setBulkActionLoading(false);
     }
   }, [canManageFoldersInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
-    bulkAddBusy, bulkTypeBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
+    bulkAddBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
 
   const publishAllAssetIds = useMemo(() => {
     return images
@@ -3039,77 +3042,49 @@ export function GalleryDashboard({
     return counts;
   }, [selectedAssetMemberships]);
 
-  // Same checklist ergonomics for what the selection IS. Matching runs through
-  // sectionKeyForTagName so a legacy plural ("characters") still reads as a
-  // character — the write always lands on the singular tag.
-  const selectedAssetTypeTags = useMemo(() => {
-    const imageById = new Map(images.map((image) => [image.id, image]));
-    return Array.from(selectedAssetIds).flatMap((assetId) => {
-      const image = imageById.get(assetId);
-      if (
-        !image ||
-        (image.galleryItemType !== "asset" &&
-          image.galleryItemType !== undefined)
-      ) {
-        return [];
-      }
-      const sections = new Set<CollectionSectionKey>();
-      for (const tagName of image.tagNames ?? []) {
-        const section = sectionKeyForTagName(tagName);
-        if (section) sections.add(section);
-      }
-      return [{ assetId, sections }];
-    });
-  }, [images, selectedAssetIds]);
-
-  const selectedTypeTagCounts = useMemo(() => {
-    const counts = new Map<StaticsTagName, number>();
-    for (const { tag } of STATICS_TAGS) {
-      const section = sectionKeyForTagName(tag);
-      counts.set(
-        tag,
-        section
-          ? selectedAssetTypeTags.filter((asset) => asset.sections.has(section))
-              .length
-          : 0,
+  // Take the selected pieces out of one collection: only the members leave,
+  // and every other membership stays.
+  const removeSelectedFromFolder = useCallback(
+    async (folderId: string) => {
+      const targets = selectedAssetMemberships.filter((asset) =>
+        asset.folderIds.includes(folderId),
       );
-    }
-    return counts;
-  }, [selectedAssetTypeTags]);
-
-  // A type is one bucket, not three independent flags. The backend removes
-  // legacy/plural aliases and every competing type before writing this one.
-  // `assetIds` may be the current selection or an explicit dragged group.
-  const assignAssetsToType = useCallback(
-    async (assetType: PanelAssetType, assetIds: string[]) => {
-      if (bulkTypeBusy || assetIds.length === 0) return;
-      const uniqueAssetIds = Array.from(new Set(assetIds));
-      setBulkTypeBusy(assetType);
-      setBulkCurationError(undefined);
-      setBulkCurationStatus(undefined);
+      if (targets.length === 0 || bulkAddBusy) return;
+      setBulkAddBusy(true);
       try {
-        const result = await bulkAssignAssetTypeMutation({
-          ownerUserId,
-          assetIds: uniqueAssetIds.map((assetId) => assetId as Id<"assets">),
-          assetType,
-        });
+        await Promise.all(
+          targets.map((asset) =>
+            setAssetFoldersMutation({
+              ownerUserId,
+              assetId: asset.assetId as Id<"assets">,
+              folderIds: asset.folderIds
+                .filter((id) => id !== folderId)
+                .map((id) => id as Id<"folders">),
+            }),
+          ),
+        );
         setMoveStatus({
-          text: `Filed ${result.updatedCount} asset${
-            result.updatedCount === 1 ? "" : "s"
-          } as ${assetType}`,
+          text: `Removed ${targets.length} from ${
+            folderNameById.get(folderId) ?? "collection"
+          }`,
         });
       } catch (error) {
         setMoveStatus({
-          text:
-            error instanceof Error ? error.message : "Type assignment failed.",
+          text: error instanceof Error ? error.message : "Remove failed.",
           error: true,
         });
         throw error;
       } finally {
-        setBulkTypeBusy(null);
+        setBulkAddBusy(false);
       }
     },
-    [bulkAssignAssetTypeMutation, bulkTypeBusy, ownerUserId],
+    [
+      bulkAddBusy,
+      folderNameById,
+      ownerUserId,
+      selectedAssetMemberships,
+      setAssetFoldersMutation,
+    ],
   );
 
   const toggleSelectedFolder = useCallback(
@@ -3361,31 +3336,48 @@ export function GalleryDashboard({
   // Per-card menu targets: plain collections (Move/Add) plus storybooks
   // (always additive).
   const cardCollections = useMemo(() => {
-    const nameById = new Map(
-      collectionFoldersWithCounts.map((folder) => [
-        folder._id as string,
-        folder.name,
-      ]),
+    // Worlds first, each root followed by its folders in their display-group
+    // order, so the list reads as the same tree the sidebar shows.
+    const ids = new Set(
+      collectionFoldersWithCounts.map((folder) => folder._id as string),
     );
-    const rows = collectionFoldersWithCounts.map((folder) => {
+    const childrenByParent = new Map<string, typeof collectionFoldersWithCounts>();
+    const roots: typeof collectionFoldersWithCounts = [];
+    for (const folder of collectionFoldersWithCounts) {
       const parentId = folder.parentFolderId as string | undefined;
-      return {
-        id: folder._id as string,
-        name: folder.name,
-        // Several parents each own a "Characters"/"Locations", so the row has
-        // to say whose it is or the options are indistinguishable.
-        parentName: parentId ? nameById.get(parentId) : undefined,
-        count: folder.count,
-        kind: "collection" as const,
-      };
+      if (parentId && ids.has(parentId)) {
+        const list = childrenByParent.get(parentId) ?? [];
+        list.push(folder);
+        childrenByParent.set(parentId, list);
+      } else {
+        roots.push(folder);
+      }
+    }
+    const rows = orderRootCollections(roots).flatMap((root) => {
+      const world = isWorldCollection(root);
+      return [
+        {
+          id: root._id as string,
+          name: root.name,
+          parentName: undefined as string | undefined,
+          count: root.count,
+          kind: "collection" as const,
+          isWorld: world,
+        },
+        ...orderChildCollections(childrenByParent.get(root._id as string) ?? []).map(
+          (child) => ({
+            id: child._id as string,
+            name: child.name,
+            // Several parents each own a "Characters"/"Locations", so the row
+            // has to say whose it is or the options are indistinguishable.
+            parentName: root.name as string | undefined,
+            count: child.count,
+            kind: "collection" as const,
+            isWorld: world,
+          }),
+        ),
+      ];
     });
-    // Group each child under its parent, roots alphabetical, so the list reads
-    // as the tree it is instead of an interleaved flat dump.
-    const sortKey = (row: (typeof rows)[number]) =>
-      `${(row.parentName ?? row.name).toLowerCase()} ${
-        row.parentName ? `1${row.name.toLowerCase()}` : "0"
-      }`;
-    rows.sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
     return [
       ...rows,
       ...(storybooks ?? []).map((storybook) => ({
@@ -3394,6 +3386,7 @@ export function GalleryDashboard({
         parentName: undefined,
         count: storybook.count,
         kind: "storybook" as const,
+        isWorld: false,
       })),
     ];
   }, [collectionFoldersWithCounts, storybooks]);
@@ -3565,6 +3558,10 @@ export function GalleryDashboard({
           description: folder.description ?? undefined,
           count: folder.count,
           parentId: folder.parentFolderId ?? undefined,
+          isWorld: isWorldCollection(folder),
+          pinned: Boolean(folder.pinnedAt),
+          group: folder.group ?? undefined,
+          sortOrder: folder.sortOrder ?? undefined,
           previews: panelPreviewsByFolderId.get(folder._id),
           selectedCount: selectedFolderMembershipCounts.get(folder._id) ?? 0,
         })),
@@ -3573,15 +3570,6 @@ export function GalleryDashboard({
       panelPreviewsByFolderId,
       selectedFolderMembershipCounts,
     ],
-  );
-
-  const panelAssetTypeCounts = useMemo<Record<PanelAssetType, number>>(
-    () => ({
-      character: selectedTypeTagCounts.get("character") ?? 0,
-      location: selectedTypeTagCounts.get("location") ?? 0,
-      scene: selectedTypeTagCounts.get("scene") ?? 0,
-    }),
-    [selectedTypeTagCounts],
   );
 
   const addAssetsToFolder = useCallback(
@@ -3689,6 +3677,31 @@ export function GalleryDashboard({
     setSelectedImage(null);
     setSelectedFolderId(collectionId);
   }, []);
+
+  // Mark a root collection as a world (its root `group`): worlds lead the
+  // sidebar, the Move-to panel and every card's collection menu.
+  const handleToggleWorld = useCallback(
+    async (folderId: string, next: boolean) => {
+      const name = folderNameById.get(folderId) ?? "Collection";
+      try {
+        await updateFolderMutation({
+          ownerUserId,
+          folderId: folderId as Id<"folders">,
+          group: next ? WORLD_GROUP : null,
+        });
+        setMoveStatus({
+          text: next ? `${name} is now a world` : `${name} is a plain collection`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Could not update the world mark.",
+          error: true,
+        });
+      }
+    },
+    [folderNameById, ownerUserId, updateFolderMutation],
+  );
 
   // Rename any folder-backed sidebar row (collection / storybook).
   const handleRenameFolder = useCallback(
@@ -5078,6 +5091,9 @@ export function GalleryDashboard({
           onRenameFolder={
             canManageFoldersInCurrentView ? handleRenameFolder : undefined
           }
+          onToggleWorld={
+            canManageFoldersInCurrentView ? handleToggleWorld : undefined
+          }
           onDeleteFolder={
             canManageFoldersInCurrentView ? handleDeleteFolder : undefined
           }
@@ -6074,8 +6090,7 @@ export function GalleryDashboard({
                   disabled={
                     bulkCurationLoading ||
                     bulkActionLoading ||
-                    bulkAddBusy ||
-                    bulkTypeBusy !== null
+                    bulkAddBusy
                   }
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{
@@ -6086,24 +6101,22 @@ export function GalleryDashboard({
                     opacity:
                       bulkCurationLoading ||
                       bulkActionLoading ||
-                      bulkAddBusy ||
-                      bulkTypeBusy !== null
+                      bulkAddBusy
                         ? 0.55
                         : 1,
                     cursor:
                       bulkCurationLoading ||
                       bulkActionLoading ||
-                      bulkAddBusy ||
-                      bulkTypeBusy !== null
+                      bulkAddBusy
                         ? "not-allowed"
                         : "pointer",
                   }}
                   aria-haspopup="dialog"
                   aria-expanded={addToPanelOpen}
-                  aria-label="Move selected assets to a type and collections"
-                  title="Assign an asset type and choose any collections"
+                  aria-label="Move selected assets to collections"
+                  title="Add the selection to worlds and collections, or take it out of them"
                 >
-                  {bulkAddBusy || bulkTypeBusy !== null ? (
+                  {bulkAddBusy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <FolderPlus className="h-3.5 w-3.5" />
@@ -6146,7 +6159,7 @@ export function GalleryDashboard({
                   key={String(isLiked)}
                   type="button"
                   onClick={() => { void likeSelectedAssets(isLiked); }}
-                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy}
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{ border: "2px solid var(--lm-border-strong)", borderRadius: "10px", padding: "6px 12px", fontSize: "11px" }}
                   aria-label={isLiked ? "Like selected assets" : "Unlike selected assets"}
@@ -6159,7 +6172,7 @@ export function GalleryDashboard({
                 <button
                   type="button"
                   onClick={() => { void deleteSelectedAssets(); }}
-                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy}
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{
                     border: "2px solid var(--lm-coral)",
@@ -6402,11 +6415,10 @@ export function GalleryDashboard({
           open={addToPanelOpen}
           onClose={() => setAddToPanelOpen(false)}
           selectedAssetIds={selectedAssetIdList}
-          assetTypeCounts={panelAssetTypeCounts}
           collections={panelCollections}
-          onAssignAssetType={assignAssetsToType}
           onAddToFolder={addAssetsToFolder}
           onToggleFolder={toggleSelectedFolder}
+          onRemoveFromFolder={removeSelectedFromFolder}
           onCreateCollection={createCollectionFromAssets}
           onCreateSubCollection={createSubCollectionFromAssets}
           onUpdateDescription={updateFolderDescription}
