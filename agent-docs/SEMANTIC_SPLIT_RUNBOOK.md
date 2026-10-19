@@ -4,6 +4,11 @@ For Michael's machine. Nothing here has been run against the canonical
 deployment (`dev:perfect-buffalo-375`, real gallery data); each push and each
 migration step is a separate decision. Byte figures: `DATABASE_IO.md`.
 
+**Status, 19 Oct 2026 23:25 CEST:** step 1 done with Michael's go (backend of
+main at #59 plus asset comments pushed to `dev:perfect-buffalo-375`; Vercel
+deployed; smoke test `all_assets` returned `"source":"export"`, 5,791 assets).
+`SEMANTIC_STORAGE` is unset (legacy). Steps 2–8 have not been run.
+
 ## What ships, and what each step changes
 
 | Step | Changes behaviour | Database I/O |

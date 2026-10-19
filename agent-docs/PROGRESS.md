@@ -8,7 +8,7 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
-### 2026-10-19 (branch `claude/asset-comments`, needs a Convex backend push)
+### 2026-10-19 (#56, #60; backend pushed 19 Oct 23:25 CEST, live)
 - Comments on every asset: a thread in the detail panel (Details tab, under
   Description), oldest first, Enter to send, delete on hover; agent replies
   are marked Agent. Table `assetComments`, functions in
@@ -60,7 +60,7 @@ Last updated: 2026-10-19
 - A world whose pieces all sit in its folders (DEAR ANNETE — ART DECO) shows
   its grouped stacks at once instead of a skeleton until the world scan ends.
 
-### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
+### 2026-10-19 (branch `feat/collection-moodboards`, backend published)
 - Moodboards: ordered sets of gallery images that define one look, mirrored to
   a Midjourney moodboard and its `--profile` code. Each belongs to a plain
   collection. A collection's header has `Moodboards · N`, which opens board
@@ -76,7 +76,7 @@ Last updated: 2026-10-19
   group. Ungrouped children keep today's order. Detail:
   `features/collection-moodboards/README.md`.
 
-### 2026-10-18 (branch, awaiting deploy approval)
+### 2026-10-18 (#52; backend pushed 19 Oct 23:25 CEST, runbook step 1 only)
 - Convex Database I/O cuts after the Free-plan deployment was disabled. Search
   asks each lane for 2× its limit (32–96) before widening to 256, cuts split
   lanes by score before mapping hits, and hydrates about its limit instead of
