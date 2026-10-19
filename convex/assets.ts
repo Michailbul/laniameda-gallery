@@ -2344,11 +2344,16 @@ export const listGalleryAssets = ownerQuery({
       const maxMembers = search
         ? affordable
         : room - 2 * Math.min(limit, affordable);
+      // A world used to read each folder's newest `queryTake` links and keep
+      // the newest-created pieces among them. Fetching up to that many in
+      // total keeps that answer whenever the world fits the budget; past it,
+      // the most recently filed pieces are the ones that fit.
+      const memberCap = queryTake * folderIds.length;
       const { assets, fetched } = await collectNewestFolderMembers(
         ctx,
         ownerUserIds,
         folderIds,
-        Math.min(queryTake, maxMembers),
+        Math.min(memberCap, maxMembers),
       );
       budget.spend(fetched);
       return { rows: assets, full: false, nextBefore: 0 };

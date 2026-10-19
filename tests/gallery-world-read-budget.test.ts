@@ -169,6 +169,26 @@ describe("world reads stay under Convex's read limit", () => {
     expect(reads()).toBeLessThanOrEqual(300 + 1 + 33 * 2);
   });
 
+  test("old pieces refiled today do not push the newest pieces out of a world that fits", async () => {
+    const h = createMockConvexMutationCtx();
+    const world = await buildWorld(h, 1000, 32);
+    // The 400 oldest pieces are filed onto a new shelf today.
+    const shelf = await h.db.insert("folders", {
+      ownerUserId: OWNER, name: "New shelf", parentFolderId: world.root, createdAt: 0,
+    });
+    for (const asset of world.newestFirst.slice(-400)) {
+      await h.db.insert("assetFolders", { ownerUserId: OWNER, assetId: asset._id, folderId: shelf, createdAt: 50_000 });
+    }
+    const reads = meterReads(h);
+
+    const rows = await callAsOwner(listGalleryAssets)(h.ctx, {
+      ownerUserId: OWNER, folderId: world.root, includeDescendants: true, limit: 600,
+    });
+
+    expect(reads()).toBeLessThanOrEqual(QUERY_READ_BUDGET);
+    expect(ids(rows)).toEqual(ids(world.newestFirst.slice(0, 600)));
+  });
+
   test("a legacy owner spelling still merges into a world read", async () => {
     const h = createMockConvexMutationCtx();
     const world = await buildWorld(h, 50, 4);
