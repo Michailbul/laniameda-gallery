@@ -72,6 +72,7 @@ import {
 } from "./browse-breadcrumb";
 import { CollectionViewActions } from "./collection-view-actions";
 import { StyleScopeSwitcher } from "./style-scope-switcher";
+import { EmptyFolderPrompt } from "./empty-folder-prompt";
 import {
   buildStyleShelfStacks,
   filterAssetsToStyle,
@@ -1279,6 +1280,16 @@ export function GalleryDashboard({
   const collectionFoldersWithCounts = useMemo(
     () => foldersWithCounts.filter((folder) => folder.kind !== "storybook"),
     [foldersWithCounts],
+  );
+  const emptyPromptFolders = useMemo(
+    () =>
+      folders?.map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        kind: folder.kind,
+      })),
+    [folders],
   );
   const smartMenuFilterByFolderId = useMemo(() => {
     const tagFilters = (menuFilters ?? []).filter(
@@ -4749,6 +4760,15 @@ export function GalleryDashboard({
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
     <NoticeToast notice={bulkDeleteNotice} />
+    {galleryScope === "mine" && canAccessMyGallery && canManageFoldersInCurrentView && (
+      <EmptyFolderPrompt
+        ownerUserId={ownerUserId}
+        folders={emptyPromptFolders}
+        assetCountById={folderCountById}
+        ready={folderAssetCounts !== undefined}
+        onDelete={handleDeleteFolder}
+      />
+    )}
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar="creators"

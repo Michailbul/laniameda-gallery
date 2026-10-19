@@ -8,6 +8,15 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/empty-folder-prompt`, frontend only)
+- No empty collections left behind: when a collection's last piece leaves
+  (deleted, moved, removed, or filed elsewhere by an agent) and it has no
+  child collections, a card asks to delete it (Keep / Delete collection).
+  A world is asked about once its last asset and last child are gone. A
+  folder that still holds a moodboard, story or Skill is never offered, and
+  folders that were already empty when the vault opened are left alone.
+  Logic `lib/empty-folders.ts`, card `components/gallery/empty-folder-prompt.tsx`.
+
 ### 2026-10-19 (branch `claude/style-scoped-folders`, frontend only)
 - Styles as the parent of a world's shelves. A world's children in the
   `Styles` group (DEAR ANNETE: Film · Live Action, 3D Animation) scope its
