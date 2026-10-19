@@ -8,6 +8,13 @@ Last updated: 2026-10-19
 
 ## ✔ Shipped
 
+### 2026-10-19 (branch `claude/moodboards-tab`, frontend only)
+- Collection tabs under the breadcrumb: Pieces, Folders (in a world) and
+  Moodboards with its board count, on every world root and style branch and
+  on any other collection that has boards. They replace the small Moodboards
+  link at the end of the breadcrumb. Saved views and smart filters no longer
+  hide or close the Moodboards panel. Icons drop below 640 px so the three
+  tabs fit a phone.
 ### 2026-10-19 (branch `fix/folder-tree-read-limit`, backend hotfix)
 - `assets:listGalleryAssets` no longer fails with "Too many reads (limit:
   4096)" on a big world. A world view under the FEATURED or SHUFFLE sort (and
