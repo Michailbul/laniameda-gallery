@@ -401,36 +401,85 @@ const setPrimaryAssetFolder = async (
   };
 };
 
+// Convex stops one query at 4,096 reads: each db.get of a new document and
+// each index range counts once. The one-shot gallery read keeps to this many,
+// whatever the size of the world it reads.
+export const QUERY_READ_BUDGET = 3000;
+// The most members one folder read fetches (one db.get each), whatever the
+// folder size or the caller's limit.
+export const FOLDER_MEMBER_READ_CAP = 2000;
+// Link rows one merged membership scan may step through, duplicates included.
+const FOLDER_LINK_SCAN_CAP = 16000;
+
+/**
+ * The newest-linked distinct members of a set of folders, at most `maxAssets`
+ * of them, newest asset first. Every (owner, folder) link range is merged
+ * newest link first and deduped by asset BEFORE the asset is fetched, so the
+ * reads follow the number of pieces returned, not the size of the folders.
+ * `fetched` is the number of asset reads spent.
+ */
+const collectNewestFolderMembers = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folderIds: Id<"folders">[],
+  maxAssets: number,
+) => {
+  const cap = Math.max(0, Math.min(Math.floor(maxAssets), FOLDER_MEMBER_READ_CAP));
+  const assets: Doc<"assets">[] = [];
+  if (cap === 0 || folderIds.length === 0 || ownerUserIds.length === 0) {
+    return { assets, fetched: 0 };
+  }
+  const links = mergedStream(
+    folderIds.flatMap((folderId) =>
+      ownerUserIds.map((ownerCandidate) =>
+        stream(ctx.db, schema)
+          .query("assetFolders")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+          )
+          .order("desc") as QueryStream<Doc<"assetFolders">>,
+      ),
+    ),
+    ["createdAt"],
+  );
+  const seen = new Set<Id<"assets">>();
+  let scanned = 0;
+  for await (const link of links) {
+    if (seen.size >= cap || ++scanned > FOLDER_LINK_SCAN_CAP) break;
+    if (seen.has(link.assetId)) continue;
+    seen.add(link.assetId);
+    const asset = await ctx.db.get(link.assetId);
+    if (asset && canActorAccessOwnerUserId(link.ownerUserId, asset.ownerUserId)) {
+      assets.push(asset);
+    }
+  }
+  return {
+    assets: assets.sort((a, b) => b.createdAt - a.createdAt),
+    fetched: seen.size,
+  };
+};
+
+// A folder and, for a world, its sub-collections (one level, see
+// folders.assertValidParent).
+const folderTreeIds = async (ctx: QueryCtx, folderId: Id<"folders">) => {
+  const children = await ctx.db
+    .query("folders")
+    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
+    .collect();
+  return [folderId, ...children.map((child) => child._id)];
+};
+
 // Membership reads are LINKS-ONLY: assetFolders is the single source of
 // truth (verified drift-free via membershipAudit:run before the switch).
 // assets.folderId survives purely as the "primary collection" pointer.
+// Returns the `limit` newest-linked members (capped at FOLDER_MEMBER_READ_CAP),
+// newest asset first.
 export const collectAssetsForFolder = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,
   limit: number,
-) => {
-  const linkedAssets = [];
-  for (const ownerCandidate of ownerUserIds) {
-    const links = await ctx.db
-      .query("assetFolders")
-      .withIndex("by_owner_folder_createdAt", (q) =>
-        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
-      )
-      .order("desc")
-      .take(limit);
-    for (const link of links) {
-      const asset = await ctx.db.get(link.assetId);
-      if (asset && canActorAccessOwnerUserId(ownerCandidate, asset.ownerUserId)) {
-        linkedAssets.push(asset);
-      }
-    }
-  }
-
-  return dedupeAssetIds(linkedAssets)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit);
-};
+) => (await collectNewestFolderMembers(ctx, ownerUserIds, [folderId], limit)).assets;
 
 /**
  * A WORLD's whole membership: the folder's own assets plus every
@@ -439,30 +488,25 @@ export const collectAssetsForFolder = async (
  * just the loose assets that happen to sit on the parent folder.
  *
  * Nesting is capped at one level (see folders.assertValidParent), so this is
- * a single extra fan-out, never a recursive walk.
+ * a single extra fan-out, never a recursive walk. The links of the root and
+ * every child are merged newest first and the read stops at `limit` distinct
+ * pieces in total, not per folder: a world with thousands of memberships
+ * costs about `limit` asset reads.
  */
 export const collectAssetsForFolderTree = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,
   limit: number,
-) => {
-  const children = await ctx.db
-    .query("folders")
-    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
-    .collect();
-  const folderIds = [folderId, ...children.map((child) => child._id)];
-
-  const collected: Doc<"assets">[] = [];
-  for (const id of folderIds) {
-    collected.push(
-      ...(await collectAssetsForFolder(ctx, ownerUserIds, id, limit)),
-    );
-  }
-  return dedupeAssetIds(collected)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit);
-};
+) =>
+  (
+    await collectNewestFolderMembers(
+      ctx,
+      ownerUserIds,
+      await folderTreeIds(ctx, folderId),
+      limit,
+    )
+  ).assets;
 
 const collectAssetIdsForFolder = async (
   ctx: QueryCtx,
@@ -1816,24 +1860,88 @@ const HIDDEN_CHECK_CHUNK = 50;
 // Source rows the one-shot grid read may scan past hidden-only windows.
 const HIDDEN_SCAN_BUDGET = 6000;
 
+// Reads the setup of one gallery query may spend before its rows: auth, tag
+// name lookups, exclusions, hidden collections, a world's children.
+const QUERY_SETUP_READS = 100;
+// Reads a hydrated page shares across its pieces (tag names, mostly).
+const HYDRATE_SHARED_READS = 200;
+
+/**
+ * A running count of the reads one query has left. `admit` pays, in order,
+ * for what hydrating a piece reads (its membership links, and its prompt,
+ * bookmark, tags and legacy storage when no earlier piece paid for them) and
+ * refuses a piece once the budget cannot cover it. A piece is paid once.
+ */
+const createReadBudget = (reads: number) => {
+  let left = reads;
+  let exhausted = false;
+  const paid = new Set<string>();
+  const admit = (asset: Doc<"assets">) => {
+    if (paid.has(asset._id)) return true;
+    const fresh = new Set<string>();
+    for (const id of [asset.promptId, asset.bookmarkId, ...asset.tagIds]) {
+      if (id && !paid.has(id)) fresh.add(id);
+    }
+    const cost =
+      1 +
+      fresh.size +
+      (asset.storageId && !asset.r2Key ? 1 : 0) +
+      (asset.thumbStorageId && !asset.thumbR2Key ? 1 : 0);
+    if (cost > left) {
+      exhausted = true;
+      return false;
+    }
+    left -= cost;
+    paid.add(asset._id);
+    for (const id of fresh) paid.add(id);
+    return true;
+  };
+  return {
+    spend: (count: number) => {
+      left -= count;
+      if (left <= 0) exhausted = true;
+    },
+    left: () => Math.max(0, left),
+    exhausted: () => exhausted,
+    admit,
+    // The longest leading run of `assets` the budget pays for.
+    admitPrefix: (assets: Doc<"assets">[]) => {
+      const admitted: Doc<"assets">[] = [];
+      for (const asset of assets) {
+        if (!admit(asset)) break;
+        admitted.push(asset);
+      }
+      return admitted;
+    },
+  };
+};
+
 // Drops hidden-collection members, keeping order, and stops checking once
-// `limit` visible pieces are found.
+// `limit` visible pieces are found, or at the first piece `admit` refuses.
 const dropHiddenCollectionMembers = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
   hiddenFolderIds: Set<Id<"folders">> | null,
   limit = Number.POSITIVE_INFINITY,
+  admit: (asset: Doc<"assets">) => boolean = () => true,
 ) => {
   if (!hiddenFolderIds) return assets.slice(0, limit);
   const visible: Doc<"assets">[] = [];
   for (let i = 0; i < assets.length && visible.length < limit; i += HIDDEN_CHECK_CHUNK) {
-    const chunk = assets.slice(i, i + HIDDEN_CHECK_CHUNK);
+    const candidates = assets.slice(i, i + HIDDEN_CHECK_CHUNK);
+    const chunk: Doc<"assets">[] = [];
+    for (const asset of candidates) {
+      if (!admit(asset)) break;
+      chunk.push(asset);
+    }
+    if (chunk.length === 0) break;
     const hidden = await Promise.all(
       chunk.map((asset) => isInHiddenCollection(ctx, asset, hiddenFolderIds)),
     );
     chunk.forEach((asset, index) => {
       if (!hidden[index]) visible.push(asset);
     });
+    if (chunk.length < candidates.length) break;
   }
   return visible.slice(0, limit);
 };
@@ -2122,9 +2230,14 @@ export const listGalleryAssets = ownerQuery({
     const pillar = args.pillar;
     const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
+    // Every source range, fetched member and hydrated piece is paid for
+    // before it is read, so a world or a search of any size answers with the
+    // newest pieces that fit instead of failing at Convex's read limit.
+    const budget = createReadBudget(QUERY_READ_BUDGET - QUERY_SETUP_READS);
     // One read of the owner's newest assets, older than `before`. `full`
     // means some owner candidate filled its window, so older rows may remain.
     const readOwnerBatch = async (before: number) => {
+      budget.spend(ownerUserIds.length);
       const perCandidate = await Promise.all(
         ownerUserIds.map(async (ownerCandidate) => {
           if (onlyLiked) {
@@ -2218,14 +2331,31 @@ export const listGalleryAssets = ownerQuery({
         ),
       };
     };
+    // A folder (or a whole world) is read once: its link ranges, then one
+    // read per member fetched, leaving room to hydrate the pieces shown (about
+    // two more reads each). A search hydrates every member it checks.
+    const readFolderBatch = async (folderId: Id<"folders">) => {
+      const folderIds = args.includeDescendants
+        ? await folderTreeIds(ctx, folderId)
+        : [folderId];
+      budget.spend(folderIds.length * ownerUserIds.length);
+      // Tag names are shared across pieces; keep room for them up front.
+      const room = Math.max(0, budget.left() - HYDRATE_SHARED_READS);
+      const affordable = Math.floor(room / 3);
+      const maxMembers = search
+        ? affordable
+        : room - 2 * Math.min(limit, affordable);
+      const { assets, fetched } = await collectNewestFolderMembers(
+        ctx,
+        ownerUserIds,
+        folderIds,
+        Math.min(queryTake, maxMembers),
+      );
+      budget.spend(fetched);
+      return { rows: assets, full: false, nextBefore: 0 };
+    };
     const firstBatch = args.folderId
-      ? {
-          rows: args.includeDescendants
-            ? await collectAssetsForFolderTree(ctx, ownerUserIds, args.folderId, queryTake)
-            : await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake),
-          full: false,
-          nextBefore: 0,
-        }
+      ? await readFolderBatch(args.folderId)
       : await readOwnerBatch(Number.MAX_SAFE_INTEGER);
 
     const seenAssetIds = new Set<Id<"assets">>();
@@ -2267,9 +2397,12 @@ export const listGalleryAssets = ownerQuery({
 
       let selectedAssets = filteredAssets;
       if (search) {
-        const searchable = await hydrateGalleryAssetResults(ctx, filteredAssets);
+        // Searching reads each candidate's prompt and tags, so it checks only
+        // the newest candidates the budget pays for.
+        const checkable = budget.admitPrefix(filteredAssets);
+        const searchable = await hydrateGalleryAssetResults(ctx, checkable);
         const matched = new Set(searchable.filter(asset => galleryAssetSearchText(asset).includes(search)).map(asset => asset._id));
-        selectedAssets = filteredAssets.filter(asset => matched.has(asset._id));
+        selectedAssets = checkable.filter(asset => matched.has(asset._id));
       } else {
         selectedAssets = filteredAssets;
       }
@@ -2299,13 +2432,15 @@ export const listGalleryAssets = ownerQuery({
           candidates,
           hiddenFolderIds,
           limit - selectedAssets.length,
+          budget.admit,
         )),
       );
       if (
         !scanOlderBatches ||
         selectedAssets.length >= limit ||
         !batch.full ||
-        scanned >= HIDDEN_SCAN_BUDGET
+        scanned >= HIDDEN_SCAN_BUDGET ||
+        budget.exhausted()
       ) {
         break;
       }
@@ -2315,7 +2450,9 @@ export const listGalleryAssets = ownerQuery({
       }
       batch = next;
     }
-    selectedAssets = selectedAssets.slice(0, limit);
+    // The pieces shown are hydrated; what the budget cannot pay for is left
+    // out, newest pieces first.
+    selectedAssets = budget.admitPrefix(selectedAssets.slice(0, limit));
     if (selectedAssets.length === 0) {
       return [];
     }

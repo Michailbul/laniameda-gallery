@@ -73,6 +73,7 @@ import {
 import { CollectionViewActions } from "./collection-view-actions";
 import { StyleScopeSwitcher } from "./style-scope-switcher";
 import { EmptyFolderPrompt } from "./empty-folder-prompt";
+import { CollectionTabs } from "./collection-tabs";
 import {
   buildStyleShelfStacks,
   filterAssetsToStyle,
@@ -115,7 +116,6 @@ import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
 import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
 import {
-  MoodboardsToggle,
   MoodboardsView,
   type MoodboardAssetSummary,
 } from "@/components/gallery/moodboards-view";
@@ -1854,9 +1854,10 @@ export function GalleryDashboard({
         (folder) => folder.parentFolderId === activeCollectionFolder._id,
       ).length
     : 0;
+  // A saved view or smart filter narrows the pieces, not the collection's
+  // boards: the Moodboards tab stays open under any of them.
   const moodboardsViewActive = Boolean(
     activeCollectionFolder &&
-      !activeSmartCollectionFilter &&
       moodboardsCollectionId === activeCollectionFolder._id &&
       canManageFoldersInCurrentView &&
       viewMode === "grid" &&
@@ -5349,21 +5350,6 @@ export function GalleryDashboard({
                             onCreateFolder={createFolderInActiveCollection}
                           />
                         )}
-                        {canManageFoldersInCurrentView && (
-                          <MoodboardsToggle
-                            key={`moodboards-${activeCollectionFolder._id}`}
-                            ownerUserId={ownerUserId}
-                            collectionId={activeCollectionFolder._id}
-                            includeChildren={!activeCollectionFolder.parentFolderId}
-                            active={moodboardsViewActive}
-                            onToggle={() => {
-                              setViewMode("grid");
-                              setMoodboardsCollectionId(
-                                moodboardsViewActive ? null : activeCollectionFolder._id,
-                              );
-                            }}
-                          />
-                        )}
                         {canManageFoldersInCurrentView && !moodboardsViewActive && (
                           <>
                             <input
@@ -5401,6 +5387,32 @@ export function GalleryDashboard({
                       </span>
                     ) : undefined
                   }
+                />
+              )}
+              {!storybooksView && !bookmarksView && !extraTabView &&
+                galleryScope === "mine" && canManageFoldersInCurrentView &&
+                ownerUserId && activeCollectionFolder && !srefsCollectionView &&
+                (viewMode === "grid" || viewMode === "collections") && (
+                <CollectionTabs
+                  key={`tabs-${activeCollectionFolder._id}`}
+                  ownerUserId={ownerUserId}
+                  collectionId={String(activeCollectionFolder._id)}
+                  includeChildren={!activeCollectionFolder.parentFolderId}
+                  showFolders={Boolean(foldersViewWorldId)}
+                  always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
+                  active={
+                    viewMode === "collections"
+                      ? "folders"
+                      : moodboardsViewActive
+                        ? "moodboards"
+                        : "pieces"
+                  }
+                  onSelect={(tab) => {
+                    setViewMode(tab === "folders" ? "collections" : "grid");
+                    setMoodboardsCollectionId(
+                      tab === "moodboards" ? activeCollectionFolder._id : null,
+                    );
+                  }}
                 />
               )}
               {!storybooksView && !bookmarksView && !extraTabView &&

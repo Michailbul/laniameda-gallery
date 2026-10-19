@@ -16,6 +16,12 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   declaration from `api.d.ts`/`api.js`. For a new module, adding its two lines
   to `convex/_generated/api.d.ts` by hand matches what codegen lists.
 - Queries and mutations must NOT call external APIs; always use actions for that.
+- Convex fails a query past 4,096 reads ("Too many reads in a single function
+  execution"): each newly read document (`db.get`) and each index range counts
+  once, however many rows the range returns. Per-link `db.get` fan-outs and
+  per-piece hydration (membership links + prompt) are what hit it, not range
+  size. One-shot reads that can grow with a world or the vault must budget
+  their reads (see `createReadBudget` in `convex/assets.ts`) or paginate.
 - Card thumbnails come from one encoder, `encodeCardThumbnail` in `convex/thumbnails.ts`: sharp, WebP q78, fit inside 1440×960, never upscaled. `convex.json` lists sharp under `node.externalPackages`, so Convex installs the right platform binary on the server rather than bundling the Mac one. Jimp stays only as a JPEG fallback if sharp fails to load. The contract (box, WebP, when a thumb is sharp enough for a tile) lives in `lib/card-thumbnail.ts` and is shared by the grid and the backfill.
 - Every server-side R2 write (`storeBlobToR2`) sets `Cache-Control: public, max-age=31536000, immutable`. Keys are fresh UUIDs and the R2 component refuses to store over an existing key, so this is safe. Objects uploaded straight from the browser via presigned PUT carry no Cache-Control.
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
