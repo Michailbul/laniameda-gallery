@@ -12,7 +12,13 @@ import { clusterByHash, isDHash } from "../lib/perceptual-hash";
 // findSimilarGroups clusters one collection for agents (the duplicates routine).
 
 const MAX_OWNER_HASHES = 20000;
-const MAX_FOLDER_MEMBERS = 3000;
+// One query may read 4,096 documents. A scan spends at most this many pieces:
+// one link row and one hash row each, plus a few legacy primaries and the
+// group previews, which stays near 3,300 reads.
+const MAX_FOLDER_MEMBERS = 1300;
+const MAX_PRIMARY_READS = 300;
+const MAX_IMAGES_PER_GROUP = 40;
+const MAX_RETURNED_IMAGES = 400;
 
 const hashOf = (ctx: QueryCtx, assetId: Id<"assets">) =>
   ctx.db.query("assetHashes").withIndex("by_asset", (q) => q.eq("assetId", assetId)).first();
@@ -96,7 +102,8 @@ const groupAssetValidator = v.object({
  * Groups of near-identical images in one collection (with its child
  * collections), largest first. maxDistance is the largest hash difference
  * inside a group, in bits of 64: 4 ≈ the takes of one job, 10 ≈ the same
- * shot reworked, 20 ≈ the same subject.
+ * shot reworked, 20 ≈ the same subject. At most 1,300 pieces, newest first,
+ * per call (truncated says when a world holds more: scan its shelves one by one).
  */
 export const findSimilarGroups = ownerQuery({
   args: {
@@ -112,7 +119,8 @@ export const findSimilarGroups = ownerQuery({
     hashed: v.number(),
     // The collection holds more pieces than one read covers; the newest were scanned.
     truncated: v.boolean(),
-    groups: v.array(v.object({ maxDistance: v.number(), assets: v.array(groupAssetValidator) })),
+    // assets lists at most 40 of a group's images; size is the whole group.
+    groups: v.array(v.object({ maxDistance: v.number(), size: v.number(), assets: v.array(groupAssetValidator) })),
   }),
   handler: async (ctx, args) => {
     const owner = args.ownerUserId;
@@ -126,27 +134,33 @@ export const findSimilarGroups = ownerQuery({
     const memberIds: Id<"assets">[] = [];
     const seen = new Set<string>();
     let truncated = false;
+    // Newest links first, across the collection and its children.
     for (const folderId of folderIds) {
-      const links = await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folderId)).order("desc").take(MAX_FOLDER_MEMBERS + 1);
-      if (links.length > MAX_FOLDER_MEMBERS) truncated = true;
-      for (const link of links.slice(0, MAX_FOLDER_MEMBERS)) {
-        if (seen.has(link.assetId) || memberIds.length >= MAX_FOLDER_MEMBERS) continue;
+      const room = MAX_FOLDER_MEMBERS - memberIds.length;
+      if (room <= 0) { truncated = true; break; }
+      const links = await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folderId)).order("desc").take(room + 1);
+      if (links.length > room) truncated = true;
+      for (const link of links.slice(0, room)) {
+        if (seen.has(link.assetId)) continue;
         seen.add(link.assetId);
         memberIds.push(link.assetId);
       }
     }
     // Older pieces may carry only the primary pointer (assets.folderId) and
-    // no link row; the gallery counts those as members too.
+    // no link row; the gallery counts those as members too. Bounded: most
+    // primaries also have a link and are already in.
+    let primaryReads = 0;
     for (const folderId of folderIds) {
-      if (memberIds.length >= MAX_FOLDER_MEMBERS) break;
-      const primaries = await ctx.db.query("assets").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folderId)).order("desc").take(MAX_FOLDER_MEMBERS - memberIds.length);
+      const room = Math.min(MAX_FOLDER_MEMBERS - memberIds.length, MAX_PRIMARY_READS - primaryReads);
+      if (room <= 0) break;
+      const primaries = await ctx.db.query("assets").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folderId)).order("desc").take(room);
+      primaryReads += primaries.length;
       for (const asset of primaries) {
         if (seen.has(asset._id) || !canActorAccessOwnerUserId(owner, asset.ownerUserId)) continue;
         seen.add(asset._id);
         memberIds.push(asset._id);
       }
     }
-    if (memberIds.length >= MAX_FOLDER_MEMBERS) truncated = true;
     const items = [];
     for (const assetId of memberIds) {
       const row = await hashOf(ctx, assetId);
@@ -154,12 +168,17 @@ export const findSimilarGroups = ownerQuery({
     }
     const maxDistance = Math.min(24, Math.max(0, Math.round(args.maxDistance ?? 6)));
     const minSize = Math.max(2, Math.floor(args.minSize ?? 2));
-    const limit = Math.min(100, Math.max(1, Math.floor(args.limit ?? 30)));
+    const limit = Math.min(50, Math.max(1, Math.floor(args.limit ?? 30)));
     const clusters = clusterByHash(items, maxDistance).filter((cluster) => cluster.ids.length >= minSize).slice(0, limit);
+    // Each returned image costs a read; a loose chain can be huge. At most
+    // 40 images per group and 400 in all; size counts the whole group.
     const groups = [];
+    let hydrated = 0;
     for (const cluster of clusters) {
+      if (hydrated >= MAX_RETURNED_IMAGES) { truncated = true; break; }
       const assets = [];
-      for (const id of cluster.ids) {
+      for (const id of cluster.ids.slice(0, Math.min(MAX_IMAGES_PER_GROUP, MAX_RETURNED_IMAGES - hydrated))) {
+        hydrated += 1;
         const asset = await ctx.db.get(id as Id<"assets">);
         if (!asset) continue;
         assets.push({
@@ -167,7 +186,7 @@ export const findSimilarGroups = ownerQuery({
           promptId: asset.promptId, createdAt: asset.createdAt,
         });
       }
-      if (assets.length >= minSize) groups.push({ maxDistance: cluster.maxDistance, assets });
+      if (assets.length >= minSize) groups.push({ maxDistance: cluster.maxDistance, size: cluster.ids.length, assets });
     }
     return { scanned: memberIds.length, hashed: items.length, truncated, groups };
   },

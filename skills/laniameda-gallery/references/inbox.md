@@ -92,7 +92,8 @@ Every image gets a perceptual hash (a 64-bit dHash of its card thumbnail) a
 minute after it is saved; older images are filled in by a backfill.
 `find_similar_groups` clusters one world or collection by hash distance and
 returns the groups largest first, each with `assetIds` ready for a duplicates
-card and `samePrompt`. Distances: about 4 bits for the takes of one job, 10
+card and `samePrompt`. One call scans at most 1,300 pieces, newest first; a
+bigger world comes back with `truncated: true`, so scan its shelves one by one. Distances: about 4 bits for the takes of one job, 10
 for the same shot reworked, 20 for the same subject. Add what else you know
 as evidence (same Midjourney job, same prompt). The gallery's own grid has
 the same clustering as the view option **Similar**, where Michael can stack a

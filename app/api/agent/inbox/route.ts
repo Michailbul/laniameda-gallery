@@ -116,10 +116,10 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ...result,
         groups: result.groups.map((group) => ({
-          ...group, size: group.assets.length,
+          ...group,
           assets: group.assets.map((asset) => ({ id: `asset:${asset.assetId}`, ...asset })),
-          // Ready to post as one duplicates card.
-          assetIds: group.assets.map((asset) => `asset:${asset.assetId}`),
+          // Ready to post as one duplicates card (it takes 2–8 images).
+          assetIds: group.assets.slice(0, 8).map((asset) => `asset:${asset.assetId}`),
           samePrompt: group.assets.every((asset) => asset.promptId && asset.promptId === group.assets[0]!.promptId),
         })),
       });
