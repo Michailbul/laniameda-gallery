@@ -19,6 +19,7 @@ import {
 import {
   useAction,
   useConvex,
+  useConvexAuth,
   useMutation,
   usePaginatedQuery,
   useQuery,
@@ -661,6 +662,18 @@ export function GalleryDashboard({
     canDeleteAssets && galleryScope === "mine";
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
+  // Decisions waiting in each world's Inbox: badges on the world rows and
+  // the Decisions link.
+  const { isAuthenticated: convexSignedIn } = useConvexAuth();
+  const inboxWorlds = useQuery(
+    api.inbox.listInboxWorlds,
+    canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+  );
+  const inboxCountByWorld = useMemo(
+    () => new Map((inboxWorlds ?? []).map((row) => [row.worldFolderId as string, row.openCards])),
+    [inboxWorlds],
+  );
+  const inboxOpenCount = (inboxWorlds ?? []).reduce((sum, row) => sum + row.openCards, 0);
 
   const setAssetFoldersMutation = useMutation(
     api.assets.setAssetFolders,
@@ -5167,6 +5180,8 @@ export function GalleryDashboard({
           }
           bookmarksTabActive={bookmarksView}
           showYouTubeTab={canManageFoldersInCurrentView}
+          inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
+          inboxCountByWorld={canManageFoldersInCurrentView ? inboxCountByWorld : undefined}
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
@@ -6126,6 +6141,7 @@ export function GalleryDashboard({
           }}
           onMoodboardsClick={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsActive={activeMoodboardsTab}
+          inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
           user={user}
           onSignOut={onSignOut}
         />

@@ -80,6 +80,18 @@ Last updated: 2026-10-19
   its grouped stacks at once instead of a skeleton until the world scan ends.
 
 ### 2026-10-19 (branch `feat/collection-moodboards`, backend published)
+### 2026-10-21 (branch `feat/swipe-deck`)
+- The world Inbox, labelled Decisions: each world has stacks of decision
+  cards that agents post (sort, duplicates, artifact, A/B, choose one, rule)
+  and Michael answers one at a time on his phone or with keys, at
+  `/inbox/<world>`, with a badge per world. Decisions apply through the
+  gallery's own data (moodboards, collections, a hidden Out collection,
+  stacks of alternates shown as one card in the grid), undo reverses exactly
+  that, and duplicate deletion is confirmed once per group. Notes on images
+  are asset comments, now with voice notes. Five MCP tools, skill
+  `references/inbox.md`. Detail: `features/inbox/README.md`.
+
+### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
 - Moodboards: ordered sets of gallery images that define one look, mirrored to
   a Midjourney moodboard and its `--profile` code. Each belongs to a plain
   collection. A collection's header has `Moodboards · N`, which opens board

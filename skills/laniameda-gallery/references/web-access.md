@@ -37,7 +37,7 @@ Import createGalleryClient from scripts/gallery-client.mjs in Bun. Configure
 token/apiUrl/fetch/timeoutMs/maxCalls as needed (or authenticated callTool/listTools
 bridges); discover/schema/call expose live
 tools. Resource namespaces include assets, collections, menuFilters, Skills, Stories,
-characters, moodboards, bookmarks, YouTube references and presets. Use
+characters, moodboards, inbox, bookmarks, YouTube references and presets. Use
 assets.pages()/assets.all() and videoRefs.pages()/videoRefs.all() for complete reads and filter/aggregate locally
 before printing concise results. assets.inventory() also returns completion, page
 count and scan metadata. The CLI --out takes a directory; all_assets writes
@@ -89,6 +89,10 @@ Do not guess rules from old installed copies if access is unavailable.
 - Moodboards: list/get/save plus add/remove/reorder items; get_moodboard
   returns image URLs in order for Midjourney and set_moodboard_midjourney
   records the code after a sync (references/moodboards.md).
+- Inbox: post_inbox_cards posts decision cards (sort, duplicates, artifact,
+  ab, choose, rule) into a world's stack; list_inbox_decisions reads Michael's
+  answers, comments, voice notes and image notes; close_stack when acted on
+  (references/inbox.md).
 - Native Stories: save/list/get/update; changes require the last-read revision.
 - Bookmarks and YouTube references have separate tools; ordinary media search
   does not search all objects. Motion/Cinematography use tagged assets/Skills.

@@ -16,6 +16,7 @@ import { POST as srefsPost } from "@/app/api/agent/srefs/route";
 import { POST as charactersPost } from "@/app/api/agent/characters/route";
 import { POST as moodboardsPost } from "@/app/api/agent/moodboards/route";
 import { POST as commentsPost } from "@/app/api/agent/comments/route";
+import { POST as inboxPost } from "@/app/api/agent/inbox/route";
 
 // The /api/agent/* handlers the hosted MCP calls in-process, keyed by path.
 export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response>> = {
@@ -23,6 +24,7 @@ export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response
   "/api/agent/characters": charactersPost,
   "/api/agent/moodboards": moodboardsPost,
   "/api/agent/comments": commentsPost,
+  "/api/agent/inbox": inboxPost,
   "/api/agent/skills": skillsPost,
   "/api/agent/instructions": instructionsPost,
   "/api/agent/poster": posterPost,

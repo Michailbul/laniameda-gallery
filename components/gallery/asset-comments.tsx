@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Loader2, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { VoiceNote } from "@/components/inbox/note-sheet";
 
 const labelStyle: React.CSSProperties = {
   fontSize: "10px",
@@ -108,6 +109,11 @@ function AssetCommentsThread({
                 <span className="font-mono" style={{ fontSize: "9px", color: "var(--lm-text-ghost)" }}>
                   {when(comment.createdAt)}
                 </span>
+                {comment.source === "inbox" && (
+                  <span className="font-mono" style={{ fontSize: "9px", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--lm-text-ghost)" }}>
+                    Inbox
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => void deleteComment({ ownerUserId, commentId: comment._id })}
@@ -119,7 +125,12 @@ function AssetCommentsThread({
                   <X className="h-3 w-3" />
                 </button>
               </div>
-              <p className="m-0" style={bodyStyle}>{comment.body}</p>
+              {comment.body && <p className="m-0" style={bodyStyle}>{comment.body}</p>}
+              {comment.audioUrl && (
+                <div className="pt-1">
+                  <VoiceNote url={comment.audioUrl} durationMs={comment.audioDurationMs} compact />
+                </div>
+              )}
             </li>
           ))}
         </ol>

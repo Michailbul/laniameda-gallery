@@ -81,7 +81,7 @@ test("moodboard tools reach one scoped route, describe the Midjourney loop and d
     { path: "/api/agent/moodboards", input: { action: "generations", moodboardId: "m1" } },
   ]);
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
-  expect(contract.contractVersion).toBe("2026-10-19.1");
+  expect(contract.contractVersion).toBe("2026-10-20.1");
   expect(contract.resources).toContain("moodboards");
   expect(contract.limits).toMatchObject({ moodboardItems: 1000, addMoodboardItems: 100 });
 });
@@ -96,4 +96,33 @@ test("collection tools take a display group and update without resending the nam
     expect(shape.sortOrder.safeParse(2).success).toBe(true);
   }
   expect(update.name.safeParse(undefined).success).toBe(true);
+});
+test("inbox tools reach one scoped route, state facts only and disclose their effects", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  for (const name of ["list_inbox_stacks", "list_inbox_decisions"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  expect(tools.get("post_inbox_cards")!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false });
+  expect(tools.get("close_stack")!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+  expect(tools.get("delete_inbox_stack")!.config.annotations).toMatchObject({ destructiveHint: true });
+  expect(String(tools.get("post_inbox_cards")!.config.description)).toContain("never rank");
+  expect(String(tools.get("list_inbox_decisions")!.config.description)).toContain("transcribe");
+  const post = tools.get("post_inbox_cards")!.config.inputSchema as Record<string, { safeParse: (value: unknown) => { success: boolean } }>;
+  expect(Object.keys(post)).toEqual(["worldFolderId", "stackId", "stackTitle", "ingestKey", "note", "agent", "cards"]);
+  const option = (label: string) => ({ kind: "option", label });
+  expect(post.cards.safeParse([{ type: "sort", assetIds: ["a1"], targets: [option("A"), option("B"), { kind: "out" }] }]).success).toBe(true);
+  expect(post.cards.safeParse([{ type: "sort", assetIds: ["a1"], targets: [option("A")] }]).success).toBe(false);
+  expect(post.cards.safeParse([{ type: "suggestion", assetIds: ["a1"] }]).success).toBe(false);
+  expect(post.cards.safeParse([{ type: "artifact", assetIds: ["a1"], evidence: { defect: { box: { x: 0.1, y: 0.2, w: 0.1, h: 0.1 } }, priceUsd: 0.04 } }]).success).toBe(true);
+  expect(post.cards.safeParse([]).success).toBe(false);
+  await tools.get("post_inbox_cards")!.handler({ worldFolderId: "w1", stackTitle: "Duplicates · 2", cards: [{ type: "duplicates", assetIds: ["asset:a1", "a2"] }] });
+  await tools.get("list_inbox_decisions")!.handler({ stackId: "stack:s1" });
+  await tools.get("close_stack")!.handler({ stackId: "s1" });
+  expect(calls).toEqual([
+    { path: "/api/agent/inbox", input: { action: "post", worldFolderId: "w1", stackTitle: "Duplicates · 2", cards: [{ type: "duplicates", assetIds: ["asset:a1", "a2"] }] } },
+    { path: "/api/agent/inbox", input: { action: "decisions", stackId: "stack:s1" } },
+    { path: "/api/agent/inbox", input: { action: "close", stackId: "s1" } },
+  ]);
+  const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
+  expect(contract.resources).toContain("inbox");
+  expect(contract.limits).toMatchObject({ postInboxCards: 100 });
 });

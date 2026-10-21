@@ -42,6 +42,8 @@ import type * as galleryPresets from "../galleryPresets.js";
 import type * as generationLineage from "../generationLineage.js";
 import type * as helpers from "../helpers.js";
 import type * as imageDimensions from "../imageDimensions.js";
+import type * as inbox from "../inbox.js";
+import type * as inboxValidators from "../inboxValidators.js";
 import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as inventoryExport from "../inventoryExport.js";
@@ -117,6 +119,8 @@ declare const fullApi: ApiFromModules<{
   generationLineage: typeof generationLineage;
   helpers: typeof helpers;
   imageDimensions: typeof imageDimensions;
+  inbox: typeof inbox;
+  inboxValidators: typeof inboxValidators;
   ingest: typeof ingest;
   ingest_failures: typeof ingest_failures;
   inventoryExport: typeof inventoryExport;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, LayoutGrid, Moon, Search, Plus, Sun, User, X } from "lucide-react";
+import { Home, Layers, LayoutGrid, Moon, Search, Plus, Sun, User, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
 import { useTheme } from "@/lib/use-theme";
 
@@ -24,9 +24,11 @@ interface MobileBottomNavProps {
   moodboardsActive?: boolean;
   user?: MobileBottomNavUser | null;
   onSignOut?: () => void;
+  /** Open Inbox decisions across worlds; undefined hides the Decisions item. */
+  inboxOpenCount?: number;
 }
 
-export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut }: MobileBottomNavProps) {
+export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut, inboxOpenCount }: MobileBottomNavProps) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -94,6 +96,27 @@ export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMood
           <Search className="h-5 w-5" />
           <span className="text-[9px] font-medium tracking-wide">Search</span>
         </button>
+
+        {/* Decisions: the worlds' Inboxes */}
+        {inboxOpenCount !== undefined && (
+          <Link
+            href="/inbox"
+            className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
+            style={{ color: "var(--text-ghost)", transitionDuration: "var(--duration-instant)" }}
+            aria-label={inboxOpenCount > 0 ? `Decisions, ${inboxOpenCount} waiting` : "Decisions"}
+          >
+            <Layers className="h-5 w-5" />
+            <span className="text-[9px] font-medium tracking-wide">Decide</span>
+            {inboxOpenCount > 0 && (
+              <span
+                className="absolute right-1 top-0 min-w-[16px] px-1 py-[1px] text-center text-[9px] font-bold leading-[14px]"
+                style={{ fontFamily: "var(--lm-font)", borderRadius: "var(--lm-radius)", background: "var(--lm-coral)", color: "var(--lm-paper)" }}
+              >
+                {inboxOpenCount}
+              </span>
+            )}
+          </Link>
+        )}
 
         {/* Add */}
         <button
