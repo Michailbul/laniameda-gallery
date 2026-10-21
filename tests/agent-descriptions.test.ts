@@ -1,3 +1,4 @@
+import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
@@ -97,13 +98,16 @@ describe("agent description text", () => {
 
 describe("agent description write paths", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
+  // Jobs other than the perceptual hash every new image also gets.
   let scheduled: Array<{ delayMs: number; args: Record<string, unknown> }>;
+  let hashJobs: Array<{ delayMs: number; args: Record<string, unknown> }>;
 
   beforeEach(() => {
     harness = createMockConvexMutationCtx();
     scheduled = [];
-    harness.ctx.scheduler.runAfter = (async (delayMs: number, _ref: unknown, args: Record<string, unknown>) => {
-      scheduled.push({ delayMs, args });
+    hashJobs = [];
+    harness.ctx.scheduler.runAfter = (async (delayMs: number, ref: unknown, args: Record<string, unknown>) => {
+      (getFunctionName(ref as never) === "perceptualHash:hashAsset" ? hashJobs : scheduled).push({ delayMs, args });
       return null;
     }) as never;
   });
@@ -133,6 +137,9 @@ describe("agent description write paths", () => {
     await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]?.args).toEqual({ assetId: expect.any(String) });
+    // And its perceptual hash, a minute later when the thumbnail has landed.
+    expect(hashJobs).toHaveLength(1);
+    expect(hashJobs[0]?.delayMs).toBe(60_000);
   });
 
   test("with automatic descriptions on, createAsset describes first and indexes once after", async () => {

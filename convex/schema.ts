@@ -182,6 +182,17 @@ export default defineSchema({
   inboxCounts: defineTable(inboxCountFields)
     .index("by_stack", ["stackId"])
     .index("by_owner_status", ["ownerUserId", "status"]),
+  // One perceptual hash (dHash, 16 hex) per image, for Group similar and the
+  // duplicates routine. Small rows of their own so grouping never reads asset
+  // rows. See convex/assetHashes.ts and convex/perceptualHash.ts.
+  assetHashes: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    dHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner", ["ownerUserId"]),
   inboxDecisions: defineTable(inboxDecisionFields)
     .index("by_stack", ["stackId"])
     .index("by_card", ["cardId"]),

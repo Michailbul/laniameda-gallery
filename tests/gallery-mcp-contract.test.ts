@@ -81,7 +81,7 @@ test("moodboard tools reach one scoped route, describe the Midjourney loop and d
     { path: "/api/agent/moodboards", input: { action: "generations", moodboardId: "m1" } },
   ]);
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
-  expect(contract.contractVersion).toBe("2026-10-20.1");
+  expect(contract.contractVersion).toBe("2026-10-21.1");
   expect(contract.resources).toContain("moodboards");
   expect(contract.limits).toMatchObject({ moodboardItems: 1000, addMoodboardItems: 100 });
 });
@@ -100,7 +100,7 @@ test("collection tools take a display group and update without resending the nam
 test("inbox tools reach one scoped route, state facts only and disclose their effects", async () => {
   const calls: { path: string; input: JsonRecord }[] = [];
   const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
-  for (const name of ["list_inbox_stacks", "list_inbox_decisions"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["list_inbox_stacks", "list_inbox_decisions", "find_similar_groups"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
   expect(tools.get("post_inbox_cards")!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false });
   expect(tools.get("close_stack")!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
   expect(tools.get("delete_inbox_stack")!.config.annotations).toMatchObject({ destructiveHint: true });
@@ -117,10 +117,13 @@ test("inbox tools reach one scoped route, state facts only and disclose their ef
   await tools.get("post_inbox_cards")!.handler({ worldFolderId: "w1", stackTitle: "Duplicates · 2", cards: [{ type: "duplicates", assetIds: ["asset:a1", "a2"] }] });
   await tools.get("list_inbox_decisions")!.handler({ stackId: "stack:s1" });
   await tools.get("close_stack")!.handler({ stackId: "s1" });
+  await tools.get("find_similar_groups")!.handler({ folderId: "w1", includeChildren: true, maxDistance: 4 });
+  expect(String(tools.get("find_similar_groups")!.config.description)).toContain("never say which to keep");
   expect(calls).toEqual([
     { path: "/api/agent/inbox", input: { action: "post", worldFolderId: "w1", stackTitle: "Duplicates · 2", cards: [{ type: "duplicates", assetIds: ["asset:a1", "a2"] }] } },
     { path: "/api/agent/inbox", input: { action: "decisions", stackId: "stack:s1" } },
     { path: "/api/agent/inbox", input: { action: "close", stackId: "s1" } },
+    { path: "/api/agent/inbox", input: { action: "similar_groups", folderId: "w1", includeChildren: true, maxDistance: 4 } },
   ]);
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
   expect(contract.resources).toContain("inbox");

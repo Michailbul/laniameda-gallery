@@ -66,6 +66,11 @@ interface GalleryFilterBarProps {
   /** Grid tile size, 0.4–1 (1 = full size). Slider hidden when omitted. */
   gridZoom?: number;
   onGridZoomChange?: (zoom: number) => void;
+  /** Group similar: clusters of near-identical images, and how close is similar (0 tight … 1 loose). */
+  groupSimilar?: boolean;
+  onGroupSimilarChange?: (on: boolean) => void;
+  similarity?: number;
+  onSimilarityChange?: (value: number) => void;
   /** Flatten mode: stacks spread into one tile per asset. Pill hidden when
    *  the handler is omitted. */
   flattenStacks?: boolean;
@@ -106,6 +111,10 @@ export function GalleryFilterBar({
   onViewModeChange,
   gridZoom,
   onGridZoomChange,
+  groupSimilar = false,
+  onGroupSimilarChange,
+  similarity = 0.25,
+  onSimilarityChange,
   flattenStacks = false,
   onFlattenStacksChange,
 }: GalleryFilterBarProps) {
@@ -228,6 +237,9 @@ export function GalleryFilterBar({
                 sortOrder={sortOrder}
                 onSortOrderChange={onSortOrderChange}
               />
+              {onGroupSimilarChange && viewMode === "grid" ? (
+                <GroupSimilarControl on={groupSimilar} onChange={onGroupSimilarChange} similarity={similarity} onSimilarityChange={onSimilarityChange} />
+              ) : null}
               {onGridZoomChange && viewMode === "grid" ? (
                 <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
               ) : null}
@@ -266,6 +278,9 @@ export function GalleryFilterBar({
             }}
           />
           <SortPills sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+          {onGroupSimilarChange && viewMode === "grid" ? (
+            <GroupSimilarControl on={groupSimilar} onChange={onGroupSimilarChange} similarity={similarity} onSimilarityChange={onSimilarityChange} />
+          ) : null}
           {onGridZoomChange && viewMode === "grid" ? (
             <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
           ) : null}
@@ -636,6 +651,56 @@ function SortPills({
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Group similar: one pill, and while it is on a slider from tight (near
+// duplicates) to loose (same subject).
+function GroupSimilarControl({ on, onChange, similarity, onSimilarityChange }: {
+  on: boolean; onChange: (on: boolean) => void; similarity: number; onSimilarityChange?: (value: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5" style={{ flexShrink: 0 }}>
+      <button
+        type="button"
+        aria-pressed={on}
+        onClick={() => onChange(!on)}
+        title="Group similar: near-identical images side by side, in clusters"
+        style={{
+          padding: "4px 10px",
+          borderRadius: "12px",
+          background: on ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))" : "transparent",
+          color: on ? "#fff" : "var(--lm-text-ghost)",
+          fontSize: "9px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          border: on ? "2px solid var(--gradient-1)" : "2px solid var(--lm-border-strong)",
+          transition: "all var(--lm-duration-fast)",
+          cursor: "pointer",
+          fontFamily: "var(--lm-font)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        SIMILAR
+      </button>
+      {on && onSimilarityChange ? (
+        <label className="flex items-center gap-1" title="How close is similar: tight finds near-duplicates, loose the same subject">
+          <span style={{ fontFamily: "var(--lm-font)", fontSize: "8px", fontWeight: 700, letterSpacing: "0.14em", color: "var(--lm-text-ghost)" }}>TIGHT</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={similarity}
+            onChange={(event) => onSimilarityChange(Number(event.target.value))}
+            aria-label="Similarity, tight to loose"
+            style={{ width: "72px", accentColor: "var(--lm-coral)", cursor: "pointer" }}
+          />
+          <span style={{ fontFamily: "var(--lm-font)", fontSize: "8px", fontWeight: 700, letterSpacing: "0.14em", color: "var(--lm-text-ghost)" }}>LOOSE</span>
+        </label>
+      ) : null}
     </div>
   );
 }

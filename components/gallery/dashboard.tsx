@@ -53,6 +53,8 @@ import { SELECTED_WORK_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
+import { SimilarGroups } from "./similar-groups";
+import { DEFAULT_SIMILARITY, clusterByHash, similarityToDistance } from "@/lib/perceptual-hash";
 import {
   GalleryFilterBar,
   type GalleryScope,
@@ -2776,6 +2778,31 @@ export function GalleryDashboard({
       : null,
   );
 
+  // Group similar: clusters of near-identical images by perceptual hash.
+  // Hashes load only while the view option is on.
+  const [groupSimilar, setGroupSimilar] = useState(false);
+  const [similarity, setSimilarity] = useState(DEFAULT_SIMILARITY);
+  const assetHashes = useQuery(
+    api.assetHashes.listAssetHashes,
+    groupSimilar && canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+  );
+  const similarView = useMemo(() => {
+    if (!groupSimilar || !assetHashes) return null;
+    const hashById = new Map(assetHashes.map((row) => [row.a as string, row.h]));
+    const items = images.map((image) => ({ id: image.id, hash: hashById.get(image.id) ?? "" }));
+    return {
+      clusters: clusterByHash(items, similarityToDistance(similarity)),
+      hashedCount: items.filter((item) => item.hash).length,
+    };
+  }, [assetHashes, groupSimilar, images, similarity]);
+  // The open world (the root of the open collection): its Inbox gets
+  // duplicates cards sent from a cluster.
+  const similarWorld = useMemo(() => {
+    const open = (folders ?? []).find((folder) => folder._id === effectiveSelectedFolderId);
+    const root = open?.parentFolderId ? (folders ?? []).find((folder) => folder._id === open.parentFolderId) : open;
+    return root && root.kind === undefined ? { id: root._id as string, name: root.name } : undefined;
+  }, [effectiveSelectedFolderId, folders]);
+
   // Sparse filters can produce many empty source pages, and child stacks or
   // lexical search can hide every loaded tile. No tile means no scroll
   // sentinel, so advance until a visible match or source exhaustion. Never
@@ -5350,6 +5377,10 @@ export function GalleryDashboard({
                 onViewModeChange={setViewMode}
                 gridZoom={gridZoom}
                 onGridZoomChange={setGridZoom}
+                groupSimilar={groupSimilar}
+                onGroupSimilarChange={canManageFoldersInCurrentView ? setGroupSimilar : undefined}
+                similarity={similarity}
+                onSimilarityChange={setSimilarity}
                 flattenStacks={flattenStacks}
                 onFlattenStacksChange={setFlattenStacks}
               />
@@ -5784,9 +5815,10 @@ export function GalleryDashboard({
                       )}
                     />
                   )}
-                  {hasImages && (
+                  {hasImages && (() => {
+                  const renderMainGrid = (entries: typeof images, last = true) => (
                   <MasonryGrid
-                    images={images}
+                    images={entries}
                     // The desktop expanded view is a full-screen opaque
                     // overlay, so nothing behind it is visible — re-flowing
                     // the grid into compact columns (and dimming every card)
@@ -5854,12 +5886,24 @@ export function GalleryDashboard({
                     markedLabel="On board"
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
-                      anyPaginationActive && activePagedAssets.status !== "Exhausted"
+                      last && anyPaginationActive && activePagedAssets.status !== "Exhausted"
                         ? loadNextGalleryPage : undefined
                     }
                     zoom={gridZoom}
                   />
-                  )}
+                  );
+                  return similarView ? (
+                    <SimilarGroups
+                      ownerUserId={ownerUserId}
+                      images={images}
+                      clusters={similarView.clusters}
+                      hashedCount={similarView.hashedCount}
+                      world={similarWorld}
+                      renderGrid={renderMainGrid}
+                      onSelect={canManageFoldersInCurrentView ? replaceAssetSelection : undefined}
+                    />
+                  ) : renderMainGrid(images);
+                  })()}
                 </>
               ) : isNoMatches ? (
                 <div

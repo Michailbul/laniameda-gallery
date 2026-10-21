@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { recountFolderMembers } from "./folderHelpers";
-import { reconcileAssetPackMembership, syncPromptAssetPack } from "./assetPackHelpers";
+import { stackAssetsInto, unstack } from "./stacks";
 import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
@@ -181,23 +181,9 @@ const applyTarget = async (ctx: MutationCtx, owner: string, stack: Stack, target
   return undefined;
 };
 
-// Collapse the kept images of a duplicates group into one stack: the cover
-// first, the rest as alternates. Images, prompts and memberships stay.
-const applyStack = async (ctx: MutationCtx, stack: Stack, members: Doc<"assets">[]): Promise<Applied> => {
-  const now = Date.now();
-  const cover = members[0]!;
-  const packId = await ctx.db.insert("assetPacks", {
-    ownerUserId: cover.ownerUserId, kind: "stack", title: stack.title.slice(0, 96), tagIds: [],
-    coverAssetId: cover._id, isPublic: cover.isPublic ?? false, isFeatured: cover.isFeatured ?? false,
-    itemCount: members.length, createdAt: now, updatedAt: now,
-  });
-  const previous = members.map((asset) => ({ assetId: asset._id, packId: asset.assetPackId, slot: asset.packSlotIndex }));
-  for (const [slot, asset] of members.entries()) await ctx.db.patch(asset._id, { assetPackId: packId, packSlotIndex: slot });
-  for (const oldPackId of new Set(previous.map((entry) => entry.packId).filter((id): id is Id<"assetPacks"> => Boolean(id)))) {
-    await reconcileAssetPackMembership(ctx, oldPackId);
-  }
-  return { kind: "stack", packId, members: members.map((asset) => asset._id), previous };
-};
+// Collapse the kept images of a duplicates group into one stack (convex/stacks.ts).
+const applyStack = async (ctx: MutationCtx, stack: Stack, members: Doc<"assets">[]): Promise<Applied> =>
+  ({ kind: "stack", ...await stackAssetsInto(ctx, stack.title, members) });
 
 const revertApplied = async (ctx: MutationCtx, applied: Applied) => {
   if (applied.kind === "moodboard") {
@@ -226,28 +212,7 @@ const revertApplied = async (ctx: MutationCtx, applied: Applied) => {
     await syncPublicCollectionMembership(ctx, asset._id);
     return;
   }
-  // A stack: members leave it, the stack row goes, earlier packs come back.
-  for (const assetId of applied.members) {
-    const asset = await ctx.db.get(assetId);
-    if (asset?.assetPackId === applied.packId) await ctx.db.patch(assetId, { assetPackId: undefined, packSlotIndex: undefined });
-  }
-  if (await ctx.db.get(applied.packId)) await ctx.db.delete(applied.packId);
-  const restoredPacks = new Set<Id<"assetPacks">>();
-  const prompts = new Map<Id<"prompts">, string>();
-  for (const entry of applied.previous) {
-    const asset = await ctx.db.get(entry.assetId);
-    if (!asset) continue;
-    if (entry.packId && await ctx.db.get(entry.packId)) {
-      await ctx.db.patch(asset._id, { assetPackId: entry.packId, packSlotIndex: entry.slot });
-      restoredPacks.add(entry.packId);
-    } else if (entry.packId && asset.promptId) {
-      // It was in a prompt pack that the stack emptied; rebuild that pack.
-      const prompt = await ctx.db.get(asset.promptId);
-      if (prompt?.ownerUserId) prompts.set(prompt._id, prompt.ownerUserId);
-    }
-  }
-  for (const packId of restoredPacks) await reconcileAssetPackMembership(ctx, packId);
-  for (const [promptId, ownerUserId] of prompts) await syncPromptAssetPack(ctx, { ownerUserId, promptId });
+  await unstack(ctx, applied);
 };
 
 const revertAll = async (ctx: MutationCtx, applied: Applied[] | undefined) => {

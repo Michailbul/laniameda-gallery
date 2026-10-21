@@ -78,12 +78,25 @@ list_inbox_stacks { worldFolderId?, status? (open | closed), limit? }
 list_inbox_decisions { stackId }
 close_stack { stackId, reopen? }
 delete_inbox_stack { stackId }        needs gallery:delete and Michael's word
+find_similar_groups { folderId, includeChildren?, maxDistance? (0–24, default 6), minSize?, limit? }
 ```
 
 A stack holds at most 300 cards and 600 images. Posting with the same
 `ingestKey` appends to the same stack; a card `key` already in the stack is
 skipped, so a routine can re-post safely. Stack ids are `stack:<id>`, cards
 `card:<id>`; the result carries the stack's `url` to send him.
+
+## Finding duplicates
+
+Every image gets a perceptual hash (a 64-bit dHash of its card thumbnail) a
+minute after it is saved; older images are filled in by a backfill.
+`find_similar_groups` clusters one world or collection by hash distance and
+returns the groups largest first, each with `assetIds` ready for a duplicates
+card and `samePrompt`. Distances: about 4 bits for the takes of one job, 10
+for the same shot reworked, 20 for the same subject. Add what else you know
+as evidence (same Midjourney job, same prompt). The gallery's own grid has
+the same clustering as the view option **Similar**, where Michael can stack a
+cluster, send it to the Inbox as a duplicates card or select it.
 
 ## Example: a nightly duplicates pass
 

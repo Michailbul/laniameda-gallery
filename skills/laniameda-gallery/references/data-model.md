@@ -495,6 +495,12 @@ syncing never moves a stack's members. `assetComments` may carry a voice note
 (`audioStorageId`, `audioDurationMs`, `audioContentType`; `body` may then be
 empty) and `source: "inbox"`. See `inbox.md`.
 
+`assetHashes` holds one perceptual hash per image: `ownerUserId`, `assetId`,
+`dHash` (16 hex characters, a 64-bit difference hash of the card thumbnail or
+video poster), `createdAt`. Written a minute after ingest and by the backfill
+`perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
+asset, owner. Read by the grid's Similar view and `find_similar_groups`.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,

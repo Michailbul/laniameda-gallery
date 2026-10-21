@@ -50,10 +50,15 @@ import {
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 import { detachAssetFromCharacters } from "./characters";
 import { detachAssetFromMoodboards } from "./moodboards";
+import { deleteHashForAsset } from "./assetHashes";
 import { deleteCommentsForAsset } from "./assetComments";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
+// Perceptual hash for Group similar; a minute after ingest, when the card
+// thumbnail has landed.
+const hashAssetAction = makeFunctionReference<"action">("perceptualHash:hashAsset");
+const HASH_DELAY_MS = 60_000;
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
@@ -749,6 +754,7 @@ export const createAsset = ownerMutation({
     } else {
       await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
     }
+    await ctx.scheduler.runAfter(HASH_DELAY_MS, hashAssetAction, { assetId });
 
     return { assetId, created: true };
   },
@@ -4146,8 +4152,9 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   // So does its place on any moodboard; the board keeps an exact count and
   // a cover that is still on it.
   await detachAssetFromMoodboards(ctx, asset._id);
-  // Its comment thread goes with it.
+  // Its comment thread goes with it, and its perceptual hash.
   await deleteCommentsForAsset(ctx, asset._id);
+  await deleteHashForAsset(ctx, asset._id);
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.

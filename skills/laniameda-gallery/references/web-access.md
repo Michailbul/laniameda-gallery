@@ -91,7 +91,8 @@ Do not guess rules from old installed copies if access is unavailable.
   records the code after a sync (references/moodboards.md).
 - Inbox: post_inbox_cards posts decision cards (sort, duplicates, artifact,
   ab, choose, rule) into a world's stack; list_inbox_decisions reads Michael's
-  answers, comments, voice notes and image notes; close_stack when acted on
+  answers, comments, voice notes and image notes; close_stack when acted on;
+  find_similar_groups finds near-identical images by perceptual hash
   (references/inbox.md).
 - Native Stories: save/list/get/update; changes require the last-read revision.
 - Bookmarks and YouTube references have separate tools; ordinary media search

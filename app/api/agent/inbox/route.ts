@@ -8,12 +8,13 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import { GALLERY_SKILL_ORIGIN } from "@/lib/server/gallery-skill-resources";
 import { bareInboxRef, inboxCardRef, inboxProgress, inboxStackRef } from "@/lib/inbox";
 import {
-  bareOptionalInboxRef, inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema,
+  bareOptionalInboxRef, inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema,
 } from "@/lib/inbox-contract";
 
-const actions = ["post", "list", "decisions", "close", "delete"] as const;
+const actions = ["post", "list", "decisions", "close", "delete", "similar_groups"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   post: "gallery:write", list: "gallery:read", decisions: "gallery:read", close: "gallery:write", delete: "gallery:delete",
+  similar_groups: "gallery:read",
 };
 
 type StackId = Id<"inboxStacks">;
@@ -103,6 +104,24 @@ export async function POST(request: Request) {
       return NextResponse.json({
         stack: { id: inboxStackRef(view.stack._id), ...view.stack, worldName: view.worldName, url: stackUrl(view.stack.worldFolderId, view.stack._id) },
         progress, allDecided: progress.pending === 0, cards,
+      });
+    }
+
+    if (action === "similar_groups") {
+      const input = similarGroupsSchema.parse(body);
+      const result = await client.query(api.assetHashes.findSimilarGroups, {
+        ownerUserId, folderId: bareInboxRef(input.folderId) as Id<"folders">, includeChildren: input.includeChildren,
+        maxDistance: input.maxDistance, minSize: input.minSize, limit: input.limit,
+      });
+      return NextResponse.json({
+        ...result,
+        groups: result.groups.map((group) => ({
+          ...group, size: group.assets.length,
+          assets: group.assets.map((asset) => ({ id: `asset:${asset.assetId}`, ...asset })),
+          // Ready to post as one duplicates card.
+          assetIds: group.assets.map((asset) => `asset:${asset.assetId}`),
+          samePrompt: group.assets.every((asset) => asset.promptId && asset.promptId === group.assets[0]!.promptId),
+        })),
       });
     }
 

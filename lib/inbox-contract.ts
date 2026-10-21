@@ -65,4 +65,12 @@ export const inboxCloseSchema = z.object({
   reopen: z.boolean().optional().describe("true reopens a closed stack."),
 });
 
+export const similarGroupsSchema = z.object({
+  folderId: ref("A world or any collection (ID from list_collections)."),
+  includeChildren: z.boolean().optional().describe("Also scan its child collections (a world's style branches and shelves)."),
+  maxDistance: z.number().int().min(0).max(24).optional().describe("Largest hash difference inside a group, in bits of 64. 4 ≈ the takes of one job (default 6), 10 ≈ the same shot reworked, 20 ≈ the same subject."),
+  minSize: z.number().int().min(2).max(50).optional().describe("Smallest group returned (default 2)."),
+  limit: z.number().int().min(1).max(100).optional().describe("Groups returned, largest first (default 30)."),
+});
+
 export const bareOptionalInboxRef = (value: string | undefined) => (value === undefined ? undefined : bareInboxRef(value));

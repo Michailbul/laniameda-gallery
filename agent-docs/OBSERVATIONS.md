@@ -50,6 +50,10 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   { "moodboardItems.by_moodboard_position": ["moodboardId", "position"] } })`.
   `withSearchIndex` matches any query term as a substring.
 
+- Similarity for grouping comes from `assetHashes` (dHash), not embeddings:
+  with legacy semantic storage every vector read costs a ~56 KB row. Hash rows
+  are ~100 bytes; the grid loads all of an owner's hashes in one query.
+
 ## Gallery / UI
 
 - Bulk asset deletion must run sequentially: cascades update shared tag usage,
