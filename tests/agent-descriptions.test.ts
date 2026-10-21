@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   buildAssetTextLane,
+  hasDescriptivePrompt,
   normalizeAgentDescription,
 } from "../convex/agentDescriptionText";
 import {
@@ -79,6 +80,19 @@ describe("agent description text", () => {
 
   test("short text lanes retain their previous ordering and content", () => {
     expect(buildAssetTextLane({ agentDescription: "Static poster reference.", description: "Owner note.", tagNames: ["motion-design", "still-reference"], sourceUrl: "https://x.com/a/status/1" })).toBe("Static poster reference.\nOwner note.\ntags: motion-design, still-reference\nsource: x.com");
+  });
+
+  test("a descriptive prompt needs real words, not parameters or stubs", () => {
+    expect(
+      hasDescriptivePrompt(
+        "A hyper-realistic wide cinematic shot from a low angle of birds perched on power lines above a narrow street --ar 16:9 --sref 2vuz9bf",
+      ),
+    ).toBeTrue();
+    expect(hasDescriptivePrompt("This contains an image of: renaissance")).toBeFalse();
+    expect(
+      hasDescriptivePrompt("https://s.mj.run/abc123 dark knight --ar 2:3 --profile 2vuz9bf 8fpptvh --v 8"),
+    ).toBeFalse();
+    expect(hasDescriptivePrompt(undefined)).toBeFalse();
   });
 
   test("describe prompt carries archive context", () => {
@@ -324,6 +338,38 @@ describe("describeAsset action", () => {
       assetId: "assets:1",
       agentDescription: "Clay character waves from a doorway, soft window light.",
     });
+  });
+
+  test("skips an image whose prompt already describes it, and still indexes it", async () => {
+    process.env.AGENT_DESCRIPTIONS_ENABLED = "true";
+    process.env.GEMINI_API_KEY = "test-gemini-key-123";
+    const fetchMock = mock(async () => new Response("unexpected", { status: 500 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const promptText =
+      "Full-body view of a character in heavy red armor, cyberpunk fused with steampunk, gears and neon accents --ar 2:3";
+    const indexed: unknown[] = [];
+    const ctx = {
+      runQuery: async () => ({ ...source, promptText }),
+      runMutation: async () => true,
+      scheduler: {
+        runAfter: async (_delay: number, _ref: unknown, args: unknown) => {
+          indexed.push(args);
+          return null;
+        },
+      },
+    };
+    const result = await callAsOwner(describeAsset)(ctx as never, {
+      assetId: "assets:1" as never,
+      reindexAfter: true,
+    });
+    expect(result.status).toBe("has_prompt");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(indexed).toEqual([{ assetId: "assets:1" }]);
+
+    // A video is described even with a prompt: its poster frame has no pixel vector.
+    const videoCtx = { ...ctx, runQuery: async () => ({ ...source, kind: "video", promptText }) };
+    const video = await callAsOwner(describeAsset)(videoCtx as never, { assetId: "assets:1" as never });
+    expect(video.status).not.toBe("has_prompt");
   });
 
   test("schedules a retry on rate limits", async () => {
