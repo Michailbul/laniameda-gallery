@@ -80,6 +80,14 @@ Last updated: 2026-10-19
   its grouped stacks at once instead of a skeleton until the world scan ends.
 
 ### 2026-10-19 (branch `feat/collection-moodboards`, backend published)
+### 2026-10-21 (branch `feat/group-similar`)
+- Group similar: a Similar view option in every grid (collection, shelf,
+  saved view, search) puts near-identical images side by side in clusters,
+  with a Tight–Loose slider, and from a cluster stacks it, sends it to the
+  world's Inbox as a duplicates card or selects it. Each image gets a
+  perceptual hash at ingest (and from a batched backfill); agents call
+  `find_similar_groups`. Detail: `features/inbox/README.md`.
+
 ### 2026-10-21 (branch `feat/swipe-deck`)
 - The world Inbox, labelled Decisions: each world has stacks of decision
   cards that agents post (sort, duplicates, artifact, A/B, choose one, rule)

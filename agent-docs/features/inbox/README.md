@@ -58,3 +58,28 @@ delete_inbox_stack. Contract 2026-10-20.1, skill reference
 - An archive flag on assets: Out is a hidden collection, so an Out image still
   shows inside its world's own views.
 - Ordering stacks by what unblocks the most work: they are newest first.
+
+## Group similar (PR 2)
+
+- `assetHashes`: one 64-bit dHash per image (16 hex), in small rows of their
+  own so grouping never reads asset rows. Computed by
+  `perceptualHash:hashAsset` (Node, sharp, the card thumbnail or video poster
+  shrunk to 9×8 grey) a minute after ingest, and by
+  `perceptualHash:backfillPerceptualHashes`, one page of 25 per action in a
+  sequential chain. Deleted with the asset.
+- Grid: the **Similar** pill next to the sort, with a Tight–Loose slider
+  (3–20 bits). Clusters (single link, largest first, the view's own order
+  inside) render as sections with a divider, count and widest distance, each
+  with Stack (an asset pack of kind stack under the first image, with Undo),
+  To Inbox (a duplicates card in the open world's Inbox, idempotent per
+  cluster per day; first 8 images) and Select. The rest follows under Not
+  grouped. Only loaded tiles group; hashes load only while Similar is on.
+- Agents: `find_similar_groups` (world or collection, children, maxDistance,
+  minSize, limit) returns groups with `assetIds` ready for a duplicates card.
+  It reads link rows, legacy primary members and hash rows, capped at 3,000
+  pieces (`truncated`).
+- Embeddings were not used: `SEMANTIC_STORAGE` is still legacy, where each
+  asset's vectors sit in one ~56 KB `semanticDocuments` row (two 3,072-float
+  vectors). Clustering a 1,400-piece world from them would read ~78 MB per
+  toggle. After the split migration (768-value vectors in their own rows) an
+  embedding distance can join the hash for "same subject" grouping.
