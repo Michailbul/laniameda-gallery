@@ -86,6 +86,7 @@ describe("hashes and stacks backend", () => {
     expect(onlyRoot.groups.map((group: { assets: AnyDoc[] }) => group.assets.length)).toEqual([2]);
     const whole = await env.call(findSimilarGroups, { folderId: env.world, includeChildren: true, maxDistance: 4 });
     expect(whole).toMatchObject({ scanned: 7, hashed: 6, truncated: false });
+    expect(whole.groups.map((group: { size: number }) => group.size)).toEqual([3, 2]);
     expect(whole.groups.map((group: { assets: { assetId: string }[] }) => group.assets.map((asset) => asset.assetId).sort()))
       .toEqual([[...takes].sort(), [...pair].sort()]);
     expect((await env.call(findSimilarGroups, { folderId: env.world, includeChildren: true, maxDistance: 4, minSize: 3 })).groups).toHaveLength(1);
