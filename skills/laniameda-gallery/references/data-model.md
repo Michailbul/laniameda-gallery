@@ -465,6 +465,36 @@ its rows and repairs `itemCount` and `coverAssetId`. Deleting a child
 collection moves its boards to the parent (renamed `<name> · <child>` on a
 clash); deleting a root deletes its boards and items. See `moodboards.md`.
 
+# The world Inbox (20 October 2026)
+
+`inboxStacks` is one stack of decision cards in a world's Inbox:
+`ownerUserId`, `worldFolderId` (a root collection), `title`, optional `note`,
+`agent`, `ingestKey` (posting again with it appends), `status` open/closed,
+`cardTypes`, `createdAt`, `updatedAt`, `closedAt`. Indexes: owner/status/
+createdAt, world/status/createdAt, owner/world/ingestKey.
+
+`inboxCards` never change after posting: `stackId`, `worldFolderId`,
+`position`, `type` (sort/duplicates/artifact/ab/choose/rule), optional `key`
+(re-posting it is skipped), `question`, `assetIds`, `labels`, `targets` (sort:
+2–9 of `hotkey`, `label`, `kind` moodboard/collection/option/out, and the
+`moodboardId` or `folderId`), `evidence` (`text`, `matches` of kind/label/
+score, `defect.box` in 0–1 coordinates with `note`, `priceUsd`, `priceNote`),
+`ruleText`. Indexes: stack/position, stack/key.
+
+`inboxDecisions` is the latest answer on a card: `choice` (target, skip,
+keep, fix, out, winner, neither, pick, yes, no, not-yet, stack, keep-all,
+resolve), `targetHotkey`, `pickedAssetId`, `coverAssetId`, `deleteAssetIds`,
+`deletedAssetIds`, `applied` (what it changed: a moodboard item, a collection
+membership, or a stack with each member's earlier pack), `decidedAt`, a card
+comment (`commentText`, `audioStorageId`, `audioDurationMs`,
+`audioContentType`). `inboxCounts` keeps cards/decided per stack for the
+badges. Undo reverses `applied`; deleted images stay deleted.
+
+`assetPacks.kind` is `stack` for alternates collapsed under one cover; prompt
+syncing never moves a stack's members. `assetComments` may carry a voice note
+(`audioStorageId`, `audioDurationMs`, `audioContentType`; `body` may then be
+empty) and `source: "inbox"`. See `inbox.md`.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,

@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.11.0
+version: 1.12.0
 ---
 
 # Laniameda Gallery
@@ -37,8 +37,9 @@ Local source can be newer than the deployed contract until publication.
 | World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
 | Character | A named person in one world with a stable code (DA-CH-001), costumes (-C01), a canonical sheet and face, and typed links to every asset that shows them | list_characters, get_character, create_character, update_character, save_character_costume, link_character_assets; references/characters.md |
 | Collection | Where assets and Skills live; root plus at most one level of children. A child can carry a display group (Styles, Places, Cast) and sortOrder | list_collections, create_collection, update_collection; references/ingest.md |
-| Asset comment | Michael's note on one asset from its detail panel, or an agent's reply; read them before working on a piece and reply with what was done | get_gallery_item (comments), list_asset_comments, add_asset_comment |
+| Asset comment | Michael's note on one asset from its detail panel or the Inbox (text, or a voice note: audioUrl, transcribe it yourself), or an agent's reply; read them before working on a piece and reply with what was done | get_gallery_item (comments), list_asset_comments, add_asset_comment |
 | Moodboard | An ordered set of gallery images that defines one look, mirrored to a Midjourney moodboard and its --profile code; belongs to one collection | list_moodboards, get_moodboard, save_moodboard, add_moodboard_items, reorder_moodboard_items, set_moodboard_midjourney, list_moodboard_generations; references/moodboards.md |
+| Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards, list_inbox_stacks, list_inbox_decisions, close_stack; references/inbox.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
 | Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |

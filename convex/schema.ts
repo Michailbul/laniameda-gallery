@@ -5,6 +5,7 @@ import {
   characterCostumeValidator, characterLaneValidator, characterLinkRoleValidator, characterStatusValidator,
 } from "./characterValidators";
 import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./moodboardValidators";
+import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
 import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
@@ -155,13 +156,35 @@ export default defineSchema({
   assetComments: defineTable({
     ownerUserId: v.string(),
     assetId: v.id("assets"),
+    // Empty when the comment is a voice note only.
     body: v.string(),
     author: v.union(v.literal("owner"), v.literal("agent")),
+    // A voice note in Convex file storage (Michael's notes from the Inbox).
+    audioStorageId: v.optional(v.id("_storage")),
+    audioDurationMs: v.optional(v.number()),
+    audioContentType: v.optional(v.string()),
+    // Where it was written; absent = the detail panel or an agent.
+    source: v.optional(v.literal("inbox")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_asset_createdAt", ["assetId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  // The world Inbox ("Decisions"): stacks of cards agents post for Michael,
+  // one decision per card. See convex/inbox.ts.
+  inboxStacks: defineTable(inboxStackFields)
+    .index("by_owner_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_world_status_createdAt", ["worldFolderId", "status", "createdAt"])
+    .index("by_owner_world_ingestKey", ["ownerUserId", "worldFolderId", "ingestKey"]),
+  inboxCards: defineTable(inboxCardFields)
+    .index("by_stack_position", ["stackId", "position"])
+    .index("by_stack_key", ["stackId", "key"]),
+  inboxCounts: defineTable(inboxCountFields)
+    .index("by_stack", ["stackId"])
+    .index("by_owner_status", ["ownerUserId", "status"]),
+  inboxDecisions: defineTable(inboxDecisionFields)
+    .index("by_stack", ["stackId"])
+    .index("by_card", ["cardId"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),
@@ -489,6 +512,9 @@ export default defineSchema({
     .index("by_assetPack_packSlotIndex", ["assetPackId", "packSlotIndex"]),
   assetPacks: defineTable({
     ownerUserId: v.optional(v.string()),
+    // "stack": alternates Michael collapsed under one cover (Inbox duplicates).
+    // Prompt syncing never moves a stack's members. Absent = a prompt pack.
+    kind: v.optional(v.literal("stack")),
     title: v.string(),
     description: v.optional(v.string()),
     pillar: optionalPillarValidator,

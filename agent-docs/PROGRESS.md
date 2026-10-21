@@ -80,6 +80,15 @@ Last updated: 2026-10-19
   its grouped stacks at once instead of a skeleton until the world scan ends.
 
 ### 2026-10-19 (branch `feat/collection-moodboards`, backend published)
+### 2026-10-19 (branch `feat/swipe-deck`, not deployed, no PR)
+- Swipe decks: agents place a question (images and 2–9 targets: moodboards,
+  collections or options); Michael drags each image onto a target at /swipe
+  on his phone or with keys 1–9, with undo, 100 % zoom and text or voice
+  comments. Drops add to the moodboard or collection; undo takes back only
+  what the drop added. Five MCP tools, skill 1.12.0. Detail:
+  `features/swipe-decks/README.md`.
+
+### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
 - Moodboards: ordered sets of gallery images that define one look, mirrored to
   a Midjourney moodboard and its `--profile` code. Each belongs to a plain
   collection. A collection's header has `Moodboards · N`, which opens board

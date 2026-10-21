@@ -22,6 +22,7 @@ import {
   Globe,
   Home,
   LayoutGrid,
+  Layers,
   MonitorPlay,
   Moon,
   Pencil,
@@ -92,6 +93,10 @@ interface GallerySidebarProps {
   bookmarksTabActive?: boolean;
   /** Links to the public YouTube page (video references). */
   showYouTubeTab?: boolean;
+  /** Open Inbox decisions across worlds; undefined hides the Decisions link. */
+  inboxOpenCount?: number;
+  /** Open decisions per world (root collection id), for the badges on world rows. */
+  inboxCountByWorld?: ReadonlyMap<string, number>;
   /** Opens the Motion tab: motion design references with their own filters. */
   onMotionTab?: () => void;
   motionTabActive?: boolean;
@@ -162,6 +167,8 @@ export function GallerySidebar({
   onBookmarksTab,
   bookmarksTabActive = false,
   showYouTubeTab = false,
+  inboxOpenCount,
+  inboxCountByWorld,
   onMotionTab,
   motionTabActive = false,
   onCinematographyTab,
@@ -336,6 +343,8 @@ export function GallerySidebar({
           variant="root"
           label={folder.name}
           count={folder.count}
+          inboxCount={inboxCountByWorld?.get(folder._id)}
+          inboxHref={`/inbox/${folder._id}`}
           expanded={children.length > 0 ? open : undefined}
           onToggleExpand={
             children.length > 0
@@ -696,6 +705,9 @@ export function GallerySidebar({
             collapsed={collapsed}
             onClick={onBookmarksTab}
           />
+        )}
+        {inboxOpenCount !== undefined && (
+          <NavItem icon={Layers} label="Decisions" href="/inbox" active={false} collapsed={collapsed} badge={inboxOpenCount} />
         )}
         {showYouTubeTab && (
           <NavItem
@@ -1095,6 +1107,7 @@ function NavItem({
   active,
   collapsed,
   onClick,
+  badge,
 }: {
   icon: React.ElementType;
   label: string;
@@ -1102,6 +1115,8 @@ function NavItem({
   active: boolean;
   collapsed: boolean;
   onClick?: () => void;
+  /** A count shown beside the label (a dot when collapsed); 0 shows nothing. */
+  badge?: number;
 }) {
   const inner = (
     <div
@@ -1135,6 +1150,17 @@ function NavItem({
           {label}
         </span>
       )}
+      {badge !== undefined && badge > 0 && (collapsed ? (
+        <span aria-label={`${badge} open`} className="absolute ml-5 -mt-4 h-[7px] w-[7px]" style={{ borderRadius: 999, background: "var(--lm-coral)" }} />
+      ) : (
+        <span
+          aria-label={`${badge} open`}
+          className="ml-auto px-1.5 py-[2px] text-[10px] font-bold leading-none tabular-nums"
+          style={{ fontFamily: "var(--lm-font)", borderRadius: "var(--lm-radius)", background: "var(--lm-coral)", color: "var(--lm-paper)" }}
+        >
+          {badge}
+        </span>
+      ))}
     </div>
   );
 
@@ -1273,10 +1299,15 @@ function FilterRow({
   expanded,
   onToggleExpand,
   onDragEnterRow,
+  inboxCount,
+  inboxHref,
 }: {
   icon?: React.ElementType;
   label: string;
   count?: number;
+  /** Open decisions in this world's Inbox; a badge links to it. */
+  inboxCount?: number;
+  inboxHref?: string;
   active: boolean;
   onClick: () => void;
   /** When set, the row accepts dragged gallery assets. */
@@ -1542,6 +1573,17 @@ function FilterRow({
         </span>
       )}
       </button>
+      {inboxHref && inboxCount !== undefined && inboxCount > 0 && renameDraft === null && (
+        <Link
+          href={inboxHref}
+          title={`${inboxCount} ${inboxCount === 1 ? "decision" : "decisions"} waiting in this world's Inbox`}
+          aria-label={`${label}: ${inboxCount} decisions waiting`}
+          className="mr-1 shrink-0 px-1.5 py-[2px] text-[9px] font-bold leading-none tabular-nums transition-opacity hover:opacity-85"
+          style={{ fontFamily: "var(--lm-font)", borderRadius: "var(--lm-radius)", background: "var(--lm-coral)", color: "var(--lm-paper)" }}
+        >
+          {inboxCount}
+        </Link>
+      )}
       {manageable && renameDraft === null && (
         <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
           {onAddSub && (

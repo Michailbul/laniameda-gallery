@@ -168,6 +168,11 @@ export function createGalleryClient(options = {}) {
       generations: (moodboardId, limit) => call("list_moodboard_generations", { moodboardId, ...(limit ? { limit } : {}) }),
       delete: moodboardId => call("delete_moodboard", { moodboardId }),
     },
+    inbox: {
+      post: named("post_inbox_cards"), stacks: named("list_inbox_stacks"), decisions: stackId => call("list_inbox_decisions", { stackId }),
+      close: (stackId, reopen) => call("close_stack", { stackId, ...(reopen ? { reopen } : {}) }),
+      delete: stackId => call("delete_inbox_stack", { stackId }),
+    },
     presets: { list: named("list_filter_presets"), save: named("save_filter_preset"), delete: byId("delete_filter_preset") },
     bookmarks: { list: named("list_bookmarks"), save: named("save_bookmarks"), setNote: named("set_bookmark_note") },
     videoRefs: {
