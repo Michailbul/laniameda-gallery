@@ -240,13 +240,13 @@ const revertApplied = async (ctx: MutationCtx, applied: Applied) => {
     if (entry.packId && await ctx.db.get(entry.packId)) {
       await ctx.db.patch(asset._id, { assetPackId: entry.packId, packSlotIndex: entry.slot });
       restoredPacks.add(entry.packId);
-    } else if (asset.promptId) {
+    } else if (entry.packId && asset.promptId) {
+      // It was in a prompt pack that the stack emptied; rebuild that pack.
       const prompt = await ctx.db.get(asset.promptId);
       if (prompt?.ownerUserId) prompts.set(prompt._id, prompt.ownerUserId);
     }
   }
   for (const packId of restoredPacks) await reconcileAssetPackMembership(ctx, packId);
-  // A prompt pack the stack emptied is rebuilt from the prompt.
   for (const [promptId, ownerUserId] of prompts) await syncPromptAssetPack(ctx, { ownerUserId, promptId });
 };
 

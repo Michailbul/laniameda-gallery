@@ -314,18 +314,21 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     setReviewing(true);
   }, [cards.length]);
 
-  // Duplicates actions; deleting asks once per group.
-  const kept = card ? card.assets.filter((asset) => !asset.missing && !marks.has(asset.assetId)) : [];
-  const stackCover = cover && !marks.has(cover) ? cover : kept[0]?.assetId;
+  // Duplicates actions; deleting asks once per group. An image already gone
+  // is neither kept nor marked.
+  const present = new Set(card?.assets.filter((asset) => !asset.missing).map((asset) => asset.assetId as string) ?? []);
+  const activeMarks = new Set([...marks].filter((assetId) => present.has(assetId)));
+  const kept = card ? card.assets.filter((asset) => !asset.missing && !activeMarks.has(asset.assetId)) : [];
+  const stackCover = cover && present.has(cover) && !activeMarks.has(cover) ? cover : kept[0]?.assetId;
   const dupAnswer = (choice: "stack" | "resolve" | "keep-all"): Answer => ({
-    choice, deleteAssetIds: choice === "keep-all" ? undefined : marks.size ? [...marks] as Id<"assets">[] : undefined,
+    choice, deleteAssetIds: choice === "keep-all" ? undefined : activeMarks.size ? [...activeMarks] as Id<"assets">[] : undefined,
     coverAssetId: choice === "stack" ? stackCover as Id<"assets"> : undefined,
   });
   const runDuplicates = (choice: "stack" | "resolve" | "keep-all") => {
     if (choice === "keep-all") return void commit(dupAnswer("keep-all"));
     if (choice === "stack" && kept.length < 2) return say({ tone: "error", text: "A stack needs two images that stay" });
-    if (choice === "resolve" && marks.size === 0) return say({ tone: "error", text: "Mark the images to delete first" });
-    if (marks.size > 0 && confirm !== choice) return setConfirm(choice);
+    if (choice === "resolve" && activeMarks.size === 0) return say({ tone: "error", text: "Mark the images to delete first" });
+    if (activeMarks.size > 0 && confirm !== choice) return setConfirm(choice);
     void commit(dupAnswer(choice));
   };
   const toggleMark = (assetId: string) => {
@@ -448,22 +451,22 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
               {card.type === "sort" && <SortCard asset={card.assets[0]!} answer={current} card={card} open={open} hover={hover} setHover={setHover}
                 zones={zones} onZoom={() => setZoom({ asset: card.assets[0]! })} onDrop={(hotkey) => void commit({ choice: "target", targetHotkey: hotkey }, zones.current.get(hotkey))} />}
               {card.type === "artifact" && <ArtifactCard asset={card.assets[0]!} card={card} onZoom={() => setZoom({ asset: card.assets[0]!, defect: card.evidence?.defect?.box })} />}
-              {card.type === "ab" && <TileGrid cols="grid-cols-2">
+              {card.type === "ab" && <TileGrid cols={tileColumns(card.assets)}>
                 {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} badge={card.labels?.[at] || (at === 0 ? "A" : "B")} hotkey={at + 1}
                   chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId}
                   onPick={open && !asset.missing ? () => void commit({ choice: "winner", pickedAssetId: asset.assetId }) : undefined} tall />)}
               </TileGrid>}
-              {card.type === "choose" && <TileGrid cols={card.assets.length <= 4 ? "grid-cols-2" : "grid-cols-3 md:grid-cols-4"}>
+              {card.type === "choose" && <TileGrid cols={tileColumns(card.assets)}>
                 {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at < 9 ? at + 1 : undefined} badge={at >= 9 ? String(at + 1) : undefined}
                   chosen={current?.choice === "pick" && current.pickedAssetId === asset.assetId}
                   onPick={open && !asset.missing ? () => void commit({ choice: "pick", pickedAssetId: asset.assetId }) : undefined} />)}
               </TileGrid>}
-              {card.type === "duplicates" && <TileGrid cols={card.assets.length <= 4 ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"}>
+              {card.type === "duplicates" && <TileGrid cols={tileColumns(card.assets)}>
                 {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at + 1}
-                  marked={marks.has(asset.assetId)} isCover={stackCover === asset.assetId}
+                  marked={activeMarks.has(asset.assetId)} isCover={stackCover === asset.assetId}
                   deleted={decisions.get(card._id)?.deletedAssetIds?.includes(asset.assetId)}
                   onToggleMark={open && !asset.missing ? () => toggleMark(asset.assetId) : undefined}
-                  onCover={open && !asset.missing && !marks.has(asset.assetId) ? () => setCover(asset.assetId) : undefined} />)}
+                  onCover={open && !asset.missing && !activeMarks.has(asset.assetId) ? () => setCover(asset.assetId) : undefined} />)}
               </TileGrid>}
               {card.type === "rule" && <RuleCard card={card} tile={(asset) => <Tile key={asset.assetId} {...tileProps(asset)} />} />}
             </div>
@@ -499,7 +502,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
 
       <section aria-label="Answers" className="shrink-0 md:flex md:min-h-0 md:flex-col">
         {!done && card && <Answers card={card} current={current} open={open} hover={hover} zones={zones}
-          marks={marks.size} kept={kept.length} confirm={confirm} setConfirm={setConfirm}
+          marks={activeMarks.size} kept={kept.length} confirm={confirm} setConfirm={setConfirm}
           onAnswer={(answer, element) => void commit(answer, element)} onDuplicates={runDuplicates} />}
       </section>
     </div>
@@ -623,6 +626,7 @@ function SortCard({ asset, card, answer, open, hover, setHover, zones, onZoom, o
 function ArtifactCard({ asset, card, onZoom }: { asset: CardAsset; card: Card; onZoom: () => void }) {
   const box = card.evidence?.defect?.box;
   const src = asset.url ?? asset.thumbUrl;
+  const aspect = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
   // The crop shows the box at 2.5× its share of the frame, centred.
   const crop = box && src && !asset.missing ? (() => {
     const zoom = Math.min(8, 1 / Math.max(box.w, box.h, 0.08));
@@ -630,7 +634,6 @@ function ArtifactCard({ asset, card, onZoom }: { asset: CardAsset; card: Card; o
     const cy = box.y + box.h / 2;
     return { size: `${zoom * 100}% auto`, position: `${Math.min(100, Math.max(0, ((cx * zoom - 0.5) / (zoom - 1 || 1)) * 100))}% ${Math.min(100, Math.max(0, ((cy * zoom - 0.5) / (zoom - 1 || 1)) * 100))}%` };
   })() : undefined;
-  const aspect = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
   return <button type="button" onClick={onZoom} className="relative min-h-0 flex-1 overflow-hidden border text-left"
     style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)" }}
     aria-label="See the defect full size">
@@ -642,11 +645,27 @@ function ArtifactCard({ asset, card, onZoom }: { asset: CardAsset; card: Card; o
       </span>
     </span>
     <CornerChips asset={asset} />
-    {crop && <span className="absolute bottom-2 right-2 block h-[38%] max-h-[180px] w-[38%] max-w-[240px] border-2"
-      style={{ borderRadius: RADIUS, borderColor: "var(--lm-coral)", backgroundImage: `url(${src})`, backgroundSize: crop.size, backgroundPosition: crop.position, backgroundRepeat: "no-repeat", backgroundColor: "var(--lm-surface-2)", boxShadow: "var(--lm-shadow-lg)" }}
+    {crop && box && <span className="absolute bottom-2 right-2 block w-[42%] max-w-[260px] border-2"
+      style={{
+        // The crop keeps the defect's own shape, between square-ish and wide.
+        aspectRatio: String(Math.min(2.4, Math.max(0.8, (box.w * aspect) / Math.max(box.h, 0.01)))),
+        borderRadius: RADIUS, borderColor: "var(--lm-coral)", backgroundImage: `url(${src})`, backgroundSize: crop.size, backgroundPosition: crop.position,
+        backgroundRepeat: "no-repeat", backgroundColor: "var(--lm-surface-2)", boxShadow: "var(--lm-shadow-lg)",
+      }}
       aria-label="Zoomed crop of the defect" role="img" />}
   </button>;
 }
+
+// Columns for a set of images: wide images stack on a phone so each one is
+// as large as the screen allows; tall ones sit side by side.
+const tileColumns = (assets: CardAsset[]) => {
+  const shown = assets.filter((asset) => asset.width && asset.height);
+  const aspect = shown.length ? shown.reduce((sum, asset) => sum + asset.width! / asset.height!, 0) / shown.length : 1;
+  const count = assets.length;
+  if (aspect > 1.25) return count <= 3 ? "grid-cols-1 md:grid-cols-2" : count <= 6 ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4";
+  if (aspect < 0.8) return count <= 2 ? "grid-cols-2" : count <= 6 ? "grid-cols-3" : "grid-cols-3 md:grid-cols-4";
+  return count <= 4 ? "grid-cols-2" : "grid-cols-3 md:grid-cols-4";
+};
 
 function TileGrid({ cols, children }: { cols: string; children: ReactNode }) {
   return <div className={`grid min-h-0 flex-1 auto-rows-fr gap-2 overflow-y-auto ${cols}`}>{children}</div>;
@@ -660,7 +679,7 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
 }) {
   const ownerNotes = notes?.filter((entry) => entry.author === "owner").length ?? 0;
   const action = onPick ?? onToggleMark ?? onZoom;
-  return <div className={`group relative min-h-[120px] overflow-hidden border ${tall ? "md:min-h-[260px]" : ""}`}
+  return <div className={`group relative min-h-[96px] overflow-hidden border ${tall ? "md:min-h-[260px]" : ""}`}
     style={{ borderRadius: RADIUS, borderWidth: chosen || marked ? 2 : 1, borderColor: chosen ? "var(--lm-coral)" : marked ? "var(--lm-status-error)" : isCover ? "var(--lm-ink)" : "var(--lm-border-strong)", background: "var(--lm-surface-1)" }}>
     <button type="button" onClick={action} disabled={asset.missing || deleted} className="absolute inset-0 block disabled:cursor-default"
       aria-label={onPick ? `Choose ${badge ?? hotkey ?? ""}` : onToggleMark ? (marked ? "Keep this image" : "Mark to delete") : "See it full size"}>
@@ -712,8 +731,10 @@ function RuleCard({ card, tile }: { card: Card; tile: (asset: CardAsset) => Reac
 
 /* ── Answers ─────────────────────────────────────────────────────────────── */
 
-function AnswerZone({ hotkey, label, sub, thumb, hot, chosen, disabled, danger, compact, register, onClick }: {
+function AnswerZone({ hotkey, label, sub, thumb, hot, chosen, disabled, danger, compact, narrow, register, onClick }: {
   hotkey?: number | string; label: string; sub?: string; thumb?: string; hot?: boolean; chosen?: boolean; disabled?: boolean; danger?: boolean; compact?: boolean;
+  /** One of three across a phone: the hotkey square hides below md. */
+  narrow?: boolean;
   register?: (element: HTMLElement | null) => void; onClick: () => void;
 }) {
   return <button type="button" ref={register} onClick={onClick} disabled={disabled} aria-label={`${hotkey ? `${hotkey}: ` : ""}${label}`}
@@ -724,10 +745,10 @@ function AnswerZone({ hotkey, label, sub, thumb, hot, chosen, disabled, danger, 
       background: hot ? "var(--lm-accent-dim)" : danger ? "color-mix(in srgb, var(--lm-status-error) 14%, var(--lm-surface-1))" : "var(--lm-surface-1)",
       transform: hot ? "scale(1.035)" : "none", opacity: disabled && !chosen ? 0.45 : 1,
     }}>
-    {hotkey !== undefined && <Hotkey n={hotkey} active={hot || chosen} size={compact ? 20 : 22} />}
+    {hotkey !== undefined && <span className={narrow ? "hidden md:inline" : undefined}><Hotkey n={hotkey} active={hot || chosen} size={compact ? 20 : 22} /></span>}
     <span className="min-w-0 flex-1">
       <span className={`block truncate font-black uppercase leading-tight tracking-tight ${compact ? "text-[11px]" : "text-[12px] md:text-[13px]"}`} style={display}>{label}</span>
-      {sub && <span className="mt-0.5 block truncate text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ ...mono, color: "var(--lm-text-ghost)" }}>{sub}</span>}
+      {sub && <span className="mt-0.5 line-clamp-2 text-[9px] font-semibold uppercase leading-[1.35] tracking-[0.1em]" style={{ ...mono, color: "var(--lm-text-ghost)" }}>{sub}</span>}
     </span>
     {thumb && !compact && <span className="hidden h-10 w-10 shrink-0 overflow-hidden min-[400px]:block md:h-11 md:w-11" style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)" }}>
       {/* eslint-disable-next-line @next/next/no-img-element -- the board's or collection's cover thumbnail */}
@@ -749,7 +770,7 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
 
   if (card.type === "sort") {
     const targets = card.targets ?? [];
-    return grid(targets.length, targets.map((target: Target) => <AnswerZone key={target.hotkey} hotkey={target.hotkey} label={target.label}
+    return grid(targets.length, targets.map((target: Target) => <AnswerZone key={target.hotkey} narrow={targets.length !== 2 && targets.length !== 4} hotkey={target.hotkey} label={target.label}
       sub={target.missing ? "Gone" : INBOX_TARGET_KIND_LABEL[target.kind]} thumb={target.previewThumbUrl ?? undefined} compact={targets.length > 6}
       hot={hover === target.hotkey} chosen={current?.choice === "target" && current.targetHotkey === target.hotkey} disabled={!open || target.missing}
       register={(element) => { if (element) zones.current.set(target.hotkey, element); else zones.current.delete(target.hotkey); }}
@@ -758,24 +779,24 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
   if (card.type === "artifact") {
     const price = card.evidence?.priceUsd;
     return grid(3, <>
-      <AnswerZone hotkey={1} label="Fix" sub={price !== undefined ? `Repair · ${formatUsd(price)}` : "Repair it"} chosen={is("fix")} disabled={!open} onClick={() => onAnswer({ choice: "fix" })} />
-      <AnswerZone hotkey={2} label="Keep as is" sub="Leave it" chosen={is("keep")} disabled={!open} onClick={() => onAnswer({ choice: "keep" })} />
-      <AnswerZone hotkey={3} label="Out" sub="Hidden · not deleted" chosen={is("out")} disabled={!open} onClick={() => onAnswer({ choice: "out" })} />
+      <AnswerZone narrow hotkey={1} label="Fix" sub={price !== undefined ? `Repair · ${formatUsd(price)}` : "Repair it"} chosen={is("fix")} disabled={!open} onClick={() => onAnswer({ choice: "fix" })} />
+      <AnswerZone narrow hotkey={2} label="Keep as is" sub="Leave it" chosen={is("keep")} disabled={!open} onClick={() => onAnswer({ choice: "keep" })} />
+      <AnswerZone narrow hotkey={3} label="Out" sub="Hidden · not deleted" chosen={is("out")} disabled={!open} onClick={() => onAnswer({ choice: "out" })} />
     </>);
   }
   if (card.type === "rule") {
     return grid(3, <>
-      <AnswerZone hotkey={1} label="Yes" sub="Make it a rule" chosen={is("yes")} disabled={!open} onClick={() => onAnswer({ choice: "yes" })} />
-      <AnswerZone hotkey={2} label="No" sub="Never" chosen={is("no")} disabled={!open} onClick={() => onAnswer({ choice: "no" })} />
-      <AnswerZone hotkey={3} label="Not yet" sub="Ask again later" chosen={is("not-yet")} disabled={!open} onClick={() => onAnswer({ choice: "not-yet" })} />
+      <AnswerZone narrow hotkey={1} label="Yes" sub="Make it a rule" chosen={is("yes")} disabled={!open} onClick={() => onAnswer({ choice: "yes" })} />
+      <AnswerZone narrow hotkey={2} label="No" sub="Never" chosen={is("no")} disabled={!open} onClick={() => onAnswer({ choice: "no" })} />
+      <AnswerZone narrow hotkey={3} label="Not yet" sub="Ask again later" chosen={is("not-yet")} disabled={!open} onClick={() => onAnswer({ choice: "not-yet" })} />
     </>);
   }
   if (card.type === "ab") {
     return grid(3, <>
-      {card.assets.map((asset, at) => <AnswerZone key={asset.assetId} hotkey={at + 1} label={card.labels?.[at] || (at === 0 ? "A" : "B")} sub="Winner"
+      {card.assets.map((asset, at) => <AnswerZone narrow key={asset.assetId} hotkey={at + 1} label={card.labels?.[at] || (at === 0 ? "A" : "B")} sub="Winner"
         chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId} disabled={!open || asset.missing}
         onClick={() => onAnswer({ choice: "winner", pickedAssetId: asset.assetId })} />)}
-      <AnswerZone hotkey={3} label="Neither" sub="N" chosen={is("neither")} disabled={!open} onClick={() => onAnswer({ choice: "neither" })} />
+      <AnswerZone narrow hotkey={3} label="Neither" sub="N" chosen={is("neither")} disabled={!open} onClick={() => onAnswer({ choice: "neither" })} />
     </>);
   }
   if (card.type === "choose") {
@@ -796,9 +817,9 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
     </div>;
   }
   return grid(3, <>
-    <AnswerZone hotkey="G" label="Stack" sub={marks ? `${kept} under a cover · delete ${marks}` : `${kept} under one cover`} chosen={is("stack")} disabled={!open || kept < 2} onClick={() => onDuplicates("stack")} />
-    <AnswerZone hotkey="K" label="Keep all" sub="As they are" chosen={is("keep-all")} disabled={!open || marks > 0} onClick={() => onDuplicates("keep-all")} />
-    <AnswerZone hotkey="D" label={marks ? `Delete ${marks}` : "Delete"} sub={marks ? "Keep the rest" : "Tap images to mark"} danger={marks > 0} chosen={is("resolve")} disabled={!open || marks === 0} onClick={() => onDuplicates("resolve")} />
+    <AnswerZone narrow hotkey="G" label="Stack" sub={marks ? `${kept} under a cover · delete ${marks}` : `${kept} under one cover`} chosen={is("stack")} disabled={!open || kept < 2} onClick={() => onDuplicates("stack")} />
+    <AnswerZone narrow hotkey="K" label="Keep all" sub="As they are" chosen={is("keep-all")} disabled={!open || marks > 0} onClick={() => onDuplicates("keep-all")} />
+    <AnswerZone narrow hotkey="D" label={marks ? `Delete ${marks}` : "Delete"} sub={marks ? "Keep the rest" : "Tap images to mark"} danger={marks > 0} chosen={is("resolve")} disabled={!open || marks === 0} onClick={() => onDuplicates("resolve")} />
   </>, "Tap an image to mark it for deletion · ★ picks the cover");
 }
 

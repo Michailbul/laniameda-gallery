@@ -53,7 +53,7 @@ export const INBOX_TARGET_KIND_LABEL: Record<InboxTargetKind, string> = {
   moodboard: "Moodboard",
   collection: "Collection",
   option: "Option",
-  out: "Out · hidden",
+  out: "Hidden · not deleted",
 };
 
 export const INBOX_MATCH_KINDS = ["same-job", "same-prompt", "same-hash", "similarity", "same-source", "other"] as const;
@@ -134,8 +134,7 @@ export const formatDuration = (ms: number) => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 };
 
-export const formatUsd = (value: number) =>
-  value < 1 ? `$${value.toFixed(value < 0.1 ? 3 : 2)}` : `$${value.toFixed(2)}`;
+export const formatUsd = (value: number) => `$${value.toFixed(value > 0 && value < 0.01 ? 3 : 2)}`;
 
 // A defect box in 0–1 image coordinates, clamped inside the image.
 export const clampBox = (box: { x: number; y: number; w: number; h: number }) => {

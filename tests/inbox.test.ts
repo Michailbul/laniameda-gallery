@@ -202,6 +202,18 @@ describe("inbox backend", () => {
     expect((await env.doc(d3)).assetPackId).toBe(rebuilt);
   });
 
+  test("undoing a stack of images that had no pack leaves them without one", async () => {
+    const env = await setup();
+    const prompt = await env.db.insert("prompts", { ownerUserId: OWNER, text: "bridge in fog", tagIds: [], createdAt: 1 });
+    const [b1, b2] = [await env.asset({ promptId: prompt }), await env.asset({ promptId: prompt })];
+    const { added: [card] } = await env.post([{ type: "duplicates", assetIds: [b1, b2] }]);
+    await env.call(decideInboxCard, { cardId: card, choice: "stack", coverAssetId: b2 });
+    await env.call(clearInboxDecision, { cardId: card });
+    expect((await env.doc(b1)).assetPackId).toBeUndefined();
+    expect((await env.doc(b2)).assetPackId).toBeUndefined();
+    expect(env.db.getTableDocs("assetPacks")).toHaveLength(0);
+  });
+
   test("deleting duplicates is planned by the decision and recorded only once the images are gone", async () => {
     const env = await setup();
     const [a1, a2, a3] = [await env.asset(), await env.asset(), await env.asset()];
