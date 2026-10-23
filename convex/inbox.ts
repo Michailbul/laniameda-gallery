@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { assertSingleWorld, assetFolderIds } from "./worldCore";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
@@ -122,7 +123,9 @@ const addToCollection = async (ctx: MutationCtx, folder: Doc<"folders">, asset: 
   if (link || asset.folderId === folder._id) {
     return { kind: "collection", folderId: folder._id, assetId: asset._id, added: false, setPrimary: false };
   }
-  // Additive: every other membership stays as it is.
+  // Additive: every other membership stays as it is, inside one world.
+  const current = await assetFolderIds(ctx, asset);
+  await assertSingleWorld(ctx, asset, current, [...current, folder._id]);
   await ctx.db.insert("assetFolders", {
     ownerUserId: asset.ownerUserId ?? folder.ownerUserId ?? "", assetId: asset._id, folderId: folder._id, createdAt: Date.now(),
   });

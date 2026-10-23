@@ -68,6 +68,7 @@ const folderReturnValidator = v.object({
   sortOrder: v.optional(v.number()),
   memberCount: v.optional(v.number()),
   publicMemberCount: v.optional(v.number()),
+  worldKey: v.optional(v.string()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
@@ -114,9 +115,12 @@ const scopedNormalizedName = (
 // IS (character / location / scene) is a tag, not a folder.
 type FolderKind = Doc<"folders">["kind"];
 
+// Plain collections and storybooks can sit inside a root collection: a
+// storybook is a child of its world. Storybooks never hold children
+// themselves (assertValidParent).
 const assertNestableKind = (kind: FolderKind) => {
-  if (kind !== undefined) {
-    throw new ConvexError("Only plain collections can sit inside another collection.");
+  if (kind !== undefined && kind !== "storybook") {
+    throw new ConvexError("Only plain collections and storybooks can sit inside another collection.");
   }
 };
 

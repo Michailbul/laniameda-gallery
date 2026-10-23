@@ -1,0 +1,14 @@
+{
+  "name": "laniameda",
+  "description": "Michael's (laniameda) Claude Code plugins.",
+  "owner": {
+    "name": "Michael (laniameda)"
+  },
+  "plugins": [
+    {
+      "name": "laniameda-gallery",
+      "source": "./plugin",
+      "description": "Michael's gallery as an agent harness for his story worlds: world docs, filing, moodboards, Midjourney profiles, journal and undo."
+    }
+  ]
+}

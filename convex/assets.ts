@@ -1,3 +1,4 @@
+import { assertSingleWorld, assetFolderIds as worldAssetFolderIds } from "./worldCore";
 import {
   internalMutation,
   internalQuery,
@@ -157,7 +158,7 @@ const assertCurationAdmin = (actorUserId: string, adminSecret: string) => {
 const hasOwn = <T extends object>(value: T, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key);
 
-const resolveTagIdsForNames = async (
+export const resolveTagIdsForNames = async (
   ctx: MutationCtx,
   names: string[],
   pillar: string | undefined,
@@ -218,7 +219,7 @@ const resolveTagIdsForNames = async (
   return dedupeIds(tagIds);
 };
 
-const replaceAssetTagLinks = async (
+export const replaceAssetTagLinks = async (
   ctx: MutationCtx,
   asset: Doc<"assets">,
   tagIds: Id<"tags">[],
@@ -309,6 +310,13 @@ const addAssetFolderLink = async (
     return;
   }
 
+  // Worlds are separate: a link may never put the asset into a second world.
+  const asset = await ctx.db.get(assetId);
+  if (asset) {
+    const current = await worldAssetFolderIds(ctx, asset);
+    await assertSingleWorld(ctx, asset, current, [...current, folderId]);
+  }
+
   await ctx.db.insert("assetFolders", {
     ownerUserId,
     assetId,
@@ -318,7 +326,7 @@ const addAssetFolderLink = async (
   await recountFolderMembers(ctx, [folderId]);
 };
 
-const replaceAssetFolderLinks = async (
+export const replaceAssetFolderLinks = async (
   ctx: MutationCtx,
   ownerUserId: string,
   asset: Doc<"assets">,

@@ -358,15 +358,20 @@ describe("folders backend", () => {
       }),
     ).rejects.toThrow("Sub-collections can't be nested further.");
 
-    // Storybooks stay leaves.
+    // A storybook is a child of its world and stays a leaf.
+    const book = await callAsOwner(createFolder)(harness.ctx as never, {
+      ownerUserId: "user-1",
+      name: "A story",
+      kind: "storybook",
+      parentFolderId: collection.folderId,
+    });
     await expect(
       callAsOwner(createFolder)(harness.ctx as never, {
         ownerUserId: "user-1",
-        name: "A story",
-        kind: "storybook",
-        parentFolderId: collection.folderId,
+        name: "Inside a story",
+        parentFolderId: book.folderId,
       }),
-    ).rejects.toThrow("Only plain collections can sit inside another collection.");
+    ).rejects.toThrow("Only plain collections can contain sub-collections.");
   });
 
   test("deleteFolder clears related asset and prompt references", async () => {

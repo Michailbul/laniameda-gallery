@@ -13,6 +13,9 @@ import {
 } from "../../lib/moodboard-contract";
 import { commentAddSchema, commentListSchema } from "../../lib/asset-comment-contract";
 import { inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema } from "../../lib/inbox-contract";
+import {
+  worldFileSchema, worldJournalSchema, worldMarkSchema, worldOpenSchema, worldProfileSchema, worldShelfSchema, worldUndoSchema,
+} from "../../lib/world-contract";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
 // and the hosted endpoint (app/api/mcp/route.ts). Every tool is a thin call into
@@ -37,6 +40,7 @@ export type GalleryToolOptions = {
 
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
+  "Worlds are separate story universes (DEAR ANNETE, ANDROMEDA — ANYA …). For any world work call open_world first: it returns the world's WORLD.md rules, learnings, styles and locks, shelves, storybooks, moodboards, Midjourney profiles and recent changes. Search and preview with world to stay inside it. Change things through world_doc, world_file, world_shelf, mj_profiles and the moodboard and story tools with a session label; every change is in world_journal and world_undo reverts it. An asset never belongs to two worlds.",
   "Fetch the current canonical skill from https://gallery.laniameda.space/llms.txt (entry: /skills/laniameda-gallery/SKILL.md; manifest.json lists its version and resources). Private world and maintenance references require the same owner-allowed gallery:read bearer token as MCP.",
   "Textual story ideas, scripts and versioned world style locks are private story records: save_story needs text and a stable ingestKey, never placeholder media. list_stories and get_story retrieve them; update_story preserves revisions. Gallery filter presets have list_filter_presets and save_filter_preset.",
   "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
@@ -139,6 +143,18 @@ const commonIngestShape = {
   upstreamInputs: z.array(z.record(z.string(), z.unknown())).optional(),
 };
 
+// A world scopes a listing or search to its root collection and every shelf.
+const worldFilterShape = z
+  .string()
+  .describe("World key (dear-annete), name or root id: searches the world root and all its shelves. Use instead of folderId.")
+  .optional();
+// Journaled writes group by session so Michael can read and undo a piece of work as a unit.
+const sessionShape = z
+  .string()
+  .max(80)
+  .describe("Label for this piece of work (e.g. da-tram-stop-2026-10-23); the world journal groups and undoes by it.")
+  .optional();
+
 const namedFilterShape = {
   tagNames: z
     .array(z.string())
@@ -177,21 +193,21 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,
   }, async () => jsonText({
-    contractVersion: "2026-10-21.1", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    contractVersion: "2026-10-23.1", serverVersion: "1.0.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
     transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
     scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", deletionApproval: "Delete scope grants technical access only. Obtain explicit user approval for the named collection/preset or listed batch before deletion. Existing approval for those targets in the current session persists.", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
     pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeSkillExamples: { default: false, true: "adds Skill-step assets, which otherwise stay inside their Skill unless requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
     inventoryExport: { endpoint: "POST /api/agent/inventory", client: "bun gallery.mjs all_assets --out <dir>", contents: "the default list_assets_page inventory (no filters) plus folders, as a snapshot rebuilt at most daily, with assets saved since appended", freshness: "maxAgeMinutes (default 1440); refresh:true rebuilds when the snapshot is older than 15 minutes; edits and deletions after generatedAt are not reflected", prefer: "Use it for complete inventories instead of paging every asset; page list_assets_page for filtered or exact live reads." },
     videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
     limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listCharacters: 1000, linkCharacterAssets: 100, moodboardItems: 1000, addMoodboardItems: 100, listMoodboardGenerations: 60, postInboxCards: 100, inboxStackCards: 300, inboxTargets: "2–9", listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
-    resources: ["assets", "collections", "menuFilters", "skills", "stories", "characters", "moodboards", "inbox", "presets", "bookmarks", "videoRefs"],
+    resources: ["worlds", "worldDocs", "worldJournal", "mjProfiles", "assets", "collections", "menuFilters", "skills", "stories", "characters", "moodboards", "inbox", "presets", "bookmarks", "videoRefs"],
     policy: { source: "get_skill_instructions or authenticated canonical /skills/laniameda-gallery/ manifest resources", privateWorldRules: "references/worlds.md", sourceOfTruth: "Deployed schemas and scoped backend functions; instructions explain filing policy. Collections and menu filters are distinct from raw tags." },
   }));
 
   server.registerTool("list_assets_page", {
     description: "Cursor page of owned assets with complete traversal, including hidden collections. Skill-step assets are left out unless includeSkillExamples is true or assetRole selects them. Keep the same filters and follow cursor until isDone, even through empty filtered pages. Search includes captions, agent descriptions, prompts, tags and bookmark text. Results are stable within owner spellings, newest-first; records are live, not a frozen snapshot. For a complete unfiltered inventory from a shell, the cached export (gallery.mjs all_assets) reads the gallery once a day instead of on every traversal.",
     annotations: readAnnotations,
-    inputSchema: galleryAssetPageInputSchema.shape,
+    inputSchema: { ...galleryAssetPageInputSchema.shape, world: worldFilterShape },
   }, async input => jsonText(await apiFetch("/api/agent/gallery", { action: "listAssetsPage", ...input })));
 
   server.registerTool("list_menu_filters", { description: "Read curated menu-filter IDs, labels, mappings, resolved tag IDs, counts and missing-folder flags. These IDs are used by filter presets; tag IDs are a different resource.", inputSchema: {}, annotations: readAnnotations }, async () => jsonText(await apiFetch("/api/agent/customize", { action: "listMenuFilters" })));
@@ -211,6 +227,59 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (input) => jsonText(await apiFetch("/api/agent/instructions", input)));
 
+  // Worlds: open one, read and edit its files, file pieces, shape shelves and
+  // storybooks, keep Midjourney profiles, and read or undo the journal.
+  const worlds = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/worlds", { action, ...input }));
+  const worldWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+  server.registerTool("open_world", {
+    title: "Open World",
+    annotations: readAnnotations,
+    description: "Start here for any world work. No arguments: the list of worlds (key, name, counts). With a world: everything an agent needs in one call: WORLD.md (the world's rules), LEARNINGS.md, its other docs, styles with their style locks, shelves and storybooks (with their stories), moodboards with codes and Midjourney sync state, Midjourney profiles with their role here, characters and the recent journal. Worlds are separate: nothing is filed, linked or boarded across them.",
+    inputSchema: worldOpenSchema.shape,
+  }, worlds("open"));
+  server.registerTool("world_doc", {
+    title: "World Doc",
+    annotations: worldWrite,
+    description: "Read and edit a world's files. op list | read | write | delete | history. Paths: WORLD.md (the world's CLAUDE.md; at most 8,000 characters), LEARNINGS.md (one dated line per learning with its source; at most 40 entries), docs/<kebab-name>.md (at most 8, 12,000 characters each). write replaces the whole text: read first and pass expectedRevision. Over a cap the write is refused: promote confirmed learnings into WORLD.md rules and delete superseded ones. Every write is journaled and can be undone.",
+    inputSchema: { world: z.string(), op: z.enum(["list", "read", "write", "delete", "history"]), path: z.string().optional(), body: z.string().optional(), expectedRevision: z.number().int().min(0).optional(), note: z.string().optional(), limit: z.number().int().optional(), session: sessionShape },
+  }, worlds("doc"));
+  server.registerTool("world_file", {
+    title: "File Into World",
+    annotations: worldWrite,
+    description: "Move, add or remove up to 100 assets between a world's shelves and add or remove tags, in one journaled change. addTo/removeFrom take shelf names or ids of this world (\"root\" is the world collection). An asset that lives in another world is refused unless move: true, which takes it out of the other world. Shared shelves outside worlds (ART, LOVE …) are kept. Undo with world_undo.",
+    inputSchema: worldFileSchema.shape,
+  }, worlds("file"));
+  server.registerTool("world_shelf", {
+    title: "World Shelf",
+    annotations: worldWrite,
+    description: "Create, rename, describe or regroup a shelf or storybook inside a world (groups: Styles, Places, Cast, World building, Moods, Footage, Storybooks). A storybook is a child of its world. Give shelf with a root collection's id to bring that collection into the world. Journaled; an empty shelf created by mistake is removed by world_undo.",
+    inputSchema: worldShelfSchema.shape,
+  }, worlds("shelf"));
+  server.registerTool("mj_profiles", {
+    title: "Midjourney Profiles",
+    annotations: worldWrite,
+    description: "Midjourney personalization profiles: Michael's taste, applied with --profile <code> after the moodboards. op list (with world: only its profiles and their role there) or save (world required: create with name + code + role, or change code, role, notes, status of an existing profile). A new code keeps the old one in codeHistory. Journaled in that world.",
+    inputSchema: worldProfileSchema.shape,
+  }, worlds("profiles"));
+  server.registerTool("world_journal", {
+    title: "World Journal",
+    annotations: readAnnotations,
+    description: "What changed in the worlds: every doc edit, filing, shelf, moodboard, profile and story change, newest first, with actor and session. Filter by world or session; page back with before. changeId returns one change in full with its before and after state.",
+    inputSchema: worldJournalSchema.shape,
+  }, worlds("journal"));
+  server.registerTool("world_undo", {
+    title: "Undo World Change",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: "Revert one journal change (changeId) or a whole session, newest first. Run with dryRun: true first: it lists what would be undone and what is blocked because something changed since. A session stops at the first blocked change. The undo is journaled too, so it can be undone.",
+    inputSchema: worldUndoSchema.shape,
+  }, worlds("undo"));
+  server.registerTool("mark_world", {
+    title: "Mark World",
+    annotations: worldWrite,
+    description: "Mark a root collection as a world (a separate story universe) or clear the mark. Only when Michael creates a new world. Journaled.",
+    inputSchema: worldMarkSchema.shape,
+  }, worlds("mark"));
+
   const characterWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   const characters = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/characters", { action, ...input }));
   server.registerTool("list_characters", { title: "List Characters", annotations: readAnnotations, description: "Read the named cast: each person's code (DA-CH-001), name and alias, world, role, lane, status, costumes, canonical sheet/face asset IDs with thumbnails and link count. Filter by world (root collection), status or search text (codes, names, former names, costumes).", inputSchema: characterListSchema.shape }, characters("list"));
@@ -225,15 +294,15 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
 
   const moodboardWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   const moodboards = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/moodboards", { action, ...input }));
-  server.registerTool("list_moodboards", { title: "List Moodboards", annotations: readAnnotations, description: "List moodboards: ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (personalization code). Pass a collection folderId, with includeChildren for a world root, or nothing for every board. Each row has id (moodboard:<id>), name, owning collection, status (draft, in-midjourney, archived), mjCode with its --profile flag, item count, revision and up to 6 preview images. Archived boards are left out unless status or includeArchived asks for them.", inputSchema: moodboardListSchema.shape }, moodboards("list"));
+  server.registerTool("list_moodboards", { title: "List Moodboards", annotations: readAnnotations, description: "List moodboards: ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (personalization code). Pass a collection folderId, with includeChildren for a world root, or nothing for every board. Each row has id (moodboard:<id>), name, owning collection, status (draft, in-midjourney, archived), mjCode with its --profile flag, item count, revision and up to 6 preview images. Archived boards are left out unless status or includeArchived asks for them.", inputSchema: { ...moodboardListSchema.shape, world: worldFilterShape } }, moodboards("list"));
   server.registerTool("get_moodboard", { title: "Get Moodboard", annotations: readAnnotations, description: "Read one moodboard in full: every item in position order with its asset:<id>, full-size image url, width, height, kind, prompt excerpt, tags and agent description; imageUrls lists the image URLs alone, in order, ready to push into a Midjourney moodboard. Also returns the recorded code, Midjourney id and URL, code history, revision and sync state (images added or removed since the last recorded sync).", inputSchema: moodboardRefSchema.shape }, moodboards("get"));
-  server.registerTool("save_moodboard", { title: "Save Moodboard", annotations: moodboardWrite, description: "Create a moodboard in a plain collection (folderId + name), or patch one by moodboardId. Create is idempotent on the name inside its collection: repeating it returns the existing board with created:false and only fills fields that are still empty. A patch keeps omitted fields; null clears description, styleTag, notes, mjCode, mjMoodboardId or mjUrl; folderId moves the board; expectedRevision from get_moodboard guards concurrent edits. Changing mjCode here keeps the old code in history but records no sync: after an actual Midjourney sync use set_moodboard_midjourney.", inputSchema: moodboardSaveSchema.shape }, moodboards("save"));
-  server.registerTool("add_moodboard_items", { title: "Add Moodboard Items", annotations: moodboardWrite, description: "Append up to 100 owned assets to a moodboard in the given order. Assets already on it are skipped and reported. The first image becomes the cover when none is set. A board holds at most 1000 items. The assets' tags, captions and collections do not change.", inputSchema: moodboardAddSchema.shape }, moodboards("add"));
-  server.registerTool("remove_moodboard_items", { title: "Remove Moodboard Items", annotations: { ...moodboardWrite, destructiveHint: true }, description: "Take up to 100 assets off a moodboard. The assets themselves are kept; a removed cover falls back to the first remaining item.", inputSchema: moodboardRemoveSchema.shape }, moodboards("remove"));
-  server.registerTool("reorder_moodboard_items", { title: "Reorder Moodboard Items", annotations: moodboardWrite, description: "Set a moodboard's full display order: send every current item's asset ID exactly once, in the new order (get_moodboard lists them). A set that differs from the board's items is refused.", inputSchema: moodboardReorderSchema.shape }, moodboards("reorder"));
-  server.registerTool("set_moodboard_midjourney", { title: "Record Midjourney Sync", annotations: moodboardWrite, description: "Record a sync after creating or updating the Midjourney moodboard: the personalization code Midjourney shows (mjCode, e.g. 88ji6bg), the Midjourney moodboard id (prompts can use --profile m<id>), its URL and how many board images it now holds (syncedItemCount, default the board's item count). A changed code goes onto the board's code history. Sets status in-midjourney and the sync time. Read references/moodboards.md for the Midjourney steps.", inputSchema: moodboardMidjourneySchema.shape }, moodboards("set_midjourney"));
+  server.registerTool("save_moodboard", { title: "Save Moodboard", annotations: moodboardWrite, description: "Create a moodboard in a plain collection (folderId + name), or patch one by moodboardId. Create is idempotent on the name inside its collection: repeating it returns the existing board with created:false and only fills fields that are still empty. A patch keeps omitted fields; null clears description, styleTag, notes, mjCode, mjMoodboardId or mjUrl; folderId moves the board; expectedRevision from get_moodboard guards concurrent edits. Changing mjCode here keeps the old code in history but records no sync: after an actual Midjourney sync use set_moodboard_midjourney.", inputSchema: { ...moodboardSaveSchema.shape, session: sessionShape } }, moodboards("save"));
+  server.registerTool("add_moodboard_items", { title: "Add Moodboard Items", annotations: moodboardWrite, description: "Append up to 100 owned assets to a moodboard in the given order. Assets already on it are skipped and reported. The first image becomes the cover when none is set. A board holds at most 1000 items. The assets' tags, captions and collections do not change.", inputSchema: { ...moodboardAddSchema.shape, session: sessionShape } }, moodboards("add"));
+  server.registerTool("remove_moodboard_items", { title: "Remove Moodboard Items", annotations: { ...moodboardWrite, destructiveHint: true }, description: "Take up to 100 assets off a moodboard. The assets themselves are kept; a removed cover falls back to the first remaining item.", inputSchema: { ...moodboardRemoveSchema.shape, session: sessionShape } }, moodboards("remove"));
+  server.registerTool("reorder_moodboard_items", { title: "Reorder Moodboard Items", annotations: moodboardWrite, description: "Set a moodboard's full display order: send every current item's asset ID exactly once, in the new order (get_moodboard lists them). A set that differs from the board's items is refused.", inputSchema: { ...moodboardReorderSchema.shape, session: sessionShape } }, moodboards("reorder"));
+  server.registerTool("set_moodboard_midjourney", { title: "Record Midjourney Sync", annotations: moodboardWrite, description: "Record a sync after creating or updating the Midjourney moodboard: the personalization code Midjourney shows (mjCode, e.g. 88ji6bg), the Midjourney moodboard id (prompts can use --profile m<id>), its URL and how many board images it now holds (syncedItemCount, default the board's item count). A changed code goes onto the board's code history. Sets status in-midjourney and the sync time. Read references/moodboards.md for the Midjourney steps.", inputSchema: { ...moodboardMidjourneySchema.shape, session: sessionShape } }, moodboards("set_midjourney"));
   server.registerTool("list_moodboard_generations", { title: "List Moodboard Generations", annotations: readAnnotations, description: "Made with this board: the owner's gallery assets whose linked prompt carries the board's code, an earlier code or its --profile m<id>, newest first (limit up to 60). Each result names the matched code and whether it is already on the board. Empty until the board has a code or Midjourney id.", inputSchema: moodboardGenerationsSchema.shape }, moodboards("generations"));
-  server.registerTool("delete_moodboard", { title: "Delete Moodboard", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Delete a moodboard and its item list only after the user names it for deletion. The assets are kept and the Midjourney moodboard is not touched. Requires gallery:delete. Prefer status archived to keep a board out of the way.", inputSchema: moodboardRefSchema.shape }, moodboards("delete"));
+  server.registerTool("delete_moodboard", { title: "Delete Moodboard", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Delete a moodboard and its item list only after the user names it for deletion. The assets are kept and the Midjourney moodboard is not touched. Requires gallery:delete. Prefer status archived to keep a board out of the way.", inputSchema: { ...moodboardRefSchema.shape, session: sessionShape } }, moodboards("delete"));
 
   const comments = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/comments", { action, ...input }));
   server.registerTool("list_asset_comments", { title: "List Asset Comments", annotations: readAnnotations, description: "Read comments on gallery assets. Michael leaves them in an asset's detail panel or as notes in the Inbox to steer the work (fix this, more like this, file it there); agents reply. A voice note has audioUrl, audioDurationMs and audioContentType (body may be empty): download and transcribe it yourself. With assetId: that asset's whole thread, oldest first. Without: the newest comments across the vault, newest first, filtered by since (ms) and author (owner or agent). Each row has asset:<id>, author, body and times. get_gallery_item also returns an asset's thread.", inputSchema: commentListSchema.shape }, comments("list"));
@@ -246,10 +315,10 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   server.registerTool("delete_inbox_stack", { title: "Delete Inbox Stack", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Delete an Inbox stack with its cards, decisions and card voice comments, only after the user names it for deletion. What the decisions changed in the gallery stays, and so do notes on images. Requires gallery:delete. Prefer close_stack.", inputSchema: inboxStackRefSchema.shape }, inbox("delete"));
   server.registerTool("find_similar_groups", { title: "Find Similar Groups", annotations: readAnnotations, description: "Find groups of near-identical images in a world or collection (with includeChildren, its style branches and shelves), largest first, from each image's perceptual hash: the takes of one job, a prompt rerun, a repaired copy beside its original, one picture saved twice. maxDistance sets how close (bits of 64: 4 ≈ the takes of one job, default 6; 10 ≈ the same shot reworked; 20 ≈ the same subject). Each group lists its images (asset:<id>, thumbUrl, prompt id), its widest distance, size, samePrompt, and assetIds (the first 8) ready for a duplicates card in post_inbox_cards. One call scans at most 1,300 pieces, newest first; when truncated is true, scan the shelves one by one. Images saved in the last minute may not be hashed yet. State the match as evidence; never say which to keep.", inputSchema: similarGroupsSchema.shape }, inbox("similar_groups"));
 
-  server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
-  server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
+  server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
+  server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), world: worldFilterShape, folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
   server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
-  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
@@ -582,6 +651,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
           .optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         modelName: z.string().optional(),
         assetRole: z.string().optional(),
         ...namedFilterShape,
@@ -613,6 +683,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         mode: z.enum(["hybrid", "visual", "text"]).optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         ...namedFilterShape,
         limit: z.number().optional(),
       },
@@ -697,6 +768,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         mode: z.enum(["hybrid", "visual", "text"]).optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         includeDescendants: z.boolean().optional(),
         modelName: z.string().optional(),
         assetRole: z.string().optional(),

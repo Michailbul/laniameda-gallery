@@ -8,6 +8,7 @@ import {
   moodboardDocValidator, moodboardPreviewValidator, moodboardStatusValidator,
 } from "./moodboardValidators";
 import { orderChildCollections } from "../lib/collection-groups";
+import { assertAssetsFitWorld, cleanSession, recordWorldChange, worldIdOfFolder, type WorldChangeOp } from "./worldCore";
 import {
   MOODBOARD_LIMITS, MOODBOARD_STYLE_TAG_PATTERN, cleanMidjourneyCode, cleanMidjourneyMoodboardId,
   mentionsMidjourneyTerm, moodboardSearchTerms, normalizeMoodboardName, normalizeMoodboardStyleTag,
@@ -147,6 +148,91 @@ const previewsFor = async (ctx: QueryCtx, owner: string, board: Moodboard, limit
     if (asset && canActorAccessOwnerUserId(owner, asset.ownerUserId)) previews.push(await previewFor(ctx, asset));
   }
   return previews;
+};
+
+
+/* ── World journal ───────────────────────────────────────────────────────── */
+
+// Every write to a board inside a world is journaled with the board and its
+// items before and after, so world_undo can put it back.
+export type MoodboardSnapshot = {
+  moodboardId: Id<"moodboards">; folderId: Id<"folders">; name: string; description?: string; styleTag?: string;
+  status: Moodboard["status"]; mjCode?: string; mjMoodboardId?: string; mjUrl?: string; mjSyncedAt?: number;
+  mjSyncedItemCount?: number; mjCodeHistory?: Moodboard["mjCodeHistory"]; notes?: string; coverAssetId?: Id<"assets">;
+  revision: number; items: { assetId: Id<"assets">; position: number; note?: string; addedAt: number }[];
+};
+
+export const snapshotMoodboard = async (ctx: QueryCtx, board: Moodboard): Promise<MoodboardSnapshot> => ({
+  moodboardId: board._id, folderId: board.folderId, name: board.name, description: board.description, styleTag: board.styleTag,
+  status: board.status, mjCode: board.mjCode, mjMoodboardId: board.mjMoodboardId, mjUrl: board.mjUrl, mjSyncedAt: board.mjSyncedAt,
+  mjSyncedItemCount: board.mjSyncedItemCount, mjCodeHistory: board.mjCodeHistory, notes: board.notes, coverAssetId: board.coverAssetId,
+  revision: board.revision,
+  items: (await itemsOf(ctx, board._id)).map((item) => ({ assetId: item.assetId, position: item.position, note: item.note, addedAt: item.addedAt })),
+});
+
+const journalArgs = { actor: v.optional(v.string()), session: v.optional(v.string()) };
+
+const journalBoard = async (
+  ctx: MutationCtx, owner: string, op: WorldChangeOp, summary: string,
+  before: MoodboardSnapshot | null, boardId: Id<"moodboards"> | null, args: { actor?: string; session?: string },
+) => {
+  const board = boardId ? await ctx.db.get(boardId) : null;
+  const after = board ? await snapshotMoodboard(ctx, board) : null;
+  const worldId = await worldIdOfFolder(ctx, after?.folderId ?? before?.folderId);
+  if (!worldId) return;
+  await recordWorldChange(ctx, {
+    ownerUserId: owner, worldFolderId: worldId, op, targetType: "moodboard", targetId: (boardId ?? before?.moodboardId)!,
+    summary, before: before ?? undefined, after: after ?? undefined, actor: args.actor, session: cleanSession(args.session),
+  });
+};
+
+// A board never changes world: its look belongs to one world.
+const assertSameWorld = async (ctx: QueryCtx, from: Id<"folders">, to: Id<"folders">) => {
+  if (from === to) return;
+  const [a, b] = [await worldIdOfFolder(ctx, from), await worldIdOfFolder(ctx, to)];
+  if (a !== b) throw new ConvexError("A moodboard stays in its world. Create a new board in the other world instead.");
+};
+
+/** Undo support: put a board back to `before` (null = it did not exist). */
+export const restoreMoodboardSnapshot = async (
+  ctx: MutationCtx, owner: string, moodboardId: Id<"moodboards">,
+  before: MoodboardSnapshot | null, after: MoodboardSnapshot | null, dryRun: boolean,
+): Promise<{ ok: true; restored: MoodboardSnapshot | null } | { ok: false; reason: string }> => {
+  const current = after ? await ctx.db.get(after.moodboardId) : await ctx.db.get(moodboardId);
+  if (after) {
+    if (!current || !canActorAccessOwnerUserId(owner, current.ownerUserId)) return { ok: false, reason: "the board is gone" };
+    if (current.revision !== after.revision) return { ok: false, reason: `"${current.name}" changed since (revision ${current.revision})` };
+  } else if (current) {
+    return { ok: false, reason: "the board exists again" };
+  }
+  if (dryRun) return { ok: true, restored: null };
+  if (!before) {
+    await deleteBoardWithItems(ctx, current!);
+    return { ok: true, restored: null };
+  }
+  const { moodboardId: _old, items, revision: _revision, ...fields } = before;
+  void _old; void _revision;
+  const now = Date.now();
+  let boardId: Id<"moodboards">;
+  if (current) {
+    for (const item of await itemQuery(ctx, current._id).collect()) await ctx.db.delete(item._id);
+    boardId = current._id;
+  } else {
+    const clash = await findByName(ctx, owner, fields.folderId, normalizeMoodboardName(fields.name));
+    if (clash) return { ok: false, reason: `a board named "${clash.name}" took its place` };
+    boardId = await ctx.db.insert("moodboards", {
+      ownerUserId: owner, ...fields, normalizedName: normalizeMoodboardName(fields.name), itemCount: 0, revision: 0, createdAt: now, updatedAt: now,
+    });
+  }
+  let kept = 0;
+  for (const item of items) {
+    if (!await ctx.db.get(item.assetId)) continue;
+    await ctx.db.insert("moodboardItems", { ownerUserId: owner, moodboardId: boardId, assetId: item.assetId, position: item.position, ...(item.note ? { note: item.note } : {}), addedAt: item.addedAt });
+    kept += 1;
+  }
+  const revision = (current?.revision ?? 0) + 1;
+  await ctx.db.patch(boardId, { ...fields, normalizedName: normalizeMoodboardName(fields.name), itemCount: kept, revision, updatedAt: now });
+  return { ok: true, restored: await snapshotMoodboard(ctx, (await ctx.db.get(boardId))!) };
 };
 
 const moodboardRowValidator = v.object({
@@ -319,7 +405,7 @@ export const createMoodboard = ownerMutation({
     ownerUserId: v.string(), folderId: v.id("folders"), name: v.string(),
     description: v.optional(v.string()), styleTag: v.optional(v.string()),
     mjCode: v.optional(v.string()), mjMoodboardId: v.optional(v.string()), mjUrl: v.optional(v.string()),
-    notes: v.optional(v.string()),
+    notes: v.optional(v.string()), ...journalArgs,
   },
   returns: writeResult,
   handler: async (ctx, args) => {
@@ -346,9 +432,11 @@ export const createMoodboard = ownerMutation({
         if (fields[key] !== undefined && existing[key] === undefined) fill[key] = fields[key];
       }
       if (Object.keys(fill).length === 0) return { moodboardId: existing._id, created: false, revision: existing.revision };
+      const before = await snapshotMoodboard(ctx, existing);
       const revision = existing.revision + 1;
       const recordsMidjourney = Boolean(fill.mjCode || fill.mjMoodboardId) && existing.status === "draft";
       await ctx.db.patch(existing._id, { ...fill, ...(recordsMidjourney ? { status: "in-midjourney" as const } : {}), revision, updatedAt: now });
+      await journalBoard(ctx, owner, "moodboard.update", `Moodboard "${existing.name}": filled ${Object.keys(fill).join(", ")}`, before, existing._id, args);
       return { moodboardId: existing._id, created: false, revision };
     }
     const moodboardId = await ctx.db.insert("moodboards", {
@@ -357,6 +445,7 @@ export const createMoodboard = ownerMutation({
       status: fields.mjCode || fields.mjMoodboardId ? "in-midjourney" : "draft",
       itemCount: 0, revision: 1, createdAt: now, updatedAt: now,
     });
+    await journalBoard(ctx, owner, "moodboard.create", `Created moodboard "${name}" in ${folder.name}`, null, moodboardId, args);
     return { moodboardId, created: true, revision: 1 };
   },
 });
@@ -376,6 +465,7 @@ export const updateMoodboard = ownerMutation({
     // Correct the recorded Midjourney identity without recording a sync. A
     // changed code still goes onto mjCodeHistory.
     mjCode: clearableText, mjMoodboardId: clearableText, mjUrl: clearableText,
+    ...journalArgs,
   },
   returns: v.object({ moodboardId: v.id("moodboards"), revision: v.number() }),
   handler: async (ctx, args) => {
@@ -387,6 +477,7 @@ export const updateMoodboard = ownerMutation({
     const name = args.name === undefined ? board.name : text(args.name, MOODBOARD_LIMITS.name, "Name");
     if (!name) throw new ConvexError("A moodboard needs a name.");
     const folderId = args.folderId === undefined ? board.folderId : (await requireCollection(ctx, owner, args.folderId))._id;
+    await assertSameWorld(ctx, board.folderId, folderId);
     const normalizedName = normalizeMoodboardName(name);
     if (normalizedName !== board.normalizedName || folderId !== board.folderId) {
       const clash = await findByName(ctx, owner, folderId, normalizedName);
@@ -417,8 +508,11 @@ export const updateMoodboard = ownerMutation({
     const mjCodeHistory = board.mjCode && mjCode !== board.mjCode
       ? [...(board.mjCodeHistory ?? []), { code: board.mjCode, at: now, note: "Edited in the gallery" }].slice(-MAX_CODE_HISTORY)
       : board.mjCodeHistory;
+    const before = await snapshotMoodboard(ctx, board);
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, { ...patch, mjCodeHistory, revision, updatedAt: now });
+    const changed = (Object.keys(patch) as (keyof typeof patch)[]).filter((key) => key !== "normalizedName" && patch[key] !== board[key]);
+    await journalBoard(ctx, owner, "moodboard.update", `Moodboard "${name}": changed ${changed.join(", ")}`, before, board._id, args);
     return { moodboardId: board._id, revision };
   },
 });
@@ -429,6 +523,7 @@ export const addMoodboardItems = ownerMutation({
     // Appended in this order after the last item.
     assetIds: v.array(v.id("assets")),
     note: v.optional(v.string()),
+    ...journalArgs,
   },
   returns: v.object({
     moodboardId: v.id("moodboards"),
@@ -451,9 +546,11 @@ export const addMoodboardItems = ownerMutation({
       else added.push(assetId);
     }
     if (added.length === 0) return { moodboardId: board._id, added, skipped, itemCount: board.itemCount, revision: board.revision };
+    await assertAssetsFitWorld(ctx, await worldIdOfFolder(ctx, board.folderId), added, `Moodboard "${board.name}"`);
     if (board.itemCount + added.length > MOODBOARD_LIMITS.items) {
       throw new ConvexError(`A moodboard holds at most ${MOODBOARD_LIMITS.items} images; "${board.name}" has ${board.itemCount}.`);
     }
+    const before = await snapshotMoodboard(ctx, board);
     let position = (await itemQuery(ctx, board._id).order("desc").first())?.position ?? -1;
     const now = Date.now();
     for (const assetId of added) {
@@ -466,16 +563,18 @@ export const addMoodboardItems = ownerMutation({
     const itemCount = board.itemCount + added.length;
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, { itemCount, coverAssetId: board.coverAssetId ?? added[0], revision, updatedAt: now });
+    await journalBoard(ctx, owner, "moodboard.items", `Moodboard "${board.name}": added ${added.length} image${added.length === 1 ? "" : "s"}`, before, board._id, args);
     return { moodboardId: board._id, added, skipped, itemCount, revision };
   },
 });
 
 export const removeMoodboardItems = ownerMutation({
-  args: { ownerUserId: v.string(), moodboardId: v.id("moodboards"), assetIds: v.array(v.id("assets")) },
+  args: { ownerUserId: v.string(), moodboardId: v.id("moodboards"), assetIds: v.array(v.id("assets")), ...journalArgs },
   returns: v.object({ moodboardId: v.id("moodboards"), removed: v.number(), itemCount: v.number(), revision: v.number() }),
   handler: async (ctx, args) => {
     if (args.assetIds.length > MOODBOARD_LIMITS.itemsPerCall) throw new ConvexError(`Remove at most ${MOODBOARD_LIMITS.itemsPerCall} assets per call.`);
     const board = await requireBoard(ctx, args.ownerUserId, args.moodboardId);
+    const before = await snapshotMoodboard(ctx, board);
     const removedIds = new Set<Id<"assets">>();
     for (const assetId of new Set(args.assetIds)) {
       const item = await findItem(ctx, board._id, assetId);
@@ -490,6 +589,7 @@ export const removeMoodboardItems = ownerMutation({
     const itemCount = Math.max(0, board.itemCount - removedIds.size);
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, { itemCount, coverAssetId, revision, updatedAt: Date.now() });
+    await journalBoard(ctx, args.ownerUserId, "moodboard.items", `Moodboard "${board.name}": removed ${removedIds.size} image${removedIds.size === 1 ? "" : "s"}`, before, board._id, args);
     return { moodboardId: board._id, removed: removedIds.size, itemCount, revision };
   },
 });
@@ -499,10 +599,12 @@ export const reorderMoodboardItems = ownerMutation({
     ownerUserId: v.string(), moodboardId: v.id("moodboards"),
     // The full new order: every current item exactly once.
     assetIds: v.array(v.id("assets")),
+    ...journalArgs,
   },
   returns: v.object({ moodboardId: v.id("moodboards"), moved: v.number(), revision: v.number() }),
   handler: async (ctx, args) => {
     const board = await requireBoard(ctx, args.ownerUserId, args.moodboardId);
+    const before = await snapshotMoodboard(ctx, board);
     const items = await itemsOf(ctx, board._id);
     const byAsset = new Map(items.map((item) => [item.assetId, item]));
     if (new Set(args.assetIds).size !== args.assetIds.length) throw new ConvexError("List each item once.");
@@ -519,6 +621,7 @@ export const reorderMoodboardItems = ownerMutation({
     if (moved === 0) return { moodboardId: board._id, moved, revision: board.revision };
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, { revision, updatedAt: Date.now() });
+    await journalBoard(ctx, args.ownerUserId, "moodboard.items", `Moodboard "${board.name}": reordered ${moved} image${moved === 1 ? "" : "s"}`, before, board._id, args);
     return { moodboardId: board._id, moved, revision };
   },
 });
@@ -530,6 +633,7 @@ export const setMoodboardMidjourney = ownerMutation({
     // How many board images Midjourney now holds. Defaults to the item count.
     syncedItemCount: v.optional(v.number()),
     note: v.optional(v.string()),
+    ...journalArgs,
   },
   returns: v.object({
     moodboardId: v.id("moodboards"), revision: v.number(), status: moodboardStatusValidator,
@@ -551,11 +655,15 @@ export const setMoodboardMidjourney = ownerMutation({
     const mjCodeHistory = previousCode
       ? [...(board.mjCodeHistory ?? []), { code: previousCode, at: now, ...(note ? { note } : {}) }].slice(-MAX_CODE_HISTORY)
       : board.mjCodeHistory;
+    const before = await snapshotMoodboard(ctx, board);
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, {
       mjCode, mjMoodboardId, mjUrl: urlFrom(args.mjUrl) ?? board.mjUrl, mjCodeHistory,
       mjSyncedAt: now, mjSyncedItemCount: syncedItemCount, status: "in-midjourney", revision, updatedAt: now,
     });
+    await journalBoard(ctx, args.ownerUserId, "moodboard.update",
+      `Moodboard "${board.name}": Midjourney sync recorded (${mjCode ?? `m${mjMoodboardId}`}, ${syncedItemCount} images${previousCode ? `; was ${previousCode}` : ""})`,
+      before, board._id, args);
     return {
       moodboardId: board._id, revision, status: "in-midjourney" as const, mjCode, mjMoodboardId,
       mjSyncedAt: now, mjSyncedItemCount: syncedItemCount, previousCode,
@@ -571,14 +679,18 @@ const deleteBoardWithItems = async (ctx: MutationCtx, board: Moodboard) => {
 };
 
 export const deleteMoodboard = ownerMutation({
-  args: { ownerUserId: v.string(), moodboardId: v.id("moodboards") },
+  args: { ownerUserId: v.string(), moodboardId: v.id("moodboards"), ...journalArgs },
   returns: v.object({ deleted: v.boolean(), removedItems: v.number() }),
   handler: async (ctx, args) => {
     const board = await ctx.db.get(args.moodboardId);
     if (!board) return { deleted: false, removedItems: 0 };
     if (!canActorAccessOwnerUserId(args.ownerUserId, board.ownerUserId)) throw new ConvexError("Moodboard not found.");
     // The board and its item rows go; the assets themselves are untouched.
-    return { deleted: true, removedItems: await deleteBoardWithItems(ctx, board) };
+    // In a world the journal keeps the whole board, so it can come back.
+    const before = await snapshotMoodboard(ctx, board);
+    const removedItems = await deleteBoardWithItems(ctx, board);
+    await journalBoard(ctx, args.ownerUserId, "moodboard.delete", `Deleted moodboard "${board.name}" (${removedItems} images)`, before, null, args);
+    return { deleted: true, removedItems };
   },
 });
 

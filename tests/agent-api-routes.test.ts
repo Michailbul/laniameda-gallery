@@ -426,12 +426,14 @@ describe("agent API routes", () => {
     expect((await send({ action: "delete", moodboardId: "moodboard:m1" })).status).toBe(200);
     expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
     expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "w1", includeChildren: true });
+    // Every write names the token as its actor for the world journal.
+    const actor = "agent:Codex";
     expect(state.mutationCalls.map((call) => call.payload)).toEqual([
-      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a1", "a2"] },
-      { ownerUserId: state.ownerUserId, moodboardId: "m1", expectedRevision: 3, description: null, coverAssetId: "a2" },
-      { ownerUserId: state.ownerUserId, moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2 },
-      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a2", "a1"] },
-      { ownerUserId: state.ownerUserId, moodboardId: "m1" },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a1", "a2"], actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", expectedRevision: 3, description: null, coverAssetId: "a2", actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2, actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a2", "a1"], actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", actor },
     ]);
   });
 

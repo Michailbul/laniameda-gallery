@@ -52,6 +52,46 @@ export default defineSchema({
     ownerUserId: v.string(), resourcePath: v.string(), content: v.string(),
     version: v.string(), sha256: v.string(), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_owner_path", ["ownerUserId", "resourcePath"]),
+  // A world's own files: WORLD.md (its CLAUDE.md), LEARNINGS.md and a few
+  // docs/<name>.md. Size caps live in lib/world-docs.ts; every write is a
+  // worldChanges entry holding the before and after text.
+  worldDocs: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"), path: v.string(),
+    body: v.string(), revision: v.number(), updatedBy: v.string(),
+    createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_owner_world_path", ["ownerUserId", "worldFolderId", "path"]),
+  // The world journal: every change made through a world write, with the
+  // state before and after it (JSON text) so it can be undone.
+  worldChanges: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    op: v.string(), targetType: v.string(), targetId: v.string(), summary: v.string(),
+    actor: v.string(), session: v.optional(v.string()),
+    before: v.optional(v.string()), after: v.optional(v.string()),
+    // Set on an undo entry: the change it reverted.
+    revertOf: v.optional(v.id("worldChanges")),
+    // Set on a reverted change: the undo entry that reverted it.
+    revertedBy: v.optional(v.id("worldChanges")),
+    createdAt: v.number(),
+  })
+    .index("by_owner_world_createdAt", ["ownerUserId", "worldFolderId", "createdAt"])
+    .index("by_owner_session_createdAt", ["ownerUserId", "session", "createdAt"])
+    .index("by_owner_target_createdAt", ["ownerUserId", "targetId", "createdAt"]),
+  // A Midjourney personalization profile (taste, trained by Michael's
+  // rankings), used with --profile <code>. Owner-level: one profile can serve
+  // several worlds, each with its own role; a world sees only its own uses.
+  mjProfiles: defineTable({
+    ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
+    code: v.string(), mjProfileId: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("retired")),
+    notes: v.optional(v.string()),
+    codeHistory: v.array(v.object({ code: v.string(), at: v.number(), note: v.optional(v.string()) })),
+    uses: v.array(v.object({
+      worldFolderId: v.id("folders"), role: v.string(), styleTag: v.optional(v.string()),
+    })),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
+    .index("by_owner_code", ["ownerUserId", "code"]),
   // Text is a first-class private save; no placeholder media or prompt needed.
   stories: defineTable({
     ownerUserId: v.string(), ...storyFields,
@@ -322,6 +362,11 @@ export default defineSchema({
     // recountFolderMembers (self-healing recount after membership writes) —
     // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.
     memberCount: v.optional(v.number()),
+    // Marks a root collection as a world: a separate story universe whose
+    // children (style branches, shelves, storybooks) belong to it alone.
+    // Lowercase hyphenated, unique per owner ("dear-annete"). Undefined = not
+    // a world (ART, LOVE and other shared shelves).
+    worldKey: v.optional(v.string()),
     // Exact public assets, deduped across links + the legacy primary pointer.
     // Only readable as complete after publicCollectionCountBackfill is done.
     publicMemberCount: v.optional(v.number()),
@@ -336,7 +381,8 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])
     .index("by_publicMemberCount", ["publicMemberCount"])
-    .index("by_parent", ["parentFolderId"]),
+    .index("by_parent", ["parentFolderId"])
+    .index("by_owner_worldKey", ["ownerUserId", "worldKey"]),
 
   // The counted contribution of each public asset. Reconciliation applies
   // set differences in the same transaction as the source mutation, so
