@@ -1,3 +1,4 @@
+import { recordWorldChange, worldIdOfFolder } from "./worldCore";
 import {
   internalMutation,
   type MutationCtx,
@@ -339,6 +340,18 @@ export const updateFolder = ownerMutation({
     const nextParentFolderId = reparenting
       ? (args.parentFolderId ?? undefined)
       : folder.parentFolderId;
+    // Worlds are separate: a world never nests, and a shelf never carries
+    // its pieces, boards and stories from one world into another.
+    if (reparenting && nextParentFolderId !== folder.parentFolderId) {
+      if (folder.worldKey && nextParentFolderId !== undefined) {
+        throw new ConvexError(`"${folder.name}" is a world and stays a root collection.`);
+      }
+      const fromWorld = await worldIdOfFolder(ctx, folder._id);
+      const toWorld = nextParentFolderId ? await worldIdOfFolder(ctx, nextParentFolderId) : null;
+      if (fromWorld && toWorld && fromWorld !== toWorld) {
+        throw new ConvexError("A shelf cannot move into another world. Create a shelf there and move the pieces with world_file (move: true).");
+      }
+    }
     if (reparenting && nextParentFolderId !== undefined) {
       if (nextParentFolderId === args.folderId) {
         throw new ConvexError("A folder can't be its own parent.");
@@ -395,6 +408,21 @@ export const updateFolder = ownerMutation({
         : {}),
       updatedAt: Date.now(),
     });
+
+    // A change to a world's shelf or storybook goes into its journal.
+    const worldId = await worldIdOfFolder(ctx, args.folderId) ?? await worldIdOfFolder(ctx, folder.parentFolderId);
+    if (worldId && args.folderId !== worldId) {
+      const after = (await ctx.db.get(args.folderId))!;
+      const state = (row: typeof folder) => ({
+        folderId: row._id, name: row.name, normalizedName: row.normalizedName, description: row.description, group: row.group,
+        sortOrder: row.sortOrder, parentFolderId: row.parentFolderId, kind: row.kind,
+      });
+      await recordWorldChange(ctx, {
+        ownerUserId, worldFolderId: worldId, op: "shelf.update", targetType: folder.kind === "storybook" ? "storybook" : "shelf",
+        targetId: args.folderId, summary: `Updated "${after.name}" in the gallery`,
+        before: { ...state(folder), showcased: folder.showcased, showcaseFeatured: folder.showcaseFeatured }, after: state(after), actor: "gallery",
+      });
+    }
 
     return args.folderId;
   },

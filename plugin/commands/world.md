@@ -21,7 +21,6 @@ Follow the gallery-worlds skill of this plugin.
    - **Profiles:** the profiles with a role here and their `--profile` flags.
    - **Storybooks:** names with story counts.
    - **Last 5 changes:** from the journal, each as date, session, one-line summary.
-   - **Leaks:** assets also filed in another world, if any (count only).
    - **Open questions:** the open questions from WORLD.md, plus anything in the context that
      needs Michael's decision.
 4. End with one line naming the LEARNINGS.md entry count against its cap of 40.

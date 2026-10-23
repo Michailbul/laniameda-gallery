@@ -229,7 +229,10 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
 
   // Worlds: open one, read and edit its files, file pieces, shape shelves and
   // storybooks, keep Midjourney profiles, and read or undo the journal.
-  const worlds = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/worlds", { action, ...input }));
+  // Compact JSON: a big world's context must fit in one tool result.
+  const worlds = (action: string) => async (input: JsonRecord) => ({
+    content: [{ type: "text" as const, text: JSON.stringify(await apiFetch("/api/agent/worlds", { action, ...input })) }],
+  });
   const worldWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
   server.registerTool("open_world", {
     title: "Open World",

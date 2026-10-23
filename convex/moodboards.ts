@@ -8,7 +8,7 @@ import {
   moodboardDocValidator, moodboardPreviewValidator, moodboardStatusValidator,
 } from "./moodboardValidators";
 import { orderChildCollections } from "../lib/collection-groups";
-import { assertAssetsFitWorld, cleanSession, recordWorldChange, worldIdOfFolder, type WorldChangeOp } from "./worldCore";
+import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder, type WorldChangeOp } from "./worldCore";
 import {
   MOODBOARD_LIMITS, MOODBOARD_STYLE_TAG_PATTERN, cleanMidjourneyCode, cleanMidjourneyMoodboardId,
   mentionsMidjourneyTerm, moodboardSearchTerms, normalizeMoodboardName, normalizeMoodboardStyleTag,
@@ -201,7 +201,10 @@ export const restoreMoodboardSnapshot = async (
   const current = after ? await ctx.db.get(after.moodboardId) : await ctx.db.get(moodboardId);
   if (after) {
     if (!current || !canActorAccessOwnerUserId(owner, current.ownerUserId)) return { ok: false, reason: "the board is gone" };
-    if (current.revision !== after.revision) return { ok: false, reason: `"${current.name}" changed since (revision ${current.revision})` };
+    const { moodboardId: _now, ...now } = await snapshotMoodboard(ctx, current);
+    const { moodboardId: _then, ...then } = after;
+    void _now; void _then;
+    if (!sameContent(now, then)) return { ok: false, reason: `"${current.name}" changed since` };
   } else if (current) {
     return { ok: false, reason: "the board exists again" };
   }

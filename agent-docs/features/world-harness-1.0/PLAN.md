@@ -60,7 +60,7 @@ one change or a whole session from `before`, refusing when the target changed si
 ### MCP surface (7 new tools + a `world` filter)
 | Tool | Job |
 |---|---|
-| `open_world` | No args: the world list. With a world: WORLD.md, LEARNINGS.md, doc index, styles with locks, moodboards with codes and sync state, profiles with roles, storybooks with their stories, shelves with counts, leaks, recent journal. One call. |
+| `open_world` | No args: the world list. With a world: WORLD.md, LEARNINGS.md, doc index, styles with locks, moodboards with codes and sync state, profiles with roles, storybooks with their stories, shelves with counts, recent journal. One call. |
 | `world_doc` | list / read / write / delete / history of a world doc. |
 | `world_file` | Move, add, remove up to 100 assets between a world's shelves, plus tags; isolation-guarded; `move` lifts an asset out of its other world. |
 | `world_shelf` | Create / rename / regroup a shelf or a storybook inside a world. |

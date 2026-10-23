@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { assertSingleWorld, assetFolderIds } from "./worldCore";
+import { assertSingleWorld, assetFolderIds, journalAssetMembership } from "./worldCore";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
@@ -132,6 +132,7 @@ const addToCollection = async (ctx: MutationCtx, folder: Doc<"folders">, asset: 
   await recountFolderMembers(ctx, [folder._id]);
   const setPrimary = !asset.folderId;
   if (setPrimary) await ctx.db.patch(asset._id, { folderId: folder._id });
+  await journalAssetMembership(ctx, asset, current, [...current, folder._id], asset.folderId ?? folder._id);
   await syncPublicCollectionMembership(ctx, asset._id);
   return { kind: "collection", folderId: folder._id, assetId: asset._id, added: true, setPrimary };
 };

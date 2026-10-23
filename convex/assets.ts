@@ -1,4 +1,4 @@
-import { assertSingleWorld, assetFolderIds as worldAssetFolderIds } from "./worldCore";
+import { assertSingleWorld, assetFolderIds as worldAssetFolderIds, journalAssetMembership } from "./worldCore";
 import {
   internalMutation,
   internalQuery,
@@ -299,6 +299,8 @@ const addAssetFolderLink = async (
   ownerUserId: string,
   assetId: Id<"assets">,
   folderId: Id<"folders">,
+  // Set by callers that already checked and journal the final folder set.
+  checked = false,
 ) => {
   const existing = await ctx.db
     .query("assetFolders")
@@ -311,11 +313,9 @@ const addAssetFolderLink = async (
   }
 
   // Worlds are separate: a link may never put the asset into a second world.
-  const asset = await ctx.db.get(assetId);
-  if (asset) {
-    const current = await worldAssetFolderIds(ctx, asset);
-    await assertSingleWorld(ctx, asset, current, [...current, folderId]);
-  }
+  const asset = checked ? null : await ctx.db.get(assetId);
+  const current = asset ? await worldAssetFolderIds(ctx, asset) : [];
+  if (asset) await assertSingleWorld(ctx, asset, current, [...current, folderId]);
 
   await ctx.db.insert("assetFolders", {
     ownerUserId,
@@ -324,6 +324,7 @@ const addAssetFolderLink = async (
     createdAt: Date.now(),
   });
   await recountFolderMembers(ctx, [folderId]);
+  if (asset) await journalAssetMembership(ctx, asset, current, [...current, folderId], asset.folderId ?? folderId);
 };
 
 export const replaceAssetFolderLinks = async (
@@ -339,6 +340,9 @@ export const replaceAssetFolderLinks = async (
 
   const existingLinks = await getAssetFolderLinks(ctx, asset._id);
   const nextSet = new Set(nextFolderIds);
+  // Check the final set once: a move from one world to another is fine.
+  const beforeFolderIds = await worldAssetFolderIds(ctx, asset);
+  await assertSingleWorld(ctx, asset, beforeFolderIds, nextFolderIds);
 
   const removedFolderIds: Id<"folders">[] = [];
   for (const link of existingLinks) {
@@ -352,7 +356,7 @@ export const replaceAssetFolderLinks = async (
   const existingSet = new Set(existingLinks.map((link) => link.folderId));
   for (const folderId of nextFolderIds) {
     if (!existingSet.has(folderId)) {
-      await addAssetFolderLink(ctx, ownerUserId, asset._id, folderId);
+      await addAssetFolderLink(ctx, ownerUserId, asset._id, folderId, true);
     }
   }
 
@@ -363,6 +367,7 @@ export const replaceAssetFolderLinks = async (
     });
   }
   await syncPublicCollectionMembership(ctx, asset._id);
+  await journalAssetMembership(ctx, asset, beforeFolderIds, nextFolderIds, primaryFolderId);
 
   return {
     folderId: primaryFolderId,
@@ -385,6 +390,12 @@ const setPrimaryAssetFolder = async (
   await ensureFolderOwnership(ctx, ownerUserId, nextFolderId);
 
   const previousPrimary = asset.folderId;
+  const beforeFolderIds = await worldAssetFolderIds(ctx, asset);
+  const afterFolderIds = dedupeFolderIds([
+    nextFolderId,
+    ...beforeFolderIds.filter((id) => id !== previousPrimary || id === nextFolderId),
+  ]);
+  await assertSingleWorld(ctx, asset, beforeFolderIds, afterFolderIds);
   if (previousPrimary && previousPrimary !== nextFolderId) {
     const links = await getAssetFolderLinks(ctx, asset._id);
     for (const link of links) {
@@ -396,13 +407,14 @@ const setPrimaryAssetFolder = async (
   }
 
   if (nextFolderId) {
-    await addAssetFolderLink(ctx, ownerUserId, asset._id, nextFolderId);
+    await addAssetFolderLink(ctx, ownerUserId, asset._id, nextFolderId, true);
   }
 
   if (asset.folderId !== nextFolderId) {
     await ctx.db.patch(asset._id, { folderId: nextFolderId });
   }
   await syncPublicCollectionMembership(ctx, asset._id);
+  await journalAssetMembership(ctx, asset, beforeFolderIds, afterFolderIds, nextFolderId);
 
   const remainingLinks = await getAssetFolderLinks(ctx, asset._id);
   return {

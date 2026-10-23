@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ConvexError } from "convex/values";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -25,6 +26,17 @@ const scopeFor = (action: (typeof actions)[number], body: Record<string, unknown
   if (action === "doc") return readOnlyDoc.has(String(body.op ?? body.mode ?? "read")) ? "gallery:read" : "gallery:write";
   if (action === "profiles") return body.op === "save" ? "gallery:write" : "gallery:read";
   return "gallery:write";
+};
+
+type UndoReport = {
+  dryRun: boolean;
+  undone: { changeId: Id<"worldChanges">; summary: string }[];
+  blocked: { changeId: Id<"worldChanges">; summary: string; reason: string }[];
+};
+const undoReport = (error: unknown): UndoReport | null => {
+  const data = error instanceof ConvexError ? error.data as (UndoReport & { kind?: string }) : null;
+  if (!data || data.kind !== "world-undo-report") return null;
+  return { dryRun: data.dryRun, undone: data.undone, blocked: data.blocked };
 };
 
 const bare = (value: string, prefix: string) => value.trim().replace(new RegExp(`^${prefix}:`), "");
@@ -87,7 +99,7 @@ export async function POST(request: Request) {
         ownerUserId, world: input.world,
         assetIds: input.assetIds.map((id) => bare(id, "asset") as Id<"assets">),
         addTo: input.addTo, removeFrom: input.removeFrom, addTags: input.addTags, removeTags: input.removeTags,
-        move: input.move, note: input.note, actor, session: input.session,
+        move: input.move, createTags: input.createTags, note: input.note, actor, session: input.session,
       });
       return NextResponse.json({ ok: true, ...result, results: result.results.map((row) => ({ ...row, id: `asset:${row.assetId}` })) });
     }
@@ -151,11 +163,18 @@ export async function POST(request: Request) {
       ownerUserId,
       changeId: input.changeId ? bare(input.changeId, "change") as Id<"worldChanges"> : undefined,
       undoSession: input.session, world: input.world, dryRun: input.dryRun, actor,
+    }).catch((error: unknown) => {
+      // Dry runs and blocked runs roll back and report through the error.
+      const report = undoReport(error);
+      if (report) return report;
+      throw error;
     });
     return NextResponse.json({
       ok: result.blocked.length === 0,
       ...result,
-      next: result.dryRun && result.undone.length > 0 ? "Looks right? Call world_undo again with dryRun: false." : undefined,
+      next: result.blocked.length > 0
+        ? "Nothing was changed: the run stops at a blocked change. Undo or fix the later change first."
+        : result.dryRun ? "Nothing was changed. Looks right? Call world_undo again with dryRun: false." : undefined,
     });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
