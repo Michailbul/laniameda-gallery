@@ -123,6 +123,8 @@ import {
 } from "@/components/gallery/moodboards-view";
 import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
 import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
+import { WorldDocsTab } from "@/components/gallery/world-docs-tab";
+import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
 import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
@@ -400,6 +402,11 @@ export function GalleryDashboard({
   const [moodboardsCollectionId, setMoodboardsCollectionId] = useState<
     string | null
   >(null);
+  // A marked world's Docs or Journal tab, keyed by the world root the same way.
+  const [worldPanel, setWorldPanel] = useState<{
+    collectionId: string;
+    tab: "docs" | "journal";
+  } | null>(null);
   // The style last chosen inside a world (its Styles group): its shelves then
   // show that style only. Opening a style branch sets it, the world root
   // clears it (lib/style-scope).
@@ -1390,13 +1397,6 @@ export function GalleryDashboard({
       })),
     [collectionSummaries, folderCountById, smartMenuFilterByFolderId],
   );
-  const openCollectionFromCard = useCallback(
-    (folderId: string) => {
-      setSelectedFolderId(folderId);
-      setViewMode("grid");
-    },
-    [setViewMode],
-  );
 
   // Which folders (collections + storybooks) are published to the public
   // showcase. Derived from the folders query so it covers every folder kind.
@@ -1518,6 +1518,73 @@ export function GalleryDashboard({
   const storybooks = useQuery(
     api.storybooks.listStorybooks,
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
+  );
+  // A storybook can be a child of its world (group "Storybooks"). The child
+  // lists the backend returns hold plain collections only, so the world's
+  // storybooks are joined here from the folder list and the storybook list.
+  const storybookWorldById = useMemo(() => {
+    const byId = new Map(
+      (folders ?? []).map((folder) => [folder._id as string, folder]),
+    );
+    const worlds = new Map<string, { _id: string; name: string }>();
+    for (const folder of folders ?? []) {
+      if (folder.kind !== "storybook" || !folder.parentFolderId) continue;
+      const parent = byId.get(folder.parentFolderId as string);
+      if (parent) worlds.set(folder._id as string, { _id: parent._id as string, name: parent.name });
+    }
+    return worlds;
+  }, [folders]);
+  const storybookChildrenByWorld = useMemo(() => {
+    const byId = new Map(
+      (folders ?? []).map((folder) => [folder._id as string, folder]),
+    );
+    const children = new Map<
+      string,
+      Array<{
+        _id: string;
+        name: string;
+        description?: string;
+        parentFolderId: string;
+        group: string;
+        sortOrder?: number;
+        count: number;
+        updatedAt?: number;
+        createdAt?: number;
+        previewAssets: NonNullable<typeof storybooks>[number]["previewAssets"];
+      }>
+    >();
+    for (const book of storybooks ?? []) {
+      const world = storybookWorldById.get(book._id as string);
+      if (!world) continue;
+      const folder = byId.get(book._id as string);
+      const list = children.get(world._id) ?? [];
+      list.push({
+        _id: book._id as string,
+        name: book.name,
+        description: book.story,
+        parentFolderId: world._id,
+        group: folder?.group?.trim() || "Storybooks",
+        sortOrder: folder?.sortOrder,
+        count: book.count,
+        updatedAt: book.updatedAt,
+        createdAt: book.createdAt,
+        previewAssets: book.previewAssets,
+      });
+      children.set(world._id, list);
+    }
+    return children;
+  }, [folders, storybookWorldById, storybooks]);
+  const openCollectionFromCard = useCallback(
+    (folderId: string) => {
+      // A world's storybook card opens the storybook, not a filtered grid.
+      if (storybookWorldById.has(folderId)) {
+        setOpenStorybookId(folderId);
+        return;
+      }
+      setSelectedFolderId(folderId);
+      setViewMode("grid");
+    },
+    [setViewMode, storybookWorldById],
   );
 
   // Saved Skills join the default grid as one card each — an insert is a
@@ -1916,6 +1983,21 @@ export function GalleryDashboard({
       viewMode === "grid" &&
       !storybooksView && !bookmarksView && !extraTabView,
   );
+  // Docs and Journal belong to a marked world root (folders.worldKey).
+  const activeWorldKey =
+    activeCollectionFolder && !activeCollectionFolder.parentFolderId
+      ? activeCollectionFolder.worldKey
+      : undefined;
+  const activeWorldPanel =
+    activeWorldKey &&
+    activeCollectionFolder &&
+    worldPanel?.collectionId === activeCollectionFolder._id &&
+    canManageFoldersInCurrentView &&
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !storybooksView && !bookmarksView && !extraTabView
+      ? worldPanel.tab
+      : null;
   // The world the active collection belongs to: its root and plain children.
   // A board here may belong to any of them.
   const moodboardWorldCollections = useMemo(() => {
@@ -2582,17 +2664,21 @@ export function GalleryDashboard({
 
   const shelfBooks = useMemo<ShelfBook[]>(
     () =>
-      (storybooks ?? []).map((storybook) => ({
+      (storybooks ?? []).map((storybook) => {
+        // A storybook inside a world reads "WORLD · Title" on the shelf.
+        const world = storybookWorldById.get(storybook._id as string);
+        return {
         id: storybook._id as string,
-        name: storybook.name,
+        name: world ? `${world.name} · ${storybook.name}` : storybook.name,
         story: storybook.story,
         count: storybook.count,
         previews: storybook.previewAssets.map((preview) => ({
           src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
           kind: preview.kind,
         })),
-      })),
-    [storybooks],
+        };
+      }),
+    [storybookWorldById, storybooks],
   );
 
   // Child collections as stack entries, split by display group: grouped
@@ -2627,16 +2713,38 @@ export function GalleryDashboard({
     );
   }, [galleryAssets, styleBranchStacksActive, worldStyleScope]);
   const stackCollections = styleShelfStacks ?? childCollectionStacks;
+  // The world's storybooks stack beside its folders (not in a style branch,
+  // whose stacks are the world's shelves).
+  const storybookChildStacks = useMemo(
+    () =>
+      showChildCollectionStacks &&
+      !styleBranchStacksActive &&
+      effectiveSelectedFolderId &&
+      childCollectionStacks !== undefined
+        ? (storybookChildrenByWorld.get(effectiveSelectedFolderId as string) ?? [])
+        : [],
+    [
+      childCollectionStacks,
+      effectiveSelectedFolderId,
+      showChildCollectionStacks,
+      storybookChildrenByWorld,
+      styleBranchStacksActive,
+    ],
+  );
 
   const { childCollectionEntries, groupedChildSections } = useMemo(() => {
-    if (!stackCollections || stackCollections.length === 0) {
+    const stacks = [
+      ...(stackCollections ?? []).map((collection) => ({ ...collection, storybook: false })),
+      ...storybookChildStacks.map((book) => ({ ...book, storybook: true })),
+    ];
+    if (stacks.length === 0) {
       return {
         childCollectionEntries: [] as GalleryEntry[],
         groupedChildSections: [] as { key: string; label: string; entries: GalleryEntry[] }[],
       };
     }
     const toEntry = (
-      collection: (typeof stackCollections)[number],
+      collection: (typeof stacks)[number],
     ): GalleryEntry => {
       const previews = collection.previewAssets.map((preview) => ({
         id: preview.assetId,
@@ -2654,11 +2762,11 @@ export function GalleryDashboard({
       return {
         id: `collection:${collection._id}`,
         galleryItemId: collection._id as string,
-        galleryItemType: "collection" as const,
+        galleryItemType: collection.storybook ? ("storybook" as const) : ("collection" as const),
         src: cover?.src ?? "/placeholder.svg",
         fullSrc: cover?.fullSrc ?? "/placeholder.svg",
         prompt: collection.name,
-        author: "Collection",
+        author: collection.storybook ? "Storybook" : "Collection",
         likes: 0,
         width: cover?.width,
         height: cover?.height,
@@ -2670,7 +2778,7 @@ export function GalleryDashboard({
         previewImages: previews,
       };
     };
-    const { groups, ungrouped } = groupChildCollections(stackCollections);
+    const { groups, ungrouped } = groupChildCollections(stacks);
     return {
       childCollectionEntries: ungrouped.map(toEntry),
       groupedChildSections: groups.map((group) => ({
@@ -2679,7 +2787,7 @@ export function GalleryDashboard({
         entries: group.members.map(toEntry),
       })),
     };
-  }, [stackCollections]);
+  }, [stackCollections, storybookChildStacks]);
 
   const childCollectionIds = useMemo(
     () =>
@@ -2687,13 +2795,17 @@ export function GalleryDashboard({
         ? new Set<string>(
             styleBranchStacksActive && worldStyleScope
               ? worldStyleScope.shelves.map((shelf) => shelf._id)
-              : (childCollectionStacks ?? []).map((collection) =>
-                  String(collection._id),
-                ),
+              : [
+                  ...(childCollectionStacks ?? []).map((collection) =>
+                    String(collection._id),
+                  ),
+                  ...storybookChildStacks.map((book) => book._id),
+                ],
           )
         : null,
     [
       childCollectionStacks,
+      storybookChildStacks,
       showChildCollectionStacks,
       styleBranchStacksActive,
       worldStyleScope,
@@ -3469,13 +3581,13 @@ export function GalleryDashboard({
       ...(storybooks ?? []).map((storybook) => ({
         id: storybook._id as string,
         name: storybook.name,
-        parentName: undefined,
+        parentName: storybookWorldById.get(storybook._id as string)?.name,
         count: storybook.count,
         kind: "storybook" as const,
         isWorld: false,
       })),
     ];
-  }, [collectionFoldersWithCounts, storybooks]);
+  }, [collectionFoldersWithCounts, storybookWorldById, storybooks]);
 
   // Auto-dismiss the move feedback chip.
   useEffect(() => {
@@ -4055,6 +4167,7 @@ export function GalleryDashboard({
       setSelectedFolderId(pick.returnTo);
       setCollectionBoardToOpen(pick.board.id);
       setMoodboardsCollectionId(pick.returnTo);
+      setWorldPanel(null);
       return;
     }
     openMoodboardsTab(pick.board.id);
@@ -5544,7 +5657,7 @@ export function GalleryDashboard({
                   trailing={
                     viewMode === "grid" && activeCollectionFolder && !activeSmartCollectionFilter ? (
                       <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-                        {(!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && (
+                        {(!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && !activeWorldPanel && (
                           <CollectionViewActions
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
@@ -5567,7 +5680,7 @@ export function GalleryDashboard({
                             onCreateFolder={createFolderInActiveCollection}
                           />
                         )}
-                        {canManageFoldersInCurrentView && !moodboardsViewActive && (
+                        {canManageFoldersInCurrentView && !moodboardsViewActive && !activeWorldPanel && (
                           <>
                             <input
                               ref={collectionCoverInputRef}
@@ -5616,13 +5729,16 @@ export function GalleryDashboard({
                   collectionId={String(activeCollectionFolder._id)}
                   includeChildren={!activeCollectionFolder.parentFolderId}
                   showFolders={Boolean(foldersViewWorldId)}
+                  showWorldTabs={Boolean(activeWorldKey)}
                   always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
                   active={
                     viewMode === "collections"
                       ? "folders"
-                      : moodboardsViewActive
-                        ? "moodboards"
-                        : "pieces"
+                      : activeWorldPanel
+                        ? activeWorldPanel
+                        : moodboardsViewActive
+                          ? "moodboards"
+                          : "pieces"
                   }
                   onSelect={(tab) => {
                     // The panel opens on its list; a half-done pick ends.
@@ -5635,11 +5751,16 @@ export function GalleryDashboard({
                     setMoodboardsCollectionId(
                       tab === "moodboards" ? activeCollectionFolder._id : null,
                     );
+                    setWorldPanel(
+                      tab === "docs" || tab === "journal"
+                        ? { collectionId: activeCollectionFolder._id, tab }
+                        : null,
+                    );
                   }}
                 />
               )}
               {!storybooksView && !bookmarksView && !extraTabView &&
-                viewMode === "grid" && !moodboardsViewActive &&
+                viewMode === "grid" && !moodboardsViewActive && !activeWorldPanel &&
                 worldStyleScope && worldStyleScope.styles.length > 1 && (
                 <StyleScopeSwitcher
                   styles={worldStyleScope.styles}
@@ -5689,6 +5810,22 @@ export function GalleryDashboard({
                   selectedImageId={selectedImage?.id}
                   onImageLoad={markImageLoaded}
                 />
+              ) : activeWorldPanel && activeWorldKey && ownerUserId && activeCollectionFolder ? (
+                activeWorldPanel === "docs" ? (
+                  <WorldDocsTab
+                    key={`docs-${activeCollectionFolder._id}`}
+                    ownerUserId={ownerUserId}
+                    worldKey={activeWorldKey}
+                    worldName={activeCollectionFolder.name}
+                  />
+                ) : (
+                  <WorldJournalTab
+                    key={`journal-${activeCollectionFolder._id}`}
+                    ownerUserId={ownerUserId}
+                    worldKey={activeWorldKey}
+                    worldName={activeCollectionFolder.name}
+                  />
+                )
               ) : moodboardsViewActive && ownerUserId && activeCollectionFolder ? (
                 <MoodboardsView
                   key={`${activeCollectionFolder._id}-${collectionBoardToOpen ?? "list"}`}
@@ -5727,9 +5864,13 @@ export function GalleryDashboard({
                   <CollectionsGrid
                     collections={
                       foldersViewWorldId
-                        ? collectionCards.filter(
-                            (card) => card.parentFolderId === foldersViewWorldId,
-                          )
+                        ? [
+                            ...collectionCards.filter(
+                              (card) => card.parentFolderId === foldersViewWorldId,
+                            ),
+                            // The world's storybooks, under their own group.
+                            ...(storybookChildrenByWorld.get(foldersViewWorldId) ?? []),
+                          ]
                         : collectionCards
                     }
                     grouped={Boolean(foldersViewWorldId)}
@@ -5810,6 +5951,7 @@ export function GalleryDashboard({
                           onImageSelect={handleImageSelect}
                           onImageLoad={markImageLoaded}
                           onCollectionOpen={handleCardCollectionOpen}
+                          onStorybookOpen={setOpenStorybookId}
                           zoom={gridZoom}
                         />
                       )}
@@ -6621,6 +6763,11 @@ export function GalleryDashboard({
       <StorybookModal
         ownerUserId={ownerUserId}
         storybookId={openStorybookId}
+        worldName={
+          openStorybookId
+            ? storybookWorldById.get(openStorybookId)?.name
+            : undefined
+        }
         onClose={() => setOpenStorybookId(null)}
       />
 

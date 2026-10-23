@@ -53,7 +53,18 @@ export async function POST(request: Request) {
       };
     };
 
+    // Writes record the token as their actor in the world journal.
+    const journal = {
+      actor: `agent:${agent.label || agent.tokenPrefix}`.slice(0, 80),
+      session: z.string().trim().max(80).optional().parse(body.session),
+    };
+
     if (action === "list") {
+      const world = z.string().trim().min(1).optional().parse(body.world);
+      if (world) {
+        body.folderId = (await client.query(api.worlds.resolveWorldRef, { ownerUserId, world })).worldId;
+        body.includeChildren = true;
+      }
       const input = moodboardListSchema.parse(body);
       const rows = await client.query(api.moodboards.listMoodboards, {
         ownerUserId, ...input, folderId: bareOptionalMoodboardRef(input.folderId) as Id<"folders"> | undefined,
@@ -82,6 +93,7 @@ export async function POST(request: Request) {
           ownerUserId, folderId, name: input.name,
           description: input.description ?? undefined, styleTag: input.styleTag ?? undefined, notes: input.notes ?? undefined,
           mjCode: input.mjCode ?? undefined, mjMoodboardId: input.mjMoodboardId ?? undefined, mjUrl: input.mjUrl ?? undefined,
+          ...journal,
         });
         return NextResponse.json({ ok: true, ...result, ...await read(result.moodboardId) });
       }
@@ -92,29 +104,30 @@ export async function POST(request: Request) {
         description: input.description, styleTag: input.styleTag, notes: input.notes,
         mjCode: input.mjCode, mjMoodboardId: input.mjMoodboardId, mjUrl: input.mjUrl,
         coverAssetId: input.coverAssetId === undefined ? undefined : input.coverAssetId === null ? null : bareMoodboardRef(input.coverAssetId) as AssetId,
+        ...journal,
       });
       return NextResponse.json({ ok: true, created: false, ...result });
     }
     if (action === "add") {
       const input = moodboardAddSchema.parse(body);
-      const result = await client.mutation(api.moodboards.addMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds), note: input.note });
+      const result = await client.mutation(api.moodboards.addMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds), note: input.note, ...journal });
       return NextResponse.json({ ok: true, ...result });
     }
     if (action === "remove") {
       const input = moodboardRemoveSchema.parse(body);
-      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.removeMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds) }) });
+      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.removeMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds), ...journal }) });
     }
     if (action === "reorder") {
       const input = moodboardReorderSchema.parse(body);
-      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.reorderMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds) }) });
+      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.reorderMoodboardItems, { ownerUserId, moodboardId: board(input.moodboardId), assetIds: assets(input.assetIds), ...journal }) });
     }
     if (action === "set_midjourney") {
       const input = moodboardMidjourneySchema.parse(body);
       const { moodboardId, ...fields } = input;
-      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.setMoodboardMidjourney, { ownerUserId, moodboardId: board(moodboardId), ...fields }) });
+      return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.setMoodboardMidjourney, { ownerUserId, moodboardId: board(moodboardId), ...fields, ...journal }) });
     }
     const input = moodboardRefSchema.parse(body);
-    return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.deleteMoodboard, { ownerUserId, moodboardId: board(input.moodboardId) }) });
+    return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.deleteMoodboard, { ownerUserId, moodboardId: board(input.moodboardId), ...journal }) });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: z.prettifyError(error) }, { status: 400 });

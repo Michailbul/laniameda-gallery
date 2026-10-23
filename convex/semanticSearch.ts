@@ -353,6 +353,8 @@ const mediumValidator = v.optional(
 // canonically (case, "-", "_" and punctuation fold), like the gallery UI.
 const assetFilterArgs = {
   folderId: v.optional(v.id("folders")),
+  // Any of these collections: a world is its root plus every shelf.
+  folderIds: v.optional(v.array(v.id("folders"))),
   modelName: v.optional(v.string()),
   assetRole: assetRoleValidator,
   kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
@@ -373,6 +375,7 @@ const assetFilterArgs = {
 
 type AssetFilters = {
   folderId?: Id<"folders">;
+  folderIds?: Id<"folders">[];
   modelName?: string;
   assetRole?: string;
   kind?: "image" | "video";
@@ -403,6 +406,7 @@ const toKeys = (names?: string[]) =>
 const hasMetadataFilters = (filters: AssetFilters) =>
   Boolean(
     filters.folderId ||
+      filters.folderIds?.length ||
       filters.modelName ||
       filters.assetRole ||
       filters.kind ||
@@ -426,6 +430,13 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
       scope === "mine" &&
       filters.folderId &&
       !(asset.folderIds ?? [asset.folderId]).includes(filters.folderId)
+    ) {
+      return false;
+    }
+    if (
+      scope === "mine" &&
+      filters.folderIds?.length &&
+      !(asset.folderIds ?? [asset.folderId]).some((id) => id !== undefined && filters.folderIds!.includes(id))
     ) {
       return false;
     }

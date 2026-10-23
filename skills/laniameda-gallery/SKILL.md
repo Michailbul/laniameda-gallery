@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.12.0
+version: 1.13.0
 ---
 
 # Laniameda Gallery
@@ -27,6 +27,19 @@ reference, then check_connection and discover the live tool schemas. Without
 a connector, use the dependency-free Bun client described in references/web-access.md.
 Keep credentials in the environment; never print or paste tokens into reports.
 Local source can be newer than the deployed contract until publication.
+
+## Worlds first
+
+A world (DEAR ANNETE, ANDROMEDA — ANYA …) is a separate story universe. For any
+world work call `open_world` first: it returns the world's own rules (WORLD.md),
+learnings, styles and style locks, shelves, storybooks with their stories,
+moodboards with codes and sync state, Midjourney profiles and recent changes.
+Search with `world` to stay inside it. Change it through `world_doc`,
+`world_file`, `world_shelf`, `mj_profiles` and the moodboard and story tools,
+with a `session` label; `world_journal` shows every change and `world_undo`
+reverts one or a whole session. An asset never belongs to two worlds. The
+Claude Code plugin `laniameda-gallery` (repository folder `plugin/`) teaches
+this loop in its `gallery-worlds` skill.
 
 ## The object model
 

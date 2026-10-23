@@ -51,6 +51,7 @@ import type * as inventoryExport from "../inventoryExport.js";
 import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
 import type * as midjourneySrefs from "../midjourneySrefs.js";
+import type * as mjProfiles from "../mjProfiles.js";
 import type * as moodboardValidators from "../moodboardValidators.js";
 import type * as moodboards from "../moodboards.js";
 import type * as notifications from "../notifications.js";
@@ -80,6 +81,8 @@ import type * as userTags from "../userTags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
+import type * as worldCore from "../worldCore.js";
+import type * as worlds from "../worlds.js";
 
 import type {
   ApiFromModules,
@@ -131,6 +134,7 @@ declare const fullApi: ApiFromModules<{
   membershipAudit: typeof membershipAudit;
   menuFilters: typeof menuFilters;
   midjourneySrefs: typeof midjourneySrefs;
+  mjProfiles: typeof mjProfiles;
   moodboardValidators: typeof moodboardValidators;
   moodboards: typeof moodboards;
   notifications: typeof notifications;
@@ -160,6 +164,8 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   validators: typeof validators;
   videoRefs: typeof videoRefs;
+  worldCore: typeof worldCore;
+  worlds: typeof worlds;
 }>;
 
 /**

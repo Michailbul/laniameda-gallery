@@ -211,7 +211,8 @@ collection   root folder — a world when showcased (/w/<slug>)
 - **collection** — a root folder. Showcasing it with
   `folders:setFolderShowcased` makes it a world and allocates `/w/<slug>`.
 - **folder** — a sub-collection with `parentFolderId` set to a root
-  collection. A folder never holds folders, and a storybook never nests.
+  collection. A folder never holds folders. A storybook may be a child of a
+  root (its world) and never holds children.
 - **what a piece IS** — a tag: `character`, `location`, `scene`,
   `inspiration`. Tag the asset; do not create a "Characters" folder.
   `collectionCleanup:flattenSectionCollections` folds section-named folders
@@ -242,6 +243,45 @@ publication or membership changes. They count distinct public assets across
 `publicCollectionCounts:backfill` has completed; missing means not ready, not
 zero. Until then `assets:listPublicCollections` preserves the exact legacy
 read. These internal bookkeeping tables do not change save/filing arguments.
+
+## Worlds (harness 1.0, 23 Oct 2026)
+
+A world is a root collection with `folders.worldKey` set (lowercase hyphenated,
+unique per owner, e.g. `dear-annete`). Its children (style branches, shelves and
+storybooks in group `Storybooks`) belong to it. ART, LOVE, DESIGN and other
+roots without a key are shared shelves, not worlds.
+
+Isolation is enforced in Convex (`convex/worldCore.ts`):
+- an asset may belong to at most one world; any membership write that would add
+  a second world is refused (legacy two-world assets keep what they have);
+- a moodboard's new items and a story's new asset links must not belong to
+  another world; a board never moves to another world;
+- a story's collection and its storybook are in the same world.
+
+Tables:
+- `worldDocs` — a world's files: `WORLD.md` (≤ 8,000 chars), `LEARNINGS.md`
+  (≤ 40 entries / 6,000 chars), `docs/<kebab>.md` (≤ 8 docs, 12,000 chars).
+  Caps live in `lib/world-docs.ts` and are enforced on write.
+- `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
+  `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
+  `world.mark`), actor (`agent:<token label>` or `owner`), optional `session`,
+  JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
+  transaction as the change by world docs, filing, shelves, moodboards in a
+  world, profiles and stories in a world. `worlds:undoWorldChanges` restores
+  `before` when the target still matches `after` (else it is blocked); undoing
+  a created story archives it, undoing a created profile retires it.
+- `mjProfiles` — Midjourney personalization profiles: name, `code` (the
+  `--profile` code), `mjProfileId`, `status` (active/retired), `codeHistory`,
+  and `uses: [{ worldFolderId, role, styleTag? }]`. A world reads only its use.
+
+Functions: `worlds:listWorlds`, `getWorldContext`, `readWorldDoc`,
+`listWorldDocs`, `writeWorldDoc`, `deleteWorldDoc`, `worldDocHistory`,
+`fileWorldAssets`, `saveWorldShelf`, `markWorld`, `listWorldChanges`,
+`getWorldChange`, `undoWorldChanges`, `resolveWorldRef`; `mjProfiles:listProfiles`,
+`saveProfile`. Agent route `/api/agent/worlds`; MCP tools `open_world`,
+`world_doc`, `world_file`, `world_shelf`, `mj_profiles`, `world_journal`,
+`world_undo`, `mark_world`. `search_gallery`, `find_similar`, `preview_assets`,
+`list_assets_page`, `list_stories` and `list_moodboards` take `world`.
 
 ## Validator quick reference
 

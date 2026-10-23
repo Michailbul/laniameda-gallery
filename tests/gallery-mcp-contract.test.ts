@@ -26,7 +26,7 @@ test("MCP reads have read hints and destructive recipe/media tools disclose dele
   for (const name of ["list_srefs", "list_assets_page", "get_gallery_contract", "get_skill_instructions", "list_menu_filters", "list_collections", "list_video_refs_page", "list_assets", "list_skills", "get_skill", "get_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
   for (const name of ["delete_skill", "delete_collection", "delete_video_ref", "delete_gallery_item"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
   const result = await tools.get("get_gallery_contract")!.handler({});
-  expect(JSON.parse(result.content[0].text)).toMatchObject({ serverVersion: "0.3.0", pagination: { includeSkillExamples: { default: false } }, videoReferencePagination: { tool: "list_video_refs_page" }, scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete" } });
+  expect(JSON.parse(result.content[0].text)).toMatchObject({ serverVersion: "1.0.0", pagination: { includeSkillExamples: { default: false } }, videoReferencePagination: { tool: "list_video_refs_page" }, scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete" } });
 });
 test("sref tools reach the same scoped route for hosted and stdio clients", async () => {
   const calls: { path: string; input: JsonRecord }[] = [];
@@ -67,8 +67,8 @@ test("moodboard tools reach one scoped route, describe the Midjourney loop and d
   expect(String(tools.get("set_moodboard_midjourney")!.config.description)).toContain("--profile m<id>");
   const schemas = Object.fromEntries(names.map((name) => [name, Object.keys(tools.get(name)!.config.inputSchema as JsonRecord)]));
   expect(schemas.save_moodboard).toEqual(expect.arrayContaining(["moodboardId", "folderId", "name", "mjCode", "mjMoodboardId", "mjUrl", "expectedRevision"]));
-  expect(schemas.add_moodboard_items).toEqual(["moodboardId", "assetIds", "note"]);
-  expect(schemas.set_moodboard_midjourney).toEqual(["moodboardId", "mjCode", "mjMoodboardId", "mjUrl", "syncedItemCount", "note"]);
+  expect(schemas.add_moodboard_items).toEqual(["moodboardId", "assetIds", "note", "session"]);
+  expect(schemas.set_moodboard_midjourney).toEqual(["moodboardId", "mjCode", "mjMoodboardId", "mjUrl", "syncedItemCount", "note", "session"]);
 
   await tools.get("get_moodboard")!.handler({ moodboardId: "moodboard:m1" });
   await tools.get("add_moodboard_items")!.handler({ moodboardId: "m1", assetIds: ["asset:a1"] });
@@ -81,9 +81,34 @@ test("moodboard tools reach one scoped route, describe the Midjourney loop and d
     { path: "/api/agent/moodboards", input: { action: "generations", moodboardId: "m1" } },
   ]);
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
-  expect(contract.contractVersion).toBe("2026-10-21.1");
+  expect(contract.contractVersion).toBe("2026-10-23.1");
   expect(contract.resources).toContain("moodboards");
   expect(contract.limits).toMatchObject({ moodboardItems: 1000, addMoodboardItems: 100 });
+});
+test("world tools reach one scoped route, scope search by world and disclose their effects", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  for (const name of ["open_world", "world_journal"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["world_doc", "world_file", "world_shelf", "mj_profiles", "world_undo", "mark_world"]) {
+    expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+  }
+  for (const name of ["search_gallery", "preview_assets", "find_similar", "list_assets_page", "list_stories", "list_moodboards"]) {
+    expect(Object.keys(tools.get(name)!.config.inputSchema as JsonRecord)).toContain("world");
+  }
+  for (const name of ["save_story", "update_story", "save_moodboard", "delete_moodboard"]) {
+    expect(Object.keys(tools.get(name)!.config.inputSchema as JsonRecord)).toContain("session");
+  }
+  expect(String(tools.get("open_world")!.config.description)).toContain("Start here");
+  await tools.get("open_world")!.handler({ world: "dear-annete" });
+  await tools.get("world_doc")!.handler({ world: "dear-annete", op: "read", path: "WORLD.md" });
+  await tools.get("world_undo")!.handler({ session: "s1", dryRun: true });
+  expect(calls).toEqual([
+    { path: "/api/agent/worlds", input: { action: "open", world: "dear-annete" } },
+    { path: "/api/agent/worlds", input: { action: "doc", world: "dear-annete", op: "read", path: "WORLD.md" } },
+    { path: "/api/agent/worlds", input: { action: "undo", session: "s1", dryRun: true } },
+  ]);
+  const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
+  expect(contract.resources).toEqual(expect.arrayContaining(["worlds", "worldDocs", "worldJournal", "mjProfiles"]));
 });
 test("collection tools take a display group and update without resending the name", () => {
   const tools = registry(async () => ({}));

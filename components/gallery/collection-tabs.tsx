@@ -1,17 +1,19 @@
 "use client";
 
 import { useConvexAuth, useQuery } from "convex/react";
-import { FolderOpen, Grid3X3, LayoutGrid } from "lucide-react";
+import { FileText, FolderOpen, Grid3X3, LayoutGrid, ScrollText } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-export type CollectionTab = "pieces" | "folders" | "moodboards";
+export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "journal";
 
 /**
  * The views of one collection, as tabs under its breadcrumb: its pieces, its
  * folders (a world's children) and its Moodboards panel with the board count.
  * Shown on every world root and style branch, and on any other collection
  * that has boards. Filters and saved views change the pieces, never the tabs.
+ * A marked world (folders.worldKey) also gets Docs (WORLD.md, LEARNINGS.md,
+ * docs/) and Journal (every change, with undo).
  */
 export function CollectionTabs({
   ownerUserId,
@@ -19,6 +21,7 @@ export function CollectionTabs({
   includeChildren,
   active,
   showFolders,
+  showWorldTabs = false,
   always,
   onSelect,
 }: {
@@ -28,6 +31,8 @@ export function CollectionTabs({
   includeChildren: boolean;
   active: CollectionTab;
   showFolders: boolean;
+  /** A marked world root: adds Docs and Journal. */
+  showWorldTabs?: boolean;
   /** World roots and style branches: show even with no boards yet. */
   always: boolean;
   onSelect: (tab: CollectionTab) => void;
@@ -40,7 +45,7 @@ export function CollectionTabs({
       : "skip",
   );
   const boardCount = boards?.length;
-  if (!always && !boardCount && active !== "moodboards") return null;
+  if (!always && !showWorldTabs && !boardCount && active !== "moodboards") return null;
 
   const tabs: Array<{ key: CollectionTab; label: string; icon: typeof Grid3X3; count?: number; title: string }> = [
     { key: "pieces", label: "Pieces", icon: Grid3X3, title: "Every piece in this collection" },
@@ -54,6 +59,12 @@ export function CollectionTabs({
       count: boardCount,
       title: "Looks to send to Midjourney, made from this collection's images",
     },
+    ...(showWorldTabs
+      ? [
+          { key: "docs" as const, label: "Docs", icon: FileText, title: "WORLD.md, LEARNINGS.md and the world's docs" },
+          { key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" },
+        ]
+      : []),
   ];
 
   return (
