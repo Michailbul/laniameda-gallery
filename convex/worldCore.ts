@@ -114,6 +114,26 @@ export const assertAssetsFitWorld = async (
   }
 };
 
+/**
+ * Before a collection joins a world (brought in as a shelf, or marked as a
+ * world itself), none of its pieces may already belong to another world.
+ */
+export const assertMembersFitWorld = async (ctx: Ctx, folderId: Id<"folders">, worldId: Id<"folders"> | null, what: string) => {
+  const links = await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folderId)).take(2001);
+  if (links.length > 2000) throw new ConvexError(`${what}: more than 2,000 pieces; split it first.`);
+  const memo: WorldMemo = new Map();
+  const clashes: string[] = [];
+  for (const link of links) {
+    const asset = await ctx.db.get(link.assetId);
+    if (!asset) continue;
+    const worlds = await worldsOfFolders(ctx, (await assetFolderIds(ctx, asset)).filter((id) => id !== folderId), memo);
+    if ([...worlds].some((id) => id !== worldId)) clashes.push(`asset:${asset._id}`);
+  }
+  if (clashes.length > 0) {
+    throw new ConvexError(`${what}: ${clashes.length} of its pieces already belong to another world (${clashes.slice(0, 5).join(", ")}${clashes.length > 5 ? " …" : ""}). Move them first with world_file.`);
+  }
+};
+
 /** Resolve a world by key, name or collection id for the signed-in owner. */
 export const resolveWorld = async (ctx: Ctx, owner: string, ref: string): Promise<Folder> => {
   const value = ref.trim().replace(/^(folder|collection|world):/, "");
@@ -188,12 +208,55 @@ const serialize = (value: unknown) => {
   return text;
 };
 
+/** Same content, ignoring revision counters (an undo bumps them). */
+export const sameContent = (a: unknown, b: unknown) => JSON.stringify(stripRevisions(a)) === JSON.stringify(stripRevisions(b));
+const stripRevisions = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stripRevisions);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([key, entry]) => key !== "revision" && entry !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => [key, stripRevisions(entry)]));
+  }
+  return value;
+};
+
 export const cleanSession = (value: string | undefined) => {
   const session = value?.trim().slice(0, 80);
   return session || undefined;
 };
 
 /** Write one journal entry in the same transaction as the change it records. */
+/** Any session-less change is grouped by actor and hour, so it can still be read and undone as a unit. */
+const autoSession = (actor: string | undefined) =>
+  `auto:${(actor?.trim() || "owner").slice(0, 40)}:${new Date(Date.now()).toISOString().slice(0, 13)}`;
+
+/**
+ * Journal a membership change made by any path (the collection editor,
+ * update_gallery_item, ingest with a folder). Recorded in the first world it
+ * touches, in the same shape world_file uses, so world_undo can revert it.
+ */
+export const journalAssetMembership = async (
+  ctx: MutationCtx,
+  asset: Doc<"assets">,
+  beforeFolderIds: Id<"folders">[],
+  afterFolderIds: Id<"folders">[],
+  afterPrimary: Id<"folders"> | undefined,
+) => {
+  const same = beforeFolderIds.length === afterFolderIds.length && beforeFolderIds.every((id) => afterFolderIds.includes(id));
+  if (same) return;
+  const worlds = await worldsOfFolders(ctx, [...afterFolderIds, ...beforeFolderIds]);
+  const worldId = [...worlds][0];
+  if (!worldId) return;
+  await recordWorldChange(ctx, {
+    ownerUserId: asset.ownerUserId ?? "", worldFolderId: worldId, op: "assets.file", targetType: "assets", targetId: `${worldId}:assets`,
+    summary: `Refiled asset:${asset._id} in the gallery (${beforeFolderIds.length} → ${afterFolderIds.length} collections)`,
+    before: [{ assetId: asset._id, folderIds: beforeFolderIds, primary: asset.folderId ?? null, tagIds: asset.tagIds }],
+    after: [{ assetId: asset._id, folderIds: afterFolderIds, primary: afterPrimary ?? null, tagIds: asset.tagIds }],
+    actor: "gallery",
+  });
+};
+
 export const recordWorldChange = async (
   ctx: MutationCtx,
   entry: {
@@ -216,7 +279,7 @@ export const recordWorldChange = async (
     targetId: entry.targetId,
     summary: entry.summary.slice(0, 300),
     actor: entry.actor?.trim().slice(0, 80) || "owner",
-    session: cleanSession(entry.session),
+    session: cleanSession(entry.session) ?? autoSession(entry.actor),
     before: serialize(entry.before),
     after: serialize(entry.after),
     revertOf: entry.revertOf,

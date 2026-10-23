@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { storyFields, storyKindValidator, storyResultValidator, storyStatusValidator } from "./storyValidators";
-import { assertAssetsFitWorld, cleanSession, recordWorldChange, worldIdOfFolder } from "./worldCore";
+import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder } from "./worldCore";
 
 const ownedStory = async (ctx: QueryCtx, owner: string, id: Id<"stories">) => {
   const story = await ctx.db.get(id);
@@ -31,7 +31,7 @@ const requireReferences = async (ctx: QueryCtx, owner: string, data: {
   const folderWorld = await worldIdOfFolder(ctx, data.folderId);
   const bookWorld = await worldIdOfFolder(ctx, data.storybookId);
   if (data.storybookId && !bookWorld && folderWorld) throw new ConvexError("That storybook is not in this story's world. Bring it into the world first (world_shelf).");
-  if (folderWorld && bookWorld && folderWorld !== bookWorld) throw new ConvexError("A story and its storybook must be in the same world.");
+  if (bookWorld && folderWorld !== bookWorld) throw new ConvexError("A story and its storybook must be in the same world: set folderId to the world or one of its collections.");
   if (bookWorld && !data.folderId) throw new ConvexError("A story in a world's storybook needs folderId: the world or one of its collections.");
   // Links a story already had stay valid; new links must fit its world.
   const previous = new Set(previousAssetIds);
@@ -63,7 +63,7 @@ export const restoreStorySnapshot = async (
 ): Promise<{ ok: true; restored: StorySnapshot | null } | { ok: false; reason: string }> => {
   const story = await ctx.db.get(storyId);
   if (!story || !canActorAccessOwnerUserId(owner, story.ownerUserId)) return { ok: false, reason: "the story is gone" };
-  if (story.revision !== after.revision) return { ok: false, reason: `"${story.title}" changed since (revision ${story.revision})` };
+  if (!sameContent(storySnapshot(story).fields, after.fields)) return { ok: false, reason: `"${story.title}" changed since (revision ${story.revision})` };
   if (dryRun) return { ok: true, restored: null };
   const now = Date.now();
   const { _id, _creationTime, ingestKey: _key, searchText: _search, createdAt: _created, updatedAt: _updated, ...current } = story;

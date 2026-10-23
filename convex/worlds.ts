@@ -12,7 +12,7 @@ import { restoreMoodboardSnapshot, type MoodboardSnapshot } from "./moodboards";
 import { restoreProfileSnapshot, type ProfileSnapshot } from "./mjProfiles";
 import { restoreStorySnapshot, type StorySnapshot } from "./stories";
 import {
-  WORLD_KEY_PATTERN, assertSingleWorld, assetFolderIds, childrenOf, cleanSession, listWorldRoots,
+  WORLD_KEY_PATTERN, assertMembersFitWorld, assertSingleWorld, assetFolderIds, childrenOf, cleanSession, listWorldRoots,
   recordWorldChange, resolveWorld, worldKeyFromName, worldRootOfFolder, type JournalMeta, type WorldChangeOp, type WorldMemo,
 } from "./worldCore";
 import {
@@ -86,6 +86,10 @@ export const markWorld = ownerMutation({
       }
     }
     if (next === folder.worldKey && !converting) return { worldId: folder._id, worldKey: next };
+    if (next && !folder.worldKey) {
+      await assertMembersFitWorld(ctx, folder._id, null, `"${folder.name}" cannot become a world`);
+      for (const child of await childrenOf(ctx, folder._id)) await assertMembersFitWorld(ctx, child._id, null, `Its shelf "${child.name}"`);
+    }
     await ctx.db.patch(folder._id, { worldKey: next, ...(converting ? { kind: undefined } : {}), updatedAt: Date.now() });
     await recordWorldChange(ctx, {
       ownerUserId: args.ownerUserId, worldFolderId: folder._id, op: "world.mark", targetType: "world", targetId: folder._id,
@@ -145,6 +149,8 @@ export const getWorldContext = ownerQuery({
     docs: v.array(docRefValidator),
     limits: v.object({ worldDoc: v.number(), learnings: v.number(), learningEntries: v.number(), doc: v.number(), docs: v.number() }),
     styles: v.array(v.object({ styleTag: v.string(), branch: v.optional(v.string()), locks: v.array(storyRefValidator), moodboards: v.number() })),
+    otherLocks: v.array(v.object({ id: v.id("stories"), title: v.string(), status: v.string(), styleTag: v.optional(v.string()) })),
+    storyCount: v.number(),
     shelves: v.array(shelfValidator),
     storybooks: v.array(v.object({ id: v.id("folders"), name: v.string(), count: v.number(), description: v.optional(v.string()), stories: v.array(storyRefValidator) })),
     stories: v.array(storyRefValidator),
@@ -194,14 +200,13 @@ export const getWorldContext = ownerQuery({
         mjCode: board.mjCode, mjMoodboardId: board.mjMoodboardId,
         profileFlag: board.mjCode ? profileFlagForCode(board.mjCode) : board.mjMoodboardId ? profileFlagForMoodboardId(board.mjMoodboardId) : undefined,
         itemCount: board.itemCount, mjSyncedItemCount: board.mjSyncedItemCount, sync: syncLabel(board, addedAts),
-        description: board.description, notes: board.notes,
       });
     }
 
     const profiles = [];
     for (const candidate of resolveUserIdCandidates(owner)) {
       const rows = await ctx.db.query("mjProfiles").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate)).collect();
-      for (const row of rows) {
+      for (const row of rows.filter((profile) => profile.status === "active")) {
         for (const use of row.uses.filter((entry) => entry.worldFolderId === root._id)) {
           profiles.push({
             id: row._id, name: row.name, code: row.code, flag: profileFlagForCode(row.code), status: row.status,
@@ -212,9 +217,13 @@ export const getWorldContext = ownerQuery({
     }
 
     // Styles: every style tag a lock, board or profile names, with its branch.
+    // A style is a style tag that has a moodboard; other locks are listed
+    // apart so retired lanes do not read as live styles.
     const styleTags = new Set<string>();
-    for (const story of stories) if (story.kind === "style-lock" && story.styleTag) styleTags.add(story.styleTag);
     for (const board of boards) if (board.styleTag) styleTags.add(board.styleTag);
+    const otherLocks = stories
+      .filter((story) => story.kind === "style-lock" && (!story.styleTag || !styleTags.has(story.styleTag)))
+      .map((story) => ({ id: story._id, title: story.title, status: story.status, styleTag: story.styleTag }));
     const styles = [...styleTags].sort().map((styleTag) => {
       const branchBoards = boards.filter((board) => board.styleTag === styleTag);
       const branchId = branchBoards[0]?.folderId;
@@ -228,10 +237,10 @@ export const getWorldContext = ownerQuery({
 
     const shelves = children.filter((child) => child.kind === undefined).map((child) => ({
       id: child._id, name: child.name, kind: "shelf" as const, group: child.group, sortOrder: child.sortOrder,
-      count: child.memberCount ?? 0, description: child.description,
+      count: child.memberCount ?? 0,
     }));
     const storybooks = children.filter((child) => child.kind === "storybook").map((child) => ({
-      id: child._id, name: child.name, count: child.memberCount ?? 0, description: child.description?.slice(0, 600),
+      id: child._id, name: child.name, count: child.memberCount ?? 0, description: child.description?.slice(0, 200),
       stories: stories.filter((story) => story.storybookId === child._id || story.folderId === child._id).map(storyRef),
     }));
 
@@ -241,7 +250,7 @@ export const getWorldContext = ownerQuery({
       characters.push(...rows.map((row) => ({ id: row._id, code: row.code, name: row.name, status: row.status })));
     }
 
-    const journalLimit = Math.min(Math.max(args.journalLimit ?? 10, 0), 50);
+    const journalLimit = Math.min(Math.max(args.journalLimit ?? 5, 0), 50);
     const recent = journalLimit === 0 ? [] : await recentChanges(ctx, owner, root._id, journalLimit);
 
     return {
@@ -253,8 +262,10 @@ export const getWorldContext = ownerQuery({
         worldDoc: WORLD_DOC_LIMITS.main, learnings: WORLD_DOC_LIMITS.learnings, learningEntries: WORLD_DOC_LIMITS.learningEntries,
         doc: WORLD_DOC_LIMITS.doc, docs: WORLD_DOC_LIMITS.docs,
       },
-      styles, shelves, storybooks,
-      stories: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).map(storyRef),
+      styles, otherLocks, shelves, storybooks,
+      // The 25 newest loose stories; list_stories with world reads them all.
+      storyCount: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).length,
+      stories: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 25).map(storyRef),
       moodboards, profiles, characters, recentChanges: recent.map(toChange),
     };
   },
@@ -318,6 +329,9 @@ const writeDoc = async (
   revertOf?: Id<"worldChanges">,
 ) => {
   const existing = await findDoc(ctx, owner, root._id, path);
+  if (existing && expectedRevision === undefined && op === "doc.write" && body !== null) {
+    throw new ConvexError(`${path} exists (revision ${existing.revision}). Read it and pass expectedRevision, so nobody's edit is overwritten.`);
+  }
   if (expectedRevision !== undefined && expectedRevision !== (existing?.revision ?? 0)) {
     throw new ConvexError(`${path} changed (now revision ${existing?.revision ?? 0}). Read it again before writing.`);
   }
@@ -483,6 +497,8 @@ export const fileWorldAssets = ownerMutation({
     removeTags: v.optional(v.array(v.string())),
     // Take the assets out of every other world first (journaled with the rest).
     move: v.optional(v.boolean()),
+    // New tag names are refused unless this is set: reuse the vocabulary.
+    createTags: v.optional(v.boolean()),
     note: v.optional(v.string()),
     ...journalArgs,
   },
@@ -499,6 +515,11 @@ export const fileWorldAssets = ownerMutation({
     const children = (await childrenOf(ctx, root._id)).filter((child) => owned(owner, child));
     const addTo = (args.addTo ?? []).map((ref) => resolveShelf(root, children, ref)._id);
     const removeFrom = new Set((args.removeFrom ?? []).map((ref) => resolveShelf(root, children, ref)._id));
+    if (!args.createTags) {
+      const unknown: string[] = [];
+      for (const name of args.addTags ?? []) if ((await existingTagIds(ctx, [name])).size === 0) unknown.push(name);
+      if (unknown.length > 0) throw new ConvexError(`Unknown tags: ${unknown.join(", ")}. Reuse existing tags (list_tags), or pass createTags: true when a new one is needed.`);
+    }
     const addTagIds = await resolveTagIdsForNames(ctx, args.addTags ?? [], undefined);
     const removeTagIds = await existingTagIds(ctx, args.removeTags ?? []);
     if (addTo.length === 0 && removeFrom.size === 0 && addTagIds.length === 0 && removeTagIds.size === 0) {
@@ -630,6 +651,7 @@ export const saveWorldShelf = ownerMutation({
     if (!folder.parentFolderId) {
       const grandchildren = await childrenOf(ctx, folder._id);
       if (grandchildren.length > 0) throw new ConvexError(`"${folder.name}" holds sub-collections and cannot move inside a world.`);
+      await assertMembersFitWorld(ctx, folder._id, root._id, `"${folder.name}" cannot join ${root.name}`);
     }
     if (args.kind && args.kind !== (folder.kind === "storybook" ? "storybook" : "shelf")) {
       throw new ConvexError("A shelf and a storybook keep their kind; create a new one instead.");
@@ -743,8 +765,12 @@ type RevertOutcome = { ok: true; summary: string } | { ok: false; reason: string
 
 const parse = <T>(text: string | undefined): T | null => (text ? JSON.parse(text) as T : null);
 
-/** Check whether a change can still be reverted, and do it unless dryRun. */
-const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dryRun: boolean, journal: JournalMeta): Promise<RevertOutcome> => {
+/**
+ * Revert one change if its target still holds the change's result (compared
+ * by content, so an earlier undo in the same run does not count as a change).
+ * Folders whose membership moved go into `touched` for one recount at the end.
+ */
+const revertChange = async (ctx: MutationCtx, owner: string, change: Change, journal: JournalMeta, touched: Set<Id<"folders">>): Promise<RevertOutcome> => {
   if (change.revertedBy) return { ok: false, reason: "already undone" };
   const root = await ctx.db.get(change.worldFolderId);
   if (!root) return { ok: false, reason: "its world no longer exists" };
@@ -752,6 +778,8 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
     const undoId = await recordWorldChange(ctx, {
       ownerUserId: owner, worldFolderId: root._id, op, targetType: change.targetType, targetId,
       summary: `Undo: ${summary}`, before, after, revertOf: change._id, ...journal,
+      // Without its own label an undo joins the session it reverts.
+      session: journal.session ?? change.session,
     });
     await ctx.db.patch(change._id, { revertedBy: undoId });
     return undoId;
@@ -763,10 +791,9 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
       const before = parse<DocState>(change.before)!;
       const after = parse<DocState>(change.after)!;
       const current = await findDoc(ctx, owner, root._id, after.path);
-      if ((current?.revision ?? 0) !== after.revision || (current?.body ?? null) !== after.body) {
+      if ((current?.body ?? null) !== after.body) {
         return { ok: false, reason: `${after.path} changed since (now revision ${current?.revision ?? 0}); undo the later change first` };
       }
-      if (dryRun) return { ok: true, summary: change.summary };
       const now = Date.now();
       const actor = journal.actor?.trim().slice(0, 80) || "owner";
       let restored: DocState;
@@ -796,13 +823,10 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
         assets.push(asset);
       }
       if (conflicts.length > 0) return { ok: false, reason: conflicts.slice(0, 5).join("; ") };
-      if (dryRun) return { ok: true, summary: change.summary };
-      const touched = new Set<Id<"folders">>();
       for (const [index, asset] of assets.entries()) {
         const target = before.find((state) => state.assetId === asset._id) ?? before[index]!;
         for (const id of await applyFileState(ctx, asset, target)) touched.add(id);
       }
-      await recountFolderMembers(ctx, touched);
       for (const asset of assets) await syncPublicCollectionMembership(ctx, asset._id);
       await record(change.summary, after, before);
       return { ok: true, summary: change.summary };
@@ -815,7 +839,6 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
       const board = await ctx.db.query("moodboards").withIndex("by_owner_folder_normalizedName", (q) => q.eq("ownerUserId", folder.ownerUserId ?? owner).eq("folderId", folder._id)).first();
       const story = await ctx.db.query("stories").withIndex("by_owner_folder_updatedAt", (q) => q.eq("ownerUserId", folder.ownerUserId ?? owner).eq("folderId", folder._id)).first();
       if (link || board || story) return { ok: false, reason: `"${folder.name}" holds pieces, boards or stories now; move them out first` };
-      if (dryRun) return { ok: true, summary: change.summary };
       await ctx.db.delete(folder._id);
       await record(change.summary, { folderId: folder._id }, null);
       return { ok: true, summary: change.summary };
@@ -830,7 +853,6 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
         return { ok: false, reason: `"${folder.name}" changed since` };
       }
       if (before.normalizedName && before.normalizedName !== folder.normalizedName) await assertNameFree(ctx, owner, before.normalizedName, folder._id);
-      if (dryRun) return { ok: true, summary: change.summary };
       await ctx.db.patch(folder._id, {
         name: before.name, normalizedName: before.normalizedName, description: before.description, group: before.group,
         sortOrder: before.sortOrder, parentFolderId: before.parentFolderId, showcased: before.showcased, showcaseFeatured: before.showcaseFeatured,
@@ -846,7 +868,6 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
       if (before.kind === "storybook" && (await childrenOf(ctx, root._id)).length > 0) {
         return { ok: false, reason: `"${root.name}" holds shelves now and cannot turn back into a storybook` };
       }
-      if (dryRun) return { ok: true, summary: change.summary };
       await ctx.db.patch(root._id, { worldKey: before.worldKey ?? undefined, ...(before.kind === "storybook" ? { kind: "storybook" as const } : {}) });
       await record(change.summary, after, before);
       return { ok: true, summary: change.summary };
@@ -857,26 +878,26 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, dry
     case "moodboard.delete": {
       const before = parse<MoodboardSnapshot>(change.before);
       const after = parse<MoodboardSnapshot>(change.after);
-      const outcome = await restoreMoodboardSnapshot(ctx, owner, change.targetId as Id<"moodboards">, before, after, dryRun);
+      const outcome = await restoreMoodboardSnapshot(ctx, owner, change.targetId as Id<"moodboards">, before, after, false);
       if (!outcome.ok) return outcome;
       // A deleted board comes back under a new id; the undo entry names it.
-      if (!dryRun) await record(change.summary, after, outcome.restored, change.op as WorldChangeOp, outcome.restored?.moodboardId ?? change.targetId);
+      await record(change.summary, after, outcome.restored, change.op as WorldChangeOp, outcome.restored?.moodboardId ?? change.targetId);
       return { ok: true, summary: change.summary };
     }
     case "profile.save": {
       const before = parse<ProfileSnapshot>(change.before);
       const after = parse<ProfileSnapshot>(change.after);
-      const outcome = await restoreProfileSnapshot(ctx, owner, change.targetId as Id<"mjProfiles">, before, after, dryRun);
+      const outcome = await restoreProfileSnapshot(ctx, owner, change.targetId as Id<"mjProfiles">, before, after, false);
       if (!outcome.ok) return outcome;
-      if (!dryRun) await record(change.summary, after, outcome.restored);
+      await record(change.summary, after, outcome.restored);
       return { ok: true, summary: change.summary };
     }
     case "story.save": {
       const before = parse<StorySnapshot>(change.before);
       const after = parse<StorySnapshot>(change.after)!;
-      const outcome = await restoreStorySnapshot(ctx, owner, change.targetId as Id<"stories">, before, after, dryRun);
+      const outcome = await restoreStorySnapshot(ctx, owner, change.targetId as Id<"stories">, before, after, false);
       if (!outcome.ok) return outcome;
-      if (!dryRun) await record(change.summary, after, outcome.restored);
+      await record(change.summary, after, outcome.restored);
       return { ok: true, summary: change.summary };
     }
     default:
@@ -927,16 +948,23 @@ export const undoWorldChanges = ownerMutation({
     }
     const undone = [];
     const blocked = [];
-    // A session is undone newest first; a blocked change stops the older
-    // ones that may depend on it, so the world never ends up half-reverted.
-    let stop = false;
+    const touched = new Set<Id<"folders">>();
+    // Newest first. Each revert sees the state the previous one left, so a
+    // session that edited one doc twice unwinds both edits. A blocked change
+    // stops the run.
     for (const change of changes) {
-      if (stop) { blocked.push({ changeId: change._id, summary: change.summary, reason: "a later change in the session could not be undone" }); continue; }
-      const outcome = await revertChange(ctx, owner, change, dryRun, meta(args));
+      const outcome = await revertChange(ctx, owner, change, meta(args), touched);
       if (outcome.ok) undone.push({ changeId: change._id, summary: change.summary });
-      else { blocked.push({ changeId: change._id, summary: change.summary, reason: outcome.reason }); stop = changes.length > 1; }
+      else { blocked.push({ changeId: change._id, summary: change.summary, reason: outcome.reason }); break; }
     }
-    return { dryRun, undone, blocked };
+    const skipped = changes.slice(undone.length + blocked.length)
+      .map((change) => ({ changeId: change._id, summary: change.summary, reason: "an earlier change in this undo was blocked" }));
+    const report = { dryRun, undone, blocked: [...blocked, ...skipped] };
+    // All or nothing: a blocked run and every dry run end by throwing, so
+    // Convex rolls back every revert made above. The report rides on the error.
+    if (dryRun || blocked.length > 0) throw new ConvexError({ kind: "world-undo-report", ...report });
+    await recountFolderMembers(ctx, touched);
+    return report;
   },
 });
 

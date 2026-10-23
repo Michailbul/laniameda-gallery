@@ -12,7 +12,7 @@ const shelfRefs = z.array(z.string().trim().min(1).max(200)).max(20);
 
 export const worldOpenSchema = z.object({
   world: world.optional(),
-  journalLimit: z.number().int().min(0).max(50).optional().describe("How many recent journal entries to include (default 10)."),
+  journalLimit: z.number().int().min(0).max(50).optional().describe("How many recent journal entries to include (default 5)."),
 });
 
 export const worldDocSchema = z.object({
@@ -37,6 +37,7 @@ export const worldFileSchema = z.object({
   addTags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   removeTags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   move: z.boolean().optional().describe("Take the assets out of every other world first. Without it, filing an asset that lives in another world is refused."),
+  createTags: z.boolean().optional().describe("Allow addTags to create tags that do not exist yet. Off by default: reuse the vocabulary."),
   note: z.string().trim().max(200).optional(),
   session,
 });

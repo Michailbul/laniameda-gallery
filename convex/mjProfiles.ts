@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
-import { cleanSession, recordWorldChange, resolveWorld } from "./worldCore";
+import { cleanSession, recordWorldChange, resolveWorld, sameContent } from "./worldCore";
 import { cleanMidjourneyCode, normalizeMoodboardStyleTag, profileFlagForCode } from "../lib/moodboards";
 
 // Midjourney personalization profiles: Michael's taste, trained by his
@@ -158,7 +158,6 @@ export const saveProfile = ownerMutation({
       notes: args.notes === undefined ? row.notes : notes,
       status: args.status ?? row.status,
     };
-    const next = { ...before, ...patch, profileId: row._id };
     if (JSON.stringify({ ...before, revision: 0 }) === JSON.stringify({ ...snapshot({ ...row, ...patch } as Profile), revision: 0 })) {
       return { profileId: row._id, created: false, revision: row.revision, changeId: null };
     }
@@ -172,8 +171,17 @@ export const saveProfile = ownerMutation({
     ].filter(Boolean).join("; ") || "details";
     const changeId = await recordWorldChange(ctx, {
       ownerUserId: owner, worldFolderId: root._id, op: "profile.save", targetType: "profile", targetId: row._id,
-      summary: `Profile ${name}: ${what}`, before, after: { ...next, revision }, actor: args.actor, session: cleanSession(args.session),
+      summary: `Profile ${name}: ${what}`, before, after: snapshot({ ...row, ...patch, revision } as Profile), actor: args.actor, session: cleanSession(args.session),
     });
+    // A shared profile's code, name or status changes for every world using
+    // it: each of them sees the change in its own journal (undo it from one).
+    const shared = new Set([...row.uses, ...uses].map((use) => use.worldFolderId).filter((id) => id !== root._id));
+    for (const worldFolderId of shared) {
+      await recordWorldChange(ctx, {
+        ownerUserId: owner, worldFolderId, op: "profile.save", targetType: "profile", targetId: row._id,
+        summary: `Profile ${name} changed from ${root.name}: ${what}`, before, after: snapshot({ ...row, ...patch, revision } as Profile), actor: args.actor, session: cleanSession(args.session),
+      });
+    }
     return { profileId: row._id, created: false, revision, changeId };
   },
 });
@@ -185,7 +193,7 @@ export const restoreProfileSnapshot = async (
 ): Promise<{ ok: true; restored: ProfileSnapshot | null } | { ok: false; reason: string }> => {
   const row = await ctx.db.get(profileId);
   if (!row || !canActorAccessOwnerUserId(owner, row.ownerUserId)) return { ok: false, reason: "the profile is gone" };
-  if (after && row.revision !== after.revision) return { ok: false, reason: `profile ${row.name} changed since` };
+  if (after && !sameContent(snapshot(row), after)) return { ok: false, reason: `profile ${row.name} changed since` };
   if (dryRun) return { ok: true, restored: null };
   if (!before) {
     // Undoing a create retires the profile rather than deleting a record

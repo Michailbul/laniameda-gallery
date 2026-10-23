@@ -47,8 +47,9 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
    Michael's words (shelves, counts, boards), plus the session label.
 6. **Record what he decided** (learning loop below).
 7. **Undo with a dry run first.** `world_undo {session, world, dryRun: true}` (or `changeId`),
-   read what it would restore, then run it for real. Undo goes newest first and stops at the first
-   change that cannot be reverted because its target changed since.
+   read what it would restore, then run it for real. Undo goes newest first, so a session that
+   edited one doc twice unwinds both. It is all or nothing: if any change was changed again since,
+   nothing is undone and the report says which one.
 
 ## World tools
 
@@ -74,9 +75,12 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
 | `LEARNINGS.md` | 40 entries, 6,000 chars | One-line dated learnings from iterations, each with its source. |
 | `docs/<kebab-name>.md` | 8 docs, 12,000 chars each | Depth: tag vocabulary, Midjourney stacks, casting notes. |
 
-Write with the `expectedRevision` you last read. The server refuses a write over a cap with
+Write with the `expectedRevision` you last read (required once a doc exists). The server refuses a write over a cap with
 "promote or prune first"; do that, then write again. Every write is journaled with the full
 before and after.
+
+`world_file addTags` only takes tags that already exist (`list_tags`); pass `createTags: true`
+when a new one is really needed.
 
 ## Learning loop
 
@@ -87,6 +91,8 @@ After an iteration where Michael picked, commented or answered Inbox cards:
 - A learning Michael stated or confirmed twice becomes a numbered rule in WORLD.md
   (`15. <rule> (Michael, 2026-10-23; was L-009, L-014)`) and leaves LEARNINGS.md in the same
   session.
+- Every promotion also goes to the world's Inbox as a rule card (`post_inbox_cards`, kind
+  `rule`), so Michael sees new rules where he decides. If he rejects it, undo the promotion.
 - A learning his newer choice contradicts is deleted.
 - At the cap, promote or prune first, then add.
 - Record what he chose and said. Your own taste never becomes a learning or a rule.

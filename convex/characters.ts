@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { assertAssetsFitWorld, worldIdOfFolder } from "./worldCore";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   characterDocValidator, characterLaneValidator, characterLinkRoleValidator, characterStatusValidator,
@@ -430,6 +431,8 @@ export const linkAssets = ownerMutation({
     if (args.links.length === 0) throw new ConvexError("Supply at least one asset to link.");
     if (args.links.length > MAX_LINKS_PER_CALL) throw new ConvexError(`Link at most ${MAX_LINKS_PER_CALL} assets per call.`);
     const character = await resolveCharacter(ctx, args.ownerUserId, args.character);
+    // A character's pieces come from its own world (or from no world).
+    await assertAssetsFitWorld(ctx, await worldIdOfFolder(ctx, character.worldFolderId), args.links.map((link) => link.assetId), `${character.code} ${character.name}`);
     const counts = { created: 0, updated: 0, unchanged: 0 };
     for (const link of args.links) {
       await requireAsset(ctx, args.ownerUserId, link.assetId);

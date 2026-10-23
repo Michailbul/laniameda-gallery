@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
+import { ConvexError } from "convex/values";
 import { useMutation } from "convex/react";
 import { AlertTriangle, Check, RotateCcw, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -145,7 +146,18 @@ type UndoState =
  * what is blocked, and only on confirm runs it for real. Render `dialog`.
  */
 export function useWorldUndo(ownerUserId: string) {
-  const undo = useMutation(api.worlds.undoWorldChanges);
+  const undoMutation = useMutation(api.worlds.undoWorldChanges);
+  // Dry runs and blocked runs roll back on the server and send their report
+  // on the error; anything else is a real failure.
+  const undo = useCallback(async (args: Parameters<typeof undoMutation>[0]): Promise<UndoResult> => {
+    try {
+      return await undoMutation(args);
+    } catch (error) {
+      const data = error instanceof ConvexError ? (error.data as (UndoResult & { kind?: string }) | undefined) : undefined;
+      if (data?.kind === "world-undo-report") return { dryRun: data.dryRun, undone: data.undone, blocked: data.blocked };
+      throw error;
+    }
+  }, [undoMutation]);
   const [state, setState] = useState<UndoState>({ step: "idle" });
 
   const argsFor = useCallback((target: UndoTarget, dryRun: boolean) => (
@@ -196,7 +208,8 @@ function UndoDialog({ state, onConfirm, onClose }: { state: Exclude<UndoState, {
 
   const result = "result" in state ? state.result : null;
   const title = state.step === "done" ? "Undone" : state.step === "error" ? "Undo failed" : state.target.kind === "session" ? "Undo session" : "Undo change";
-  const canRun = state.step === "preview" && (result?.undone.length ?? 0) > 0;
+  // A run is all or nothing, so anything blocked means it cannot run.
+  const canRun = state.step === "preview" && (result?.undone.length ?? 0) > 0 && (result?.blocked.length ?? 0) === 0;
 
   return <div className="fixed inset-0 z-[90] grid place-items-center p-4" role="presentation"
     style={{ background: "var(--lm-overlay-canvas)" }} onClick={() => { if (!running) onClose(); }}>
