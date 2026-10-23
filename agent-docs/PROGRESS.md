@@ -2,11 +2,29 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-19
+Last updated: 2026-10-23
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-23 (#69, #70; backend pushed 23 Oct, live) — gallery harness 1.0
+- Worlds are marked roots (`folders.worldKey`); 12 marked. Convex refuses any
+  write that puts an asset, board item, character link or new story link into
+  a second world; shelves cannot move across worlds. Storybooks are children of
+  their world (group Storybooks); 17 root storybooks moved in.
+- World files (`worldDocs`): WORLD.md / LEARNINGS.md / docs/*.md with caps.
+  Seeded for all 12 worlds; the private worlds.md shrank from 42k to 12.5k
+  (gallery-wide rules only). Backup and migration log are private, outside the repo.
+- Journal (`worldChanges`) for every world write, including the collection
+  editor and update_gallery_item; `world_undo` is content-based, all or
+  nothing, exact dry runs. `mjProfiles` with a role per world (9 imported).
+- MCP: open_world, world_doc, world_file, world_shelf, mj_profiles,
+  world_journal, world_undo, mark_world; `world` filter on search/listing.
+- UI: Docs and Journal tabs on world roots.
+- Claude Code plugin `plugin/` (1.0.1) + repo-root marketplace `laniameda`.
+  Plan: `agent-docs/features/world-harness-1.0/PLAN.md`; `agent-docs/PLUGIN.md`.
+
 
 ### 2026-10-19 (branch `claude/moodboards-feature`, frontend only)
 - Moodboards are their own feature. A Moodboards tab in the sidebar and the

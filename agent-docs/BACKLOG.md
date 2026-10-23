@@ -113,3 +113,11 @@ No queued ready items. Promote from backlog after the production hardening pass 
 | — | Ingestion action with idempotency key | 2026-02 |
 | — | Backend: hidden ingest tool + Telegram streaming pipeline | 2026-02 |
 | — | Dev Telegram simulator + structured observability | 2026-02 |
+
+
+## Harness 1.1 (from the 23 Oct critic round)
+- Archive/delete for shelves and storybooks as journaled world operations; restore a doc to revision N.
+- Journal deletes (assets, stories, collections) and character edits.
+- open_world: `include` parameter; a leak count without a full scan.
+- Plugin: drop rules duplicated from the live skill; avoid double MCP registration inside this repo.
+- Michael's calls: owner of the 31 two-world assets; Art Deco as its own world or a style branch; register the five established Dear Annete characters; archive the old Dear Annete world guide.
