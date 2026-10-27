@@ -2099,6 +2099,68 @@ html.stg-x-capturing .stg-badge {
   border-color: #ff8c42;
 }
 
+.stg-mb-snap {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 8px));
+  padding: 8px;
+  color: #d8d4cf;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.stg-mb-snap[hidden] {
+  display: none;
+}
+
+.stg-mb-snap-row {
+  display: flex;
+  gap: 4px;
+}
+
+.stg-mb-snap-img {
+  display: block;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  background: #232323;
+  border-radius: 6px;
+}
+
+.stg-mb-snap-empty {
+  padding: 4px 0;
+  color: #9a958f;
+}
+
+.stg-mb-snap-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stg-mb-snap-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stg-mb-snap-code {
+  flex: none;
+  color: #ff8c42;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+}
+
 .stg-mb-status {
   color: #9a958f;
 }

@@ -101,10 +101,26 @@
     return head || short;
   }
 
+  // Picture URLs for a board's hover snapshot, from the route's previews.
+  // Falls back to the single thumbUrl of older responses. At most 6, no repeats.
+  function snapshotImages(board) {
+    const urls = [];
+    const list = Array.isArray(board && board.previews) ? board.previews : [];
+    for (const item of list) {
+      const url = item && (item.thumbUrl || item.url);
+      if (typeof url === "string" && url && !urls.includes(url)) urls.push(url);
+    }
+    if (!urls.length && board && typeof board.thumbUrl === "string" && board.thumbUrl) {
+      urls.push(board.thumbUrl);
+    }
+    return urls.slice(0, 6);
+  }
+
   globalScope.SaveToGalleryMoodboardDock = {
     applyMoodboardToPrompt,
     activeBoardCodes,
     chipLabel,
+    snapshotImages,
   };
 
   const onMidjourney =
@@ -129,6 +145,7 @@
   let statusLine = null;
   let textarea = null;
   let layoutQueued = false;
+  let snapshot = null;
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -156,12 +173,92 @@
     return state.moodboards.map((board) => board.mjCode);
   }
 
+  function extensionAlive() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  }
+
+  function hideSnapshot() {
+    if (snapshot) snapshot.hidden = true;
+  }
+
+  function showSnapshot(board, chip) {
+    if (!dock || !snapshot) return;
+    snapshot.textContent = "";
+    const row = el("div", "stg-mb-snap-row");
+    const empty = el("div", "stg-mb-snap-empty", "No images yet");
+    const urls = snapshotImages(board);
+    let shown = urls.length;
+    if (!urls.length) row.appendChild(empty);
+    for (const url of urls) {
+      const img = el("img", "stg-mb-snap-img");
+      img.alt = "";
+      img.decoding = "async";
+      img.addEventListener("error", () => {
+        img.remove();
+        shown -= 1;
+        if (shown <= 0 && !empty.isConnected) row.appendChild(empty);
+        placeSnapshot(chip);
+      });
+      img.addEventListener("load", () => placeSnapshot(chip));
+      img.src = url;
+      row.appendChild(img);
+    }
+    const meta = el("div", "stg-mb-snap-meta");
+    meta.append(
+      el("span", "stg-mb-snap-name", board.name || board.shortName || board.mjCode),
+      el("span", "stg-mb-snap-code", board.flag || `-p ${board.mjCode}`),
+    );
+    snapshot.append(row, meta);
+    snapshot.hidden = false;
+    placeSnapshot(chip);
+  }
+
+  // Opens on the side of the dock away from the prompt bar, so the bar stays clear.
+  function placeSnapshot(chip) {
+    if (!dock || !snapshot || snapshot.hidden || !chip.isConnected) return;
+    const dockRect = dock.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const width = snapshot.offsetWidth;
+    const left = Math.max(
+      4,
+      Math.min(
+        chipRect.left + chipRect.width / 2 - width / 2,
+        window.innerWidth - width - 4,
+      ),
+    );
+    snapshot.style.left = `${Math.round(left)}px`;
+    if (dockRect.top > window.innerHeight * 0.5) {
+      snapshot.style.top = "auto";
+      snapshot.style.bottom = `${Math.round(window.innerHeight - dockRect.top + DOCK_GAP_PX)}px`;
+    } else {
+      snapshot.style.bottom = "auto";
+      snapshot.style.top = `${Math.round(dockRect.bottom + DOCK_GAP_PX)}px`;
+    }
+  }
+
+  function dropDock() {
+    document.querySelectorAll(".stg-mb-dock, .stg-mb-snap").forEach((node) => node.remove());
+    dock = null;
+    snapshot = null;
+  }
+
   function send(world) {
     return new Promise((resolve) => {
+      if (!extensionAlive()) {
+        dropDock();
+        resolve({ ok: false, error: "Extension reloaded." });
+        return;
+      }
       try {
         chrome.runtime.sendMessage({ action: "listMoodboards", world }, (res) => {
-          if (chrome.runtime.lastError) {
-            resolve({ ok: false, error: chrome.runtime.lastError.message });
+          const message = chrome.runtime.lastError && chrome.runtime.lastError.message;
+          if (message) {
+            if (/invalidated|context/i.test(message)) dropDock();
+            resolve({ ok: false, error: message });
             return;
           }
           resolve(res || { ok: false, error: "No response." });
@@ -198,9 +295,13 @@
     if (requestId !== state.requestId) return;
     state.loading = false;
     if (!res.ok) {
+      if (!extensionAlive()) return;
+      const detail = String(res.error || "").replace(/^HTTP \d+\s*/, "").slice(0, 80);
       state.error = isAuthFailure(res)
         ? "Gallery token missing. Open the extension settings."
-        : "Could not refresh moodboards.";
+        : detail
+          ? `Could not refresh moodboards. ${detail}`
+          : "Could not refresh moodboards.";
       render();
       return;
     }
@@ -262,6 +363,7 @@
     if (existing !== state.signature) {
       strip.dataset.signature = state.signature;
       strip.textContent = "";
+      hideSnapshot();
       for (const board of state.moodboards) {
         const chip = el("button", "stg-mb-chip", chipLabel(board, state.moodboards));
         chip.type = "button";
@@ -271,6 +373,10 @@
           .join("\n");
         chip.addEventListener("mousedown", (event) => event.preventDefault());
         chip.addEventListener("click", () => onChipClick(board));
+        chip.addEventListener("mouseenter", () => showSnapshot(board, chip));
+        chip.addEventListener("focus", () => showSnapshot(board, chip));
+        chip.addEventListener("mouseleave", hideSnapshot);
+        chip.addEventListener("blur", hideSnapshot);
         strip.appendChild(chip);
       }
     }
@@ -316,7 +422,10 @@
       { passive: false },
     );
     statusLine = el("div", "stg-mb-status");
-    dock.append(top, statusLine, strip);
+    snapshot = el("div", "stg-mb-snap");
+    snapshot.hidden = true;
+    snapshot.setAttribute("role", "tooltip");
+    dock.append(top, statusLine, strip, snapshot);
     document.body.appendChild(dock);
   }
 
@@ -335,7 +444,7 @@
       return;
     }
     if (!dock || !dock.isConnected) {
-      document.querySelectorAll(".stg-mb-dock").forEach((node) => node.remove());
+      dropDock();
       buildDock();
       render();
     }
@@ -364,6 +473,7 @@
   }
 
   function start() {
+    dropDock();
     try {
       chrome.storage.local.get([WORLD_STORAGE_KEY], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
