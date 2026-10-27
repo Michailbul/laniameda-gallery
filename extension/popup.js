@@ -22,6 +22,11 @@ const bookmarkSaveBtn = document.getElementById("bookmarkSave");
 const bookmarkStatusEl = document.getElementById("bookmarkStatus");
 
 const uploadCollectionEl = document.getElementById("uploadCollection");
+const worldModeTabEl = document.getElementById("worldModeTab");
+const collectionsModeTabEl = document.getElementById("collectionsModeTab");
+const worldModeNoteEl = document.getElementById("worldModeNote");
+const collectionBlockEl = document.getElementById("collectionBlock");
+let filingMode = "world";
 const uploadAssetTypeFieldEl = document.getElementById("uploadAssetTypeField");
 const uploadAssetTypeTagEl = document.getElementById("uploadAssetTypeTag");
 const collectionAssetTypeHintEl = document.getElementById("collectionAssetTypeHint");
@@ -64,6 +69,7 @@ const UPLOAD_ASSET_TYPE_TAG_KEY = "uploadAssetTypeTag";
 const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
 const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
 const EXTENSION_MODE_KEY = "extensionMode";
+const FILING_MODE_KEY = "stgFilingMode";
 // The remembered "last save" preset (written by content.js) normally outranks
 // the default collection, so changing the default here has to clear it.
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
@@ -139,6 +145,25 @@ const setAddSelectedStatus = (message, tone) => {
   }
 };
 
+const setFilingMode = (mode, { persist = false } = {}) => {
+  filingMode = mode === "collections" ? "collections" : "world";
+  const isWorld = filingMode === "world";
+  worldModeTabEl?.setAttribute("aria-selected", String(isWorld));
+  collectionsModeTabEl?.setAttribute("aria-selected", String(!isWorld));
+  if (collectionBlockEl) collectionBlockEl.hidden = isWorld;
+  if (worldModeNoteEl) worldModeNoteEl.hidden = !isWorld;
+  if (persist) void chrome.storage.sync.set({ [FILING_MODE_KEY]: filingMode });
+};
+
+const destinationFolderId = async () => {
+  if (filingMode !== "world") return uploadCollectionEl.value;
+  const response = await chrome.runtime.sendMessage({ action: "getDearAnneteTarget" });
+  if (!response?.ok || !response.folderId) {
+    throw new Error(response?.error || "Dear Annete world was not found.");
+  }
+  return response.folderId;
+};
+
 const setExtensionMode = (mode, { persist = false } = {}) => {
   extensionMode = mode === "bookmark" ? "bookmark" : "add";
   const isAddMode = extensionMode === "add";
@@ -146,7 +171,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
   addModePanelEl.hidden = !isAddMode;
   bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.11.3`;
+  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v0.14.0`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }
@@ -482,6 +507,7 @@ const loadPopupState = async () => {
       DEFAULT_FOLDER_ID_KEY,
       UPLOAD_FOLDER_ID_KEY,
       EXTENSION_MODE_KEY,
+      FILING_MODE_KEY,
     ]),
     chrome.storage.local.get([
       UPLOAD_ASSET_TYPE_TAG_KEY,
@@ -491,6 +517,7 @@ const loadPopupState = async () => {
   ]);
 
   setExtensionMode(cfg[EXTENSION_MODE_KEY]);
+  setFilingMode(cfg[FILING_MODE_KEY] || "world");
   uploadAssetTypeTagEl.value = String(localCfg[UPLOAD_ASSET_TYPE_TAG_KEY] || "");
   uploadStyleTagEl.value = String(localCfg[UPLOAD_STYLE_TAG_KEY] || "");
   uploadTagsEl.value = Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
@@ -798,7 +825,13 @@ const uploadOneQueueItem = async (item, folderId, tagNames) => {
 
 const runUploadQueue = async (statuses) => {
   if (isUploading) return;
-  const folderId = uploadCollectionEl.value;
+  let folderId = "";
+  try {
+    folderId = await destinationFolderId();
+  } catch (error) {
+    setUploadStatus(error?.message || "Dear Annete world was not found.");
+    return;
+  }
   const tagNames = readUploadTagNames();
   const candidates = uploadQueue.filter((item) => statuses.includes(item.status));
   if (candidates.length === 0) return;
@@ -925,7 +958,15 @@ bookmarkModeTabEl.addEventListener("click", () => {
   setExtensionMode("bookmark", { persist: true });
 });
 
-addSelectedAssetBtn.addEventListener("click", () => {
+worldModeTabEl?.addEventListener("click", () => {
+  setFilingMode("world", { persist: true });
+});
+
+collectionsModeTabEl?.addEventListener("click", () => {
+  setFilingMode("collections", { persist: true });
+});
+
+addSelectedAssetBtn.addEventListener("click", async () => {
   if (currentTabId === null || !activeMidjourneySelection) {
     setAddSelectedStatus("No selected image is ready.", "error");
     return;
@@ -936,7 +977,13 @@ addSelectedAssetBtn.addEventListener("click", () => {
   // the content script already captured the current job/index before its first
   // network await and reports eventual completion on the page.
   const tabId = currentTabId;
-  const folderId = uploadCollectionEl.value;
+  let folderId = "";
+  try {
+    folderId = await destinationFolderId();
+  } catch (error) {
+    setAddSelectedStatus(error?.message || "Dear Annete world was not found.", "error");
+    return;
+  }
   const selectedLabel = activeMidjourneySelection.selectedIndex
     ? `Image ${activeMidjourneySelection.selectedIndex}`
     : "Image";
@@ -945,6 +992,7 @@ addSelectedAssetBtn.addEventListener("click", () => {
     folderId: folderId || undefined,
     folderIds: folderId ? [folderId] : [],
     tagNames: readUploadTagNames(),
+    savedLabel: filingMode === "world" ? "Dear Annete" : undefined,
     continueImmediately: true,
   });
 
