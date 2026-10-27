@@ -2963,6 +2963,97 @@
     return tags;
   }
 
+  function gallerySavedToast(message, queuedLabel, response) {
+    const place = message?.savedLabel || queuedLabel;
+    if (!message?.comment) return `Added to ${place}`;
+    return response?.commentSaved
+      ? `Added to ${place} with the comment`
+      : `Added to ${place}. Comment failed.`;
+  }
+
+  let galleryComment = null;
+  let galleryCommentTarget = null;
+
+  function closeGalleryComment() {
+    if (galleryComment) galleryComment.hidden = true;
+    galleryCommentTarget = null;
+  }
+
+  function ensureGalleryComment() {
+    if (galleryComment) return galleryComment;
+    const card = document.createElement("form");
+    card.className = "stg-comment";
+    card.hidden = true;
+    card.innerHTML =
+      '<p class="stg-comment__label">Add to Dear Annete</p>' +
+      '<textarea class="stg-comment__input" rows="3" placeholder="Comment" maxlength="4000"></textarea>' +
+      '<p class="stg-comment__hint">Enter adds it. Esc cancels.</p>';
+    const input = card.querySelector("textarea");
+    card.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitGalleryComment();
+    });
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeGalleryComment();
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submitGalleryComment();
+      }
+    });
+    card.addEventListener("keydown", (event) => event.stopPropagation());
+    document.body.appendChild(card);
+    galleryComment = card;
+    return card;
+  }
+
+  function openGalleryComment(message) {
+    const card = ensureGalleryComment();
+    galleryCommentTarget = {
+      folderId: message?.folderId,
+      folderIds: message?.folderIds,
+      tagNames: message?.tagNames,
+      savedLabel: message?.savedLabel || "Dear Annete",
+    };
+    const input = card.querySelector("textarea");
+    input.value = "";
+    card.hidden = false;
+    document.body.appendChild(card);
+    input.focus();
+  }
+
+  function submitGalleryComment() {
+    const card = galleryComment;
+    const target = galleryCommentTarget;
+    if (!card || !target) return;
+    const comment = card.querySelector("textarea").value.trim();
+    if (!comment) return;
+    closeGalleryComment();
+    const queuedSelection = getActiveMidjourneyPanelSelection();
+    const queuedLabel = queuedSelection.selectedIndex
+      ? `Image ${queuedSelection.selectedIndex}`
+      : "Image";
+    showContextToast("saving", "Adding with the comment…");
+    saveActiveMidjourneyPanelSelection({
+      ...target,
+      comment,
+      triggeredByShortcut: true,
+    }).then((response) => {
+      showContextToast(
+        response?.ok ? "saved" : "error",
+        response?.ok
+          ? gallerySavedToast({ ...target, comment }, queuedLabel, response)
+          : `Failed: ${response?.error || "Save failed."}`.slice(0, 90),
+      );
+    }).catch((err) => {
+      showContextToast("error", `Failed: ${err?.message || "Save failed."}`.slice(0, 90));
+    });
+  }
+
   async function saveActiveMidjourneyPanelSelection(message) {
     const selection = getActiveMidjourneyPanelSelection();
     if (!selection.available) {
@@ -2989,6 +3080,7 @@
       folderId: folderIds[0] || undefined,
       folderIds,
       tagNames: mergeTagNames(saveContext.tagNames, message.tagNames),
+      comment: typeof message.comment === "string" ? message.comment : undefined,
     });
 
     if (!response?.ok) {
@@ -5102,6 +5194,12 @@
         return false;
       }
 
+      if (message?.action === "openGalleryComment") {
+        openGalleryComment(message);
+        sendResponse({ ok: true });
+        return false;
+      }
+
       if (message?.action === "saveActiveMidjourneyAsset") {
         const showAsyncProgress = message.triggeredByShortcut || message.continueImmediately;
         const queuedSelection = getActiveMidjourneyPanelSelection();
@@ -5122,7 +5220,7 @@
               showContextToast(
                 response?.ok ? "saved" : "error",
                 response?.ok
-                  ? `${queuedLabel} added to laniameda`
+                  ? gallerySavedToast(message, queuedLabel, response)
                   : `${queuedLabel} failed: ${response?.error || "Save failed."}`.slice(0, 90),
               );
             }

@@ -2,9 +2,14 @@
 
 // Capture-time conversion plus collection-derived type classification.
 // Saved-status lookups are batched, cached and backed off (asset-status.js).
-importScripts("image-convert.js", "collection-classification.js", "asset-status.js");
+importScripts(
+  "image-convert.js",
+  "collection-classification.js",
+  "asset-status.js",
+  "save-targets.js",
+);
 
-const collectionClassification = globalThis.SaveToGalleryCollectionClassification;
+const saveTargets = globalThis.SaveToGallerySaveTargets;
 
 const CANONICAL_API_HOST = "gallery.laniameda.space";
 const SAVE_ROUTE_PATH = "/api/extension/save";
@@ -14,6 +19,7 @@ const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
+const COMMENTS_ROUTE_PATH = "/api/extension/comments";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 // Installs that stored an older host rewrite themselves to CANONICAL_API_HOST on
 // the next call, so nobody has to re-enter the API URL after a domain move.
@@ -26,11 +32,12 @@ const LAST_FOLDER_ID_KEY = "lastFolderId";
 // Written by content.js on every save. See readSavePreset there — the presence
 // of the array (not its length) marks an explicit "no collection" save.
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
-const UPLOAD_FOLDER_ID_KEY = "uploadFolderId";
-const UPLOAD_ASSET_TYPE_TAG_KEY = "uploadAssetTypeTag";
-const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
-const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
-const ADD_SELECTED_COMMAND = "add-selected-asset";
+const QUICK_SAVE_COMMANDS = {
+  "add-dear-annete": "world",
+  "add-as-location": "location",
+  "add-as-scene": "scene",
+};
+const COMMENT_SAVE_COMMAND = "add-with-comment";
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const OPEN_SAVE_MENU_CONTEXT_MENU_ID = "open-save-menu-laniameda";
 // Pinterest's hover layer covers the <img>, so a right-click on a pin rarely
@@ -183,55 +190,6 @@ async function getSavePresetFolderIds() {
   if (config.lastFolderIds) return config.lastFolderIds;
   const seed = config.defaultFolderId || config.lastFolderId;
   return seed ? [seed] : [];
-}
-
-async function addSelectedMidjourneyFromShortcut() {
-  const [tabs, syncCfg, localCfg, folderResponse] = await Promise.all([
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }),
-    chrome.storage.sync.get([UPLOAD_FOLDER_ID_KEY]),
-    chrome.storage.local.get([
-      UPLOAD_ASSET_TYPE_TAG_KEY,
-      UPLOAD_STYLE_TAG_KEY,
-      UPLOAD_TAG_NAMES_KEY,
-    ]),
-    getFolders(),
-  ]);
-  const tab = tabs[0];
-  if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
-    return { ok: false, error: "Open a Midjourney job page first." };
-  }
-
-  const folderId = String(syncCfg[UPLOAD_FOLDER_ID_KEY] || "").trim();
-  const impliedAssetTypeTag = collectionClassification.resolveFolderAssetTypeTag(
-    folderId,
-    folderResponse?.folders,
-  );
-  const seenTags = new Set();
-  const tagNames = collectionClassification.applyImpliedAssetTypeTag(
-    [
-      impliedAssetTypeTag || localCfg[UPLOAD_ASSET_TYPE_TAG_KEY],
-      localCfg[UPLOAD_STYLE_TAG_KEY],
-      ...(Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
-        ? localCfg[UPLOAD_TAG_NAMES_KEY]
-        : []),
-    ],
-    impliedAssetTypeTag,
-  ).reduce((tags, value) => {
-    const tag = String(value || "").trim();
-    const key = tag.toLowerCase();
-    if (!tag || seenTags.has(key)) return tags;
-    seenTags.add(key);
-    tags.push(tag);
-    return tags;
-  }, []);
-
-  return chrome.tabs.sendMessage(tab.id, {
-    action: "saveActiveMidjourneyAsset",
-    folderId: folderId || undefined,
-    folderIds: folderId ? [folderId] : [],
-    tagNames,
-    triggeredByShortcut: true,
-  });
 }
 
 async function saveToGallery(payload) {
@@ -563,7 +521,97 @@ async function saveOriginalMidjourneyAsset(payload) {
     imageHeight: uploaded.imageHeight,
     mediaType: "image",
   });
-  return { ...response, contentType: uploaded.mediaContentType };
+  const comment = String(payload.comment || "").trim();
+  if (!response.ok || !comment) {
+    return { ...response, contentType: uploaded.mediaContentType };
+  }
+  const assetId = response.result?.assetId;
+  const noted = await addExtensionComment(assetId, comment);
+  return {
+    ...response,
+    contentType: uploaded.mediaContentType,
+    commentSaved: noted.ok,
+    commentError: noted.ok ? undefined : noted.error,
+  };
+}
+
+async function addExtensionComment(assetId, body) {
+  const id = String(assetId || "").trim();
+  const text = String(body || "").trim();
+  if (!id) return { ok: false, error: "The save did not return an asset." };
+  if (!text) return { ok: false, error: "Comment is empty." };
+  const config = await getConfig();
+  const url = normalizeRouteUrl(config.apiUrl, COMMENTS_ROUTE_PATH);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify({ assetId: id, body: text }),
+    });
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok || !data?.ok) {
+    return { ok: false, error: data?.error || `HTTP ${response.status}` };
+  }
+  return { ok: true };
+}
+
+let dearAnneteWorldId = "";
+
+async function dearAnneteTarget(kind) {
+  if (!dearAnneteWorldId) {
+    const listed = await listMoodboards("");
+    if (!listed?.ok) {
+      throw new Error(listed?.error || "Could not load gallery worlds.");
+    }
+    dearAnneteWorldId = saveTargets.worldIdFromList(listed.worlds);
+  }
+  return saveTargets.buildQuickSave(kind, dearAnneteWorldId);
+}
+
+async function activeMidjourneyTab() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs[0];
+  if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
+    throw new Error("Open a Midjourney image first.");
+  }
+  if (!isMidjourneyDocumentUrl(tab.url)) {
+    throw new Error("Open a Midjourney image first.");
+  }
+  return tab;
+}
+
+async function quickSaveMidjourney(kind) {
+  const target = await dearAnneteTarget(kind);
+  const tab = await activeMidjourneyTab();
+  return chrome.tabs.sendMessage(tab.id, {
+    action: "saveActiveMidjourneyAsset",
+    folderId: target.folderId,
+    folderIds: target.folderIds,
+    tagNames: target.tagNames,
+    savedLabel: target.label,
+    triggeredByShortcut: true,
+  });
+}
+
+async function openMidjourneyComment() {
+  const target = await dearAnneteTarget("world");
+  const tab = await activeMidjourneyTab();
+  return chrome.tabs.sendMessage(tab.id, {
+    action: "openGalleryComment",
+    folderId: target.folderId,
+    folderIds: target.folderIds,
+    tagNames: target.tagNames,
+    savedLabel: target.label,
+  });
 }
 
 // A capture comes back either as inline base64 or, when it was too large for
@@ -1229,6 +1277,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       folderId: message.folderId,
       folderIds: message.folderIds,
       tagNames: message.tagNames,
+      comment: message.comment,
     })
       .then((result) => {
         if (result?.ok) assetStatus.markSaved(message.imageUrl);
@@ -1388,6 +1437,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "getDearAnneteTarget") {
+    dearAnneteTarget("world")
+      .then((target) => sendResponse({ ok: true, ...target }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (message.action === "createFolder") {
     createFolder({
       name: message.name,
@@ -1426,8 +1482,14 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   });
 });
 chrome.commands.onCommand.addListener((command) => {
-  if (command !== ADD_SELECTED_COMMAND) return;
-  addSelectedMidjourneyFromShortcut().catch((err) => {
-    console.warn("[Save to Gallery] add shortcut failed:", err);
+  const kind = QUICK_SAVE_COMMANDS[command];
+  const run = kind
+    ? quickSaveMidjourney(kind)
+    : command === COMMENT_SAVE_COMMAND
+      ? openMidjourneyComment()
+      : null;
+  if (!run) return;
+  run.catch((err) => {
+    console.warn("[Save to Gallery] shortcut failed:", err);
   });
 });

@@ -3,7 +3,7 @@
   "minimum_chrome_version": "114",
   "name": "Save to Gallery",
   "description": "Save web captures, X posts, or local files and folders into your laniameda collections",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -30,12 +30,33 @@
     }
   },
   "commands": {
-    "add-selected-asset": {
+    "add-dear-annete": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "Command+Shift+D"
+      },
+      "description": "Add the selected Midjourney image to Dear Annete"
+    },
+    "add-as-location": {
       "suggested_key": {
         "default": "Ctrl+Shift+L",
         "mac": "Command+Shift+L"
       },
-      "description": "Add the selected Midjourney image to the gallery"
+      "description": "Add the selected image to Dear Annete as a location"
+    },
+    "add-as-scene": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Add the selected image to Dear Annete as a scene"
+    },
+    "add-with-comment": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M",
+        "mac": "Command+Shift+M"
+      },
+      "description": "Add the selected image to Dear Annete with a comment"
     }
   },
   "side_panel": {
