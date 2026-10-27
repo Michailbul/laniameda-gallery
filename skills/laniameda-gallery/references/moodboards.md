@@ -98,6 +98,14 @@ publish, star or re-file the board's images as part of a sync.
 
 ## Rules
 
+- **A gallery change propagates to Midjourney.** When a gallery moodboard's
+  images change (add, remove or reorder), the gallery agent updates the linked
+  Midjourney moodboard before calling the edit done. Use the sync procedure
+  above. The gallery board is the source: Midjourney ends holding the same
+  images in the same order. Then `set_moodboard_midjourney` and read the board
+  back. With no signed-in Midjourney session, say the gallery board changed and
+  the Midjourney copy is waiting. Do not claim it synced. The Chrome extension
+  never pushes to Midjourney; it only shows the gallery boards.
 - A board is its own record, never a collection. Do not make a collection
   that mirrors a board (the per-board collections under `Midjourney Srefs`
   are legacy; Michael decides whether they go). In the app, boards live in

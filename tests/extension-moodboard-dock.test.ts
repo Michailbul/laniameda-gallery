@@ -10,6 +10,10 @@ type DockApi = {
     board: { name?: string; shortName?: string; mjCode?: string },
     boards: { name?: string; shortName?: string; mjCode?: string }[],
   ) => string;
+  snapshotImages: (board: {
+    previews?: { thumbUrl?: string; url?: string }[];
+    thumbUrl?: string | null;
+  }) => string[];
 };
 
 const getApi = () =>
@@ -94,5 +98,27 @@ describe("chipLabel", () => {
   test("uses the prefix when two boards shorten to the same word", () => {
     expect(getApi().chipLabel(boards[1], boards)).toBe("CRIMSON PAINTED");
     expect(getApi().chipLabel(boards[2], boards)).toBe("LACQUER 3D");
+  });
+});
+
+describe("snapshotImages", () => {
+  test("uses previews, thumb first, url as fallback, no repeats", () => {
+    expect(
+      getApi().snapshotImages({
+        previews: [
+          { thumbUrl: "a", url: "A" },
+          { url: "b" },
+          { thumbUrl: "a" },
+        ],
+      }),
+    ).toEqual(["a", "b"]);
+  });
+
+  test("falls back to thumbUrl for older responses", () => {
+    expect(getApi().snapshotImages({ thumbUrl: "t" })).toEqual(["t"]);
+  });
+
+  test("empty when the board has no pictures", () => {
+    expect(getApi().snapshotImages({ previews: [], thumbUrl: null })).toEqual([]);
   });
 });
