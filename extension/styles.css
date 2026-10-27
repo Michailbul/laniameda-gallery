@@ -2003,3 +2003,106 @@ html.stg-x-capturing .stg-badge {
   background: #2e8f8b;
   border-color: #2e8f8b;
 }
+
+/* ── Midjourney moodboard dock ── */
+
+.stg-mb-dock {
+  position: fixed;
+  z-index: 20;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  color: #d8d4cf;
+  background: rgba(25, 25, 25, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  font: 12px/1.3 system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  pointer-events: auto;
+}
+
+.stg-mb-dock[hidden] {
+  display: none;
+}
+
+.stg-mb-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stg-mb-world {
+  max-width: 55%;
+  padding: 2px 4px;
+  color: inherit;
+  background: #232323;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.stg-mb-refresh {
+  padding: 1px 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stg-mb-refresh:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stg-mb-active {
+  margin-left: auto;
+  overflow: hidden;
+  color: #ff8c42;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stg-mb-strip {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stg-mb-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.stg-mb-chip {
+  flex: none;
+  padding: 3px 9px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stg-mb-chip--on {
+  color: #191919;
+  background: #fff4ea;
+  border-color: #ff8c42;
+}
+
+.stg-mb-status {
+  color: #9a958f;
+}
+
+.stg-mb-status--error {
+  color: #f26157;
+}
