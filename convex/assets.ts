@@ -294,7 +294,7 @@ const getAssetFolderLinks = async (
     .withIndex("by_asset", (q) => q.eq("assetId", assetId))
     .collect();
 
-const addAssetFolderLink = async (
+export const addAssetFolderLink = async (
   ctx: MutationCtx,
   ownerUserId: string,
   assetId: Id<"assets">,

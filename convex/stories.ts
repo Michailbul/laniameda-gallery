@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
+import { addAssetFolderLink } from "./assets";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { storyFields, storyKindValidator, storyResultValidator, storyStatusValidator } from "./storyValidators";
 import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder } from "./worldCore";
@@ -74,6 +75,13 @@ export const restoreStorySnapshot = async (
   const searchText = [merged.title, merged.body, merged.logline, merged.hook, merged.styleTag, ...merged.tagNames].filter(Boolean).join("\n").toLowerCase();
   await ctx.db.patch(_id, { ...fields, searchText, revision: story.revision + 1, updatedAt: now });
   return { ok: true, restored: storySnapshot((await ctx.db.get(_id))!) };
+};
+
+// A story's assets become members of its storybook folder (additive: shelves, stars and flags are untouched).
+// Storybook asset lists read assetFolders, not stories.assetIds. Idempotent, so retries heal missing links.
+const linkAssetsToStorybook = async (ctx: MutationCtx, owner: string, data: { storybookId?: Id<"folders">; assetIds: Id<"assets">[] }) => {
+  if (!data.storybookId) return;
+  for (const assetId of data.assetIds) await addAssetFolderLink(ctx, owner, assetId, data.storybookId);
 };
 
 const words = (value: string | undefined) => value?.trim() || undefined;
@@ -162,11 +170,15 @@ export const saveStory = ownerMutation({
       if (expectedRevision !== undefined && expectedRevision !== 0) throw new ConvexError("Story changed. Reload before saving.");
       const id = await ctx.db.insert("stories", { ownerUserId, ingestKey, ...data, revision: 1, createdAt: now, updatedAt: now });
       await journalStory(ctx, ownerUserId, null, id, { actor, session });
+      await linkAssetsToStorybook(ctx, ownerUserId, data);
       return { id, created: true, revision: 1 };
     }
     // An exact retry is harmless even if its revision is now stale.
     const keys = Object.keys(data) as (keyof typeof data)[];
-    if (keys.every((key) => JSON.stringify(existing![key]) === JSON.stringify(data[key]))) return { id: existing._id, created: false, revision: existing.revision };
+    if (keys.every((key) => JSON.stringify(existing![key]) === JSON.stringify(data[key]))) {
+      await linkAssetsToStorybook(ctx, ownerUserId, data);
+      return { id: existing._id, created: false, revision: existing.revision };
+    }
     if (expectedRevision === undefined) throw new ConvexError("expectedRevision is required to change an existing Story. Read it before saving.");
     if (expectedRevision !== existing.revision) throw new ConvexError("Story changed. Reload before saving.");
     const { _id, _creationTime, ingestKey: _oldKey, searchText: _search, createdAt: _created, updatedAt: _updated, ...snapshot } = existing;
@@ -174,6 +186,7 @@ export const saveStory = ownerMutation({
     await ctx.db.insert("storyRevisions", { ...snapshot, storyId: _id, savedAt: now });
     await ctx.db.patch(_id, { ...data, revision: existing.revision + 1, updatedAt: now });
     await journalStory(ctx, ownerUserId, existing, _id, { actor, session });
+    await linkAssetsToStorybook(ctx, ownerUserId, data);
     return { id: _id, created: false, revision: existing.revision + 1 };
   },
 });

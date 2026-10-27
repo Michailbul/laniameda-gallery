@@ -161,6 +161,15 @@ describe("worlds", () => {
     expect((await db.get(piece))?.tagIds).toEqual([]);
   });
 
+  test("world_file files an asset into a storybook and keeps its shelf", async () => {
+    const { ctx, db, dear, places, asset } = await setup();
+    const book = (await callAsOwner(saveWorldShelf)(ctx, { ownerUserId: owner, world: "dear-annete", name: "Apocalypse Teaser", kind: "storybook" })).shelfId;
+    const piece = await asset(places);
+    await callAsOwner(fileWorldAssets)(ctx, { ownerUserId: owner, world: "dear-annete", assetIds: [piece], addTo: ["Apocalypse Teaser"] });
+    expect(await links(db, piece)).toEqual([places, book].sort());
+    void dear;
+  });
+
   test("storybooks are children of their world; a stray root storybook is brought in and can go back", async () => {
     const { ctx, db, dear } = await setup();
     const created = await callAsOwner(saveWorldShelf)(ctx, { ownerUserId: owner, world: "dear-annete", name: "Ten to Closing", kind: "storybook" });
