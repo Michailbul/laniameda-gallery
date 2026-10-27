@@ -6,6 +6,10 @@ type DockApi = {
     code: string,
     moodboardCodes: string[],
   ) => string;
+  chipLabel: (
+    board: { name?: string; shortName?: string; mjCode?: string },
+    boards: { name?: string; shortName?: string; mjCode?: string }[],
+  ) => string;
 };
 
 const getApi = () =>
@@ -73,5 +77,22 @@ describe("applyMoodboardToPrompt", () => {
     expect(apply(prompt, "88ji6bg")).toBe(
       "https://s.mj.run/abc123 a window --stylize 100 --ar 2:3 -p 88ji6bg h2eu2z6",
     );
+  });
+});
+
+describe("chipLabel", () => {
+  const boards = [
+    { name: "DA FILM \u00b7 Golden", shortName: "Golden", mjCode: "88ji6bg" },
+    { name: "DA CRIMSON PAINTED \u00b7 World", shortName: "World", mjCode: "csqchnb" },
+    { name: "DA LACQUER 3D \u00b7 World", shortName: "World", mjCode: "h2rdly5" },
+  ];
+
+  test("keeps a unique short name", () => {
+    expect(getApi().chipLabel(boards[0], boards)).toBe("Golden");
+  });
+
+  test("uses the prefix when two boards shorten to the same word", () => {
+    expect(getApi().chipLabel(boards[1], boards)).toBe("CRIMSON PAINTED");
+    expect(getApi().chipLabel(boards[2], boards)).toBe("LACQUER 3D");
   });
 });
