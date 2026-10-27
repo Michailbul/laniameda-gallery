@@ -900,7 +900,7 @@
         <span class="logo-dot"></span>
         <span>meda</span>
       </div>
-      <span id="modeBadge" class="badge">add mode · v0.11.3</span>
+      <span id="modeBadge" class="badge">add mode · v0.14.0</span>
     </div>
 
     <div class="sep"></div>
@@ -930,6 +930,13 @@
         <span id="queueCount" class="queue-count">empty</span>
       </div>
 
+      <div class="mode-switch" role="tablist" aria-label="Where adds go">
+        <button id="worldModeTab" class="mode-tab" type="button" role="tab" aria-selected="true">World</button>
+        <button id="collectionsModeTab" class="mode-tab" type="button" role="tab" aria-selected="false">Collections</button>
+      </div>
+      <p id="worldModeNote" class="collection-type-hint">Adds go straight into Dear Annete. ⌘⇧D world, ⌘⇧L location, ⌘⇧P scene, ⌘⇧M comment.</p>
+
+      <div id="collectionBlock">
       <label class="upload-field-label" for="uploadCollection">collection · optional</label>
       <div class="collection-toolbar">
         <select id="uploadCollection" class="field-select" aria-label="Upload collection">
@@ -947,6 +954,7 @@
           spellcheck="false"
         >
         <button id="newCollectionSave" class="mini-btn" type="button">Create</button>
+      </div>
       </div>
 
       <div class="classification-toolbar">
@@ -999,7 +1007,7 @@
           <p class="selected-asset__eyebrow">selected on Midjourney</p>
           <p id="midjourneySelectionTitle" class="selected-asset__title">Current image</p>
           <p class="selected-asset__hint">
-            Original PNG only. Shortcut: <kbd>⌘⇧L</kbd>
+            ⌘⇧D Dear Annete · ⌘⇧L location · ⌘⇧P scene · ⌘⇧M comment
           </p>
           <button id="addSelectedAsset" class="primary-btn" type="button">Add</button>
           <p id="addSelectedStatus" class="status-msg" aria-live="polite"></p>

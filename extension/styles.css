@@ -2106,3 +2106,50 @@ html.stg-x-capturing .stg-badge {
 .stg-mb-status--error {
   color: #f26157;
 }
+
+.stg-comment {
+  position: fixed;
+  z-index: 2147483647;
+  left: 50%;
+  top: 72px;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 10px;
+  color: #f3efe8;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+.stg-comment[hidden] {
+  display: none;
+}
+
+.stg-comment__label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b7b1a8;
+}
+
+.stg-comment__input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px;
+  color: inherit;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+.stg-comment__hint {
+  margin: 6px 0 0;
+  color: #8d877e;
+  font-size: 11px;
+}
