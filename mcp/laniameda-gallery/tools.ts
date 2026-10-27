@@ -436,7 +436,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         promptText: z.string().optional(),
         tagNames: z.array(z.string()).optional(),
         folderId: z.union([z.string(), z.null()]).optional(),
-        folderIds: z.array(z.string()).optional(),
+        folderIds: z.array(z.string()).optional().describe("REPLACES the asset's full collection set."),
+        addFolderIds: z.array(z.string()).optional().describe("Adds the asset to these collections (a world shelf or a storybook) and keeps every membership it already has."),
         modelName: z.union([z.string(), z.null()]).optional(),
         description: z.union([z.string(), z.null()]).optional(),
         agentDescription: z

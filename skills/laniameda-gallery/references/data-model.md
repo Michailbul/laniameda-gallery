@@ -372,6 +372,7 @@ These are maintained by backend mutations; callers usually pass tag names, typed
   - **Asset media replacement:** `target: "asset"` + `file`/`url` replaces the stored file, thumbnail, and file-related fields (kind, contentType, dimensions). Old storage blobs are cleaned up.
   - Both media operations accept `file` (base64 + fileName + contentType) or `url` (remote fetch). The `assetIngestKey` field overrides the default `${ingestKey}:img` key used when creating assets from prompt updates.
   - The authenticated agent update route additionally accepts `folderIds` for `target: "asset"` and replaces collection memberships after the canonical metadata update.
+  - `addFolderIds` (asset updates) adds memberships without removing any, the way to file an asset into a storybook or world shelf while it stays on its style shelf. Saving or updating a Story with `storybookId` and `assetIds` links those assets into that storybook folder the same way (storybook asset lists read `assetFolders`, not `stories.assetIds`).
 - The ingest contract now exposes the newer design-inspiration metadata fields for both create and update flows, so browser-extension-style saves can stay lossless.
 - `ingest:deleteFromApi` is the canonical external delete action.
 - Prompt-linked multi-asset variations are normalized into `assetPacks` automatically at the mutation layer.
