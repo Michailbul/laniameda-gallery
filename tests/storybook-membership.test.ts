@@ -14,7 +14,7 @@ const setup = async () => {
   const assetId = await db.insert("assets", { ownerUserId: owner, kind: "image", tagIds: [], createdAt: 1, folderId: shelf, isLiked: false });
   await db.insert("assetFolders", { ownerUserId: owner, assetId, folderId: shelf, createdAt: 1 });
   const members = async (folderId: string) =>
-    (await db.query("assetFolders").withIndex("by_asset", (q: any) => q.eq("assetId", assetId)).collect()).filter((l: any) => l.folderId === folderId);
+    (await db.query("assetFolders").collect()).filter((l) => l.assetId === assetId && l.folderId === folderId);
   return { ctx, db, shelf, book, assetId, members };
 };
 
