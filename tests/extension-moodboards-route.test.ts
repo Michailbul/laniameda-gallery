@@ -34,7 +34,9 @@ mock.module("@/lib/server/convex", () => ({
             updatedAt: 10,
             notes: "private",
             previewItems: [
-              { thumbUrl: "https://example.com/t.jpg", url: "https://example.com/f.jpg" },
+              { thumbUrl: "https://example.com/t.jpg", url: "https://example.com/f.jpg", kind: "image" },
+              { url: "https://example.com/only-full.jpg", kind: "image" },
+              { thumbUrl: "https://example.com/v.jpg", url: "https://example.com/v.mp4", kind: "video" },
             ],
           },
           {
@@ -108,19 +110,26 @@ describe("GET /api/extension/moodboards", () => {
         mjCode: "88ji6bg",
         flag: "-p 88ji6bg",
         thumbUrl: "https://example.com/t.jpg",
+        previews: [
+          { thumbUrl: "https://example.com/t.jpg", url: "https://example.com/f.jpg" },
+          {
+            thumbUrl: "https://example.com/only-full.jpg",
+            url: "https://example.com/only-full.jpg",
+          },
+        ],
         itemCount: 12,
         updatedAt: 10,
       },
     ]);
   });
 
-  test("asks for child boards with one preview each", async () => {
+  test("asks for child boards with six previews each", async () => {
     await getMoodboards("?world=dear-annete");
     const boardQuery = state.queryCalls.find((call) => "folderId" in call);
     expect(boardQuery).toMatchObject({
       folderId: "world1",
       includeChildren: true,
-      previewLimit: 1,
+      previewLimit: 6,
     });
     expect(boardQuery).not.toHaveProperty("includeArchived");
   });

@@ -34,7 +34,7 @@ type BoardRow = {
   mjCode?: string;
   itemCount?: number;
   updatedAt?: number;
-  previewItems?: Array<{ thumbUrl?: string; url?: string }>;
+  previewItems?: Array<{ thumbUrl?: string; url?: string; kind?: string }>;
 };
 
 const toWorldDto = (world: WorldRow) => ({
@@ -54,7 +54,13 @@ const toMoodboardDtos = (rows: unknown) =>
     .map((board) => {
       const name = board.name ?? "";
       const code = String(board.mjCode).trim();
-      const preview = board.previewItems?.[0];
+      const previews = (board.previewItems ?? [])
+        .filter((item) => item.kind !== "video")
+        .map((item) => ({
+          thumbUrl: item.thumbUrl || item.url || "",
+          url: item.url || "",
+        }))
+        .filter((item) => item.thumbUrl);
       return {
         id: String(board._id),
         name,
@@ -64,7 +70,8 @@ const toMoodboardDtos = (rows: unknown) =>
         status: board.status ?? null,
         mjCode: code,
         flag: `-p ${code}`,
-        thumbUrl: preview?.thumbUrl || preview?.url || null,
+        thumbUrl: previews[0]?.thumbUrl ?? null,
+        previews,
         itemCount: board.itemCount ?? 0,
         updatedAt: board.updatedAt ?? 0,
       };
@@ -102,7 +109,7 @@ export async function GET(request: Request) {
       ownerUserId,
       folderId: resolved.worldId,
       includeChildren: true,
-      previewLimit: 1,
+      previewLimit: 6,
     });
     return corsJson({
       ok: true,
