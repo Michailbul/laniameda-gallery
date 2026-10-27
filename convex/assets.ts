@@ -1,3 +1,4 @@
+import { assertSingleWorld, assetFolderIds as worldAssetFolderIds, journalAssetMembership } from "./worldCore";
 import {
   internalMutation,
   internalQuery,
@@ -22,6 +23,9 @@ import {
 } from "./helpers";
 import { ANIMATION_TAG_KEY, PIECE_TYPE_KEYS, type Medium, type PieceType } from "./tagFilters";
 import { ensureFolderOwnership, recountFolderMembers } from "./folderHelpers";
+import { publicCollectionCountsReady, syncPublicCollectionMembership } from "./publicCollectionCounts";
+import { mergedStream, stream, type QueryStream } from "convex-helpers/server/stream";
+import schema from "./schema";
 import { r2 } from "./r2";
 import {
   galleryAssetResultValidator,
@@ -45,9 +49,17 @@ import {
   optionalPillarValidator,
 } from "./validators";
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
+import { detachAssetFromCharacters } from "./characters";
+import { detachAssetFromMoodboards } from "./moodboards";
+import { deleteHashForAsset } from "./assetHashes";
+import { deleteCommentsForAsset } from "./assetComments";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
+// Perceptual hash for Group similar; a minute after ingest, when the card
+// thumbnail has landed.
+const hashAssetAction = makeFunctionReference<"action">("perceptualHash:hashAsset");
+const HASH_DELAY_MS = 60_000;
 const reindexAssetAction = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
@@ -146,7 +158,7 @@ const assertCurationAdmin = (actorUserId: string, adminSecret: string) => {
 const hasOwn = <T extends object>(value: T, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key);
 
-const resolveTagIdsForNames = async (
+export const resolveTagIdsForNames = async (
   ctx: MutationCtx,
   names: string[],
   pillar: string | undefined,
@@ -207,7 +219,7 @@ const resolveTagIdsForNames = async (
   return dedupeIds(tagIds);
 };
 
-const replaceAssetTagLinks = async (
+export const replaceAssetTagLinks = async (
   ctx: MutationCtx,
   asset: Doc<"assets">,
   tagIds: Id<"tags">[],
@@ -287,6 +299,8 @@ export const addAssetFolderLink = async (
   ownerUserId: string,
   assetId: Id<"assets">,
   folderId: Id<"folders">,
+  // Set by callers that already checked and journal the final folder set.
+  checked = false,
 ) => {
   const existing = await ctx.db
     .query("assetFolders")
@@ -298,6 +312,11 @@ export const addAssetFolderLink = async (
     return;
   }
 
+  // Worlds are separate: a link may never put the asset into a second world.
+  const asset = checked ? null : await ctx.db.get(assetId);
+  const current = asset ? await worldAssetFolderIds(ctx, asset) : [];
+  if (asset) await assertSingleWorld(ctx, asset, current, [...current, folderId]);
+
   await ctx.db.insert("assetFolders", {
     ownerUserId,
     assetId,
@@ -305,9 +324,10 @@ export const addAssetFolderLink = async (
     createdAt: Date.now(),
   });
   await recountFolderMembers(ctx, [folderId]);
+  if (asset) await journalAssetMembership(ctx, asset, current, [...current, folderId], asset.folderId ?? folderId);
 };
 
-const replaceAssetFolderLinks = async (
+export const replaceAssetFolderLinks = async (
   ctx: MutationCtx,
   ownerUserId: string,
   asset: Doc<"assets">,
@@ -320,6 +340,9 @@ const replaceAssetFolderLinks = async (
 
   const existingLinks = await getAssetFolderLinks(ctx, asset._id);
   const nextSet = new Set(nextFolderIds);
+  // Check the final set once: a move from one world to another is fine.
+  const beforeFolderIds = await worldAssetFolderIds(ctx, asset);
+  await assertSingleWorld(ctx, asset, beforeFolderIds, nextFolderIds);
 
   const removedFolderIds: Id<"folders">[] = [];
   for (const link of existingLinks) {
@@ -333,7 +356,7 @@ const replaceAssetFolderLinks = async (
   const existingSet = new Set(existingLinks.map((link) => link.folderId));
   for (const folderId of nextFolderIds) {
     if (!existingSet.has(folderId)) {
-      await addAssetFolderLink(ctx, ownerUserId, asset._id, folderId);
+      await addAssetFolderLink(ctx, ownerUserId, asset._id, folderId, true);
     }
   }
 
@@ -343,6 +366,8 @@ const replaceAssetFolderLinks = async (
       folderId: primaryFolderId,
     });
   }
+  await syncPublicCollectionMembership(ctx, asset._id);
+  await journalAssetMembership(ctx, asset, beforeFolderIds, nextFolderIds, primaryFolderId);
 
   return {
     folderId: primaryFolderId,
@@ -365,6 +390,12 @@ const setPrimaryAssetFolder = async (
   await ensureFolderOwnership(ctx, ownerUserId, nextFolderId);
 
   const previousPrimary = asset.folderId;
+  const beforeFolderIds = await worldAssetFolderIds(ctx, asset);
+  const afterFolderIds = dedupeFolderIds([
+    nextFolderId,
+    ...beforeFolderIds.filter((id) => id !== previousPrimary || id === nextFolderId),
+  ]);
+  await assertSingleWorld(ctx, asset, beforeFolderIds, afterFolderIds);
   if (previousPrimary && previousPrimary !== nextFolderId) {
     const links = await getAssetFolderLinks(ctx, asset._id);
     for (const link of links) {
@@ -376,12 +407,14 @@ const setPrimaryAssetFolder = async (
   }
 
   if (nextFolderId) {
-    await addAssetFolderLink(ctx, ownerUserId, asset._id, nextFolderId);
+    await addAssetFolderLink(ctx, ownerUserId, asset._id, nextFolderId, true);
   }
 
   if (asset.folderId !== nextFolderId) {
     await ctx.db.patch(asset._id, { folderId: nextFolderId });
   }
+  await syncPublicCollectionMembership(ctx, asset._id);
+  await journalAssetMembership(ctx, asset, beforeFolderIds, afterFolderIds, nextFolderId);
 
   const remainingLinks = await getAssetFolderLinks(ctx, asset._id);
   return {
@@ -393,36 +426,85 @@ const setPrimaryAssetFolder = async (
   };
 };
 
+// Convex stops one query at 4,096 reads: each db.get of a new document and
+// each index range counts once. The one-shot gallery read keeps to this many,
+// whatever the size of the world it reads.
+export const QUERY_READ_BUDGET = 3000;
+// The most members one folder read fetches (one db.get each), whatever the
+// folder size or the caller's limit.
+export const FOLDER_MEMBER_READ_CAP = 2000;
+// Link rows one merged membership scan may step through, duplicates included.
+const FOLDER_LINK_SCAN_CAP = 16000;
+
+/**
+ * The newest-linked distinct members of a set of folders, at most `maxAssets`
+ * of them, newest asset first. Every (owner, folder) link range is merged
+ * newest link first and deduped by asset BEFORE the asset is fetched, so the
+ * reads follow the number of pieces returned, not the size of the folders.
+ * `fetched` is the number of asset reads spent.
+ */
+const collectNewestFolderMembers = async (
+  ctx: QueryCtx,
+  ownerUserIds: string[],
+  folderIds: Id<"folders">[],
+  maxAssets: number,
+) => {
+  const cap = Math.max(0, Math.min(Math.floor(maxAssets), FOLDER_MEMBER_READ_CAP));
+  const assets: Doc<"assets">[] = [];
+  if (cap === 0 || folderIds.length === 0 || ownerUserIds.length === 0) {
+    return { assets, fetched: 0 };
+  }
+  const links = mergedStream(
+    folderIds.flatMap((folderId) =>
+      ownerUserIds.map((ownerCandidate) =>
+        stream(ctx.db, schema)
+          .query("assetFolders")
+          .withIndex("by_owner_folder_createdAt", (q) =>
+            q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
+          )
+          .order("desc") as QueryStream<Doc<"assetFolders">>,
+      ),
+    ),
+    ["createdAt"],
+  );
+  const seen = new Set<Id<"assets">>();
+  let scanned = 0;
+  for await (const link of links) {
+    if (seen.size >= cap || ++scanned > FOLDER_LINK_SCAN_CAP) break;
+    if (seen.has(link.assetId)) continue;
+    seen.add(link.assetId);
+    const asset = await ctx.db.get(link.assetId);
+    if (asset && canActorAccessOwnerUserId(link.ownerUserId, asset.ownerUserId)) {
+      assets.push(asset);
+    }
+  }
+  return {
+    assets: assets.sort((a, b) => b.createdAt - a.createdAt),
+    fetched: seen.size,
+  };
+};
+
+// A folder and, for a world, its sub-collections (one level, see
+// folders.assertValidParent).
+const folderTreeIds = async (ctx: QueryCtx, folderId: Id<"folders">) => {
+  const children = await ctx.db
+    .query("folders")
+    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
+    .collect();
+  return [folderId, ...children.map((child) => child._id)];
+};
+
 // Membership reads are LINKS-ONLY: assetFolders is the single source of
 // truth (verified drift-free via membershipAudit:run before the switch).
 // assets.folderId survives purely as the "primary collection" pointer.
+// Returns the `limit` newest-linked members (capped at FOLDER_MEMBER_READ_CAP),
+// newest asset first.
 export const collectAssetsForFolder = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,
   limit: number,
-) => {
-  const linkedAssets = [];
-  for (const ownerCandidate of ownerUserIds) {
-    const links = await ctx.db
-      .query("assetFolders")
-      .withIndex("by_owner_folder_createdAt", (q) =>
-        q.eq("ownerUserId", ownerCandidate).eq("folderId", folderId).gte("createdAt", 0),
-      )
-      .order("desc")
-      .take(limit);
-    for (const link of links) {
-      const asset = await ctx.db.get(link.assetId);
-      if (asset && canActorAccessOwnerUserId(ownerCandidate, asset.ownerUserId)) {
-        linkedAssets.push(asset);
-      }
-    }
-  }
-
-  return dedupeAssetIds(linkedAssets)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit);
-};
+) => (await collectNewestFolderMembers(ctx, ownerUserIds, [folderId], limit)).assets;
 
 /**
  * A WORLD's whole membership: the folder's own assets plus every
@@ -431,30 +513,25 @@ export const collectAssetsForFolder = async (
  * just the loose assets that happen to sit on the parent folder.
  *
  * Nesting is capped at one level (see folders.assertValidParent), so this is
- * a single extra fan-out, never a recursive walk.
+ * a single extra fan-out, never a recursive walk. The links of the root and
+ * every child are merged newest first and the read stops at `limit` distinct
+ * pieces in total, not per folder: a world with thousands of memberships
+ * costs about `limit` asset reads.
  */
 export const collectAssetsForFolderTree = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   folderId: Id<"folders">,
   limit: number,
-) => {
-  const children = await ctx.db
-    .query("folders")
-    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
-    .collect();
-  const folderIds = [folderId, ...children.map((child) => child._id)];
-
-  const collected: Doc<"assets">[] = [];
-  for (const id of folderIds) {
-    collected.push(
-      ...(await collectAssetsForFolder(ctx, ownerUserIds, id, limit)),
-    );
-  }
-  return dedupeAssetIds(collected)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit);
-};
+) =>
+  (
+    await collectNewestFolderMembers(
+      ctx,
+      ownerUserIds,
+      await folderTreeIds(ctx, folderId),
+      limit,
+    )
+  ).assets;
 
 const collectAssetIdsForFolder = async (
   ctx: QueryCtx,
@@ -514,6 +591,7 @@ const mergeRepeatedSaveMetadata = async (
     if (!asset.folderId) {
       await ctx.db.patch(asset._id, { folderId: input.folderId });
     }
+    await syncPublicCollectionMembership(ctx, asset._id);
   }
 
   const extraTagIds = dedupeIds(input.tagIds).filter(
@@ -696,6 +774,7 @@ export const createAsset = ownerMutation({
     } else {
       await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
     }
+    await ctx.scheduler.runAfter(HASH_DELAY_MS, hashAssetAction, { assetId });
 
     return { assetId, created: true };
   },
@@ -979,6 +1058,7 @@ export const setAssetStarred = ownerMutation({
       : {};
 
     await ctx.db.patch(asset._id, { starredAt, starNote, ...curation });
+    if ("isPublic" in curation) await syncPublicCollectionMembership(ctx, asset._id);
     if ("isFeatured" in curation) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
     }
@@ -1094,6 +1174,7 @@ export const addAssetFolders = ownerMutation({
         folderId: primaryFolderId,
       });
     }
+    await syncPublicCollectionMembership(ctx, args.assetId);
 
     return {
       assetId: args.assetId,
@@ -1158,6 +1239,7 @@ export const removeAssetFolder = ownerMutation({
       primaryFolderId = remainingFolderIds[0];
       await ctx.db.patch(args.assetId, { folderId: primaryFolderId });
     }
+    await syncPublicCollectionMembership(ctx, args.assetId);
 
     return {
       assetId: args.assetId,
@@ -1804,24 +1886,88 @@ const HIDDEN_CHECK_CHUNK = 50;
 // Source rows the one-shot grid read may scan past hidden-only windows.
 const HIDDEN_SCAN_BUDGET = 6000;
 
+// Reads the setup of one gallery query may spend before its rows: auth, tag
+// name lookups, exclusions, hidden collections, a world's children.
+const QUERY_SETUP_READS = 100;
+// Reads a hydrated page shares across its pieces (tag names, mostly).
+const HYDRATE_SHARED_READS = 200;
+
+/**
+ * A running count of the reads one query has left. `admit` pays, in order,
+ * for what hydrating a piece reads (its membership links, and its prompt,
+ * bookmark, tags and legacy storage when no earlier piece paid for them) and
+ * refuses a piece once the budget cannot cover it. A piece is paid once.
+ */
+const createReadBudget = (reads: number) => {
+  let left = reads;
+  let exhausted = false;
+  const paid = new Set<string>();
+  const admit = (asset: Doc<"assets">) => {
+    if (paid.has(asset._id)) return true;
+    const fresh = new Set<string>();
+    for (const id of [asset.promptId, asset.bookmarkId, ...asset.tagIds]) {
+      if (id && !paid.has(id)) fresh.add(id);
+    }
+    const cost =
+      1 +
+      fresh.size +
+      (asset.storageId && !asset.r2Key ? 1 : 0) +
+      (asset.thumbStorageId && !asset.thumbR2Key ? 1 : 0);
+    if (cost > left) {
+      exhausted = true;
+      return false;
+    }
+    left -= cost;
+    paid.add(asset._id);
+    for (const id of fresh) paid.add(id);
+    return true;
+  };
+  return {
+    spend: (count: number) => {
+      left -= count;
+      if (left <= 0) exhausted = true;
+    },
+    left: () => Math.max(0, left),
+    exhausted: () => exhausted,
+    admit,
+    // The longest leading run of `assets` the budget pays for.
+    admitPrefix: (assets: Doc<"assets">[]) => {
+      const admitted: Doc<"assets">[] = [];
+      for (const asset of assets) {
+        if (!admit(asset)) break;
+        admitted.push(asset);
+      }
+      return admitted;
+    },
+  };
+};
+
 // Drops hidden-collection members, keeping order, and stops checking once
-// `limit` visible pieces are found.
+// `limit` visible pieces are found, or at the first piece `admit` refuses.
 const dropHiddenCollectionMembers = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
   hiddenFolderIds: Set<Id<"folders">> | null,
   limit = Number.POSITIVE_INFINITY,
+  admit: (asset: Doc<"assets">) => boolean = () => true,
 ) => {
   if (!hiddenFolderIds) return assets.slice(0, limit);
   const visible: Doc<"assets">[] = [];
   for (let i = 0; i < assets.length && visible.length < limit; i += HIDDEN_CHECK_CHUNK) {
-    const chunk = assets.slice(i, i + HIDDEN_CHECK_CHUNK);
+    const candidates = assets.slice(i, i + HIDDEN_CHECK_CHUNK);
+    const chunk: Doc<"assets">[] = [];
+    for (const asset of candidates) {
+      if (!admit(asset)) break;
+      chunk.push(asset);
+    }
+    if (chunk.length === 0) break;
     const hidden = await Promise.all(
       chunk.map((asset) => isInHiddenCollection(ctx, asset, hiddenFolderIds)),
     );
     chunk.forEach((asset, index) => {
       if (!hidden[index]) visible.push(asset);
     });
+    if (chunk.length < candidates.length) break;
   }
   return visible.slice(0, limit);
 };
@@ -2110,9 +2256,14 @@ export const listGalleryAssets = ownerQuery({
     const pillar = args.pillar;
     const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
+    // Every source range, fetched member and hydrated piece is paid for
+    // before it is read, so a world or a search of any size answers with the
+    // newest pieces that fit instead of failing at Convex's read limit.
+    const budget = createReadBudget(QUERY_READ_BUDGET - QUERY_SETUP_READS);
     // One read of the owner's newest assets, older than `before`. `full`
     // means some owner candidate filled its window, so older rows may remain.
     const readOwnerBatch = async (before: number) => {
+      budget.spend(ownerUserIds.length);
       const perCandidate = await Promise.all(
         ownerUserIds.map(async (ownerCandidate) => {
           if (onlyLiked) {
@@ -2206,14 +2357,36 @@ export const listGalleryAssets = ownerQuery({
         ),
       };
     };
+    // A folder (or a whole world) is read once: its link ranges, then one
+    // read per member fetched, leaving room to hydrate the pieces shown (about
+    // two more reads each). A search hydrates every member it checks.
+    const readFolderBatch = async (folderId: Id<"folders">) => {
+      const folderIds = args.includeDescendants
+        ? await folderTreeIds(ctx, folderId)
+        : [folderId];
+      budget.spend(folderIds.length * ownerUserIds.length);
+      // Tag names are shared across pieces; keep room for them up front.
+      const room = Math.max(0, budget.left() - HYDRATE_SHARED_READS);
+      const affordable = Math.floor(room / 3);
+      const maxMembers = search
+        ? affordable
+        : room - 2 * Math.min(limit, affordable);
+      // A world used to read each folder's newest `queryTake` links and keep
+      // the newest-created pieces among them. Fetching up to that many in
+      // total keeps that answer whenever the world fits the budget; past it,
+      // the most recently filed pieces are the ones that fit.
+      const memberCap = queryTake * folderIds.length;
+      const { assets, fetched } = await collectNewestFolderMembers(
+        ctx,
+        ownerUserIds,
+        folderIds,
+        Math.min(memberCap, maxMembers),
+      );
+      budget.spend(fetched);
+      return { rows: assets, full: false, nextBefore: 0 };
+    };
     const firstBatch = args.folderId
-      ? {
-          rows: args.includeDescendants
-            ? await collectAssetsForFolderTree(ctx, ownerUserIds, args.folderId, queryTake)
-            : await collectAssetsForFolder(ctx, ownerUserIds, args.folderId, queryTake),
-          full: false,
-          nextBefore: 0,
-        }
+      ? await readFolderBatch(args.folderId)
       : await readOwnerBatch(Number.MAX_SAFE_INTEGER);
 
     const seenAssetIds = new Set<Id<"assets">>();
@@ -2255,9 +2428,12 @@ export const listGalleryAssets = ownerQuery({
 
       let selectedAssets = filteredAssets;
       if (search) {
-        const searchable = await hydrateGalleryAssetResults(ctx, filteredAssets);
+        // Searching reads each candidate's prompt and tags, so it checks only
+        // the newest candidates the budget pays for.
+        const checkable = budget.admitPrefix(filteredAssets);
+        const searchable = await hydrateGalleryAssetResults(ctx, checkable);
         const matched = new Set(searchable.filter(asset => galleryAssetSearchText(asset).includes(search)).map(asset => asset._id));
-        selectedAssets = filteredAssets.filter(asset => matched.has(asset._id));
+        selectedAssets = checkable.filter(asset => matched.has(asset._id));
       } else {
         selectedAssets = filteredAssets;
       }
@@ -2287,13 +2463,15 @@ export const listGalleryAssets = ownerQuery({
           candidates,
           hiddenFolderIds,
           limit - selectedAssets.length,
+          budget.admit,
         )),
       );
       if (
         !scanOlderBatches ||
         selectedAssets.length >= limit ||
         !batch.full ||
-        scanned >= HIDDEN_SCAN_BUDGET
+        scanned >= HIDDEN_SCAN_BUDGET ||
+        budget.exhausted()
       ) {
         break;
       }
@@ -2303,7 +2481,9 @@ export const listGalleryAssets = ownerQuery({
       }
       batch = next;
     }
-    selectedAssets = selectedAssets.slice(0, limit);
+    // The pieces shown are hydrated; what the budget cannot pay for is left
+    // out, newest pieces first.
+    selectedAssets = budget.admitPrefix(selectedAssets.slice(0, limit));
     if (selectedAssets.length === 0) {
       return [];
     }
@@ -2502,6 +2682,8 @@ const galleryPageValidator = v.object({
   page: v.array(galleryAssetResultValidator),
   isDone: v.boolean(),
   continueCursor: v.string(),
+  splitCursor: v.optional(v.string()),
+  pageStatus: v.optional(v.union(v.literal("SplitRequired"), v.literal("SplitRecommended"))),
 });
 
 type WrappedCursor = { o: number; c: string | null };
@@ -2519,11 +2701,76 @@ const parseWrappedCursor = (raw: string | null): WrappedCursor => {
   }
 };
 
+// Filter only the current source page. In particular, exclusions must not
+// collect an entire collection's links once for every loaded reactive page.
+// A short/empty page keeps its source cursor so older matches remain reachable.
+type GalleryPageFilters = MenuFilterArgs & {
+  folderId?: Id<"folders">;
+  includeDescendants?: boolean;
+  modelName?: string;
+  pillar?: string;
+  assetRole?: string;
+  kind?: "image" | "video";
+  onlyLiked?: boolean;
+};
+
+const filterGalleryPageAssets = async (
+  ctx: QueryCtx,
+  assets: Doc<"assets">[],
+  args: GalleryPageFilters,
+  hiddenFolderIds: Set<Id<"folders">> | null = null,
+  hideSkillExamples = true,
+) => {
+  const scopeFolderIds = await resolveScopeFolderIds(ctx, args);
+  const excludedFolderIds = new Set(args.excludeFolderIds ?? []);
+  const needsMemberships = Boolean(scopeFolderIds || hiddenFolderIds || excludedFolderIds.size);
+  const folderIdsByAssetId = needsMemberships
+    ? new Map<Id<"assets">, Id<"folders">[]>()
+    : undefined;
+  const groups = [args.tagIds ?? [], ...(args.tagIdGroups ?? [])]
+    .filter((group) => group.length > 0);
+  const excludedTagIds = new Set(args.excludeTagIds ?? []);
+  const selected = await Promise.all(assets.map(async (asset) => {
+    if ((hideSkillExamples && isHiddenSkillExample(asset, args.assetRole)) ||
+      !matchesAssetRole(asset.assetRole, args.assetRole) ||
+      (args.pillar && asset.pillar !== args.pillar) ||
+      (args.modelName?.trim() && asset.modelName !== args.modelName.trim()) ||
+      (args.kind && asset.kind !== args.kind) ||
+      (args.onlyLiked && asset.isLiked !== true) ||
+      !groups.every((group) => asset.tagIds.some((id) => group.includes(id))) ||
+      asset.tagIds.some((id) => excludedTagIds.has(id))) return null;
+
+    if (folderIdsByAssetId) {
+      const ids = [...await assetFolderIdSet(ctx, asset)] as Id<"folders">[];
+      folderIdsByAssetId.set(asset._id, ids);
+      if (scopeFolderIds && !ids.some((id) => scopeFolderIds.has(id))) return null;
+      if (ids.some((id) => excludedFolderIds.has(id) || hiddenFolderIds?.has(id))) return null;
+    }
+    return asset;
+  }));
+  return {
+    assets: selected.filter((asset): asset is Doc<"assets"> => asset !== null),
+    folderIdsByAssetId,
+  };
+};
+
+const pageMenuFilterValidators = {
+  tagIds: v.optional(v.array(v.id("tags"))),
+  tagIdGroups: v.optional(v.array(v.array(v.id("tags")))),
+  excludeTagIds: v.optional(v.array(v.id("tags"))),
+  excludeFolderIds: v.optional(v.array(v.id("folders"))),
+};
+
 export const listGalleryAssetsPage = ownerQuery({
   args: {
     ownerUserId: v.string(),
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
-    tagIds: v.optional(v.array(v.id("tags"))),
+    ...pageMenuFilterValidators,
+    folderId: v.optional(v.id("folders")),
+    includeDescendants: v.optional(v.boolean()),
+    // Newest filtered/world views merge legacy owner spellings by asset date.
+    // Opt-in keeps old clients and their wrapped native cursors compatible.
+    mergeOwners: v.optional(v.boolean()),
     modelName: v.optional(v.string()),
     pillar: pillarValidator,
     assetRole: assetRoleValidator,
@@ -2539,7 +2786,7 @@ export const listGalleryAssetsPage = ownerQuery({
       throw new ConvexError("ownerUserId is required.");
     }
     const candidates = resolveUserIdCandidates(ownerUserId);
-    const hiddenFolderIds = args.skipHiddenCollections
+    const hiddenFolderIds = args.skipHiddenCollections && !args.folderId
       ? await resolveHiddenFolderIds(ctx, candidates)
       : null;
     const cursor = parseWrappedCursor(args.paginationOpts.cursor);
@@ -2551,84 +2798,87 @@ export const listGalleryAssetsPage = ownerQuery({
     const pillar = args.pillar;
     const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
-    const tagFilter =
-      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
 
     // Same index priority as listGalleryAssets; leftover filters post-filter.
-    const indexed = onlyLiked
-      ? ctx.db
+    const indexedForOwner = (ownerCandidate: string) => {
+      const db = args.mergeOwners ? stream(ctx.db, schema) : ctx.db;
+      return onlyLiked
+      ? db
           .query("assets")
           .withIndex("by_owner_isLiked_createdAt", (q) =>
             q.eq("ownerUserId", ownerCandidate).eq("isLiked", true).gte("createdAt", 0),
           )
       : modelNameFilter
-        ? ctx.db
+        ? db
             .query("assets")
             .withIndex("by_owner_modelName_createdAt", (q) =>
               q.eq("ownerUserId", ownerCandidate).eq("modelName", modelNameFilter).gte("createdAt", 0),
             )
         : pillar && assetRole && !isSkillExampleRole(assetRole)
-          ? ctx.db
+          ? db
               .query("assets")
               .withIndex("by_owner_pillar_assetRole_createdAt", (q) =>
                 q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).eq("assetRole", assetRole).gte("createdAt", 0),
               )
           : pillar
-            ? ctx.db
+            ? db
                 .query("assets")
                 .withIndex("by_owner_pillar_createdAt", (q) =>
                   q.eq("ownerUserId", ownerCandidate).eq("pillar", pillar).gte("createdAt", 0),
                 )
             : assetRole && !isSkillExampleRole(assetRole)
-              ? ctx.db
+              ? db
                   .query("assets")
                   .withIndex("by_owner_assetRole_createdAt", (q) =>
                     q.eq("ownerUserId", ownerCandidate).eq("assetRole", assetRole).gte("createdAt", 0),
                   )
               : kind
-                ? ctx.db
+                ? db
                     .query("assets")
                     .withIndex("by_owner_kind_createdAt", (q) =>
                       q.eq("ownerUserId", ownerCandidate).eq("kind", kind).gte("createdAt", 0),
                     )
-                : ctx.db
+                : db
                     .query("assets")
                     .withIndex("by_owner_createdAt", (q) =>
                       q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0),
                     );
+    };
 
-    const result = await indexed.order("desc").paginate({
-      numItems: args.paginationOpts.numItems,
-      cursor: cursor.c,
-    });
+    const numItems = Math.min(Math.max(1, args.paginationOpts.numItems), 100);
+    const result = args.mergeOwners
+      ? await mergedStream(candidates.map((owner) =>
+          indexedForOwner(owner).order("desc") as QueryStream<Doc<"assets">>,
+        ), ["createdAt"]).paginate({
+          ...args.paginationOpts,
+          numItems,
+          maximumRowsRead: 120,
+          maximumBytesRead: 4 * 1024 * 1024,
+        })
+      : await indexedForOwner(ownerCandidate).order("desc").paginate({
+          numItems,
+          cursor: cursor.c,
+        });
 
-    const filtered = result.page.filter((asset) => {
-      if (isHiddenSkillExample(asset, assetRole)) {
-        return false;
-      }
-      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
-        return false;
-      }
-      if (modelNameFilter && asset.modelName !== modelNameFilter) {
-        return false;
-      }
-      if (!matchesAssetRole(asset.assetRole, assetRole)) {
-        return false;
-      }
-      if (kind && asset.kind !== kind) {
-        return false;
-      }
-      if (onlyLiked && asset.isLiked !== true) {
-        return false;
-      }
-      return true;
-    });
+    const filtered = await filterGalleryPageAssets(ctx, result.page, args, hiddenFolderIds);
+    const page = await hydrateGalleryAssetResults(ctx, filtered.assets, filtered);
 
-    const visible = await dropHiddenCollectionMembers(ctx, filtered, hiddenFolderIds);
+    if (args.mergeOwners) {
+      // The matching convex-helpers React hook pins each page's end before
+      // loading the next one. Keep that end even when a growing pinned page
+      // hits a budget: the split's second child must cover the unread tail.
+      return {
+        page,
+        isDone: result.isDone,
+        continueCursor: args.paginationOpts.endCursor ?? result.continueCursor,
+        pageStatus: result.pageStatus ?? undefined,
+        splitCursor: result.splitCursor ?? undefined,
+      };
+    }
 
     const isLastCandidate = ownerIndex >= candidates.length - 1;
     return {
-      page: await hydrateGalleryAssetResults(ctx, visible),
+      page,
       isDone: result.isDone && isLastCandidate,
       continueCursor:
         result.isDone && !isLastCandidate
@@ -2649,6 +2899,10 @@ export const listFolderAssetsPage = ownerQuery({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
+    ...pageMenuFilterValidators,
+    modelName: v.optional(v.string()),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    onlyLiked: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: galleryPageValidator,
@@ -2672,7 +2926,7 @@ export const listFolderAssetsPage = ownerQuery({
       )
       .order("desc")
       .paginate({
-        numItems: args.paginationOpts.numItems,
+        numItems: Math.min(Math.max(1, args.paginationOpts.numItems), 100),
         cursor: cursor.c,
       });
 
@@ -2682,12 +2936,13 @@ export const listFolderAssetsPage = ownerQuery({
       )
     ).filter(
       (asset): asset is Doc<"assets"> =>
-        asset !== null && !isHiddenSkillExample(asset),
+        asset !== null && candidates.includes(asset.ownerUserId ?? ""),
     );
+    const filtered = await filterGalleryPageAssets(ctx, assets, args);
 
     const isLastCandidate = ownerIndex >= candidates.length - 1;
     return {
-      page: await hydrateGalleryAssetResults(ctx, assets),
+      page: await hydrateGalleryAssetResults(ctx, filtered.assets, filtered),
       isDone: result.isDone && isLastCandidate,
       continueCursor:
         result.isDone && !isLastCandidate
@@ -2700,10 +2955,7 @@ export const listFolderAssetsPage = ownerQuery({
 export const listPublicGalleryAssetsPage = query({
   args: {
     kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
-    tagIds: v.optional(v.array(v.id("tags"))),
-    // Drop anything carrying one of these — the public Live action pill is
-    // "not animation", not "tagged live action".
-    excludeTagIds: v.optional(v.array(v.id("tags"))),
+    ...pageMenuFilterValidators,
     modelName: v.optional(v.string()),
     // Restrict the public page to one collection's membership — what a
     // collection-kind menu filter pill selects.
@@ -2714,29 +2966,7 @@ export const listPublicGalleryAssetsPage = query({
   },
   returns: galleryPageValidator,
   handler: async (ctx, args) => {
-    const tagFilter =
-      args.tagIds && args.tagIds.length > 0 ? new Set(args.tagIds) : null;
-    const excludeFilter =
-      args.excludeTagIds && args.excludeTagIds.length > 0
-        ? new Set(args.excludeTagIds)
-        : null;
-    // Membership is a links-only read; the ids gate the page below so the
-    // pagination cursor still walks the isPublic index.
-    const folderFilter = args.folderId
-      ? new Set(
-          (
-            await ctx.db
-              .query("assetFolders")
-              .withIndex("by_folder_createdAt", (q) =>
-                q.eq("folderId", args.folderId as Id<"folders">),
-              )
-              .collect()
-          ).map((link) => link.assetId as string),
-        )
-      : null;
-    const modelNameFilter = args.modelName?.trim() || null;
     const pillar = args.pillar;
-    const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
     const kind = args.kind;
 
     const indexed = pillar
@@ -2757,35 +2987,14 @@ export const listPublicGalleryAssetsPage = query({
               q.eq("isPublic", true).gte("createdAt", 0),
             );
 
-    const result = await indexed.order("desc").paginate(args.paginationOpts);
-
-    const filtered = result.page.filter((asset) => {
-      if (tagFilter && !asset.tagIds.some((tagId) => tagFilter.has(tagId))) {
-        return false;
-      }
-      if (
-        excludeFilter &&
-        asset.tagIds.some((tagId) => excludeFilter.has(tagId))
-      ) {
-        return false;
-      }
-      if (modelNameFilter && asset.modelName !== modelNameFilter) {
-        return false;
-      }
-      if (!matchesAssetRole(asset.assetRole, assetRole)) {
-        return false;
-      }
-      if (kind && asset.kind !== kind) {
-        return false;
-      }
-      if (folderFilter && !folderFilter.has(asset._id)) {
-        return false;
-      }
-      return true;
+    const result = await indexed.order("desc").paginate({
+      ...args.paginationOpts,
+      numItems: Math.min(Math.max(1, args.paginationOpts.numItems), 100),
     });
+    const filtered = await filterGalleryPageAssets(ctx, result.page, args, null, false);
 
     return {
-      page: await hydrateGalleryAssetResults(ctx, filtered),
+      page: await hydrateGalleryAssetResults(ctx, filtered.assets, filtered),
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     };
@@ -2844,6 +3053,7 @@ export const setAssetCuration = mutation({
       curatedByUserId: actorUserId,
       curatedAt,
     });
+    await syncPublicCollectionMembership(ctx, args.assetId);
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
     });
@@ -2930,6 +3140,7 @@ export const bulkSetAssetCuration = mutation({
         curatedByUserId: actorUserId,
         curatedAt,
       });
+      await syncPublicCollectionMembership(ctx, assetId);
       await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
       updatedAssetIds.push(assetId);
     }
@@ -3012,6 +3223,7 @@ export const bulkSetFolderCuration = mutation({
         curatedByUserId: actorUserId,
         curatedAt,
       });
+      await syncPublicCollectionMembership(ctx, assetId);
       await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
       updatedCount += 1;
     }
@@ -3776,6 +3988,18 @@ export const listPublicCollections = query({
     }),
   ),
   handler: async (ctx) => {
+    if (await publicCollectionCountsReady(ctx)) {
+      const folders = await ctx.db.query("folders")
+        .withIndex("by_publicMemberCount", (q) => q.gte("publicMemberCount", 1))
+        .collect();
+      return folders
+        .filter((folder) => folder.kind === undefined)
+        .map((folder) => ({ folderId: folder._id, label: folder.name, count: folder.publicMemberCount! }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    // Compatibility during rollout: partial counters must never hide a
+    // published collection or label an incomplete count as authoritative.
     const publicAssets = await ctx.db
       .query("assets")
       .withIndex("by_isPublic_createdAt", (q) =>
@@ -3942,6 +4166,16 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
     await ctx.db.delete(link._id);
   }
 
+  // Character links and sheet/face pointers drop with the asset; the
+  // character itself stays.
+  await detachAssetFromCharacters(ctx, asset._id);
+  // So does its place on any moodboard; the board keeps an exact count and
+  // a cover that is still on it.
+  await detachAssetFromMoodboards(ctx, asset._id);
+  // Its comment thread goes with it, and its perceptual hash.
+  await deleteCommentsForAsset(ctx, asset._id);
+  await deleteHashForAsset(ctx, asset._id);
+
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.
   const folderLinks = await ctx.db
@@ -4009,6 +4243,7 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
 
   const packId = asset.assetPackId;
   await ctx.db.delete(asset._id);
+  await syncPublicCollectionMembership(ctx, asset._id);
   if (packId) {
     await reconcileAssetPackMembership(ctx, packId);
   }
@@ -4648,6 +4883,7 @@ export const mergeDuplicateAssets = internalMutation({
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(keeper.asset._id, patch);
     }
+    await syncPublicCollectionMembership(ctx, keeper.asset._id);
     await recountFolderMembers(ctx, Array.from(keeperFolderIds) as Id<"folders">[]);
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: keeper.asset._id,

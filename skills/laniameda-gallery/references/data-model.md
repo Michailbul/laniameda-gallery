@@ -1,5 +1,12 @@
 # Data model
 
+Midjourney sref libraries use normal collections and existing media/bookmarks.
+Explicit text recipes use prompts with domain `midjourney-sref`, promptType
+`other`, workflowType `asset_recipe` and modelProvider `midjourney`. `promptSections.finalPrompt` is the
+normalized --sref recipe including stated --sw/--sv/--v; generationNotes is JSON
+with optional title/note/sourceUrl. No new table or schema field is added.
+See [midjourney-srefs.md](midjourney-srefs.md) for save_sref/list_srefs and readback.
+
 What the gallery is made of, read from `convex/schema.ts`, `convex/validators.ts`,
 `convex/menuFilters.ts`, `lib/collection-sections.ts` and `lib/medium.ts` on
 7 Oct 2026. Human direction governs creative policy; code and live verified
@@ -47,8 +54,17 @@ Michael's own caption, so user metadata and agent-derived metadata never mix.
 
 ## Semantic search: two lanes
 
-Each asset has one `semanticDocuments` row with two embeddings, each from its
-own model (3072 dims both):
+Storage moves between two layouts (`SEMANTIC_STORAGE`, `convex/semanticStorage.ts`):
+legacy keeps one `semanticDocuments` row per source with both lanes at 3072
+values (~56 KB); split keeps a slim `semanticEntries` row per asset or Skill
+plus one row per lane in `semanticPixelVectors` / `semanticTextVectors`, each
+the normalized first 768 values of the same embedding. Search and the lane
+rules below are the same in both. Split storage holds no prompt or
+design-inspiration vectors (nothing searches them) and no pixel vector for
+imageless assets.
+
+In legacy storage each asset has one `semanticDocuments` row with two
+embeddings, each from its own model (3072 dims both):
 
 - **Pixel lane** (`embedding`, index `by_embedding`, `gemini-embedding-2-preview`,
   multimodal): the image bytes only, so a text query finds what a picture looks
@@ -76,6 +92,17 @@ and merges them by reciprocal rank (k = 60), then applies filters while
 hydrating. In hybrid mode a rate-limited pixel model degrades the search to the
 text lane instead of failing it. `searchText` on the row holds the text lane, so
 the `search_text` keyword index covers it as well.
+
+`semanticDocumentIdentities` is an internal lightweight projection used to
+resolve vector-hit IDs without loading either embedding. Both lanes share one
+deduplicated lookup. Semantic mutations maintain the projection atomically;
+legacy rows use a full-document fallback until the metadata-only migration
+completes. The compact lookup and miss-only fallback are separate queries;
+fallback batches contain at most eight full documents to remain below database
+read limits even with large search text. This does not change agent search
+inputs, results, or permissions.
+Deployment and migration require separate authorization; see
+`agent-docs/SEMANTIC_READ_COST_MIGRATION.md` for rollout and verification.
 
 ## Pillars: legacy, leave unset
 
@@ -184,7 +211,8 @@ collection   root folder — a world when showcased (/w/<slug>)
 - **collection** — a root folder. Showcasing it with
   `folders:setFolderShowcased` makes it a world and allocates `/w/<slug>`.
 - **folder** — a sub-collection with `parentFolderId` set to a root
-  collection. A folder never holds folders, and a storybook never nests.
+  collection. A folder never holds folders. A storybook may be a child of a
+  root (its world) and never holds children.
 - **what a piece IS** — a tag: `character`, `location`, `scene`,
   `inspiration`. Tag the asset; do not create a "Characters" folder.
   `collectionCleanup:flattenSectionCollections` folds section-named folders
@@ -197,6 +225,63 @@ section as that section.
 Naming convention: world collections are ALL CAPS (`CASSANDRA`, `DADDY ISSUES`).
 Folder names are scoped to their parent, so "Balcony" can exist under several
 collections.
+
+A child folder can carry `folders.group` (optional display text of at most 40
+characters, e.g. `Styles`, `Places`, `Cast`) and `folders.sortOrder` (optional
+number). Both are accepted on roots and ignored there. Children list group by
+group: groups in order of their smallest member `sortOrder`, then group name;
+members by `sortOrder`, then name; ungrouped children last in the old order
+(sections first, then name). With no group set nothing changes.
+`createFolder`/`updateFolder` take both (`null` clears) and `updateFolder` keeps
+the name when it is omitted. Groups never move assets.
+
+Public collection counts are stored in `folders.publicMemberCount`, maintained
+transactionally by `publicCollectionMemberships` snapshots whenever asset
+publication or membership changes. They count distinct public assets across
+`assetFolders` and the legacy primary pointer, excluding private assets.
+`folders:listFolders` exposes this optional count only when the bounded
+`publicCollectionCounts:backfill` has completed; missing means not ready, not
+zero. Until then `assets:listPublicCollections` preserves the exact legacy
+read. These internal bookkeeping tables do not change save/filing arguments.
+
+## Worlds (harness 1.0, 23 Oct 2026)
+
+A world is a root collection with `folders.worldKey` set (lowercase hyphenated,
+unique per owner, e.g. `dear-annete`). Its children (style branches, shelves and
+storybooks in group `Storybooks`) belong to it. ART, LOVE, DESIGN and other
+roots without a key are shared shelves, not worlds.
+
+Isolation is enforced in Convex (`convex/worldCore.ts`):
+- an asset may belong to at most one world; any membership write that would add
+  a second world is refused (legacy two-world assets keep what they have);
+- a moodboard's new items and a story's new asset links must not belong to
+  another world; a board never moves to another world;
+- a story's collection and its storybook are in the same world.
+
+Tables:
+- `worldDocs` — a world's files: `WORLD.md` (≤ 8,000 chars), `LEARNINGS.md`
+  (≤ 40 entries / 6,000 chars), `docs/<kebab>.md` (≤ 8 docs, 12,000 chars).
+  Caps live in `lib/world-docs.ts` and are enforced on write.
+- `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
+  `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
+  `world.mark`), actor (`agent:<token label>` or `owner`), optional `session`,
+  JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
+  transaction as the change by world docs, filing, shelves, moodboards in a
+  world, profiles and stories in a world. `worlds:undoWorldChanges` restores
+  `before` when the target still matches `after` (else it is blocked); undoing
+  a created story archives it, undoing a created profile retires it.
+- `mjProfiles` — Midjourney personalization profiles: name, `code` (the
+  `--profile` code), `mjProfileId`, `status` (active/retired), `codeHistory`,
+  and `uses: [{ worldFolderId, role, styleTag? }]`. A world reads only its use.
+
+Functions: `worlds:listWorlds`, `getWorldContext`, `readWorldDoc`,
+`listWorldDocs`, `writeWorldDoc`, `deleteWorldDoc`, `worldDocHistory`,
+`fileWorldAssets`, `saveWorldShelf`, `markWorld`, `listWorldChanges`,
+`getWorldChange`, `undoWorldChanges`, `resolveWorldRef`; `mjProfiles:listProfiles`,
+`saveProfile`. Agent route `/api/agent/worlds`; MCP tools `open_world`,
+`world_doc`, `world_file`, `world_shelf`, `mj_profiles`, `world_journal`,
+`world_undo`, `mark_world`. `search_gallery`, `find_similar`, `preview_assets`,
+`list_assets_page`, `list_stories` and `list_moodboards` take `world`.
 
 ## Validator quick reference
 
@@ -384,6 +469,79 @@ These are maintained by backend mutations; callers usually pass tag names, typed
 - Semantic indexing is async after successful ingest; callers do not send embeddings or wait for indexing completion.
 - Semantic search is available via `semanticSearch:searchAssets` (text query → matching assets) and `semanticSearch:findSimilarAssets` (image → visually similar images). Both use Gemini cross-modal embeddings and support post-filters for pillar, modelName, kind, assetRole, and folderId.
 - Backfill existing records: `CONVEX_DEPLOYMENT=dev:perfect-buffalo-375 bunx convex run semanticIndex:backfillBatch '{"sourceType": "asset", "batchSize": 25}'` (loop until `done: true`). Same for `"prompt"` and `"designInspiration"` source types.
+# Characters (16 October 2026)
+
+`characters` holds one named person per world: `ownerUserId`, `worldFolderId`
+(a root collection), `code` (`DA-CH-001`), `prefix`, `number`, `name`, optional
+`alias`, `normalizedName` (unique per world), `otherNames`, optional `role`,
+`lane` (live-action/animation), `status` (concept/approved/sheeted/retired),
+optional `sheetAssetId`, `faceAssetId`, `nameTag`, `notes`, `costumes`
+(`code` C01…, `name`, `status`, optional sheet/face/notes),
+`lastCostumeNumber`, `linkCount`, `revision`, `createdAt`, `updatedAt`.
+
+`characterWorlds` keeps each world's prefix and last issued number, so codes
+are never reissued and two worlds never share a prefix. `characterAssets` is
+the typed link: `characterId`, `assetId`, `role`
+(concept/sheet/face/costume/appears-in/reference), optional `costumeCode` and
+`note`. One row per character and asset; asset deletion removes its rows and
+clears sheet/face pointers. See `characters.md`.
+
+# Moodboards (19 October 2026)
+
+`moodboards` holds one look per row: `ownerUserId`, `folderId` (a plain root
+or child collection, never a storybook), `name`, `normalizedName` (unique per
+owner and folder), optional `description`, `styleTag` (lowercase hyphenated,
+at most 48), `status` (draft/in-midjourney/archived), optional `mjCode` (the
+personalization code, a string kept as given), `mjMoodboardId`, `mjUrl`,
+`mjSyncedAt`, `mjSyncedItemCount`, `mjCodeHistory` (`code`, `at`, optional
+`note`), `notes`, `coverAssetId` (always an item), `itemCount` (exact),
+`revision`, `createdAt`, `updatedAt`. Indexes: owner/folder/normalizedName,
+owner/updatedAt, owner/mjCode.
+
+`moodboardItems` is one asset on one board: `ownerUserId`, `moodboardId`,
+`assetId`, `position` (ascending display order; an append takes the last
+position + 1), optional `note`, `addedAt`. One row per board and asset;
+indexes by board/position, board/asset and asset. Deleting an asset removes
+its rows and repairs `itemCount` and `coverAssetId`. Deleting a child
+collection moves its boards to the parent (renamed `<name> · <child>` on a
+clash); deleting a root deletes its boards and items. See `moodboards.md`.
+
+# The world Inbox (20 October 2026)
+
+`inboxStacks` is one stack of decision cards in a world's Inbox:
+`ownerUserId`, `worldFolderId` (a root collection), `title`, optional `note`,
+`agent`, `ingestKey` (posting again with it appends), `status` open/closed,
+`cardTypes`, `createdAt`, `updatedAt`, `closedAt`. Indexes: owner/status/
+createdAt, world/status/createdAt, owner/world/ingestKey.
+
+`inboxCards` never change after posting: `stackId`, `worldFolderId`,
+`position`, `type` (sort/duplicates/artifact/ab/choose/rule), optional `key`
+(re-posting it is skipped), `question`, `assetIds`, `labels`, `targets` (sort:
+2–9 of `hotkey`, `label`, `kind` moodboard/collection/option/out, and the
+`moodboardId` or `folderId`), `evidence` (`text`, `matches` of kind/label/
+score, `defect.box` in 0–1 coordinates with `note`, `priceUsd`, `priceNote`),
+`ruleText`. Indexes: stack/position, stack/key.
+
+`inboxDecisions` is the latest answer on a card: `choice` (target, skip,
+keep, fix, out, winner, neither, pick, yes, no, not-yet, stack, keep-all,
+resolve), `targetHotkey`, `pickedAssetId`, `coverAssetId`, `deleteAssetIds`,
+`deletedAssetIds`, `applied` (what it changed: a moodboard item, a collection
+membership, or a stack with each member's earlier pack), `decidedAt`, a card
+comment (`commentText`, `audioStorageId`, `audioDurationMs`,
+`audioContentType`). `inboxCounts` keeps cards/decided per stack for the
+badges. Undo reverses `applied`; deleted images stay deleted.
+
+`assetPacks.kind` is `stack` for alternates collapsed under one cover; prompt
+syncing never moves a stack's members. `assetComments` may carry a voice note
+(`audioStorageId`, `audioDurationMs`, `audioContentType`; `body` may then be
+empty) and `source: "inbox"`. See `inbox.md`.
+
+`assetHashes` holds one perceptual hash per image: `ownerUserId`, `assetId`,
+`dHash` (16 hex characters, a 64-bit difference hash of the card thumbnail or
+video poster), `createdAt`. Written a minute after ingest and by the backfill
+`perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
+asset, owner. Read by the grid's Similar view and `find_similar_groups`.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,

@@ -5,6 +5,7 @@ import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } 
 import { addAssetFolderLink } from "./assets";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { storyFields, storyKindValidator, storyResultValidator, storyStatusValidator } from "./storyValidators";
+import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder } from "./worldCore";
 
 const ownedStory = async (ctx: QueryCtx, owner: string, id: Id<"stories">) => {
   const story = await ctx.db.get(id);
@@ -14,7 +15,7 @@ const ownedStory = async (ctx: QueryCtx, owner: string, id: Id<"stories">) => {
 
 const requireReferences = async (ctx: QueryCtx, owner: string, data: {
   folderId?: Id<"folders">; storybookId?: Id<"folders">; assetIds: Id<"assets">[];
-}) => {
+}, previousAssetIds: Id<"assets">[] = []) => {
   for (const id of [data.folderId, data.storybookId]) {
     if (!id) continue;
     const folder = await ctx.db.get(id);
@@ -26,6 +27,54 @@ const requireReferences = async (ctx: QueryCtx, owner: string, data: {
     const asset = await ctx.db.get(id);
     if (!asset || !canActorAccessOwnerUserId(owner, asset.ownerUserId)) throw new ConvexError("Source asset not found.");
   }
+  // Story beats and storybooks are children of one world: the story's
+  // collection, its storybook and the pieces it links stay inside it.
+  const folderWorld = await worldIdOfFolder(ctx, data.folderId);
+  const bookWorld = await worldIdOfFolder(ctx, data.storybookId);
+  if (data.storybookId && !bookWorld && folderWorld) throw new ConvexError("That storybook is not in this story's world. Bring it into the world first (world_shelf).");
+  if (bookWorld && folderWorld !== bookWorld) throw new ConvexError("A story and its storybook must be in the same world: set folderId to the world or one of its collections.");
+  if (bookWorld && !data.folderId) throw new ConvexError("A story in a world's storybook needs folderId: the world or one of its collections.");
+  // Links a story already had stay valid; new links must fit its world.
+  const previous = new Set(previousAssetIds);
+  await assertAssetsFitWorld(ctx, folderWorld ?? bookWorld, data.assetIds.filter((id) => !previous.has(id)), "A story in a world");
+};
+
+export type StorySnapshot = { storyId: Id<"stories">; revision: number; fields: Record<string, unknown> };
+
+const storySnapshot = (story: Doc<"stories">): StorySnapshot => {
+  const { _id, _creationTime, ownerUserId: _owner, ingestKey: _key, searchText: _search, createdAt: _created, updatedAt: _updated, revision, ...fields } = story;
+  void _creationTime; void _owner; void _key; void _search; void _created; void _updated;
+  return { storyId: _id, revision, fields };
+};
+
+const journalStory = async (ctx: MutationCtx, owner: string, before: Doc<"stories"> | null, storyId: Id<"stories">, args: { actor?: string; session?: string }) => {
+  const story = (await ctx.db.get(storyId))!;
+  const worldId = await worldIdOfFolder(ctx, story.folderId) ?? await worldIdOfFolder(ctx, before?.folderId);
+  if (!worldId) return;
+  await recordWorldChange(ctx, {
+    ownerUserId: owner, worldFolderId: worldId, op: "story.save", targetType: story.kind === "style-lock" ? "style-lock" : "story", targetId: storyId,
+    summary: before ? `Edited ${story.kind} "${story.title}" (revision ${story.revision})` : `Created ${story.kind} "${story.title}"`,
+    before: before ? storySnapshot(before) : undefined, after: storySnapshot(story), actor: args.actor, session: cleanSession(args.session),
+  });
+};
+
+/** Undo support: bring a story back to `before` as a new revision; an undone create is archived, never deleted. */
+export const restoreStorySnapshot = async (
+  ctx: MutationCtx, owner: string, storyId: Id<"stories">, before: StorySnapshot | null, after: StorySnapshot, dryRun: boolean,
+): Promise<{ ok: true; restored: StorySnapshot | null } | { ok: false; reason: string }> => {
+  const story = await ctx.db.get(storyId);
+  if (!story || !canActorAccessOwnerUserId(owner, story.ownerUserId)) return { ok: false, reason: "the story is gone" };
+  if (!sameContent(storySnapshot(story).fields, after.fields)) return { ok: false, reason: `"${story.title}" changed since (revision ${story.revision})` };
+  if (dryRun) return { ok: true, restored: null };
+  const now = Date.now();
+  const { _id, _creationTime, ingestKey: _key, searchText: _search, createdAt: _created, updatedAt: _updated, ...current } = story;
+  void _creationTime; void _key; void _search; void _created; void _updated;
+  await ctx.db.insert("storyRevisions", { ...current, storyId: _id, savedAt: now });
+  const fields = before ? before.fields as Partial<Doc<"stories">> : { status: "archived" as const };
+  const merged = { ...story, ...fields };
+  const searchText = [merged.title, merged.body, merged.logline, merged.hook, merged.styleTag, ...merged.tagNames].filter(Boolean).join("\n").toLowerCase();
+  await ctx.db.patch(_id, { ...fields, searchText, revision: story.revision + 1, updatedAt: now });
+  return { ok: true, restored: storySnapshot((await ctx.db.get(_id))!) };
 };
 
 // A story's assets become members of its storybook folder (additive: shelves, stars and flags are untouched).
@@ -99,24 +148,28 @@ export const getStoryLinkStatus = ownerQuery({
 });
 
 export const saveStory = ownerMutation({
-  args: { ownerUserId: v.string(), ingestKey: v.string(), ...storyFields, expectedRevision: v.optional(v.number()) },
+  args: {
+    ownerUserId: v.string(), ingestKey: v.string(), ...storyFields, expectedRevision: v.optional(v.number()),
+    actor: v.optional(v.string()), session: v.optional(v.string()),
+  },
   returns: v.object({ id: v.id("stories"), created: v.boolean(), revision: v.number() }),
   handler: async (ctx, args) => {
     const ingestKey = args.ingestKey.trim();
     if (!ingestKey || ingestKey.length > 300) throw new ConvexError("A stable ingestKey is required (at most 300 characters).");
-    const { ownerUserId, expectedRevision, ingestKey: _key, ...input } = args;
+    const { ownerUserId, expectedRevision, ingestKey: _key, actor, session, ...input } = args;
     void _key;
     const data = normalize(input);
-    await requireReferences(ctx, ownerUserId, data);
     let existing: Doc<"stories"> | null = null;
     for (const owner of resolveUserIdCandidates(ownerUserId)) {
       existing = await ctx.db.query("stories").withIndex("by_owner_ingestKey", (q) => q.eq("ownerUserId", owner).eq("ingestKey", ingestKey)).unique();
       if (existing) break;
     }
+    await requireReferences(ctx, ownerUserId, data, existing?.assetIds);
     const now = Date.now();
     if (!existing) {
       if (expectedRevision !== undefined && expectedRevision !== 0) throw new ConvexError("Story changed. Reload before saving.");
       const id = await ctx.db.insert("stories", { ownerUserId, ingestKey, ...data, revision: 1, createdAt: now, updatedAt: now });
+      await journalStory(ctx, ownerUserId, null, id, { actor, session });
       await linkAssetsToStorybook(ctx, ownerUserId, data);
       return { id, created: true, revision: 1 };
     }
@@ -132,6 +185,7 @@ export const saveStory = ownerMutation({
     void _creationTime; void _oldKey; void _search; void _created; void _updated;
     await ctx.db.insert("storyRevisions", { ...snapshot, storyId: _id, savedAt: now });
     await ctx.db.patch(_id, { ...data, revision: existing.revision + 1, updatedAt: now });
+    await journalStory(ctx, ownerUserId, existing, _id, { actor, session });
     await linkAssetsToStorybook(ctx, ownerUserId, data);
     return { id: _id, created: false, revision: existing.revision + 1 };
   },

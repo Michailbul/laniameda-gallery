@@ -188,6 +188,7 @@ const resolveFolderIdsMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
 export const hydrateGalleryAssetResults = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
+  options: { folderIdsByAssetId?: Map<Id<"assets">, Id<"folders">[]> } = {},
 ) => {
   if (assets.length === 0) {
     return [];
@@ -196,7 +197,7 @@ export const hydrateGalleryAssetResults = async (
   const [promptTextById, tagNameById, folderIdsByAssetId, bookmarkById] = await Promise.all([
     resolvePromptTextMap(ctx, assets),
     resolveTagNameMap(ctx, assets),
-    resolveFolderIdsMap(ctx, assets),
+    options.folderIdsByAssetId ?? resolveFolderIdsMap(ctx, assets),
     resolveBookmarkMap(ctx, assets),
   ]);
 

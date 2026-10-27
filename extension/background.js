@@ -1,7 +1,8 @@
 // Save to Gallery — Background service worker
 
 // Capture-time conversion plus collection-derived type classification.
-importScripts("image-convert.js", "collection-classification.js");
+// Saved-status lookups are batched, cached and backed off (asset-status.js).
+importScripts("image-convert.js", "collection-classification.js", "asset-status.js");
 
 const collectionClassification = globalThis.SaveToGalleryCollectionClassification;
 
@@ -966,17 +967,17 @@ async function saveXPost(payload, tab) {
 }
 
 // Read-only "already saved?" lookup — powers the In-gallery state on the
-// Midjourney viewer save widget.
-async function checkAssetStatus(payload) {
-  const imageUrls = Array.isArray(payload.imageUrls)
-    ? payload.imageUrls
-        .filter((url) => typeof url === "string" && url.trim())
-        .slice(0, 8)
-    : [];
-  if (imageUrls.length === 0) {
-    return { ok: false, error: "imageUrls is required." };
-  }
+// Midjourney viewer save widget. One request carries every url asked for
+// within a short window; answers are cached (see asset-status.js).
+const assetStatus = globalThis.SaveToGalleryAssetStatus.createAssetStatusClient({
+  fetchStatuses: (imageUrls) => fetchAssetStatuses(imageUrls),
+});
 
+function checkAssetStatus(payload) {
+  return assetStatus.check(Array.isArray(payload.imageUrls) ? payload.imageUrls : []);
+}
+
+async function fetchAssetStatuses(imageUrls) {
   const config = await getConfig();
   const statusUrl = normalizeRouteUrl(config.apiUrl, ASSET_STATUS_ROUTE_PATH);
 
@@ -1198,7 +1199,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       folderIds: message.folderIds,
       tagNames: message.tagNames,
     })
-      .then(sendResponse)
+      .then((result) => {
+        if (result?.ok) assetStatus.markSaved(message.imageUrl);
+        sendResponse(result);
+      })
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
@@ -1227,7 +1231,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       mediaType: message.mediaType,
       inputImages: message.inputImages,
     })
-      .then(sendResponse)
+      .then((result) => {
+        if (result?.ok) assetStatus.markSaved(message.imageUrl);
+        sendResponse(result);
+      })
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }

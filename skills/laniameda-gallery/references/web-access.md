@@ -22,7 +22,7 @@ curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniame
 bun gallery.mjs check
 bun gallery.mjs tools
 bun gallery.mjs schema save_assets
-bun gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
+bun gallery.mjs all_assets --out ./inventory
 bun gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
 ```
 
@@ -37,11 +37,16 @@ Import createGalleryClient from scripts/gallery-client.mjs in Bun. Configure
 token/apiUrl/fetch/timeoutMs/maxCalls as needed (or authenticated callTool/listTools
 bridges); discover/schema/call expose live
 tools. Resource namespaces include assets, collections, menuFilters, Skills, Stories,
-bookmarks, YouTube references and presets. Use
+characters, moodboards, inbox, bookmarks, YouTube references and presets. Use
 assets.pages()/assets.all() and videoRefs.pages()/videoRefs.all() for complete reads and filter/aggregate locally
 before printing concise results. assets.inventory() also returns completion, page
 count and scan metadata. The CLI --out takes a directory; all_assets writes
-<directory>/assets.json. Avoid printing private full inventory data unless
+<directory>/assets.json. Without filters all_assets reads the cached export
+(POST /api/agent/inventory: one snapshot rebuilt at most daily, with assets
+saved since appended; {"refresh":true} rebuilds it if older than 15 minutes,
+{"maxAgeMinutes":60} tightens the age). The snapshot does not reflect later
+edits or deletions: read single records with get_gallery_item before changing
+them. assets.pages()/all() page live and cost a full read every time. Avoid printing private full inventory data unless
 that export is requested. Read the actual module and tool schema for option names.
 
 ```javascript
@@ -80,6 +85,15 @@ Do not guess rules from old installed copies if access is unavailable.
   is an internal table/wire name only.
 - Collections: list/create/update; parentFolderId supports plain children and
   kind: storybook supports root visual books. Worlds are root collections.
+  Children can carry a display group and sortOrder.
+- Moodboards: list/get/save plus add/remove/reorder items; get_moodboard
+  returns image URLs in order for Midjourney and set_moodboard_midjourney
+  records the code after a sync (references/moodboards.md).
+- Inbox: post_inbox_cards posts decision cards (sort, duplicates, artifact,
+  ab, choose, rule) into a world's stack; list_inbox_decisions reads Michael's
+  answers, comments, voice notes and image notes; close_stack when acted on;
+  find_similar_groups finds near-identical images by perceptual hash
+  (references/inbox.md).
 - Native Stories: save/list/get/update; changes require the last-read revision.
 - Bookmarks and YouTube references have separate tools; ordinary media search
   does not search all objects. Motion/Cinematography use tagged assets/Skills.
@@ -87,8 +101,9 @@ Do not guess rules from old installed copies if access is unavailable.
 - Video posters: supply posterUploadId on creation; set_video_poster edits only
   the thumbnail while preserving the owned video and its links.
 
-list_assets remains bounded; follow list_assets_page until isDone true for an
-audit. Include descendants when reading a world root. Empty matching pages can
+list_assets remains bounded; follow list_assets_page until isDone true for a
+filtered or exact live audit, and use the cached export (all_assets) for a
+complete unfiltered inventory. Include descendants when reading a world root. Empty matching pages can
 have a continuation. Plain keyword matching and semantic search differ; inspect
 the schema rather than assuming every field is in every read/search surface.
 

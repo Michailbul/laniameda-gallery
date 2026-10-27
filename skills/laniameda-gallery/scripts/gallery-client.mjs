@@ -152,6 +152,28 @@ export function createGalleryClient(options = {}) {
     tags: { list: named("list_tags"), upsert: named("upsert_tag"), upsertMany: named("upsert_tags"), archive: named("archive_tag"), aliases: named("add_tag_aliases") },
     skills: { list: named("list_skills"), get: byId("get_skill"), search: named("search_skills"), create: named("create_skill"), update: named("update_skill"), file: named("file_skill"), delete: byId("delete_skill") },
     stories: { list: named("list_stories"), get: byId("get_story"), save: named("save_story"), update: named("update_story"), revisions: byId("get_story_revisions"), delete: byId("delete_story") },
+    characters: {
+      list: named("list_characters"), get: character => call("get_character", { character }), create: named("create_character"),
+      update: named("update_character"), saveCostume: named("save_character_costume"), removeCostume: named("remove_character_costume"),
+      link: (character, links) => call("link_character_assets", { character, links }),
+      unlink: (character, assetIds) => call("unlink_character_assets", { character, assetIds }),
+      delete: character => call("delete_character", { character }),
+    },
+    moodboards: {
+      list: named("list_moodboards"), get: moodboardId => call("get_moodboard", { moodboardId }), save: named("save_moodboard"),
+      add: (moodboardId, assetIds, note) => call("add_moodboard_items", { moodboardId, assetIds, ...(note ? { note } : {}) }),
+      remove: (moodboardId, assetIds) => call("remove_moodboard_items", { moodboardId, assetIds }),
+      reorder: (moodboardId, assetIds) => call("reorder_moodboard_items", { moodboardId, assetIds }),
+      setMidjourney: named("set_moodboard_midjourney"),
+      generations: (moodboardId, limit) => call("list_moodboard_generations", { moodboardId, ...(limit ? { limit } : {}) }),
+      delete: moodboardId => call("delete_moodboard", { moodboardId }),
+    },
+    inbox: {
+      post: named("post_inbox_cards"), stacks: named("list_inbox_stacks"), decisions: stackId => call("list_inbox_decisions", { stackId }),
+      close: (stackId, reopen) => call("close_stack", { stackId, ...(reopen ? { reopen } : {}) }),
+      delete: stackId => call("delete_inbox_stack", { stackId }),
+      similar: named("find_similar_groups"),
+    },
     presets: { list: named("list_filter_presets"), save: named("save_filter_preset"), delete: byId("delete_filter_preset") },
     bookmarks: { list: named("list_bookmarks"), save: named("save_bookmarks"), setNote: named("set_bookmark_note") },
     videoRefs: {

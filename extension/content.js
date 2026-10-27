@@ -2664,8 +2664,23 @@
   // ── "Already in gallery" status (viewer widget) ──
 
   // url → Promise<boolean>. Confirmed lookups (saved or not) stay cached for
-  // the page lifetime; transport failures are evicted so a later tick retries.
+  // the page lifetime. A failed lookup is kept for a minute before a later
+  // tick may retry it, and no lookup starts while the tab is hidden: a
+  // background Midjourney tab keeps rendering, but nobody is looking at it.
   const gallerySavedStatusCache = new Map();
+  const GALLERY_STATUS_RETRY_MS = 60 * 1000;
+
+  function whenTabVisible() {
+    if (document.visibilityState === "visible") return Promise.resolve();
+    return new Promise((resolve) => {
+      const onChange = () => {
+        if (document.visibilityState !== "visible") return;
+        document.removeEventListener("visibilitychange", onChange);
+        resolve();
+      };
+      document.addEventListener("visibilitychange", onChange);
+    });
+  }
 
   function checkImageSavedInGallery(imageUrl) {
     const url = String(imageUrl || "").trim();
@@ -2674,10 +2689,16 @@
     const cached = gallerySavedStatusCache.get(url);
     if (cached) return cached;
 
-    const pending = sendRuntimeMessage({ action: "checkAssetStatus", imageUrls: [url] })
+    const forgetLater = () => {
+      setTimeout(() => {
+        if (gallerySavedStatusCache.get(url) === pending) gallerySavedStatusCache.delete(url);
+      }, GALLERY_STATUS_RETRY_MS);
+    };
+    const pending = whenTabVisible()
+      .then(() => sendRuntimeMessage({ action: "checkAssetStatus", imageUrls: [url] }))
       .then((response) => {
         if (!response?.ok) {
-          gallerySavedStatusCache.delete(url);
+          forgetLater();
           return false;
         }
         const status = Array.isArray(response.statuses)
@@ -2686,7 +2707,7 @@
         return Boolean(status?.saved);
       })
       .catch(() => {
-        gallerySavedStatusCache.delete(url);
+        forgetLater();
         return false;
       });
     gallerySavedStatusCache.set(url, pending);

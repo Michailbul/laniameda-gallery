@@ -16,6 +16,8 @@ type StorybookModalProps = {
   ownerUserId: string;
   /** Folder id of the open storybook, or null when closed. */
   storybookId: string | null;
+  /** The world this storybook is a child of: the eyebrow reads World › Storybook. */
+  worldName?: string;
   onClose: () => void;
 };
 
@@ -35,6 +37,7 @@ const AUTOSAVE_DELAY_MS = 900;
 export function StorybookModal({
   ownerUserId,
   storybookId,
+  worldName,
   onClose,
 }: StorybookModalProps) {
   const storybook = useQuery(
@@ -218,6 +221,11 @@ export function StorybookModal({
                 style={{ color: "var(--coral)" }}
               >
                 <BookOpen className="h-3 w-3" />
+                {worldName && (
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {worldName} ›
+                  </span>
+                )}
                 Storybook
                 {storybook && (
                   <span style={{ color: "var(--text-tertiary)" }}>

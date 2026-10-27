@@ -21,12 +21,17 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/query.md", title: "Media and Skill retrieval", access: "public" },
   { path: "references/data-model.md", title: "Data model and field meanings", access: "public" },
   { path: "references/stories.md", title: "Stories, style locks and filter presets", access: "public" },
+  { path: "references/characters.md", title: "Named characters: codes, costumes and asset links", access: "public" },
+  { path: "references/moodboards.md", title: "Moodboards: gallery looks mirrored to Midjourney, and collection groups", access: "public" },
+  { path: "references/inbox.md", title: "The world Inbox: decision cards agents post and Michael answers", access: "public" },
   { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
   { path: "references/bookmarks.md", title: "X post bookmarks", access: "public" },
+  { path: "references/midjourney-srefs.md", title: "Midjourney style reference library", access: "public" },
   { path: "references/video-refs.md", title: "YouTube research", access: "public" },
   { path: "references/motion.md", title: "Motion media and facets", access: "public" },
   { path: "references/cinematography.md", title: "Cinematography Skill packs", access: "public" },
   { path: "references/extraction.md", title: "Reference capture and provenance", access: "public" },
+  { path: "references/intake.md", title: "Inspiration intake: file, clean and process what Michael sends", access: "public" },
   { path: "references/worlds.md", title: "Michael's current world rules and IDs", access: "owner" },
   { path: "references/maintenance.md", title: "Private installation and deployment notes", access: "owner" },
   { path: "scripts/gallery.mjs", title: "Standalone Bun MCP client", access: "public" },
@@ -50,7 +55,7 @@ const resourceUrl = (path: string) => `${GALLERY_SKILL_ORIGIN}${GALLERY_SKILL_PA
 
 export const buildGalleryLlmsIndex = (version: string) => `# Laniameda Gallery
 
-> The agent-readable creative vault: media and prompts, reference collections, reusable Skills, native Stories, filter presets, bookmarks and YouTube research.
+> The agent-readable creative vault: media and prompts, reference collections, reusable Skills, named characters, moodboards mirrored to Midjourney, a world Inbox for Michael's decisions, native Stories, filter presets, bookmarks and YouTube research.
 
 Read the canonical skill below before using the gallery. Skill version in this deployment: ${version}. Public instructions come from the deployed repository; current private world policy is owner data. Public documentation does not grant access to private gallery data or authorize a write.
 

@@ -2,7 +2,8 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, FolderPlus, Loader2, Pencil, X } from "lucide-react";
+import { Check, FolderPlus, LayoutGrid, Loader2, Pencil, Search, X } from "lucide-react";
+import { collectionNameMatches } from "@/lib/collection-worlds";
 
 export type CollectionOption = {
   id: string;
@@ -20,6 +21,8 @@ export type CollectionOption = {
    * into one (dropping its collections) is never what's wanted.
    */
   kind?: "collection" | "storybook";
+  /** A world root, or a folder inside one: listed under Worlds, first. */
+  isWorld?: boolean;
 };
 
 type CollectionMode = "move" | "copy";
@@ -34,12 +37,14 @@ interface CardCollectionButtonProps {
   onCreate?: (name: string) => Promise<string | null>;
   /** Rename a collection in place, so a wrong name is fixable where it's seen. */
   onRename?: (folderId: string, name: string) => Promise<void> | void;
+  /** Hands the asset to the moodboard picker, anchored where this menu was. */
+  onAddToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Positioning classes from the host card (absolute offsets). */
   positionClassName: string;
 }
 
-const MENU_WIDTH = 248;
-const MENU_MAX_HEIGHT = 372;
+const MENU_WIDTH = 300;
+const MENU_MAX_HEIGHT = 460;
 const HOVER_OPEN_DELAY_MS = 150;
 const HOVER_CLOSE_DELAY_MS = 280;
 
@@ -58,6 +63,7 @@ export function CardCollectionButton({
   onRemove,
   onCreate,
   onRename,
+  onAddToMoodboard,
   positionClassName,
 }: CardCollectionButtonProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -76,13 +82,15 @@ export function CardCollectionButton({
   const [createError, setCreateError] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [query, setQuery] = useState("");
 
   const hoverOpenTimerRef = useRef<number | null>(null);
   const hoverCloseTimerRef = useRef<number | null>(null);
   // Mirror of busy/creating for the close timer: never hover-close while an
   // action is in flight or the user is typing a new collection name.
   const stayOpenRef = useRef(false);
-  stayOpenRef.current = busy || creating || renamingId !== null;
+  stayOpenRef.current =
+    busy || creating || renamingId !== null || query.length > 0;
 
   const close = useCallback(() => {
     setOpen(false);
@@ -90,6 +98,7 @@ export function CardCollectionButton({
     setDraftName("");
     setCreateError(false);
     setRenamingId(null);
+    setQuery("");
   }, []);
 
   // Commit a rename. A blank or unchanged name just exits edit mode.
@@ -239,8 +248,27 @@ export function CardCollectionButton({
     event.stopPropagation();
   };
 
-  const collectionRows = collections.filter((c) => c.kind !== "storybook");
-  const storybookRows = collections.filter((c) => c.kind === "storybook");
+  // A search keeps a root when it or one of its folders matches; a folder
+  // shows when it matches or its root does.
+  const searching = query.trim().length > 0;
+  const visible = searching
+    ? collections.filter((c) => {
+        if (collectionNameMatches(c.name, query)) return true;
+        if (c.parentName && collectionNameMatches(c.parentName, query)) return true;
+        return (
+          !c.parentName &&
+          collections.some(
+            (child) =>
+              child.parentName === c.name &&
+              collectionNameMatches(child.name, query),
+          )
+        );
+      })
+    : collections;
+  const plainRows = visible.filter((c) => c.kind !== "storybook");
+  const worldRows = plainRows.filter((c) => c.isWorld);
+  const collectionRows = plainRows.filter((c) => !c.isWorld);
+  const storybookRows = visible.filter((c) => c.kind === "storybook");
 
   const renderRow = (collection: CollectionOption) => {
     const isMember = currentSet.has(collection.id);
@@ -302,17 +330,24 @@ export function CardCollectionButton({
           stop(event);
           void runAction(collection, removable);
         }}
-        className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
+        className="flex min-w-0 flex-1 items-center justify-between gap-2 py-1.5 pr-3 text-left transition-opacity hover:opacity-75 disabled:cursor-wait"
         style={{
-          fontSize: "12px",
-          fontWeight: 600,
-          color: "var(--lm-text-primary)",
+          paddingLeft: collection.parentName ? "26px" : "12px",
+          fontSize: collection.parentName ? "12px" : "11px",
+          fontWeight: collection.parentName ? 500 : 700,
+          textTransform: collection.parentName ? undefined : "uppercase",
+          letterSpacing: collection.parentName ? undefined : "0.06em",
+          color: collection.parentName
+            ? "var(--lm-text-secondary)"
+            : "var(--lm-text-primary)",
           backgroundColor: "transparent",
         }}
         title={removable ? `Remove from ${fullName}` : addLabel}
       >
-        <span className="truncate">
-          {collection.parentName && (
+        <span className="line-clamp-2 break-words">
+          {/* Nested under its root already; the prefix only returns when a
+              search may have hidden that root. */}
+          {collection.parentName && searching && (
             <span style={{ color: "var(--lm-text-ghost)", fontWeight: 500 }}>
               {collection.parentName}
               {" / "}
@@ -464,13 +499,43 @@ export function CardCollectionButton({
                 className="text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
                 style={{ color: "var(--lm-text-tertiary)" }}
               >
-                Collection
+                {searching ? `${plainRows.length + storybookRows.length} found` : "Collection"}
               </span>
               <div className="flex items-center gap-1">
                 {modePill("move", "Move")}
                 {modePill("copy", "Add")}
               </div>
             </div>
+
+            {collections.length > 8 && (
+              <label
+                className="mx-2 mt-2 flex items-center gap-2 px-2"
+                style={{
+                  height: "28px",
+                  border: "1px solid var(--lm-border-strong)",
+                  borderRadius: "8px",
+                  backgroundColor: "var(--lm-surface-0)",
+                }}
+              >
+                <Search
+                  className="h-3 w-3 shrink-0"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                />
+                <input
+                  value={query}
+                  onClick={stop}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Escape") setQuery("");
+                  }}
+                  placeholder="Find a world or collection"
+                  aria-label="Find a world or collection"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
+                  style={{ color: "var(--lm-text-primary)" }}
+                />
+              </label>
+            )}
 
             <div className="min-h-0 flex-1 overflow-y-auto py-1">
               {collections.length === 0 && (
@@ -480,6 +545,38 @@ export function CardCollectionButton({
                 >
                   No collections yet.
                 </p>
+              )}
+              {searching && visible.length === 0 && (
+                <p
+                  className="px-3 py-2 text-[11px]"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  Nothing called &ldquo;{query.trim()}&rdquo;.
+                </p>
+              )}
+              {worldRows.length > 0 && (
+                <div
+                  className="px-3 pb-1 pt-2 text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
+                  style={{ color: "var(--lm-text-tertiary)" }}
+                >
+                  Worlds
+                </div>
+              )}
+              {worldRows.map(renderRow)}
+              {collectionRows.length > 0 && (
+                <div
+                  className="px-3 pb-1 pt-2 text-[9px] font-mono font-bold uppercase tracking-[0.14em]"
+                  style={{
+                    color: "var(--lm-text-tertiary)",
+                    borderTop:
+                      worldRows.length > 0
+                        ? "1px solid var(--lm-border-strong)"
+                        : undefined,
+                    marginTop: worldRows.length > 0 ? "4px" : undefined,
+                  }}
+                >
+                  Collections
+                </div>
               )}
               {collectionRows.map(renderRow)}
 
@@ -499,6 +596,31 @@ export function CardCollectionButton({
               )}
 
             </div>
+
+            {onAddToMoodboard && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={(event) => {
+                  stop(event);
+                  const anchor = buttonRef.current?.getBoundingClientRect() ?? null;
+                  close();
+                  onAddToMoodboard(imageId, anchor);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-mono font-bold uppercase tracking-wider transition-opacity hover:opacity-75"
+                style={{
+                  color: "var(--lm-text-primary)",
+                  borderTop: "1px solid var(--lm-border-strong)",
+                }}
+                title="Add this image to a moodboard"
+              >
+                <LayoutGrid
+                  className="h-3.5 w-3.5 shrink-0"
+                  style={{ color: "var(--lm-coral)" }}
+                />
+                Add to moodboard…
+              </button>
+            )}
 
             {onCreate && (
               <div style={{ borderTop: "1px solid var(--lm-border-strong)" }}>

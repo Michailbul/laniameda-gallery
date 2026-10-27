@@ -19,6 +19,12 @@ otherwise `bun skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
 which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
 `gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
 `gallery.mjs check`. If the token is missing, ask Michael; never print it.
+When Michael sends inspiration (a link, a reel, screenshots, photos), with or
+without a project name, run the intake procedure in
+`skills/laniameda-gallery/references/intake.md`: clean source saved as
+inspiration, processed stills for worlds with a locked style, and for a video
+or scene he likes, the full pipeline from source analysis to treatment,
+pre-production and a packaged storybook.
 
 ---
 
@@ -198,6 +204,9 @@ locks. Public files only bootstrap private policy retrieval; do not publish priv
 world/anchor IDs. Current human direction governs intent. Preserve existing assets,
 flags and world routes. Use the current branch-local feature spec when one exists.
 Do not start an old handoff merely because a historical document names it active.
+Inspiration Michael sends (links, reels, screenshots) runs through the intake
+procedure in skills/laniameda-gallery/references/intake.md, up to a packaged
+storybook for a video or scene he names a world for.
 ## Runtime and verification
 Next authenticates Telegram sessions/agent tokens, derives the owner, and signs
 short-lived Convex actor JWTs. Private backend functions require signed owner auth;

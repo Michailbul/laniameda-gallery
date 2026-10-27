@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-10-07
+Last updated: 2026-10-19
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -9,7 +9,19 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 ## Convex
 
 - Adding new Convex tables/functions requires `bunx convex codegen` — otherwise `convex/_generated/*` drifts and breaks references.
+- Plain `convex codegen` (with or without `--typecheck disable`) loads the
+  selected deployment's credentials and starts a push to analyse the bundle,
+  so with the live `.env.local` it talks to production. `--system-udfs` stays
+  local but writes the system template, which drops the `components` (r2)
+  declaration from `api.d.ts`/`api.js`. For a new module, adding its two lines
+  to `convex/_generated/api.d.ts` by hand matches what codegen lists.
 - Queries and mutations must NOT call external APIs; always use actions for that.
+- Convex fails a query past 4,096 reads ("Too many reads in a single function
+  execution"): each newly read document (`db.get`) and each index range counts
+  once, however many rows the range returns. Per-link `db.get` fan-outs and
+  per-piece hydration (membership links + prompt) are what hit it, not range
+  size. One-shot reads that can grow with a world or the vault must budget
+  their reads (see `createReadBudget` in `convex/assets.ts`) or paginate.
 - Card thumbnails come from one encoder, `encodeCardThumbnail` in `convex/thumbnails.ts`: sharp, WebP q78, fit inside 1440×960, never upscaled. `convex.json` lists sharp under `node.externalPackages`, so Convex installs the right platform binary on the server rather than bundling the Mac one. Jimp stays only as a JPEG fallback if sharp fails to load. The contract (box, WebP, when a thumb is sharp enough for a tile) lives in `lib/card-thumbnail.ts` and is shared by the grid and the backfill.
 - Every server-side R2 write (`storeBlobToR2`) sets `Cache-Control: public, max-age=31536000, immutable`. Keys are fresh UUIDs and the R2 component refuses to store over an existing key, so this is safe. Objects uploaded straight from the browser via presigned PUT carry no Cache-Control.
 - New image assets and generated thumbnails are stored in R2 (`r2Key` + `thumbR2Key`) with Convex `_storage` kept only as a fallback for legacy rows or temporary thumbnail uploads.
@@ -22,6 +34,25 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - For dynamic App Router API routes, use `params: Promise<{ ... }>` and `await params` to stay aligned with this repo's Next.js setup.
 - Folders are owner-scoped in backend APIs; always pass `ownerUserId` to `folders.listFolders` and validate folder ownership before writing `folderId` to assets/prompts.
 - Child collection cards should be read with `folders.listChildCollectionEntries`, which uses the `folders.by_parent` index and returns count + preview data without loading every collection in the vault.
+
+- Database I/O counts whole documents, reads and writes: a patch rewrites the
+  row, and any read of a legacy `semanticDocuments` row costs ~56 KB (two
+  3,072-float vectors). Compare before patching, keep vectors in their own
+  rows (split storage), and budget migrations/audits by rows × size before
+  running them: one pass over semanticDocuments is ~357 MB, a third of the
+  Free plan's month. Per-function figures: `DATABASE_IO.md`.
+- Bun's `toMatchObject` with asymmetric matchers (`expect.any(String)`) can
+  write the matcher objects into the received object. Never pass a mock
+  database's stored row to it; assert field types instead.
+- The mock Convex context orders every index read by `normalizedName` or
+  creation time. A test that depends on a real index order (positions,
+  updatedAt) declares it: `createMockConvexMutationCtx({ indexOrder:
+  { "moodboardItems.by_moodboard_position": ["moodboardId", "position"] } })`.
+  `withSearchIndex` matches any query term as a substring.
+
+- Similarity for grouping comes from `assetHashes` (dHash), not embeddings:
+  with legacy semantic storage every vector read costs a ~56 KB row. Hash rows
+  are ~100 bytes; the grid loads all of an owner's hashes in one query.
 
 ## Gallery / UI
 
@@ -58,6 +89,8 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   piece-type navigation uses tags and owner-curated menuFilters.
 - In an unfiltered parent collection view, assets assigned to a visible child collection are intentionally hidden from the flat tile stream and represented by the child stack card. Opening/filtering the child shows its members normally.
 - Masonry layout uses CSS columns + aspect-ratio reservation to stabilize layout during image load.
+- Midjourney codes (`88ji6bg`) are case-sensitive. Uppercase mono microcopy
+  must not transform them: render a code inside a `text-transform: none` span.
 - `MasonryGrid` mounts no tiles until it has measured its width; the server HTML shows the skeleton instead. Tiles laid out without a width would render as a full-width stack in server HTML, jump at hydration and fetch every image in it.
 - Public pages hand their first screen to the client from the server (`app/misha.buloy/selected_work/first-screen.ts`) and hint its thumbnails with `preload()`. Next prefetches the sibling public pages, and their hints fire too, so Chrome logs "preloaded but not used" for them; that is expected and makes switching views instant.
 - Modal preview uses progressive swap: thumbnail loads first, full-res swaps in when loaded.
@@ -129,7 +162,9 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - LEGACY_OWNER_ARG_AUTH is disabled; unsigned owner arguments cannot authorize
   private gallery reads. Native text/presets/instruction resources always require
   signed auth. OAuth codes are single-use; unknown scopes and wrong redirects reject.
-- Use list_assets_page through isDone for complete inventories; list_assets is capped.
+- Complete unfiltered inventories come from the cached export (gallery.mjs
+  all_assets, /api/agent/inventory); filtered or live ones page list_assets_page
+  through isDone. list_assets is capped.
 - create_skill supports markdown-only reusable recipes and optional real step media.
   Collections group ordinary assets; do not promote every prompt variation to a Skill.
 - set_video_poster changes only the thumbnail. An asset update with image media

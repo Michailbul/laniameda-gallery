@@ -26,7 +26,9 @@ gallery/media/upload hosts, not Convex env. See the canonical web-access referen
 
 Media, Skills, collections/Worlds, tags, native Stories, presets, X bookmarks and
 YouTube references have separate operations. list_assets_page returns a cursor
-and isDone for complete inventory; list_assets is bounded. list_menu_filters
+and isDone for filtered or live inventory; a complete unfiltered inventory
+comes from the cached export (POST /api/agent/inventory, gallery.mjs
+all_assets); list_assets is bounded. list_menu_filters
 discovers curated IDs for presets. create_skill supports text-only recipes or
 real prompt/media steps; grouping ordinary media belongs in a collection.
 set_video_poster edits only a video's thumbnail; media replacement is separate.

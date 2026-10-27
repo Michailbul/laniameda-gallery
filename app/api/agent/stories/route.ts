@@ -17,6 +17,8 @@ export async function POST(request: Request) {
     const ownerUserId = agent.ownerUserId;
     const client = getServerConvexClient(ownerUserId);
     if (action === "list") {
+      const world = z.string().trim().min(1).optional().parse(body.world);
+      if (world) body.folderId = (await client.query(api.worlds.resolveWorldRef, { ownerUserId, world })).worldId;
       const filters = z.object({ folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), search: z.string().optional(), limit: z.number().int().min(1).max(500).optional() }).parse(body);
       const stories = await client.query(api.stories.listStories, { ownerUserId, ...filters, folderId: filters.folderId as Id<"folders"> | undefined });
       return NextResponse.json({ count: stories.length, stories });
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
       const expectedRevision = action === "update"
         ? z.number().int().positive().parse(body.expectedRevision)
         : body.expectedRevision === undefined ? undefined : z.number().int().nonnegative().parse(body.expectedRevision);
-      const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision });
+      const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision, actor: `agent:${agent.label || agent.tokenPrefix}`.slice(0, 80), session: z.string().trim().max(80).optional().parse(body.session) });
       const story = await client.query(api.stories.getStory, { ownerUserId, id: result.id });
       return NextResponse.json({ ok: true, ...result, story });
     }

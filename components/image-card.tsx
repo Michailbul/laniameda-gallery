@@ -170,6 +170,8 @@ interface ImageCardProps {
   onCreateCollection?: (name: string) => Promise<string | null>;
   /** Rename a collection from the card's collection menu. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
+  /** "Add to moodboard…" from the card's collection menu. */
+  onAddToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Owner-only: hover surfaces the asset's tags as chips; clicking one
       removes that tag from the asset. */
   onRemoveTag?: (imageId: string, tagName: string) => void;
@@ -182,6 +184,9 @@ interface ImageCardProps {
   /** The scope's folder, when it is one: the button only shows on tiles that
       are actually filed there, so a click always does something. */
   excludeFolderId?: string;
+  /** A short label laid over the card (e.g. "On board" while choosing images
+      for a moodboard). A marked card is shown as already taken. */
+  marked?: string;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -219,10 +224,12 @@ export const ImageCard = memo(function ImageCard({
   onRemoveFromCollection,
   onCreateCollection,
   onRenameCollection,
+  onAddToMoodboard,
   onRemoveTag,
   onExcludeFromView,
   excludeLabel,
   excludeFolderId,
+  marked,
 }: ImageCardProps) {
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
@@ -1088,6 +1095,7 @@ export const ImageCard = memo(function ImageCard({
             onRemove={onRemoveFromCollection}
             onCreate={onCreateCollection}
             onRename={onRenameCollection}
+            onAddToMoodboard={onAddToMoodboard}
             positionClassName="pointer-events-auto z-20"
           />
         )}
@@ -1497,6 +1505,25 @@ export const ImageCard = memo(function ImageCard({
               />
             </button>
           )}
+        </div>
+      )}
+      {marked && (
+        <div
+          className="pointer-events-none absolute inset-0 z-40 flex items-start justify-end p-2"
+          style={{ background: "color-mix(in srgb, var(--lm-paper) 46%, transparent)" }}
+        >
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-[3px] text-[9px] font-bold uppercase tracking-[0.14em]"
+            style={{
+              fontFamily: "var(--lm-font)",
+              borderRadius: "var(--lm-radius)",
+              background: "var(--lm-ink)",
+              color: "var(--lm-paper)",
+            }}
+          >
+            <Check className="h-2.5 w-2.5" strokeWidth={3} aria-hidden />
+            {marked}
+          </span>
         </div>
       )}
     </motion.div>

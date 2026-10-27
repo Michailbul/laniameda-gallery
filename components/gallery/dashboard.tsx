@@ -19,13 +19,15 @@ import {
 import {
   useAction,
   useConvex,
+  useConvexAuth,
   useMutation,
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
+import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
+import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, LayoutGrid, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -51,6 +53,8 @@ import { SELECTED_WORK_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
+import { SimilarGroups } from "./similar-groups";
+import { DEFAULT_SIMILARITY, clusterByHash, similarityToDistance } from "@/lib/perceptual-hash";
 import {
   GalleryFilterBar,
   type GalleryScope,
@@ -69,6 +73,15 @@ import {
   type BreadcrumbSegment,
 } from "./browse-breadcrumb";
 import { CollectionViewActions } from "./collection-view-actions";
+import { StyleScopeSwitcher } from "./style-scope-switcher";
+import { EmptyFolderPrompt } from "./empty-folder-prompt";
+import { CollectionTabs } from "./collection-tabs";
+import {
+  buildStyleShelfStacks,
+  filterAssetsToStyle,
+  resolveFoldersViewWorld,
+  resolveWorldStyleScope,
+} from "@/lib/style-scope";
 import { FeaturedPanel } from "./featured-panel";
 import {
   GalleryDetailPanel,
@@ -94,7 +107,6 @@ import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
 import {
   AddToPanel,
-  type PanelAssetType,
   type PanelCollection,
 } from "./add-to-panel";
 import {
@@ -103,6 +115,25 @@ import {
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { BookmarksView } from "@/components/gallery/bookmarks-view";
+import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
+import {
+  MoodboardsView,
+  type MoodboardAssetSummary,
+  type MoodboardPickTarget,
+} from "@/components/gallery/moodboards-view";
+import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
+import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
+import { WorldDocsTab } from "@/components/gallery/world-docs-tab";
+import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
+import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
+import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
+import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
+import { isSrefCollection } from "@/lib/midjourney-srefs";
+import {
+  WORLD_GROUP,
+  isWorldCollection,
+  orderRootCollections,
+} from "@/lib/collection-worlds";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 
@@ -351,8 +382,12 @@ export function GalleryDashboard({
   // The Cinematography tab: camera-move packs, shown as skill cards under
   // their own name and kept out of the Skills tab.
   const [cinematographyView, setCinematographyView] = useState(false);
+  // The Moodboards tab: every board, grouped by world, and the one open in it.
+  const [moodboardsTab, setMoodboardsTab] = useState(false);
+  const [moodboardsTabBoardId, setMoodboardsTabBoardId] = useState<string | null>(null);
   const activeStoriesView = storiesView && canAccessMyGallery && galleryScope === "mine";
-  const extraTabView = motionView || cinematographyView || activeStoriesView;
+  const activeMoodboardsTab = moodboardsTab && canAccessMyGallery && galleryScope === "mine";
+  const extraTabView = motionView || cinematographyView || activeStoriesView || activeMoodboardsTab;
   const [selectedFolderId, setSelectedFolderId] = useState<
     string | null
   >(null);
@@ -362,6 +397,38 @@ export function GalleryDashboard({
   const [expandedCollectionId, setExpandedCollectionId] = useState<
     string | null
   >(null);
+  // The plain collection whose Moodboards panel holds the main area. Keyed
+  // by id like the expansion above: leaving the collection returns to its grid.
+  const [moodboardsCollectionId, setMoodboardsCollectionId] = useState<
+    string | null
+  >(null);
+  // A marked world's Docs or Journal tab, keyed by the world root the same way.
+  const [worldPanel, setWorldPanel] = useState<{
+    collectionId: string;
+    tab: "docs" | "journal";
+  } | null>(null);
+  // The style last chosen inside a world (its Styles group): its shelves then
+  // show that style only. Opening a style branch sets it, the world root
+  // clears it (lib/style-scope).
+  const [rememberedStyle, setRememberedStyle] = useState<{
+    worldId: string;
+    styleId: string;
+  } | null>(null);
+  // "Add to moodboard…" from a card menu or the selection bar.
+  const [moodboardPicker, setMoodboardPicker] = useState<{
+    assetIds: string[];
+    anchor: DOMRect | null;
+  } | null>(null);
+  // "Choose from gallery": the normal grid picks images for this board, then
+  // returns to it, in the Moodboards tab (returnTo null) or in the
+  // collection's Moodboards panel (returnTo its id).
+  const [moodboardPick, setMoodboardPick] = useState<{
+    board: MoodboardPickTarget;
+    returnTo: string | null;
+  } | null>(null);
+  // The board a collection's Moodboards panel opens on, after picking.
+  const [collectionBoardToOpen, setCollectionBoardToOpen] = useState<string | null>(null);
+  const [moodboardNotice, setMoodboardNotice] = useState<DashboardNotice | undefined>(undefined);
   const [selectedModelName, setSelectedModelName] = useState<
     string | null
   >(null);
@@ -563,7 +630,6 @@ export function GalleryDashboard({
   // The featured shelf — owner-only control over the public home reel.
   const [featuredPanelOpen, setFeaturedPanelOpen] = useState(false);
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
-  const [bulkTypeBusy, setBulkTypeBusy] = useState<PanelAssetType | null>(null);
   // Feedback chip for collection membership changes and drag & drop.
   const [moveStatus, setMoveStatus] = useState<{
     text: string;
@@ -605,6 +671,18 @@ export function GalleryDashboard({
     canDeleteAssets && galleryScope === "mine";
   const canManageFoldersInCurrentView =
     canAccessMyGallery && galleryScope === "mine";
+  // Decisions waiting in each world's Inbox: badges on the world rows and
+  // the Decisions link.
+  const { isAuthenticated: convexSignedIn } = useConvexAuth();
+  const inboxWorlds = useQuery(
+    api.inbox.listInboxWorlds,
+    canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+  );
+  const inboxCountByWorld = useMemo(
+    () => new Map((inboxWorlds ?? []).map((row) => [row.worldFolderId as string, row.openCards])),
+    [inboxWorlds],
+  );
+  const inboxOpenCount = (inboxWorlds ?? []).reduce((sum, row) => sum + row.openCards, 0);
 
   const setAssetFoldersMutation = useMutation(
     api.assets.setAssetFolders,
@@ -815,6 +893,27 @@ export function GalleryDashboard({
     setBulkCurationError(undefined);
     setBulkCurationStatus(undefined);
   }, []);
+
+  // The board being filled while choosing from the gallery, and the pieces
+  // already on it: they are marked in the grid and cannot be picked twice.
+  const moodboardPickDetail = useQuery(
+    api.moodboards.getMoodboard,
+    moodboardPick && canAccessMyGallery
+      ? { ownerUserId, moodboardId: moodboardPick.board.id as Id<"moodboards"> }
+      : "skip",
+  );
+  const pickOnBoardIds = useMemo(
+    () =>
+      new Set<string>([
+        ...(moodboardPickDetail?.items ?? []).map((item) => String(item.assetId)),
+        ...(moodboardPickDetail?.missingAssetIds ?? []).map(String),
+      ]),
+    [moodboardPickDetail],
+  );
+  const moodboardPickRef = useRef(moodboardPick);
+  moodboardPickRef.current = moodboardPick;
+  const pickOnBoardIdsRef = useRef(pickOnBoardIds);
+  pickOnBoardIdsRef.current = pickOnBoardIds;
 
   const runBulkCuration = useCallback(
     async (isPublic: boolean, overrideIds?: string[], isFeatured?: boolean) => {
@@ -1242,12 +1341,25 @@ export function GalleryDashboard({
     () => foldersWithCounts.filter((folder) => folder.kind !== "storybook"),
     [foldersWithCounts],
   );
+  const emptyPromptFolders = useMemo(
+    () =>
+      folders?.map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        kind: folder.kind,
+      })),
+    [folders],
+  );
   const smartMenuFilterByFolderId = useMemo(() => {
     const tagFilters = (menuFilters ?? []).filter(
       (entry) => entry.kind === "tag",
     );
     const mappings = new Map<string, (typeof tagFilters)[number]>();
     for (const folder of collectionFoldersWithCounts) {
+      // World parts are actual membership collections. A child named Live
+      // Action must not become the global Live action tag view.
+      if (folder.parentFolderId) continue;
       const folderKey = canonicalTagKey(folder.name);
       if (!folderKey) continue;
       const matchingFilter = tagFilters.find((entry) =>
@@ -1284,13 +1396,6 @@ export function GalleryDashboard({
           0,
       })),
     [collectionSummaries, folderCountById, smartMenuFilterByFolderId],
-  );
-  const openCollectionFromCard = useCallback(
-    (folderId: string) => {
-      setSelectedFolderId(folderId);
-      setViewMode("grid");
-    },
-    [setViewMode],
   );
 
   // Which folders (collections + storybooks) are published to the public
@@ -1414,6 +1519,73 @@ export function GalleryDashboard({
     api.storybooks.listStorybooks,
     canAccessMyGallery && galleryScope === "mine" ? { ownerUserId } : "skip",
   );
+  // A storybook can be a child of its world (group "Storybooks"). The child
+  // lists the backend returns hold plain collections only, so the world's
+  // storybooks are joined here from the folder list and the storybook list.
+  const storybookWorldById = useMemo(() => {
+    const byId = new Map(
+      (folders ?? []).map((folder) => [folder._id as string, folder]),
+    );
+    const worlds = new Map<string, { _id: string; name: string }>();
+    for (const folder of folders ?? []) {
+      if (folder.kind !== "storybook" || !folder.parentFolderId) continue;
+      const parent = byId.get(folder.parentFolderId as string);
+      if (parent) worlds.set(folder._id as string, { _id: parent._id as string, name: parent.name });
+    }
+    return worlds;
+  }, [folders]);
+  const storybookChildrenByWorld = useMemo(() => {
+    const byId = new Map(
+      (folders ?? []).map((folder) => [folder._id as string, folder]),
+    );
+    const children = new Map<
+      string,
+      Array<{
+        _id: string;
+        name: string;
+        description?: string;
+        parentFolderId: string;
+        group: string;
+        sortOrder?: number;
+        count: number;
+        updatedAt?: number;
+        createdAt?: number;
+        previewAssets: NonNullable<typeof storybooks>[number]["previewAssets"];
+      }>
+    >();
+    for (const book of storybooks ?? []) {
+      const world = storybookWorldById.get(book._id as string);
+      if (!world) continue;
+      const folder = byId.get(book._id as string);
+      const list = children.get(world._id) ?? [];
+      list.push({
+        _id: book._id as string,
+        name: book.name,
+        description: book.story,
+        parentFolderId: world._id,
+        group: folder?.group?.trim() || "Storybooks",
+        sortOrder: folder?.sortOrder,
+        count: book.count,
+        updatedAt: book.updatedAt,
+        createdAt: book.createdAt,
+        previewAssets: book.previewAssets,
+      });
+      children.set(world._id, list);
+    }
+    return children;
+  }, [folders, storybookWorldById, storybooks]);
+  const openCollectionFromCard = useCallback(
+    (folderId: string) => {
+      // A world's storybook card opens the storybook, not a filtered grid.
+      if (storybookWorldById.has(folderId)) {
+        setOpenStorybookId(folderId);
+        return;
+      }
+      setSelectedFolderId(folderId);
+      setViewMode("grid");
+    },
+    [setViewMode, storybookWorldById],
+  );
 
   // Saved Skills join the default grid as one card each — an insert is a
   // dated piece of work like any tile, and opens as its document. Its step
@@ -1427,11 +1599,17 @@ export function GalleryDashboard({
   );
   const deleteSkillMutation = useMutation(api.skills.deleteSkill);
 
-  // Public-facing collections, derived from the data: any collection with at
-  // least one public asset, counted over public assets only. Queried in both
-  // scopes — the public tab lists them, the mine tab uses them to mark which
-  // collections are currently published.
-  const publicCollections = useQuery(api.assets.listPublicCollections, {});
+  // Owner folder rows carry the saved public counts once their migration is
+  // complete. Keep the exact legacy fallback during rollout, then private
+  // browsing no longer subscribes to the entire public gallery's counts.
+  const ownerPublicCountsReady = folders !== undefined &&
+    folders.every((folder) => folder.publicMemberCount !== undefined);
+  const publicCollections = useQuery(
+    api.assets.listPublicCollections,
+    galleryScope === "public" || (canAccessMyGallery && !ownerPublicCountsReady)
+      ? {}
+      : "skip",
+  );
   const publicFoldersWithCounts = useMemo(
     () =>
       (publicCollections ?? []).map((entry) => ({
@@ -1450,8 +1628,11 @@ export function GalleryDashboard({
   // decides whether the row's publish toggle reads as "publish" or "unpublish".
   const publishedFolderIds = useMemo(
     () =>
-      new Set((publicCollections ?? []).map((entry) => String(entry.folderId))),
-    [publicCollections],
+      new Set(galleryScope === "mine" && ownerPublicCountsReady
+        ? (folders ?? []).filter((folder) => (folder.publicMemberCount ?? 0) > 0)
+            .map((folder) => String(folder._id))
+        : (publicCollections ?? []).map((entry) => String(entry.folderId))),
+    [folders, galleryScope, ownerPublicCountsReady, publicCollections],
   );
 
   const [folderPublishNotice, setFolderPublishNotice] = useState<
@@ -1522,6 +1703,80 @@ export function GalleryDashboard({
       setSelectedFolderId(effectiveSelectedFolderId);
     }
   }, [effectiveSelectedFolderId, selectedFolderId]);
+
+  // Styles as the parent of a world's shelves (lib/style-scope).
+  const scopeFolders = useMemo(
+    () =>
+      collectionFoldersWithCounts.map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        description: folder.description,
+        parentFolderId: folder.parentFolderId
+          ? String(folder.parentFolderId)
+          : undefined,
+        group: folder.group,
+        sortOrder: folder.sortOrder,
+        count: folder.count,
+      })),
+    [collectionFoldersWithCounts],
+  );
+  const worldStyleScope = useMemo(
+    () =>
+      galleryScope === "mine"
+        ? resolveWorldStyleScope({
+            folders: scopeFolders,
+            activeFolderId: effectiveSelectedFolderId,
+            rememberedStyle,
+          })
+        : null,
+    [effectiveSelectedFolderId, galleryScope, rememberedStyle, scopeFolders],
+  );
+  useEffect(() => {
+    if (!worldStyleScope) return;
+    const { worldId, activeStyleId, atStyleBranch, atWorldRoot } = worldStyleScope;
+    if (atStyleBranch && activeStyleId) {
+      setRememberedStyle((current) =>
+        current?.worldId === worldId && current.styleId === activeStyleId
+          ? current
+          : { worldId, styleId: activeStyleId },
+      );
+    } else if (atWorldRoot) {
+      setRememberedStyle((current) => (current?.worldId === worldId ? null : current));
+    }
+  }, [worldStyleScope]);
+  // A style branch shows the world's shelves, each holding only its pieces.
+  const styleBranchWithShelves = Boolean(
+    worldStyleScope?.atStyleBranch && worldStyleScope.shelves.length > 0,
+  );
+  // On a shelf, the remembered style narrows the shelf to that style.
+  const styleShelfFilterId =
+    worldStyleScope && !worldStyleScope.atStyleBranch && !worldStyleScope.atWorldRoot
+      ? worldStyleScope.activeStyleId
+      : null;
+  const activeStyleFolder = styleShelfFilterId
+    ? worldStyleScope?.styles.find((style) => style._id === styleShelfFilterId)
+    : undefined;
+  const selectStyleScope = useCallback(
+    (styleId: string | null) => {
+      if (!worldStyleScope) return;
+      const { worldId, atStyleBranch, atWorldRoot } = worldStyleScope;
+      if (atWorldRoot || atStyleBranch) {
+        // At the top of the world a style is a place: open its branch.
+        setSelectedFolderId(styleId ?? worldId);
+        return;
+      }
+      setRememberedStyle(styleId ? { worldId, styleId } : null);
+    },
+    [worldStyleScope],
+  );
+  // Inside a world, the folders view shows that world's children.
+  const foldersViewWorldId = useMemo(
+    () =>
+      galleryScope === "mine"
+        ? resolveFoldersViewWorld(scopeFolders, effectiveSelectedFolderId)
+        : null,
+    [effectiveSelectedFolderId, galleryScope, scopeFolders],
+  );
 
   const availableUploadTags = useMemo(() => {
     const deduped = new Map<string, string>();
@@ -1634,16 +1889,25 @@ export function GalleryDashboard({
     );
   }, [activeSmartCollectionFilter, selectedTags]);
 
-  // Cursor pagination serves the default browse (newest, no folder): pages of
-  // 60 stream in as the grid's scroll frontier nears the end of what's loaded,
-  // so the whole gallery is never read in one query — and reactive re-runs
-  // only re-read the page that changed. Folder views and the
-  // featured/popular/largest sorts need the full set in hand (they join or
-  // globally re-order), so they keep the one-shot query, now capped at 600.
+  // Newest browsing streams source pages of 60, including sparse filters and
+  // flattened worlds. Global featured/shuffle ordering retains its complete
+  // window until it has a server-side ordered cursor; shuffling only the first
+  // page would silently bias the result toward recent pieces.
   // Breadcrumb above the grid while browsing inside a set. Roots return to
   // the collections (landing) view.
   const breadcrumbSegments = useMemo<BreadcrumbSegment[]>(() => {
-    if (galleryScope !== "mine" || viewMode !== "grid") return [];
+    if (galleryScope !== "mine") return [];
+    if (viewMode === "collections") {
+      const world = foldersViewWorldId
+        ? foldersWithCounts.find((entry) => entry._id === foldersViewWorldId)
+        : undefined;
+      if (!world) return [];
+      return [
+        { label: "Collections", onClick: () => setSelectedFolderId(null) },
+        { label: world.name },
+      ];
+    }
+    if (viewMode !== "grid") return [];
     if (effectiveSelectedFolderId) {
       const folder = foldersWithCounts.find(
         (entry) => entry._id === effectiveSelectedFolderId,
@@ -1667,35 +1931,29 @@ export function GalleryDashboard({
           onClick: () => setSelectedFolderId(parent._id),
         });
       }
+      if (activeStyleFolder) {
+        segments.push({
+          label: activeStyleFolder.name,
+          onClick: () => setSelectedFolderId(activeStyleFolder._id),
+        });
+      }
       segments.push({ label: folder.name });
       return segments;
     }
     return [];
   }, [
+    activeStyleFolder,
     effectiveSelectedFolderId,
+    foldersViewWorldId,
     foldersWithCounts,
     galleryScope,
     setViewMode,
     viewMode,
   ]);
 
-  // Menu-filter predicates also take the one-shot path: the page query
-  // post-filters each 60-item page, so a sparse tag can hand the grid an empty
-  // first page (it reads as "no matches") even when hundreds match. The
-  // one-shot query returns the full filtered set, keeping the grid consistent
-  // with the menu pill counts.
-  const paginationActive =
-    sortOrder === "newest" &&
-    !effectiveSelectedFolderId &&
-    !menuFilterActive;
-
-  // Collection browsing gets its own cursor pagination over the membership
-  // links, so a collection of ANY size streams fully (no 600-item cap).
-  // Combining the folder with another asset filter falls back to the capped
-  // one-shot query, same as before.
-  // A world = a collection with sub-collections. Browsing one unions the whole
-  // tree, which the single-folder cursor query can't paginate over, so world
-  // browse falls back to the capped one-shot read.
+  // A single collection pages its links. A world pages owner assets and tests
+  // their memberships, so assets filed in both parent and child appear once
+  // and legacy primary-folder pointers remain reachable without a backfill.
   const childFolderParentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const folder of folders ?? []) {
@@ -1716,11 +1974,53 @@ export function GalleryDashboard({
         (folder) => folder.parentFolderId === activeCollectionFolder._id,
       ).length
     : 0;
+  // A saved view or smart filter narrows the pieces, not the collection's
+  // boards: the Moodboards tab stays open under any of them.
+  const moodboardsViewActive = Boolean(
+    activeCollectionFolder &&
+      moodboardsCollectionId === activeCollectionFolder._id &&
+      canManageFoldersInCurrentView &&
+      viewMode === "grid" &&
+      !storybooksView && !bookmarksView && !extraTabView,
+  );
+  // Docs and Journal belong to a marked world root (folders.worldKey).
+  const activeWorldKey =
+    activeCollectionFolder && !activeCollectionFolder.parentFolderId
+      ? activeCollectionFolder.worldKey
+      : undefined;
+  const activeWorldPanel =
+    activeWorldKey &&
+    activeCollectionFolder &&
+    worldPanel?.collectionId === activeCollectionFolder._id &&
+    canManageFoldersInCurrentView &&
+    galleryScope === "mine" &&
+    viewMode === "grid" &&
+    !storybooksView && !bookmarksView && !extraTabView
+      ? worldPanel.tab
+      : null;
+  // The world the active collection belongs to: its root and plain children.
+  // A board here may belong to any of them.
+  const moodboardWorldCollections = useMemo(() => {
+    if (!activeCollectionFolder) return [];
+    const rootId = activeCollectionFolder.parentFolderId ?? activeCollectionFolder._id;
+    return collectionFoldersWithCounts
+      .filter((folder) => folder._id === rootId || folder.parentFolderId === rootId)
+      .map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        group: folder.group,
+      }));
+  }, [activeCollectionFolder, collectionFoldersWithCounts]);
+  const srefsCollectionView = galleryScope === "mine" && viewMode === "grid" &&
+    !storybooksView && !bookmarksView && !extraTabView &&
+    isSrefCollection(activeCollectionFolder?.name);
   const collectionAssetsExpanded =
-    browsingWorldFolder &&
+    (browsingWorldFolder || styleBranchWithShelves) &&
     !activeSmartCollectionFilter &&
     (flattenStacks || expandedCollectionId === effectiveSelectedFolderId);
   const collectionStackViewAvailable =
+    !srefsCollectionView &&
     Boolean(effectiveSelectedFolderId) &&
     !activeSmartCollectionFilter &&
     galleryScope === "mine" &&
@@ -1733,29 +2033,42 @@ export function GalleryDashboard({
     !assetSearchQuery.trim();
 
   const folderPaginationActive =
+    !srefsCollectionView &&
     !browsingWorldFolder &&
     galleryScope === "mine" &&
     canAccessMyGallery &&
     Boolean(effectiveSelectedFolderId) &&
+    !activeSmartCollectionFilter &&
     sortOrder === "newest" &&
-    !menuFilterActive &&
-    !selectedModelName &&
-    !mediaKind &&
-    !likedOnly;
+    !menuFilterActive && !selectedModelName && !mediaKind && !likedOnly;
+  const paginationActive = !srefsCollectionView && sortOrder === "newest" && !folderPaginationActive;
 
-  // Both paged reads only run while no menu filter is set (see above), so they
-  // never carry a tag predicate.
-  const minePagedAssets = usePaginatedQuery(
-    api.assets.listGalleryAssetsPage,
-    paginationActive && galleryScope === "mine" && canAccessMyGallery
+  const minePageArgs = paginationActive && galleryScope === "mine" && canAccessMyGallery
       ? {
           ownerUserId,
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          skipHiddenCollections: true,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
+            ? effectiveSelectedFolderId as Id<"folders"> : undefined,
+          includeDescendants: browsingWorldFolder || undefined,
+          mergeOwners: menuFilterActive || Boolean(effectiveSelectedFolderId) || undefined,
+          skipHiddenCollections: !effectiveSelectedFolderId || undefined,
         }
-      : "skip",
+      : "skip" as const;
+  const minePagedAssets = usePaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && !minePageArgs.mergeOwners ? minePageArgs : "skip",
+    { initialNumItems: 60 },
+  );
+  // This helper hook supplies endCursor as pages load, keeping the merged
+  // chronological stream contiguous through reactive inserts and deletions.
+  const mineCreatedPagedAssets = useStreamPaginatedQuery(
+    api.assets.listGalleryAssetsPage,
+    minePageArgs !== "skip" && minePageArgs.mergeOwners ? minePageArgs : "skip",
     { initialNumItems: 60 },
   );
   const publicPagedAssets = usePaginatedQuery(
@@ -1764,6 +2077,11 @@ export function GalleryDashboard({
       ? {
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
+            ? effectiveSelectedFolderId as Id<"folders"> : undefined,
         }
       : "skip",
     { initialNumItems: 60 },
@@ -1774,6 +2092,12 @@ export function GalleryDashboard({
       ? {
           ownerUserId,
           folderId: effectiveSelectedFolderId as Id<"folders">,
+          tagIdGroups: selectedTagIdGroups,
+          excludeTagIds: excludedTagIds,
+          excludeFolderIds: excludedFolderIds,
+          modelName: selectedModelName ?? undefined,
+          kind: mediaKind ?? undefined,
+          onlyLiked: likedOnly || undefined,
         }
       : "skip",
     { initialNumItems: 60 },
@@ -1781,7 +2105,8 @@ export function GalleryDashboard({
   const activePagedAssets = folderPaginationActive
     ? folderPagedAssets
     : galleryScope === "mine"
-      ? minePagedAssets
+      ? minePageArgs !== "skip" && minePageArgs.mergeOwners
+        ? mineCreatedPagedAssets : minePagedAssets
       : publicPagedAssets;
   const anyPaginationActive = paginationActive || folderPaginationActive;
   // The grid calls this repeatedly while its frontier is exposed; loadMore is
@@ -1792,29 +2117,19 @@ export function GalleryDashboard({
       activePagedAssets.loadMore(60);
     }
   }, [anyPaginationActive, activePagedAssets]);
-  // Hidden collections are filtered out of each page on the server, so a page
-  // can come back empty while later pages still hold visible pieces. With
-  // nothing rendered the grid never mounts its end-of-list sentinel, so keep
-  // pulling pages here until something shows or the list is exhausted.
-  const pagedFrontierEmpty =
-    anyPaginationActive &&
-    activePagedAssets.results.length === 0 &&
-    (activePagedAssets.status === "CanLoadMore" ||
-      activePagedAssets.status === "LoadingMore");
-  useEffect(() => {
-    if (pagedFrontierEmpty && activePagedAssets.status === "CanLoadMore") {
-      activePagedAssets.loadMore(60);
-    }
-  }, [pagedFrontierEmpty, activePagedAssets]);
-
   // A collection with folders inside leads its grid with one stack card per
   // folder, until the owner flattens it into plain assets.
   const showChildCollectionStacks =
     collectionStackViewAvailable && !collectionAssetsExpanded;
+  // The shelf stacks of a style branch are counted from the branch's own
+  // pieces, so the whole branch loads (it is one collection, not the world).
+  const styleBranchStacksActive =
+    styleBranchWithShelves && showChildCollectionStacks;
 
   const mineGalleryAssets = useQuery(
     api.assets.listGalleryAssets,
-    !paginationActive &&
+    !srefsCollectionView &&
+      !paginationActive &&
       !folderPaginationActive &&
       galleryScope === "mine" &&
       canAccessMyGallery
@@ -1834,10 +2149,9 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
-          // A flattened world is explicitly an "all assets" view. The backend
-          // caps this query at 2,000, which covers the full current vault and
-          // avoids preserving the overview's older 600-item ceiling.
-          limit: collectionAssetsExpanded ? 2000 : 600,
+          // Only global featured/shuffle sorts use the legacy one-shot window.
+          // Newest flattened worlds now traverse pages without this cap.
+          limit: collectionAssetsExpanded || styleBranchStacksActive ? 2000 : 600,
         }
       : "skip",
   );
@@ -1855,7 +2169,7 @@ export function GalleryDashboard({
   // so a starred asset is never exempt from a filter the user set.
   const starredAssets = useQuery(
     api.assets.listStarredAssets,
-    galleryScope === "mine" && canAccessMyGallery && featuredFirst
+    !srefsCollectionView && galleryScope === "mine" && canAccessMyGallery && featuredFirst
       ? {
           ownerUserId,
           folderId:
@@ -1872,6 +2186,7 @@ export function GalleryDashboard({
     api.folders.listChildCollectionEntries,
     effectiveSelectedFolderId &&
       showChildCollectionStacks &&
+      !styleBranchWithShelves &&
       canAccessMyGallery
       ? {
           ownerUserId,
@@ -1879,6 +2194,15 @@ export function GalleryDashboard({
         }
       : "skip",
   );
+  useEffect(() => {
+    if (
+      styleBranchStacksActive &&
+      folderPaginationActive &&
+      folderPagedAssets.status === "CanLoadMore"
+    ) {
+      folderPagedAssets.loadMore(200);
+    }
+  }, [folderPagedAssets, folderPaginationActive, styleBranchStacksActive]);
 
   const publicGalleryAssets = useQuery(
     api.assets.listPublicGalleryAssets,
@@ -1903,7 +2227,7 @@ export function GalleryDashboard({
     : galleryScope === "mine"
       ? mineGalleryAssets
       : publicGalleryAssets;
-  const baseGalleryAssets = useMemo(() => {
+  const unscopedGalleryAssets = useMemo(() => {
     const base = galleryAssets ?? [];
     if (!starredAssets || starredAssets.length === 0) return base;
     const present = new Set(base.map((asset) => asset._id));
@@ -1947,6 +2271,13 @@ export function GalleryDashboard({
     selectedTagIdGroups,
     starredAssets,
   ]);
+  const baseGalleryAssets = useMemo(
+    () =>
+      styleShelfFilterId
+        ? filterAssetsToStyle(unscopedGalleryAssets, styleShelfFilterId)
+        : unscopedGalleryAssets,
+    [styleShelfFilterId, unscopedGalleryAssets],
+  );
   const isSimilarMode = semanticMode?.kind === "similar";
 
   useEffect(() => {
@@ -2170,6 +2501,12 @@ export function GalleryDashboard({
       ) {
         return false;
       }
+      if (
+        styleShelfFilterId &&
+        !filterAssetsToStyle([asset], styleShelfFilterId).length
+      ) {
+        return false;
+      }
       if (selectedModelName && asset.modelName !== selectedModelName) {
         return false;
       }
@@ -2215,6 +2552,7 @@ export function GalleryDashboard({
     selectedModelName,
     selectedTagIdGroups,
     semanticResults,
+    styleShelfFilterId,
   ]);
 
   const displayGalleryAssets =
@@ -2326,24 +2664,88 @@ export function GalleryDashboard({
 
   const shelfBooks = useMemo<ShelfBook[]>(
     () =>
-      (storybooks ?? []).map((storybook) => ({
+      (storybooks ?? []).map((storybook) => {
+        // A storybook inside a world reads "WORLD · Title" on the shelf.
+        const world = storybookWorldById.get(storybook._id as string);
+        return {
         id: storybook._id as string,
-        name: storybook.name,
+        name: world ? `${world.name} · ${storybook.name}` : storybook.name,
         story: storybook.story,
         count: storybook.count,
         previews: storybook.previewAssets.map((preview) => ({
           src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
           kind: preview.kind,
         })),
-      })),
-    [storybooks],
+        };
+      }),
+    [storybookWorldById, storybooks],
   );
 
-  const childCollectionEntries = useMemo<GalleryEntry[]>(() => {
-    if (!childCollectionStacks || childCollectionStacks.length === 0) {
-      return [];
+  // Child collections as stack entries, split by display group: grouped
+  // children render under their group headings above the grid; the rest
+  // lead the grid as before.
+  // In a style branch the world's shelves stand in for children, counted from
+  // the branch's loaded pieces.
+  const styleShelfStacks = useMemo(() => {
+    if (!styleBranchStacksActive || !worldStyleScope) return null;
+    return buildStyleShelfStacks(worldStyleScope.shelves, galleryAssets ?? []).map(
+      ({ shelf, count, previews }) => ({
+        _id: shelf._id,
+        name: shelf.name,
+        description: shelf.description,
+        group: shelf.group,
+        sortOrder: shelf.sortOrder,
+        count,
+        updatedAt: undefined as number | undefined,
+        createdAt: undefined as number | undefined,
+        previewAssets: previews.map((asset) => ({
+          assetId: String(asset._id),
+          kind: asset.kind,
+          contentType: asset.contentType,
+          url: asset.url,
+          thumbUrl: asset.thumbUrl,
+          width: asset.width,
+          height: asset.height,
+          thumbWidth: asset.thumbWidth,
+          thumbHeight: asset.thumbHeight,
+        })),
+      }),
+    );
+  }, [galleryAssets, styleBranchStacksActive, worldStyleScope]);
+  const stackCollections = styleShelfStacks ?? childCollectionStacks;
+  // The world's storybooks stack beside its folders (not in a style branch,
+  // whose stacks are the world's shelves).
+  const storybookChildStacks = useMemo(
+    () =>
+      showChildCollectionStacks &&
+      !styleBranchStacksActive &&
+      effectiveSelectedFolderId &&
+      childCollectionStacks !== undefined
+        ? (storybookChildrenByWorld.get(effectiveSelectedFolderId as string) ?? [])
+        : [],
+    [
+      childCollectionStacks,
+      effectiveSelectedFolderId,
+      showChildCollectionStacks,
+      storybookChildrenByWorld,
+      styleBranchStacksActive,
+    ],
+  );
+
+  const { childCollectionEntries, groupedChildSections } = useMemo(() => {
+    const stacks = [
+      ...(stackCollections ?? []).map((collection) => ({ ...collection, storybook: false })),
+      ...storybookChildStacks.map((book) => ({ ...book, storybook: true })),
+    ];
+    if (stacks.length === 0) {
+      return {
+        childCollectionEntries: [] as GalleryEntry[],
+        groupedChildSections: [] as { key: string; label: string; entries: GalleryEntry[] }[],
+      };
     }
-    return childCollectionStacks.map((collection) => {
+    const toEntry = (
+      collection: (typeof stacks)[number],
+    ): GalleryEntry => {
       const previews = collection.previewAssets.map((preview) => ({
         id: preview.assetId,
         galleryItemId: preview.assetId,
@@ -2360,11 +2762,11 @@ export function GalleryDashboard({
       return {
         id: `collection:${collection._id}`,
         galleryItemId: collection._id as string,
-        galleryItemType: "collection" as const,
+        galleryItemType: collection.storybook ? ("storybook" as const) : ("collection" as const),
         src: cover?.src ?? "/placeholder.svg",
         fullSrc: cover?.fullSrc ?? "/placeholder.svg",
         prompt: collection.name,
-        author: "Collection",
+        author: collection.storybook ? "Storybook" : "Collection",
         likes: 0,
         width: cover?.width,
         height: cover?.height,
@@ -2375,19 +2777,39 @@ export function GalleryDashboard({
         storybookCount: collection.count,
         previewImages: previews,
       };
-    });
-  }, [childCollectionStacks]);
+    };
+    const { groups, ungrouped } = groupChildCollections(stacks);
+    return {
+      childCollectionEntries: ungrouped.map(toEntry),
+      groupedChildSections: groups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        entries: group.members.map(toEntry),
+      })),
+    };
+  }, [stackCollections, storybookChildStacks]);
 
   const childCollectionIds = useMemo(
     () =>
       showChildCollectionStacks
         ? new Set<string>(
-            (childCollectionStacks ?? []).map((collection) =>
-              String(collection._id),
-            ),
+            styleBranchStacksActive && worldStyleScope
+              ? worldStyleScope.shelves.map((shelf) => shelf._id)
+              : [
+                  ...(childCollectionStacks ?? []).map((collection) =>
+                    String(collection._id),
+                  ),
+                  ...storybookChildStacks.map((book) => book._id),
+                ],
           )
         : null,
-    [childCollectionStacks, showChildCollectionStacks],
+    [
+      childCollectionStacks,
+      storybookChildStacks,
+      showChildCollectionStacks,
+      styleBranchStacksActive,
+      worldStyleScope,
+    ],
   );
 
   const gridEntries = useMemo(() => {
@@ -2462,9 +2884,49 @@ export function GalleryDashboard({
           ownerUserId, galleryScope, effectiveSelectedFolderId, sortOrder,
           selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
           assetSearchQuery, showChildCollectionStacks,
+          selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly,
+          styleShelfFilterId,
         ])
       : null,
   );
+
+  // Group similar: clusters of near-identical images by perceptual hash.
+  // Hashes load only while the view option is on.
+  const [groupSimilar, setGroupSimilar] = useState(false);
+  const [similarity, setSimilarity] = useState(DEFAULT_SIMILARITY);
+  const assetHashes = useQuery(
+    api.assetHashes.listAssetHashes,
+    groupSimilar && canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+  );
+  const similarView = useMemo(() => {
+    if (!groupSimilar || !assetHashes) return null;
+    const hashById = new Map(assetHashes.map((row) => [row.a as string, row.h]));
+    const items = images.map((image) => ({ id: image.id, hash: hashById.get(image.id) ?? "" }));
+    return {
+      clusters: clusterByHash(items, similarityToDistance(similarity)),
+      hashedCount: items.filter((item) => item.hash).length,
+    };
+  }, [assetHashes, groupSimilar, images, similarity]);
+  // The open world (the root of the open collection): its Inbox gets
+  // duplicates cards sent from a cluster.
+  const similarWorld = useMemo(() => {
+    const open = (folders ?? []).find((folder) => folder._id === effectiveSelectedFolderId);
+    const root = open?.parentFolderId ? (folders ?? []).find((folder) => folder._id === open.parentFolderId) : open;
+    return root && root.kind === undefined ? { id: root._id as string, name: root.name } : undefined;
+  }, [effectiveSelectedFolderId, folders]);
+
+  // Sparse filters can produce many empty source pages, and child stacks or
+  // lexical search can hide every loaded tile. No tile means no scroll
+  // sentinel, so advance until a visible match or source exhaustion. Never
+  // declare an empty first page to be "no matches".
+  const pagedFrontierEmpty = anyPaginationActive &&
+    filteredSemanticResults === null && images.length === 0 &&
+    (activePagedAssets.status === "CanLoadMore" || activePagedAssets.status === "LoadingMore");
+  useEffect(() => {
+    if (pagedFrontierEmpty && activePagedAssets.status === "CanLoadMore") {
+      activePagedAssets.loadMore(60);
+    }
+  }, [pagedFrontierEmpty, activePagedAssets]);
 
   // Every selectable (plain asset) entry currently in the grid — the target
   // set for the bulk toolbar's SELECT ALL.
@@ -2483,6 +2945,17 @@ export function GalleryDashboard({
   // earlier in the component than the memo it needs.
   selectableAssetIdsRef.current = allVisibleAssetIds;
 
+  // While choosing for a moodboard: what can still be added, and what is
+  // picked (the board's own pieces never count).
+  const pickSelectableIds = useMemo(
+    () => moodboardPick ? allVisibleAssetIds.filter((id) => !pickOnBoardIds.has(id)) : [],
+    [allVisibleAssetIds, moodboardPick, pickOnBoardIds],
+  );
+  const pickSelectedIds = useMemo(
+    () => moodboardPick ? Array.from(selectedAssetIds).filter((id) => !pickOnBoardIds.has(id)) : [],
+    [moodboardPick, pickOnBoardIds, selectedAssetIds],
+  );
+
   const selectAllVisibleAssets = useCallback(() => {
     if (bulkDeletingRef.current || bulkLikingRef.current) return;
     setSelectedAssetIds(new Set(allVisibleAssetIds));
@@ -2491,7 +2964,7 @@ export function GalleryDashboard({
   const deleteSelectedAssets = useCallback(async () => {
     if (
       !canDeleteInCurrentView || bulkDeletingRef.current || bulkLikingRef.current || deletingAssetId ||
-      bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+      bulkActionLoading || bulkCurationLoading || bulkAddBusy
     ) return;
     // Snapshot the exact selection before confirmation; later grid updates must
     // never expand the destructive operation to a new set of assets.
@@ -2539,13 +3012,13 @@ export function GalleryDashboard({
     }
   }, [
     canDeleteInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
-    bulkAddBusy, bulkTypeBusy, selectedAssetIds,
+    bulkAddBusy, selectedAssetIds,
   ]);
 
   const likeSelectedAssets = useCallback(async (isLiked: boolean) => {
     if (
       !canManageFoldersInCurrentView || bulkLikingRef.current || bulkDeletingRef.current ||
-      deletingAssetId || bulkActionLoading || bulkCurationLoading || bulkAddBusy || bulkTypeBusy !== null
+      deletingAssetId || bulkActionLoading || bulkCurationLoading || bulkAddBusy
     ) return;
     const ids = Array.from(selectedAssetIds);
     if (!ids.length) return;
@@ -2575,7 +3048,7 @@ export function GalleryDashboard({
       setBulkActionLoading(false);
     }
   }, [canManageFoldersInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
-    bulkAddBusy, bulkTypeBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
+    bulkAddBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
 
   const publishAllAssetIds = useMemo(() => {
     return images
@@ -2767,77 +3240,49 @@ export function GalleryDashboard({
     return counts;
   }, [selectedAssetMemberships]);
 
-  // Same checklist ergonomics for what the selection IS. Matching runs through
-  // sectionKeyForTagName so a legacy plural ("characters") still reads as a
-  // character — the write always lands on the singular tag.
-  const selectedAssetTypeTags = useMemo(() => {
-    const imageById = new Map(images.map((image) => [image.id, image]));
-    return Array.from(selectedAssetIds).flatMap((assetId) => {
-      const image = imageById.get(assetId);
-      if (
-        !image ||
-        (image.galleryItemType !== "asset" &&
-          image.galleryItemType !== undefined)
-      ) {
-        return [];
-      }
-      const sections = new Set<CollectionSectionKey>();
-      for (const tagName of image.tagNames ?? []) {
-        const section = sectionKeyForTagName(tagName);
-        if (section) sections.add(section);
-      }
-      return [{ assetId, sections }];
-    });
-  }, [images, selectedAssetIds]);
-
-  const selectedTypeTagCounts = useMemo(() => {
-    const counts = new Map<StaticsTagName, number>();
-    for (const { tag } of STATICS_TAGS) {
-      const section = sectionKeyForTagName(tag);
-      counts.set(
-        tag,
-        section
-          ? selectedAssetTypeTags.filter((asset) => asset.sections.has(section))
-              .length
-          : 0,
+  // Take the selected pieces out of one collection: only the members leave,
+  // and every other membership stays.
+  const removeSelectedFromFolder = useCallback(
+    async (folderId: string) => {
+      const targets = selectedAssetMemberships.filter((asset) =>
+        asset.folderIds.includes(folderId),
       );
-    }
-    return counts;
-  }, [selectedAssetTypeTags]);
-
-  // A type is one bucket, not three independent flags. The backend removes
-  // legacy/plural aliases and every competing type before writing this one.
-  // `assetIds` may be the current selection or an explicit dragged group.
-  const assignAssetsToType = useCallback(
-    async (assetType: PanelAssetType, assetIds: string[]) => {
-      if (bulkTypeBusy || assetIds.length === 0) return;
-      const uniqueAssetIds = Array.from(new Set(assetIds));
-      setBulkTypeBusy(assetType);
-      setBulkCurationError(undefined);
-      setBulkCurationStatus(undefined);
+      if (targets.length === 0 || bulkAddBusy) return;
+      setBulkAddBusy(true);
       try {
-        const result = await bulkAssignAssetTypeMutation({
-          ownerUserId,
-          assetIds: uniqueAssetIds.map((assetId) => assetId as Id<"assets">),
-          assetType,
-        });
+        await Promise.all(
+          targets.map((asset) =>
+            setAssetFoldersMutation({
+              ownerUserId,
+              assetId: asset.assetId as Id<"assets">,
+              folderIds: asset.folderIds
+                .filter((id) => id !== folderId)
+                .map((id) => id as Id<"folders">),
+            }),
+          ),
+        );
         setMoveStatus({
-          text: `Filed ${result.updatedCount} asset${
-            result.updatedCount === 1 ? "" : "s"
-          } as ${assetType}`,
+          text: `Removed ${targets.length} from ${
+            folderNameById.get(folderId) ?? "collection"
+          }`,
         });
       } catch (error) {
         setMoveStatus({
-          text:
-            error instanceof Error ? error.message : "Type assignment failed.",
+          text: error instanceof Error ? error.message : "Remove failed.",
           error: true,
         });
         throw error;
       } finally {
-        setBulkTypeBusy(null);
+        setBulkAddBusy(false);
       }
     },
-    [bulkAssignAssetTypeMutation, bulkTypeBusy, ownerUserId],
+    [
+      bulkAddBusy,
+      folderNameById,
+      ownerUserId,
+      selectedAssetMemberships,
+      setAssetFoldersMutation,
+    ],
   );
 
   const toggleSelectedFolder = useCallback(
@@ -3089,42 +3534,60 @@ export function GalleryDashboard({
   // Per-card menu targets: plain collections (Move/Add) plus storybooks
   // (always additive).
   const cardCollections = useMemo(() => {
-    const nameById = new Map(
-      collectionFoldersWithCounts.map((folder) => [
-        folder._id as string,
-        folder.name,
-      ]),
+    // Worlds first, each root followed by its folders in their display-group
+    // order, so the list reads as the same tree the sidebar shows.
+    const ids = new Set(
+      collectionFoldersWithCounts.map((folder) => folder._id as string),
     );
-    const rows = collectionFoldersWithCounts.map((folder) => {
+    const childrenByParent = new Map<string, typeof collectionFoldersWithCounts>();
+    const roots: typeof collectionFoldersWithCounts = [];
+    for (const folder of collectionFoldersWithCounts) {
       const parentId = folder.parentFolderId as string | undefined;
-      return {
-        id: folder._id as string,
-        name: folder.name,
-        // Several parents each own a "Characters"/"Locations", so the row has
-        // to say whose it is or the options are indistinguishable.
-        parentName: parentId ? nameById.get(parentId) : undefined,
-        count: folder.count,
-        kind: "collection" as const,
-      };
+      if (parentId && ids.has(parentId)) {
+        const list = childrenByParent.get(parentId) ?? [];
+        list.push(folder);
+        childrenByParent.set(parentId, list);
+      } else {
+        roots.push(folder);
+      }
+    }
+    const rows = orderRootCollections(roots).flatMap((root) => {
+      const world = isWorldCollection(root);
+      return [
+        {
+          id: root._id as string,
+          name: root.name,
+          parentName: undefined as string | undefined,
+          count: root.count,
+          kind: "collection" as const,
+          isWorld: world,
+        },
+        ...orderChildCollections(childrenByParent.get(root._id as string) ?? []).map(
+          (child) => ({
+            id: child._id as string,
+            name: child.name,
+            // Several parents each own a "Characters"/"Locations", so the row
+            // has to say whose it is or the options are indistinguishable.
+            parentName: root.name as string | undefined,
+            count: child.count,
+            kind: "collection" as const,
+            isWorld: world,
+          }),
+        ),
+      ];
     });
-    // Group each child under its parent, roots alphabetical, so the list reads
-    // as the tree it is instead of an interleaved flat dump.
-    const sortKey = (row: (typeof rows)[number]) =>
-      `${(row.parentName ?? row.name).toLowerCase()} ${
-        row.parentName ? `1${row.name.toLowerCase()}` : "0"
-      }`;
-    rows.sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
     return [
       ...rows,
       ...(storybooks ?? []).map((storybook) => ({
         id: storybook._id as string,
         name: storybook.name,
-        parentName: undefined,
+        parentName: storybookWorldById.get(storybook._id as string)?.name,
         count: storybook.count,
         kind: "storybook" as const,
+        isWorld: false,
       })),
     ];
-  }, [collectionFoldersWithCounts, storybooks]);
+  }, [collectionFoldersWithCounts, storybookWorldById, storybooks]);
 
   // Auto-dismiss the move feedback chip.
   useEffect(() => {
@@ -3293,6 +3756,10 @@ export function GalleryDashboard({
           description: folder.description ?? undefined,
           count: folder.count,
           parentId: folder.parentFolderId ?? undefined,
+          isWorld: isWorldCollection(folder),
+          pinned: Boolean(folder.pinnedAt),
+          group: folder.group ?? undefined,
+          sortOrder: folder.sortOrder ?? undefined,
           previews: panelPreviewsByFolderId.get(folder._id),
           selectedCount: selectedFolderMembershipCounts.get(folder._id) ?? 0,
         })),
@@ -3301,15 +3768,6 @@ export function GalleryDashboard({
       panelPreviewsByFolderId,
       selectedFolderMembershipCounts,
     ],
-  );
-
-  const panelAssetTypeCounts = useMemo<Record<PanelAssetType, number>>(
-    () => ({
-      character: selectedTypeTagCounts.get("character") ?? 0,
-      location: selectedTypeTagCounts.get("location") ?? 0,
-      scene: selectedTypeTagCounts.get("scene") ?? 0,
-    }),
-    [selectedTypeTagCounts],
   );
 
   const addAssetsToFolder = useCallback(
@@ -3418,6 +3876,31 @@ export function GalleryDashboard({
     setSelectedFolderId(collectionId);
   }, []);
 
+  // Mark a root collection as a world (its root `group`): worlds lead the
+  // sidebar, the Move-to panel and every card's collection menu.
+  const handleToggleWorld = useCallback(
+    async (folderId: string, next: boolean) => {
+      const name = folderNameById.get(folderId) ?? "Collection";
+      try {
+        await updateFolderMutation({
+          ownerUserId,
+          folderId: folderId as Id<"folders">,
+          group: next ? WORLD_GROUP : null,
+        });
+        setMoveStatus({
+          text: next ? `${name} is now a world` : `${name} is a plain collection`,
+        });
+      } catch (error) {
+        setMoveStatus({
+          text:
+            error instanceof Error ? error.message : "Could not update the world mark.",
+          error: true,
+        });
+      }
+    },
+    [folderNameById, ownerUserId, updateFolderMutation],
+  );
+
   // Rename any folder-backed sidebar row (collection / storybook).
   const handleRenameFolder = useCallback(
     async (folderId: string, name: string) => {
@@ -3501,6 +3984,24 @@ export function GalleryDashboard({
 
   const handleImageSelect = useCallback(
     (img: SelectedImage) => {
+      // Choosing images for a moodboard: a click selects a piece, never
+      // opens it. Pieces already on the board stay as they are.
+      if (moodboardPickRef.current) {
+        const isAsset =
+          img.galleryItemType === "asset" || img.galleryItemType === undefined;
+        if (!isAsset) return;
+        if (pickOnBoardIdsRef.current.has(img.id)) {
+          setMoodboardNotice({
+            title: "Already on the board",
+            message: moodboardPickRef.current.board.name,
+            type: "warning",
+            at: Date.now(),
+          });
+          return;
+        }
+        toggleAssetSelection(img.id);
+        return;
+      }
       // Skills open their dedicated scrollable document modal.
       if (img.galleryItemType === "skill") {
         setSelectedSkillId(img.id);
@@ -3539,7 +4040,7 @@ export function GalleryDashboard({
         ),
       });
     },
-    [images],
+    [images, toggleAssetSelection],
   );
 
   const selectImageByEntry = useCallback(
@@ -3587,6 +4088,109 @@ export function GalleryDashboard({
     },
     [handleImageSelect],
   );
+
+  // A moodboard item opens the normal asset detail; the live read fills in
+  // its tags, filing and flags.
+  const openMoodboardAsset = useCallback(
+    (asset: MoodboardAssetSummary) => {
+      handleImageSelect({
+        id: asset.assetId,
+        galleryItemId: asset.assetId,
+        galleryItemType: "asset",
+        thumbSrc: asset.thumbUrl ?? asset.url ?? "/placeholder.svg",
+        fullSrc: asset.url ?? asset.thumbUrl ?? "/placeholder.svg",
+        prompt: asset.promptText ?? "",
+        width: asset.width,
+        height: asset.height,
+        kind: asset.kind,
+        contentType: asset.contentType,
+        previewImages: [],
+      });
+    },
+    [handleImageSelect],
+  );
+
+  const openMoodboardsTab = useCallback(
+    (boardId?: string) => {
+      // Opening the tab ends any half-done pick.
+      if (moodboardPickRef.current) {
+        setMoodboardPick(null);
+        clearAssetSelection();
+      }
+      setStorybooksView(false);
+      setStoriesView(false);
+      setBookmarksView(false);
+      setMotionView(false);
+      setCinematographyView(false);
+      setViewMode("grid");
+      setMoodboardsTabBoardId(boardId ?? null);
+      setMoodboardsTab(true);
+    },
+    [clearAssetSelection, setViewMode],
+  );
+
+  // "Choose from gallery" on a board: the grid opens on the board's own
+  // collection with every filter at hand, and a click selects.
+  const startMoodboardPick = useCallback(
+    (board: MoodboardPickTarget, returnTo: string | null) => {
+      setSelectedImage(null);
+      clearAssetSelection();
+      setMoodboardPicker(null);
+      setMoodboardPick({ board, returnTo });
+      setStorybooksView(false);
+      setStoriesView(false);
+      setBookmarksView(false);
+      setMotionView(false);
+      setCinematographyView(false);
+      setMoodboardsTab(false);
+      setMoodboardsCollectionId(null);
+      setCollectionBoardToOpen(null);
+      setViewMode("grid");
+      setSelectedFolderId(board.folderId);
+      // Start at the top, where the filters are.
+      document
+        .getElementById("gallery-main-content")
+        ?.closest(".overflow-y-auto")
+        ?.scrollTo({ top: 0 });
+    },
+    [clearAssetSelection, setViewMode],
+  );
+
+  // Added or cancelled: back to the board where the round started.
+  const finishMoodboardPick = useCallback(() => {
+    const pick = moodboardPickRef.current;
+    setMoodboardPick(null);
+    clearAssetSelection();
+    if (!pick) return;
+    if (pick.returnTo) {
+      setViewMode("grid");
+      setSelectedFolderId(pick.returnTo);
+      setCollectionBoardToOpen(pick.board.id);
+      setMoodboardsCollectionId(pick.returnTo);
+      setWorldPanel(null);
+      return;
+    }
+    openMoodboardsTab(pick.board.id);
+  }, [clearAssetSelection, openMoodboardsTab, setViewMode]);
+
+  const moodboardTabFolders = useMemo(
+    () =>
+      (folders ?? []).map((folder) => ({
+        _id: String(folder._id),
+        name: folder.name,
+        parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+        group: folder.group,
+        kind: folder.kind,
+      })),
+    [folders],
+  );
+
+  const addAssetToMoodboard = useCallback(
+    (assetId: string, anchor: DOMRect | null) =>
+      setMoodboardPicker({ assetIds: [assetId], anchor }),
+    [],
+  );
+  const closeMoodboardPicker = useCallback(() => setMoodboardPicker(null), []);
 
   const isDetailPanelEntry = useCallback(
     (entry: (typeof images)[number]) =>
@@ -3910,13 +4514,20 @@ export function GalleryDashboard({
   }, [clearAssetSelection, selectedAssetIds.size, selectedImage]);
 
   // Distinguish loading / empty / no-matches / has-images
+  // Once grouped stacks are up, the rest keeps loading behind them: a world
+  // whose pieces all sit in its folders (DEAR ANNETE — ART DECO) has no loose
+  // tile to end the wait, and a style branch counts its stacks from its pages.
+  const groupedStacksShowing =
+    showChildCollectionStacks && groupedChildSections.length > 0;
   const isLoading =
     gridInsertsLoading ||
-    (showChildCollectionStacks && childCollectionStacks === undefined)
+    (showChildCollectionStacks && !styleBranchWithShelves &&
+      childCollectionStacks === undefined)
       ? true
       : anyPaginationActive
         ? (galleryScope === "public" || canAccessMyGallery) &&
-          (activePagedAssets.status === "LoadingFirstPage" || pagedFrontierEmpty)
+          (activePagedAssets.status === "LoadingFirstPage" ||
+            (pagedFrontierEmpty && !groupedStacksShowing))
         : galleryScope === "mine"
           ? canAccessMyGallery &&
             mineGalleryAssets === undefined
@@ -3930,7 +4541,12 @@ export function GalleryDashboard({
     assetSearchQuery.trim().length > 0 ||
     semanticMode?.kind === "similar";
   const hasImages = images.length > 0;
-  const isNoMatches = !isLoading && !hasImages && hasFilters;
+  // Grouped child collections render under their group headings above the
+  // grid, so a world whose children are all grouped is not "empty".
+  const showGroupedChildStacks =
+    showChildCollectionStacks && groupedChildSections.length > 0;
+  const isNoMatches =
+    !isLoading && !hasImages && !showGroupedChildStacks && hasFilters;
 
   const contentMarginLeft = sidebarCollapsed
     ? "var(--lm-sidebar-collapsed)"
@@ -4449,6 +5065,16 @@ export function GalleryDashboard({
     <DeleteErrorToast error={deleteAssetError} />
     <NoticeToast notice={folderPublishNotice} />
     <NoticeToast notice={bulkDeleteNotice} />
+    <NoticeToast notice={moodboardNotice} />
+    {galleryScope === "mine" && canAccessMyGallery && canManageFoldersInCurrentView && (
+      <EmptyFolderPrompt
+        ownerUserId={ownerUserId}
+        folders={emptyPromptFolders}
+        assetCountById={folderCountById}
+        ready={folderAssetCounts !== undefined}
+        onDelete={handleDeleteFolder}
+      />
+    )}
     <div
       className="lm-brutal lm-grid-bg h-[100dvh] overflow-hidden"
       data-pillar="creators"
@@ -4667,15 +5293,17 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
           storiesTabActive={activeStoriesView}
+          onMoodboardsTab={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
+          moodboardsTabActive={activeMoodboardsTab}
           onStorybooksTab={
             canManageFoldersInCurrentView
               ? () => {
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
-                  setStoriesView(false); setStorybooksView(true);
+                  setStoriesView(false); setMoodboardsTab(false); setStorybooksView(true);
                 }
               : undefined
           }
@@ -4683,7 +5311,7 @@ export function GalleryDashboard({
           onBookmarksTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(true);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -4692,10 +5320,12 @@ export function GalleryDashboard({
           }
           bookmarksTabActive={bookmarksView}
           showYouTubeTab={canManageFoldersInCurrentView}
+          inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
+          inboxCountByWorld={canManageFoldersInCurrentView ? inboxCountByWorld : undefined}
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(true);
                   setCinematographyView(false);
@@ -4706,7 +5336,7 @@ export function GalleryDashboard({
           onCinematographyTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(true);
@@ -4718,7 +5348,7 @@ export function GalleryDashboard({
           onSkillsTab={
             canManageFoldersInCurrentView
               ? () => {
-                  setStorybooksView(false); setStoriesView(false);
+                  setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
                   setBookmarksView(false);
                   setMotionView(false);
                   setCinematographyView(false);
@@ -4730,7 +5360,7 @@ export function GalleryDashboard({
             viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
           onGalleryHome={() => {
-            setStorybooksView(false); setStoriesView(false);
+            setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
             setBookmarksView(false);
             setMotionView(false);
             setCinematographyView(false);
@@ -4740,12 +5370,23 @@ export function GalleryDashboard({
           onSignOut={onSignOut}
           folders={sidebarFolders}
           selectedFolderId={effectiveSelectedFolderId}
-          onFolderSelect={(id) => { setStoriesView(false); setSelectedFolderId(id); }}
+          onFolderSelect={(id) => {
+            setStoriesView(false); setMoodboardsTab(false);
+            if (id && isSrefCollection(folderNameById.get(id))) {
+              setStorybooksView(false); setBookmarksView(false);
+              setMotionView(false); setCinematographyView(false);
+              setViewMode("grid");
+            }
+            setSelectedFolderId(id);
+          }}
           onAssetsDropOnFolder={
             canManageFoldersInCurrentView ? handleAssetsDropOnFolder : undefined
           }
           onRenameFolder={
             canManageFoldersInCurrentView ? handleRenameFolder : undefined
+          }
+          onToggleWorld={
+            canManageFoldersInCurrentView ? handleToggleWorld : undefined
           }
           onDeleteFolder={
             canManageFoldersInCurrentView ? handleDeleteFolder : undefined
@@ -4792,6 +5433,22 @@ export function GalleryDashboard({
           transition: `margin-left var(--lm-duration-normal) ease-out`,
         }}
       >
+        {moodboardPick && ownerUserId && (
+          <MoodboardPickBar
+            ownerUserId={ownerUserId}
+            boardId={moodboardPick.board.id}
+            boardName={moodboardPick.board.name}
+            selectedIds={pickSelectedIds}
+            onBoardCount={moodboardPickDetail ? pickOnBoardIds.size : undefined}
+            selectableCount={pickSelectableIds.length}
+            onSelectAllVisible={() =>
+              setSelectedAssetIds((current) => new Set([...current, ...pickSelectableIds]))
+            }
+            onClearSelection={clearAssetSelection}
+            onAdded={finishMoodboardPick}
+            onCancel={finishMoodboardPick}
+          />
+        )}
         <div className="flex min-h-0 flex-1">
           <div
             className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
@@ -4799,7 +5456,7 @@ export function GalleryDashboard({
           >
             {/* Filter Bar — hidden on the Storybooks tab (asset filters don't
                 apply to a storybook masonry). */}
-            {!storybooksView && !bookmarksView && !extraTabView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && (
               <GalleryFilterBar
                 galleryScope={galleryScope}
                 canAccessMyGallery={canAccessMyGallery}
@@ -4833,13 +5490,17 @@ export function GalleryDashboard({
                 onViewModeChange={setViewMode}
                 gridZoom={gridZoom}
                 onGridZoomChange={setGridZoom}
+                groupSimilar={groupSimilar}
+                onGroupSimilarChange={canManageFoldersInCurrentView ? setGroupSimilar : undefined}
+                similarity={similarity}
+                onSimilarityChange={setSimilarity}
                 flattenStacks={flattenStacks}
                 onFlattenStacksChange={setFlattenStacks}
               />
             )}
 
             {/* Storybooks tab header */}
-            {!storybooksView && !bookmarksView && !extraTabView && viewMode === "grid" && canManageFoldersInCurrentView && (
+            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && viewMode === "grid" && canManageFoldersInCurrentView && (
               <FilterPresets
                 ownerUserId={ownerUserId}
                 includeSkills={includeSkills}
@@ -4878,7 +5539,7 @@ export function GalleryDashboard({
                     setBookmarksView(false);
                     setMotionView(false);
                     setCinematographyView(false);
-                    setStoriesView(false);
+                    setStoriesView(false); setMoodboardsTab(false);
                     setStorybooksView(true);
                   }}
                   onDropAssets={handleAssetsDropOnStorybook}
@@ -4994,19 +5655,23 @@ export function GalleryDashboard({
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
-                    activeCollectionFolder && !activeSmartCollectionFilter ? (
-                      <span className="flex items-center gap-4">
-                        {!activeCollectionFolder.parentFolderId && (
+                    viewMode === "grid" && activeCollectionFolder && !activeSmartCollectionFilter ? (
+                      <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                        {(!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && !activeWorldPanel && (
                           <CollectionViewActions
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
                             childCount={
                               collectionStackViewAvailable && !flattenStacks
-                                ? activeChildCollectionCount
+                                ? styleBranchWithShelves
+                                  ? (styleShelfStacks?.length ?? 0)
+                                  : activeChildCollectionCount
                                 : 0
                             }
                             expanded={collectionAssetsExpanded}
-                            canCreateFolder={canManageFoldersInCurrentView}
+                            // Collections are one level deep: a style branch
+                            // borrows its world's shelves and holds none.
+                            canCreateFolder={canManageFoldersInCurrentView && !styleBranchWithShelves}
                             onExpandedChange={(expanded) =>
                               setExpandedCollectionId(
                                 expanded ? activeCollectionFolder._id : null,
@@ -5015,7 +5680,7 @@ export function GalleryDashboard({
                             onCreateFolder={createFolderInActiveCollection}
                           />
                         )}
-                        {canManageFoldersInCurrentView && (
+                        {canManageFoldersInCurrentView && !moodboardsViewActive && !activeWorldPanel && (
                           <>
                             <input
                               ref={collectionCoverInputRef}
@@ -5054,7 +5719,65 @@ export function GalleryDashboard({
                   }
                 />
               )}
-              {activeStoriesView && ownerUserId ? (
+              {!storybooksView && !bookmarksView && !extraTabView &&
+                galleryScope === "mine" && canManageFoldersInCurrentView &&
+                ownerUserId && activeCollectionFolder && !srefsCollectionView &&
+                (viewMode === "grid" || viewMode === "collections") && (
+                <CollectionTabs
+                  key={`tabs-${activeCollectionFolder._id}`}
+                  ownerUserId={ownerUserId}
+                  collectionId={String(activeCollectionFolder._id)}
+                  includeChildren={!activeCollectionFolder.parentFolderId}
+                  showFolders={Boolean(foldersViewWorldId)}
+                  showWorldTabs={Boolean(activeWorldKey)}
+                  always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
+                  active={
+                    viewMode === "collections"
+                      ? "folders"
+                      : activeWorldPanel
+                        ? activeWorldPanel
+                        : moodboardsViewActive
+                          ? "moodboards"
+                          : "pieces"
+                  }
+                  onSelect={(tab) => {
+                    // The panel opens on its list; a half-done pick ends.
+                    setCollectionBoardToOpen(null);
+                    if (tab === "moodboards" && moodboardPick) {
+                      setMoodboardPick(null);
+                      clearAssetSelection();
+                    }
+                    setViewMode(tab === "folders" ? "collections" : "grid");
+                    setMoodboardsCollectionId(
+                      tab === "moodboards" ? activeCollectionFolder._id : null,
+                    );
+                    setWorldPanel(
+                      tab === "docs" || tab === "journal"
+                        ? { collectionId: activeCollectionFolder._id, tab }
+                        : null,
+                    );
+                  }}
+                />
+              )}
+              {!storybooksView && !bookmarksView && !extraTabView &&
+                viewMode === "grid" && !moodboardsViewActive && !activeWorldPanel &&
+                worldStyleScope && worldStyleScope.styles.length > 1 && (
+                <StyleScopeSwitcher
+                  styles={worldStyleScope.styles}
+                  activeStyleId={worldStyleScope.activeStyleId}
+                  onSelect={selectStyleScope}
+                />
+              )}
+              {activeMoodboardsTab && ownerUserId ? (
+                <MoodboardsTab
+                  ownerUserId={ownerUserId}
+                  folders={moodboardTabFolders}
+                  openBoardId={moodboardsTabBoardId}
+                  onOpenBoardChange={setMoodboardsTabBoardId}
+                  onOpenAsset={openMoodboardAsset}
+                  onChooseFromGallery={(board) => startMoodboardPick(board, null)}
+                />
+              ) : activeStoriesView && ownerUserId ? (
                 <StoriesView ownerUserId={ownerUserId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
@@ -5087,6 +5810,47 @@ export function GalleryDashboard({
                   selectedImageId={selectedImage?.id}
                   onImageLoad={markImageLoaded}
                 />
+              ) : activeWorldPanel && activeWorldKey && ownerUserId && activeCollectionFolder ? (
+                activeWorldPanel === "docs" ? (
+                  <WorldDocsTab
+                    key={`docs-${activeCollectionFolder._id}`}
+                    ownerUserId={ownerUserId}
+                    worldKey={activeWorldKey}
+                    worldName={activeCollectionFolder.name}
+                  />
+                ) : (
+                  <WorldJournalTab
+                    key={`journal-${activeCollectionFolder._id}`}
+                    ownerUserId={ownerUserId}
+                    worldKey={activeWorldKey}
+                    worldName={activeCollectionFolder.name}
+                  />
+                )
+              ) : moodboardsViewActive && ownerUserId && activeCollectionFolder ? (
+                <MoodboardsView
+                  key={`${activeCollectionFolder._id}-${collectionBoardToOpen ?? "list"}`}
+                  initialBoardId={collectionBoardToOpen ?? undefined}
+                  onChooseFromGallery={(board) =>
+                    startMoodboardPick(board, String(activeCollectionFolder._id))
+                  }
+                  ownerUserId={ownerUserId}
+                  collection={{
+                    _id: String(activeCollectionFolder._id),
+                    name: activeCollectionFolder.name,
+                    parentFolderId: activeCollectionFolder.parentFolderId
+                      ? String(activeCollectionFolder.parentFolderId)
+                      : undefined,
+                    group: activeCollectionFolder.group,
+                  }}
+                  collections={moodboardWorldCollections}
+                  onBack={() => {
+                    setCollectionBoardToOpen(null);
+                    setMoodboardsCollectionId(null);
+                  }}
+                  onOpenAsset={openMoodboardAsset}
+                />
+              ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
+                <MidjourneySrefsView key={activeCollectionFolder._id} ownerUserId={ownerUserId} folderId={activeCollectionFolder._id as Id<"folders">} />
               ) : storybooksView ? (
                 <StorybookShelf
                   mode="grid"
@@ -5098,7 +5862,18 @@ export function GalleryDashboard({
               ) : viewMode === "collections" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
                   <CollectionsGrid
-                    collections={collectionCards}
+                    collections={
+                      foldersViewWorldId
+                        ? [
+                            ...collectionCards.filter(
+                              (card) => card.parentFolderId === foldersViewWorldId,
+                            ),
+                            // The world's storybooks, under their own group.
+                            ...(storybookChildrenByWorld.get(foldersViewWorldId) ?? []),
+                          ]
+                        : collectionCards
+                    }
+                    grouped={Boolean(foldersViewWorldId)}
                     onOpenCollection={openCollectionFromCard}
                     onRenameCollection={
                       canManageFoldersInCurrentView
@@ -5163,10 +5938,29 @@ export function GalleryDashboard({
                   onImageSelect={handleImageSelect}
                   onImageLoad={markImageLoaded}
                 />
-              ) : hasImages ? (
-                (
+              ) : hasImages || showGroupedChildStacks ? (
+                <>
+                  {showGroupedChildStacks && (
+                    <CollectionStackGroups
+                      sections={groupedChildSections}
+                      separated={hasImages}
+                      renderGrid={(entries) => (
+                        <MasonryGrid
+                          images={entries}
+                          compactColumns={false}
+                          onImageSelect={handleImageSelect}
+                          onImageLoad={markImageLoaded}
+                          onCollectionOpen={handleCardCollectionOpen}
+                          onStorybookOpen={setOpenStorybookId}
+                          zoom={gridZoom}
+                        />
+                      )}
+                    />
+                  )}
+                  {hasImages && (() => {
+                  const renderMainGrid = (entries: typeof images, last = true) => (
                   <MasonryGrid
-                    images={images}
+                    images={entries}
                     // The desktop expanded view is a full-screen opaque
                     // overlay, so nothing behind it is visible — re-flowing
                     // the grid into compact columns (and dimming every card)
@@ -5227,14 +6021,32 @@ export function GalleryDashboard({
                     excludeFolderId={excludeScope?.folderId}
                     onStorybookOpen={setOpenStorybookId}
                     onCollectionOpen={handleCardCollectionOpen}
+                    onAddAssetToMoodboard={
+                      canManageFoldersInCurrentView ? addAssetToMoodboard : undefined
+                    }
+                    markedAssetIds={moodboardPick ? pickOnBoardIds : undefined}
+                    markedLabel="On board"
                     showPublicBadge={galleryScope === "mine"}
                     onEndReached={
-                      anyPaginationActive && activePagedAssets.status !== "Exhausted"
+                      last && anyPaginationActive && activePagedAssets.status !== "Exhausted"
                         ? loadNextGalleryPage : undefined
                     }
                     zoom={gridZoom}
                   />
-                )
+                  );
+                  return similarView ? (
+                    <SimilarGroups
+                      ownerUserId={ownerUserId}
+                      images={images}
+                      clusters={similarView.clusters}
+                      hashedCount={similarView.hashedCount}
+                      world={similarWorld}
+                      renderGrid={renderMainGrid}
+                      onSelect={canManageFoldersInCurrentView ? replaceAssetSelection : undefined}
+                    />
+                  ) : renderMainGrid(images);
+                  })()}
+                </>
               ) : isNoMatches ? (
                 <div
                   className="flex flex-col items-center justify-center min-h-[50vh] px-8 py-12 text-center lm-animate-fade-in"
@@ -5507,6 +6319,15 @@ export function GalleryDashboard({
       {!selectedImage && (
         <MobileBottomNav
           onAddClick={openAddModal}
+          onHomeClick={() => {
+            setStorybooksView(false); setStoriesView(false);
+            setBookmarksView(false); setMotionView(false); setCinematographyView(false);
+            setMoodboardsTab(false);
+            setViewMode("grid");
+          }}
+          onMoodboardsClick={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
+          moodboardsActive={activeMoodboardsTab}
+          inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
           user={user}
           onSignOut={onSignOut}
         />
@@ -5548,7 +6369,7 @@ export function GalleryDashboard({
       )}
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
-      {(canCuratePublic || canManageFoldersInCurrentView) &&
+      {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&
         (selectedAssetIds.size > 0 || bulkDeleteProgress) && (
         <div
           className={`fixed left-4 right-4 z-[55] flex justify-center pointer-events-none md:right-0 ${sidebarCollapsed ? "md:left-[var(--lm-sidebar-collapsed)]" : "md:left-[var(--lm-sidebar-width)]"}`}
@@ -5656,8 +6477,7 @@ export function GalleryDashboard({
                   disabled={
                     bulkCurationLoading ||
                     bulkActionLoading ||
-                    bulkAddBusy ||
-                    bulkTypeBusy !== null
+                    bulkAddBusy
                   }
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{
@@ -5668,24 +6488,22 @@ export function GalleryDashboard({
                     opacity:
                       bulkCurationLoading ||
                       bulkActionLoading ||
-                      bulkAddBusy ||
-                      bulkTypeBusy !== null
+                      bulkAddBusy
                         ? 0.55
                         : 1,
                     cursor:
                       bulkCurationLoading ||
                       bulkActionLoading ||
-                      bulkAddBusy ||
-                      bulkTypeBusy !== null
+                      bulkAddBusy
                         ? "not-allowed"
                         : "pointer",
                   }}
                   aria-haspopup="dialog"
                   aria-expanded={addToPanelOpen}
-                  aria-label="Move selected assets to a type and collections"
-                  title="Assign an asset type and choose any collections"
+                  aria-label="Move selected assets to collections"
+                  title="Add the selection to worlds and collections, or take it out of them"
                 >
-                  {bulkAddBusy || bulkTypeBusy !== null ? (
+                  {bulkAddBusy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <FolderPlus className="h-3.5 w-3.5" />
@@ -5693,12 +6511,42 @@ export function GalleryDashboard({
                   MOVE TO
                 </button>
               )}
+              {canManageFoldersInCurrentView && (
+                <button
+                  type="button"
+                  data-moodboard-picker-trigger
+                  onClick={(event) => {
+                    const anchor = event.currentTarget.getBoundingClientRect();
+                    setMoodboardPicker((current) =>
+                      current
+                        ? null
+                        : { assetIds: Array.from(selectedAssetIds), anchor },
+                    );
+                  }}
+                  disabled={bulkCurationLoading || bulkActionLoading}
+                  className="lm-btn-ghost inline-flex items-center gap-1.5"
+                  style={{
+                    border: "2px solid var(--lm-border-strong)",
+                    borderRadius: "10px",
+                    padding: "6px 12px",
+                    fontSize: "11px",
+                    opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
+                  }}
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(moodboardPicker)}
+                  aria-label="Add selected assets to a moodboard"
+                  title="Add the selection to a moodboard"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  ADD TO MOODBOARD
+                </button>
+              )}
               {canManageFoldersInCurrentView && ([true, false] as const).map((isLiked) => (
                 <button
                   key={String(isLiked)}
                   type="button"
                   onClick={() => { void likeSelectedAssets(isLiked); }}
-                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy}
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{ border: "2px solid var(--lm-border-strong)", borderRadius: "10px", padding: "6px 12px", fontSize: "11px" }}
                   aria-label={isLiked ? "Like selected assets" : "Unlike selected assets"}
@@ -5711,7 +6559,7 @@ export function GalleryDashboard({
                 <button
                   type="button"
                   onClick={() => { void deleteSelectedAssets(); }}
-                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy || bulkTypeBusy !== null}
+                  disabled={bulkCurationLoading || bulkActionLoading || Boolean(deletingAssetId) || bulkAddBusy}
                   className="lm-btn-ghost inline-flex items-center gap-1.5"
                   style={{
                     border: "2px solid var(--lm-coral)",
@@ -5915,6 +6763,11 @@ export function GalleryDashboard({
       <StorybookModal
         ownerUserId={ownerUserId}
         storybookId={openStorybookId}
+        worldName={
+          openStorybookId
+            ? storybookWorldById.get(openStorybookId)?.name
+            : undefined
+        }
         onClose={() => setOpenStorybookId(null)}
       />
 
@@ -5931,16 +6784,33 @@ export function GalleryDashboard({
         />
       )}
 
+      {canAccessMyGallery && moodboardPicker && (
+        <MoodboardPicker
+          ownerUserId={ownerUserId}
+          assetIds={moodboardPicker.assetIds}
+          anchor={moodboardPicker.anchor}
+          currentFolderId={effectiveSelectedFolderId}
+          collections={(folders ?? []).map((folder) => ({
+            _id: String(folder._id),
+            name: folder.name,
+            parentFolderId: folder.parentFolderId
+              ? String(folder.parentFolderId)
+              : undefined,
+            kind: folder.kind,
+          }))}
+          onClose={closeMoodboardPicker}
+        />
+      )}
+
       {canAccessMyGallery && (
         <AddToPanel
           open={addToPanelOpen}
           onClose={() => setAddToPanelOpen(false)}
           selectedAssetIds={selectedAssetIdList}
-          assetTypeCounts={panelAssetTypeCounts}
           collections={panelCollections}
-          onAssignAssetType={assignAssetsToType}
           onAddToFolder={addAssetsToFolder}
           onToggleFolder={toggleSelectedFolder}
+          onRemoveFromFolder={removeSelectedFromFolder}
           onCreateCollection={createCollectionFromAssets}
           onCreateSubCollection={createSubCollectionFromAssets}
           onUpdateDescription={updateFolderDescription}

@@ -2,11 +2,150 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-07
+Last updated: 2026-10-23
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-23 (#69, #70; backend pushed 23 Oct, live) — gallery harness 1.0
+- Worlds are marked roots (`folders.worldKey`); 12 marked. Convex refuses any
+  write that puts an asset, board item, character link or new story link into
+  a second world; shelves cannot move across worlds. Storybooks are children of
+  their world (group Storybooks); 17 root storybooks moved in.
+- World files (`worldDocs`): WORLD.md / LEARNINGS.md / docs/*.md with caps.
+  Seeded for all 12 worlds; the private worlds.md shrank from 42k to 12.5k
+  (gallery-wide rules only). Backup and migration log are private, outside the repo.
+- Journal (`worldChanges`) for every world write, including the collection
+  editor and update_gallery_item; `world_undo` is content-based, all or
+  nothing, exact dry runs. `mjProfiles` with a role per world (9 imported).
+- MCP: open_world, world_doc, world_file, world_shelf, mj_profiles,
+  world_journal, world_undo, mark_world; `world` filter on search/listing.
+- UI: Docs and Journal tabs on world roots.
+- Claude Code plugin `plugin/` (1.0.1) + repo-root marketplace `laniameda`.
+  Plan: `agent-docs/features/world-harness-1.0/PLAN.md`; `agent-docs/PLUGIN.md`.
+
+
+### 2026-10-19 (branch `claude/moodboards-feature`, frontend only)
+- Moodboards are their own feature. A Moodboards tab in the sidebar and the
+  mobile nav (Boards) lists every board grouped by its world, with previews,
+  status, image count and the Midjourney code, filtered by world and status
+  (remembered per browser). Opening a board shows it in order with reorder,
+  remove, the look line, the code and Send to Midjourney.
+- Choose from gallery: a board's button opens the normal grid in picking
+  mode on the board's collection. Collections, saved views, pills, search,
+  piece type and liked all work; a click selects, a bar says "Adding to
+  <board> · n selected" with All visible, Clear, Cancel and Add n. Pieces
+  already on the board are marked "On board" and cannot be picked. Adding
+  (batches of 100) or cancelling returns to the board, in the tab or in the
+  world's Moodboards panel. The card menu's Add to moodboard stays.
+- Files: `components/gallery/moodboards-tab.tsx`,
+  `components/gallery/moodboard-pick-bar.tsx`; `markedAssetIds` on
+  `MasonryGrid`/`ImageCard`. No Convex change: it uses the deployed
+  `listMoodboards`, `getMoodboard` and `addMoodboardItems`.
+
+### 2026-10-19 (#56, #60; backend pushed 19 Oct 23:25 CEST, live)
+- Comments on every asset: a thread in the detail panel (Details tab, under
+  Description), oldest first, Enter to send, delete on hover; agent replies
+  are marked Agent. Table `assetComments`, functions in
+  `convex/assetComments.ts`, removed with the asset. Agents read a thread in
+  `get_gallery_item` (`comments`), list one thread or the newest across the
+  vault with `list_asset_comments`, and reply with `add_asset_comment`
+  (`/api/agent/comments`). Until the backend is pushed, the panel hides the
+  section and `get_gallery_item` returns `comments: []`.
+### 2026-10-19 (branch `claude/moodboards-tab`, frontend only)
+- Collection tabs under the breadcrumb: Pieces, Folders (in a world) and
+  Moodboards with its board count, on every world root and style branch and
+  on any other collection that has boards. They replace the small Moodboards
+  link at the end of the breadcrumb. Saved views and smart filters no longer
+  hide or close the Moodboards panel. Icons drop below 640 px so the three
+  tabs fit a phone.
+
+### 2026-10-19 (branch `fix/folder-tree-read-limit`, backend hotfix)
+- `assets:listGalleryAssets` no longer fails with "Too many reads (limit:
+  4096)" on a big world. A world view under the FEATURED or SHUFFLE sort (and
+  agents' `list_assets` with `includeDescendants`) read up to 2,000 links per
+  folder for the root and every shelf, one `db.get` per link, then hydrated
+  every piece. DEAR ANNETE (about 1,400 pieces, 30 shelves) sat at about 3,950
+  reads. The world's link ranges are now merged newest first and deduped
+  before any piece is fetched, and one call spends at most about 3,000 reads
+  (`QUERY_READ_BUDGET`): it returns the newest pieces that fit. Searches and
+  hidden-collection checks pay from the same budget. Folder helpers fetch at
+  most 2,000 members. The NEWEST world view already pages through
+  `listGalleryAssetsPage` and is complete.
+
+### 2026-10-19 (branch `claude/empty-folder-prompt`, frontend only)
+- No empty collections left behind: when a collection's last piece leaves
+  (deleted, moved, removed, or filed elsewhere by an agent) and it has no
+  child collections, a card asks to delete it (Keep / Delete collection).
+  A world is asked about once its last asset and last child are gone. A
+  folder that still holds a moodboard, story or Skill is never offered, and
+  folders that were already empty when the vault opened are left alone.
+  Logic `lib/empty-folders.ts`, card `components/gallery/empty-folder-prompt.tsx`.
+
+### 2026-10-19 (branch `claude/style-scoped-folders`, frontend only)
+- Styles as the parent of a world's shelves. A world's children in the
+  `Styles` group (DEAR ANNETE: Film · Live Action, 3D Animation) scope its
+  other folders. Opening a style branch shows the world's shelves as stacks
+  holding only that style's pieces (counted from the branch's own pages);
+  opening one keeps the scope (breadcrumb Collections › DEAR ANNETE › Film ›
+  Streets). A `STYLE` switcher under the breadcrumb (All styles plus each
+  style with pieces) appears in worlds with two or more styles. Logic in
+  `lib/style-scope.ts`; membership only, no Convex change.
+- The folders view opened inside a collection shows that world's children
+  under their group headings, with a `Collections` crumb back to every folder.
+- A world whose pieces all sit in its folders (DEAR ANNETE — ART DECO) shows
+  its grouped stacks at once instead of a skeleton until the world scan ends.
+
+### 2026-10-19 (branch `feat/collection-moodboards`, backend published)
+### 2026-10-21 (branch `feat/group-similar`)
+- Group similar: a Similar view option in every grid (collection, shelf,
+  saved view, search) puts near-identical images side by side in clusters,
+  with a Tight–Loose slider, and from a cluster stacks it, sends it to the
+  world's Inbox as a duplicates card or selects it. Each image gets a
+  perceptual hash at ingest (and from a batched backfill); agents call
+  `find_similar_groups`. Detail: `features/inbox/README.md`.
+
+### 2026-10-21 (branch `feat/swipe-deck`)
+- The world Inbox, labelled Decisions: each world has stacks of decision
+  cards that agents post (sort, duplicates, artifact, A/B, choose one, rule)
+  and Michael answers one at a time on his phone or with keys, at
+  `/inbox/<world>`, with a badge per world. Decisions apply through the
+  gallery's own data (moodboards, collections, a hidden Out collection,
+  stacks of alternates shown as one card in the grid), undo reverses exactly
+  that, and duplicate deletion is confirmed once per group. Notes on images
+  are asset comments, now with voice notes. Five MCP tools, skill
+  `references/inbox.md`. Detail: `features/inbox/README.md`.
+
+### 2026-10-19 (branch `feat/collection-moodboards`, awaiting backend publish)
+- Moodboards: ordered sets of gallery images that define one look, mirrored to
+  a Midjourney moodboard and its `--profile` code. Each belongs to a plain
+  collection. A collection's header has `Moodboards · N`, which opens board
+  cards with cover mosaics, a board page (drag to reorder, cover, remove,
+  Send to Midjourney: zip, image links or an agent request, sync state and
+  "Made with this board") and `New moodboard`. Any card menu or a selection
+  adds images through a picker with ticks. Agents use nine MCP tools on
+  `/api/agent/moodboards` and record the code with `set_moodboard_midjourney`.
+  Asset and collection deletes cascade. Skill 1.11.0, contract 2026-10-19.1.
+- Collection groups: a child collection can carry a display `group` (Styles,
+  Places, Cast) and `sortOrder`. A world page shows its child stacks under
+  group headings; the sidebar and collection cards list children group by
+  group. Ungrouped children keep today's order. Detail:
+  `features/collection-moodboards/README.md`.
+
+### 2026-10-18 (#52; backend pushed 19 Oct 23:25 CEST, runbook step 1 only)
+- Convex Database I/O cuts after the Free-plan deployment was disabled. Search
+  asks each lane for 2× its limit (32–96) before widening to 256, cuts split
+  lanes by score before mapping hits, and hydrates about its limit instead of
+  60 assets. Unchanged reindexes no longer rewrite the 56 KB legacy row.
+  Optional split semantic storage (`SEMANTIC_STORAGE`) keeps vectors at 768
+  values in their own rows, with a provider-free, resumable migration and a
+  10-query eval. The cached inventory export replaces paging every asset; the
+  extension batches and caches saved-status lookups. Figures in
+  `DATABASE_IO.md`, steps in `SEMANTIC_SPLIT_RUNBOOK.md`.
+
+### 2026-10-16
+- Named characters are first-class: each person in a world gets a stable code (`DA-CH-001`), costumes as `-C01`, a canonical sheet and face, and typed links to every asset that shows them. Agents use nine MCP tools (list/get/create/update characters, costumes, link/unlink, delete); `get_gallery_item` names the people in an asset. The sidebar's Characters view shows the cast by world and status and a page per character. Detail: `features/characters/README.md`.
 
 ### 2026-10-09
 - Gallery bookmark cards remain visible in the regular grid and now have a dedicated owner-only filter-bar toggle, separate from curated tag filters and the Bookmarks view. Design inspirations discard stale linked asset/prompt IDs during create/update while retaining ownership checks for links that still exist.

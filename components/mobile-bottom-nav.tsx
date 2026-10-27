@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, Moon, Search, Plus, Sun, User, X } from "lucide-react";
+import { Home, Layers, LayoutGrid, Moon, Search, Plus, Sun, User, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
 import { useTheme } from "@/lib/use-theme";
 
@@ -17,11 +17,18 @@ interface MobileBottomNavUser {
 interface MobileBottomNavProps {
   onAddClick?: () => void;
   onSearchClick?: () => void;
+  /** Home also leaves any open tab (Moodboards, Storybooks…) for the grid. */
+  onHomeClick?: () => void;
+  /** Opens the Moodboards tab; the item shows only when set. */
+  onMoodboardsClick?: () => void;
+  moodboardsActive?: boolean;
   user?: MobileBottomNavUser | null;
   onSignOut?: () => void;
+  /** Open Inbox decisions across worlds; undefined hides the Decisions item. */
+  inboxOpenCount?: number;
 }
 
-export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: MobileBottomNavProps) {
+export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut, inboxOpenCount }: MobileBottomNavProps) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -56,15 +63,16 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
         {/* Home */}
         <Link
           href="/"
+          onClick={onHomeClick}
           className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
           style={{
-            color: pathname === "/" ? "var(--amber-9)" : "var(--text-ghost)",
+            color: pathname === "/" && !moodboardsActive ? "var(--amber-9)" : "var(--text-ghost)",
             transitionDuration: "var(--duration-instant)",
           }}
         >
           <Home className="h-5 w-5" />
           <span className="text-[9px] font-medium tracking-wide">Home</span>
-          {pathname === "/" && (
+          {pathname === "/" && !moodboardsActive && (
             <span
               className="absolute -bottom-0.5 block h-[3px] w-[3px] rounded-full"
               style={{
@@ -89,6 +97,27 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
           <span className="text-[9px] font-medium tracking-wide">Search</span>
         </button>
 
+        {/* Decisions: the worlds' Inboxes */}
+        {inboxOpenCount !== undefined && (
+          <Link
+            href="/inbox"
+            className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
+            style={{ color: "var(--text-ghost)", transitionDuration: "var(--duration-instant)" }}
+            aria-label={inboxOpenCount > 0 ? `Decisions, ${inboxOpenCount} waiting` : "Decisions"}
+          >
+            <Layers className="h-5 w-5" />
+            <span className="text-[9px] font-medium tracking-wide">Decide</span>
+            {inboxOpenCount > 0 && (
+              <span
+                className="absolute right-1 top-0 min-w-[16px] px-1 py-[1px] text-center text-[9px] font-bold leading-[14px]"
+                style={{ fontFamily: "var(--lm-font)", borderRadius: "var(--lm-radius)", background: "var(--lm-coral)", color: "var(--lm-paper)" }}
+              >
+                {inboxOpenCount}
+              </span>
+            )}
+          </Link>
+        )}
+
         {/* Add */}
         <button
           type="button"
@@ -106,6 +135,32 @@ export function MobileBottomNav({ onAddClick, onSearchClick, user, onSignOut }: 
             style={{ color: "var(--amber-contrast)" }}
           />
         </button>
+
+        {/* Moodboards */}
+        {onMoodboardsClick && (
+          <button
+            type="button"
+            onClick={onMoodboardsClick}
+            aria-pressed={moodboardsActive}
+            className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
+            style={{
+              color: moodboardsActive ? "var(--amber-9)" : "var(--text-ghost)",
+              transitionDuration: "var(--duration-instant)",
+            }}
+          >
+            <LayoutGrid className="h-5 w-5" />
+            <span className="text-[9px] font-medium tracking-wide">Boards</span>
+            {moodboardsActive && (
+              <span
+                className="absolute -bottom-0.5 block h-[3px] w-[3px] rounded-full"
+                style={{
+                  backgroundColor: "var(--amber-9)",
+                  boxShadow: "0 0 6px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.55)",
+                }}
+              />
+            )}
+          </button>
+        )}
 
         {/* Profile / Login */}
         <button

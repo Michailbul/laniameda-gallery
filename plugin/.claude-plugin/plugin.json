@@ -1,0 +1,31 @@
+{
+  "name": "laniameda-gallery",
+  "version": "1.0.1",
+  "description": "Michael's gallery as an agent harness for his story worlds: open a world, read its WORLD.md and style locks, file and find assets inside it, keep moodboards and Midjourney profiles in sync, record learnings, and undo any session from the journal.",
+  "author": {
+    "name": "Michael (laniameda)",
+    "email": "mbuloichykai@gmail.com"
+  },
+  "homepage": "https://gallery.laniameda.space",
+  "repository": "https://github.com/Michailbul/laniameda-gallery",
+  "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/Michailbul/laniameda-gallery/blob/main/plugin/README.md#privacy",
+  "keywords": [
+    "gallery",
+    "worlds",
+    "storybooks",
+    "midjourney",
+    "moodboards",
+    "mcp",
+    "laniameda"
+  ],
+  "userConfig": {
+    "gallery_token": {
+      "type": "string",
+      "title": "Gallery agent token",
+      "description": "Agent token for gallery.laniameda.space. Create one at https://gallery.laniameda.space/agents (signed in as the gallery owner). Stored in the OS keychain.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

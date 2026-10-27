@@ -43,4 +43,44 @@ describe("standalone Bun inventory CLI", () => {
       expect(await new Response(child.stderr).text()).toContain("traversal is incomplete");
     } finally { server.stop(); }
   });
+  test("all_assets without filters downloads the cached export and restarts on a rebuild", async () => {
+    const output = await mkdtemp(join(tmpdir(), "gallery-cli-export-"));
+    let statusCalls = 0;
+    const server = Bun.serve({ port: 0, fetch: async request => {
+      expect(new URL(request.url).pathname).toBe("/api/agent/inventory");
+      expect(request.headers.get("authorization")).toBe("Bearer test-token");
+      const body = await request.json();
+      if (body.action === "status") {
+        statusCalls += 1;
+        return Response.json({ generatedAt: 1000 + statusCalls, ageMinutes: 5, rebuilt: false, assetCount: 2, parts: [{ index: 0, count: 1 }, { index: 1, count: 1 }], newerAssets: [{ _id: "asset-new" }] });
+      }
+      // The first snapshot is replaced while its second part is requested.
+      if (body.generatedAt === 1001 && body.index === 1) return Response.json({ error: "rebuilt" }, { status: 409 });
+      return Response.json(body.index === 0 ? { folders: [{ _id: "folder-1", name: "World" }], assets: [{ _id: "asset-a" }] } : { assets: [{ _id: "asset-b" }] });
+    } });
+    try {
+      const child = Bun.spawn([process.execPath, script, "all_assets", '{"pageSize":200}', "--out", output], { env: { ...process.env, LANIAMEDA_GALLERY_AGENT_TOKEN: "test-token", LANIAMEDA_GALLERY_API_URL: `http://localhost:${server.port}` }, stdout: "pipe", stderr: "pipe" });
+      expect(await child.exited).toBe(0);
+      const summary = JSON.parse(await new Response(child.stdout).text());
+      expect(summary).toMatchObject({ complete: true, source: "export", count: 3 });
+      const inventory = JSON.parse(await readFile(summary.file, "utf8"));
+      expect(inventory.assets.map((asset: { _id: string }) => asset._id)).toEqual(["asset-new", "asset-a", "asset-b"]);
+      expect(inventory.folders).toEqual([{ _id: "folder-1", name: "World" }]);
+      expect(statusCalls).toBe(2);
+    } finally { server.stop(); await rm(output, { recursive: true, force: true }); }
+  });
+  test("all_assets falls back to a live traversal when the export is unavailable", async () => {
+    const server = Bun.serve({ port: 0, fetch: async request => {
+      if (new URL(request.url).pathname === "/api/agent/inventory") return Response.json({ error: "Could not find public function" }, { status: 400 });
+      const rpc = await request.json();
+      expect(rpc.params.name).toBe("list_assets_page");
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: JSON.stringify({ assets: [{ _id: "asset-live" }], cursor: null, isDone: true, scannedCount: 1 }) }] } });
+    } });
+    try {
+      const child = Bun.spawn([process.execPath, script, "all_assets"], { env: { ...process.env, LANIAMEDA_GALLERY_AGENT_TOKEN: "test-token", LANIAMEDA_GALLERY_API_URL: `http://localhost:${server.port}` }, stdout: "pipe", stderr: "pipe" });
+      expect(await child.exited).toBe(0);
+      expect(JSON.parse(await new Response(child.stdout).text())).toMatchObject({ complete: true, source: "live", count: 1 });
+      expect(await new Response(child.stderr).text()).toContain("paging the live table");
+    } finally { server.stop(); }
+  });
 });

@@ -137,6 +137,21 @@ export async function POST(request: Request) {
 
     const client = getServerConvexClient(agent.ownerUserId);
 
+    // `world` scopes any listing or search to one world: its root collection
+    // and every shelf in it. It replaces folderId for that call.
+    let worldFolderIds: Id<"folders">[] | undefined;
+    const worldRef = stringValue(data.world);
+    if (worldRef) {
+      if (stringValue(data.folderId)) {
+        return NextResponse.json({ error: "Give world or folderId, not both." }, { status: 400 });
+      }
+      const world = await client.query(api.worlds.resolveWorldRef, { ownerUserId: agent.ownerUserId, world: worldRef });
+      worldFolderIds = world.folderIds;
+      delete data.world;
+      data.folderId = world.worldId;
+      data.includeDescendants = true;
+    }
+
     if (action === "listAssetsPage") {
       const { action: _action, ...input } = data;
       const parsed = galleryAssetPageInputSchema.safeParse(input);
@@ -175,7 +190,9 @@ export async function POST(request: Request) {
         scope: "mine",
         query,
         pillar: stringValue(data.pillar),
-        folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
+        ...(worldFolderIds
+          ? { folderIds: worldFolderIds }
+          : { folderId: stringValue(data.folderId) as Id<"folders"> | undefined }),
         kind: stringValue(data.kind) as "image" | "video" | undefined,
         modelName: stringValue(data.modelName),
         assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
@@ -193,7 +210,9 @@ export async function POST(request: Request) {
         ownerUserId: agent.ownerUserId,
         scope: "mine",
         assetId: parsed.id as Id<"assets">,
-        folderId: stringValue(data.folderId) as Id<"folders"> | undefined,
+        ...(worldFolderIds
+          ? { folderIds: worldFolderIds }
+          : { folderId: stringValue(data.folderId) as Id<"folders"> | undefined }),
         kind: stringValue(data.kind) as "image" | "video" | undefined,
         modelName: stringValue(data.modelName),
         assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
@@ -231,7 +250,23 @@ export async function POST(request: Request) {
           id: parsed.id as Id<"assets">,
           ownerUserId: agent.ownerUserId,
         });
-        return NextResponse.json({ asset });
+        // Who the piece shows, by character code. Additive: a backend without
+        // the character registry yet still answers the asset read.
+        const characters = asset
+          ? await client.query(api.characters.listCharactersForAsset, {
+              assetId: parsed.id as Id<"assets">,
+              ownerUserId: agent.ownerUserId,
+            }).catch(() => [])
+          : [];
+        // Michael's comments on the piece and agents' replies, oldest first.
+        // Additive like characters: an older backend answers without them.
+        const comments = asset
+          ? await client.query(api.assetComments.listAssetComments, {
+              assetId: parsed.id as Id<"assets">,
+              ownerUserId: agent.ownerUserId,
+            }).catch(() => [])
+          : [];
+        return NextResponse.json({ asset, characters, comments });
       }
       if (parsed.kind === "skill") {
         return NextResponse.json({ skill: null });

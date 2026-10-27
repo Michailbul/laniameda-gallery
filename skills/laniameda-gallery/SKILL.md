@@ -2,9 +2,9 @@
 name: laniameda-gallery
 description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
-  collections, tags, native Stories/Scripts, X bookmarks and separate YouTube
-  research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.6.3
+  named Characters, collections, tags, native Stories/Scripts, X bookmarks and
+  separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
+version: 1.13.0
 ---
 
 # Laniameda Gallery
@@ -28,6 +28,19 @@ a connector, use the dependency-free Bun client described in references/web-acce
 Keep credentials in the environment; never print or paste tokens into reports.
 Local source can be newer than the deployed contract until publication.
 
+## Worlds first
+
+A world (DEAR ANNETE, ANDROMEDA — ANYA …) is a separate story universe. For any
+world work call `open_world` first: it returns the world's own rules (WORLD.md),
+learnings, styles and style locks, shelves, storybooks with their stories,
+moodboards with codes and sync state, Midjourney profiles and recent changes.
+Search with `world` to stay inside it. Change it through `world_doc`,
+`world_file`, `world_shelf`, `mj_profiles` and the moodboard and story tools,
+with a `session` label; `world_journal` shows every change and `world_undo`
+reverts one or a whole session. An asset never belongs to two worlds. The
+Claude Code plugin `laniameda-gallery` (repository folder `plugin/`) teaches
+this loop in its `gallery-worlds` skill.
+
 ## The object model
 
 | Object | Purpose | Tools / reference |
@@ -35,13 +48,18 @@ Local source can be newer than the deployed contract until publication.
 | Media asset | Generated image/video, production reference or external inspiration; may link to its prompt | save_asset / save_assets, list_assets_page, search_gallery, preview_assets; references/ingest.md |
 | Skill | Reusable technique, recipe or tutorial with text and optional ordered prompt/media steps | create_skill, list_skills, search_skills, get_skill, update_skill, file_skill, delete_skill; references/ingest.md |
 | World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
-| Collection | Where assets and Skills live; root plus at most one level of children | list_collections, create_collection, update_collection; references/ingest.md |
+| Character | A named person in one world with a stable code (DA-CH-001), costumes (-C01), a canonical sheet and face, and typed links to every asset that shows them | list_characters, get_character, create_character, update_character, save_character_costume, link_character_assets; references/characters.md |
+| Collection | Where assets and Skills live; root plus at most one level of children. A child can carry a display group (Styles, Places, Cast) and sortOrder | list_collections, create_collection, update_collection; references/ingest.md |
+| Asset comment | Michael's note on one asset from its detail panel or the Inbox (text, or a voice note: audioUrl, transcribe it yourself), or an agent's reply; read them before working on a piece and reply with what was done | get_gallery_item (comments), list_asset_comments, add_asset_comment |
+| Moodboard | An ordered set of gallery images that defines one look, mirrored to a Midjourney moodboard and its --profile code; belongs to one collection | list_moodboards, get_moodboard, save_moodboard, add_moodboard_items, reorder_moodboard_items, set_moodboard_midjourney, list_moodboard_generations; references/moodboards.md |
+| Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards, list_inbox_stacks, list_inbox_decisions, close_stack, find_similar_groups; references/inbox.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
 | Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |
 | X bookmark | The post's text, author, quote and note; linked to actual media when saved | save_bookmarks / list_bookmarks; references/bookmarks.md |
 | YouTube reference | Separate video/channel research and copied stills; themes are labels rather than collection IDs | save_video_refs / list_video_refs / get_video_ref; references/video-refs.md |
 | Curated view | Reusable gallery filter preset using owner menu-filter IDs | list_menu_filters, list_filter_presets, save_filter_preset; references/stories.md |
+| Midjourney sref library | Liked style codes/mixtures with version settings, source prompts and saved examples in a normal collection | save_sref / list_srefs; references/midjourney-srefs.md |
 
 Motion and Cinematography are discovery views over tagged media/Skills, not new
 storage objects. Read references/motion.md or references/cinematography.md.
@@ -49,6 +67,19 @@ An ordinary group of images belongs in a collection or asset pack. A Skill is
 reusable knowledge; do not turn every group or prompt variation into a Skill.
 Legacy table/function names containing workflow or folder are implementation
 details. Use Skill and collection in explanations to Michael.
+
+## Inspiration intake
+
+When Michael sends raw material with a project name ("this is for Anya",
+"cars", "NOISE"), run the intake procedure in references/intake.md: sort each
+item to its world, save a clean UI-free source as inspiration, make the world's
+own processed version by its native style lock, save both with lineage, show
+the batch on the project board and report. A video or scene whose story he
+likes runs further: take it apart into frames, beats and a source-analysis Story,
+then, once he names a world, write the treatment, do pre-production (cast sheets,
+location plates, style frames) and package it as a storybook. Be proactive; ask
+only about a truly ambiguous destination, a casting choice that is his, or a
+cost above the limits there.
 
 ## Make media findable
 
@@ -86,7 +117,10 @@ Use search_gallery for meaning or visual similarity; find_similar expands around
 an asset. Use list_assets_page with filters and its opaque cursor for a complete
 inventory. Continue until isDone: true; list_assets is a bounded convenience read.
 For a world, includeDescendants includes its parts; an empty root does not mean an
-empty world. The Bun client's all_assets command collects complete pages.
+empty world. For a complete unfiltered inventory use the Bun client's
+all_assets command: it downloads the cached export (rebuilt at most daily, plus
+assets saved since) instead of reading every asset again. With filters, or
+{"live":true}, it pages list_assets_page.
 
 Use preview_assets to visually compare numbered references before selecting;
 get_gallery_item returns prompt, tags, source and media for asset:<id> or pack:<id>.
@@ -179,7 +213,7 @@ claim that an agent-supplied flag proves human consent.
 bun <this skill>/scripts/gallery.mjs check
 bun <this skill>/scripts/gallery.mjs tools
 bun <this skill>/scripts/gallery.mjs schema save_assets
-bun <this skill>/scripts/gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
+bun <this skill>/scripts/gallery.mjs all_assets --out ./inventory
 ```
 
 Upload local bytes with prepare_uploads, run its returned PUT commands, then

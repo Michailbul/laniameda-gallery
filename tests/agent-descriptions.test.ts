@@ -1,7 +1,9 @@
+import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   buildAssetTextLane,
+  hasDescriptivePrompt,
   normalizeAgentDescription,
 } from "../convex/agentDescriptionText";
 import {
@@ -80,6 +82,19 @@ describe("agent description text", () => {
     expect(buildAssetTextLane({ agentDescription: "Static poster reference.", description: "Owner note.", tagNames: ["motion-design", "still-reference"], sourceUrl: "https://x.com/a/status/1" })).toBe("Static poster reference.\nOwner note.\ntags: motion-design, still-reference\nsource: x.com");
   });
 
+  test("a descriptive prompt needs real words, not parameters or stubs", () => {
+    expect(
+      hasDescriptivePrompt(
+        "A hyper-realistic wide cinematic shot from a low angle of birds perched on power lines above a narrow street --ar 16:9 --sref 2vuz9bf",
+      ),
+    ).toBeTrue();
+    expect(hasDescriptivePrompt("This contains an image of: renaissance")).toBeFalse();
+    expect(
+      hasDescriptivePrompt("https://s.mj.run/abc123 dark knight --ar 2:3 --profile 2vuz9bf 8fpptvh --v 8"),
+    ).toBeFalse();
+    expect(hasDescriptivePrompt(undefined)).toBeFalse();
+  });
+
   test("describe prompt carries archive context", () => {
     const prompt = buildDescribePrompt({
       assetId: "assets:1" as never,
@@ -97,13 +112,16 @@ describe("agent description text", () => {
 
 describe("agent description write paths", () => {
   let harness: ReturnType<typeof createMockConvexMutationCtx>;
+  // Jobs other than the perceptual hash every new image also gets.
   let scheduled: Array<{ delayMs: number; args: Record<string, unknown> }>;
+  let hashJobs: Array<{ delayMs: number; args: Record<string, unknown> }>;
 
   beforeEach(() => {
     harness = createMockConvexMutationCtx();
     scheduled = [];
-    harness.ctx.scheduler.runAfter = (async (delayMs: number, _ref: unknown, args: Record<string, unknown>) => {
-      scheduled.push({ delayMs, args });
+    hashJobs = [];
+    harness.ctx.scheduler.runAfter = (async (delayMs: number, ref: unknown, args: Record<string, unknown>) => {
+      (getFunctionName(ref as never) === "perceptualHash:hashAsset" ? hashJobs : scheduled).push({ delayMs, args });
       return null;
     }) as never;
   });
@@ -133,6 +151,9 @@ describe("agent description write paths", () => {
     await callAsOwner(createAsset)(harness.ctx as never, baseAsset);
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]?.args).toEqual({ assetId: expect.any(String) });
+    // And its perceptual hash, a minute later when the thumbnail has landed.
+    expect(hashJobs).toHaveLength(1);
+    expect(hashJobs[0]?.delayMs).toBe(60_000);
   });
 
   test("with automatic descriptions on, createAsset describes first and indexes once after", async () => {
@@ -317,6 +338,38 @@ describe("describeAsset action", () => {
       assetId: "assets:1",
       agentDescription: "Clay character waves from a doorway, soft window light.",
     });
+  });
+
+  test("skips an image whose prompt already describes it, and still indexes it", async () => {
+    process.env.AGENT_DESCRIPTIONS_ENABLED = "true";
+    process.env.GEMINI_API_KEY = "test-gemini-key-123";
+    const fetchMock = mock(async () => new Response("unexpected", { status: 500 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const promptText =
+      "Full-body view of a character in heavy red armor, cyberpunk fused with steampunk, gears and neon accents --ar 2:3";
+    const indexed: unknown[] = [];
+    const ctx = {
+      runQuery: async () => ({ ...source, promptText }),
+      runMutation: async () => true,
+      scheduler: {
+        runAfter: async (_delay: number, _ref: unknown, args: unknown) => {
+          indexed.push(args);
+          return null;
+        },
+      },
+    };
+    const result = await callAsOwner(describeAsset)(ctx as never, {
+      assetId: "assets:1" as never,
+      reindexAfter: true,
+    });
+    expect(result.status).toBe("has_prompt");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(indexed).toEqual([{ assetId: "assets:1" }]);
+
+    // A video is described even with a prompt: its poster frame has no pixel vector.
+    const videoCtx = { ...ctx, runQuery: async () => ({ ...source, kind: "video", promptText }) };
+    const video = await callAsOwner(describeAsset)(videoCtx as never, { assetId: "assets:1" as never });
+    expect(video.status).not.toBe("has_prompt");
   });
 
   test("schedules a retry on rate limits", async () => {

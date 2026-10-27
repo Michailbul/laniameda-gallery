@@ -18,6 +18,9 @@ const ingestUpdateRoutePath = new URL(
 ).pathname;
 const galleryRoutePath = new URL("../app/api/agent/gallery/route.ts", import.meta.url).pathname;
 const customizeRoutePath = new URL("../app/api/agent/customize/route.ts", import.meta.url).pathname;
+const charactersRoutePath = new URL("../app/api/agent/characters/route.ts", import.meta.url).pathname;
+const moodboardsRoutePath = new URL("../app/api/agent/moodboards/route.ts", import.meta.url).pathname;
+const inboxRoutePath = new URL("../app/api/agent/inbox/route.ts", import.meta.url).pathname;
 
 class MockAgentAuthError extends Error {
   constructor(
@@ -90,6 +93,25 @@ describe("agent API routes", () => {
     expect(response.status).toBe(200);
     expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "folders:1", includeDescendants: true, includeWorkflowAssets: false, cursor: "cursor", pageSize: 100 });
     expect(state.requiredScopes.every(scope => scope === "gallery:read")).toBe(true);
+  });
+
+  test("character route strips copied ID prefixes and scopes each action", async () => {
+    const { POST } = await import(charactersRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/characters", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(200);
+    expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "asset:a1", role: "sheet", costumeCode: "C01" }] })).status).toBe(200);
+    expect((await send({ action: "update", character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "asset:f1" })).status).toBe(200);
+    expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "a1", role: "cameo" }] })).status).toBe(400);
+    expect((await send({ action: "delete", character: "DA-CH-001" })).status).toBe(200);
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, worldFolderId: "w1" });
+    expect(state.mutationCalls.map(call => call.payload)).toEqual([
+      { ownerUserId: state.ownerUserId, character: "DA-CH-001", links: [{ assetId: "a1", role: "sheet", costumeCode: "C01" }] },
+      { ownerUserId: state.ownerUserId, character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "f1" },
+      { ownerUserId: state.ownerUserId, character: "DA-CH-001" },
+    ]);
   });
 
   test("menu discovery is read-scoped and child storybooks are write-scoped", async () => {
@@ -390,5 +412,85 @@ describe("agent API routes", () => {
       ownerUserId: "telegram:278674008",
       folderId: "folders:1",
     });
+  });
+  test("moodboard route strips copied ID prefixes and scopes each action", async () => {
+    const { POST } = await import(moodboardsRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/moodboards", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "list", folderId: "collection:w1", includeChildren: true, ownerUserId: "attacker" })).status).toBe(200);
+    expect((await send({ action: "add", moodboardId: "moodboard:m1", assetIds: ["asset:a1", "a2"] })).status).toBe(200);
+    expect((await send({ action: "save", moodboardId: "moodboard:m1", expectedRevision: 3, description: null, coverAssetId: "asset:a2" })).status).toBe(200);
+    expect((await send({ action: "set_midjourney", moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2 })).status).toBe(200);
+    expect((await send({ action: "reorder", moodboardId: "m1", assetIds: ["a2", "asset:a1"] })).status).toBe(200);
+    expect((await send({ action: "delete", moodboardId: "moodboard:m1" })).status).toBe(200);
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "w1", includeChildren: true });
+    // Every write names the token as its actor for the world journal.
+    const actor = "agent:Codex";
+    expect(state.mutationCalls.map((call) => call.payload)).toEqual([
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a1", "a2"], actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", expectedRevision: 3, description: null, coverAssetId: "a2", actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", mjCode: "88ji6bg", syncedItemCount: 2, actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", assetIds: ["a2", "a1"], actor },
+      { ownerUserId: state.ownerUserId, moodboardId: "m1", actor },
+    ]);
+  });
+
+  test("moodboard create needs a collection and a name, and leaves patch-only fields to a patch", async () => {
+    const { POST } = await import(moodboardsRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/moodboards", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "save", name: "Golden" })).status).toBe(400);
+    expect((await send({ action: "save", folderId: "w1", name: "Golden", status: "archived" })).status).toBe(400);
+    expect((await send({ action: "add", moodboardId: "m1", assetIds: [] })).status).toBe(400);
+    expect((await send({ action: "sync" })).status).toBe(400);
+    expect(state.mutationCalls).toHaveLength(0);
+  });
+
+  test("collection create and update pass a display group; update keeps an omitted name", async () => {
+    const { POST } = await import(customizeRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/customize", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "createFolder", name: "DA FILM", parentFolderId: "folders:w1", group: "Styles", sortOrder: 1 })).status).toBe(200);
+    expect((await send({ action: "updateFolder", folderId: "folders:c1", group: null, sortOrder: 2 })).status).toBe(200);
+    expect(state.mutationCalls[0]?.payload).toMatchObject({ name: "DA FILM", group: "Styles", sortOrder: 1 });
+    expect(state.mutationCalls[1]?.payload).toMatchObject({ folderId: "folders:c1", group: null, sortOrder: 2 });
+    expect(state.mutationCalls[1]?.payload.name).toBeUndefined();
+  });
+  test("inbox route strips copied ID prefixes, never takes an owner and scopes each action", async () => {
+    const { POST } = await import(inboxRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/inbox", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    }));
+    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(200);
+    const posted = await send({
+      action: "post", worldFolderId: "collection:w1", stackTitle: "Sort · 1", ingestKey: "k1",
+      cards: [{ type: "sort", assetIds: ["asset:a1"], targets: [{ kind: "moodboard", moodboardId: "moodboard:m1" }, { kind: "collection", folderId: "collection:f1", label: "Keep" }, { kind: "out" }] }],
+    });
+    expect(posted.status).toBe(200);
+    expect((await send({ action: "post", worldFolderId: "w1", stackTitle: "x", cards: [{ type: "sort", assetIds: ["a1"], targets: [{ kind: "option", label: "Only" }] }] })).status).toBe(400);
+    expect((await send({ action: "close", stackId: "stack:s1" })).status).toBe(200);
+    expect((await send({ action: "delete", stackId: "s1" })).status).toBe(200);
+    expect((await send({ action: "suggest", stackId: "s1" })).status).toBe(400);
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, status: undefined, limit: undefined, previewLimit: 0, worldFolderId: "w1" });
+    expect(state.mutationCalls.map((call) => call.payload)).toEqual([
+      {
+        ownerUserId: state.ownerUserId, worldFolderId: "w1", stackId: undefined, stackTitle: "Sort · 1", ingestKey: "k1", note: undefined, agent: undefined,
+        cards: [{
+          type: "sort", assetIds: ["a1"],
+          targets: [
+            { kind: "moodboard", label: undefined, moodboardId: "m1", folderId: undefined },
+            { kind: "collection", label: "Keep", moodboardId: undefined, folderId: "f1" },
+            { kind: "out", label: undefined, moodboardId: undefined, folderId: undefined },
+          ],
+        }],
+      },
+      { ownerUserId: state.ownerUserId, stackId: "s1", reopen: undefined },
+      { ownerUserId: state.ownerUserId, stackId: "s1" },
+    ]);
   });
 });

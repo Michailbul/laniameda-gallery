@@ -1,3 +1,4 @@
+import { recordWorldChange, worldIdOfFolder } from "./worldCore";
 import {
   internalMutation,
   type MutationCtx,
@@ -16,8 +17,14 @@ import {
 import { collectAssetsForFolder } from "./assets";
 import { canonicalTagKey, findTagIdsByCanonicalKeys } from "./helpers";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
-import { compareCollectionSectionNames } from "../lib/collection-sections";
+import {
+  COLLECTION_GROUP_MAX_LENGTH,
+  normalizeCollectionGroup,
+  orderChildCollections,
+} from "../lib/collection-groups";
 import { ownerMutation, ownerQuery, signedOwnerQuery } from "./actor";
+import { publicCollectionCountsReady, syncPublicCollectionMembership } from "./publicCollectionCounts";
+import { rehomeFolderMoodboards } from "./moodboards";
 
 export const validateOwnedFolders = signedOwnerQuery({
   args: { ownerUserId: v.string(), folderIds: v.array(v.id("folders")) },
@@ -58,10 +65,37 @@ const folderReturnValidator = v.object({
   slug: v.optional(v.string()),
   tasteCollection: v.optional(v.boolean()),
   hiddenFromGallery: v.optional(v.boolean()),
+  group: v.optional(v.string()),
+  sortOrder: v.optional(v.number()),
   memberCount: v.optional(v.number()),
+  publicMemberCount: v.optional(v.number()),
+  worldKey: v.optional(v.string()),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
+
+// Display group and order of a child collection. Undefined keeps the stored
+// value, null (or a blank group) clears it.
+const clearableGroup = v.optional(v.union(v.string(), v.null()));
+const clearableSortOrder = v.optional(v.union(v.number(), v.null()));
+
+const groupFrom = (value: string | null) => {
+  const group = normalizeCollectionGroup(value);
+  if (group && group.length > COLLECTION_GROUP_MAX_LENGTH) {
+    throw new ConvexError(
+      `A collection group is at most ${COLLECTION_GROUP_MAX_LENGTH} characters.`,
+    );
+  }
+  return group;
+};
+
+const sortOrderFrom = (value: number | null) => {
+  if (value === null) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new ConvexError("A collection sort order must be a finite number.");
+  }
+  return value;
+};
 
 // Sub-collection names are unique per parent, not globally: "Characters" can
 // exist under several story collections. Namespacing the canonical name with
@@ -82,9 +116,12 @@ const scopedNormalizedName = (
 // IS (character / location / scene) is a tag, not a folder.
 type FolderKind = Doc<"folders">["kind"];
 
+// Plain collections and storybooks can sit inside a root collection: a
+// storybook is a child of its world. Storybooks never hold children
+// themselves (assertValidParent).
 const assertNestableKind = (kind: FolderKind) => {
-  if (kind !== undefined) {
-    throw new ConvexError("Only plain collections can sit inside another collection.");
+  if (kind !== undefined && kind !== "storybook") {
+    throw new ConvexError("Only plain collections and storybooks can sit inside another collection.");
   }
 };
 
@@ -128,6 +165,10 @@ export const createFolder = ownerMutation({
     kind: folderKindValidator,
     // Create as a sub-collection of this plain, root-level collection.
     parentFolderId: v.optional(v.id("folders")),
+    // Display group inside the world ("Styles") and order. Applied to an
+    // existing folder of the same name too; null clears.
+    group: clearableGroup,
+    sortOrder: clearableSortOrder,
   },
   returns: v.object({
     folderId: v.id("folders"),
@@ -155,6 +196,9 @@ export const createFolder = ownerMutation({
     const description = hasDescription
       ? args.description?.trim() || undefined
       : undefined;
+    const group = args.group === undefined ? undefined : groupFrom(args.group);
+    const sortOrder =
+      args.sortOrder === undefined ? undefined : sortOrderFrom(args.sortOrder);
     let existing = null;
     for (const ownerCandidate of ownerUserIds) {
       existing = await ctx.db
@@ -178,16 +222,23 @@ export const createFolder = ownerMutation({
       const nextDescription = hasDescription
         ? description
         : existing.description;
+      const nextGroup = args.group === undefined ? existing.group : group;
+      const nextSortOrder =
+        args.sortOrder === undefined ? existing.sortOrder : sortOrder;
       if (
         existing.name !== name ||
         existing.description !== nextDescription ||
-        existing.normalizedName !== normalizedName
+        existing.normalizedName !== normalizedName ||
+        existing.group !== nextGroup ||
+        existing.sortOrder !== nextSortOrder
       ) {
         const now = Date.now();
         await ctx.db.patch(existing._id, {
           name,
           description: nextDescription,
           normalizedName,
+          group: nextGroup,
+          sortOrder: nextSortOrder,
           createdAt: existing.createdAt ?? now,
           updatedAt: now,
         });
@@ -203,6 +254,8 @@ export const createFolder = ownerMutation({
       description,
       kind: args.kind,
       parentFolderId: args.parentFolderId,
+      ...(group !== undefined ? { group } : {}),
+      ...(sortOrder !== undefined ? { sortOrder } : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -233,9 +286,15 @@ export const listFolders = ownerQuery({
       folders.push(...foldersForOwner);
     }
 
-    return dedupeById(folders).sort((left, right) =>
-      String(left.normalizedName ?? "").localeCompare(String(right.normalizedName ?? "")),
-    );
+    const countsReady = await publicCollectionCountsReady(ctx);
+    return dedupeById(folders)
+      .map((folder) => ({
+        ...folder,
+        publicMemberCount: countsReady ? (folder.publicMemberCount ?? 0) : undefined,
+      }))
+      .sort((left, right) =>
+        String(left.normalizedName ?? "").localeCompare(String(right.normalizedName ?? "")),
+      );
   },
 });
 
@@ -243,12 +302,16 @@ export const updateFolder = ownerMutation({
   args: {
     ownerUserId: v.string(),
     folderId: v.id("folders"),
-    name: v.string(),
+    // Omit to keep the current name (e.g. when only the group changes).
+    name: v.optional(v.string()),
     description: v.optional(v.string()),
     // Re-file this folder in the hierarchy. Omit to leave parentage alone;
     // pass null to lift it back to root. Lets an existing collection be moved
     // inside another without recreating it.
     parentFolderId: v.optional(v.union(v.id("folders"), v.null())),
+    // Display group inside the world and order; null clears.
+    group: clearableGroup,
+    sortOrder: clearableSortOrder,
   },
   returns: v.id("folders"),
   handler: async (ctx, args) => {
@@ -258,8 +321,9 @@ export const updateFolder = ownerMutation({
     }
     const ownerUserIds = resolveUserIdCandidates(ownerUserId);
 
-    const name = normalizeFolderName(args.name);
-    if (!name) {
+    const requestedName =
+      args.name === undefined ? undefined : normalizeFolderName(args.name);
+    if (requestedName !== undefined && !requestedName) {
       throw new ConvexError("Folder name is required.");
     }
 
@@ -270,11 +334,24 @@ export const updateFolder = ownerMutation({
     if (!canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId)) {
       throw new ConvexError("Folder does not belong to this user.");
     }
+    const name = requestedName ?? folder.name;
 
     const reparenting = args.parentFolderId !== undefined;
     const nextParentFolderId = reparenting
       ? (args.parentFolderId ?? undefined)
       : folder.parentFolderId;
+    // Worlds are separate: a world never nests, and a shelf never carries
+    // its pieces, boards and stories from one world into another.
+    if (reparenting && nextParentFolderId !== folder.parentFolderId) {
+      if (folder.worldKey && nextParentFolderId !== undefined) {
+        throw new ConvexError(`"${folder.name}" is a world and stays a root collection.`);
+      }
+      const fromWorld = await worldIdOfFolder(ctx, folder._id);
+      const toWorld = nextParentFolderId ? await worldIdOfFolder(ctx, nextParentFolderId) : null;
+      if (fromWorld && toWorld && fromWorld !== toWorld) {
+        throw new ConvexError("A shelf cannot move into another world. Create a shelf there and move the pieces with world_file (move: true).");
+      }
+    }
     if (reparenting && nextParentFolderId !== undefined) {
       if (nextParentFolderId === args.folderId) {
         throw new ConvexError("A folder can't be its own parent.");
@@ -319,6 +396,10 @@ export const updateFolder = ownerMutation({
       name,
       normalizedName,
       description,
+      ...(args.group !== undefined ? { group: groupFrom(args.group) } : {}),
+      ...(args.sortOrder !== undefined
+        ? { sortOrder: sortOrderFrom(args.sortOrder) }
+        : {}),
       ...(reparenting ? { parentFolderId: nextParentFolderId } : {}),
       // A folder filed inside a world is published through that world, never
       // on its own; drop the flags so it can't linger on the public home.
@@ -327,6 +408,21 @@ export const updateFolder = ownerMutation({
         : {}),
       updatedAt: Date.now(),
     });
+
+    // A change to a world's shelf or storybook goes into its journal.
+    const worldId = await worldIdOfFolder(ctx, args.folderId) ?? await worldIdOfFolder(ctx, folder.parentFolderId);
+    if (worldId && args.folderId !== worldId) {
+      const after = (await ctx.db.get(args.folderId))!;
+      const state = (row: typeof folder) => ({
+        folderId: row._id, name: row.name, normalizedName: row.normalizedName, description: row.description, group: row.group,
+        sortOrder: row.sortOrder, parentFolderId: row.parentFolderId, kind: row.kind,
+      });
+      await recordWorldChange(ctx, {
+        ownerUserId, worldFolderId: worldId, op: "shelf.update", targetType: folder.kind === "storybook" ? "storybook" : "shelf",
+        targetId: args.folderId, summary: `Updated "${after.name}" in the gallery`,
+        before: { ...state(folder), showcased: folder.showcased, showcaseFeatured: folder.showcaseFeatured }, after: state(after), actor: "gallery",
+      });
+    }
 
     return args.folderId;
   },
@@ -590,6 +686,9 @@ export const cascadeDeleteFolder = async (
   for (const link of dedupeById(assetFolderLinks)) {
     await ctx.db.delete(link._id);
   }
+  for (const asset of dedupeById(assets)) {
+    await syncPublicCollectionMembership(ctx, asset._id);
+  }
 
   const prompts = [];
   for (const ownerCandidate of ownerUserIds) {
@@ -614,6 +713,12 @@ export const cascadeDeleteFolder = async (
     .collect();
   for (const link of skillLinks) {
     await ctx.db.delete(link._id);
+  }
+  // A child collection's moodboards move up to its world; a root's are
+  // deleted with their items. Assets stay either way.
+  const folder = await ctx.db.get(folderId);
+  if (folder) {
+    await rehomeFolderMoodboards(ctx, folder, ownerUserIds);
   }
   // Promote sub-collections to root instead of orphaning them. Their
   // canonical name is re-scoped; on a rare root-level name collision the
@@ -710,6 +815,9 @@ const collectionEntryValidator = v.object({
   name: v.string(),
   description: v.optional(v.string()),
   parentFolderId: v.optional(v.id("folders")),
+  // Display group and order, for the grouped stacks of a world page.
+  group: v.optional(v.string()),
+  sortOrder: v.optional(v.number()),
   count: v.number(),
   updatedAt: v.optional(v.number()),
   createdAt: v.optional(v.number()),
@@ -819,6 +927,8 @@ export const listCollectionSummaries = ownerQuery({
       name: v.string(),
       description: v.optional(v.string()),
       parentFolderId: v.optional(v.id("folders")),
+      group: v.optional(v.string()),
+      sortOrder: v.optional(v.number()),
       updatedAt: v.optional(v.number()),
       createdAt: v.optional(v.number()),
       previewAssets: v.array(collectionPreviewValidator),
@@ -881,6 +991,8 @@ export const listCollectionSummaries = ownerQuery({
           name: folder.name,
           description: folder.description,
           parentFolderId: folder.parentFolderId,
+          group: folder.group,
+          sortOrder: folder.sortOrder,
           updatedAt: folder.updatedAt,
           createdAt: folder.createdAt,
           previewAssets,
@@ -930,11 +1042,10 @@ export const listChildCollectionEntries = ownerQuery({
         canActorAccessOwnerUserId(ownerUserId, folder.ownerUserId),
     );
 
+    // Grouped children lead, group by group (lib/collection-groups); with no
+    // group set this is the section-then-name order it always was.
     return await Promise.all(
-      accessibleChildren
-        .sort((left, right) =>
-          compareCollectionSectionNames(left.name, right.name),
-        )
+      orderChildCollections(accessibleChildren)
         .map(async (folder) => {
           const [count, previewAssets] = await Promise.all([
             countCollectionAssets(ctx, ownerUserIds, folder._id),
@@ -945,6 +1056,8 @@ export const listChildCollectionEntries = ownerQuery({
             name: folder.name,
             description: folder.description,
             parentFolderId: folder.parentFolderId,
+            group: folder.group,
+            sortOrder: folder.sortOrder,
             count,
             updatedAt: folder.updatedAt,
             createdAt: folder.createdAt,
