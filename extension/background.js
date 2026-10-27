@@ -11,6 +11,7 @@ const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
+const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
@@ -1014,6 +1015,36 @@ async function fetchAssetStatuses(imageUrls) {
   return { ok: true, statuses: Array.isArray(data?.statuses) ? data.statuses : [] };
 }
 
+// ── Moodboards (gallery moodboard codes for the Midjourney dock) ──
+
+async function listMoodboards(world) {
+  const config = await getConfig();
+  let url = normalizeRouteUrl(config.apiUrl, MOODBOARDS_ROUTE_PATH);
+  if (world) {
+    url += `?world=${encodeURIComponent(world)}`;
+  }
+  let response;
+  try {
+    response = await fetch(url, { method: "GET", headers: apiHeaders(config) });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // body wasn't JSON
+  }
+  if (!response.ok || !data) {
+    return {
+      ok: false,
+      status: response.status,
+      error: data?.error || `HTTP ${response.status}`,
+    };
+  }
+  return data;
+}
+
 // ── Collections (stored as `folders` rows) ──
 
 async function getFolders() {
@@ -1345,6 +1376,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.action === "getFolders") {
     getFolders()
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "listMoodboards") {
+    listMoodboards(message.world)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
