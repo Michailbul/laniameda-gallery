@@ -86,9 +86,25 @@
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  // Two boards can shorten to the same word ("World"). When that happens,
+  // use the part before the dot, without a leading "DA ".
+  function chipLabel(board, boards) {
+    const short = board.shortName || board.name || board.mjCode;
+    const twins = (boards || []).filter(
+      (other) => (other.shortName || other.name) === short,
+    );
+    if (twins.length < 2) return short;
+    const head = String(board.name || "")
+      .split("\u00b7")[0]
+      .replace(/^DA\s+/i, "")
+      .trim();
+    return head || short;
+  }
+
   globalScope.SaveToGalleryMoodboardDock = {
     applyMoodboardToPrompt,
     activeBoardCodes,
+    chipLabel,
   };
 
   const onMidjourney =
@@ -122,11 +138,18 @@
   };
 
   function findTextarea() {
-    return document.querySelector('textarea[placeholder^="Imagine"]');
+    // Midjourney shortens the placeholder to "Imagine" when the bar is narrow.
+    return (
+      [...document.querySelectorAll("textarea")].find((area) =>
+        /imagine/i.test(area.getAttribute("placeholder") || ""),
+      ) || null
+    );
   }
 
   function findBar(area) {
-    return area ? area.closest("div.fixed") : null;
+    if (!area) return null;
+    // Narrow Create puts the prompt in a fixed bar. The wide page does not.
+    return area.closest("div.fixed") || area.parentElement?.parentElement || area.parentElement;
   }
 
   function boardCodes() {
@@ -240,7 +263,7 @@
       strip.dataset.signature = state.signature;
       strip.textContent = "";
       for (const board of state.moodboards) {
-        const chip = el("button", "stg-mb-chip", board.shortName || board.name);
+        const chip = el("button", "stg-mb-chip", chipLabel(board, state.moodboards));
         chip.type = "button";
         chip.dataset.code = board.mjCode;
         chip.title = [board.name, board.collection, board.flag]
@@ -318,9 +341,20 @@
     }
     const rect = bar.getBoundingClientRect();
     dock.hidden = false;
+    // Keep the dock last in the document so the image grid cannot paint over it.
+    if (dock.parentElement === document.body && dock !== document.body.lastElementChild) {
+      document.body.appendChild(dock);
+    }
     dock.style.left = `${Math.round(rect.left)}px`;
     dock.style.width = `${Math.round(rect.width)}px`;
-    dock.style.bottom = `${Math.round(window.innerHeight - rect.top + DOCK_GAP_PX)}px`;
+    // Bottom prompt (narrow): sit above it. Top prompt (wide): sit under it.
+    if (rect.top > window.innerHeight * 0.5) {
+      dock.style.top = "auto";
+      dock.style.bottom = `${Math.round(window.innerHeight - rect.top + DOCK_GAP_PX)}px`;
+    } else {
+      dock.style.bottom = "auto";
+      dock.style.top = `${Math.round(rect.bottom + DOCK_GAP_PX)}px`;
+    }
   }
 
   function queueLayout() {
