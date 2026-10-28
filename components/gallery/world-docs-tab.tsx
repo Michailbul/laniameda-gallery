@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { FileText, History, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -12,13 +12,14 @@ import { SkillMarkdown } from "./skill-markdown";
 import {
   ActorBadge, MonoBadge, WorldBoundary, errorText, fullStamp, timeAgo, useWorldUndo,
 } from "./world-ui";
+import { usePaneActive } from "./world-view-mode";
 
-type WorldDoc = { path: string; body: string; revision: number; updatedAt: number; updatedBy: string };
+export type WorldDoc = { path: string; body: string; revision: number; updatedAt: number; updatedBy: string };
 
-const capOf = (path: string) =>
+export const capOf = (path: string) =>
   path === WORLD_DOC_MAIN ? WORLD_DOC_LIMITS.main : path === WORLD_DOC_LEARNINGS ? WORLD_DOC_LIMITS.learnings : WORLD_DOC_LIMITS.doc;
 
-const titleOf = (path: string) =>
+export const titleOf = (path: string) =>
   path === WORLD_DOC_MAIN ? "World" : path === WORLD_DOC_LEARNINGS ? "Learnings" : path.replace(/^docs\//, "").replace(/\.md$/, "").replace(/-/g, " ");
 
 const ROLE: Record<string, string> = {
@@ -33,29 +34,59 @@ const fieldStyle = {
 /**
  * A world's files: WORLD.md, LEARNINGS.md and up to eight docs/*.md. Read as
  * rendered markdown, edited as plain text against the server's caps, with a
- * history of every saved version and undo through the journal.
+ * history of every saved version and undo through the journal. The HUMAN
+ * view of a world's instructions (world-instructions.tsx) is built on it.
  */
-export function WorldDocsTab(props: { ownerUserId: string; worldKey: string; worldName: string }) {
+export function WorldDocFiles(props: WorldDocsProps) {
   return <WorldBoundary resetKey={props.worldKey} what="World docs">
     <WorldDocs {...props} />
   </WorldBoundary>;
 }
 
-type Mode =
+type WorldDocsProps = {
+  ownerUserId: string; worldKey: string; worldName: string;
+  /** listWorldDocs for this world, read once by the panel; undefined while loading. */
+  rows: WorldDoc[] | undefined;
+};
+
+export type DocMode =
   | { kind: "read" }
   | { kind: "edit"; base: number; draft: string; note: string; from?: number }
   | { kind: "version"; revision: number; body: string | null; at: number; actor: string };
+type Mode = DocMode;
 
-function WorldDocs({ ownerUserId, worldKey, worldName }: { ownerUserId: string; worldKey: string; worldName: string }) {
-  const { isAuthenticated } = useConvexAuth();
-  const rows = useQuery(api.worlds.listWorldDocs, isAuthenticated ? { ownerUserId, world: worldKey } : "skip");
+/**
+ * The one save path for a world doc, shared by the HUMAN and AGENT views:
+ * writeWorldDoc with the revision the edit started from, so a change made
+ * meanwhile (by an agent, or the other view) is refused instead of lost.
+ */
+export function useWorldDocSave(ownerUserId: string, worldKey: string) {
   const write = useMutation(api.worlds.writeWorldDoc);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = useCallback(async (path: string, edit: Extract<DocMode, { kind: "edit" }>) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const note = edit.note.trim() || (edit.from ? `restored revision ${edit.from}` : undefined);
+      await write({ ownerUserId, world: worldKey, path, body: edit.draft, expectedRevision: edit.base, actor: "owner", note });
+      return true;
+    } catch (caught) {
+      setError(errorText(caught, "Could not save this doc."));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [ownerUserId, worldKey, write]);
+  return { save, saving, error, setError };
+}
+
+function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
+  const { save: saveDoc, saving, error: saveError, setError: setSaveError } = useWorldDocSave(ownerUserId, worldKey);
 
   const [path, setPath] = useState<string>(WORLD_DOC_MAIN);
   const [mode, setMode] = useState<Mode>({ kind: "read" });
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -87,18 +118,9 @@ function WorldDocs({ ownerUserId, worldKey, worldName }: { ownerUserId: string; 
 
   const save = async () => {
     if (mode.kind !== "edit") return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const note = mode.note.trim() || (mode.from ? `restored revision ${mode.from}` : undefined);
-      await write({ ownerUserId, world: worldKey, path, body: mode.draft, expectedRevision: mode.base, actor: "owner", note });
-      setDrafts((list) => list.filter((entry) => entry !== path));
-      setMode({ kind: "read" });
-    } catch (error) {
-      setSaveError(errorText(error, "Could not save this doc."));
-    } finally {
-      setSaving(false);
-    }
+    if (!await saveDoc(path, mode)) return;
+    setDrafts((list) => list.filter((entry) => entry !== path));
+    setMode({ kind: "read" });
   };
 
   const createDoc = () => {
@@ -122,16 +144,7 @@ function WorldDocs({ ownerUserId, worldKey, worldName }: { ownerUserId: string; 
   const editing = mode.kind === "edit";
   const changedUnderneath = editing && (current?.revision ?? 0) !== mode.base;
 
-  return <section className="px-4 pb-20 pt-4 md:px-6" style={{ color: "var(--lm-text-primary)" }}>
-    <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        <h2 className="text-3xl font-black uppercase leading-none tracking-tight md:text-4xl" style={display}>Docs</h2>
-        <p className="mt-2 text-[11px] uppercase tracking-[0.14em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
-          {rows === undefined ? "Loading files…" : `${worldName} · ${docCount} / ${WORLD_DOC_LIMITS.docs} docs · ${worldKey}`}
-        </p>
-      </div>
-    </header>
-
+  return <section style={{ color: "var(--lm-text-primary)" }}>
     <div className="grid gap-5 md:grid-cols-[232px_minmax(0,1fr)] md:gap-8">
       {/* Files: a column on desktop, a sideways strip on a phone. */}
       <nav aria-label="World files" className="min-w-0">
@@ -253,7 +266,7 @@ function EmptyDoc({ path, onWrite, error }: { path: string; onWrite: () => void;
   </div>;
 }
 
-function DocEditor({ path, mode, setMode, saving, error, changedUnderneath, serverRevision, onSave, onCancel }: {
+export function DocEditor({ path, mode, setMode, saving, error, changedUnderneath, serverRevision, onSave, onCancel }: {
   path: string; mode: Extract<Mode, { kind: "edit" }>; setMode: (mode: Mode) => void; saving: boolean; error: string | null;
   changedUnderneath: boolean; serverRevision: number; onSave: () => void; onCancel: () => void;
 }) {
@@ -263,8 +276,11 @@ function DocEditor({ path, mode, setMode, saving, error, changedUnderneath, serv
   const overChars = length > cap;
   const overEntries = entries !== null && entries > WORLD_DOC_LIMITS.learningEntries;
   const over = overChars || overEntries;
+  // Both views stay mounted: only the visible one's editor answers ⌘S.
+  const paneActive = usePaneActive();
 
   useEffect(() => {
+    if (!paneActive) return;
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "s") {
         event.preventDefault();
@@ -273,7 +289,7 @@ function DocEditor({ path, mode, setMode, saving, error, changedUnderneath, serv
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onSave, over, saving]);
+  }, [onSave, over, paneActive, saving]);
 
   return <div className="grid gap-3">
     {mode.from !== undefined && <p className="text-[12px]" style={{ ...mono, color: "var(--lm-text-secondary)" }}>

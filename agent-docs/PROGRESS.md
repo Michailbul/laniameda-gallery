@@ -8,6 +8,21 @@ Last updated: 2026-10-28
 
 ## ✔ Shipped
 
+### 2026-10-28 — World Instructions: HUMAN / AGENT views of a world
+- The world's Docs tab is now **Instructions**, second after Pieces, and shows
+  on the world root and on every shelf, style branch and storybook inside it.
+- HUMAN: WORLD.md / LEARNINGS.md / docs with the existing edit, history and
+  undo, plus a world map from `worlds:getWorldContext` (styles and locks,
+  moodboards with copyable codes and sync state, profiles, shelves,
+  storybooks, characters, recent changes).
+- AGENT: the same `getWorldContext` that `open_world` returns, written as one
+  raw markdown document (`lib/world-agent-doc.ts`) with docs/*.md bodies
+  appended; Copy all / JSON; each file editable as raw text through the same
+  `writeWorldDoc` save path (`useWorldDocSave`, revision guard, caps).
+- Floating HUMAN / AGENT toggle ported from portfolio-second: localStorage
+  `lm-world-view`, `M` toggles outside inputs, both panes stay mounted and
+  cross-fade. No backend change.
+
 ### 2026-10-28 — world_move: a shelf, storybook or moodboard crosses worlds on purpose
 - `worlds:moveToWorld`, MCP `world_move`, `/api/agent/worlds` action `move`.
   The ordinary paths (update_collection, save_moodboard) still refuse to cross
