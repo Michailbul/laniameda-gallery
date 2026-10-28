@@ -53,6 +53,18 @@ export const worldShelfSchema = z.object({
   session,
 });
 
+export const worldMoveSchema = z.object({
+  world: world.describe("The world to move into: key (dear-annete-3d), name or root collection ID."),
+  shelf: z.string().trim().min(1).max(200).optional().describe("A shelf or storybook to move: its ID (collection:<id> or bare). It keeps its ID and goes under the target world's root; its pieces leave the source world with it."),
+  moodboard: z.string().trim().min(1).max(200).optional().describe("A moodboard to move: moodboard:<id> or bare ID. It keeps its ID, items, Midjourney code and sync record."),
+  name: z.string().trim().min(1).max(120).optional().describe("Shelf only: a new name, when the target world already has a collection by that name."),
+  into: z.string().trim().min(1).max(200).optional().describe("Moodboard only: the plain collection of the target world it goes into (name or ID; default the root)."),
+  items: z.enum(["move", "drop"]).optional().describe("Moodboard only, needed when some items belong to another world: move = file them into the target world with the board (into its collection); drop = leave them where they are and take them off the board. The result lists them."),
+  dryRun: z.boolean().optional().describe("Report what would move, what leaves other shelves and what blocks it; change nothing. Do this first."),
+  note: z.string().trim().max(160).optional().describe("One line on why: shown in the journal."),
+  session,
+}).refine((value) => Boolean(value.shelf) !== Boolean(value.moodboard), { message: "Give shelf or moodboard (one of them)." });
+
 export const worldMarkSchema = z.object({
   collectionId: z.string().trim().min(1).describe("Root collection to mark as a world."),
   worldKey: z.string().trim().max(60).nullable().optional().describe("Lowercase hyphenated key; omit to derive it from the name; null clears the mark."),

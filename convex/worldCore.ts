@@ -184,6 +184,7 @@ export const childrenOf = async (ctx: Ctx, folderId: Id<"folders">) =>
 
 export type WorldChangeOp =
   | "world.mark"
+  | "world.move"
   | "doc.write"
   | "doc.delete"
   | "assets.file"

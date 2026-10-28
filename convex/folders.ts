@@ -349,7 +349,7 @@ export const updateFolder = ownerMutation({
       const fromWorld = await worldIdOfFolder(ctx, folder._id);
       const toWorld = nextParentFolderId ? await worldIdOfFolder(ctx, nextParentFolderId) : null;
       if (fromWorld && toWorld && fromWorld !== toWorld) {
-        throw new ConvexError("A shelf cannot move into another world. Create a shelf there and move the pieces with world_file (move: true).");
+        throw new ConvexError("A shelf cannot move into another world here. To move it with its pieces on purpose, use world_move (journaled, undoable).");
       }
     }
     if (reparenting && nextParentFolderId !== undefined) {

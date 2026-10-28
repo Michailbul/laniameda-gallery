@@ -2,11 +2,22 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-23
+Last updated: 2026-10-28
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-28 — world_move: a shelf, storybook or moodboard crosses worlds on purpose
+- `worlds:moveToWorld`, MCP `world_move`, `/api/agent/worlds` action `move`.
+  The ordinary paths (update_collection, save_moodboard) still refuse to cross
+  worlds and now point at world_move. A shelf or storybook keeps its id, goes
+  under the target root, and its pieces leave the source world (listed when
+  they also left other shelves there); stories pointing at it from the old
+  world come back as `storiesToRepoint`. A board keeps id, items, code and
+  sync record; other-world items need `items: move | drop`. Dry run; journaled
+  as `world.move` in both worlds with a shared pair key; `world_undo` reverts
+  both entries and the piece memberships together.
 
 ### 2026-10-23 (#69, #70; backend pushed 23 Oct, live) — gallery harness 1.0
 - Worlds are marked roots (`folders.worldKey`); 12 marked. Convex refuses any

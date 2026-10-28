@@ -255,7 +255,17 @@ Isolation is enforced in Convex (`convex/worldCore.ts`):
 - an asset may belong to at most one world; any membership write that would add
   a second world is refused (legacy two-world assets keep what they have);
 - a moodboard's new items and a story's new asset links must not belong to
-  another world; a board never moves to another world;
+  another world;
+- `update_collection` and `save_moodboard` refuse to move a shelf, storybook or
+  board into another world. `worlds:moveToWorld` (MCP `world_move`) is the one
+  deliberate path: the container keeps its id; a shelf or storybook goes under
+  the target root and each member leaves every other shelf of the source world
+  (as `world_file move` does); a board goes into a plain collection of the
+  target and its other-world items either come along (`items: "move"`) or stay
+  behind and leave the board (`items: "drop"`). Its Midjourney code and sync
+  record are kept. It refuses a world root and a target that is not a world or
+  is the same world, has a dry run, and is journaled as op `world.move` in both
+  worlds with a shared `pair` key, so `world_undo` reverts the pair at once;
 - a story's collection and its storybook are in the same world.
 
 Tables:
@@ -264,7 +274,7 @@ Tables:
   Caps live in `lib/world-docs.ts` and are enforced on write.
 - `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
   `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
-  `world.mark`), actor (`agent:<token label>` or `owner`), optional `session`,
+  `world.mark`, `world.move`), actor (`agent:<token label>` or `owner`), optional `session`,
   JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
   transaction as the change by world docs, filing, shelves, moodboards in a
   world, profiles and stories in a world. `worlds:undoWorldChanges` restores
@@ -276,10 +286,10 @@ Tables:
 
 Functions: `worlds:listWorlds`, `getWorldContext`, `readWorldDoc`,
 `listWorldDocs`, `writeWorldDoc`, `deleteWorldDoc`, `worldDocHistory`,
-`fileWorldAssets`, `saveWorldShelf`, `markWorld`, `listWorldChanges`,
+`fileWorldAssets`, `saveWorldShelf`, `moveToWorld`, `markWorld`, `listWorldChanges`,
 `getWorldChange`, `undoWorldChanges`, `resolveWorldRef`; `mjProfiles:listProfiles`,
 `saveProfile`. Agent route `/api/agent/worlds`; MCP tools `open_world`,
-`world_doc`, `world_file`, `world_shelf`, `mj_profiles`, `world_journal`,
+`world_doc`, `world_file`, `world_shelf`, `world_move`, `mj_profiles`, `world_journal`,
 `world_undo`, `mark_world`. `search_gallery`, `find_similar`, `preview_assets`,
 `list_assets_page`, `list_stories` and `list_moodboards` take `world`.
 

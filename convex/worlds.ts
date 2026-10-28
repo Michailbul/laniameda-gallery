@@ -8,12 +8,12 @@ import { canonicalFolderName, normalizeFolderName, recountFolderMembers } from "
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { replaceAssetTagLinks, resolveTagIdsForNames } from "./assets";
 import { syncPublicCollectionMembership } from "./publicCollectionCounts";
-import { restoreMoodboardSnapshot, type MoodboardSnapshot } from "./moodboards";
+import { restoreMoodboardSnapshot, snapshotMoodboard, type MoodboardSnapshot } from "./moodboards";
 import { restoreProfileSnapshot, type ProfileSnapshot } from "./mjProfiles";
 import { restoreStorySnapshot, type StorySnapshot } from "./stories";
 import {
   WORLD_KEY_PATTERN, assertMembersFitWorld, assertSingleWorld, assetFolderIds, childrenOf, cleanSession, listWorldRoots,
-  recordWorldChange, resolveWorld, worldKeyFromName, worldRootOfFolder, type JournalMeta, type WorldChangeOp, type WorldMemo,
+  recordWorldChange, resolveWorld, worldIdOfFolder, worldKeyFromName, worldRootOfFolder, type JournalMeta, type WorldChangeOp, type WorldMemo,
 } from "./worldCore";
 import {
   WORLD_DOC_LEARNINGS, WORLD_DOC_LIMITS, WORLD_DOC_MAIN, countLearningEntries, normalizeWorldDocPath, worldDocCapError,
@@ -687,9 +687,369 @@ export const saveWorldShelf = ownerMutation({
   },
 });
 
+/* ── Moving a shelf, storybook or moodboard to another world ─────────────── */
+
+// The ordinary edit paths (update_collection, save_moodboard) refuse to cross
+// a world boundary, so nothing drifts between worlds by accident. world_move is
+// the one deliberate way across: the container keeps its id, its pieces follow
+// it out of the source world, and the move is journaled in both worlds as a
+// pair that world_undo reverts together.
+
+const MAX_MOVE_PIECES = 500;
+
+type MoveState = {
+  // Both journal entries of one move (and of its undo) share this key.
+  pair: string;
+  kind: "shelf" | "moodboard";
+  world: Id<"folders"> | null;
+  shelf?: ShelfState;
+  board?: MoodboardSnapshot;
+  assets: FileState[];
+};
+
+const worldRef = (folder: Folder | null) =>
+  folder ? { id: folder._id, key: folder.worldKey ?? "", name: folder.name } : { id: null, key: "", name: "no world" };
+
+const moveResult = v.object({
+  dryRun: v.boolean(),
+  kind: v.union(v.literal("shelf"), v.literal("storybook"), v.literal("moodboard")),
+  id: v.string(), name: v.string(),
+  from: v.object({ id: v.union(v.null(), v.id("folders")), key: v.string(), name: v.string() }),
+  to: v.object({ id: v.id("folders"), key: v.string(), name: v.string() }),
+  into: v.string(),
+  // Pieces whose memberships change: shelf members, or board items moved along.
+  piecesMoved: v.number(),
+  // Shelf members already only in the shelf (or in the target world): nothing to refile.
+  piecesUnchanged: v.number(),
+  // Pieces that also sat on other shelves of the source world (or another world) and left them.
+  leftOtherShelves: v.array(v.object({ assetId: v.id("assets"), shelves: v.array(v.string()) })),
+  // Moodboards filed in a moved shelf travel with it.
+  boards: v.array(v.object({ id: v.id("moodboards"), name: v.string() })),
+  // Stories filed in the shelf keep their folderId and follow it.
+  stories: v.array(v.object({ id: v.id("stories"), title: v.string() })),
+  // Stories whose collection and storybook now sit in different worlds: repoint with update_story.
+  storiesToRepoint: v.array(v.object({ id: v.id("stories"), title: v.string(), reason: v.string() })),
+  // Moodboard moves: items kept as they are, and source-world items left behind (items: drop).
+  itemsKept: v.number(),
+  itemsLeftBehind: v.array(v.object({ assetId: v.id("assets"), worlds: v.array(v.string()) })),
+  // A dry run that the real move would refuse says why.
+  blocked: v.optional(v.string()),
+  changeIds: v.array(v.id("worldChanges")),
+});
+
+const folderLabel = (folder: Folder | null | undefined, id: Id<"folders">) => folder?.name ?? id;
+
+/**
+ * Plan the refiling of `assetIds` so each leaves every world except `target`,
+ * keeping `keep` (the moved shelf) and adding `addTo`. Names the shelves left.
+ */
+const planLeaveWorlds = async (
+  ctx: MutationCtx, owner: string, assetIds: Iterable<Id<"assets">>, target: Id<"folders">,
+  keep: Id<"folders"> | null, addTo: Id<"folders"> | null, memo: WorldMemo,
+) => {
+  const befores: FileState[] = [];
+  const afters: FileState[] = [];
+  const left: { assetId: Id<"assets">; shelves: string[] }[] = [];
+  let unchanged = 0;
+  for (const assetId of assetIds) {
+    const asset = await ctx.db.get(assetId);
+    if (!owned(owner, asset)) continue;
+    const before = await stateOf(ctx, asset);
+    const kept: Id<"folders">[] = [];
+    const dropped: string[] = [];
+    for (const id of before.folderIds) {
+      const world = id === keep ? null : await worldRootOfFolder(ctx, id, memo);
+      if (id === keep || !world || world._id === target) kept.push(id);
+      else dropped.push(folderLabel(await ctx.db.get(id), id));
+    }
+    const folderIds = [...new Set(addTo ? [...kept, addTo] : kept)];
+    const primary = before.primary && folderIds.includes(before.primary) ? before.primary : keep ?? addTo ?? folderIds[0] ?? null;
+    const after: FileState = { assetId, folderIds, primary, tagIds: before.tagIds };
+    if (dropped.length > 0) left.push({ assetId, shelves: dropped });
+    if (setsEqual(before.folderIds, folderIds) && before.primary === primary) { unchanged += 1; continue; }
+    befores.push(before);
+    afters.push(after);
+  }
+  return { befores, afters, left, unchanged };
+};
+
+/** Apply file states, recount and resync public counts. */
+const applyFileStates = async (ctx: MutationCtx, states: FileState[]) => {
+  const touched = new Set<Id<"folders">>();
+  for (const state of states) {
+    const asset = await ctx.db.get(state.assetId);
+    if (!asset) continue;
+    for (const id of await applyFileState(ctx, asset, state)) touched.add(id);
+  }
+  for (const state of states) await syncPublicCollectionMembership(ctx, state.assetId);
+  return touched;
+};
+
+/** Journal one move in the source world (if any) and the target world, as a pair. */
+const journalMove = async (
+  ctx: MutationCtx, owner: string, source: Folder | null, target: Folder, targetId: string, targetType: string,
+  summary: string, before: MoveState, after: MoveState, journal: JournalMeta, revertOf?: Map<Id<"folders">, Id<"worldChanges">>,
+) => {
+  const ids: Id<"worldChanges">[] = [];
+  for (const world of [source, target]) {
+    if (!world) continue;
+    ids.push(await recordWorldChange(ctx, {
+      ownerUserId: owner, worldFolderId: world._id, op: "world.move", targetType, targetId, summary,
+      before, after, revertOf: revertOf?.get(world._id), ...journal,
+    }));
+  }
+  return ids;
+};
+
+/** Stories that point at a moved shelf and would now span two worlds. */
+const storiesAround = async (ctx: MutationCtx, owner: string, folder: Folder, source: Folder | null, target: Folder) => {
+  const filed: Doc<"stories">[] = [];
+  const pointing: Doc<"stories">[] = [];
+  const sourceFolders = source ? [source, ...(await childrenOf(ctx, source._id))] : [];
+  for (const candidate of resolveUserIdCandidates(owner)) {
+    filed.push(...await ctx.db.query("stories").withIndex("by_owner_folder_updatedAt", (q) => q.eq("ownerUserId", candidate).eq("folderId", folder._id)).take(500));
+    for (const other of sourceFolders) {
+      if (other._id === folder._id) continue;
+      const rows = await ctx.db.query("stories").withIndex("by_owner_folder_updatedAt", (q) => q.eq("ownerUserId", candidate).eq("folderId", other._id)).take(500);
+      pointing.push(...rows.filter((story) => story.storybookId === folder._id));
+    }
+  }
+  const toRepoint = [];
+  for (const story of pointing) {
+    toRepoint.push({ id: story._id, title: story.title, reason: `filed in "${sourceFolders.find((f) => f._id === story.folderId)?.name}" of ${source?.name}, storybook now in ${target.name}: set folderId to a collection of ${target.name}` });
+  }
+  for (const story of filed) {
+    if (!story.storybookId || story.storybookId === folder._id) continue;
+    const bookWorld = await worldIdOfFolder(ctx, story.storybookId);
+    if (bookWorld && bookWorld !== target._id) toRepoint.push({ id: story._id, title: story.title, reason: `its storybook stays in another world: clear or change storybookId` });
+  }
+  return { stories: filed.map((story) => ({ id: story._id, title: story.title })), storiesToRepoint: toRepoint };
+};
+
+const moveShelf = async (
+  ctx: MutationCtx, owner: string, ref: string, target: Folder, args: { name?: string; dryRun: boolean; note?: string }, journal: JournalMeta,
+) => {
+  const id = ctx.db.normalizeId("folders", ref.trim().replace(/^(folder|collection|shelf|storybook):/, ""));
+  const folder = id ? await ctx.db.get(id) : null;
+  if (!owned(owner, folder)) throw new ConvexError(`No collection matches "${ref}". Give the shelf's or storybook's id (open_world lists them).`);
+  if (folder.worldKey) throw new ConvexError(`"${folder.name}" is a world root. Worlds never move; move its shelves, storybooks or moodboards instead.`);
+  const source = await worldRootOfFolder(ctx, folder._id);
+  if (!source || !folder.parentFolderId) {
+    throw new ConvexError(`"${folder.name}" is not in a world. Bring a root collection into a world with world_shelf (shelf: its id).`);
+  }
+  if (source._id === target._id) throw new ConvexError(`"${folder.name}" is already in ${target.name}. Use world_shelf to change it there.`);
+  const name = args.name === undefined ? folder.name : normalizeFolderName(args.name);
+  if (!name) throw new ConvexError("A shelf needs a name.");
+  const normalizedName = scopedName(name, target._id);
+  let blocked: string | undefined;
+  try {
+    await assertNameFree(ctx, owner, normalizedName, folder._id);
+  } catch (error) {
+    blocked = `${target.name} already has a collection named "${name}": pass name to move it under another name.`;
+    if (!args.dryRun) throw error instanceof ConvexError ? new ConvexError(blocked) : error;
+  }
+
+  // Every member, by link row or by the legacy primary pointer.
+  const memberIds = new Set<Id<"assets">>();
+  const links = await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folder._id)).take(MAX_MOVE_PIECES + 1);
+  for (const link of links) memberIds.add(link.assetId);
+  const primaries = await ctx.db.query("assets").withIndex("by_folder_createdAt", (q) => q.eq("folderId", folder._id)).take(MAX_MOVE_PIECES + 1);
+  for (const asset of primaries) memberIds.add(asset._id);
+  if (memberIds.size > MAX_MOVE_PIECES) throw new ConvexError(`"${folder.name}" holds more than ${MAX_MOVE_PIECES} pieces; world_move takes at most ${MAX_MOVE_PIECES}.`);
+
+  const memo: WorldMemo = new Map();
+  const plan = await planLeaveWorlds(ctx, owner, memberIds, target._id, folder._id, null, memo);
+
+  // Moodboards filed in the shelf travel with it; their other items must not
+  // stay behind in another world.
+  const boards: Doc<"moodboards">[] = [];
+  for (const candidate of resolveUserIdCandidates(owner)) {
+    boards.push(...await ctx.db.query("moodboards").withIndex("by_owner_folder_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("folderId", folder._id)).collect());
+  }
+  for (const board of boards) {
+    const strays: string[] = [];
+    for (const item of await ctx.db.query("moodboardItems").withIndex("by_moodboard_position", (q) => q.eq("moodboardId", board._id)).collect()) {
+      if (memberIds.has(item.assetId)) continue;
+      const asset = await ctx.db.get(item.assetId);
+      if (!asset) continue;
+      for (const folderId of await assetFolderIds(ctx, asset)) {
+        const world = await worldRootOfFolder(ctx, folderId, memo);
+        if (world && world._id !== target._id) { strays.push(`asset:${asset._id}`); break; }
+      }
+    }
+    if (strays.length > 0 && !blocked) {
+      blocked = `Moodboard "${board.name}" on this shelf holds ${strays.length} piece(s) of another world that are not on the shelf (${strays.slice(0, 5).join(", ")}). Put them on the shelf, or file the board in another collection of ${source.name} first (save_moodboard folderId).`;
+    }
+  }
+  if (blocked && !args.dryRun) throw new ConvexError(blocked);
+  const around = await storiesAround(ctx, owner, folder, source, target);
+
+  const kind = folder.kind === "storybook" ? "storybook" as const : "shelf" as const;
+  const base = {
+    kind, id: folder._id as string, name, from: worldRef(source), to: { id: target._id, key: target.worldKey!, name: target.name }, into: target.name,
+    piecesMoved: plan.afters.length, piecesUnchanged: plan.unchanged, leftOtherShelves: plan.left,
+    boards: boards.map((board) => ({ id: board._id, name: board.name })), ...around,
+    itemsKept: 0, itemsLeftBehind: [], blocked,
+  };
+  if (args.dryRun) return { dryRun: true, ...base, changeIds: [] };
+
+  const pair = `${folder._id}@${Date.now()}`;
+  const beforeShelf = shelfState(folder);
+  await ctx.db.patch(folder._id, { name, normalizedName, parentFolderId: target._id, updatedAt: Date.now() });
+  const afterShelf = shelfState((await ctx.db.get(folder._id))!);
+  const touched = await applyFileStates(ctx, plan.afters);
+  await recountFolderMembers(ctx, touched);
+  const note = args.note?.trim().slice(0, 160);
+  const summary = `Moved ${kind} "${folder.name}" from ${source.name} to ${target.name}${name !== folder.name ? ` as "${name}"` : ""} with ${memberIds.size} piece${memberIds.size === 1 ? "" : "s"}${plan.left.length ? ` (${plan.left.length} left other ${source.name} shelves)` : ""}${note ? ` (${note})` : ""}`;
+  const changeIds = await journalMove(ctx, owner, source, target, folder._id, kind, summary,
+    { pair, kind: "shelf", world: source._id, shelf: beforeShelf, assets: plan.befores },
+    { pair, kind: "shelf", world: target._id, shelf: afterShelf, assets: plan.afters }, journal);
+  return { dryRun: false, ...base, changeIds };
+};
+
+const moveBoard = async (
+  ctx: MutationCtx, owner: string, boardId: Id<"moodboards">, target: Folder,
+  args: { into?: string; items?: "move" | "drop"; dryRun: boolean; note?: string }, journal: JournalMeta,
+) => {
+  const board = await ctx.db.get(boardId);
+  if (!owned(owner, board)) throw new ConvexError("Moodboard not found.");
+  const source = await worldRootOfFolder(ctx, board.folderId);
+  if (source?._id === target._id) throw new ConvexError(`"${board.name}" is already in ${target.name}. Use save_moodboard folderId to move it between its collections.`);
+  const children = (await childrenOf(ctx, target._id)).filter((child) => owned(owner, child));
+  const into = resolveShelf(target, children, args.into ?? "root");
+  if (into.kind !== undefined) throw new ConvexError("A moodboard belongs to a plain collection, not a storybook.");
+  let blocked: string | undefined;
+  for (const candidate of resolveUserIdCandidates(owner)) {
+    const clash = await ctx.db.query("moodboards")
+      .withIndex("by_owner_folder_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("folderId", into._id).eq("normalizedName", board.normalizedName))
+      .first();
+    if (clash) blocked = `"${into.name}" already has a moodboard named "${clash.name}". Rename one first (save_moodboard).`;
+  }
+
+  // Items in no world or in the target world stay. Pieces of another world
+  // either move with the board (items: move) or stay behind (items: drop).
+  const items = await ctx.db.query("moodboardItems").withIndex("by_moodboard_position", (q) => q.eq("moodboardId", board._id)).collect();
+  const memo: WorldMemo = new Map();
+  const foreign: { assetId: Id<"assets">; worlds: string[] }[] = [];
+  for (const item of items) {
+    const asset = await ctx.db.get(item.assetId);
+    if (!asset) continue;
+    const worlds = new Map<Id<"folders">, string>();
+    for (const folderId of await assetFolderIds(ctx, asset)) {
+      const world = await worldRootOfFolder(ctx, folderId, memo);
+      if (world && world._id !== target._id) worlds.set(world._id, world.worldKey ?? world.name);
+    }
+    if (worlds.size > 0) foreign.push({ assetId: asset._id, worlds: [...worlds.values()] });
+  }
+  if (foreign.length > 0 && !args.items && !blocked) {
+    blocked = `${foreign.length} of its items belong to another world (${foreign.slice(0, 5).map((row) => `asset:${row.assetId}`).join(", ")}). Choose items: "move" to move them into ${target.name} with the board, or "drop" to leave them behind and take them off the board.`;
+  }
+  if (blocked && !args.dryRun) throw new ConvexError(blocked);
+  const moving = args.items === "move" ? foreign.map((row) => row.assetId) : [];
+  const dropping = args.items === "drop" ? foreign : [];
+  const plan = await planLeaveWorlds(ctx, owner, moving, target._id, null, into._id, memo);
+  const base = {
+    kind: "moodboard" as const, id: board._id as string, name: board.name, from: worldRef(source),
+    to: { id: target._id, key: target.worldKey!, name: target.name }, into: into.name,
+    piecesMoved: plan.afters.length, piecesUnchanged: plan.unchanged, leftOtherShelves: plan.left, boards: [], stories: [], storiesToRepoint: [],
+    itemsKept: items.length - dropping.length, itemsLeftBehind: dropping, blocked,
+  };
+  if (args.dryRun) return { dryRun: true, ...base, changeIds: [] };
+
+  const pair = `${board._id}@${Date.now()}`;
+  const beforeBoard = await snapshotMoodboard(ctx, board);
+  const drop = new Set(dropping.map((row) => row.assetId));
+  for (const item of items) if (drop.has(item.assetId)) await ctx.db.delete(item._id);
+  const remaining = items.filter((item) => !drop.has(item.assetId));
+  const coverAssetId = board.coverAssetId && !drop.has(board.coverAssetId) ? board.coverAssetId : remaining[0]?.assetId;
+  // The Midjourney code, link and sync record stay as they are.
+  await ctx.db.patch(board._id, { folderId: into._id, itemCount: remaining.length, coverAssetId, revision: board.revision + 1, updatedAt: Date.now() });
+  const afterBoard = await snapshotMoodboard(ctx, (await ctx.db.get(board._id))!);
+  const touched = await applyFileStates(ctx, plan.afters);
+  await recountFolderMembers(ctx, touched);
+  const note = args.note?.trim().slice(0, 160);
+  const summary = `Moved moodboard "${board.name}" from ${source?.name ?? "no world"} to ${target.name} › ${into.name}`
+    + `${plan.afters.length ? `; moved ${plan.afters.length} item${plan.afters.length === 1 ? "" : "s"} along` : ""}`
+    + `${dropping.length ? `; left ${dropping.length} item${dropping.length === 1 ? "" : "s"} behind` : ""}${note ? ` (${note})` : ""}`;
+  const changeIds = await journalMove(ctx, owner, source, target, board._id, "moodboard", summary,
+    { pair, kind: "moodboard", world: source?._id ?? null, board: beforeBoard, assets: plan.befores },
+    { pair, kind: "moodboard", world: target._id, board: afterBoard, assets: plan.afters }, journal);
+  return { dryRun: false, ...base, changeIds };
+};
+
+export const moveToWorld = ownerMutation({
+  args: {
+    ownerUserId: v.string(),
+    // The target world: key, name or root id.
+    world: v.string(),
+    // One of: a shelf or storybook (collection id), or a moodboard.
+    shelf: v.optional(v.string()),
+    moodboard: v.optional(v.id("moodboards")),
+    // Shelf: a new name when the target world already has one by that name.
+    name: v.optional(v.string()),
+    // Moodboard: the plain collection of the target world it goes into (default the root).
+    into: v.optional(v.string()),
+    // Moodboard: what happens to items that belong to another world.
+    items: v.optional(v.union(v.literal("move"), v.literal("drop"))),
+    dryRun: v.optional(v.boolean()),
+    note: v.optional(v.string()),
+    ...journalArgs,
+  },
+  returns: moveResult,
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    if (Boolean(args.shelf) === Boolean(args.moodboard)) throw new ConvexError("Give shelf (a shelf or storybook id) or moodboard, one of them.");
+    const target = await resolveWorld(ctx, owner, args.world);
+    const dryRun = args.dryRun ?? false;
+    if (args.shelf) {
+      if (args.into || args.items) throw new ConvexError("into and items are for moodboards. A shelf or storybook always goes under the world root (collections are one level deep).");
+      return moveShelf(ctx, owner, args.shelf, target, { name: args.name, dryRun, note: args.note }, meta(args));
+    }
+    if (args.name) throw new ConvexError("Rename a moodboard with save_moodboard, before or after the move.");
+    return moveBoard(ctx, owner, args.moodboard!, target, { into: args.into, items: args.items, dryRun, note: args.note }, meta(args));
+  },
+});
+
+/** Undo one world move: check nothing changed since, put the container and its pieces back. */
+const revertMove = async (ctx: MutationCtx, owner: string, before: MoveState, after: MoveState, touched: Set<Id<"folders">>): Promise<RevertOutcome> => {
+  const conflicts: string[] = [];
+  for (const state of after.assets) {
+    const asset = await ctx.db.get(state.assetId);
+    if (!asset) { conflicts.push(`asset:${state.assetId} is gone`); continue; }
+    const now = await stateOf(ctx, asset);
+    if (!setsEqual(now.folderIds, state.folderIds)) conflicts.push(`asset:${state.assetId} was refiled since`);
+  }
+  if (after.kind === "shelf") {
+    const folder = await ctx.db.get(after.shelf!.folderId);
+    if (!folder) return { ok: false, reason: "the shelf is gone" };
+    if (folder.parentFolderId !== after.shelf!.parentFolderId || folder.name !== after.shelf!.name) conflicts.unshift(`"${folder.name}" moved or was renamed since`);
+    if (conflicts.length > 0) return { ok: false, reason: conflicts.slice(0, 5).join("; ") };
+    const shelf = before.shelf!;
+    if (shelf.normalizedName && shelf.normalizedName !== folder.normalizedName) {
+      try { await assertNameFree(ctx, owner, shelf.normalizedName, folder._id); } catch { return { ok: false, reason: `a collection named "${shelf.name}" took its place` }; }
+    }
+    await ctx.db.patch(folder._id, { name: shelf.name, normalizedName: shelf.normalizedName, parentFolderId: shelf.parentFolderId, updatedAt: Date.now() });
+    for (const id of await applyFileStates(ctx, before.assets)) touched.add(id);
+    // Pieces filed into the target world since would end up in two worlds.
+    const home = await ctx.db.get(shelf.parentFolderId!);
+    try {
+      await assertMembersFitWorld(ctx, folder._id, before.world, `"${folder.name}" cannot go back to ${home?.name ?? "its world"}`);
+    } catch (error) {
+      return { ok: false, reason: error instanceof ConvexError ? String(error.data) : "its pieces changed since" };
+    }
+    return { ok: true, summary: "" };
+  } else {
+    if (conflicts.length > 0) return { ok: false, reason: conflicts.slice(0, 5).join("; ") };
+    const outcome = await restoreMoodboardSnapshot(ctx, owner, after.board!.moodboardId, before.board!, after.board!, false);
+    if (!outcome.ok) return outcome;
+  }
+  for (const id of await applyFileStates(ctx, before.assets)) touched.add(id);
+  return { ok: true, summary: "" };
+};
+
 /* ── Journal ─────────────────────────────────────────────────────────────── */
 
-const recentChanges = async (ctx: QueryCtx, owner: string, worldId: Id<"folders">, limit: number, before?: number) => {
+const recentChanges =async (ctx: QueryCtx, owner: string, worldId: Id<"folders">, limit: number, before?: number) => {
   const rows: Change[] = [];
   for (const candidate of resolveUserIdCandidates(owner)) {
     rows.push(...await ctx.db.query("worldChanges")
@@ -892,6 +1252,30 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, jou
       await record(change.summary, after, outcome.restored);
       return { ok: true, summary: change.summary };
     }
+    case "world.move": {
+      const before = parse<MoveState>(change.before)!;
+      const after = parse<MoveState>(change.after)!;
+      // The same move is journaled in the other world too; both revert together.
+      const sibling = (await ctx.db.query("worldChanges")
+        .withIndex("by_owner_target_createdAt", (q) => q.eq("ownerUserId", change.ownerUserId).eq("targetId", change.targetId))
+        .order("desc").take(200))
+        .find((row) => row._id !== change._id && row.op === "world.move" && !row.revertedBy && parse<MoveState>(row.after)?.pair === after.pair) ?? null;
+      const outcome = await revertMove(ctx, owner, before, after, touched);
+      if (!outcome.ok) return outcome;
+      const pair = `undo:${change._id}`;
+      const undoBefore: MoveState = { ...after, pair };
+      const undoAfter: MoveState = { ...before, pair };
+      await record(change.summary, undoBefore, undoAfter);
+      if (sibling) {
+        const undoId = await recordWorldChange(ctx, {
+          ownerUserId: owner, worldFolderId: sibling.worldFolderId, op: "world.move", targetType: sibling.targetType, targetId: sibling.targetId,
+          summary: `Undo: ${change.summary}`, before: undoBefore, after: undoAfter, revertOf: sibling._id, ...journal,
+          session: journal.session ?? change.session,
+        });
+        await ctx.db.patch(sibling._id, { revertedBy: undoId });
+      }
+      return { ok: true, summary: change.summary };
+    }
     case "story.save": {
       const before = parse<StorySnapshot>(change.before);
       const after = parse<StorySnapshot>(change.after)!;
@@ -952,12 +1336,19 @@ export const undoWorldChanges = ownerMutation({
     // Newest first. Each revert sees the state the previous one left, so a
     // session that edited one doc twice unwinds both edits. A blocked change
     // stops the run.
-    for (const change of changes) {
+    let stoppedAt = changes.length;
+    for (const [index, change] of changes.entries()) {
+      // A world move is journaled in both worlds; reverting one entry reverts
+      // its pair, which may come later in this same run.
+      if (!change.revertedBy && (await ctx.db.get(change._id))?.revertedBy) {
+        undone.push({ changeId: change._id, summary: change.summary });
+        continue;
+      }
       const outcome = await revertChange(ctx, owner, change, meta(args), touched);
       if (outcome.ok) undone.push({ changeId: change._id, summary: change.summary });
-      else { blocked.push({ changeId: change._id, summary: change.summary, reason: outcome.reason }); break; }
+      else { blocked.push({ changeId: change._id, summary: change.summary, reason: outcome.reason }); stoppedAt = index; break; }
     }
-    const skipped = changes.slice(undone.length + blocked.length)
+    const skipped = changes.slice(stoppedAt + 1)
       .map((change) => ({ changeId: change._id, summary: change.summary, reason: "an earlier change in this undo was blocked" }));
     const report = { dryRun, undone, blocked: [...blocked, ...skipped] };
     // All or nothing: a blocked run and every dry run end by throwing, so

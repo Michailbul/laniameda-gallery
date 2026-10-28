@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.13.0
+version: 1.14.0
 ---
 
 # Laniameda Gallery
@@ -37,7 +37,10 @@ moodboards with codes and sync state, Midjourney profiles and recent changes.
 Search with `world` to stay inside it. Change it through `world_doc`,
 `world_file`, `world_shelf`, `mj_profiles` and the moodboard and story tools,
 with a `session` label; `world_journal` shows every change and `world_undo`
-reverts one or a whole session. An asset never belongs to two worlds. The
+reverts one or a whole session. An asset never belongs to two worlds. Shelves,
+storybooks and moodboards stay in their world on every ordinary edit; the one
+deliberate way across is `world_move` (dry run first, journaled in both
+worlds, undone as a whole by `world_undo`). The
 Claude Code plugin `laniameda-gallery` (repository folder `plugin/`) teaches
 this loop in its `gallery-worlds` skill.
 
