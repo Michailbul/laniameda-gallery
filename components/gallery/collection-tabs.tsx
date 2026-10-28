@@ -12,8 +12,9 @@ export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "jour
  * folders (a world's children) and its Moodboards panel with the board count.
  * Shown on every world root and style branch, and on any other collection
  * that has boards. Filters and saved views change the pieces, never the tabs.
- * A marked world (folders.worldKey) also gets Docs (WORLD.md, LEARNINGS.md,
- * docs/) and Journal (every change, with undo).
+ * A marked world (folders.worldKey) and every collection inside it also get
+ * Instructions (WORLD.md, LEARNINGS.md, docs/ and the open_world context,
+ * HUMAN or AGENT) right after Pieces, and Journal (every change, with undo).
  */
 export function CollectionTabs({
   ownerUserId,
@@ -31,7 +32,7 @@ export function CollectionTabs({
   includeChildren: boolean;
   active: CollectionTab;
   showFolders: boolean;
-  /** A marked world root: adds Docs and Journal. */
+  /** Inside a marked world: adds Instructions and Journal. */
   showWorldTabs?: boolean;
   /** World roots and style branches: show even with no boards yet. */
   always: boolean;
@@ -49,6 +50,9 @@ export function CollectionTabs({
 
   const tabs: Array<{ key: CollectionTab; label: string; icon: typeof Grid3X3; count?: number; title: string }> = [
     { key: "pieces", label: "Pieces", icon: Grid3X3, title: "Every piece in this collection" },
+    ...(showWorldTabs
+      ? [{ key: "docs" as const, label: "Instructions", icon: FileText, title: "The world's WORLD.md, learnings and docs, as you read them or as an agent does (M)" }]
+      : []),
     ...(showFolders
       ? [{ key: "folders" as const, label: "Folders", icon: FolderOpen, title: "The folders of this world" }]
       : []),
@@ -60,10 +64,7 @@ export function CollectionTabs({
       title: "Looks to send to Midjourney, made from this collection's images",
     },
     ...(showWorldTabs
-      ? [
-          { key: "docs" as const, label: "Docs", icon: FileText, title: "WORLD.md, LEARNINGS.md and the world's docs" },
-          { key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" },
-        ]
+      ? [{ key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" }]
       : []),
   ];
 

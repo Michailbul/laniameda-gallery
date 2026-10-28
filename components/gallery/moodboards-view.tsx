@@ -118,7 +118,7 @@ function StatusPill({ status }: { status: MoodboardStatus }) {
 
 // Every code and ID here carries a copy button, so it can be pasted into a
 // prompt or to an agent.
-function CopyChip({ value, label, strong, title }: { value: string; label?: string; strong?: boolean; title?: string }) {
+export function CopyChip({ value, label, strong, title }: { value: string; label?: string; strong?: boolean; title?: string }) {
   const [copied, setCopied] = useState(false);
   return <button type="button" aria-label={`Copy ${value}`} title={title ?? `Copy ${value}`}
     onClick={async (event) => {

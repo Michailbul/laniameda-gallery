@@ -123,7 +123,7 @@ import {
 } from "@/components/gallery/moodboards-view";
 import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
 import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
-import { WorldDocsTab } from "@/components/gallery/world-docs-tab";
+import { WorldInstructionsPanel } from "@/components/gallery/world-instructions";
 import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
@@ -1983,11 +1983,17 @@ export function GalleryDashboard({
       viewMode === "grid" &&
       !storybooksView && !bookmarksView && !extraTabView,
   );
-  // Docs and Journal belong to a marked world root (folders.worldKey).
-  const activeWorldKey =
-    activeCollectionFolder && !activeCollectionFolder.parentFolderId
-      ? activeCollectionFolder.worldKey
-      : undefined;
+  // Instructions and Journal belong to a marked world (folders.worldKey on
+  // its root). Every shelf, style branch and storybook of the world shows
+  // them too, so a world's instructions are one click from anywhere in it.
+  const activeWorldRoot = activeCollectionFolder
+    ? activeCollectionFolder.parentFolderId
+      ? collectionFoldersWithCounts.find(
+          (folder) => folder._id === activeCollectionFolder.parentFolderId,
+        )
+      : activeCollectionFolder
+    : undefined;
+  const activeWorldKey = activeWorldRoot?.worldKey;
   const activeWorldPanel =
     activeWorldKey &&
     activeCollectionFolder &&
@@ -5812,18 +5818,28 @@ export function GalleryDashboard({
                 />
               ) : activeWorldPanel && activeWorldKey && ownerUserId && activeCollectionFolder ? (
                 activeWorldPanel === "docs" ? (
-                  <WorldDocsTab
-                    key={`docs-${activeCollectionFolder._id}`}
+                  <WorldInstructionsPanel
+                    key={`docs-${activeWorldKey}`}
                     ownerUserId={ownerUserId}
                     worldKey={activeWorldKey}
-                    worldName={activeCollectionFolder.name}
+                    worldName={activeWorldRoot?.name ?? activeCollectionFolder.name}
+                    onJump={(tab) => {
+                      setMoodboardsCollectionId(
+                        tab === "moodboards" ? activeCollectionFolder._id : null,
+                      );
+                      setWorldPanel(
+                        tab === "journal"
+                          ? { collectionId: activeCollectionFolder._id, tab }
+                          : null,
+                      );
+                    }}
                   />
                 ) : (
                   <WorldJournalTab
-                    key={`journal-${activeCollectionFolder._id}`}
+                    key={`journal-${activeWorldKey}`}
                     ownerUserId={ownerUserId}
                     worldKey={activeWorldKey}
-                    worldName={activeCollectionFolder.name}
+                    worldName={activeWorldRoot?.name ?? activeCollectionFolder.name}
                   />
                 )
               ) : moodboardsViewActive && ownerUserId && activeCollectionFolder ? (
