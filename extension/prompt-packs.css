@@ -1,0 +1,129 @@
+/* ── Midjourney prompt packs ── */
+
+.stg-pp-bar {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  color: #d8d4cf;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  font: 11px/1.3 system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  pointer-events: auto;
+}
+
+.stg-pp-bar[hidden] {
+  display: none;
+}
+
+.stg-pp-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stg-pp-title {
+  color: #9a958f;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stg-pp-modes {
+  display: flex;
+  margin-left: auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+
+.stg-pp-mode {
+  padding: 1px 8px;
+  color: #9a958f;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stg-pp-mode:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stg-pp-mode--on {
+  color: #ff8c42;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.stg-pp-collapse {
+  padding: 0 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stg-pp-collapse:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stg-pp-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stg-pp-strip[hidden] {
+  display: none;
+}
+
+.stg-pp-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.stg-pp-group {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stg-pp-heading {
+  margin-right: 2px;
+  color: #6f6b66;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stg-pp-chip {
+  flex: none;
+  padding: 2px 8px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-pp-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stg-pp-chip--on {
+  color: #191919;
+  background: #fff4ea;
+  border-color: #ff8c42;
+}
