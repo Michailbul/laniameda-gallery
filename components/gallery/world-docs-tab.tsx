@@ -1,26 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useMemo, useState } from "react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { FileText, History, Pencil, Plus, RotateCcw, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { readingMinutes } from "@/lib/world-doc-markdown";
 import {
-  WORLD_DOC_LEARNINGS, WORLD_DOC_LIMITS, WORLD_DOC_MAIN, WORLD_DOC_TEMPLATE, countLearningEntries, normalizeWorldDocPath,
+  WORLD_DOC_LEARNINGS, WORLD_DOC_LIMITS, WORLD_DOC_MAIN, countLearningEntries, normalizeWorldDocPath,
 } from "@/lib/world-docs";
 import { ActionButton, Micro, RADIUS, display, mono } from "./moodboards-view";
-import { SkillMarkdown } from "./skill-markdown";
 import {
-  ActorBadge, MonoBadge, WorldBoundary, errorText, fullStamp, timeAgo, useWorldUndo,
+  DocEditor, beginDocEdit, capOf, clearDraft, readDraft, titleOf, useStoredDraftPaths, useWorldDocSave, type DocEdit, type WorldDoc,
+} from "./world-doc-editor";
+import { WorldDocReader } from "./world-doc-prose";
+import {
+  ActorBadge, MonoBadge, WorldBoundary, fullStamp, timeAgo, useWorldUndo,
 } from "./world-ui";
-import { usePaneActive } from "./world-view-mode";
 
-export type WorldDoc = { path: string; body: string; revision: number; updatedAt: number; updatedBy: string };
-
-export const capOf = (path: string) =>
-  path === WORLD_DOC_MAIN ? WORLD_DOC_LIMITS.main : path === WORLD_DOC_LEARNINGS ? WORLD_DOC_LIMITS.learnings : WORLD_DOC_LIMITS.doc;
-
-export const titleOf = (path: string) =>
-  path === WORLD_DOC_MAIN ? "World" : path === WORLD_DOC_LEARNINGS ? "Learnings" : path.replace(/^docs\//, "").replace(/\.md$/, "").replace(/-/g, " ");
+export type { WorldDoc } from "./world-doc-editor";
 
 const ROLE: Record<string, string> = {
   [WORLD_DOC_MAIN]: "Identity, canon pointers, styles and dated rules. The world's CLAUDE.md.",
@@ -33,7 +30,7 @@ const fieldStyle = {
 
 /**
  * A world's files: WORLD.md, LEARNINGS.md and up to eight docs/*.md. Read as
- * rendered markdown, edited as plain text against the server's caps, with a
+ * a laid-out document, edited as markdown beside its preview against the server's caps, with a
  * history of every saved version and undo through the journal. The HUMAN
  * view of a world's instructions (world-instructions.tsx) is built on it.
  */
@@ -51,35 +48,9 @@ type WorldDocsProps = {
 
 export type DocMode =
   | { kind: "read" }
-  | { kind: "edit"; base: number; draft: string; note: string; from?: number }
+  | DocEdit
   | { kind: "version"; revision: number; body: string | null; at: number; actor: string };
 type Mode = DocMode;
-
-/**
- * The one save path for a world doc, shared by the HUMAN and AGENT views:
- * writeWorldDoc with the revision the edit started from, so a change made
- * meanwhile (by an agent, or the other view) is refused instead of lost.
- */
-export function useWorldDocSave(ownerUserId: string, worldKey: string) {
-  const write = useMutation(api.worlds.writeWorldDoc);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const save = useCallback(async (path: string, edit: Extract<DocMode, { kind: "edit" }>) => {
-    setSaving(true);
-    setError(null);
-    try {
-      const note = edit.note.trim() || (edit.from ? `restored revision ${edit.from}` : undefined);
-      await write({ ownerUserId, world: worldKey, path, body: edit.draft, expectedRevision: edit.base, actor: "owner", note });
-      return true;
-    } catch (caught) {
-      setError(errorText(caught, "Could not save this doc."));
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, [ownerUserId, worldKey, write]);
-  return { save, saving, error, setError };
-}
 
 function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
   const { save: saveDoc, saving, error: saveError, setError: setSaveError } = useWorldDocSave(ownerUserId, worldKey);
@@ -98,6 +69,7 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
     return [...new Set(paths)].map((entry) => ({ path: entry, doc: byPath.get(entry) ?? null }));
   }, [rows, drafts]);
   const docCount = docs.filter((entry) => entry.path.startsWith("docs/") && entry.doc).length;
+  const storedDrafts = useStoredDraftPaths(worldKey);
 
   const current = docs.find((entry) => entry.path === path)?.doc ?? null;
 
@@ -110,10 +82,8 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
 
   const startEdit = (body?: string, from?: number) => {
     setSaveError(null);
-    setMode({
-      kind: "edit", base: current?.revision ?? 0, note: "", from,
-      draft: body ?? current?.body ?? (path === WORLD_DOC_MAIN ? WORLD_DOC_TEMPLATE.replace("<WORLD NAME>", worldName) : ""),
-    });
+    setHistoryOpen(false);
+    setMode(beginDocEdit({ worldKey, worldName, path, live: current, body, from }));
   };
 
   const save = async () => {
@@ -138,16 +108,18 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
     }
     setDrafts((list) => [...list, normalized]);
     setPath(normalized);
-    setMode({ kind: "edit", base: 0, draft: `# ${titleOf(normalized).toUpperCase()}\n\n`, note: "" });
+    setMode(beginDocEdit({ worldKey, worldName, path: normalized, live: null }));
   };
 
   const editing = mode.kind === "edit";
-  const changedUnderneath = editing && (current?.revision ?? 0) !== mode.base;
+  // Drafts kept on this device for files that were never saved still list.
+  const pendingDraft = !editing && storedDrafts.includes(path) ? readDraft(worldKey, path) : null;
 
   return <section style={{ color: "var(--lm-text-primary)" }}>
-    <div className="grid gap-5 md:grid-cols-[232px_minmax(0,1fr)] md:gap-8">
-      {/* Files: a column on desktop, a sideways strip on a phone. */}
-      <nav aria-label="World files" className="min-w-0">
+    <div className={`grid gap-5 md:gap-8 ${editing ? "" : "md:grid-cols-[232px_minmax(0,1fr)]"}`}>
+      {/* Files: a column on desktop, a sideways strip on a phone. While a
+          file is open for editing the editor takes the whole width. */}
+      <nav aria-label="World files" className="min-w-0" hidden={editing}>
         <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:gap-1 md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden">
           {docs.map(({ path: entry, doc }) => {
             const active = entry === path;
@@ -172,6 +144,7 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
                   <MonoBadge title="Revision">r{doc.revision}</MonoBadge>
                   <ActorBadge actor={doc.updatedBy} />
                 </> : <MonoBadge>{drafts.includes(entry) ? "new" : "not written"}</MonoBadge>}
+                {storedDrafts.includes(entry) && <MonoBadge color="var(--lm-coral)" title="Unsaved draft kept in this browser">draft</MonoBadge>}
               </span>
             </button>;
           })}
@@ -195,6 +168,7 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
               className="inline-flex shrink-0 items-center gap-1.5 border border-dashed px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ ...mono, borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", color: "var(--lm-text-tertiary)" }}>
               <Plus size={12} aria-hidden />New doc
+              <span className="ml-auto pl-2" style={{ color: "var(--lm-text-ghost)" }}>{docCount}/{WORLD_DOC_LIMITS.docs}</span>
             </button>}
         </div>
       </nav>
@@ -207,6 +181,8 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
               <span style={{ color: "var(--lm-text-secondary)" }}>{path}</span>
               {current && <><span aria-hidden>·</span><span title={fullStamp(current.updatedAt)}>r{current.revision} · {timeAgo(current.updatedAt)}</span></>}
+              {current && <><span aria-hidden>·</span><ActorBadge actor={current.updatedBy} /></>}
+              {current && !editing && <><span aria-hidden>·</span><span>{readingMinutes(current.body)} min read</span></>}
             </p>
             {ROLE[path] && <p className="mt-1.5 max-w-xl text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>{ROLE[path]}</p>}
           </div>
@@ -222,11 +198,20 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
           </div>}
         </div>
 
+        {pendingDraft && mode.kind === "read" && <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 border px-3 py-2.5 text-[13px]" role="status"
+          style={{ borderRadius: RADIUS, borderColor: "var(--lm-coral)", background: "color-mix(in srgb, var(--lm-coral) 7%, var(--lm-surface-0))" }}>
+          <span className="min-w-0 flex-1">An unsaved draft of {path} from {timeAgo(pendingDraft.at)} is kept in this browser.</span>
+          <span className="flex gap-1.5">
+            <ActionButton tone="coral" icon={<Pencil size={13} aria-hidden />} onClick={() => startEdit()}>Resume editing</ActionButton>
+            <ActionButton onClick={() => clearDraft(worldKey, path)}>Discard draft</ActionButton>
+          </span>
+        </div>}
+
         <div className={historyOpen && !editing ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]" : ""}>
           <div className="min-w-0">
             {rows === undefined ? <Micro>Loading…</Micro>
-              : editing ? <DocEditor path={path} mode={mode} setMode={setMode} saving={saving} error={saveError}
-                changedUnderneath={changedUnderneath} serverRevision={current?.revision ?? 0}
+              : editing ? <DocEditor worldKey={worldKey} path={path} mode={mode} setMode={setMode} saving={saving} error={saveError}
+                live={current}
                 onSave={() => void save()} onCancel={() => {
                   // A new doc that was never saved disappears with its draft.
                   if (!current && drafts.includes(path)) {
@@ -237,8 +222,8 @@ function WorldDocs({ ownerUserId, worldKey, worldName, rows }: WorldDocsProps) {
                   setMode({ kind: "read" });
                   setSaveError(null);
                 }} />
-              : mode.kind === "version" ? <VersionView version={mode} onRestore={() => mode.body !== null && startEdit(mode.body, mode.revision)} />
-              : current ? <article className="max-w-[760px]"><SkillMarkdown>{current.body}</SkillMarkdown></article>
+              : mode.kind === "version" ? <VersionView version={{ ...mode, path }} onRestore={() => mode.body !== null && startEdit(mode.body, mode.revision)} />
+              : current ? <WorldDocReader key={path} path={path} body={current.body} idPrefix="doc-" />
               : <EmptyDoc path={path} onWrite={() => startEdit()} error={saveError} />}
           </div>
           {historyOpen && !editing && current && <DocHistory ownerUserId={ownerUserId} worldKey={worldKey} path={path}
@@ -266,73 +251,7 @@ function EmptyDoc({ path, onWrite, error }: { path: string; onWrite: () => void;
   </div>;
 }
 
-export function DocEditor({ path, mode, setMode, saving, error, changedUnderneath, serverRevision, onSave, onCancel }: {
-  path: string; mode: Extract<Mode, { kind: "edit" }>; setMode: (mode: Mode) => void; saving: boolean; error: string | null;
-  changedUnderneath: boolean; serverRevision: number; onSave: () => void; onCancel: () => void;
-}) {
-  const cap = capOf(path);
-  const length = mode.draft.replace(/\r\n/g, "\n").trimEnd().length + 1;
-  const entries = path === WORLD_DOC_LEARNINGS ? countLearningEntries(mode.draft) : null;
-  const overChars = length > cap;
-  const overEntries = entries !== null && entries > WORLD_DOC_LIMITS.learningEntries;
-  const over = overChars || overEntries;
-  // Both views stay mounted: only the visible one's editor answers ⌘S.
-  const paneActive = usePaneActive();
-
-  useEffect(() => {
-    if (!paneActive) return;
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-        event.preventDefault();
-        if (!over && !saving) onSave();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onSave, over, paneActive, saving]);
-
-  return <div className="grid gap-3">
-    {mode.from !== undefined && <p className="text-[12px]" style={{ ...mono, color: "var(--lm-text-secondary)" }}>
-      Restoring revision {mode.from}. Saving writes it as a new revision; nothing is lost.
-    </p>}
-    {changedUnderneath && <p className="border px-3 py-2 text-[12px] leading-5" role="status"
-      style={{ borderRadius: RADIUS, borderColor: "var(--lm-coral)", color: "var(--lm-coral)" }}>
-      {path} changed while you were editing (now r{serverRevision}). Saving will be refused; copy your text, cancel and edit again.
-    </p>}
-    <textarea value={mode.draft} onChange={(event) => setMode({ ...mode, draft: event.target.value })}
-      aria-label={`${path} text`} spellCheck autoFocus
-      className="lm-field min-h-[52dvh] w-full resize-y border px-4 py-3 text-[13px] leading-[1.65] outline-none"
-      style={{ ...fieldStyle, fontFamily: "var(--lm-font-mono, ui-monospace), ui-monospace, monospace" }} />
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <span className="text-[11px] font-bold tracking-[0.04em]" style={{ ...mono, color: overChars ? "var(--lm-coral)" : "var(--lm-text-tertiary)" }} aria-live="polite">
-        {length.toLocaleString("en-GB")} / {cap.toLocaleString("en-GB")} chars
-      </span>
-      {entries !== null && <span className="text-[11px] font-bold tracking-[0.04em]" style={{ ...mono, color: overEntries ? "var(--lm-coral)" : "var(--lm-text-tertiary)" }}>
-        {entries} / {WORLD_DOC_LIMITS.learningEntries} entries
-      </span>}
-      <div aria-hidden className="h-[3px] min-w-[80px] flex-1 overflow-hidden" style={{ background: "var(--lm-surface-2)", borderRadius: "999px" }}>
-        <div className="h-full" style={{ width: `${Math.min(100, (length / cap) * 100)}%`, background: overChars ? "var(--lm-coral)" : "var(--lm-text-secondary)", borderRadius: "999px" }} />
-      </div>
-    </div>
-    <input value={mode.note} maxLength={WORLD_DOC_LIMITS.note} onChange={(event) => setMode({ ...mode, note: event.target.value })}
-      placeholder="What changed (optional, goes in the journal)" aria-label="Change note"
-      className="lm-field w-full border px-3 py-2 text-[13px] outline-none" style={fieldStyle} />
-    {over && <p className="text-[12px] leading-5" style={{ color: "var(--lm-coral)" }}>
-      {path === WORLD_DOC_LEARNINGS
-        ? "Over the cap. Promote confirmed learnings into WORLD.md rules and delete superseded ones first."
-        : path === WORLD_DOC_MAIN ? "Over the cap. Move depth into a docs/<name>.md." : "Over the cap. Split it or tighten it."}
-    </p>}
-    {error && <p className="border px-3 py-2 text-[12px] leading-5" role="alert"
-      style={{ borderRadius: RADIUS, borderColor: "var(--lm-status-error-border)", color: "var(--lm-status-error-text)", background: "var(--lm-status-error-dim)" }}>{error}</p>}
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <span className="mr-auto text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-ghost)" }}>⌘S saves</span>
-      <ActionButton disabled={saving} onClick={onCancel}>Cancel</ActionButton>
-      <ActionButton tone="coral" busy={saving} disabled={saving || over || !mode.draft.trim()} onClick={onSave}>Save r{serverRevision + 1}</ActionButton>
-    </div>
-  </div>;
-}
-
-function VersionView({ version, onRestore }: { version: Extract<Mode, { kind: "version" }>; onRestore: () => void }) {
+function VersionView({ version, onRestore }: { version: Extract<Mode, { kind: "version" }> & { path: string }; onRestore: () => void }) {
   return <div>
     <div className="mb-4 flex flex-wrap items-center gap-2 border px-3 py-2" style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)" }}>
       <Micro color="var(--lm-text-primary)">Revision {version.revision}</Micro>
@@ -342,7 +261,7 @@ function VersionView({ version, onRestore }: { version: Extract<Mode, { kind: "v
     </div>
     {version.body === null
       ? <p className="text-[13px]" style={{ color: "var(--lm-text-tertiary)" }}>This entry deleted the doc.</p>
-      : <article className="max-w-[760px] opacity-90"><SkillMarkdown>{version.body}</SkillMarkdown></article>}
+      : <WorldDocReader key={version.revision} path={version.path} body={version.body} idPrefix={`r${version.revision}-`} />}
   </div>;
 }
 

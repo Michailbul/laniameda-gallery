@@ -124,6 +124,7 @@ import {
 import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
 import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
 import { WorldInstructionsPanel } from "@/components/gallery/world-instructions";
+import type { WorldRef } from "@/lib/world-doc-markdown";
 import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
@@ -374,6 +375,8 @@ export function GalleryDashboard({
   // cards, separate from the asset grid.
   const [storybooksView, setStorybooksView] = useState(false);
   const [storiesView, setStoriesView] = useState(false);
+  // A story: reference clicked in a world doc opens straight on that story.
+  const [storyToOpen, setStoryToOpen] = useState<FunctionReturnType<typeof api.stories.getStory> | null>(null);
   const [includeSkills, setIncludeSkills] = useState(true);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
@@ -4135,6 +4138,55 @@ export function GalleryDashboard({
     [clearAssetSelection, setViewMode],
   );
 
+  // story:, asset: and moodboard: references in a world's docs open the item:
+  // the story in Stories, the asset in its detail panel, the board in Moodboards.
+  const openWorldRef = useCallback(
+    async (ref: WorldRef) => {
+      if (!ownerUserId) return;
+      if (ref.kind === "moodboard") {
+        openMoodboardsTab(ref.id);
+        return;
+      }
+      try {
+        if (ref.kind === "asset") {
+          const asset = await convex.query(api.assets.getGalleryAsset, { id: ref.id as Id<"assets">, ownerUserId });
+          if (!asset) throw new Error("missing");
+          handleImageSelect({
+            id: asset._id,
+            galleryItemId: asset._id,
+            galleryItemType: "asset",
+            thumbSrc: asset.thumbUrl ?? asset.url ?? "/placeholder.svg",
+            fullSrc: asset.url ?? asset.thumbUrl ?? "/placeholder.svg",
+            prompt: asset.promptText ?? "",
+            width: asset.width,
+            height: asset.height,
+            kind: asset.kind,
+            contentType: asset.contentType,
+            previewImages: [],
+          });
+          return;
+        }
+        const story = await convex.query(api.stories.getStory, { ownerUserId, id: ref.id as Id<"stories"> });
+        setStoryToOpen(story);
+        setStorybooksView(false);
+        setMoodboardsTab(false);
+        setBookmarksView(false);
+        setMotionView(false);
+        setCinematographyView(false);
+        setStoriesView(true);
+        setViewMode("grid");
+      } catch {
+        setMoodboardNotice({
+          title: `Could not open that ${ref.kind}`,
+          message: `${ref.kind}:${ref.id} is not in your gallery any more.`,
+          type: "warning",
+          at: Date.now(),
+        });
+      }
+    },
+    [convex, handleImageSelect, openMoodboardsTab, ownerUserId, setViewMode],
+  );
+
   // "Choose from gallery" on a board: the grid opens on the board's own
   // collection with every filter at hand, and a click selects.
   const startMoodboardPick = useCallback(
@@ -5299,7 +5351,7 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onStoriesTab={canManageFoldersInCurrentView ? () => { setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStoryToOpen(null); setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
           storiesTabActive={activeStoriesView}
           onMoodboardsTab={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsTabActive={activeMoodboardsTab}
@@ -5784,7 +5836,7 @@ export function GalleryDashboard({
                   onChooseFromGallery={(board) => startMoodboardPick(board, null)}
                 />
               ) : activeStoriesView && ownerUserId ? (
-                <StoriesView ownerUserId={ownerUserId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
+                <StoriesView key={storyToOpen?._id ?? "stories"} ownerUserId={ownerUserId} initialStory={storyToOpen ?? undefined} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
               ) : cinematographyView && ownerUserId ? (
@@ -5823,6 +5875,7 @@ export function GalleryDashboard({
                     ownerUserId={ownerUserId}
                     worldKey={activeWorldKey}
                     worldName={activeWorldRoot?.name ?? activeCollectionFolder.name}
+                    onOpenRef={(ref) => void openWorldRef(ref)}
                     onJump={(tab) => {
                       setMoodboardsCollectionId(
                         tab === "moodboards" ? activeCollectionFolder._id : null,

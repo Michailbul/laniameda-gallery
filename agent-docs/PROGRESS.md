@@ -8,6 +8,25 @@ Last updated: 2026-10-28
 
 ## ✔ Shipped
 
+### 2026-10-28 — World Instructions: a reader and an editor
+- Reader (`world-doc-prose.tsx`, `lib/world-doc-markdown.ts`): a ~72-character
+  measure at 16/1.65 Geist, numbered uppercase section titles, tables that
+  scroll inside themselves, inline code as copy-on-click mono chips (Midjourney
+  codes named from the world's boards and profiles), `story:` / `asset:` /
+  `moodboard:` references as chips that open the item (Stories, asset detail,
+  Moodboards; asset chips preview the picture on hover), rule attributions in
+  mono, LEARNINGS as rows (id, date, text, src) and a sticky contents column
+  that folds into a bar on narrow widths.
+- Editor (`world-doc-editor.tsx`), opened the same way from HUMAN and AGENT:
+  markdown beside a live preview that follows the caret (Write / Split /
+  Preview; stacked with a toggle on a phone), a sticky cap meter, ⌘S saves,
+  Esc cancels and asks first when dirty, Tab / ⇧Tab indent, the draft kept in
+  localStorage per world and path until saved or discarded, and a conflict
+  bar (show the newer revision, keep my draft, or take theirs). Still
+  `writeWorldDoc` with the base revision; no Convex change.
+- AGENT view: real mono (`--lm-font` resolves to sans because `--font-mono`
+  is inlined by `@theme inline`), wrapped table rows, a header strip per file.
+
 ### 2026-10-28 — World Instructions: HUMAN / AGENT views of a world
 - The world's Docs tab is now **Instructions**, second after Pieces, and shows
   on the world root and on every shelf, style branch and storybook inside it.

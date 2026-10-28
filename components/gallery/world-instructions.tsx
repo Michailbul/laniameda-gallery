@@ -5,9 +5,12 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { Check, Copy, Pencil } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { buildWorldAgentSections, joinAgentSections, type AgentDocSection, type WorldContext } from "@/lib/world-agent-doc";
-import { WORLD_DOC_LEARNINGS, WORLD_DOC_LIMITS, WORLD_DOC_MAIN, WORLD_DOC_TEMPLATE } from "@/lib/world-docs";
+import type { WorldRef } from "@/lib/world-doc-markdown";
+import { WORLD_DOC_LIMITS, WORLD_DOC_MAIN } from "@/lib/world-docs";
 import { CopyChip, Micro, RADIUS, display, mono, plural } from "./moodboards-view";
-import { DocEditor, WorldDocFiles, useWorldDocSave, type DocMode, type WorldDoc } from "./world-docs-tab";
+import { DocEditor, beginDocEdit, useStoredDraftPaths, useWorldDocSave, type DocEdit, type WorldDoc } from "./world-doc-editor";
+import { WorldDocLinksProvider, useWorldDocLinks } from "./world-doc-prose";
+import { WorldDocFiles } from "./world-docs-tab";
 import { ActorBadge, MonoBadge, OpBadge, WorldBoundary, fullStamp, timeAgo } from "./world-ui";
 import { WorldViewPanes, WorldViewToggle, useWorldViewMode } from "./world-view-mode";
 
@@ -19,6 +22,8 @@ type PanelProps = {
   worldName: string;
   /** Opens another tab of this world (Moodboards, Journal). */
   onJump?: (tab: WorldInstructionsJump) => void;
+  /** Opens a story:, asset: or moodboard: reference from a doc. */
+  onOpenRef?: (ref: WorldRef) => void;
 };
 
 /**
@@ -42,11 +47,12 @@ function ConnectedPanel(props: PanelProps) {
   return <WorldInstructionsView {...props} context={context} docs={docs} />;
 }
 
-export function WorldInstructionsView({ ownerUserId, worldKey, worldName, onJump, context, docs }: PanelProps & {
+export function WorldInstructionsView({ ownerUserId, worldKey, worldName, onJump, onOpenRef, context, docs }: PanelProps & {
   context: WorldContext | undefined;
   docs: WorldDoc[] | undefined;
 }) {
   const { mode, setMode } = useWorldViewMode();
+  const links = useWorldDocLinks(context, ownerUserId, onOpenRef);
   const main = docs?.find((doc) => doc.path === WORLD_DOC_MAIN);
   const fileCount = docs?.filter((doc) => doc.path.startsWith("docs/")).length;
 
@@ -69,9 +75,11 @@ export function WorldInstructionsView({ ownerUserId, worldKey, worldName, onJump
       </div>
     </header>
 
-    <WorldViewPanes mode={mode}
-      human={<HumanView ownerUserId={ownerUserId} worldKey={worldKey} worldName={worldName} context={context} docs={docs} onJump={onJump} />}
-      agent={<AgentView ownerUserId={ownerUserId} worldKey={worldKey} worldName={worldName} context={context} docs={docs} />} />
+    <WorldDocLinksProvider value={links}>
+      <WorldViewPanes mode={mode}
+        human={<HumanView ownerUserId={ownerUserId} worldKey={worldKey} worldName={worldName} context={context} docs={docs} onJump={onJump} />}
+        agent={<AgentView ownerUserId={ownerUserId} worldKey={worldKey} worldName={worldName} context={context} docs={docs} />} />
+    </WorldDocLinksProvider>
 
     <WorldViewToggle mode={mode} onChange={setMode} />
   </section>;
@@ -274,6 +282,10 @@ function WorldMap({ context, onJump }: { context: WorldContext; onJump?: (tab: W
 
 /* ── AGENT ──────────────────────────────────────────────────────────────── */
 
+// Raw markdown reads in real mono: --lm-font resolves through a theme variable
+// Tailwind inlines away, so it falls back to sans.
+const rawMono = { fontFamily: 'var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace' } as const;
+
 const copy = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
@@ -298,12 +310,13 @@ function AgentView({ ownerUserId, worldKey, worldName, context, docs }: ViewProp
   const markdown = sections ? joinAgentSections(sections) : null;
   // What the open_world tool returns, byte for byte.
   const json = context ? JSON.stringify(context) : null;
+  const storedDrafts = useStoredDraftPaths(worldKey);
 
   return <div className="pb-6">
     <article aria-label={`${worldName} as an agent reads it`}
-      className="mx-auto w-full max-w-[880px] border-x px-4 py-6 text-[13px] leading-[1.7] sm:px-8 lg:px-12"
-      style={{ ...mono, borderColor: "var(--lm-border)" }}>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--lm-border)" }}>
+      className="mx-auto w-full max-w-[960px] border-x px-4 py-6 text-[13px] leading-[1.75] sm:px-8 lg:px-12"
+      style={{ ...rawMono, borderColor: "var(--lm-border)" }}>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--lm-border)" }}>
         <span className="text-[10px] uppercase tracking-[0.22em]" style={{ color: "var(--lm-text-tertiary)" }}>{worldKey}/open_world.md</span>
         <span className="flex flex-wrap items-center gap-1.5">
           {markdown && <span className="mr-1 text-[10px] uppercase tracking-[0.22em]" style={{ color: "var(--lm-text-ghost)" }}>{markdown.length.toLocaleString("en-GB")} chars</span>}
@@ -314,11 +327,13 @@ function AgentView({ ownerUserId, worldKey, worldName, context, docs }: ViewProp
 
       {sections === null ? <p style={{ color: "var(--lm-text-tertiary)" }}>Loading open_world…</p>
         : sections.map((section, index) => <Fragment key={section.id}>
-          {index > 0 && <div aria-hidden className="my-5 select-none" style={{ color: "var(--lm-text-ghost)" }}>---</div>}
+          {index > 0 && <div aria-hidden className="my-10 select-none" style={{ color: "var(--lm-text-ghost)" }}>---</div>}
           {section.docPath
             ? <AgentDocBlock ownerUserId={ownerUserId} worldKey={worldKey} worldName={worldName} section={section}
-              live={docs?.find((doc) => doc.path === section.docPath) ?? null} loading={docs === undefined} />
-            : <RawMarkdown text={section.text} />}
+              live={docs?.find((doc) => doc.path === section.docPath) ?? null} loading={docs === undefined}
+              hasDraft={storedDrafts.includes(section.docPath)} />
+            : index === 0 ? <RawMarkdown text={section.text} />
+              : <AgentSection text={section.text} />}
         </Fragment>)}
 
       <p className="mt-10 border-t pt-4 text-[10px] uppercase tracking-[0.22em]" style={{ borderColor: "var(--lm-border)", color: "var(--lm-text-ghost)" }}>
@@ -328,42 +343,57 @@ function AgentView({ ownerUserId, worldKey, worldName, context, docs }: ViewProp
   </div>;
 }
 
-/** One file of the world, raw. Edit turns it into the same editor HUMAN uses. */
-function AgentDocBlock({ ownerUserId, worldKey, worldName, section, live, loading }: {
-  ownerUserId: string; worldKey: string; worldName: string; section: AgentDocSection; live: WorldDoc | null; loading: boolean;
+/** A section's first line as a header strip, so each block reads as its own part. */
+function SectionHead({ line, meta, action, sticky }: { line: string; meta?: string; action?: ReactNode; sticky?: boolean }) {
+  return <header className={`z-10 -mx-2 mb-4 flex items-start gap-3 border-t px-2 pb-2 pt-3 ${sticky ? "sticky top-0 backdrop-blur-md" : ""}`}
+    style={{ borderColor: "var(--lm-ink)", background: sticky ? "color-mix(in srgb, var(--lm-paper) 88%, transparent)" : undefined }}>
+    <div className="min-w-0 flex-1">
+      <RawLine line={line} />
+      {meta && <div className="text-[11px] leading-[1.6]" style={{ color: "var(--lm-text-ghost)" }}>{meta}</div>}
+    </div>
+    {action}
+  </header>;
+}
+
+function AgentSection({ text }: { text: string }) {
+  const [head, ...rest] = text.split("\n");
+  return <section>
+    <SectionHead line={head} />
+    <RawMarkdown text={rest.join("\n").replace(/^\n+/, "")} />
+  </section>;
+}
+
+/** One file of the world, raw. Edit opens the same editor HUMAN uses. */
+function AgentDocBlock({ ownerUserId, worldKey, worldName, section, live, loading, hasDraft }: {
+  ownerUserId: string; worldKey: string; worldName: string; section: AgentDocSection; live: WorldDoc | null; loading: boolean; hasDraft: boolean;
 }) {
   const path = section.docPath!;
-  const [edit, setEdit] = useState<Extract<DocMode, { kind: "edit" }> | null>(null);
+  const [edit, setEdit] = useState<DocEdit | null>(null);
   const { save, saving, error, setError } = useWorldDocSave(ownerUserId, worldKey);
-  const [head, ...rest] = section.text.split("\n");
+  const [head, meta, ...rest] = section.text.split("\n");
 
   const start = () => {
     setError(null);
-    setEdit({
-      kind: "edit", base: live?.revision ?? 0, note: "",
-      draft: live?.body ?? (path === WORLD_DOC_MAIN ? WORLD_DOC_TEMPLATE.replace("<WORLD NAME>", worldName) : path === WORLD_DOC_LEARNINGS ? "# LEARNINGS\n\n" : ""),
-    });
+    setEdit(beginDocEdit({ worldKey, worldName, path, live }));
   };
 
-  return <div>
-    <div className="flex items-start gap-3">
-      <div className="min-w-0 flex-1"><RawMarkdown text={head} /></div>
-      {!edit && <button type="button" onClick={start} disabled={loading}
-        className="mt-[3px] inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors hover:bg-[var(--lm-surface-2)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
-        style={{ ...mono, borderRadius: RADIUS, color: "var(--lm-text-tertiary)", border: "1px solid var(--lm-border)" }}
-        aria-label={`Edit ${path} as raw text`}>
-        <Pencil size={10} aria-hidden />{live ? "Edit" : "Write"}
-      </button>}
-    </div>
+  return <section>
+    <SectionHead line={head} meta={meta} sticky={!edit}
+      action={!edit && <span className="mt-[2px] flex shrink-0 items-center gap-1.5">
+        {hasDraft && <MonoBadge color="var(--lm-coral)" title="Unsaved draft kept in this browser">draft</MonoBadge>}
+        <button type="button" onClick={start} disabled={loading}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors hover:bg-[var(--lm-surface-2)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
+          style={{ ...mono, borderRadius: RADIUS, color: "var(--lm-text-tertiary)", border: "1px solid var(--lm-border)" }}
+          aria-label={`Edit ${path}`}>
+          <Pencil size={10} aria-hidden />{hasDraft ? "Resume" : live ? "Edit" : "Write"}
+        </button>
+      </span>} />
     {edit
-      ? <div className="mt-3">
-        <DocEditor path={path} mode={edit} setMode={(next) => setEdit(next.kind === "edit" ? next : null)} saving={saving} error={error}
-          changedUnderneath={(live?.revision ?? 0) !== edit.base} serverRevision={live?.revision ?? 0}
-          onSave={() => void save(path, edit).then((ok) => { if (ok) setEdit(null); })}
-          onCancel={() => { setEdit(null); setError(null); }} />
-      </div>
-      : <RawMarkdown text={rest.join("\n")} />}
-  </div>;
+      ? <DocEditor worldKey={worldKey} path={path} mode={edit} setMode={setEdit} live={live} saving={saving} error={error}
+        onSave={() => void save(path, edit).then((ok) => { if (ok) setEdit(null); })}
+        onCancel={() => { setEdit(null); setError(null); }} />
+      : <RawMarkdown text={rest.join("\n").replace(/^\n+/, "")} />}
+  </section>;
 }
 
 /* ── Raw markdown: every character as written, syntax tinted ─────────────── */
@@ -407,7 +437,7 @@ function RawLine({ line }: { line: string }) {
   const heading = /^(#{1,6})(\s+)(.*)$/.exec(line);
   if (heading) {
     const level = heading[1].length;
-    return <div className={`font-bold ${level === 1 ? "text-[16px]" : level === 2 ? "text-[14px]" : ""}`} style={{ color: "var(--lm-text-primary)" }}>
+    return <div className={`font-bold ${level === 1 ? "text-[16px]" : level === 2 ? "text-[14px]" : ""} ${level >= 2 && level <= 3 ? "pt-3 [&:first-child]:pt-0" : ""}`} style={{ color: "var(--lm-text-primary)" }}>
       <span style={{ color: level <= 2 ? "var(--lm-coral)" : "var(--lm-text-ghost)" }}>{heading[1]}</span>{heading[2]}<Inline text={heading[3]} />
     </div>;
   }
@@ -421,7 +451,12 @@ function RawLine({ line }: { line: string }) {
     </div>;
   }
   if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) return <div style={{ color: "var(--lm-text-ghost)" }}>{line}</div>;
-  if (/^\s*\|/.test(line)) return <div className="whitespace-pre" style={{ color: "var(--lm-text-secondary)" }}>{line}</div>;
+  // Table rows wrap with a hanging indent; the pipes stay faint.
+  if (/^\s*\|/.test(line)) {
+    return <div style={{ color: "var(--lm-text-secondary)", paddingLeft: "2ch", textIndent: "-2ch" }}>
+      {line.split(/(\|)/).map((part, at) => (part === "|" ? <Punct key={at}>|</Punct> : <Inline key={at} text={part} />))}
+    </div>;
+  }
   return <div style={{ color: "var(--lm-text-secondary)" }}><Inline text={line} /></div>;
 }
 
@@ -436,8 +471,8 @@ export function RawMarkdown({ text }: { text: string }) {
       return;
     }
     rows.push(fenced
-      ? <div key={index} className="whitespace-pre" style={{ color: "var(--lm-text-primary)", background: "var(--lm-surface-1)" }}>{line || " "}</div>
+      ? <div key={index} className="whitespace-pre-wrap px-2" style={{ color: "var(--lm-text-primary)", background: "var(--lm-surface-1)" }}>{line || " "}</div>
       : <RawLine key={index} line={line} />);
   });
-  return <div className="overflow-x-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{rows}</div>;
+  return <div className="max-w-[92ch] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{rows}</div>;
 }
