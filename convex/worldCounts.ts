@@ -104,26 +104,27 @@ export const recountWorldCounts = ownerMutation({
 
     // One batch of the current phase: the whole collection when it fits a
     // page, otherwise one Convex page (Convex allows one paginated query per
-    // function, so a second large collection waits for the next call).
+    // function, so a second large collection waits for the next call). A
+    // Convex query runs once, so each read builds a fresh one.
     const nextBatch = async <T>(
-      query: { take: (n: number) => Promise<T[]>; paginate: (opts: { cursor: string | null; numItems: number }) => Promise<{ page: T[]; isDone: boolean; continueCursor: string }> },
+      query: () => { take: (n: number) => Promise<T[]>; paginate: (opts: { cursor: string | null; numItems: number }) => Promise<{ page: T[]; isDone: boolean; continueCursor: string }> },
     ): Promise<{ batch: T[]; whole: boolean; next: string | null } | null> => {
       if (state.page === null) {
         reads += 1;
-        const all = await query.take(PAGE + 1);
+        const all = await query().take(PAGE + 1);
         if (all.length <= PAGE) return { batch: all, whole: true, next: null };
       }
       if (paged) return null;
       paged = true;
       reads += 1;
-      const result = await query.paginate({ cursor: state.page, numItems: PAGE });
+      const result = await query().paginate({ cursor: state.page, numItems: PAGE });
       return { batch: result.page, whole: false, next: result.isDone ? null : result.continueCursor };
     };
 
     while (state.index < folders.length && reads < READ_BUDGET) {
       const folder = folders[state.index]!;
       if (state.phase === "links") {
-        const got = await nextBatch(ctx.db.query("assetFolders")
+        const got = await nextBatch(() => ctx.db.query("assetFolders")
           .withIndex("by_folder_createdAt", (q) => q.eq("folderId", folder._id).gte("createdAt", 0)));
         if (!got) break;
         const seen = new Set<Id<"assets">>();
@@ -152,7 +153,7 @@ export const recountWorldCounts = ownerMutation({
 
       // Public assets whose primary pointer names the collection without a link row.
       if (publicCounts) {
-        const got = await nextBatch(ctx.db.query("assets")
+        const got = await nextBatch(() => ctx.db.query("assets")
           .withIndex("by_folder_createdAt", (q) => q.eq("folderId", folder._id).gte("createdAt", 0)));
         if (!got) break;
         for (const asset of got.batch) {
