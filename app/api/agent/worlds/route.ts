@@ -7,7 +7,7 @@ import { AgentAuthError, requireAgentAuth, type AgentTokenScope } from "@/lib/se
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
-  worldDocSchema, worldFileSchema, worldJournalSchema, worldMarkSchema, worldOpenSchema, worldProfileSchema,
+  worldDocSchema, worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema,
   worldShelfSchema, worldUndoSchema,
 } from "@/lib/world-contract";
 
@@ -16,7 +16,7 @@ import {
 // token as its actor and lands in the world journal.
 
 const actions = [
-  "open", "doc", "file", "shelf", "mark", "profiles", "journal", "undo",
+  "open", "doc", "file", "shelf", "move", "mark", "profiles", "journal", "undo",
 ] as const;
 
 const readOnlyDoc = new Set(["list", "read", "history"]);
@@ -112,6 +112,23 @@ export async function POST(request: Request) {
           ownerUserId, world: input.world, shelf: input.shelf, name: input.name, kind: input.kind,
           description: input.description, group: input.group, sortOrder: input.sortOrder, actor, session: input.session,
         }),
+      });
+    }
+
+    if (action === "move") {
+      const input = worldMoveSchema.parse(body);
+      const result = await client.mutation(api.worlds.moveToWorld, {
+        ownerUserId, world: input.world,
+        shelf: input.shelf ? bare(input.shelf, "(?:folder|collection|shelf|storybook)") : undefined,
+        moodboard: input.moodboard ? bare(input.moodboard, "moodboard") as Id<"moodboards"> : undefined,
+        name: input.name, into: input.into, items: input.items, dryRun: input.dryRun, note: input.note, actor, session: input.session,
+      });
+      return NextResponse.json({
+        ok: !result.blocked,
+        ...result,
+        next: result.dryRun
+          ? result.blocked ? `The move would be refused: ${result.blocked}` : "Nothing was changed. Looks right? Call world_move again without dryRun."
+          : result.storiesToRepoint.length > 0 ? "Some stories now span two worlds: repoint them with update_story (folderId)." : undefined,
       });
     }
 

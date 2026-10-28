@@ -118,6 +118,14 @@ publish, star or re-file the board's images as part of a sync.
 - Archive rather than delete. Delete only a board Michael names; deleting
   removes the board and its item list, never the images or the Midjourney
   board.
+- A board stays in its world: `save_moodboard` with a `folderId` in another
+  world is refused. To move one on purpose (Michael asked, or a world split),
+  use `world_move { world, moodboard, into?, items?, dryRun: true, session }`
+  first, then without `dryRun`. It keeps the board's id, items, code and sync
+  record. Items that belong to another world need a choice: `items: "move"`
+  files them into the target world with the board, `items: "drop"` leaves them
+  where they are and takes them off the board (the result lists them; the sync
+  line then shows the removal to repeat in Midjourney). Undo with `world_undo`.
 - Deleting an image takes it off every board. Deleting a child collection
   moves its boards to its world; deleting a root deletes its boards (the
   images stay).

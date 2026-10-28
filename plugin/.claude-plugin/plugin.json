@@ -1,6 +1,6 @@
 {
   "name": "laniameda-gallery",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Michael's gallery as an agent harness for his story worlds: open a world, read its WORLD.md and style locks, file and find assets inside it, keep moodboards and Midjourney profiles in sync, record learnings, and undo any session from the journal.",
   "author": {
     "name": "Michael (laniameda)",

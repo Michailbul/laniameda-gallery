@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  fileWorldAssets, getWorldContext, listWorldChanges, listWorlds, markWorld, readWorldDoc, saveWorldShelf,
+  fileWorldAssets, getWorldContext, listWorldChanges, listWorlds, markWorld, moveToWorld, readWorldDoc, saveWorldShelf,
   undoWorldChanges, worldDocHistory, writeWorldDoc,
 } from "../convex/worlds";
-import { addMoodboardItems, createMoodboard, deleteMoodboard } from "../convex/moodboards";
+import { addMoodboardItems, createMoodboard, deleteMoodboard, updateMoodboard } from "../convex/moodboards";
 import { listProfiles, saveProfile } from "../convex/mjProfiles";
 import { saveStory } from "../convex/stories";
 import { setAssetFolders } from "../convex/assets";
 import { updateFolder } from "../convex/folders";
+import { canonicalFolderName } from "../convex/folderHelpers";
 import { countLearningEntries, normalizeWorldDocPath, worldDocCapError } from "../lib/world-docs";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 import { callAsOwner } from "./helpers/call-as-owner";
@@ -244,5 +245,113 @@ describe("worlds", () => {
     // Undoing a created story archives it; text is never deleted.
     await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, undoSession: "story" });
     expect((await db.get(saved.id))?.status).toBe("archived");
+  });
+});
+
+describe("world_move", () => {
+  test("a storybook moves with its pieces, is journaled in both worlds and undoes fully", async () => {
+    const { ctx, db, dear, daddy, art, film, places, asset } = await setup();
+    const book = (await callAsOwner(saveWorldShelf)(ctx, { ownerUserId: owner, world: "dear-annete", name: "Lens Cap", kind: "storybook" })).shelfId;
+    await db.patch(book, { coverAssetId: undefined });
+    const clip = await asset(book, places);
+    const still = await asset(book, art);
+    await db.patch(book, { coverAssetId: clip });
+    const base = { ownerUserId: owner, body: "Beat one.", kind: "script", status: "draft", tagNames: [], assetIds: [] };
+    const filed = await callAsOwner(saveStory)(ctx, { ...base, title: "Filed", ingestKey: "filed", folderId: book });
+    const pointing = await callAsOwner(saveStory)(ctx, { ...base, title: "Script", ingestKey: "script", folderId: film, storybookId: book });
+
+    const dry = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: book, dryRun: true });
+    expect(dry).toMatchObject({ dryRun: true, kind: "storybook", piecesMoved: 1, piecesUnchanged: 1, changeIds: [], blocked: undefined });
+    expect(dry.leftOtherShelves).toEqual([{ assetId: clip, shelves: ["Canals"] }]);
+    expect(dry.stories.map((story) => story.id)).toEqual([filed.id]);
+    expect(dry.storiesToRepoint.map((story) => story.id)).toEqual([pointing.id]);
+    expect((await db.get(book))?.parentFolderId).toBe(dear);
+    expect(await links(db, clip)).toEqual([book, places].sort());
+
+    const moved = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: book, session: "split" });
+    expect(moved.changeIds).toHaveLength(2);
+    expect(await db.get(book)).toMatchObject({ parentFolderId: daddy, name: "Lens Cap", kind: "storybook", coverAssetId: clip });
+    expect(await links(db, clip)).toEqual([book]);
+    expect(await links(db, still)).toEqual([art, book].sort());
+    expect((await db.get(filed.id))?.folderId).toBe(book);
+    const daddyContext = await callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: "daddy-issues" });
+    expect(daddyContext.storybooks.map((entry) => entry.name)).toEqual(["Lens Cap"]);
+    expect((await callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: "dear-annete" })).storybooks).toEqual([]);
+    for (const world of ["dear-annete", "daddy-issues"]) {
+      const [entry] = (await callAsOwner(listWorldChanges)(ctx, { ownerUserId: owner, world })).changes;
+      expect(entry).toMatchObject({ op: "world.move", session: "split", targetId: book });
+    }
+
+    // Undo the session: both entries revert as one, pieces included.
+    const undone = await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, undoSession: "split" });
+    expect(undone.undone).toHaveLength(2);
+    expect(undone.blocked).toEqual([]);
+    expect((await db.get(book))?.parentFolderId).toBe(dear);
+    expect(await links(db, clip)).toEqual([book, places].sort());
+    expect(await links(db, still)).toEqual([art, book].sort());
+    for (const id of moved.changeIds) expect((await db.get(id))?.revertedBy).toBeDefined();
+    const daddyUndo = (await callAsOwner(listWorldChanges)(ctx, { ownerUserId: owner, world: "daddy-issues" })).changes[0];
+    expect(daddyUndo).toMatchObject({ op: "world.move", revertOf: moved.changeIds[1] });
+
+    // Moving again and undoing the source world's entry alone also reverts the pair.
+    const again = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: book, session: "again" });
+    await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, changeId: again.changeIds[0] });
+    expect((await db.get(book))?.parentFolderId).toBe(dear);
+    expect((await db.get(again.changeIds[1]))?.revertedBy).toBeDefined();
+    // The undo can itself be undone, which moves it again.
+    const undoEntry = (await callAsOwner(listWorldChanges)(ctx, { ownerUserId: owner, world: "dear-annete" })).changes[0];
+    await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, changeId: undoEntry.id });
+    expect((await db.get(book))?.parentFolderId).toBe(daddy);
+    expect(await links(db, clip)).toEqual([book]);
+  });
+
+  test("refuses a world root, the same world, a target that is not a world and a refiled piece on undo", async () => {
+    const { ctx, db, dear, places, film, art, daddyCast, asset } = await setup();
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: dear })).rejects.toThrow("world root");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "dear-annete", shelf: places })).rejects.toThrow("already in DEAR ANNETE");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "ART", shelf: places })).rejects.toThrow("No world matches");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: art })).rejects.toThrow("not in a world");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues" })).rejects.toThrow("one of them");
+    // A name the target already uses needs a new name.
+    await db.patch(daddyCast, { name: "Canals", normalizedName: `${(await db.get(daddyCast))!.parentFolderId}/${canonicalFolderName("Canals")}` });
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: places })).rejects.toThrow("already has a collection");
+    const piece = await asset(places);
+    const moved = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: places, name: "Canals (DA)", session: "rename" });
+    expect((await db.get(places))?.name).toBe("Canals (DA)");
+    // A piece filed into the new world since: the undo is blocked (and rolls back).
+    await callAsOwner(fileWorldAssets)(ctx, { ownerUserId: owner, world: "daddy-issues", assetIds: [piece], addTo: ["root"] });
+    const error = await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, changeId: moved.changeIds[0] }).catch((caught: { data: unknown }) => caught);
+    expect((error as { data: { blocked: { reason: string }[] } }).data.blocked[0].reason).toContain("belong to another world");
+    void film;
+  });
+
+  test("a moodboard moves with its code; items of the old world are dropped or moved, and undo restores them", async () => {
+    const { ctx, db, film, art, daddyCast, asset } = await setup();
+    const board = (await callAsOwner(createMoodboard)(ctx, { ownerUserId: owner, folderId: film, name: "DA CRIMSON · World" })).moodboardId;
+    const own = await asset(film);
+    const reference = await asset(art);
+    await callAsOwner(addMoodboardItems)(ctx, { ownerUserId: owner, moodboardId: board, assetIds: [own, reference] });
+    await callAsOwner(updateMoodboard)(ctx, { ownerUserId: owner, moodboardId: board, mjCode: "ab12cd3" });
+    // The ordinary path still refuses to cross.
+    await expect(callAsOwner(updateMoodboard)(ctx, { ownerUserId: owner, moodboardId: board, folderId: daddyCast })).rejects.toThrow("world_move");
+
+    const dry = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", moodboard: board, into: "Cast", dryRun: true });
+    expect(dry.blocked).toContain("belong to another world");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", moodboard: board, into: "Cast" })).rejects.toThrow("items");
+
+    const dropped = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", moodboard: board, into: "Cast", items: "drop", session: "boards" });
+    expect(dropped).toMatchObject({ into: "Cast", itemsKept: 1, itemsLeftBehind: [{ assetId: own, worlds: ["dear-annete"] }], piecesMoved: 0 });
+    expect(await db.get(board)).toMatchObject({ folderId: daddyCast, mjCode: "ab12cd3", itemCount: 1, coverAssetId: reference });
+    expect(await links(db, own)).toEqual([film]);
+    await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, undoSession: "boards" });
+    expect(await db.get(board)).toMatchObject({ folderId: film, mjCode: "ab12cd3", itemCount: 2, coverAssetId: own });
+
+    const carried = await callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", moodboard: board, into: "Cast", items: "move", session: "boards2" });
+    expect(carried).toMatchObject({ itemsKept: 2, itemsLeftBehind: [], piecesMoved: 1, leftOtherShelves: [{ assetId: own, shelves: ["Film · Live Action"] }] });
+    expect(await links(db, own)).toEqual([daddyCast]);
+    expect((await db.get(board))?.itemCount).toBe(2);
+    await callAsOwner(undoWorldChanges)(ctx, { ownerUserId: owner, changeId: carried.changeIds[1] });
+    expect(await links(db, own)).toEqual([film]);
+    expect((await db.get(board))?.folderId).toBe(film);
   });
 });

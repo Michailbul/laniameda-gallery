@@ -69,6 +69,7 @@ releases.
 | `world_doc` | List, read, write, delete or see history of `WORLD.md`, `LEARNINGS.md`, `docs/*.md`. |
 | `world_file` | File up to 100 assets between a world's shelves and change tags; refuses filing into a second world. |
 | `world_shelf` | Create, rename or regroup shelves and storybooks inside a world. |
+| `world_move` | Move a shelf, storybook or moodboard to another world on purpose, with its pieces; dry run, journaled in both worlds, undoable. |
 | `mj_profiles` | Midjourney personalization profiles and their role in each world. |
 | `world_journal` | What changed, by world, session or time. |
 | `world_undo` | Revert one change or a whole session, dry run first. |

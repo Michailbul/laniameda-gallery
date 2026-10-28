@@ -153,6 +153,13 @@ that is, when no blocking flag remains. Advice flags stay listed.
   in the book.
 - Assets keep their world, piece type, tags and source. Adding to a storybook is
   additive membership. Never remove an asset from its other collections.
+- A storybook belongs to one world. To move it to another world (a world
+  split), use `world_move { world, shelf: <storybook id>, dryRun: true }`, then
+  run it with a `session`. It keeps its id, so covers, stories and links keep
+  working; its pieces leave the old world with it, and the result lists those
+  that also left other shelves there. Stories filed elsewhere in the old world
+  that point at the storybook come back in `storiesToRepoint`: set their
+  `folderId` to a collection of the new world with `update_story`.
 - Source WebP originals, Pinterest captures and outside inspiration are never
   members of a production storybook. Derived thumbnails are exempt.
 

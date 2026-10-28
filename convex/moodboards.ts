@@ -190,7 +190,7 @@ const journalBoard = async (
 const assertSameWorld = async (ctx: QueryCtx, from: Id<"folders">, to: Id<"folders">) => {
   if (from === to) return;
   const [a, b] = [await worldIdOfFolder(ctx, from), await worldIdOfFolder(ctx, to)];
-  if (a !== b) throw new ConvexError("A moodboard stays in its world. Create a new board in the other world instead.");
+  if (a !== b) throw new ConvexError("A moodboard stays in its world here. To move it to another world on purpose, use world_move (journaled, undoable).");
 };
 
 /** Undo support: put a board back to `before` (null = it did not exist). */

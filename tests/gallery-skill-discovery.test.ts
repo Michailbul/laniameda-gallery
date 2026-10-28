@@ -25,10 +25,10 @@ describe("website gallery skill discovery", () => {
   test("the moodboards reference is advertised, public and linked from the index", async () => {
     const resource = GALLERY_SKILL_RESOURCES.find((entry) => entry.path === "references/moodboards.md");
     expect(resource?.access).toBe("public");
-    expect(buildGalleryLlmsIndex("1.13.0")).toContain("/skills/laniameda-gallery/references/moodboards.md");
+    expect(buildGalleryLlmsIndex("1.14.0")).toContain("/skills/laniameda-gallery/references/moodboards.md");
     const response = await gallerySkillResourceResponse(request("manifest.json"), ["manifest.json"], permit);
     const manifest = await response.json();
-    expect(manifest.version).toBe("1.13.0");
+    expect(manifest.version).toBe("1.14.0");
     expect(manifest.resources.map((entry: { path: string }) => entry.path)).toContain("references/moodboards.md");
     const skill = await readFile(join(process.cwd(), "skills/laniameda-gallery/SKILL.md"), "utf8");
     expect(skill).toContain("references/moodboards.md");
@@ -37,7 +37,7 @@ describe("website gallery skill discovery", () => {
   test("the inbox reference is advertised, public and linked from the index", async () => {
     const resource = GALLERY_SKILL_RESOURCES.find((entry) => entry.path === "references/inbox.md");
     expect(resource?.access).toBe("public");
-    expect(buildGalleryLlmsIndex("1.13.0")).toContain("/skills/laniameda-gallery/references/inbox.md");
+    expect(buildGalleryLlmsIndex("1.14.0")).toContain("/skills/laniameda-gallery/references/inbox.md");
     const skill = await readFile(join(process.cwd(), "skills/laniameda-gallery/SKILL.md"), "utf8");
     expect(skill).toContain("references/inbox.md");
     const reference = await readFile(join(process.cwd(), "skills/laniameda-gallery/references/inbox.md"), "utf8");
@@ -62,7 +62,7 @@ describe("website gallery skill discovery", () => {
     expect(await response.text()).toBe(await readFile(join(process.cwd(), "skills/laniameda-gallery/SKILL.md"), "utf8"));
     expect(response.headers.get("content-type")).toContain("text/markdown");
     expect(response.headers.get("cache-control")).toContain("must-revalidate");
-    expect(response.headers.get("x-gallery-skill-version")).toBe("1.13.0");
+    expect(response.headers.get("x-gallery-skill-version")).toBe("1.14.0");
     expect(response.headers.get("etag")).toBeTruthy();
   });
 

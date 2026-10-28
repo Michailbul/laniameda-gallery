@@ -14,7 +14,7 @@ import {
 import { commentAddSchema, commentListSchema } from "../../lib/asset-comment-contract";
 import { inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema } from "../../lib/inbox-contract";
 import {
-  worldFileSchema, worldJournalSchema, worldMarkSchema, worldOpenSchema, worldProfileSchema, worldShelfSchema, worldUndoSchema,
+  worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema, worldShelfSchema, worldUndoSchema,
 } from "../../lib/world-contract";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
@@ -40,7 +40,7 @@ export type GalleryToolOptions = {
 
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
-  "Worlds are separate story universes (DEAR ANNETE, ANDROMEDA — ANYA …). For any world work call open_world first: it returns the world's WORLD.md rules, learnings, styles and locks, shelves, storybooks, moodboards, Midjourney profiles and recent changes. Search and preview with world to stay inside it. Change things through world_doc, world_file, world_shelf, mj_profiles and the moodboard and story tools with a session label; every change is in world_journal and world_undo reverts it. An asset never belongs to two worlds.",
+  "Worlds are separate story universes (DEAR ANNETE, ANDROMEDA — ANYA …). For any world work call open_world first: it returns the world's WORLD.md rules, learnings, styles and locks, shelves, storybooks, moodboards, Midjourney profiles and recent changes. Search and preview with world to stay inside it. Change things through world_doc, world_file, world_shelf, world_move, mj_profiles and the moodboard and story tools with a session label; every change is in world_journal and world_undo reverts it. An asset never belongs to two worlds.",
   "Fetch the current canonical skill from https://gallery.laniameda.space/llms.txt (entry: /skills/laniameda-gallery/SKILL.md; manifest.json lists its version and resources). Private world and maintenance references require the same owner-allowed gallery:read bearer token as MCP.",
   "Textual story ideas, scripts and versioned world style locks are private story records: save_story needs text and a stable ingestKey, never placeholder media. list_stories and get_story retrieve them; update_story preserves revisions. Gallery filter presets have list_filter_presets and save_filter_preset.",
   "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
@@ -258,6 +258,12 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Create, rename, describe or regroup a shelf or storybook inside a world (groups: Styles, Places, Cast, World building, Moods, Footage, Storybooks). A storybook is a child of its world. Give shelf with a root collection's id to bring that collection into the world. Journaled; an empty shelf created by mistake is removed by world_undo.",
     inputSchema: worldShelfSchema.shape,
   }, worlds("shelf"));
+  server.registerTool("world_move", {
+    title: "Move To Another World",
+    annotations: worldWrite,
+    description: "The one deliberate way to move a shelf, storybook or moodboard from one world to another (update_collection and save_moodboard refuse to cross worlds). It keeps its ID, so boards, stories, covers and saved views that point at it keep working. A shelf or storybook goes under the target world's root and its pieces follow it: each leaves every other shelf of the source world, as world_file move does, and the result lists them. A moodboard goes into a plain collection of the target world (into); items of another world need items: move (they come along) or drop (they stay behind, listed). Its Midjourney code and sync record are kept. Refuses a world root, a target that is not a world or is the same world. Run dryRun: true first. Journaled in both worlds; world_undo reverts the whole move, pieces included.",
+    inputSchema: worldMoveSchema.shape,
+  }, worlds("move"));
   server.registerTool("mj_profiles", {
     title: "Midjourney Profiles",
     annotations: worldWrite,

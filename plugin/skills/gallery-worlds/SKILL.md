@@ -59,6 +59,7 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
 | `world_doc {world, op, path, body?, expectedRevision?, note?, session?}` | `list`, `read`, `write`, `delete`, `history` of `WORLD.md`, `LEARNINGS.md`, `docs/<kebab-name>.md`. |
 | `world_file {world, assetIds, addTo?, removeFrom?, addTags?, removeTags?, move?, note?, session?}` | File up to 100 assets between shelves (`"root"` is the world collection) and change tags. |
 | `world_shelf {world, shelf?, name?, kind?, description?, group?, sortOrder?, session?}` | Create, rename or regroup a shelf or storybook; bring a root collection into the world. |
+| `world_move {world, shelf? \| moodboard?, name?, into?, items?, dryRun?, note?, session?}` | Move a shelf, storybook or moodboard to another world on purpose, with its pieces. Dry run first. |
 | `mj_profiles {op, world?, profile?, name?, code?, codeNote?, mjProfileId?, notes?, status?, role?, styleTag?, expectedRevision?, session?}` | List or save Midjourney profiles and their role in a world. |
 | `world_journal {world?, session?, before?, limit?, changeId?}` | What changed; `changeId` returns one entry with before and after. |
 | `world_undo {changeId? \| session?, world?, dryRun?}` | Revert one change or a whole session. |
@@ -105,6 +106,11 @@ An asset belongs to at most one world. The server enforces it:
   use it only when Michael said the asset belongs here or WORLD.md says so.
 - Moodboard items, story asset links and storybook members from another world are refused.
 - A story and its storybook must be in the same world.
+- `update_collection` and `save_moodboard` never move a shelf, storybook or board into another
+  world. When Michael asks for that (a world split), use `world_move`: dry run, then the move
+  with a session. The container keeps its id; its pieces leave the old world with it (the result
+  lists those that left other shelves); a board's items of the old world need `items: "move"` or
+  `items: "drop"`. It is journaled in both worlds and `world_undo` reverts it whole.
 - A few assets filed before 1.0 already sit in two worlds. They keep what they have and can
   never gain a third; fix one only when Michael has decided which world keeps it.
 
