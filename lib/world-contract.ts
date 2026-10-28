@@ -65,6 +65,13 @@ export const worldMoveSchema = z.object({
   session,
 }).refine((value) => Boolean(value.shelf) !== Boolean(value.moodboard), { message: "Give shelf or moodboard (one of them)." });
 
+export const worldRecountSchema = z.object({
+  world,
+  dryRun: z.boolean().optional().describe("List every collection of the world with its stored and recounted counts; change nothing. Do this first."),
+  note: z.string().trim().max(160).optional().describe("One line on why: shown in the journal."),
+  session,
+});
+
 export const worldMarkSchema = z.object({
   collectionId: z.string().trim().min(1).describe("Root collection to mark as a world."),
   worldKey: z.string().trim().max(60).nullable().optional().describe("Lowercase hyphenated key; omit to derive it from the name; null clears the mark."),
