@@ -268,13 +268,25 @@ Isolation is enforced in Convex (`convex/worldCore.ts`):
   worlds with a shared `pair` key, so `world_undo` reverts the pair at once;
 - a story's collection and its storybook are in the same world.
 
+Collection counts: `folders.memberCount` (distinct assets linked through
+`assetFolders`) and `folders.publicMemberCount` (public assets, links plus the
+legacy primary pointer) are stored, not computed on read. Every membership write
+(world_file, world_move, world_undo, the collection editor, update_gallery_item
+`folderIds`, ingest, inbox, delete) recounts the collections it touched and
+resyncs public counts. `worldCounts:recountWorldCounts` (MCP `world_recount`) is
+the repair: it recounts the world root and every child from the rows, pages
+inside Convex read limits, has a dry run listing stored and recounted counts,
+and journals corrections as op `world.recount` (undo re-derives the count and
+never blocks a session undo). Check a count by paging `list_assets_page
+{folderId}` until `isDone`: a filtered page can be empty while the shelf is not.
+
 Tables:
 - `worldDocs` — a world's files: `WORLD.md` (≤ 8,000 chars), `LEARNINGS.md`
   (≤ 40 entries / 6,000 chars), `docs/<kebab>.md` (≤ 8 docs, 12,000 chars).
   Caps live in `lib/world-docs.ts` and are enforced on write.
 - `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
   `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
-  `world.mark`, `world.move`), actor (`agent:<token label>` or `owner`), optional `session`,
+  `world.mark`, `world.move`, `world.recount`), actor (`agent:<token label>` or `owner`), optional `session`,
   JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
   transaction as the change by world docs, filing, shelves, moodboards in a
   world, profiles and stories in a world. `worlds:undoWorldChanges` restores
@@ -287,10 +299,10 @@ Tables:
 Functions: `worlds:listWorlds`, `getWorldContext`, `readWorldDoc`,
 `listWorldDocs`, `writeWorldDoc`, `deleteWorldDoc`, `worldDocHistory`,
 `fileWorldAssets`, `saveWorldShelf`, `moveToWorld`, `markWorld`, `listWorldChanges`,
-`getWorldChange`, `undoWorldChanges`, `resolveWorldRef`; `mjProfiles:listProfiles`,
-`saveProfile`. Agent route `/api/agent/worlds`; MCP tools `open_world`,
-`world_doc`, `world_file`, `world_shelf`, `world_move`, `mj_profiles`, `world_journal`,
-`world_undo`, `mark_world`. `search_gallery`, `find_similar`, `preview_assets`,
+`getWorldChange`, `undoWorldChanges`, `resolveWorldRef`; `worldCounts:recountWorldCounts`;
+`mjProfiles:listProfiles`, `saveProfile`. Agent route `/api/agent/worlds`; MCP tools `open_world`,
+`world_doc`, `world_file`, `world_shelf`, `world_move`, `world_recount`, `mj_profiles`,
+`world_journal`, `world_undo`, `mark_world`. `search_gallery`, `find_similar`, `preview_assets`,
 `list_assets_page`, `list_stories` and `list_moodboards` take `world`.
 
 ## Validator quick reference

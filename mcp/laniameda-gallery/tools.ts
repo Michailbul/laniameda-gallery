@@ -14,7 +14,7 @@ import {
 import { commentAddSchema, commentListSchema } from "../../lib/asset-comment-contract";
 import { inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema } from "../../lib/inbox-contract";
 import {
-  worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema, worldShelfSchema, worldUndoSchema,
+  worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema, worldRecountSchema, worldShelfSchema, worldUndoSchema,
 } from "../../lib/world-contract";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
@@ -282,6 +282,12 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     description: "Revert one journal change (changeId) or a whole session, newest first. Run with dryRun: true first: it lists what would be undone and what is blocked because something changed since. A session stops at the first blocked change. The undo is journaled too, so it can be undone.",
     inputSchema: worldUndoSchema.shape,
   }, worlds("undo"));
+  server.registerTool("world_recount", {
+    title: "Recount World",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Repair a world's stored collection counts (memberCount and publicMemberCount, the numbers in the sidebar and Instructions view) from the real membership rows, for the root and every shelf and storybook. Every filing path keeps them exact, so use it only when a count looks wrong: dryRun: true first lists each collection with its stored and recounted counts. A real run patches the ones that differ and journals them in one change per pass. Before calling a count wrong, page list_assets_page {folderId} until isDone: a filtered page can be empty while the shelf is not.",
+    inputSchema: worldRecountSchema.shape,
+  }, worlds("recount"));
   server.registerTool("mark_world", {
     title: "Mark World",
     annotations: worldWrite,

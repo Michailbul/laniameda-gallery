@@ -40,7 +40,9 @@ with a `session` label; `world_journal` shows every change and `world_undo`
 reverts one or a whole session. An asset never belongs to two worlds. Shelves,
 storybooks and moodboards stay in their world on every ordinary edit; the one
 deliberate way across is `world_move` (dry run first, journaled in both
-worlds, undone as a whole by `world_undo`). The
+worlds, undone as a whole by `world_undo`). A collection count that looks
+wrong is checked by paging `list_assets_page {folderId}` to `isDone`, then
+repaired with `world_recount` (dry run first). The
 Claude Code plugin `laniameda-gallery` (repository folder `plugin/`) teaches
 this loop in its `gallery-worlds` skill.
 

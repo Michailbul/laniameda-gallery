@@ -89,7 +89,7 @@ test("world tools reach one scoped route, scope search by world and disclose the
   const calls: { path: string; input: JsonRecord }[] = [];
   const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
   for (const name of ["open_world", "world_journal"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
-  for (const name of ["world_doc", "world_file", "world_shelf", "world_move", "mj_profiles", "world_undo", "mark_world"]) {
+  for (const name of ["world_doc", "world_file", "world_shelf", "world_move", "world_recount", "mj_profiles", "world_undo", "mark_world"]) {
     expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
   }
   for (const name of ["search_gallery", "preview_assets", "find_similar", "list_assets_page", "list_stories", "list_moodboards"]) {
@@ -104,11 +104,13 @@ test("world tools reach one scoped route, scope search by world and disclose the
   await tools.get("world_undo")!.handler({ session: "s1", dryRun: true });
   await tools.get("world_move")!.handler({ world: "dear-annete-3d", shelf: "collection:x", dryRun: true });
   expect(String(tools.get("world_move")!.config.description)).toContain("Journaled in both worlds");
+  await tools.get("world_recount")!.handler({ world: "dear-annete", dryRun: true });
   expect(calls).toEqual([
     { path: "/api/agent/worlds", input: { action: "open", world: "dear-annete" } },
     { path: "/api/agent/worlds", input: { action: "doc", world: "dear-annete", op: "read", path: "WORLD.md" } },
     { path: "/api/agent/worlds", input: { action: "undo", session: "s1", dryRun: true } },
     { path: "/api/agent/worlds", input: { action: "move", world: "dear-annete-3d", shelf: "collection:x", dryRun: true } },
+    { path: "/api/agent/worlds", input: { action: "recount", world: "dear-annete", dryRun: true } },
   ]);
   const contract = JSON.parse((await tools.get("get_gallery_contract")!.handler({})).content[0].text);
   expect(contract.resources).toEqual(expect.arrayContaining(["worlds", "worldDocs", "worldJournal", "mjProfiles"]));

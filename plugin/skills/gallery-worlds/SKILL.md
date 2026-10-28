@@ -60,6 +60,7 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
 | `world_file {world, assetIds, addTo?, removeFrom?, addTags?, removeTags?, move?, note?, session?}` | File up to 100 assets between shelves (`"root"` is the world collection) and change tags. |
 | `world_shelf {world, shelf?, name?, kind?, description?, group?, sortOrder?, session?}` | Create, rename or regroup a shelf or storybook; bring a root collection into the world. |
 | `world_move {world, shelf? \| moodboard?, name?, into?, items?, dryRun?, note?, session?}` | Move a shelf, storybook or moodboard to another world on purpose, with its pieces. Dry run first. |
+| `world_recount {world, dryRun?, note?, session?}` | Repair stored collection counts from the membership rows. Only when a count looks wrong; dry run first. |
 | `mj_profiles {op, world?, profile?, name?, code?, codeNote?, mjProfileId?, notes?, status?, role?, styleTag?, expectedRevision?, session?}` | List or save Midjourney profiles and their role in a world. |
 | `world_journal {world?, session?, before?, limit?, changeId?}` | What changed; `changeId` returns one entry with before and after. |
 | `world_undo {changeId? \| session?, world?, dryRun?}` | Revert one change or a whole session. |

@@ -3,12 +3,13 @@ import { ConvexError } from "convex/values";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { RecountCursor, RecountRow } from "@/convex/worldCounts";
 import { AgentAuthError, requireAgentAuth, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
   worldDocSchema, worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema,
-  worldShelfSchema, worldUndoSchema,
+  worldRecountSchema, worldShelfSchema, worldUndoSchema,
 } from "@/lib/world-contract";
 
 // The world surface: one world's context, its files, filing, shelves,
@@ -16,8 +17,11 @@ import {
 // token as its actor and lands in the world journal.
 
 const actions = [
-  "open", "doc", "file", "shelf", "move", "mark", "profiles", "journal", "undo",
+  "open", "doc", "file", "shelf", "move", "mark", "profiles", "journal", "undo", "recount",
 ] as const;
+
+// A world of a few thousand pieces takes a handful of passes.
+const RECOUNT_MAX_CALLS = 60;
 
 const readOnlyDoc = new Set(["list", "read", "history"]);
 
@@ -25,6 +29,7 @@ const scopeFor = (action: (typeof actions)[number], body: Record<string, unknown
   if (action === "open" || action === "journal") return "gallery:read";
   if (action === "doc") return readOnlyDoc.has(String(body.op ?? body.mode ?? "read")) ? "gallery:read" : "gallery:write";
   if (action === "profiles") return body.op === "save" ? "gallery:write" : "gallery:read";
+  if (action === "recount") return body.dryRun === true ? "gallery:read" : "gallery:write";
   return "gallery:write";
 };
 
@@ -130,6 +135,35 @@ export async function POST(request: Request) {
           ? result.blocked ? `The move would be refused: ${result.blocked}` : "Nothing was changed. Looks right? Call world_move again without dryRun."
           : result.storiesToRepoint.length > 0 ? "Some stories now span two worlds: repoint them with update_story (folderId)." : undefined,
       });
+    }
+
+    if (action === "recount") {
+      // One world's stored counts, recounted from the membership rows. Each
+      // call stays inside Convex's read limits and hands back a cursor; this
+      // route follows it to the end, so the agent sees one complete report.
+      const input = worldRecountSchema.parse(body);
+      const rows: RecountRow[] = [];
+      const changeIds: Id<"worldChanges">[] = [];
+      let cursor: RecountCursor | undefined;
+      for (let call = 0; call < RECOUNT_MAX_CALLS; call += 1) {
+        const page = await client.mutation(api.worldCounts.recountWorldCounts, {
+          ownerUserId, world: input.world, dryRun: input.dryRun, cursor, note: input.note, actor, session: input.session,
+        });
+        rows.push(...page.rows);
+        if (page.changeId) changeIds.push(page.changeId);
+        if (page.done) {
+          const changed = rows.filter((row) => row.changed);
+          return NextResponse.json({
+            ok: true, dryRun: page.dryRun, world: page.world, collections: rows.length,
+            changed: changed.length, publicCounts: page.publicCounts, changeIds, rows,
+            next: page.dryRun
+              ? changed.length > 0 ? "Nothing was changed. Looks right? Call world_recount again without dryRun." : "Every stored count is exact; nothing to do."
+              : undefined,
+          });
+        }
+        cursor = page.cursor ?? undefined;
+      }
+      return NextResponse.json({ error: `The recount needed more than ${RECOUNT_MAX_CALLS} passes; run it again to finish.`, rows, changeIds }, { status: 400 });
     }
 
     if (action === "mark") {

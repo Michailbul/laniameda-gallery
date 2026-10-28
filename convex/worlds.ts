@@ -1276,6 +1276,15 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, jou
       }
       return { ok: true, summary: change.summary };
     }
+    case "world.recount": {
+      // Counts are derived from the membership rows, so there is nothing to
+      // put back: undo re-derives memberCount for the collections it named
+      // (the public count stays exact) and lets a session undo go on past it.
+      const after = parse<{ folderId: Id<"folders"> }[]>(change.after) ?? [];
+      for (const row of after) touched.add(row.folderId);
+      await record(change.summary, after, after);
+      return { ok: true, summary: change.summary };
+    }
     case "story.save": {
       const before = parse<StorySnapshot>(change.before);
       const after = parse<StorySnapshot>(change.after)!;

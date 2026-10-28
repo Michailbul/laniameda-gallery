@@ -23,6 +23,20 @@ Last updated: 2026-10-28
   `lm-world-view`, `M` toggles outside inputs, both panes stay mounted and
   cross-fade. No backend change.
 
+### 2026-10-28 — world_recount: repair a world's stored collection counts
+- `worldCounts:recountWorldCounts`, MCP `world_recount`, `/api/agent/worlds`
+  action `recount` (read scope for a dry run, write otherwise). Recounts
+  `memberCount` and `publicMemberCount` for the world root and every child from
+  `assetFolders` (plus public primary-pointer members), pages under Convex read
+  limits (the route follows the cursor), dry run lists stored vs recounted,
+  corrections journaled as `world.recount` (undo re-derives, never blocks).
+- Audit of every membership write path (world_file move, world_move, world_undo,
+  setAssetFolders / update_gallery_item, setAssetFolder, addAssetFolders,
+  removeAssetFolder, ingest, inbox, delete, merge, cleanup): all recount and
+  resync. On 28 Oct every one of 223 stored counts matched its rows; the
+  "stale" DEAR ANNETE shelves were real (a filtered `list_assets_page` page can
+  be empty with `isDone: false`). Tests: tests/world-counts.test.ts.
+
 ### 2026-10-28 — world_move: a shelf, storybook or moodboard crosses worlds on purpose
 - `worlds:moveToWorld`, MCP `world_move`, `/api/agent/worlds` action `move`.
   The ordinary paths (update_collection, save_moodboard) still refuse to cross
