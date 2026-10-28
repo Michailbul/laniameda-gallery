@@ -17,8 +17,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["image-convert.js", "image-qualification.js", "midjourney-adapter.js", "moodboard-dock.js", "krea-adapter.js", "higgsfield-adapter.js", "pinterest-adapter.js", "shotdeck-adapter.js", "x-adapter.js", "content.js"],
-      "css": ["styles.css"],
+      "js": ["image-convert.js", "image-qualification.js", "midjourney-adapter.js", "moodboard-dock.js", "prompt-packs-data.js", "prompt-packs.js", "krea-adapter.js", "higgsfield-adapter.js", "pinterest-adapter.js", "shotdeck-adapter.js", "x-adapter.js", "content.js"],
+      "css": ["styles.css", "prompt-packs.css"],
       "run_at": "document_idle"
     }
   ],
