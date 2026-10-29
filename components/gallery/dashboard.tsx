@@ -126,6 +126,7 @@ import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
 import { WorldInstructionsPanel } from "@/components/gallery/world-instructions";
 import type { WorldRef } from "@/lib/world-doc-markdown";
 import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
+import { WorldTasksTab } from "./world-tasks-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
 import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
@@ -408,7 +409,7 @@ export function GalleryDashboard({
   // A marked world's Docs or Journal tab, keyed by the world root the same way.
   const [worldPanel, setWorldPanel] = useState<{
     collectionId: string;
-    tab: "docs" | "journal";
+    tab: "docs" | "journal" | "tasks";
   } | null>(null);
   // The style last chosen inside a world (its Styles group): its shelves then
   // show that style only. Opening a style branch sets it, the world root
@@ -686,6 +687,13 @@ export function GalleryDashboard({
     [inboxWorlds],
   );
   const inboxOpenCount = (inboxWorlds ?? []).reduce((sum, row) => sum + row.openCards, 0);
+  // Tasks waiting in the queue (open, claimed or blocked): the badge on the
+  // Tasks link. Blocked ones need Michael; the /tasks page shows them first.
+  const taskCounts = useQuery(
+    api.tasks.countOpenTasks,
+    canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+  );
+  const tasksOpenCount = (taskCounts ?? []).reduce((sum, row) => sum + row.open + row.claimed + row.blocked, 0);
 
   const setAssetFoldersMutation = useMutation(
     api.assets.setAssetFolders,
@@ -5380,6 +5388,7 @@ export function GalleryDashboard({
           showYouTubeTab={canManageFoldersInCurrentView}
           inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
           inboxCountByWorld={canManageFoldersInCurrentView ? inboxCountByWorld : undefined}
+          tasksOpenCount={canManageFoldersInCurrentView ? tasksOpenCount : undefined}
           onMotionTab={
             canManageFoldersInCurrentView
               ? () => {
@@ -5788,6 +5797,7 @@ export function GalleryDashboard({
                   includeChildren={!activeCollectionFolder.parentFolderId}
                   showFolders={Boolean(foldersViewWorldId)}
                   showWorldTabs={Boolean(activeWorldKey)}
+                  worldFolderId={activeWorldRoot ? String(activeWorldRoot._id) : undefined}
                   always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
                   active={
                     viewMode === "collections"
@@ -5810,7 +5820,7 @@ export function GalleryDashboard({
                       tab === "moodboards" ? activeCollectionFolder._id : null,
                     );
                     setWorldPanel(
-                      tab === "docs" || tab === "journal"
+                      tab === "docs" || tab === "journal" || tab === "tasks"
                         ? { collectionId: activeCollectionFolder._id, tab }
                         : null,
                     );
@@ -5886,6 +5896,14 @@ export function GalleryDashboard({
                           : null,
                       );
                     }}
+                  />
+                ) : activeWorldPanel === "tasks" && activeWorldRoot ? (
+                  <WorldTasksTab
+                    key={`tasks-${activeWorldKey}`}
+                    ownerUserId={ownerUserId}
+                    worldFolderId={activeWorldRoot._id as Id<"folders">}
+                    worldKey={activeWorldKey}
+                    worldName={activeWorldRoot.name}
                   />
                 ) : (
                   <WorldJournalTab
