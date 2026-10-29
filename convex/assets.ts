@@ -53,6 +53,7 @@ import { detachAssetFromCharacters } from "./characters";
 import { detachAssetFromMoodboards } from "./moodboards";
 import { deleteHashForAsset } from "./assetHashes";
 import { deleteCommentsForAsset } from "./assetComments";
+import { stripAssetFromTasks } from "./tasks";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const pillarValidator = optionalPillarValidator;
@@ -4175,6 +4176,8 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   // Its comment thread goes with it, and its perceptual hash.
   await deleteCommentsForAsset(ctx, asset._id);
   await deleteHashForAsset(ctx, asset._id);
+  // Tasks keep their text; only the link to this asset is dropped.
+  await stripAssetFromTasks(ctx, asset.ownerUserId ?? "", asset._id);
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.
