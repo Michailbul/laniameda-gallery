@@ -17,7 +17,9 @@ interface MobileBottomNavUser {
 
 interface MobileBottomNavProps {
   onAddClick?: () => void;
+  /** Opens the browse sheet (search, worlds, shelves, sections). */
   onSearchClick?: () => void;
+  searchActive?: boolean;
   /** Home also leaves any open tab (Moodboards, Storybooks…) for the grid. */
   onHomeClick?: () => void;
   /** Opens the Moodboards tab; the item shows only when set. */
@@ -29,7 +31,7 @@ interface MobileBottomNavProps {
   inboxOpenCount?: number;
 }
 
-export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut, inboxOpenCount }: MobileBottomNavProps) {
+export function MobileBottomNav({ onAddClick, onSearchClick, searchActive = false, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut, inboxOpenCount }: MobileBottomNavProps) {
   const pathname = usePathname();
   // The gallery lives at /, /w/…, /storybooks/… and so on; Home is lit on all
   // of them and, there, resets the view in place instead of reloading the page.
@@ -91,13 +93,15 @@ export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMood
           )}
         </Link>
 
-        {/* Search — scroll to tag system */}
+        {/* Search: the browse sheet (worlds, shelves, sections, pieces) */}
         <button
           type="button"
           onClick={handleSearch}
+          aria-label="Search"
+          aria-expanded={onSearchClick ? searchActive : undefined}
           className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
           style={{
-            color: "var(--text-ghost)",
+            color: searchActive ? "var(--amber-9)" : "var(--text-ghost)",
             transitionDuration: "var(--duration-instant)",
           }}
         >

@@ -385,12 +385,13 @@ function HeaderButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex items-center gap-1 px-3 py-1.5 transition-colors"
+      className="flex shrink-0 items-center gap-1 px-3 py-1.5 transition-colors"
       style={{
         fontSize: "9px",
         fontWeight: 800,
         letterSpacing: "0.14em",
         textTransform: "uppercase",
+        whiteSpace: "nowrap",
         color: active ? "var(--lm-text-primary)" : "var(--lm-text-secondary)",
         border: active
           ? "2px solid var(--lm-coral)"

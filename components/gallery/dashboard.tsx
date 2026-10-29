@@ -27,7 +27,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, LayoutGrid, Loader2, Plus, Search as SearchIcon, Star, Trash2, Upload, X } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, ListChecks, Loader2, Plus, Search as SearchIcon, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -93,8 +93,10 @@ import { StorybookModal } from "./storybook-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { MobileBrowseSheet, type BrowseSheetSection } from "./mobile-browse-sheet";
 import { CopyLinkButton } from "@/components/youtube/copy-link-button";
 import {
+  collectionRoute,
   galleryRoutePath,
   galleryRouteTitle,
   parseGalleryRoute,
@@ -492,6 +494,8 @@ export function GalleryDashboard({
   }, []);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState<boolean>(false);
+  // The phone's browse sheet, opened from the Search tab of the bottom bar.
+  const [browseSheetOpen, setBrowseSheetOpen] = useState(false);
 
   useEffect(() => {
     setSidebarCollapsed(
@@ -4423,6 +4427,22 @@ export function GalleryDashboard({
     document.title = galleryRouteTitle(currentRoute, { world: worldNameForTitle, shelf: shelfNameForTitle });
   }, [currentRoute, shelfNameForTitle, worldNameForTitle]);
 
+  // What the phone's browse sheet lists under the tree: the sidebar's items.
+  const browseSections = useMemo<BrowseSheetSection[]>(() => {
+    const open = (route: GalleryRoute) => () => applyLocation({ route }, "click");
+    return [
+      { key: "storybooks", label: "Storybooks", hint: "Episodes with their frames and stories", icon: BookOpen, active: storybooksView, onOpen: open({ kind: "storybooks" }) },
+      { key: "stories", label: "Stories", hint: "Ideas, scripts and style locks", icon: BookOpenText, active: activeStoriesView, onOpen: open({ kind: "stories" }) },
+      { key: "moodboards", label: "Moodboards", hint: "Looks mirrored to Midjourney", icon: LayoutGrid, active: activeMoodboardsTab, onOpen: open({ kind: "moodboards" }) },
+      { key: "skills", label: "Skills", hint: "Techniques and recipes, step by step", icon: Sparkles, active: viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView, onOpen: open({ kind: "skills" }) },
+      { key: "youtube", label: "YouTube", hint: "Channel and format research", icon: Youtube, href: "/youtube" },
+      { key: "motion", label: "Motion", hint: "Motion design by facet", icon: Clapperboard, active: motionView, onOpen: open({ kind: "motion" }) },
+      { key: "cinematography", label: "Cinematography", hint: "Camera moves and shot packs", icon: Camera, active: cinematographyView, onOpen: open({ kind: "cinematography" }) },
+      { key: "tasks", label: "Tasks", hint: "The queue agents claim and finish", icon: ListChecks, href: "/tasks", badge: tasksOpenCount },
+      { key: "decisions", label: "Decisions", hint: "Cards waiting for your answer", icon: Layers, href: "/inbox", badge: inboxOpenCount },
+    ];
+  }, [activeMoodboardsTab, activeStoriesView, applyLocation, bookmarksView, cinematographyView, extraTabView, inboxOpenCount, motionView, storybooksView, tasksOpenCount, viewMode]);
+
   // "Choose from gallery" on a board: the grid opens on the board's own
   // collection with every filter at hand, and a click selects.
   const startMoodboardPick = useCallback(
@@ -6635,12 +6655,40 @@ export function GalleryDashboard({
       {!selectedImage && (
         <MobileBottomNav
           onAddClick={openAddModal}
+          onSearchClick={() => setBrowseSheetOpen(true)}
+          searchActive={browseSheetOpen}
           onHomeClick={() => applyLocation({ route: { kind: "home" } }, "click")}
           onMoodboardsClick={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsActive={activeMoodboardsTab}
           inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}
           user={user}
           onSignOut={onSignOut}
+        />
+      )}
+
+      {/* Phone: the browse sheet behind the Search tab. Rows go through the
+          same routes the sidebar and the address bar use. */}
+      {canAccessMyGallery && galleryScope === "mine" && (
+        <MobileBrowseSheet
+          open={browseSheetOpen}
+          onClose={() => setBrowseSheetOpen(false)}
+          folders={collectionFoldersWithCounts}
+          selectedFolderId={effectiveSelectedFolderId ?? null}
+          onFolderSelect={(id) => {
+            const folder = id ? collectionFoldersWithCounts.find((entry) => entry._id === id) : undefined;
+            applyLocation({ route: folder ? collectionRoute(collectionFoldersWithCounts, folder) : { kind: "home" } }, "click");
+          }}
+          inboxCountByWorld={inboxCountByWorld}
+          onSearchPieces={(query) => {
+            applyLocation({ route: { kind: "home" } }, "click");
+            setAssetSearchQuery(query);
+            setSemanticError(undefined);
+            if (semanticMode?.kind === "similar") {
+              setSemanticMode(null);
+              setSemanticResults(null);
+            }
+          }}
+          sections={browseSections}
         />
       )}
 

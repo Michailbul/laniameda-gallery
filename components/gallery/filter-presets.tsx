@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Check, Plus, SlidersHorizontal, X } from "lucide-react";
+import { useChipRail } from "./filter-bar";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 
@@ -51,6 +52,7 @@ export function FilterPresets({
   const [managing, setManaging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [railRef, railFade] = useChipRail<HTMLDivElement>(presets?.length);
 
   const apply = (filters: PresetFilters) => {
     if (
@@ -87,7 +89,7 @@ export function FilterPresets({
       style={{ fontFamily: "var(--lm-font)" }}
     >
       <div className="mx-auto" style={{ maxWidth: "1180px" }}>
-        <div className="flex items-center gap-2">
+        <div className="lm-chip-row flex items-center gap-2">
           <span
             className="shrink-0"
             style={{
@@ -102,7 +104,9 @@ export function FilterPresets({
           </span>
 
           <div
-            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+            ref={railRef}
+            data-fade={railFade}
+            className="lm-chip-rail flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
             style={{ scrollbarWidth: "none" }}
           >
             {presets?.map((preset) => {
