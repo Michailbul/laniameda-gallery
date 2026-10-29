@@ -181,7 +181,7 @@ function DatePicker({ editions, current }: { editions: Edition[]; current: strin
     <select aria-label="Edition date" value={current} onChange={(event) => router.push(newspaperPath(event.target.value))}
       className="h-8 max-w-[160px] px-2 text-[10px] font-bold uppercase tracking-[0.1em] outline-none" style={chip}>
       {index < 0 && <option value={current}>{current}</option>}
-      {editions.map((edition) => <option key={edition.date} value={edition.date}>{dateKeyLabel(edition.date, { weekday: "short", day: "numeric", month: "short" })}{edition.needsYou ? ` · ${edition.needsYou} need you` : ""}</option>)}
+      {editions.map((edition) => <option key={edition.date} value={edition.date}>{dateKeyLabel(edition.date, { weekday: "short", day: "numeric", month: "short" })}{edition.needsYou ? ` (${edition.needsYou})` : ""}</option>)}
     </select>
     <button type="button" disabled={!newer} aria-label={newer ? `Newer: ${newer.date}` : "This is the latest edition"} onClick={() => newer && router.push(newspaperPath(newer.date))}
       className="grid h-8 w-8 place-items-center disabled:opacity-30" style={chip}><ChevronRight size={14} aria-hidden /></button>
@@ -212,7 +212,7 @@ function Masthead({ date, paper, editions, onCompile, busy }: { date?: string; p
       </div>
     </div>
     {paper && <p className="mt-1.5 text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-ghost)" }}>
-      compiled {clockLabel(paper.compiledAt)} by {paper.compiledBy} · covers {fullStamp(paper.since)} → {clockLabel(paper.until)}
+      compiled {clockLabel(paper.compiledAt)} by {paper.compiledBy} · covers {fullStamp(paper.since)} → {fullStamp(paper.until)}
     </p>}
   </header>;
 }
@@ -307,7 +307,7 @@ export function NewspaperScreen({ ownerUserId, date }: { ownerUserId: string; da
               <span className="block text-[14px] font-black uppercase leading-5 tracking-tight" style={display}>{stack.title}</span>
               <span className="mt-0.5 flex flex-wrap items-center gap-x-2">
                 <Micro color="var(--lm-coral)">{stack.worldName}</Micro>
-                <Micro>{stack.decided} of {stack.cards} decided</Micro>
+                <Micro color={stack.cards > 0 && stack.decided >= stack.cards ? "var(--lm-text-secondary)" : undefined}>{stack.cards > 0 && stack.decided >= stack.cards ? "all decided · waiting for the agent" : `${stack.decided} of ${stack.cards} decided`}</Micro>
                 {stack.agent && <Micro>{stack.agent}</Micro>}
                 <Micro color="var(--lm-text-ghost)">{timeAgo(stack.createdAt)}</Micro>
               </span>

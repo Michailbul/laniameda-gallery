@@ -187,9 +187,11 @@ export const compileFacts = async (ctx: Ctx, owner: string, since: number, until
   }
   for (const world of worlds.values()) world.storybooks.sort((a, b) => b.updatedAt - a.updatedAt);
 
-  // What waits on him: open stacks, blocked tasks, draft boards with candidates.
+  // What waits on him: open stacks he has not finished, blocked tasks, draft
+  // boards with candidates. A stack with every card decided waits on the
+  // agent (apply, learn, close_stack), not on him.
   const needsYou: NewspaperNeed[] = [
-    ...stacks.map((stack): NewspaperNeed => ({
+    ...stacks.filter((stack) => stack.cards === 0 || stack.decided < stack.cards).map((stack): NewspaperNeed => ({
       kind: "stack", id: stack.stackId, title: stack.title, worldName: stack.worldName,
       detail: stack.cards === 0 ? "No cards yet" : stack.decided === 0 ? `${stack.cards} card${stack.cards === 1 ? "" : "s"} waiting` : `${stack.decided} of ${stack.cards} cards decided`,
       path: stack.path,

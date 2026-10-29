@@ -35,8 +35,9 @@ saved}`, `prose`, `writtenAt`, `writtenBy`, and `facts`:
   `result` (excerpt; on a blocked task it is the question for Michael),
   `claimedBy`, `path`, `url`.
 - `stacks[]`: open Inbox stacks with `cards`, `decided`, `agent`, `url`.
-- `needsYou[]`: everything waiting on him, in order: open Inbox stacks
-  (`kind: stack`), blocked tasks (`kind: task`), draft moodboards that already
+- `needsYou[]`: everything waiting on him, in order: open Inbox stacks with
+  cards still undecided (`kind: stack`; a stack he has fully answered waits on
+  the agent and stays in `stacks[]` only), blocked tasks (`kind: task`), draft moodboards that already
   hold images but are not in Midjourney (`kind: moodboard`). Each has `title`,
   `worldName`, a one-line `detail` and, for stacks and tasks, the `url`.
 - `totals`: `done`, `created`, `blocked`, `open`, `changes`, `assets`,

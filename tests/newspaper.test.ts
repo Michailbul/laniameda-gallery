@@ -71,6 +71,8 @@ const setup = async () => {
 
   const stack = await db.insert("inboxStacks", { ownerUserId: OWNER, worldFolderId: world, title: "Sort the tram shots", agent: "Hygiene routine", status: "open", cardTypes: ["sort"], createdAt: fresh(6), updatedAt: fresh(6) });
   await db.insert("inboxCounts", { ownerUserId: OWNER, stackId: stack, worldFolderId: world, status: "open", cards: 8, decided: 3 });
+  const decided = await db.insert("inboxStacks", { ownerUserId: OWNER, worldFolderId: world, title: "All answered", agent: "Hygiene routine", status: "open", cardTypes: ["ab"], createdAt: fresh(8), updatedAt: fresh(2) });
+  await db.insert("inboxCounts", { ownerUserId: OWNER, stackId: decided, worldFolderId: world, status: "open", cards: 3, decided: 3 });
   await db.insert("inboxStacks", { ownerUserId: OWNER, worldFolderId: world, title: "Closed", status: "closed", cardTypes: ["sort"], createdAt: stale, updatedAt: stale, closedAt: stale });
 
   const board = await db.insert("moodboards", { ownerUserId: OWNER, folderId: world, name: "DA FILM", normalizedName: "da film", status: "in-midjourney", mjCode: "88ji6bg", mjSyncedItemCount: 10, itemCount: 12, revision: 3, createdAt: stale, updatedAt: fresh(3) });
@@ -80,7 +82,7 @@ const setup = async () => {
   await db.insert("characters", { ownerUserId: OWNER, worldFolderId: world, code: "DA-CH-004", prefix: "DA-CH", number: 4, name: "Dari", normalizedName: "dari", otherNames: [], status: "active", costumes: [], lastCostumeNumber: 0, linkCount: 0, revision: 1, createdAt: fresh(7), updatedAt: fresh(7) });
 
   const call = <F extends Parameters<typeof callAsOwner>[0]>(fn: F, args: Record<string, unknown>) => callAsOwner(fn)(ctx, { ownerUserId: OWNER, ...args });
-  return { db, ctx, world, quiet, shelf, book, worldAssets, studioAsset, done, blocked, stack, board, draft, call };
+  return { db, ctx, world, quiet, shelf, book, worldAssets, studioAsset, done, blocked, stack, decided, board, draft, call };
 };
 
 describe("newspaper helpers", () => {
@@ -123,11 +125,11 @@ describe("newspaper helpers", () => {
 
 describe("compileFacts", () => {
   test("groups the last 24 hours per world and lists what waits on Michael", async () => {
-    const { ctx, world, quiet, book, worldAssets, studioAsset, done, blocked, stack, board, draft } = await setup();
+    const { ctx, world, quiet, book, worldAssets, studioAsset, done, blocked, stack, decided, board, draft } = await setup();
     const facts = await compileFacts(ctx, OWNER, since, NOW);
     expect(newspaperFactsSchema.safeParse(facts).success).toBe(true);
 
-    expect(facts.totals).toEqual({ done: 2, created: 1, blocked: 1, open: 2, changes: 4, assets: 15, openStacks: 1, needsYou: 3 });
+    expect(facts.totals).toEqual({ done: 2, created: 1, blocked: 1, open: 2, changes: 4, assets: 15, openStacks: 2, needsYou: 3 });
 
     const da = facts.worlds.find((entry) => entry.worldFolderId === world)!;
     expect(facts.worlds[0].worldFolderId).toBe(world); // the busiest world first
@@ -153,14 +155,15 @@ describe("compileFacts", () => {
     expect(facts.tasks.blocked[0]).toMatchObject({ taskId: blocked, result: expect.stringContaining("Two lamps") });
     expect(facts.tasks.created.map((task) => task.title)).toEqual(["Fresh open task"]);
 
-    expect(facts.stacks).toHaveLength(1);
+    expect(facts.stacks.map((row) => row.stackId)).toEqual([stack, decided]);
     expect(facts.stacks[0]).toMatchObject({ stackId: stack, cards: 8, decided: 3, agent: "Hygiene routine", path: `/inbox/${world}/${stack}` });
-    expect(da.openStacks).toBe(1);
+    expect(da.openStacks).toBe(2);
 
     expect(da.storybooks).toEqual([{ folderId: book, name: "Episode 3", isNew: true, updatedAt: fresh(5) }]);
     expect(da.moodboards).toEqual([expect.objectContaining({ moodboardId: board, drift: 2, syncedItemCount: 10, itemCount: 12, isNew: false, mjCode: "88ji6bg" })]);
     expect(da.characters).toEqual([expect.objectContaining({ code: "DA-CH-004", name: "Dari", isNew: true })]);
 
+    // The fully decided stack waits on the agent, so it is not in needsYou.
     expect(facts.needsYou.map((need) => [need.kind, need.id])).toEqual([["stack", stack], ["task", blocked], ["moodboard", draft]]);
     expect(facts.needsYou[0].detail).toBe("3 of 8 cards decided");
     expect(facts.needsYou[1].detail).toContain("Two lamps");
