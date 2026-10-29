@@ -24,6 +24,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/characters.md", title: "Named characters: codes, costumes and asset links", access: "public" },
   { path: "references/moodboards.md", title: "Moodboards: gallery looks mirrored to Midjourney, and collection groups", access: "public" },
   { path: "references/inbox.md", title: "The world Inbox: decision cards agents post and Michael answers", access: "public" },
+  { path: "references/tasks.md", title: "Tasks: the queue between Michael's review and the agents' work", access: "public" },
   { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
   { path: "references/bookmarks.md", title: "X post bookmarks", access: "public" },
   { path: "references/midjourney-srefs.md", title: "Midjourney style reference library", access: "public" },
@@ -55,7 +56,7 @@ const resourceUrl = (path: string) => `${GALLERY_SKILL_ORIGIN}${GALLERY_SKILL_PA
 
 export const buildGalleryLlmsIndex = (version: string) => `# Laniameda Gallery
 
-> The agent-readable creative vault: media and prompts, reference collections, reusable Skills, named characters, moodboards mirrored to Midjourney, a world Inbox for Michael's decisions, native Stories, filter presets, bookmarks and YouTube research.
+> The agent-readable creative vault: media and prompts, reference collections, reusable Skills, named characters, moodboards mirrored to Midjourney, a world Inbox for Michael's decisions, a task queue agents claim and complete, native Stories, filter presets, bookmarks and YouTube research.
 
 Read the canonical skill below before using the gallery. Skill version in this deployment: ${version}. Public instructions come from the deployed repository; current private world policy is owner data. Public documentation does not grant access to private gallery data or authorize a write.
 
