@@ -122,6 +122,10 @@ No queued ready items. Promote from backlog after the production hardening pass 
 - Plugin: drop rules duplicated from the live skill; avoid double MCP registration inside this repo.
 - Michael's calls: owner of the 31 two-world assets; Art Deco as its own world or a style branch; register the five established Dear Annete characters; archive the old Dear Annete world guide.
 
+## Morning newspaper (30 Oct 2026)
+
+One edition a day at `/newspaper` (cron 05:30 UTC, MCP `get_newspaper` / `write_newspaper` / `compile_newspaper`): per world what changed and was saved, tasks done and blocked, open Inbox stacks, a "Needs you" list, the agent's prose. PRD on branch `feat/newspaper`, `agent-docs/features/newspaper/PRD.md`.
+
 ## Tasks queue (29 Oct 2026)
 
 The agent task queue (`/tasks`, MCP `list_tasks` … `comment_task`): owner comments and Inbox answers become tasks; agents claim and complete. PRD on branch `feat/tasks-queue`, `agent-docs/features/tasks-queue/PRD.md`.

@@ -591,6 +591,21 @@ task per stack. World tasks are journaled as `task.create` / `task.update`.
 `open_world` returns `tasks: {open, claimed, blocked, next}`. Deleting an
 asset strips its link from tasks. See `tasks.md`.
 
+# Newspapers (30 October 2026)
+
+`newspapers` is one edition of the morning newspaper per owner per Prague
+date: `ownerUserId`, `date` (YYYY-MM-DD, Europe/Prague), `compiledAt`,
+`since`, `until` (the 24-hour window the facts cover), `facts` (JSON of
+`lib/newspaper-contract.ts` `newspaperFactsSchema`: per world the journal's
+changes grouped by op, new assets with up to 12 thumbnails, new or changed
+storybooks, moodboards with sync drift and characters, task counts; studio-wide
+tasks done, created and blocked, open Inbox stacks, and `needsYou`), the
+headline counts `done`, `needsYou`, `saved`, the agent's `prose` with
+`writtenAt` / `writtenBy`, `status` (compiled, written), `compiledBy`,
+`createdAt`, `updatedAt`. Index owner/date. Compiled by the daily cron
+(`convex/crons.ts`, 05:30 UTC) or on demand; recompiling a date replaces the
+facts and keeps the prose. See `newspapers.md`.
+
 `assetHashes` holds one perceptual hash per image: `ownerUserId`, `assetId`,
 `dHash` (16 hex characters, a 64-bit difference hash of the card thumbnail or
 video poster), `createdAt`. Written a minute after ingest and by the backfill

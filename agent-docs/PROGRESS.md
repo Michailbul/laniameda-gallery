@@ -8,6 +8,23 @@ Last updated: 2026-10-28
 
 ## ✔ Shipped
 
+### 2026-10-30 — The morning newspaper (branch `feat/newspaper`)
+
+- `newspapers` table and `convex/newspaper.ts`: `compileFacts` reads the last
+  24 hours from the journal, assets, tasks, Inbox stacks, moodboards,
+  characters and storybooks (index-backed, 600 rows per table at most) into
+  one facts JSON per world plus a `needsYou` list (open stacks, blocked tasks,
+  draft boards with images). `convex/crons.ts` runs `compileAll` daily at
+  05:30 UTC (07:30 Prague) for `KB_OWNER_USER_ID`; `notify` sends the Telegram
+  line through the shared `convex/telegram.ts` when a bot token is set.
+- MCP `get_newspaper`, `write_newspaper`, `compile_newspaper` over
+  `/api/agent/newspaper`; skill `references/newspapers.md`, version 1.16.0.
+- `/newspaper` and `/newspaper/<date>` (`components/newspaper/newspaper.tsx`),
+  phone-first: masthead with date picker and Recompile, headline counts,
+  Needs you, Done since yesterday per world with thumbnails, Questions and
+  decisions, the agent's prose. Newspaper in the sidebar and the browse sheet.
+- Tests: `tests/newspaper.test.ts`, `tests/newspaper-mcp.test.ts`.
+
 ### 2026-10-29 — Phone navigation and tap targets (branch `feat/phone-nav`)
 
 - The bottom bar's Search tab opens a browse sheet
