@@ -94,14 +94,26 @@ export function useChipRail<T extends HTMLElement>(signal?: unknown) {
       const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 2;
       setFade(left && right ? "both" : left ? "left" : right ? "right" : "none");
     };
-    // ResizeObserver reports once on observe, so the first measure is async.
+    // Measured on the next frame, when the rail resizes, when its chips
+    // resize (counts and fonts arrive late), on scroll and on window resize.
+    // Every path is async, so no render-time state write.
+    const frame = requestAnimationFrame(measure);
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     for (const child of element.children) observer.observe(child);
     element.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    const fonts = typeof document !== "undefined" ? document.fonts?.ready : undefined;
+    let live = true;
+    void fonts?.then(() => {
+      if (live) measure();
+    });
     return () => {
+      live = false;
+      cancelAnimationFrame(frame);
       observer.disconnect();
       element.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
     };
   }, [signal]);
   return [ref, fade] as const;
