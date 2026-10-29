@@ -1,8 +1,11 @@
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { worldsOfAsset } from "./worldCore";
+import { upsertTask } from "./tasks";
+import { titleFromText } from "../lib/tasks";
 
 // Comments on an asset: Michael's notes from the detail panel and agents'
 // replies, oldest first, so a thread reads top to bottom.
@@ -170,9 +173,38 @@ export const addAssetComment = ownerMutation({
       updatedAt: now,
     };
     const _id = await ctx.db.insert("assetComments", doc);
+    // Michael's comment is work: it becomes a task an agent picks up, so
+    // nothing he writes is missed. Notes left in the Inbox travel with the
+    // stack's own task instead.
+    if (doc.author === "owner" && doc.source !== "inbox") {
+      await taskFromOwnerComment(ctx, args.ownerUserId, asset, { _id, body: doc.body, hasAudio: Boolean(audio) });
+    }
     return await toResult(ctx, { _id, ...doc });
   },
 });
+
+const taskFromOwnerComment = async (
+  ctx: MutationCtx, owner: string, asset: Doc<"assets">,
+  comment: { _id: Id<"assetComments">; body: string; hasAudio: boolean },
+) => {
+  const worldFolderId = [...await worldsOfAsset(ctx, asset)][0];
+  const what = comment.body ? titleFromText(comment.body, 100) : "Voice note";
+  await upsertTask(ctx, owner, {
+    worldFolderId,
+    title: `Comment on asset:${asset._id}: ${what}`,
+    brief: [
+      comment.body || "_A voice note: read the thread with list_asset_comments and transcribe it._",
+      "",
+      `Michael's comment on asset:${asset._id}. Act on it, then reply on the asset with add_asset_comment and complete this task naming what changed.`,
+    ].join("\n"),
+    priority: 2,
+    createdBy: "owner",
+    links: [{ kind: "asset", id: asset._id }],
+    source: "comment",
+    sourceRef: comment._id,
+    ingestKey: `comment:${comment._id}`,
+  });
+};
 
 export const updateAssetComment = ownerMutation({
   args: { ownerUserId: v.string(), commentId: v.id("assetComments"), body: v.string() },
