@@ -174,6 +174,22 @@ export function buildWorldAgentSections(context: WorldContext, docs: WorldDocBod
     ),
   });
 
+  const tasks = context.tasks;
+  sections.push({
+    id: "tasks",
+    text: lines(
+      `## Tasks (${tasks.open} open · ${tasks.claimed} in flight · ${tasks.blocked} need Michael)`,
+      "",
+      ...(tasks.next.length === 0
+        ? ["_No open task. list_tasks shows the whole queue; create_task files new work._"]
+        : [
+          ...tasks.next.map((task) => `- [P${task.priority}] ${task.title} · task:${task.id}`),
+          "",
+          "_Claim one with claim_task before working; complete_task with a result naming the asset:/story:/stack: ids produced. list_tasks {world} shows them all._",
+        ]),
+    ),
+  });
+
   sections.push({
     id: "changes",
     text: lines(

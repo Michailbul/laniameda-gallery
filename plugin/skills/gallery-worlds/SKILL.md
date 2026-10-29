@@ -26,6 +26,10 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
 
 ## The loop
 
+0. **Check the queue.** `list_tasks {status: "open"}` shows the work waiting: Michael's asset
+   comments and Inbox answers become tasks by themselves. `claim_task` one before working on it
+   and `complete_task` it with a result naming the ids produced (or `blocked: true` with the
+   question for him). `open_world` also lists a world's open tasks. Read `references/tasks.md`.
 1. **Open the world.** `open_world {}` lists the worlds (key, name, counts).
    `open_world {world: "dear-annete"}` returns WORLD.md, LEARNINGS.md, the doc index with caps,
    styles (style tag, branch, locks, board count), shelves with groups and counts, storybooks with

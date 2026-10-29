@@ -197,6 +197,8 @@ export type WorldChangeOp =
   | "moodboard.delete"
   | "profile.save"
   | "story.save"
+  | "task.create"
+  | "task.update"
   | "undo";
 
 export type JournalMeta = { actor?: string; session?: string };

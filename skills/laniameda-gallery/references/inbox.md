@@ -22,6 +22,9 @@ apply and learn.
 - When a pattern repeats in his decisions, propose it as a **rule** card.
 - Close the stack with `close_stack` once you have applied and learned from
   it. Delete a stack only when he names it for deletion.
+- His first answer on a stack files a task `Apply decisions: <stack>` in the
+  queue (`list_tasks {source: "inbox"}`); claim it, apply, close the stack,
+  then `complete_task`. See `tasks.md`.
 
 ## Card types
 

@@ -31,6 +31,7 @@ import {
   Star,
   Sun,
   Trash2,
+  ListChecks,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -97,6 +98,8 @@ interface GallerySidebarProps {
   inboxOpenCount?: number;
   /** Open decisions per world (root collection id), for the badges on world rows. */
   inboxCountByWorld?: ReadonlyMap<string, number>;
+  /** Tasks waiting in the queue (/tasks); undefined hides the Tasks link. */
+  tasksOpenCount?: number;
   /** Opens the Motion tab: motion design references with their own filters. */
   onMotionTab?: () => void;
   motionTabActive?: boolean;
@@ -168,6 +171,7 @@ export function GallerySidebar({
   bookmarksTabActive = false,
   showYouTubeTab = false,
   inboxOpenCount,
+  tasksOpenCount,
   inboxCountByWorld,
   onMotionTab,
   motionTabActive = false,
@@ -708,6 +712,9 @@ export function GallerySidebar({
         )}
         {inboxOpenCount !== undefined && (
           <NavItem icon={Layers} label="Decisions" href="/inbox" active={false} collapsed={collapsed} badge={inboxOpenCount} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={ListChecks} label="Tasks" href="/tasks" active={false} collapsed={collapsed} badge={tasksOpenCount} />
         )}
         {showYouTubeTab && (
           <NavItem

@@ -8,6 +8,7 @@ import { recountFolderMembers } from "./folderHelpers";
 import { stackAssetsInto, unstack } from "./stacks";
 import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { upsertTask } from "./tasks";
 import {
   inboxAppliedValidator, inboxCardTypeValidator, inboxChoiceValidator, inboxEvidenceValidator,
   inboxStackDocValidator, inboxStackStatusValidator, inboxTargetKindValidator, inboxTargetValidator,
@@ -95,6 +96,28 @@ const bumpCount = async (ctx: MutationCtx, stackId: Id<"inboxStacks">, change: {
 const ownedAsset = async (ctx: QueryCtx, owner: string, assetId: Id<"assets">) => {
   const asset = await ctx.db.get(assetId);
   return asset && owns(owner, asset) ? asset : null;
+};
+
+// Michael's answers are work for an agent: the first decision or comment on a
+// stack files one task "Apply decisions: <stack>" (ingestKey inbox:<stackId>);
+// later answers keep its brief current while it is still open.
+const taskFromInboxAnswer = async (ctx: MutationCtx, owner: string, stack: Stack) => {
+  const counts = await countOf(ctx, stack._id);
+  const decided = counts?.decided ?? 0;
+  const cards = counts?.cards ?? 0;
+  const brief = [
+    `Michael is answering stack:${stack._id} "${stack.title}" (${decided} of ${cards} cards decided).`,
+    "",
+    `Read list_inbox_decisions {stackId: "stack:${stack._id}"}: apply what is his to apply (fix, winner, pick, a rule answered yes), read his comments and voice notes and his notes on single images, learn from the pattern, then close_stack and complete this task naming what changed.`,
+  ].join("\n");
+  const { task, created } = await upsertTask(ctx, owner, {
+    worldFolderId: stack.worldFolderId,
+    title: `Apply decisions: ${stack.title}`,
+    brief, priority: 2, createdBy: "owner",
+    links: [{ kind: "stack", id: stack._id, label: stack.title }],
+    source: "inbox", sourceRef: stack._id, ingestKey: `inbox:${stack._id}`,
+  });
+  if (!created && task.status === "open" && task.brief !== brief) await ctx.db.patch(task._id, { brief, updatedAt: Date.now() });
 };
 
 const previewValidator = v.object({
@@ -827,6 +850,7 @@ export const decideInboxCard = ownerMutation({
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("inboxDecisions", { ownerUserId: stack.ownerUserId, stackId: stack._id, cardId: card._id, ...row });
     if (!existing?.choice) await bumpCount(ctx, stack._id, { decided: 1 });
+    await taskFromInboxAnswer(ctx, owner, stack);
     const alreadyDeleted = new Set(existing?.deletedAssetIds ?? []);
     return { cardId: card._id, choice, effects, deleteAssetIds: deleteAssetIds.filter((id) => !alreadyDeleted.has(id)), unchanged: false };
   },
@@ -923,6 +947,7 @@ export const setInboxCardComment = ownerMutation({
     } else if (commentText || audio) {
       await ctx.db.insert("inboxDecisions", { ownerUserId: stack.ownerUserId, stackId: stack._id, cardId: card._id, ...fields });
     }
+    if (commentText || audio) await taskFromInboxAnswer(ctx, args.ownerUserId, stack);
     return { hasText: Boolean(commentText), hasAudio: Boolean(audio) };
   },
 });

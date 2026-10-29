@@ -6,6 +6,7 @@ import {
 } from "./characterValidators";
 import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./moodboardValidators";
 import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
+import { taskEventFields, taskFields } from "./taskValidators";
 import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
@@ -236,6 +237,17 @@ export default defineSchema({
   inboxDecisions: defineTable(inboxDecisionFields)
     .index("by_stack", ["stackId"])
     .index("by_card", ["cardId"]),
+  // The agent task queue ("Tasks"): work Michael or an agent files, an agent
+  // claims and completes, Michael reviews. A world task belongs to a root
+  // collection; a task without one is studio-wide. See convex/tasks.ts.
+  tasks: defineTable(taskFields)
+    .index("by_owner_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_world_status_createdAt", ["worldFolderId", "status", "createdAt"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // A task's timeline: claims, releases, status changes and comments.
+  taskEvents: defineTable(taskEventFields)
+    .index("by_task_createdAt", ["taskId", "createdAt"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),

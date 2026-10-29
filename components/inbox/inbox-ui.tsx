@@ -76,7 +76,9 @@ export function ActionButton({ tone = "ghost", icon, children, busy, className, 
 }
 
 // Owner-only pages: signed out shows the Telegram login, nothing else.
-export function InboxGate({ children }: { children: (ownerUserId: string) => ReactNode }) {
+export function InboxGate({ children, title = "Decisions", prompt = "Sign in to decide" }: {
+  children: (ownerUserId: string) => ReactNode; title?: string; prompt?: string;
+}) {
   const { user, isLoading } = useCurrentUser();
   if (isLoading) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
@@ -86,8 +88,8 @@ export function InboxGate({ children }: { children: (ownerUserId: string) => Rea
   if (!user) {
     return <main className="grid min-h-dvh place-items-center px-4" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)" }}>
       <div className="w-full max-w-sm text-center">
-        <h1 className="mb-2 text-3xl font-black uppercase tracking-tight" style={display}>Decisions</h1>
-        <p className="mb-6 text-[11px] uppercase tracking-[0.14em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>Sign in to decide</p>
+        <h1 className="mb-2 text-3xl font-black uppercase tracking-tight" style={display}>{title}</h1>
+        <p className="mb-6 text-[11px] uppercase tracking-[0.14em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>{prompt}</p>
         <TelegramLoginButton size="large" />
         <Link href="/" className="mt-6 block text-[11px] uppercase tracking-[0.14em] underline underline-offset-4" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>Gallery</Link>
       </div>

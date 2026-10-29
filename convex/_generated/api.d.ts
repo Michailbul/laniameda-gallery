@@ -75,6 +75,8 @@ import type * as storyValidators from "../storyValidators.js";
 import type * as storybooks from "../storybooks.js";
 import type * as tagFilters from "../tagFilters.js";
 import type * as tags from "../tags.js";
+import type * as taskValidators from "../taskValidators.js";
+import type * as tasks from "../tasks.js";
 import type * as thumbnailBackfill from "../thumbnailBackfill.js";
 import type * as thumbnails from "../thumbnails.js";
 import type * as userTags from "../userTags.js";
@@ -159,6 +161,8 @@ declare const fullApi: ApiFromModules<{
   storybooks: typeof storybooks;
   tagFilters: typeof tagFilters;
   tags: typeof tags;
+  taskValidators: typeof taskValidators;
+  tasks: typeof tasks;
   thumbnailBackfill: typeof thumbnailBackfill;
   thumbnails: typeof thumbnails;
   userTags: typeof userTags;

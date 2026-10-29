@@ -121,3 +121,7 @@ No queued ready items. Promote from backlog after the production hardening pass 
 - open_world: `include` parameter; a leak count without a full scan.
 - Plugin: drop rules duplicated from the live skill; avoid double MCP registration inside this repo.
 - Michael's calls: owner of the 31 two-world assets; Art Deco as its own world or a style branch; register the five established Dear Annete characters; archive the old Dear Annete world guide.
+
+## Tasks queue (29 Oct 2026)
+
+The agent task queue (`/tasks`, MCP `list_tasks` … `comment_task`): owner comments and Inbox answers become tasks; agents claim and complete. PRD on branch `feat/tasks-queue`, `agent-docs/features/tasks-queue/PRD.md`.

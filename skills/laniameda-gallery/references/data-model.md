@@ -558,6 +558,33 @@ syncing never moves a stack's members. `assetComments` may carry a voice note
 (`audioStorageId`, `audioDurationMs`, `audioContentType`; `body` may then be
 empty) and `source: "inbox"`. See `inbox.md`.
 
+# Tasks (29 October 2026)
+
+`tasks` is one piece of work in the agent queue ("Tasks" in the gallery,
+`/tasks`): `ownerUserId`, optional `worldFolderId` (a root collection; absent
+= studio-wide), `title` (160), `brief` (markdown, 6,000), `status` (open,
+claimed, done, blocked, archived), `priority` (1 now, 2 next, 3 later),
+`createdBy` (`owner` or `agent:<label>`), `assignee`, `claimedBy`,
+`claimedAt`, `leaseUntil` (a claim lapses past it), `result` (markdown,
+6,000: what was done, or the question for Michael when blocked), `links`
+(typed handles `{kind: asset | story | stack | moodboard | character |
+collection | doc | url, id, label?}`), `source` (manual, comment, inbox,
+newspaper), `sourceRef` (the comment or stack id), `ingestKey` (stable key:
+`comment:<commentId>`, `inbox:<stackId>`; creating again returns the existing
+task), `needsRework` (Michael reopened a done task with a comment), `dueAt`,
+`createdAt`, `updatedAt`. Indexes: owner/status/createdAt,
+world/status/createdAt, owner/ingestKey, owner/updatedAt.
+
+`taskEvents` is the task's timeline, oldest first: `taskId`, `kind` (create,
+claim, release, status, comment, edit), `author` (`owner` or
+`agent:<label>`), `body`, `from`, `to`, `createdAt`. Index task/createdAt.
+
+An owner comment on an asset (not one left in the Inbox) files a task in the
+asset's world; the first decision or card comment on an Inbox stack files one
+task per stack. World tasks are journaled as `task.create` / `task.update`.
+`open_world` returns `tasks: {open, claimed, blocked, next}`. Deleting an
+asset strips its link from tasks. See `tasks.md`.
+
 `assetHashes` holds one perceptual hash per image: `ownerUserId`, `assetId`,
 `dHash` (16 hex characters, a 64-bit difference hash of the card thumbnail or
 video poster), `createdAt`. Written a minute after ingest and by the backfill

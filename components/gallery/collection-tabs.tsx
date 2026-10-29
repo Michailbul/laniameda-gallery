@@ -1,11 +1,11 @@
 "use client";
 
 import { useConvexAuth, useQuery } from "convex/react";
-import { FileText, FolderOpen, Grid3X3, LayoutGrid, ScrollText } from "lucide-react";
+import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, ScrollText } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "journal";
+export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "journal" | "tasks";
 
 /**
  * The views of one collection, as tabs under its breadcrumb: its pieces, its
@@ -14,7 +14,8 @@ export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "jour
  * that has boards. Filters and saved views change the pieces, never the tabs.
  * A marked world (folders.worldKey) and every collection inside it also get
  * Instructions (WORLD.md, LEARNINGS.md, docs/ and the open_world context,
- * HUMAN or AGENT) right after Pieces, and Journal (every change, with undo).
+ * HUMAN or AGENT) right after Pieces, Tasks (the world's queue, with the
+ * count that waits) and Journal (every change, with undo).
  */
 export function CollectionTabs({
   ownerUserId,
@@ -23,6 +24,7 @@ export function CollectionTabs({
   active,
   showFolders,
   showWorldTabs = false,
+  worldFolderId,
   always,
   onSelect,
 }: {
@@ -32,8 +34,10 @@ export function CollectionTabs({
   includeChildren: boolean;
   active: CollectionTab;
   showFolders: boolean;
-  /** Inside a marked world: adds Instructions and Journal. */
+  /** Inside a marked world: adds Instructions, Tasks and Journal. */
   showWorldTabs?: boolean;
+  /** The world root, for the Tasks count. */
+  worldFolderId?: string;
   /** World roots and style branches: show even with no boards yet. */
   always: boolean;
   onSelect: (tab: CollectionTab) => void;
@@ -46,6 +50,10 @@ export function CollectionTabs({
       : "skip",
   );
   const boardCount = boards?.length;
+  const taskCounts = useQuery(api.tasks.countOpenTasks, isAuthenticated && showWorldTabs ? { ownerUserId } : "skip");
+  const taskRow = taskCounts?.find((row) => row.worldFolderId === worldFolderId);
+  const taskCount = taskCounts === undefined ? undefined : (taskRow?.open ?? 0) + (taskRow?.claimed ?? 0) + (taskRow?.blocked ?? 0);
+  const taskUrgent = (taskRow?.blocked ?? 0) > 0;
   if (!always && !showWorldTabs && !boardCount && active !== "moodboards") return null;
 
   const tabs: Array<{ key: CollectionTab; label: string; icon: typeof Grid3X3; count?: number; title: string }> = [
@@ -64,7 +72,10 @@ export function CollectionTabs({
       title: "Looks to send to Midjourney, made from this collection's images",
     },
     ...(showWorldTabs
-      ? [{ key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" }]
+      ? [
+        { key: "tasks" as const, label: "Tasks", icon: ListChecks, count: taskCount, title: "Work waiting for an agent in this world, and what needs you" },
+        { key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" },
+      ]
       : []),
   ];
 
@@ -103,7 +114,7 @@ export function CollectionTabs({
           >
             <Icon className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
             {label}
-            {key === "moodboards" && (
+            {(key === "moodboards" || key === "tasks") && (
               <span
                 className="font-mono"
                 style={{
@@ -112,8 +123,8 @@ export function CollectionTabs({
                   letterSpacing: "0.04em",
                   padding: "1px 6px",
                   borderRadius: "8px",
-                  background: selected ? "rgba(255,255,255,0.22)" : "var(--lm-surface-1)",
-                  color: selected ? "#fff" : "var(--lm-text-tertiary)",
+                  background: selected ? "rgba(255,255,255,0.22)" : key === "tasks" && taskUrgent ? "var(--lm-coral)" : "var(--lm-surface-1)",
+                  color: selected ? "#fff" : key === "tasks" && taskUrgent ? "var(--lm-paper)" : "var(--lm-text-tertiary)",
                 }}
               >
                 {count === undefined ? "–" : count}
