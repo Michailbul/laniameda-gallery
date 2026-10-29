@@ -25,10 +25,12 @@ export function useArea<T extends HTMLElement>() {
   const [area, setArea] = useState<Area>({ w: 0, h: 0 });
   useEffect(() => {
     if (!node) return;
-    const observer = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (rect) setArea((current) => (current.w === rect.width && current.h === rect.height ? current : { w: rect.width, h: rect.height }));
-    });
+    const measure = (rect: { width: number; height: number }) =>
+      setArea((current) => (current.w === rect.width && current.h === rect.height ? current : { w: rect.width, h: rect.height }));
+    // Once on mount: a tab that has not painted yet (opened in the
+    // background, or captured headless) gets no ResizeObserver callback.
+    measure(node.getBoundingClientRect());
+    const observer = new ResizeObserver((entries) => { if (entries[0]) measure(entries[0].contentRect); });
     observer.observe(node);
     return () => observer.disconnect();
   }, [node]);
