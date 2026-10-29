@@ -11,6 +11,7 @@ import {
   ArrowLeft, Check, ChevronLeft, ChevronRight, Layers, LayoutGrid, Loader2, Maximize2, MessageSquare, Mic, Redo2,
   ScrollText, SkipForward, Star, Trash2, Undo2, X,
 } from "lucide-react";
+import { aspectOf, fitGrid, measured, useArea, useDesktop } from "./evidence";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -159,6 +160,9 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   const zones = useRef(new Map<number, HTMLElement>());
   const cardRef = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
+  // The desk: evidence sized to the space beside the decision column.
+  const desktop = useDesktop();
+  const [areaRef, area] = useArea<HTMLDivElement>();
 
   const done = progress.pending === 0 && !reviewing;
   const card: Card | undefined = cards[Math.min(index, cards.length - 1)];
@@ -405,13 +409,58 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     : { transform: "none", transition: "transform 260ms cubic-bezier(.2,.9,.3,1.25), opacity 160ms ease-out" };
 
   const tileProps = (asset: CardAsset) => ({
-    asset, notes: notesOf.get(asset.assetId),
+    asset, notes: notesOf.get(asset.assetId), desktop,
     onZoom: () => setZoom({ asset }),
     onNote: open ? () => setNote({ kind: "image", assetId: asset.assetId }) : undefined,
   });
 
+  // On the desk every picture is sized to the measured evidence area; a phone
+  // keeps its full-bleed card.
+  const fit = desktop && card && measured(area) ? fitGrid(card.assets, area) : undefined;
+  const question = card ? card.question ?? DEFAULT_QUESTION[card.type] : "";
+  const boxFor = (asset: CardAsset): CSSProperties | undefined => fit ? { width: fit.tile, aspectRatio: String(aspectOf(asset, 16 / 9)) } : undefined;
+
+  const body = card && (desktop && !fit ? null : <>
+    {card.type === "sort" && <SortCard asset={card.assets[0]!} answer={current} card={card} open={open} hover={hover} setHover={setHover} box={boxFor(card.assets[0]!)}
+      zones={zones} onZoom={() => setZoom({ asset: card.assets[0]! })} onDrop={(hotkey) => void commit({ choice: "target", targetHotkey: hotkey }, zones.current.get(hotkey))} />}
+    {card.type === "artifact" && <ArtifactCard asset={card.assets[0]!} card={card} box={boxFor(card.assets[0]!)} onZoom={() => setZoom({ asset: card.assets[0]!, defect: card.evidence?.defect?.box })} />}
+    {card.type === "ab" && <TileGrid cols={tileColumns(card.assets)} fit={fit}>
+      {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} badge={card.labels?.[at] || (at === 0 ? "A" : "B")} hotkey={at + 1}
+        chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId}
+        onPick={open && !asset.missing ? () => void commit({ choice: "winner", pickedAssetId: asset.assetId }) : undefined} tall />)}
+    </TileGrid>}
+    {card.type === "choose" && <TileGrid cols={tileColumns(card.assets)} fit={fit}>
+      {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at < 9 ? at + 1 : undefined} badge={at >= 9 ? String(at + 1) : undefined}
+        chosen={current?.choice === "pick" && current.pickedAssetId === asset.assetId}
+        onPick={open && !asset.missing ? () => void commit({ choice: "pick", pickedAssetId: asset.assetId }) : undefined} />)}
+    </TileGrid>}
+    {card.type === "duplicates" && <TileGrid cols={tileColumns(card.assets)} fit={fit}>
+      {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at + 1}
+        marked={activeMarks.has(asset.assetId)} isCover={stackCover === asset.assetId}
+        deleted={decisions.get(card._id)?.deletedAssetIds?.includes(asset.assetId)}
+        onToggleMark={open && !asset.missing ? () => toggleMark(asset.assetId) : undefined}
+        onCover={open && !asset.missing && !activeMarks.has(asset.assetId) ? () => setCover(asset.assetId) : undefined} />)}
+    </TileGrid>}
+    {card.type === "rule" && (desktop
+      ? card.assets.length > 0 && <TileGrid cols="grid-cols-3" fit={fit}>{card.assets.map((asset) => <Tile key={asset.assetId} {...tileProps(asset)} />)}</TileGrid>
+      : <RuleCard card={card} tile={(asset) => <Tile key={asset.assetId} {...tileProps(asset)} />} />)}
+  </>);
+
+  const toastNode = toast && <div key={toast.key} role="status" aria-live="polite"
+    className="pointer-events-none absolute left-1/2 top-3 z-40 flex max-w-[92%] -translate-x-1/2 items-center gap-2 px-3 py-2 animate-fade-in"
+    style={{ borderRadius: RADIUS, background: toast.tone === "error" ? "var(--lm-coral)" : "var(--lm-ink)", color: "var(--lm-paper)", boxShadow: "var(--lm-shadow-lg)" }}>
+    {toast.tone === "ok" ? <Check size={13} aria-hidden /> : <X size={13} aria-hidden />}
+    <span className="truncate text-[11px] font-black uppercase tracking-[0.1em]" style={mono}>{toast.text}</span>
+    {toast.detail && <span className="truncate text-[10px] uppercase tracking-[0.1em] opacity-70" style={mono}>{toast.detail}</span>}
+  </div>;
+
+  const commentIcon = comment?.audioUrl && !comment.commentText ? <Mic size={14} aria-hidden /> : <MessageSquare size={14} aria-hidden />;
+  const answers = !done && card && <Answers card={card} current={current} open={open} hover={hover} zones={zones} large={desktop}
+    marks={activeMarks.size} kept={kept.length} confirm={confirm} setConfirm={setConfirm}
+    onAnswer={(answer, element) => void commit(answer, element)} onDuplicates={runDuplicates} />;
+
   return <main className="flex h-dvh flex-col overflow-hidden" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)", overscrollBehavior: "none" }}>
-    <header className="shrink-0 px-4 pt-3 md:px-6" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
+    <header className="shrink-0 px-4 pt-3 md:px-7" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
       <div className="flex items-center gap-3">
         <Link href={`/inbox/${worldId}`} aria-label={`${view.worldName} Inbox`} className="grid h-9 w-9 shrink-0 place-items-center border"
           style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", color: "var(--lm-text-secondary)" }}>
@@ -420,9 +469,17 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-black uppercase leading-tight tracking-tight" style={display}>{stack.title}</p>
           <Micro color="var(--lm-text-ghost)" className="block truncate">
-            {[view.worldName, card ? INBOX_CARD_LABEL[card.type] : undefined, stack.agent, open ? undefined : "Closed"].filter(Boolean).join(" · ")}
+            {[view.worldName, card ? INBOX_CARD_LABEL[card.type] : undefined, stack.agent, open ? undefined : "Closed",
+              desktop && card && !done ? `Card ${String(position).padStart(2, "0")} of ${String(cards.length).padStart(2, "0")}` : undefined].filter(Boolean).join(" · ")}
           </Micro>
         </div>
+        {desktop && !done && card && <div className="flex items-center gap-1.5" aria-label="History and browsing">
+          <ActionButton aria-label="Undo (Z)" title="Undo (Z)" disabled={!open} onClick={() => void undo()} className="h-9 w-10 px-0"><Undo2 size={15} aria-hidden /></ActionButton>
+          <ActionButton aria-label="Redo (Shift+Z)" title="Redo (Shift+Z)" disabled={!open || redoStack.length === 0} onClick={() => void redo()} className="h-9 w-10 px-0"><Redo2 size={15} aria-hidden /></ActionButton>
+          <span className="mx-1.5 h-5 w-px" style={{ background: "var(--lm-border-strong)" }} aria-hidden />
+          <ActionButton aria-label="Previous card" title="Previous (←)" onClick={() => browse(-1)} className="h-9 w-10 px-0"><ChevronLeft size={15} aria-hidden /></ActionButton>
+          <ActionButton aria-label="Next card" title="Next (→)" onClick={() => browse(1)} className="h-9 w-10 px-0"><ChevronRight size={15} aria-hidden /></ActionButton>
+        </div>}
         <button type="button" onClick={() => setGridOpen(true)} aria-label="All cards" title="All cards"
           className="flex h-9 items-center gap-2 border px-2.5" style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)" }}>
           <span className="text-[12px] font-bold tabular-nums" style={mono}>
@@ -434,78 +491,71 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       <div className="mt-3 h-[3px] w-full" style={{ background: "var(--lm-border)" }} aria-hidden>
         <div className="h-full transition-[width] duration-300" style={{ width: `${progress.total ? (progress.decided / progress.total) * 100 : 0}%`, background: "var(--lm-coral)" }} />
       </div>
-      {!done && card && <>
-        <p className="mt-3 text-[17px] font-bold leading-snug md:text-[20px]" style={display}>{card.question ?? DEFAULT_QUESTION[card.type]}</p>
+      {!desktop && !done && card && <>
+        <p className="mt-3 text-[17px] font-bold leading-snug" style={display}>{question}</p>
         <Evidence card={card} />
       </>}
       {done && stack.note && <p className="mt-3 text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>{stack.note}</p>}
     </header>
 
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] gap-3 px-4 pb-3 pt-3 md:grid-cols-[minmax(0,1fr)_340px] md:grid-rows-1 md:gap-6 md:px-6 md:pb-6"
-      style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
-      <section className="relative flex min-h-0 flex-col">
-        {done ? <DoneView view={view} decisions={decisions} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
-          : card && <>
-            <div ref={cardRef} key={card._id} className="relative flex min-h-0 flex-1 flex-col" style={cardStyle}
-              aria-label={`Card ${position} of ${cards.length}`}>
-              {card.type === "sort" && <SortCard asset={card.assets[0]!} answer={current} card={card} open={open} hover={hover} setHover={setHover}
-                zones={zones} onZoom={() => setZoom({ asset: card.assets[0]! })} onDrop={(hotkey) => void commit({ choice: "target", targetHotkey: hotkey }, zones.current.get(hotkey))} />}
-              {card.type === "artifact" && <ArtifactCard asset={card.assets[0]!} card={card} onZoom={() => setZoom({ asset: card.assets[0]!, defect: card.evidence?.defect?.box })} />}
-              {card.type === "ab" && <TileGrid cols={tileColumns(card.assets)}>
-                {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} badge={card.labels?.[at] || (at === 0 ? "A" : "B")} hotkey={at + 1}
-                  chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId}
-                  onPick={open && !asset.missing ? () => void commit({ choice: "winner", pickedAssetId: asset.assetId }) : undefined} tall />)}
-              </TileGrid>}
-              {card.type === "choose" && <TileGrid cols={tileColumns(card.assets)}>
-                {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at < 9 ? at + 1 : undefined} badge={at >= 9 ? String(at + 1) : undefined}
-                  chosen={current?.choice === "pick" && current.pickedAssetId === asset.assetId}
-                  onPick={open && !asset.missing ? () => void commit({ choice: "pick", pickedAssetId: asset.assetId }) : undefined} />)}
-              </TileGrid>}
-              {card.type === "duplicates" && <TileGrid cols={tileColumns(card.assets)}>
-                {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at + 1}
-                  marked={activeMarks.has(asset.assetId)} isCover={stackCover === asset.assetId}
-                  deleted={decisions.get(card._id)?.deletedAssetIds?.includes(asset.assetId)}
-                  onToggleMark={open && !asset.missing ? () => toggleMark(asset.assetId) : undefined}
-                  onCover={open && !asset.missing && !activeMarks.has(asset.assetId) ? () => setCover(asset.assetId) : undefined} />)}
-              </TileGrid>}
-              {card.type === "rule" && <RuleCard card={card} tile={(asset) => <Tile key={asset.assetId} {...tileProps(asset)} />} />}
-            </div>
-            {toast && <div key={toast.key} role="status" aria-live="polite"
-              className="pointer-events-none absolute left-1/2 top-3 z-40 flex max-w-[92%] -translate-x-1/2 items-center gap-2 px-3 py-2 animate-fade-in"
-              style={{ borderRadius: RADIUS, background: toast.tone === "error" ? "var(--lm-coral)" : "var(--lm-ink)", color: "var(--lm-paper)", boxShadow: "var(--lm-shadow-lg)" }}>
-              {toast.tone === "ok" ? <Check size={13} aria-hidden /> : <X size={13} aria-hidden />}
-              <span className="truncate text-[11px] font-black uppercase tracking-[0.1em]" style={mono}>{toast.text}</span>
-              {toast.detail && <span className="truncate text-[10px] uppercase tracking-[0.1em] opacity-70" style={mono}>{toast.detail}</span>}
-            </div>}
-          </>}
-
-        {!done && card && <div className="mt-3 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex gap-1.5">
-            <ActionButton aria-label="Undo (Z)" title="Undo (Z)" disabled={!open} onClick={() => void undo()} className="h-10 w-11 px-0"><Undo2 size={15} aria-hidden /></ActionButton>
-            <span className="hidden md:flex"><ActionButton aria-label="Redo (Shift+Z)" title="Redo (Shift+Z)" disabled={!open || redoStack.length === 0} onClick={() => void redo()} className="h-10 w-11 px-0"><Redo2 size={15} aria-hidden /></ActionButton></span>
+    {desktop
+      ? <div className={`grid min-h-0 flex-1 gap-8 px-7 pb-6 pt-5 ${done ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)]"}`}>
+        <section className="relative flex min-h-0 flex-col" aria-label="Evidence">
+          {done ? <DoneView view={view} decisions={decisions} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+            : card && <>
+              <div className="shrink-0 pb-5">
+                <h1 className="max-w-[40ch] text-[26px] font-bold leading-[1.15] tracking-tight" style={display}>{question}</h1>
+                {card.type === "rule" && card.ruleText && <div className="mt-4 max-w-[65ch] border-l-[3px] pl-4" style={{ borderColor: "var(--lm-coral)" }}>
+                  <Micro className="inline-flex items-center gap-1.5"><ScrollText size={12} aria-hidden /> Proposed rule</Micro>
+                  <p className="mt-1.5 text-[20px] font-black leading-snug" style={display}>{card.ruleText}</p>
+                </div>}
+                <Evidence card={card} desktop />
+              </div>
+              <div ref={cardRef} key={card._id} className="relative min-h-0 flex-1" style={cardStyle} aria-label={`Card ${position} of ${cards.length}`}>
+                <div ref={areaRef} className="absolute inset-0 overflow-y-auto">{body}</div>
+              </div>
+              {toastNode}
+            </>}
+        </section>
+        {!done && card && <aside aria-label="Answers" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+          <div className="mb-1 flex items-baseline justify-between">
+            <Micro color="var(--lm-text-primary)">Decide</Micro>
+            <Micro color="var(--lm-text-ghost)">{card.type === "duplicates" ? "G · K · D" : "Press a number"}</Micro>
           </div>
-          <ActionButton tone={hasNote ? "coral" : "ghost"} disabled={!open} onClick={openNote} className="h-10" title="Comment (Enter)"
-            icon={comment?.audioUrl && !comment.commentText ? <Mic size={14} aria-hidden /> : <MessageSquare size={14} aria-hidden />}>
-            {singleImage ? "Note" : "Comment"}<span className="hidden opacity-60 md:inline">↵</span>
-          </ActionButton>
-          <div className="flex gap-1.5">
-            <span className="hidden gap-1.5 md:flex">
-              <ActionButton aria-label="Previous card" title="Previous (←)" onClick={() => browse(-1)} className="h-10 w-10 px-0"><ChevronLeft size={15} aria-hidden /></ActionButton>
-              <ActionButton aria-label="Next card" title="Next (→)" onClick={() => browse(1)} className="h-10 w-10 px-0"><ChevronRight size={15} aria-hidden /></ActionButton>
-            </span>
-            <ActionButton disabled={!open} onClick={() => void commit({ choice: "skip" })} className="h-10" icon={<SkipForward size={14} aria-hidden />} title="Decide later (S or Space)">
-              Later<span className="hidden opacity-60 md:inline">S</span>
+          {answers}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <ActionButton disabled={!open} onClick={() => void commit({ choice: "skip" })} className="h-11" icon={<SkipForward size={14} aria-hidden />} title="Decide later (S or Space)">
+              Later<span className="opacity-60">S</span>
+            </ActionButton>
+            <ActionButton tone={hasNote ? "coral" : "ghost"} disabled={!open} onClick={openNote} className="h-11" title="Comment (Enter)" icon={commentIcon}>
+              {singleImage ? "Note" : "Comment"}<span className="opacity-60">↵</span>
             </ActionButton>
           </div>
-        </div>}
-      </section>
-
-      <section aria-label="Answers" className="shrink-0 md:flex md:min-h-0 md:flex-col">
-        {!done && card && <Answers card={card} current={current} open={open} hover={hover} zones={zones}
-          marks={activeMarks.size} kept={kept.length} confirm={confirm} setConfirm={setConfirm}
-          onAnswer={(answer, element) => void commit(answer, element)} onDuplicates={runDuplicates} />}
-      </section>
-    </div>
+          {comment?.commentText && <p className="mt-1 line-clamp-4 border-l-2 pl-3 text-[12px] leading-5" style={{ borderColor: "var(--lm-coral)", color: "var(--lm-text-secondary)" }}>{comment.commentText}</p>}
+          <Micro color="var(--lm-text-ghost)" className="mt-auto pt-4 leading-5 normal-case tracking-[0.04em]">
+            ← → browse · ↵ comment · S later · Z undo · ⇧Z redo · F full size
+          </Micro>
+        </aside>}
+      </div>
+      : <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] gap-3 px-4 pb-3 pt-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+        <section className="relative flex min-h-0 flex-col">
+          {done ? <DoneView view={view} decisions={decisions} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+            : card && <>
+              <div ref={cardRef} key={card._id} className="relative flex min-h-0 flex-1 flex-col" style={cardStyle} aria-label={`Card ${position} of ${cards.length}`}>{body}</div>
+              {toastNode}
+            </>}
+          {!done && card && <div className="mt-3 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-2">
+            <ActionButton aria-label="Undo (Z)" title="Undo (Z)" disabled={!open} onClick={() => void undo()} className="h-10 w-11 px-0"><Undo2 size={15} aria-hidden /></ActionButton>
+            <ActionButton tone={hasNote ? "coral" : "ghost"} disabled={!open} onClick={openNote} className="h-10" title="Comment (Enter)" icon={commentIcon}>
+              {singleImage ? "Note" : "Comment"}
+            </ActionButton>
+            <ActionButton disabled={!open} onClick={() => void commit({ choice: "skip" })} className="h-10" icon={<SkipForward size={14} aria-hidden />} title="Decide later (S or Space)">
+              Later
+            </ActionButton>
+          </div>}
+        </section>
+        <section aria-label="Answers" className="shrink-0">{answers}</section>
+      </div>}
 
     {zoom && !zoom.asset.missing && <ZoomViewer assetId={zoom.asset.assetId} kind={zoom.asset.kind ?? "image"} url={zoom.asset.url} thumbUrl={zoom.asset.thumbUrl}
       width={zoom.asset.width} height={zoom.asset.height} defect={zoom.defect} onClose={() => setZoom(null)} />}
@@ -519,20 +569,20 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
 
 /* ── Evidence: facts only ────────────────────────────────────────────────── */
 
-function Evidence({ card }: { card: Card }) {
+function Evidence({ card, desktop }: { card: Card; desktop?: boolean }) {
   const evidence = card.evidence;
   if (!evidence || (!evidence.text && !evidence.matches?.length && evidence.priceUsd === undefined && !evidence.defect?.note)) return null;
-  return <div className="mt-2 flex flex-wrap items-center gap-1.5">
+  return <div className={`flex flex-wrap items-center gap-1.5 ${desktop ? "mt-4 max-w-[65ch]" : "mt-2"}`}>
     {evidence.matches?.map((match, index) => <span key={index} className="inline-flex items-center gap-1.5 border px-1.5 py-[3px] text-[10px] font-semibold uppercase leading-none tracking-[0.1em]"
       style={{ ...mono, borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", color: "var(--lm-text-secondary)" }}>
       {match.label}{match.score !== undefined && <span style={{ color: "var(--lm-coral)" }}>{match.score <= 1 ? match.score.toFixed(2) : match.score}</span>}
     </span>)}
-    {evidence.defect?.note && <span className="text-[12px]" style={{ color: "var(--lm-text-secondary)" }}>{evidence.defect.note}</span>}
+    {evidence.defect?.note && <span className={desktop ? "text-[14px]" : "text-[12px]"} style={{ color: "var(--lm-text-secondary)" }}>{evidence.defect.note}</span>}
     {evidence.priceUsd !== undefined && <span className="px-1.5 py-[3px] text-[10px] font-bold uppercase leading-none tracking-[0.1em]"
       style={{ ...mono, borderRadius: RADIUS, background: "var(--lm-accent-dim)", color: "var(--lm-coral)" }}>
       Repair {formatUsd(evidence.priceUsd)}{evidence.priceNote ? ` · ${evidence.priceNote}` : ""}
     </span>}
-    {evidence.text && <p className="w-full text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>{evidence.text}</p>}
+    {evidence.text && <p className={`w-full ${desktop ? "mt-1 text-[14px] leading-6" : "text-[12px] leading-5"}`} style={{ color: desktop ? "var(--lm-text-secondary)" : "var(--lm-text-tertiary)" }}>{evidence.text}</p>}
   </div>;
 }
 
@@ -552,6 +602,23 @@ function Picture({ asset, contain = true }: { asset: CardAsset; contain?: boolea
     {src && <img src={src} alt={asset.caption ?? "Image"} draggable={false} decoding="async"
       onLoad={() => setLoaded(true)} className={`pointer-events-none absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"}`}
       style={{ opacity: loaded ? 1 : 0, transition: "opacity 160ms ease-out" }} />}
+  </>;
+}
+
+// The still, and for a video clip the clip itself while the pointer rests on it.
+function Media({ asset, playing }: { asset: CardAsset; playing: boolean }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    if (playing) void element.play().catch(() => undefined);
+    else { element.pause(); element.currentTime = 0; }
+  }, [playing]);
+  const clip = asset.kind === "video" && asset.url && !asset.missing;
+  return <>
+    <Picture asset={asset} />
+    {clip && <video ref={video} src={asset.url} muted loop playsInline preload="none" aria-hidden
+      className="pointer-events-none absolute inset-0 h-full w-full object-contain" style={{ opacity: playing ? 1 : 0, transition: "opacity 160ms ease-out" }} />}
   </>;
 }
 
@@ -575,9 +642,11 @@ function CornerChips({ asset, label }: { asset: CardAsset; label?: string }) {
 }
 
 // A sort card: drag the image onto a target, or tap it to see it full size.
-function SortCard({ asset, card, answer, open, hover, setHover, zones, onZoom, onDrop }: {
+// With `box` (the desk) the card is exactly the picture's size; without it
+// (a phone) it fills the screen.
+function SortCard({ asset, card, answer, open, hover, setHover, zones, box, onZoom, onDrop }: {
   asset: CardAsset; card: Card; answer: Answer | null; open: boolean; hover: number | null; setHover: (hotkey: number | null) => void;
-  zones: React.RefObject<Map<number, HTMLElement>>; onZoom: () => void; onDrop: (hotkey: number) => void;
+  zones: React.RefObject<Map<number, HTMLElement>>; box?: CSSProperties; onZoom: () => void; onDrop: (hotkey: number) => void;
 }) {
   const [drag, setDrag] = useState<{ pointerId: number; startX: number; startY: number; dx: number; dy: number; moved: boolean } | null>(null);
   const zoneAt = (x: number, y: number) => {
@@ -612,8 +681,8 @@ function SortCard({ asset, card, answer, open, hover, setHover, zones, onZoom, o
   const style: CSSProperties = drag?.moved
     ? { transform: `translate(${drag.dx}px, ${drag.dy}px) rotate(${Math.max(-8, Math.min(8, drag.dx * 0.035))}deg) scale(${hover ? 0.86 : 0.97})`, zIndex: 30, cursor: "grabbing", boxShadow: "var(--lm-modal-shadow)" }
     : { transition: "transform 260ms cubic-bezier(.2,.9,.3,1.25)" };
-  return <div className="relative min-h-0 flex-1 touch-none select-none overflow-hidden border"
-    style={{ borderRadius: RADIUS, borderColor: hover ? "var(--lm-coral)" : "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)", cursor: open ? "grab" : "zoom-in", ...style }}
+  return <div className={`relative touch-none select-none overflow-hidden border ${box ? "max-w-full" : "min-h-0 flex-1"}`}
+    style={{ borderRadius: RADIUS, borderColor: hover ? "var(--lm-coral)" : "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)", cursor: open ? "grab" : "zoom-in", ...box, ...style }}
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => { setDrag(null); setHover(null); }}
     aria-label="Drag onto a target, or tap to see it full size">
     <Picture asset={asset} />
@@ -623,32 +692,32 @@ function SortCard({ asset, card, answer, open, hover, setHover, zones, onZoom, o
 }
 
 // An artifact: the image with the defect boxed, and a zoomed crop of it.
-function ArtifactCard({ asset, card, onZoom }: { asset: CardAsset; card: Card; onZoom: () => void }) {
-  const box = card.evidence?.defect?.box;
+function ArtifactCard({ asset, card, box, onZoom }: { asset: CardAsset; card: Card; box?: CSSProperties; onZoom: () => void }) {
+  const defect = card.evidence?.defect?.box;
   const src = asset.url ?? asset.thumbUrl;
-  const aspect = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
+  const aspect = aspectOf(asset, 16 / 9);
   // The crop shows the box at 2.5× its share of the frame, centred.
-  const crop = box && src && !asset.missing ? (() => {
-    const zoom = Math.min(8, 1 / Math.max(box.w, box.h, 0.08));
-    const cx = box.x + box.w / 2;
-    const cy = box.y + box.h / 2;
+  const crop = defect && src && !asset.missing ? (() => {
+    const zoom = Math.min(8, 1 / Math.max(defect.w, defect.h, 0.08));
+    const cx = defect.x + defect.w / 2;
+    const cy = defect.y + defect.h / 2;
     return { size: `${zoom * 100}% auto`, position: `${Math.min(100, Math.max(0, ((cx * zoom - 0.5) / (zoom - 1 || 1)) * 100))}% ${Math.min(100, Math.max(0, ((cy * zoom - 0.5) / (zoom - 1 || 1)) * 100))}%` };
   })() : undefined;
-  return <button type="button" onClick={onZoom} className="relative min-h-0 flex-1 overflow-hidden border text-left"
-    style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)" }}
+  return <button type="button" onClick={onZoom} className={`relative overflow-hidden border text-left ${box ? "max-w-full" : "min-h-0 flex-1"}`}
+    style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)", ...box }}
     aria-label="See the defect full size">
     {/* The image and its box share one box sized to the image's aspect. */}
     <span className="absolute inset-0 grid place-items-center p-0">
       <span className="relative block max-h-full max-w-full" style={{ aspectRatio: String(aspect), width: "100%", maxHeight: "100%" }}>
         <Picture asset={asset} />
-        {box && <span className="absolute" style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, border: "2px solid var(--lm-coral)", boxShadow: "0 0 0 9999px rgba(0,0,0,0.22)" }} />}
+        {defect && <span className="absolute" style={{ left: `${defect.x * 100}%`, top: `${defect.y * 100}%`, width: `${defect.w * 100}%`, height: `${defect.h * 100}%`, border: "2px solid var(--lm-coral)", boxShadow: "0 0 0 9999px rgba(0,0,0,0.22)" }} />}
       </span>
     </span>
     <CornerChips asset={asset} />
-    {crop && box && <span className="absolute bottom-2 right-2 block w-[42%] max-w-[260px] border-2"
+    {crop && defect && <span className="absolute bottom-2 right-2 block w-[42%] max-w-[260px] border-2"
       style={{
         // The crop keeps the defect's own shape, between square-ish and wide.
-        aspectRatio: String(Math.min(2.4, Math.max(0.8, (box.w * aspect) / Math.max(box.h, 0.01)))),
+        aspectRatio: String(Math.min(2.4, Math.max(0.8, (defect.w * aspect) / Math.max(defect.h, 0.01)))),
         borderRadius: RADIUS, borderColor: "var(--lm-coral)", backgroundImage: `url(${src})`, backgroundSize: crop.size, backgroundPosition: crop.position,
         backgroundRepeat: "no-repeat", backgroundColor: "var(--lm-surface-2)", boxShadow: "var(--lm-shadow-lg)",
       }}
@@ -656,34 +725,46 @@ function ArtifactCard({ asset, card, onZoom }: { asset: CardAsset; card: Card; o
   </button>;
 }
 
-// Columns for a set of images: wide images stack on a phone so each one is
+// Columns for a set of images on a phone: wide images stack so each one is
 // as large as the screen allows; tall ones sit side by side.
 const tileColumns = (assets: CardAsset[]) => {
   const shown = assets.filter((asset) => asset.width && asset.height);
   const aspect = shown.length ? shown.reduce((sum, asset) => sum + asset.width! / asset.height!, 0) / shown.length : 1;
   const count = assets.length;
-  if (aspect > 1.25) return count <= 3 ? "grid-cols-1 md:grid-cols-2" : count <= 6 ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4";
-  if (aspect < 0.8) return count <= 2 ? "grid-cols-2" : count <= 6 ? "grid-cols-3" : "grid-cols-3 md:grid-cols-4";
-  return count <= 4 ? "grid-cols-2" : "grid-cols-3 md:grid-cols-4";
+  if (aspect > 1.25) return count <= 3 ? "grid-cols-1" : count <= 6 ? "grid-cols-2" : "grid-cols-2";
+  if (aspect < 0.8) return count <= 2 ? "grid-cols-2" : "grid-cols-3";
+  return count <= 4 ? "grid-cols-2" : "grid-cols-3";
 };
 
-function TileGrid({ cols, children }: { cols: string; children: ReactNode }) {
+// On the desk the grid is measured: fixed columns of one tile width, each
+// tile at its own aspect, tops aligned. On a phone the tiles share the screen.
+function TileGrid({ cols, fit, children }: { cols: string; fit?: ReturnType<typeof fitGrid>; children: ReactNode }) {
+  if (fit) {
+    return <div className="grid pb-1 pr-1" style={{ gridTemplateColumns: `repeat(${fit.cols}, ${fit.tile}px)`, gap: fit.gap, alignItems: "start", alignContent: "start" }}>{children}</div>;
+  }
   return <div className={`grid min-h-0 flex-1 auto-rows-fr gap-2 overflow-y-auto ${cols}`}>{children}</div>;
 }
 
 // One image among several: tap to answer (A/B, choose one), or mark it for
 // deletion and pick the cover (duplicates). Zoom and a note on every tile.
-function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, tall, onPick, onToggleMark, onCover, onZoom, onNote }: {
+function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, tall, desktop, onPick, onToggleMark, onCover, onZoom, onNote }: {
   asset: CardAsset; notes?: ImageNote[]; hotkey?: number; badge?: string; chosen?: boolean; marked?: boolean; isCover?: boolean; deleted?: boolean; tall?: boolean;
-  onPick?: () => void; onToggleMark?: () => void; onCover?: () => void; onZoom: () => void; onNote?: () => void;
+  desktop?: boolean; onPick?: () => void; onToggleMark?: () => void; onCover?: () => void; onZoom: () => void; onNote?: () => void;
 }) {
   const ownerNotes = notes?.filter((entry) => entry.author === "owner").length ?? 0;
   const action = onPick ?? onToggleMark ?? onZoom;
-  return <div className={`group relative min-h-[96px] overflow-hidden border ${tall ? "md:min-h-[260px]" : ""}`}
-    style={{ borderRadius: RADIUS, borderWidth: chosen || marked ? 2 : 1, borderColor: chosen ? "var(--lm-coral)" : marked ? "var(--lm-status-error)" : isCover ? "var(--lm-ink)" : "var(--lm-border-strong)", background: "var(--lm-surface-1)" }}>
+  const [resting, setResting] = useState(false);
+  const toolButton = "grid h-7 w-7 place-items-center";
+  const toolStyle = (on?: boolean): CSSProperties => ({ borderRadius: RADIUS, background: on ? "var(--lm-coral)" : SCRIM, color: on ? "var(--lm-paper)" : "var(--lm-text-primary)", border: "1px solid var(--lm-border-strong)" });
+  return <div className={`group relative overflow-hidden border ${desktop ? "" : `min-h-[96px] ${tall ? "md:min-h-[260px]" : ""}`}`}
+    onPointerEnter={desktop ? () => setResting(true) : undefined} onPointerLeave={desktop ? () => setResting(false) : undefined}
+    style={{
+      borderRadius: RADIUS, borderWidth: chosen || marked ? 2 : 1, borderColor: chosen ? "var(--lm-coral)" : marked ? "var(--lm-status-error)" : isCover ? "var(--lm-ink)" : "var(--lm-border-strong)",
+      background: "var(--lm-surface-1)", aspectRatio: desktop ? String(aspectOf(asset)) : undefined,
+    }}>
     <button type="button" onClick={action} disabled={asset.missing || deleted} className="absolute inset-0 block disabled:cursor-default"
       aria-label={onPick ? `Choose ${badge ?? hotkey ?? ""}` : onToggleMark ? (marked ? "Keep this image" : "Mark to delete") : "See it full size"}>
-      <Picture asset={asset} />
+      {desktop ? <Media asset={asset} playing={resting} /> : <Picture asset={asset} />}
     </button>
     {marked && <span className="pointer-events-none absolute inset-0 grid place-items-center" style={{ background: "color-mix(in srgb, var(--lm-paper) 55%, transparent)" }}>
       <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em]" style={{ ...mono, borderRadius: RADIUS, background: "var(--lm-status-error)", color: "#fff" }}>
@@ -692,17 +773,15 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
     </span>}
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-1.5 p-1.5">
       <span className="flex items-center gap-1">
-        {hotkey !== undefined && <Hotkey n={hotkey} active={chosen} size={20} />}
+        {hotkey !== undefined && <Hotkey n={hotkey} active={chosen} size={desktop ? 24 : 20} />}
         {badge && <span className="px-1.5 py-[3px] text-[10px] font-black uppercase leading-none tracking-[0.1em]" style={{ ...mono, borderRadius: RADIUS, background: chosen ? "var(--lm-coral)" : "var(--lm-ink)", color: "var(--lm-paper)" }}>{badge}</span>}
         {isCover && !marked && <span className="px-1.5 py-[3px] text-[9px] font-black uppercase leading-none tracking-[0.12em]" style={{ ...mono, borderRadius: RADIUS, background: "var(--lm-ink)", color: "var(--lm-paper)" }}>Cover</span>}
       </span>
-      <span className="pointer-events-auto flex gap-1">
-        {onNote && !asset.missing && <button type="button" onClick={onNote} aria-label="Note on this image"
-          className="relative grid h-7 w-7 place-items-center" style={{ borderRadius: RADIUS, background: ownerNotes ? "var(--lm-coral)" : SCRIM, color: ownerNotes ? "var(--lm-paper)" : "var(--lm-text-primary)", border: "1px solid var(--lm-border-strong)" }}>
+      <span className={`pointer-events-auto flex gap-1 ${desktop && !ownerNotes ? "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" : ""}`}>
+        {onNote && !asset.missing && <button type="button" onClick={onNote} aria-label="Note on this image" className={toolButton} style={toolStyle(ownerNotes > 0)}>
           <MessageSquare size={12} aria-hidden />
         </button>}
-        {!asset.missing && <button type="button" onClick={onZoom} aria-label="See it full size"
-          className="grid h-7 w-7 place-items-center" style={{ borderRadius: RADIUS, background: SCRIM, color: "var(--lm-text-primary)", border: "1px solid var(--lm-border-strong)" }}>
+        {!asset.missing && <button type="button" onClick={onZoom} aria-label="See it full size" className={toolButton} style={toolStyle()}>
           <Maximize2 size={12} aria-hidden />
         </button>}
       </span>
@@ -710,97 +789,123 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-1.5 p-1.5">
       <span className="pointer-events-auto"><CopyChip value={`asset:${asset.assetId}`} label={shortAssetId(asset.assetId)} /></span>
       {onCover && !isCover && <button type="button" onClick={onCover} aria-label="Make this the cover" title="Make this the cover (Shift + number)"
-        className="pointer-events-auto grid h-7 w-7 place-items-center" style={{ borderRadius: RADIUS, background: SCRIM, color: "var(--lm-text-primary)", border: "1px solid var(--lm-border-strong)" }}>
+        className={`pointer-events-auto ${toolButton}`} style={toolStyle()}>
         <Star size={12} aria-hidden />
       </button>}
     </div>
   </div>;
 }
 
+// A phone's rule card: the proposed rule above its evidence, in one frame.
 function RuleCard({ card, tile }: { card: Card; tile: (asset: CardAsset) => ReactNode }) {
   return <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border p-4"
     style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)" }}>
     <Micro className="inline-flex items-center gap-1.5"><ScrollText size={12} aria-hidden /> Proposed rule</Micro>
-    <p className="text-[19px] font-black leading-snug md:text-[24px]" style={display}>{card.ruleText}</p>
+    <p className="text-[19px] font-black leading-snug" style={display}>{card.ruleText}</p>
     {card.assets.length > 0 && <>
       <Micro color="var(--lm-text-ghost)">Evidence · {card.assets.length} {card.assets.length === 1 ? "image" : "images"}</Micro>
-      <div className="grid grid-cols-3 gap-1.5 md:grid-cols-4">{card.assets.map((asset) => <div key={asset.assetId} className="aspect-square">{tile(asset)}</div>)}</div>
+      <div className="grid grid-cols-3 gap-1.5">{card.assets.map((asset) => <div key={asset.assetId} className="aspect-square">{tile(asset)}</div>)}</div>
     </>}
   </div>;
 }
 
 /* ── Answers ─────────────────────────────────────────────────────────────── */
 
-function AnswerZone({ hotkey, label, sub, thumb, hot, chosen, disabled, danger, compact, narrow, register, onClick }: {
+function AnswerZone({ hotkey, label, sub, thumb, hot, chosen, disabled, danger, compact, narrow, large, register, onClick }: {
   hotkey?: number | string; label: string; sub?: string; thumb?: string; hot?: boolean; chosen?: boolean; disabled?: boolean; danger?: boolean; compact?: boolean;
   /** One of three across a phone: the hotkey square hides below md. */
   narrow?: boolean;
+  /** The desk's decision column: one big equal button per answer. */
+  large?: boolean;
   register?: (element: HTMLElement | null) => void; onClick: () => void;
 }) {
   return <button type="button" ref={register} onClick={onClick} disabled={disabled} aria-label={`${hotkey ? `${hotkey}: ` : ""}${label}`}
-    className="group relative flex min-w-0 items-center gap-2.5 overflow-hidden border text-left transition-[transform,background-color,border-color] duration-100 disabled:cursor-not-allowed md:min-h-[64px] md:shrink-0 md:p-3"
+    className={`group relative flex min-w-0 items-center overflow-hidden border text-left transition-[transform,background-color,border-color] duration-100 disabled:cursor-not-allowed ${large ? "gap-3.5 shrink-0" : "gap-2.5 md:min-h-[64px] md:shrink-0 md:p-3"}`}
     style={{
-      borderRadius: RADIUS, padding: compact ? "8px 9px" : "11px 11px", minHeight: compact ? 48 : 58, borderWidth: hot ? 2 : 1,
-      borderColor: hot || chosen ? "var(--lm-coral)" : danger ? "var(--lm-status-error)" : "var(--lm-border)",
+      borderRadius: RADIUS, padding: large ? "14px 16px" : compact ? "8px 9px" : "11px 11px", minHeight: large ? 72 : compact ? 48 : 58, borderWidth: hot ? 2 : 1,
+      borderColor: hot || chosen ? "var(--lm-coral)" : danger ? "var(--lm-status-error)" : large ? "var(--lm-border-strong)" : "var(--lm-border)",
       background: hot ? "var(--lm-accent-dim)" : danger ? "color-mix(in srgb, var(--lm-status-error) 14%, var(--lm-surface-1))" : "var(--lm-surface-1)",
       transform: hot ? "scale(1.035)" : "none", opacity: disabled && !chosen ? 0.45 : 1,
     }}>
-    {hotkey !== undefined && <span className={narrow ? "hidden md:inline" : undefined}><Hotkey n={hotkey} active={hot || chosen} size={compact ? 20 : 22} /></span>}
+    {hotkey !== undefined && <span className={narrow && !large ? "hidden md:inline" : undefined}><Hotkey n={hotkey} active={hot || chosen} size={large ? 28 : compact ? 20 : 22} /></span>}
     <span className="min-w-0 flex-1">
-      <span className={`block truncate font-black uppercase leading-tight tracking-tight ${compact ? "text-[11px]" : "text-[12px] md:text-[13px]"}`} style={display}>{label}</span>
-      {sub && <span className="mt-0.5 line-clamp-2 text-[9px] font-semibold uppercase leading-[1.35] tracking-[0.1em]" style={{ ...mono, color: "var(--lm-text-ghost)" }}>{sub}</span>}
+      <span className={`block truncate font-black uppercase leading-tight tracking-tight ${large ? "text-[15px]" : compact ? "text-[11px]" : "text-[12px] md:text-[13px]"}`} style={display}>{label}</span>
+      {sub && <span className={`mt-0.5 line-clamp-2 font-semibold uppercase leading-[1.35] tracking-[0.1em] ${large ? "text-[10px]" : "text-[9px]"}`} style={{ ...mono, color: "var(--lm-text-ghost)" }}>{sub}</span>}
     </span>
-    {thumb && !compact && <span className="hidden h-10 w-10 shrink-0 overflow-hidden min-[400px]:block md:h-11 md:w-11" style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)" }}>
+    {chosen && large && <Check size={16} aria-hidden style={{ color: "var(--lm-coral)" }} />}
+    {thumb && !compact && <span className={`hidden shrink-0 overflow-hidden min-[400px]:block ${large ? "h-12 w-12" : "h-10 w-10 md:h-11 md:w-11"}`} style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)" }}>
       {/* eslint-disable-next-line @next/next/no-img-element -- the board's or collection's cover thumbnail */}
       <img src={thumb} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover" />
     </span>}
   </button>;
 }
 
-function Answers({ card, current, open, hover, zones, marks, kept, confirm, setConfirm, onAnswer, onDuplicates }: {
+function Answers({ card, current, open, hover, zones, marks, kept, confirm, setConfirm, large, onAnswer, onDuplicates }: {
   card: Card; current: Answer | null; open: boolean; hover: number | null; zones: React.RefObject<Map<number, HTMLElement>>;
-  marks: number; kept: number; confirm: "stack" | "resolve" | null; setConfirm: (value: "stack" | "resolve" | null) => void;
+  marks: number; kept: number; confirm: "stack" | "resolve" | null; setConfirm: (value: "stack" | "resolve" | null) => void; large?: boolean;
   onAnswer: (answer: Answer, element?: HTMLElement) => void; onDuplicates: (choice: "stack" | "resolve" | "keep-all") => void;
 }) {
   const grid = (count: number, children: ReactNode, hint?: string) => <>
     {hint && <Micro color="var(--lm-text-ghost)" className="mb-2 hidden md:block">{hint}</Micro>}
-    <div className="grid gap-2 md:flex md:min-h-0 md:flex-col md:overflow-y-auto" style={{ gridTemplateColumns: `repeat(${count <= 2 || count === 4 ? 2 : 3}, minmax(0, 1fr))` }}>{children}</div>
+    {large
+      ? <div className="flex min-h-0 flex-col gap-2.5">{children}</div>
+      : <div className="grid gap-2 md:flex md:min-h-0 md:flex-col md:overflow-y-auto" style={{ gridTemplateColumns: `repeat(${count <= 2 || count === 4 ? 2 : 3}, minmax(0, 1fr))` }}>{children}</div>}
   </>;
   const is = (choice: InboxChoice) => current?.choice === choice;
+  const zone = (props: Omit<Parameters<typeof AnswerZone>[0], "large">) => <AnswerZone key={String(props.hotkey ?? props.label)} large={large} {...props} />;
 
   if (card.type === "sort") {
     const targets = card.targets ?? [];
-    return grid(targets.length, targets.map((target: Target) => <AnswerZone key={target.hotkey} narrow={targets.length !== 2 && targets.length !== 4} hotkey={target.hotkey} label={target.label}
-      sub={target.missing ? "Gone" : INBOX_TARGET_KIND_LABEL[target.kind]} thumb={target.previewThumbUrl ?? undefined} compact={targets.length > 6}
-      hot={hover === target.hotkey} chosen={current?.choice === "target" && current.targetHotkey === target.hotkey} disabled={!open || target.missing}
-      register={(element) => { if (element) zones.current.set(target.hotkey, element); else zones.current.delete(target.hotkey); }}
-      onClick={() => onAnswer({ choice: "target", targetHotkey: target.hotkey }, zones.current.get(target.hotkey))} />), "Drop on a target · or press its number");
+    return grid(targets.length, targets.map((target: Target) => zone({
+      narrow: targets.length !== 2 && targets.length !== 4, hotkey: target.hotkey, label: target.label,
+      sub: target.missing ? "Gone" : INBOX_TARGET_KIND_LABEL[target.kind], thumb: target.previewThumbUrl ?? undefined, compact: !large && targets.length > 6,
+      hot: hover === target.hotkey, chosen: current?.choice === "target" && current.targetHotkey === target.hotkey, disabled: !open || target.missing,
+      register: (element) => { if (element) zones.current.set(target.hotkey, element); else zones.current.delete(target.hotkey); },
+      onClick: () => onAnswer({ choice: "target", targetHotkey: target.hotkey }, zones.current.get(target.hotkey)),
+    })), "Drop on a target · or press its number");
   }
   if (card.type === "artifact") {
     const price = card.evidence?.priceUsd;
     return grid(3, <>
-      <AnswerZone narrow hotkey={1} label="Fix" sub={price !== undefined ? `Repair · ${formatUsd(price)}` : "Repair it"} chosen={is("fix")} disabled={!open} onClick={() => onAnswer({ choice: "fix" })} />
-      <AnswerZone narrow hotkey={2} label="Keep as is" sub="Leave it" chosen={is("keep")} disabled={!open} onClick={() => onAnswer({ choice: "keep" })} />
-      <AnswerZone narrow hotkey={3} label="Out" sub="Hidden · not deleted" chosen={is("out")} disabled={!open} onClick={() => onAnswer({ choice: "out" })} />
+      {zone({ narrow: true, hotkey: 1, label: "Fix", sub: price !== undefined ? `Repair · ${formatUsd(price)}` : "Repair it", chosen: is("fix"), disabled: !open, onClick: () => onAnswer({ choice: "fix" }) })}
+      {zone({ narrow: true, hotkey: 2, label: "Keep as is", sub: "Leave it", chosen: is("keep"), disabled: !open, onClick: () => onAnswer({ choice: "keep" }) })}
+      {zone({ narrow: true, hotkey: 3, label: "Out", sub: "Hidden · not deleted", chosen: is("out"), disabled: !open, onClick: () => onAnswer({ choice: "out" }) })}
     </>);
   }
   if (card.type === "rule") {
     return grid(3, <>
-      <AnswerZone narrow hotkey={1} label="Yes" sub="Make it a rule" chosen={is("yes")} disabled={!open} onClick={() => onAnswer({ choice: "yes" })} />
-      <AnswerZone narrow hotkey={2} label="No" sub="Never" chosen={is("no")} disabled={!open} onClick={() => onAnswer({ choice: "no" })} />
-      <AnswerZone narrow hotkey={3} label="Not yet" sub="Ask again later" chosen={is("not-yet")} disabled={!open} onClick={() => onAnswer({ choice: "not-yet" })} />
+      {zone({ narrow: true, hotkey: 1, label: "Yes", sub: "Make it a rule", chosen: is("yes"), disabled: !open, onClick: () => onAnswer({ choice: "yes" }) })}
+      {zone({ narrow: true, hotkey: 2, label: "No", sub: "Never", chosen: is("no"), disabled: !open, onClick: () => onAnswer({ choice: "no" }) })}
+      {zone({ narrow: true, hotkey: 3, label: "Not yet", sub: "Ask again later", chosen: is("not-yet"), disabled: !open, onClick: () => onAnswer({ choice: "not-yet" }) })}
     </>);
   }
   if (card.type === "ab") {
     return grid(3, <>
-      {card.assets.map((asset, at) => <AnswerZone narrow key={asset.assetId} hotkey={at + 1} label={card.labels?.[at] || (at === 0 ? "A" : "B")} sub="Winner"
-        chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId} disabled={!open || asset.missing}
-        onClick={() => onAnswer({ choice: "winner", pickedAssetId: asset.assetId })} />)}
-      <AnswerZone narrow hotkey={3} label="Neither" sub="N" chosen={is("neither")} disabled={!open} onClick={() => onAnswer({ choice: "neither" })} />
+      {card.assets.map((asset, at) => zone({
+        narrow: true, hotkey: at + 1, label: card.labels?.[at] || (at === 0 ? "A" : "B"), sub: "Winner",
+        chosen: current?.choice === "winner" && current.pickedAssetId === asset.assetId, disabled: !open || asset.missing,
+        onClick: () => onAnswer({ choice: "winner", pickedAssetId: asset.assetId }),
+      }))}
+      {zone({ narrow: true, hotkey: 3, label: "Neither", sub: "N", chosen: is("neither"), disabled: !open, onClick: () => onAnswer({ choice: "neither" }) })}
     </>);
   }
   if (card.type === "choose") {
-    return <Micro color="var(--lm-text-ghost)" className="block py-1 md:py-0">Tap the one you choose · or press its number</Micro>;
+    if (!large) return <Micro color="var(--lm-text-ghost)" className="block py-1 md:py-0">Tap the one you choose · or press its number</Micro>;
+    // The desk: one numbered key per candidate, beside the pictures.
+    return <>
+      <Micro color="var(--lm-text-ghost)" className="mb-2 block">Click a picture · or press its number</Micro>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(52px, 1fr))" }}>
+        {card.assets.map((asset, at) => {
+          const picked = current?.choice === "pick" && current.pickedAssetId === asset.assetId;
+          return <button key={asset.assetId} type="button" disabled={!open || asset.missing} aria-label={`Choose ${at + 1}`}
+            onClick={() => onAnswer({ choice: "pick", pickedAssetId: asset.assetId })}
+            className="grid h-[52px] place-items-center border text-[15px] font-black transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ ...mono, borderRadius: RADIUS, borderColor: picked ? "var(--lm-coral)" : "var(--lm-border-strong)", background: picked ? "var(--lm-coral)" : "var(--lm-surface-1)", color: picked ? "var(--lm-paper)" : "var(--lm-text-primary)" }}>
+            {at + 1}
+          </button>;
+        })}
+      </div>
+    </>;
   }
   // Duplicates: per image keep or delete (tap), then one group action.
   if (confirm) {
@@ -817,9 +922,9 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
     </div>;
   }
   return grid(3, <>
-    <AnswerZone narrow hotkey="G" label="Stack" sub={marks ? `${kept} under a cover · delete ${marks}` : `${kept} under one cover`} chosen={is("stack")} disabled={!open || kept < 2} onClick={() => onDuplicates("stack")} />
-    <AnswerZone narrow hotkey="K" label="Keep all" sub="As they are" chosen={is("keep-all")} disabled={!open || marks > 0} onClick={() => onDuplicates("keep-all")} />
-    <AnswerZone narrow hotkey="D" label={marks ? `Delete ${marks}` : "Delete"} sub={marks ? "Keep the rest" : "Tap images to mark"} danger={marks > 0} chosen={is("resolve")} disabled={!open || marks === 0} onClick={() => onDuplicates("resolve")} />
+    {zone({ narrow: true, hotkey: "G", label: "Stack", sub: marks ? `${kept} under a cover · delete ${marks}` : `${kept} under one cover`, chosen: is("stack"), disabled: !open || kept < 2, onClick: () => onDuplicates("stack") })}
+    {zone({ narrow: true, hotkey: "K", label: "Keep all", sub: "As they are", chosen: is("keep-all"), disabled: !open || marks > 0, onClick: () => onDuplicates("keep-all") })}
+    {zone({ narrow: true, hotkey: "D", label: marks ? `Delete ${marks}` : "Delete", sub: marks ? "Keep the rest" : "Tap images to mark", danger: marks > 0, chosen: is("resolve"), disabled: !open || marks === 0, onClick: () => onDuplicates("resolve") })}
   </>, "Tap an image to mark it for deletion · ★ picks the cover");
 }
 
@@ -869,7 +974,7 @@ function DoneView({ view, decisions, onOpen }: { view: View; decisions: Decision
     <p className="mt-1 text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>
       Agents read your answers and notes from here.{later ? ` ${later} left for later.` : ""} Tap any card to change it.
     </p>
-    <div className="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6">
+    <div className="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
       {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} onClick={() => onOpen(index)} />)}
     </div>
     <Link href={`/inbox/${view.stack.worldFolderId}`} className="mt-5 inline-flex"><ActionButton icon={<Layers size={13} aria-hidden />}>All stacks in {view.worldName}</ActionButton></Link>
