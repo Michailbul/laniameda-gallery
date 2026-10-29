@@ -7,6 +7,7 @@ import {
 import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./moodboardValidators";
 import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
 import { taskEventFields, taskFields } from "./taskValidators";
+import { newspaperFields } from "./newspaperValidators";
 import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
@@ -248,6 +249,11 @@ export default defineSchema({
   // A task's timeline: claims, releases, status changes and comments.
   taskEvents: defineTable(taskEventFields)
     .index("by_task_createdAt", ["taskId", "createdAt"]),
+  // The morning newspaper: one edition per owner per Prague date, compiled by
+  // the daily cron (or on demand) from the tables above; facts as JSON, the
+  // agent's prose beside them. See convex/newspaper.ts.
+  newspapers: defineTable(newspaperFields)
+    .index("by_owner_date", ["ownerUserId", "date"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),
