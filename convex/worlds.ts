@@ -11,6 +11,7 @@ import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import { restoreMoodboardSnapshot, snapshotMoodboard, type MoodboardSnapshot } from "./moodboards";
 import { restoreProfileSnapshot, type ProfileSnapshot } from "./mjProfiles";
 import { restoreStorySnapshot, type StorySnapshot } from "./stories";
+import { worldTaskSummary, worldTaskSummaryValidator } from "./tasks";
 import {
   WORLD_KEY_PATTERN, assertMembersFitWorld, assertSingleWorld, assetFolderIds, childrenOf, cleanSession, listWorldRoots,
   recordWorldChange, resolveWorld, worldIdOfFolder, worldKeyFromName, worldRootOfFolder, type JournalMeta, type WorldChangeOp, type WorldMemo,
@@ -157,6 +158,9 @@ export const getWorldContext = ownerQuery({
     moodboards: v.array(boardValidator),
     profiles: v.array(profileUseValidator),
     characters: v.array(v.object({ id: v.id("characters"), code: v.string(), name: v.string(), status: v.string() })),
+    // The world's task queue: counts and the five newest open tasks, so any
+    // agent opening the world sees the work waiting (list_tasks for all).
+    tasks: worldTaskSummaryValidator,
     recentChanges: v.array(changeValidator),
   }),
   handler: async (ctx, args) => {
@@ -252,6 +256,7 @@ export const getWorldContext = ownerQuery({
 
     const journalLimit = Math.min(Math.max(args.journalLimit ?? 5, 0), 50);
     const recent = journalLimit === 0 ? [] : await recentChanges(ctx, owner, root._id, journalLimit);
+    const tasks = await worldTaskSummary(ctx, root._id);
 
     return {
       world: { id: root._id, key: root.worldKey!, name: root.name, description: root.description, rootCount: root.memberCount ?? 0 },
@@ -266,7 +271,7 @@ export const getWorldContext = ownerQuery({
       // The 25 newest loose stories; list_stories with world reads them all.
       storyCount: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).length,
       stories: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 25).map(storyRef),
-      moodboards, profiles, characters, recentChanges: recent.map(toChange),
+      moodboards, profiles, characters, tasks, recentChanges: recent.map(toChange),
     };
   },
 });

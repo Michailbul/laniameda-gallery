@@ -26,6 +26,7 @@ const context = {
   }],
   profiles: [{ id: id("p1"), name: "Annete taste", code: "xyz", flag: "--profile xyz", status: "active", role: "base taste" }],
   characters: [{ id: id("c1"), code: "DA-CH-001", name: "Annete", status: "active" }],
+  tasks: { open: 1, claimed: 0, blocked: 0, next: [{ id: id("t1"), title: "Fix the hands on the tram still", priority: 1 }] },
   recentChanges: [],
 } as unknown as WorldContext;
 
@@ -47,6 +48,8 @@ describe("world agent document", () => {
     expect(text).toContain("- **Annete taste** · `--profile xyz` · role: base taste");
     expect(text).toContain("- **Cast** · Cast · 24 pieces");
     expect(text).toContain("- `DA-CH-001` Annete · active");
+    expect(text).toContain("## Tasks (1 open · 0 in flight · 0 need Michael)");
+    expect(text).toContain("- [P1] Fix the hands on the tram still · task:t1");
     expect(text.startsWith("# DEAR ANNETE\n")).toBe(true);
   });
 });

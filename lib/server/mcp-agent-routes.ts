@@ -18,6 +18,7 @@ import { POST as moodboardsPost } from "@/app/api/agent/moodboards/route";
 import { POST as commentsPost } from "@/app/api/agent/comments/route";
 import { POST as inboxPost } from "@/app/api/agent/inbox/route";
 import { POST as worldsPost } from "@/app/api/agent/worlds/route";
+import { POST as tasksPost } from "@/app/api/agent/tasks/route";
 
 // The /api/agent/* handlers the hosted MCP calls in-process, keyed by path.
 export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response>> = {
@@ -27,6 +28,7 @@ export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response
   "/api/agent/comments": commentsPost,
   "/api/agent/inbox": inboxPost,
   "/api/agent/worlds": worldsPost,
+  "/api/agent/tasks": tasksPost,
   "/api/agent/skills": skillsPost,
   "/api/agent/instructions": instructionsPost,
   "/api/agent/poster": posterPost,
