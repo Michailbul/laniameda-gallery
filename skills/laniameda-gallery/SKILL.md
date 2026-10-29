@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.15.1
+version: 1.16.0
 ---
 
 # Laniameda Gallery
@@ -71,6 +71,7 @@ building one; the inbox tools already return a stack's `url` the same way.
 | Moodboard | An ordered set of gallery images that defines one look, mirrored to a Midjourney moodboard and its --profile code; belongs to one collection | list_moodboards, get_moodboard, save_moodboard, add_moodboard_items, reorder_moodboard_items, set_moodboard_midjourney, list_moodboard_generations; references/moodboards.md. Any change to a board's images is synced to its Midjourney board before the edit is done (rule in that file) |
 | Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards, list_inbox_stacks, list_inbox_decisions, close_stack, find_similar_groups; references/inbox.md |
 | Task | One piece of work in the queue ("Tasks" in the gallery, /tasks): Michael's asset comments and Inbox answers become tasks by themselves; agents list, claim (a lease), work and complete with a result naming the ids produced, or blocked with a question for him. Start every session or cron run with list_tasks | list_tasks, get_task, create_task, claim_task, release_task, complete_task, comment_task; references/tasks.md |
+| Newspaper | One edition per Prague day (/newspaper), compiled at 07:30 from the tables: per world the journal's changes, new assets with thumbnails, storybooks, moodboards with sync drift, characters; tasks done and blocked, open Inbox stacks, and needsYou. Pure facts; an agent adds the prose. Never stars, publishes or deletes | get_newspaper, write_newspaper, compile_newspaper; references/newspapers.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
 | Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |
