@@ -7127,6 +7127,13 @@ export function GalleryDashboard({
             ? storybookWorldById.get(openStorybookId)?.name
             : undefined
         }
+        // A piece cited in the record opens the detail panel over the book,
+        // through the address (/storybooks/<id>?asset=<id>).
+        onOpenAsset={(assetId) => {
+          if (!openStorybookId) return;
+          applyLocation({ route: { kind: "storybooks", id: openStorybookId }, asset: assetId }, "click");
+        }}
+        suspended={Boolean(selectedImage)}
         onClose={() => setOpenStorybookId(null)}
       />
 
