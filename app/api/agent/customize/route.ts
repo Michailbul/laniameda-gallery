@@ -4,6 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { requireSkillForOwner } from "@/lib/server/agent-skills";
+import { collectionPageUrl } from "@/lib/gallery-routes";
 
 type AgentScope = "gallery:read" | "gallery:write" | "gallery:delete";
 
@@ -150,7 +151,10 @@ export async function POST(request: Request) {
       const folders = await client.query(api.folders.listFolders, {
         ownerUserId: agent.ownerUserId,
       });
-      return NextResponse.json({ folders });
+      // Each collection's page in the gallery: /w/<worldKey|rootId>[/<shelfId>].
+      return NextResponse.json({
+        folders: folders.map((folder) => ({ ...folder, url: collectionPageUrl(folders, folder) })),
+      });
     }
 
     if (action === "listMenuFilters") {

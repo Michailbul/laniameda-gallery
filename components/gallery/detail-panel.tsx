@@ -128,6 +128,8 @@ interface GalleryDetailPanelProps {
   ownerUserId?: string;
   /** Opens the Skill document this asset's prompt is a step of. */
   onOpenSkill?: (skillId: string) => void;
+  /** The address of this view with the piece open (…?asset=<id>): "Copy link". */
+  shareHref?: string;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -200,6 +202,7 @@ export function GalleryDetailPanel({
   onSlideIndexChange,
   ownerUserId,
   onOpenSkill,
+  shareHref,
   onClose,
   onPrev,
   onNext,
@@ -529,6 +532,13 @@ export function GalleryDetailPanel({
   const handleCopyUrl = async () => {
     await navigator.clipboard.writeText(currentSlide.fullSrc);
     showToast("URL COPIED");
+  };
+
+  // The gallery address of this piece, for Michael to paste or an agent to open.
+  const handleCopyLink = async () => {
+    if (!shareHref) return;
+    await navigator.clipboard.writeText(new URL(shareHref, window.location.origin).toString());
+    showToast("LINK COPIED");
   };
 
   const handleCopyGalleryId = async (
@@ -1070,6 +1080,23 @@ export function GalleryDetailPanel({
                 </button>
               </>
             )}
+            {shareHref && (
+              <button
+                type="button"
+                onClick={() => void handleCopyLink()}
+                className="flex items-center justify-center transition-colors hover:bg-black/5"
+                aria-label="Copy link to this piece"
+                title="Copy link to this piece"
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  color: "var(--lm-text-tertiary)",
+                  borderRadius: "6px",
+                }}
+              >
+                <LinkIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
             <div ref={copyMenuRef} className="relative">
               <button
                 type="button"
@@ -1124,6 +1151,13 @@ export function GalleryDetailPanel({
                       backgroundColor: "var(--lm-border)",
                     }}
                   />
+                  {shareHref && (
+                    <CopyMenuItem
+                      icon={LinkIcon}
+                      label="Copy link to this piece"
+                      onClick={() => void handleCopyLink()}
+                    />
+                  )}
                   <CopyMenuItem
                     icon={LinkIcon}
                     label="Copy image URL"

@@ -8,6 +8,28 @@ Last updated: 2026-10-28
 
 ## ✔ Shipped
 
+### 2026-10-29 — Every view is a URL (branch `feat/url-state`)
+
+- `lib/gallery-routes.ts` is the one grammar: `/`, `/collections`,
+  `/w/<worldKey|rootId>[/<shelfId> | /instructions|journal|tasks|moodboards|folders]`,
+  `/storybooks[/<id>]`, `/moodboards[/<id>]`, `/stories[/<id>]`, `/skills[/<id>]`,
+  `/bookmarks`, `/motion`, `/cinematography`, plus `?asset=<id>` for the detail
+  panel. The dashboard derives the route from its view state, pushes it on
+  every change, reads it on load and on back/forward (`popstate`), and titles
+  the tab after the place. Old client-state navigation is untouched; it just
+  shows in the address now.
+- Pages: `app/w/[slug]` serves the public world to a visitor and the vault to
+  the signed-in owner (`?public=1` shows the public page anyway);
+  `app/w/[slug]/[...rest]`, `app/storybooks`, `app/moodboards`, `app/stories`,
+  `app/skills`, `app/collections`, `app/bookmarks`, `app/motion` and
+  `app/cinematography` all render `components/gallery/gallery-root.tsx`.
+- "Copy link" on the world header (breadcrumb row) and in the detail panel
+  (header icon and the copy menu).
+- Agent routes return `url`: `open_world` (world list; world with
+  `instructionsUrl`/`tasksUrl`/`journalUrl`; shelves, storybooks, moodboards,
+  stories), `list_collections`, `list_moodboards`/`get_moodboard`, `get_story`
+  (and story saves). Skill 1.15.1 documents it.
+
 ### 2026-10-28 — World Instructions: a reader and an editor
 - Reader (`world-doc-prose.tsx`, `lib/world-doc-markdown.ts`): a ~72-character
   measure at 16/1.65 Geist, numbered uppercase section titles, tables that

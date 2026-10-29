@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Home, Layers, LayoutGrid, Moon, Search, Plus, Sun, User, X } from "lucide-react";
 import { TelegramLoginButton } from "./telegram-login-button";
 import { useTheme } from "@/lib/use-theme";
+import { isGalleryPath } from "@/lib/gallery-routes";
 
 interface MobileBottomNavUser {
   firstName?: string | null;
@@ -30,6 +31,10 @@ interface MobileBottomNavProps {
 
 export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMoodboardsClick, moodboardsActive = false, user, onSignOut, inboxOpenCount }: MobileBottomNavProps) {
   const pathname = usePathname();
+  // The gallery lives at /, /w/…, /storybooks/… and so on; Home is lit on all
+  // of them and, there, resets the view in place instead of reloading the page.
+  const onGallery = isGalleryPath(pathname);
+  const homeActive = onGallery && !moodboardsActive;
   const [profileOpen, setProfileOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
 
@@ -63,16 +68,19 @@ export function MobileBottomNav({ onAddClick, onSearchClick, onHomeClick, onMood
         {/* Home */}
         <Link
           href="/"
-          onClick={onHomeClick}
+          onClick={(event) => {
+            if (onHomeClick && onGallery) event.preventDefault();
+            onHomeClick?.();
+          }}
           className="relative flex flex-col items-center gap-0.5 px-3 py-1 transition-colors"
           style={{
-            color: pathname === "/" && !moodboardsActive ? "var(--amber-9)" : "var(--text-ghost)",
+            color: homeActive ? "var(--amber-9)" : "var(--text-ghost)",
             transitionDuration: "var(--duration-instant)",
           }}
         >
           <Home className="h-5 w-5" />
           <span className="text-[9px] font-medium tracking-wide">Home</span>
-          {pathname === "/" && !moodboardsActive && (
+          {homeActive && (
             <span
               className="absolute -bottom-0.5 block h-[3px] w-[3px] rounded-full"
               style={{

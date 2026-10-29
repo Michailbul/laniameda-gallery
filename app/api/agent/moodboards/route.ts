@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { galleryPageUrl } from "@/lib/gallery-routes";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
   bareMoodboardRef, bareOptionalMoodboardRef, moodboardAddSchema, moodboardGenerationsSchema,
@@ -26,9 +27,11 @@ type AssetId = Id<"assets">;
 const board = (value: string) => bareMoodboardRef(value) as BoardId;
 const assets = (values: string[]) => values.map((value) => bareMoodboardRef(value) as AssetId);
 
-// Handles an agent can paste straight back: the typed ID and the prompt flags.
+// Handles an agent can paste straight back: the typed ID, the prompt flags
+// and the board's page in the gallery, for Michael.
 const withHandles = <T extends { _id: string; mjCode?: string; mjMoodboardId?: string }>(row: T) => ({
   id: moodboardRef(row._id), ...row,
+  url: galleryPageUrl({ kind: "moodboards", id: row._id }),
   profile: row.mjCode ? profileFlagForCode(row.mjCode) : undefined,
   profileById: row.mjMoodboardId ? profileFlagForMoodboardId(row.mjMoodboardId) : undefined,
 });

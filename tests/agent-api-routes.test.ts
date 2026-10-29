@@ -6,6 +6,7 @@ const state = {
   actionCalls: [] as Array<{ payload: Record<string, unknown> }>,
   actionResult: { ok: true } as Record<string, unknown>,
   queryCalls: [] as Array<{ payload: Record<string, unknown> }>,
+  queryResult: undefined as unknown,
   mutationCalls: [] as Array<{ payload: Record<string, unknown> }>,
   queryFailure: undefined as string | undefined,
   mutationFailure: undefined as string | undefined,
@@ -21,6 +22,8 @@ const customizeRoutePath = new URL("../app/api/agent/customize/route.ts", import
 const charactersRoutePath = new URL("../app/api/agent/characters/route.ts", import.meta.url).pathname;
 const moodboardsRoutePath = new URL("../app/api/agent/moodboards/route.ts", import.meta.url).pathname;
 const inboxRoutePath = new URL("../app/api/agent/inbox/route.ts", import.meta.url).pathname;
+const worldsRoutePath = new URL("../app/api/agent/worlds/route.ts", import.meta.url).pathname;
+const storiesRoutePath = new URL("../app/api/agent/stories/route.ts", import.meta.url).pathname;
 
 class MockAgentAuthError extends Error {
   constructor(
@@ -54,7 +57,7 @@ mock.module("@/lib/server/convex", () => ({
     query: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.queryCalls.push({ payload });
       if (state.queryFailure) throw new Error(state.queryFailure);
-      return [];
+      return state.queryResult ?? [];
     },
     mutation: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.mutationCalls.push({ payload });
@@ -71,6 +74,7 @@ describe("agent API routes", () => {
     state.actionCalls = [];
     state.actionResult = { ok: true };
     state.queryCalls = [];
+    state.queryResult = undefined;
     state.mutationCalls = [];
     state.queryFailure = undefined;
     state.mutationFailure = undefined;
@@ -93,6 +97,51 @@ describe("agent API routes", () => {
     expect(response.status).toBe(200);
     expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, folderId: "folders:1", includeDescendants: true, includeWorkflowAssets: false, cursor: "cursor", pageSize: 100 });
     expect(state.requiredScopes.every(scope => scope === "gallery:read")).toBe(true);
+  });
+
+  test("collections, worlds, moodboards and stories carry their gallery page url", async () => {
+    const send = (path: string, payload: Record<string, unknown>) => async () => {
+      const { POST } = await import(path);
+      return POST(new Request("http://localhost/api/agent/x", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+      }));
+    };
+    state.queryResult = [
+      { _id: "w1", name: "DEAR ANNETE", worldKey: "dear-annete" },
+      { _id: "s1", name: "Cast", parentFolderId: "w1" },
+      { _id: "art", name: "ART" },
+    ];
+    const folders = (await (await send(customizeRoutePath, { action: "listFolders" })()).json()).folders;
+    expect(folders.map((folder: { url: string }) => folder.url)).toEqual([
+      "https://gallery.laniameda.space/w/dear-annete",
+      "https://gallery.laniameda.space/w/dear-annete/s1",
+      "https://gallery.laniameda.space/w/art",
+    ]);
+
+    state.queryResult = [{ key: "dear-annete", name: "DEAR ANNETE" }];
+    const worlds = (await (await send(worldsRoutePath, { action: "open" })()).json()).worlds;
+    expect(worlds[0].url).toBe("https://gallery.laniameda.space/w/dear-annete");
+
+    state.queryResult = {
+      world: { id: "w1", key: "dear-annete", name: "DEAR ANNETE" },
+      shelves: [{ id: "s1", name: "Cast" }], storybooks: [{ id: "b1", name: "Two Pears" }],
+      moodboards: [{ id: "m1", name: "Golden" }], stories: [{ id: "t1", title: "Idea" }],
+    };
+    const context = await (await send(worldsRoutePath, { action: "open", world: "dear-annete" })()).json();
+    expect(context.world.url).toBe("https://gallery.laniameda.space/w/dear-annete");
+    expect(context.world.instructionsUrl).toBe("https://gallery.laniameda.space/w/dear-annete/instructions");
+    expect(context.shelves[0].url).toBe("https://gallery.laniameda.space/w/dear-annete/s1");
+    expect(context.storybooks[0].url).toBe("https://gallery.laniameda.space/storybooks/b1");
+    expect(context.moodboards[0].url).toBe("https://gallery.laniameda.space/moodboards/m1");
+    expect(context.stories[0].url).toBe("https://gallery.laniameda.space/stories/t1");
+
+    state.queryResult = { moodboard: { _id: "m1", name: "Golden", itemCount: 0 }, items: [] };
+    const board = await (await send(moodboardsRoutePath, { action: "get", moodboardId: "moodboard:m1" })()).json();
+    expect(board.moodboard.url).toBe("https://gallery.laniameda.space/moodboards/m1");
+
+    state.queryResult = { _id: "t1", title: "Idea" };
+    const story = await (await send(storiesRoutePath, { action: "get", id: "story:t1" })()).json();
+    expect(story.story.url).toBe("https://gallery.laniameda.space/stories/t1");
   });
 
   test("character route strips copied ID prefixes and scopes each action", async () => {
