@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.15.0
+version: 1.15.1
 ---
 
 # Laniameda Gallery
@@ -45,6 +45,18 @@ wrong is checked by paging `list_assets_page {folderId}` to `isDone`, then
 repaired with `world_recount` (dry run first). The
 Claude Code plugin `laniameda-gallery` (repository folder `plugin/`) teaches
 this loop in its `gallery-worlds` skill.
+
+## Links Michael can open
+
+Every view of the gallery is a URL, and the read tools return it as `url` so a
+report can link what it names: `open_world` (the world, each shelf, storybook,
+moodboard and story; `instructionsUrl`, `tasksUrl`, `journalUrl`),
+`list_collections` (each collection), `list_moodboards` / `get_moodboard` and
+`get_story`. The pages: `/w/<worldKey|rootId>`, `/w/<world>/<shelfId>`,
+`/w/<world>/instructions|journal|tasks|moodboards`, `/storybooks/<id>`,
+`/moodboards/<id>`, `/stories/<id>`, `/skills/<id>`, and `?asset=<id>` on any of
+them opens that piece in the detail panel. Prefer the returned `url` over
+building one; the inbox tools already return a stack's `url` the same way.
 
 ## The object model
 

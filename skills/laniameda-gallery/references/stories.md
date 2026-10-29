@@ -61,7 +61,9 @@ bun skills/laniameda-gallery/scripts/gallery.mjs get_story '{"id":"story:<id>"}'
 ```
 
 `list_stories` filters by `search`, `folderId`, `kind`, `status`, and `limit`
-(1–500, default 200). Results include full text. The browser offers world,
+(1–500, default 200). Results include full text. `get_story`, `save_story` and
+`update_story` return the story with its gallery page as `url`
+(`https://gallery.laniameda.space/stories/<id>`), for Michael to open. The browser offers world,
 status, and type filters and keyword search over the returned texts.
 
 ## From story to storybook

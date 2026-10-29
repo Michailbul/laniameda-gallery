@@ -10,13 +10,41 @@ type Collection = { _id: string; name: string; parentFolderId?: string; kind?: "
 type Story = Doc<"stories">;
 const fieldClass = "w-full rounded-xl border border-[var(--lm-border)] bg-[var(--lm-surface)] px-3 py-2 text-sm text-[var(--lm-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--lm-coral)]";
 
-export function StoriesView({ ownerUserId, collections, initialStory }: { ownerUserId: string; collections: Collection[]; initialStory?: Story }) {
+export function StoriesView({ ownerUserId, collections, initialStory, openStoryId, onOpenStoryChange }: {
+  ownerUserId: string;
+  collections: Collection[];
+  initialStory?: Story;
+  /** The story the address names (/stories/<id>); the view opens it and reports what it opens. */
+  openStoryId?: string | null;
+  onOpenStoryChange?: (id: string | null) => void;
+}) {
   const { isAuthenticated } = useConvexAuth();
   const [search, setSearch] = useState("");
   const [folderId, setFolderId] = useState("");
   const [kind, setKind] = useState<Story["kind"] | "">("");
   const [status, setStatus] = useState<Story["status"] | "">("");
-  const [selected, setSelected] = useState<Story | "new" | null>(initialStory ?? null);
+  const [chosen, setChosen] = useState<Story | "new" | null>(initialStory ?? null);
+  const setSelected = (next: Story | "new" | null) => {
+    setChosen(next);
+    onOpenStoryChange?.(next && next !== "new" ? next._id : null);
+  };
+  // With an address to follow (openStoryId given), the open story is the one
+  // the address names: the chosen one when it matches, otherwise the record
+  // read for it. An address with no story closes the editor; "new" has none.
+  const chosenId = chosen && chosen !== "new" ? chosen._id : null;
+  const routed = useQuery(api.stories.getStory, isAuthenticated && openStoryId && openStoryId !== chosenId
+    ? { ownerUserId, id: openStoryId as Id<"stories"> }
+    : "skip");
+  const selected: Story | "new" | null =
+    openStoryId === undefined || chosen === "new"
+      ? chosen
+      : openStoryId === null
+        ? null
+        : chosenId === openStoryId
+          ? chosen
+          : routed && routed._id === openStoryId
+            ? routed
+            : null;
   const stories = useQuery(api.stories.listStories, isAuthenticated ? { ownerUserId, folderId: (folderId || undefined) as Id<"folders"> | undefined, kind: kind || undefined, status: status || undefined, search: search.trim() || undefined, limit: 500 } : "skip");
   const names = useMemo(() => new Map(collections.map((folder) => [folder._id, folder.name])), [collections]);
   const visible = stories;

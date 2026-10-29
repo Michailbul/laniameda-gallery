@@ -7,6 +7,7 @@ import type { RecountCursor, RecountRow } from "@/convex/worldCounts";
 import { AgentAuthError, requireAgentAuth, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
+import { galleryPageUrl } from "@/lib/gallery-routes";
 import {
   worldDocSchema, worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema,
   worldRecountSchema, worldShelfSchema, worldUndoSchema,
@@ -61,12 +62,28 @@ export async function POST(request: Request) {
         const worlds = await client.query(api.worlds.listWorlds, { ownerUserId });
         return NextResponse.json({
           count: worlds.length,
-          worlds,
+          worlds: worlds.map((world) => ({ ...world, url: galleryPageUrl({ kind: "world", world: world.key }) })),
           next: "open_world with a world key for its context. Shared shelves (ART, LOVE, DESIGN …) are not worlds; list_collections shows them.",
         });
       }
       const context = await client.query(api.worlds.getWorldContext, { ownerUserId, world: input.world, journalLimit: input.journalLimit });
-      return NextResponse.json(context);
+      // Every part carries its page in the gallery, so a report can link what it names.
+      const key = context.world.key;
+      const inWorld = (shelf?: string) => galleryPageUrl({ kind: "world", world: key, shelf });
+      return NextResponse.json({
+        ...context,
+        world: {
+          ...context.world,
+          url: inWorld(),
+          instructionsUrl: galleryPageUrl({ kind: "world", world: key, tab: "instructions" }),
+          tasksUrl: galleryPageUrl({ kind: "world", world: key, tab: "tasks" }),
+          journalUrl: galleryPageUrl({ kind: "world", world: key, tab: "journal" }),
+        },
+        shelves: context.shelves.map((shelf) => ({ ...shelf, url: inWorld(shelf.id) })),
+        storybooks: context.storybooks.map((book) => ({ ...book, url: galleryPageUrl({ kind: "storybooks", id: book.id }) })),
+        moodboards: context.moodboards.map((board) => ({ ...board, url: galleryPageUrl({ kind: "moodboards", id: board.id }) })),
+        stories: context.stories.map((story) => ({ ...story, url: galleryPageUrl({ kind: "stories", id: story.id }) })),
+      });
     }
 
     if (action === "doc") {

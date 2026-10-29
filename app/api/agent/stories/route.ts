@@ -4,10 +4,13 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { storyInputSchema, storyPatchSchema } from "@/lib/story-contract";
+import { galleryPageUrl } from "@/lib/gallery-routes";
 import { z } from "zod";
 
 const scopes: Record<string, AgentTokenScope> = { list: "gallery:read", get: "gallery:read", revisions: "gallery:read", save: "gallery:write", update: "gallery:write", delete: "gallery:delete" };
 const idSchema = z.string().min(1).transform((id) => id.replace(/^story:/, "") as Id<"stories">);
+// The story's page in the gallery (/stories/<id>), for Michael to open.
+const withUrl = <T extends { _id: string }>(story: T | null) => (story ? { ...story, url: galleryPageUrl({ kind: "stories", id: story._id }) } : story);
 
 export async function POST(request: Request) {
   try {
@@ -34,12 +37,12 @@ export async function POST(request: Request) {
         : body.expectedRevision === undefined ? undefined : z.number().int().nonnegative().parse(body.expectedRevision);
       const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision, actor: `agent:${agent.label || agent.tokenPrefix}`.slice(0, 80), session: z.string().trim().max(80).optional().parse(body.session) });
       const story = await client.query(api.stories.getStory, { ownerUserId, id: result.id });
-      return NextResponse.json({ ok: true, ...result, story });
+      return NextResponse.json({ ok: true, ...result, story: withUrl(story) });
     }
     const id = idSchema.parse(body.id);
     if (action === "get") {
       const [story, linkStatus] = await Promise.all([client.query(api.stories.getStory, { ownerUserId, id }), client.query(api.stories.getStoryLinkStatus, { ownerUserId, id })]);
-      return NextResponse.json({ story, linkStatus });
+      return NextResponse.json({ story: withUrl(story), linkStatus });
     }
     if (action === "revisions") return NextResponse.json({ revisions: await client.query(api.stories.listStoryRevisions, { ownerUserId, id }) });
     await client.mutation(api.stories.deleteStory, { ownerUserId, id });

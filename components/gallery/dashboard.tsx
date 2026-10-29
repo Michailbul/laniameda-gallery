@@ -93,6 +93,16 @@ import { StorybookModal } from "./storybook-modal";
 import { UploadModal } from "@/components/upload-modal";
 import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { CopyLinkButton } from "@/components/youtube/copy-link-button";
+import {
+  galleryRoutePath,
+  galleryRouteTitle,
+  parseGalleryRoute,
+  resolveWorldSegment,
+  worldSegment,
+  type GalleryLocation,
+  type GalleryRoute,
+} from "@/lib/gallery-routes";
 import { useSwipeGesture } from "@/lib/use-swipe-gesture";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -378,6 +388,8 @@ export function GalleryDashboard({
   const [storiesView, setStoriesView] = useState(false);
   // A story: reference clicked in a world doc opens straight on that story.
   const [storyToOpen, setStoryToOpen] = useState<FunctionReturnType<typeof api.stories.getStory> | null>(null);
+  // The story open in the Stories view, so /stories/<id> can name it.
+  const [storiesOpenId, setStoriesOpenId] = useState<string | null>(null);
   const [includeSkills, setIncludeSkills] = useState(true);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
@@ -447,16 +459,6 @@ export function GalleryDashboard({
     setSortOrder(order);
   }, []);
 
-  // The route's static metadata titles the page for its public face (the
-  // taste profile / link previews). When the owner's vault mounts, re-title
-  // the tab so it reads as the gallery, not the showcase.
-  useEffect(() => {
-    const previous = document.title;
-    document.title = "Main Gallery · Laniameda";
-    return () => {
-      document.title = previous;
-    };
-  }, []);
   const [viewMode, setViewModeRaw] = useState<ViewMode>("grid");
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -4176,6 +4178,7 @@ export function GalleryDashboard({
         }
         const story = await convex.query(api.stories.getStory, { ownerUserId, id: ref.id as Id<"stories"> });
         setStoryToOpen(story);
+        setStoriesOpenId(story?._id ?? null);
         setStorybooksView(false);
         setMoodboardsTab(false);
         setBookmarksView(false);
@@ -4194,6 +4197,231 @@ export function GalleryDashboard({
     },
     [convex, handleImageSelect, openMoodboardsTab, ownerUserId, setViewMode],
   );
+
+  /* ── The address bar ─────────────────────────────────────────────────────
+     Every view is a URL (lib/gallery-routes). The view state below is the
+     source of truth; it is written to the address on every change, and the
+     address is read back on load and on back/forward. Old client-state
+     navigation keeps working unchanged: it just shows in the URL now. */
+
+  // The piece the detail panel shows, when it is a plain asset.
+  const currentAssetId =
+    selectedImage &&
+    (selectedImage.galleryItemType === "asset" || selectedImage.galleryItemType === undefined)
+      ? (selectedImage.galleryItemId ?? selectedImage.id)
+      : null;
+
+  const currentRoute = useMemo<GalleryRoute>(() => {
+    if (galleryScope !== "mine") return { kind: "home" };
+    // Documents open over any view; their address names the document.
+    if (openStorybookId) return { kind: "storybooks", id: openStorybookId };
+    if (selectedSkillId) return { kind: "skills", id: selectedSkillId };
+    if (storybooksView) return { kind: "storybooks" };
+    if (activeMoodboardsTab) return moodboardsTabBoardId ? { kind: "moodboards", id: moodboardsTabBoardId } : { kind: "moodboards" };
+    if (activeStoriesView) return storiesOpenId ? { kind: "stories", id: storiesOpenId } : { kind: "stories" };
+    if (bookmarksView) return { kind: "bookmarks" };
+    if (motionView) return { kind: "motion" };
+    if (cinematographyView) return { kind: "cinematography" };
+    if (viewMode === "skills") return { kind: "skills" };
+    if (activeCollectionFolder) {
+      const root = activeWorldRoot ?? activeCollectionFolder;
+      const world = worldSegment(root);
+      const tab =
+        viewMode === "collections"
+          ? ("folders" as const)
+          : activeWorldPanel === "docs"
+            ? ("instructions" as const)
+            : activeWorldPanel === "journal" || activeWorldPanel === "tasks"
+              ? activeWorldPanel
+              : moodboardsViewActive
+                ? ("moodboards" as const)
+                : undefined;
+      // A shelf has one address; a world tab opened from a shelf links to the
+      // world's own tab, which shows the same documents.
+      if (activeCollectionFolder._id !== root._id && !tab) {
+        return { kind: "world", world, shelf: String(activeCollectionFolder._id) };
+      }
+      return tab ? { kind: "world", world, tab } : { kind: "world", world };
+    }
+    if (viewMode === "collections") return { kind: "collections" };
+    return { kind: "home" };
+  }, [
+    activeCollectionFolder, activeMoodboardsTab, activeStoriesView, activeWorldPanel, activeWorldRoot,
+    bookmarksView, cinematographyView, galleryScope, moodboardsTabBoardId, moodboardsViewActive, motionView,
+    openStorybookId, selectedSkillId, storiesOpenId, storybooksView, viewMode,
+  ]);
+  const currentPath = galleryRoutePath(currentRoute, currentAssetId);
+
+  // A location read from the address and not yet shown: undefined before the
+  // first read, null when there is nothing to apply. While one waits (a
+  // world needs the collections loaded first), the address is not rewritten.
+  const [pendingLocation, setPendingLocation] = useState<GalleryLocation | null | undefined>(undefined);
+  // True while the view is being set from the address: the write-back then
+  // corrects the address in place instead of adding a history entry.
+  const applyingLocationRef = useRef(false);
+
+  useEffect(() => {
+    const read = () => parseGalleryRoute(window.location.pathname, window.location.search) ?? { route: { kind: "home" } as GalleryRoute };
+    setPendingLocation(read());
+    const onPopState = () => setPendingLocation(read());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const leaveEveryView = useCallback(() => {
+    setOpenStorybookId(null);
+    setSelectedSkillId(null);
+    setStoryToOpen(null);
+    setStorybooksView(false);
+    setStoriesView(false);
+    setMoodboardsTab(false);
+    setBookmarksView(false);
+    setMotionView(false);
+    setCinematographyView(false);
+    setWorldPanel(null);
+    setMoodboardsCollectionId(null);
+    setCollectionBoardToOpen(null);
+  }, []);
+
+  // Shows a location. From the address (load, back/forward) the write-back
+  // corrects the URL in place; from a click it pushes a history entry.
+  const applyLocation = useCallback(
+    (location: GalleryLocation, source: "address" | "click" = "address") => {
+      const { route, asset } = location;
+      applyingLocationRef.current = source === "address";
+      leaveEveryView();
+      switch (route.kind) {
+        case "home":
+          setSelectedFolderId(null);
+          setViewModeRaw("grid");
+          break;
+        case "collections":
+          setSelectedFolderId(null);
+          setViewModeRaw("collections");
+          break;
+        case "world": {
+          const all = folders ?? [];
+          const root = resolveWorldSegment(all, route.world);
+          if (!root) {
+            setSelectedFolderId(null);
+            setViewModeRaw("grid");
+            setMoodboardNotice({ title: "Not in your gallery", message: `No world or collection answers to “${route.world}”.`, type: "warning", at: Date.now() });
+            break;
+          }
+          const child = route.shelf
+            ? all.find((folder) => String(folder._id) === route.shelf && String(folder.parentFolderId ?? "") === String(root._id))
+            : undefined;
+          if (route.shelf && !child) {
+            setMoodboardNotice({ title: "Shelf not found", message: `${root.name} has no shelf ${route.shelf} any more; showing the world.`, type: "warning", at: Date.now() });
+          }
+          if (child?.kind === "storybook") {
+            setSelectedFolderId(String(root._id));
+            setViewModeRaw("grid");
+            setOpenStorybookId(String(child._id));
+            break;
+          }
+          const target = String((child ?? root)._id);
+          setSelectedFolderId(target);
+          setViewModeRaw(route.tab === "folders" ? "collections" : "grid");
+          if (route.tab === "instructions" || route.tab === "journal" || route.tab === "tasks") {
+            setWorldPanel({ collectionId: target, tab: route.tab === "instructions" ? "docs" : route.tab });
+          }
+          if (route.tab === "moodboards") setMoodboardsCollectionId(target);
+          break;
+        }
+        case "storybooks":
+          setViewModeRaw("grid");
+          setStorybooksView(true);
+          if (route.id) setOpenStorybookId(route.id);
+          break;
+        case "moodboards":
+          setViewModeRaw("grid");
+          setMoodboardsTabBoardId(route.id ?? null);
+          setMoodboardsTab(true);
+          break;
+        case "stories":
+          setViewModeRaw("grid");
+          setStoriesOpenId(route.id ?? null);
+          setStoriesView(true);
+          break;
+        case "skills":
+          setViewModeRaw("skills");
+          setSelectedSkillId(route.id ?? null);
+          break;
+        case "bookmarks":
+          setBookmarksView(true);
+          break;
+        case "motion":
+          setMotionView(true);
+          break;
+        case "cinematography":
+          setViewModeRaw("grid");
+          setCinematographyView(true);
+          break;
+      }
+      if (!asset) {
+        setSelectedImage(null);
+        return;
+      }
+      if (asset === currentAssetId || !ownerUserId) return;
+      void convex
+        .query(api.assets.getGalleryAsset, { id: asset as Id<"assets">, ownerUserId })
+        .then((row) => {
+          if (!row) throw new Error("missing");
+          applyingLocationRef.current = source === "address";
+          handleImageSelect({
+            id: row._id,
+            galleryItemId: row._id,
+            galleryItemType: "asset",
+            thumbSrc: row.thumbUrl ?? row.url ?? "/placeholder.svg",
+            fullSrc: row.url ?? row.thumbUrl ?? "/placeholder.svg",
+            prompt: row.promptText ?? "",
+            width: row.width,
+            height: row.height,
+            kind: row.kind,
+            contentType: row.contentType,
+            previewImages: [],
+          });
+        })
+        .catch(() => {
+          setMoodboardNotice({ title: "Piece not found", message: `asset:${asset} is not in your gallery any more.`, type: "warning", at: Date.now() });
+        });
+    },
+    [convex, currentAssetId, folders, handleImageSelect, leaveEveryView, ownerUserId],
+  );
+
+  // Apply what the address asks for as soon as the data it names is here.
+  useEffect(() => {
+    if (!pendingLocation) return;
+    if (pendingLocation.route.kind === "world" && folders === undefined) return;
+    applyLocation(pendingLocation);
+    setPendingLocation(null);
+  }, [applyLocation, folders, pendingLocation]);
+
+  // Write the view to the address. A change the user made pushes a history
+  // entry; one that came from the address corrects it in place.
+  useEffect(() => {
+    if (pendingLocation !== null) return;
+    const here = new URL(window.location.href);
+    const next = new URL(currentPath, here.origin);
+    // Unrelated parameters (a login error, a preview flag) ride along.
+    for (const [key, value] of here.searchParams) {
+      if (key !== "asset" && !next.searchParams.has(key)) next.searchParams.append(key, value);
+    }
+    const unchanged = next.pathname === here.pathname && next.search === here.search;
+    if (!unchanged) {
+      if (applyingLocationRef.current) window.history.replaceState(null, "", next.toString());
+      else window.history.pushState(null, "", next.toString());
+    }
+    applyingLocationRef.current = false;
+  }, [currentPath, pendingLocation]);
+
+  // The tab reads as the place, not the showcase the route's metadata names.
+  const worldNameForTitle = activeWorldRoot?.name ?? activeCollectionFolder?.name;
+  const shelfNameForTitle = activeCollectionFolder && activeWorldRoot && activeCollectionFolder._id !== activeWorldRoot._id ? activeCollectionFolder.name : undefined;
+  useEffect(() => {
+    document.title = galleryRouteTitle(currentRoute, { world: worldNameForTitle, shelf: shelfNameForTitle });
+  }, [currentRoute, shelfNameForTitle, worldNameForTitle]);
 
   // "Choose from gallery" on a board: the grid opens on the board's own
   // collection with every filter at hand, and a click selects.
@@ -5025,6 +5253,7 @@ export function GalleryDashboard({
 
   const expandedDetailProps = {
     onClose: closeSelectedImage,
+    shareHref: currentAssetId ? currentPath : undefined,
     onPrev: goToPrev,
     onNext: goToNext,
     canGoPrev,
@@ -5359,7 +5588,7 @@ export function GalleryDashboard({
               : undefined
           }
           featuredShelfActive={featuredPanelOpen}
-          onStoriesTab={canManageFoldersInCurrentView ? () => { setStoryToOpen(null); setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
+          onStoriesTab={canManageFoldersInCurrentView ? () => { setStoryToOpen(null); setStoriesOpenId(null); setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false); setBookmarksView(false); setMotionView(false); setCinematographyView(false); setStoriesView(true); setViewMode("grid"); } : undefined}
           storiesTabActive={activeStoriesView}
           onMoodboardsTab={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsTabActive={activeMoodboardsTab}
@@ -5426,13 +5655,7 @@ export function GalleryDashboard({
           skillsTabActive={
             viewMode === "skills" && !storybooksView && !bookmarksView && !extraTabView
           }
-          onGalleryHome={() => {
-            setStorybooksView(false); setStoriesView(false); setMoodboardsTab(false);
-            setBookmarksView(false);
-            setMotionView(false);
-            setCinematographyView(false);
-            setViewMode("grid");
-          }}
+          onGalleryHome={() => applyLocation({ route: { kind: "home" } }, "click")}
           user={user}
           onSignOut={onSignOut}
           folders={sidebarFolders}
@@ -5722,9 +5945,15 @@ export function GalleryDashboard({
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
                   trailing={
-                    viewMode === "grid" && activeCollectionFolder && !activeSmartCollectionFilter ? (
+                    activeCollectionFolder ? (
                       <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-                        {(!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && !activeWorldPanel && (
+                        <CopyLinkButton
+                          path={() => currentPath}
+                          label="Copy link"
+                          className="lm-quiet-action inline-flex items-center gap-1 border-none bg-transparent p-0"
+                          style={quietActionStyle}
+                        />
+                        {viewMode === "grid" && !activeSmartCollectionFilter && (!activeCollectionFolder.parentFolderId || styleBranchWithShelves) && !moodboardsViewActive && !activeWorldPanel && (
                           <CollectionViewActions
                             key={activeCollectionFolder._id}
                             collectionName={activeCollectionFolder.name}
@@ -5747,7 +5976,7 @@ export function GalleryDashboard({
                             onCreateFolder={createFolderInActiveCollection}
                           />
                         )}
-                        {canManageFoldersInCurrentView && !moodboardsViewActive && !activeWorldPanel && (
+                        {viewMode === "grid" && !activeSmartCollectionFilter && canManageFoldersInCurrentView && !moodboardsViewActive && !activeWorldPanel && (
                           <>
                             <input
                               ref={collectionCoverInputRef}
@@ -5846,7 +6075,7 @@ export function GalleryDashboard({
                   onChooseFromGallery={(board) => startMoodboardPick(board, null)}
                 />
               ) : activeStoriesView && ownerUserId ? (
-                <StoriesView key={storyToOpen?._id ?? "stories"} ownerUserId={ownerUserId} initialStory={storyToOpen ?? undefined} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
+                <StoriesView key={storyToOpen?._id ?? "stories"} ownerUserId={ownerUserId} initialStory={storyToOpen ?? undefined} openStoryId={storiesOpenId} onOpenStoryChange={setStoriesOpenId} collections={(folders ?? []).map((folder) => ({ _id: String(folder._id), name: folder.name, parentFolderId: folder.parentFolderId ? String(folder.parentFolderId) : undefined, kind: folder.kind }))} />
               ) : motionView && ownerUserId ? (
                 <MotionView ownerUserId={ownerUserId} />
               ) : cinematographyView && ownerUserId ? (
@@ -6406,12 +6635,7 @@ export function GalleryDashboard({
       {!selectedImage && (
         <MobileBottomNav
           onAddClick={openAddModal}
-          onHomeClick={() => {
-            setStorybooksView(false); setStoriesView(false);
-            setBookmarksView(false); setMotionView(false); setCinematographyView(false);
-            setMoodboardsTab(false);
-            setViewMode("grid");
-          }}
+          onHomeClick={() => applyLocation({ route: { kind: "home" } }, "click")}
           onMoodboardsClick={canManageFoldersInCurrentView ? () => openMoodboardsTab() : undefined}
           moodboardsActive={activeMoodboardsTab}
           inboxOpenCount={canManageFoldersInCurrentView ? inboxOpenCount : undefined}

@@ -15,6 +15,7 @@ several boards.
 | Field | Meaning |
 |---|---|
 | id | `moodboard:<id>`; tools also accept the bare ID |
+| url | The board's page in the gallery, `https://gallery.laniameda.space/moodboards/<id>`, on every list and get row (read-only, for Michael to open) |
 | name | `DA FILM · Golden`. Unique inside its collection; a repeated create returns the same board |
 | description | What the board carries and when to use it |
 | styleTag | Lowercase hyphenated style key, e.g. `da-film` |

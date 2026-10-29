@@ -199,6 +199,12 @@ publish.
 
 ## Collections and folders
 
+Every collection has a page in the gallery, returned as `url` by
+`list_collections` and `open_world`: a root at `/w/<worldKey>` (its id when it
+is not a marked world), a child at `/w/<world>/<childId>`. A world's tabs are
+`/w/<world>/instructions|journal|tasks|moodboards`; `?asset=<id>` on any page
+opens that piece. The route grammar lives in `lib/gallery-routes.ts`.
+
 Everything in the vault is a `folders` row. `folders.kind` is undefined (a
 collection) or `"storybook"`. Nesting is one level deep through
 `folders.parentFolderId`:

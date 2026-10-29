@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isGalleryPath } from "@/lib/gallery-routes";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
 import { useTheme } from "@/lib/use-theme";
@@ -204,7 +205,9 @@ export function GallerySidebar({
   onToggleHidden,
 }: GallerySidebarProps) {
   const pathname = usePathname();
-  const isGalleryActive = pathname === "/";
+  // Every gallery view is a URL now (/, /w/…, /storybooks/…); the Gallery item
+  // is live on all of them and, there, resets the view in place.
+  const isGalleryActive = isGalleryPath(pathname);
 
   // Root collections whose sub-collections are showing. The selected one
   // (or the parent of a selected sub-collection) is always open.
@@ -665,6 +668,7 @@ export function GallerySidebar({
           }
           collapsed={collapsed}
           onClick={onGalleryHome}
+          inPlace={isGalleryActive && Boolean(onGalleryHome)}
         />
         <NavItem
           icon={Plus}
@@ -1115,6 +1119,7 @@ function NavItem({
   collapsed,
   onClick,
   badge,
+  inPlace = false,
 }: {
   icon: React.ElementType;
   label: string;
@@ -1124,6 +1129,9 @@ function NavItem({
   onClick?: () => void;
   /** A count shown beside the label (a dot when collapsed); 0 shows nothing. */
   badge?: number;
+  /** The route is already mounted: onClick changes the view and the address
+   *  without a page navigation. */
+  inPlace?: boolean;
 }) {
   const inner = (
     <div
@@ -1183,7 +1191,10 @@ function NavItem({
         className={`${sharedClass} block`}
         data-active={active ? "true" : "false"}
         title={label}
-        onClick={onClick}
+        onClick={(event) => {
+          if (inPlace) event.preventDefault();
+          onClick?.();
+        }}
       >
         {inner}
       </Link>
