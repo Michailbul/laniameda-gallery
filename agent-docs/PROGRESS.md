@@ -8,6 +8,20 @@ Last updated: 2026-10-28
 
 ## ✔ Shipped
 
+### 2026-10-29 — Phone navigation and tap targets (branch `feat/phone-nav`)
+
+- The bottom bar's Search tab opens a browse sheet
+  (`components/gallery/mobile-browse-sheet.tsx`): a focused search box, the
+  Worlds › Shelves tree grouped as in the sidebar, the plain collections, and
+  the sections (Storybooks, Stories, Moodboards, Skills, YouTube, Motion,
+  Cinematography, Tasks, Decisions). Typing narrows all of it; Enter searches
+  the pieces. Rows are 44–56 px. Taps route through `applyLocation`.
+- Toolbar chips are 40 px tall on phones with 14 px padding; the PUBLIC/MINE
+  segment too. Chip rails fade at the edge that has more (`useChipRail`,
+  `.lm-chip-rail[data-fade]`), on desktop as well. The 10 px minus is hidden
+  on phones: holding a menu chip excludes it.
+- Feature note: `agent-docs/features/phone-navigation/README.md`.
+
 ### 2026-10-29 — Every view is a URL (branch `feat/url-state`)
 
 - `lib/gallery-routes.ts` is the one grammar: `/`, `/collections`,

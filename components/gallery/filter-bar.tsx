@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FolderOpen,
   Grid3X3,
@@ -77,6 +77,36 @@ interface GalleryFilterBarProps {
   onFlattenStacksChange?: (next: boolean) => void;
 }
 
+/**
+ * A horizontal chip rail that says when it scrolls: `fade` names the edge(s)
+ * with more behind them, and the `.lm-chip-rail[data-fade]` rules in
+ * globals.css soften that edge. Re-measured when the rail resizes and when
+ * `signal` changes (its chips arrived or changed).
+ */
+export function useChipRail<T extends HTMLElement>(signal?: unknown) {
+  const ref = useRef<T>(null);
+  const [fade, setFade] = useState<"none" | "left" | "right" | "both">("none");
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const left = element.scrollLeft > 2;
+      const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 2;
+      setFade(left && right ? "both" : left ? "left" : right ? "right" : "none");
+    };
+    // ResizeObserver reports once on observe, so the first measure is async.
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    element.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
+  }, [signal]);
+  return [ref, fade] as const;
+}
+
 const SORT_OPTIONS: Array<{ label: string; value: SortOrder }> = [
   { label: "FEATURED", value: "featured" },
   { label: "NEWEST", value: "newest" },
@@ -127,7 +157,8 @@ export function GalleryFilterBar({
   const [adminOpen, setAdminOpen] = useState(false);
   // Which pill is showing its minus affordance (hover or keyboard focus).
   const [hoveredFilterId, setHoveredFilterId] = useState<string | null>(null);
-  const tagScrollRef = useRef<HTMLDivElement>(null);
+  const [tagScrollRef, menuFade] = useChipRail<HTMLDivElement>(menuFilters.length);
+  const [mobileRailRef, mobileFade] = useChipRail<HTMLDivElement>(viewMode);
 
   // A pill whose collection was deleted matches nothing — showing it would be
   // a dead click. The admin panel below still lists it so the owner can fix it.
@@ -169,7 +200,7 @@ export function GalleryFilterBar({
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 flex-col gap-3 md:flex-1 md:flex-row md:flex-wrap md:items-center">
               <div
-                className="flex items-center self-start"
+                className="lm-scope-segment flex items-center self-start"
                 style={{
                   borderRadius: "14px",
                   border: "2px solid var(--lm-ink)",
@@ -254,7 +285,9 @@ export function GalleryFilterBar({
         </div>
 
         <div
-          className="flex items-center gap-1 overflow-x-auto px-4 pb-2 md:hidden"
+          ref={mobileRailRef}
+          data-fade={mobileFade}
+          className="lm-chip-rail flex items-center gap-1 overflow-x-auto px-4 pb-2 md:hidden"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <ContentTypePills
@@ -313,7 +346,7 @@ export function GalleryFilterBar({
                 margin: "0 16px",
               }}
             />
-            <div className="flex items-center gap-2 px-3 py-2">
+            <div className="lm-chip-row flex items-center gap-2 px-3 py-2">
               {activeFilterCount > 0 ? (
                 <button
                   type="button"
@@ -338,7 +371,8 @@ export function GalleryFilterBar({
               {/* Curated menu pills */}
               <div
                 ref={tagScrollRef}
-                className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1"
+                data-fade={menuFade}
+                className="lm-chip-rail flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1"
                 style={{
                   scrollbarWidth: "none",
                   msOverflowStyle: "none",
@@ -493,6 +527,27 @@ function MenuFilterPill({
 }) {
   const minusVisible = Boolean(onExclude) && (showMinus || isExcluded);
 
+  // On a touch screen the minus is hidden (10 px is no target): holding the
+  // chip for a moment flips it to the negative side instead, and the tap that
+  // ends the hold is not a select.
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
+  const startPress = (event: React.PointerEvent) => {
+    if (!onExclude || event.pointerType === "mouse") return;
+    longPressed.current = false;
+    cancelPress();
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      pressTimer.current = null;
+      onExclude();
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(12);
+    }, 450);
+  };
+
   return (
     <div
       style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}
@@ -503,13 +558,29 @@ function MenuFilterPill({
     >
       <button
         type="button"
-        onClick={onSelect}
+        className="lm-menu-pill"
+        onClick={() => {
+          if (longPressed.current) {
+            longPressed.current = false;
+            return;
+          }
+          onSelect();
+        }}
+        onPointerDown={startPress}
+        onPointerUp={cancelPress}
+        onPointerCancel={cancelPress}
+        onPointerLeave={cancelPress}
+        onContextMenu={(event) => {
+          if (onExclude) event.preventDefault();
+        }}
         title={
           isExcluded
             ? `Excluding ${entry.label} — click to bring it back`
             : entry.kind === "collection"
-              ? `Show the ${entry.label} collection`
-              : undefined
+              ? `Show the ${entry.label} collection${onExclude ? ". Hold to exclude it" : ""}`
+              : onExclude
+                ? `Show ${entry.label}. Hold to exclude it`
+                : undefined
         }
         style={{
           display: "inline-flex",
@@ -575,6 +646,7 @@ function MenuFilterPill({
           title={
             isExcluded ? `Stop excluding ${entry.label}` : `Exclude ${entry.label}`
           }
+          className="lm-menu-pill-minus"
           style={{
             position: "absolute",
             left: "-6px",
