@@ -520,7 +520,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
         {!done && card && <aside aria-label="Answers" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
           <div className="mb-1 flex items-baseline justify-between">
             <Micro color="var(--lm-text-primary)">Decide</Micro>
-            <Micro color="var(--lm-text-ghost)">{card.type === "duplicates" ? "G · K · D" : "Press a number"}</Micro>
+            <Micro color="var(--lm-text-ghost)">{card.type === "duplicates" ? "G · K · D" : card.type === "choose" ? "Click a picture · or press its number" : "Press a number"}</Micro>
           </div>
           {answers}
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -532,8 +532,8 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
             </ActionButton>
           </div>
           {comment?.commentText && <p className="mt-1 line-clamp-4 border-l-2 pl-3 text-[12px] leading-5" style={{ borderColor: "var(--lm-coral)", color: "var(--lm-text-secondary)" }}>{comment.commentText}</p>}
-          <Micro color="var(--lm-text-ghost)" className="mt-auto pt-4 leading-5 normal-case tracking-[0.04em]">
-            ← → browse · ↵ comment · S later · Z undo · ⇧Z redo · F full size
+          <Micro color="var(--lm-text-ghost)" className="mt-auto block pt-4 leading-5 normal-case tracking-[0.04em]">
+            ← → browse · ↵ comment · S later<br />Z undo · ⇧Z redo · F full size
           </Micro>
         </aside>}
       </div>
@@ -893,7 +893,6 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
     if (!large) return <Micro color="var(--lm-text-ghost)" className="block py-1 md:py-0">Tap the one you choose · or press its number</Micro>;
     // The desk: one numbered key per candidate, beside the pictures.
     return <>
-      <Micro color="var(--lm-text-ghost)" className="mb-2 block">Click a picture · or press its number</Micro>
       <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(52px, 1fr))" }}>
         {card.assets.map((asset, at) => {
           const picked = current?.choice === "pick" && current.pickedAssetId === asset.assetId;
