@@ -32,6 +32,7 @@ import {
   Sun,
   Trash2,
   ListChecks,
+  Newspaper,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -719,6 +720,9 @@ export function GallerySidebar({
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={ListChecks} label="Tasks" href="/tasks" active={false} collapsed={collapsed} badge={tasksOpenCount} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={Newspaper} label="Newspaper" href="/newspaper" active={false} collapsed={collapsed} />
         )}
         {showYouTubeTab && (
           <NavItem

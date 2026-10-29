@@ -27,7 +27,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, ListChecks, Loader2, Plus, Search as SearchIcon, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, ListChecks, Loader2, Newspaper, Plus, Search as SearchIcon, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -4440,6 +4440,7 @@ export function GalleryDashboard({
       { key: "cinematography", label: "Cinematography", hint: "Camera moves and shot packs", icon: Camera, active: cinematographyView, onOpen: open({ kind: "cinematography" }) },
       { key: "tasks", label: "Tasks", hint: "The queue agents claim and finish", icon: ListChecks, href: "/tasks", badge: tasksOpenCount },
       { key: "decisions", label: "Decisions", hint: "Cards waiting for your answer", icon: Layers, href: "/inbox", badge: inboxOpenCount },
+      ...(tasksOpenCount !== undefined ? [{ key: "newspaper", label: "Newspaper", hint: "The morning review: done, needs you, decisions", icon: Newspaper, href: "/newspaper" }] : []),
     ];
   }, [activeMoodboardsTab, activeStoriesView, applyLocation, bookmarksView, cinematographyView, extraTabView, inboxOpenCount, motionView, storybooksView, tasksOpenCount, viewMode]);
 
