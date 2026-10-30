@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { getFunctionName, type FunctionReference } from "convex/server";
 
 const state = {
   ownerUserId: "telegram:278674008",
   requiredScopes: [] as string[],
   actionCalls: [] as Array<{ payload: Record<string, unknown> }>,
   actionResult: { ok: true } as Record<string, unknown>,
-  queryCalls: [] as Array<{ payload: Record<string, unknown> }>,
+  queryCalls: [] as Array<{ payload: Record<string, unknown>; name?: string }>,
   queryResult: undefined as unknown,
+  // Per-function results, for routes that make more than one query (a world resolver, then the list).
+  queryResultByName: {} as Record<string, unknown>,
   mutationCalls: [] as Array<{ payload: Record<string, unknown> }>,
   queryFailure: undefined as string | undefined,
   mutationFailure: undefined as string | undefined,
@@ -54,10 +57,11 @@ mock.module("@/lib/server/convex", () => ({
       state.actionCalls.push({ payload });
       return state.actionResult;
     },
-    query: async (_reference: unknown, payload: Record<string, unknown>) => {
-      state.queryCalls.push({ payload });
+    query: async (reference: unknown, payload: Record<string, unknown>) => {
+      const name = getFunctionName(reference as FunctionReference<"query">);
+      state.queryCalls.push({ payload, name });
       if (state.queryFailure) throw new Error(state.queryFailure);
-      return state.queryResult ?? [];
+      return state.queryResultByName[name] ?? state.queryResult ?? [];
     },
     mutation: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.mutationCalls.push({ payload });
@@ -75,6 +79,7 @@ describe("agent API routes", () => {
     state.actionResult = { ok: true };
     state.queryCalls = [];
     state.queryResult = undefined;
+    state.queryResultByName = {};
     state.mutationCalls = [];
     state.queryFailure = undefined;
     state.mutationFailure = undefined;
@@ -149,13 +154,28 @@ describe("agent API routes", () => {
     const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/characters", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     }));
-    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(200);
+    // `world` (key, name or root id) and the older worldFolderId both go through the world resolver.
+    state.queryResultByName["worlds:resolveWorldRef"] = { worldId: "w1", key: "dear-annete", name: "DEAR ANNETE", folderIds: ["w1"] };
+    // A caller-supplied owner is a stray key now: refused before any query runs.
+    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(400);
+    expect(state.queryCalls).toHaveLength(0);
+    expect((await send({ action: "list", worldFolderId: "collection:w1" })).status).toBe(200);
+    expect((await send({ action: "list", world: "dear-annete" })).status).toBe(200);
+    expect((await send({ action: "list", world: "dear-annete", folderId: "stray" })).status).toBe(400);
+    expect((await send({ action: "get", character: "DA-CH-001", world: "dear-annete" })).status).toBe(400);
+    expect((await send({ action: "get", id: "DA-CH-001" })).status).toBe(200);
     expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "asset:a1", role: "sheet", costumeCode: "C01" }] })).status).toBe(200);
     expect((await send({ action: "update", character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "asset:f1" })).status).toBe(200);
     expect((await send({ action: "link", character: "DA-CH-001", links: [{ assetId: "a1", role: "cameo" }] })).status).toBe(400);
     expect((await send({ action: "delete", character: "DA-CH-001" })).status).toBe(200);
-    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
-    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, worldFolderId: "w1" });
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:read", "gallery:read", "gallery:read", "gallery:read", "gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls.slice(0, 4).map((call) => [call.name, call.payload])).toEqual([
+      ["worlds:resolveWorldRef", { ownerUserId: state.ownerUserId, world: "w1" }],
+      ["characters:listCharacters", { ownerUserId: state.ownerUserId, worldFolderId: "w1" }],
+      ["worlds:resolveWorldRef", { ownerUserId: state.ownerUserId, world: "dear-annete" }],
+      ["characters:listCharacters", { ownerUserId: state.ownerUserId, worldFolderId: "w1" }],
+    ]);
+    expect(state.queryCalls.at(-1)).toEqual({ name: "characters:getCharacter", payload: { ownerUserId: state.ownerUserId, character: "DA-CH-001" } });
     expect(state.mutationCalls.map(call => call.payload)).toEqual([
       { ownerUserId: state.ownerUserId, character: "DA-CH-001", links: [{ assetId: "a1", role: "sheet", costumeCode: "C01" }] },
       { ownerUserId: state.ownerUserId, character: "character:c1", expectedRevision: 2, alias: null, faceAssetId: "f1" },
@@ -514,9 +534,13 @@ describe("agent API routes", () => {
     const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/inbox", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     }));
-    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(200);
+    state.queryResultByName["worlds:resolveWorldRef"] = { worldId: "w1", key: "dear-annete", name: "DEAR ANNETE", folderIds: ["w1"] };
+    expect((await send({ action: "list", worldFolderId: "collection:w1", ownerUserId: "attacker" })).status).toBe(400);
+    expect(state.queryCalls).toHaveLength(0);
+    expect((await send({ action: "list", worldFolderId: "collection:w1" })).status).toBe(200);
+    expect((await send({ action: "list", world: "dear-annete", folderId: "stray" })).status).toBe(400);
     const posted = await send({
-      action: "post", worldFolderId: "collection:w1", stackTitle: "Sort · 1", ingestKey: "k1",
+      action: "post", world: "dear-annete", stackTitle: "Sort · 1", ingestKey: "k1",
       cards: [{ type: "sort", assetIds: ["asset:a1"], targets: [{ kind: "moodboard", moodboardId: "moodboard:m1" }, { kind: "collection", folderId: "collection:f1", label: "Keep" }, { kind: "out" }] }],
     });
     expect(posted.status).toBe(200);
@@ -524,8 +548,11 @@ describe("agent API routes", () => {
     expect((await send({ action: "close", stackId: "stack:s1" })).status).toBe(200);
     expect((await send({ action: "delete", stackId: "s1" })).status).toBe(200);
     expect((await send({ action: "suggest", stackId: "s1" })).status).toBe(400);
-    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
-    expect(state.queryCalls[0]?.payload).toEqual({ ownerUserId: state.ownerUserId, status: undefined, limit: undefined, previewLimit: 0, worldFolderId: "w1" });
+    expect(state.requiredScopes).toEqual(["gallery:read", "gallery:read", "gallery:read", "gallery:write", "gallery:write", "gallery:write", "gallery:delete"]);
+    expect(state.queryCalls.slice(0, 2).map((call) => [call.name, call.payload])).toEqual([
+      ["worlds:resolveWorldRef", { ownerUserId: state.ownerUserId, world: "w1" }],
+      ["inbox:listInboxStacks", { ownerUserId: state.ownerUserId, status: undefined, limit: undefined, previewLimit: 0, worldFolderId: "w1" }],
+    ]);
     expect(state.mutationCalls.map((call) => call.payload)).toEqual([
       {
         ownerUserId: state.ownerUserId, worldFolderId: "w1", stackId: undefined, stackTitle: "Sort · 1", ingestKey: "k1", note: undefined, agent: undefined,

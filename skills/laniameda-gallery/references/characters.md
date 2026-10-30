@@ -63,9 +63,9 @@ because asset search reads captions:
 ## Tools
 
 ```text
-list_characters { worldFolderId?, status?, search?, limit? }
-get_character { character: "DA-CH-001" }
-create_character { worldFolderId, name, alias?, role?, lane?, status?, sheetAssetId?, faceAssetId?, nameTag?, notes?, otherNames?, prefix? }
+list_characters { world?, status?, search?, limit? }        world = key (dear-annete), name or root id; worldFolderId is an alias
+get_character { character: "DA-CH-001" }                   id is accepted as an alias of character
+create_character { world, name, alias?, role?, lane?, status?, sheetAssetId?, faceAssetId?, nameTag?, notes?, otherNames?, prefix? }
 update_character { character, expectedRevision, ...fields }        null clears a field
 save_character_costume { character, code?, name?, status?, sheetAssetId?, faceAssetId?, notes? }
 link_character_assets { character, links: [{ assetId, role, costumeCode?, note? }] }   up to 100
@@ -76,6 +76,14 @@ delete_character { character }
 
 `character` accepts the code or `character:<id>`. `get_gallery_item` on an
 asset also returns `characters`: every person linked to it, by code and role.
+
+`world` is resolved as `open_world` resolves it: the key (`dear-annete`), the
+name or the root collection id (`worldFolderId` is the same thing under its
+older name). An unknown world is refused with the resolver's message, which
+names `open_world` for the list. Without `world`, `list_characters` returns the
+whole vault's cast with several worlds mixed: read a world's cast with its
+world. The schemas are strict: a key a tool does not take (a `world` on
+`get_character`, a misspelled filter) is refused instead of ignored.
 
 `create_character` is idempotent on name plus alias inside the world: a retry
 returns the existing record with `created: false`. Read `revision` with

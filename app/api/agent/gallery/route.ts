@@ -8,8 +8,7 @@ import { makeFunctionReference } from "convex/server";
 import { galleryAssetPageInputSchema } from "@/lib/gallery-pagination";
 import { resolveSkillForOwner } from "@/lib/server/agent-skills";
 import { projectAgentAssets } from "@/lib/agent-read-projections";
-
-type GalleryIdKind = "asset" | "pack" | "design" | "skill";
+import { GALLERY_ITEM_PREFIXES, galleryIdHelp, parseGalleryId } from "@/lib/gallery-ids";
 
 const readJson = async (request: Request) => {
   try {
@@ -72,55 +71,18 @@ type AssetRoleValue =
   | "cinema_frame"
   | "other";
 
-const normalizeGalleryIdKind = (kind: string): GalleryIdKind | null => {
-  switch (kind) {
-    case "asset":
-    case "assets":
-      return "asset";
-    case "pack":
-    case "packs":
-    case "assetPack":
-    case "assetPacks":
-      return "pack";
-    case "design":
-    case "designs":
-    case "designInspiration":
-    case "designInspirations":
-      return "design";
-    // Older copied workflow IDs remain readable through the native Skill resolver.
-    case "skill":
-    case "skills":
-    case "workflow":
-    case "workflows":
-      return "skill";
-    default:
-      return null;
-  }
-};
-
-const parseGalleryId = (rawValue: unknown, expectedKind?: GalleryIdKind) => {
-  const value = stringValue(rawValue);
-  if (!value) {
-    throw new Error("id is required.");
-  }
-
-  const separatorIndex = value.indexOf(":");
-  if (separatorIndex > 0) {
-    const kind = normalizeGalleryIdKind(value.slice(0, separatorIndex));
-    const id = value.slice(separatorIndex + 1).trim();
-    if (kind && id) {
-      if (expectedKind && kind !== expectedKind) {
-        throw new Error(`Expected a ${expectedKind} ID, got ${kind}:${id}.`);
-      }
-      return { kind, id };
+// A read of the wrong table (pack:<assetId>) raises a Convex argument error
+// with a stack trace; the caller gets one line that names the mistake instead.
+const readOrExplain = async <T>(read: () => Promise<T>, typed: string, table: string): Promise<T> => {
+  try {
+    return await read();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/ArgumentValidationError|Validator error|is not a valid|does not match validator|Value does not match/i.test(message)) {
+      throw new Error(`${typed} is not ${table}. ${galleryIdHelp(typed.replace(/^[a-z]+:/, ""))}`);
     }
+    throw error;
   }
-
-  if (expectedKind) {
-    return { kind: expectedKind, id: value };
-  }
-
-  throw new Error("Typed gallery ID is required. Use asset:<id>, pack:<id>, design:<id> or skill:<id>.");
 };
 
 export async function POST(request: Request) {
@@ -270,20 +232,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ asset, characters, comments });
       }
       if (parsed.kind === "skill") {
-        return NextResponse.json({ skill: null });
+        return NextResponse.json({ skill: null, hint: `No Skill ${parsed.id} is readable by this token (list_skills or search_skills to find it); get_gallery_item reads ${GALLERY_ITEM_PREFIXES}.` });
       }
       if (parsed.kind === "pack") {
-        const pack = await client.query(api.assetPacks.getGalleryAssetPack, {
+        // Live for the duplicates stacks and the remaining asset packs; a pack
+        // that was migrated into a Skill was already answered above.
+        const pack = await readOrExplain(() => client.query(api.assetPacks.getGalleryAssetPack, {
           packId: parsed.id as Id<"assetPacks">,
           ownerUserId: agent.ownerUserId,
-        });
+        }), `pack:${parsed.id}`, "an asset pack id");
         return NextResponse.json({ pack });
       }
 
-      const design = await client.query(api.designInspirations.getDesignInspiration, {
+      // design:<id> is read-only legacy (old browser-extension captures); new
+      // saves of design references are plain assets.
+      const design = await readOrExplain(() => client.query(api.designInspirations.getDesignInspiration, {
         id: parsed.id as Id<"designInspirations">,
         ownerUserId: agent.ownerUserId,
-      });
+      }), `design:${parsed.id}`, "a legacy design record");
       const asset =
         design?.assetId
           ? await client.query(api.assets.getGalleryAsset, {

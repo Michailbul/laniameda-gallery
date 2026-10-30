@@ -136,8 +136,9 @@ test("inbox tools reach one scoped route, state facts only and disclose their ef
   expect(tools.get("delete_inbox_stack")!.config.annotations).toMatchObject({ destructiveHint: true });
   expect(String(tools.get("post_inbox_cards")!.config.description)).toContain("never rank");
   expect(String(tools.get("list_inbox_decisions")!.config.description)).toContain("transcribe");
-  const post = tools.get("post_inbox_cards")!.config.inputSchema as Record<string, { safeParse: (value: unknown) => { success: boolean } }>;
-  expect(Object.keys(post)).toEqual(["worldFolderId", "stackId", "stackTitle", "ingestKey", "note", "agent", "cards"]);
+  // Inbox and character schemas are strict objects, passed whole; their shape is what tools/list advertises.
+  const post = (tools.get("post_inbox_cards")!.config.inputSchema as { shape: Record<string, { safeParse: (value: unknown) => { success: boolean } }> }).shape;
+  expect(Object.keys(post)).toEqual(["world", "worldFolderId", "stackId", "stackTitle", "ingestKey", "note", "agent", "cards"]);
   const option = (label: string) => ({ kind: "option", label });
   expect(post.cards.safeParse([{ type: "sort", assetIds: ["a1"], targets: [option("A"), option("B"), { kind: "out" }] }]).success).toBe(true);
   expect(post.cards.safeParse([{ type: "sort", assetIds: ["a1"], targets: [option("A")] }]).success).toBe(false);

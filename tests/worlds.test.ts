@@ -76,7 +76,7 @@ describe("worlds", () => {
       const context = await callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: ref });
       expect(context.world.id).toBe(dear);
     }
-    await expect(callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: "ART" })).rejects.toThrow("No world matches");
+    await expect(callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: "ART" })).rejects.toThrow("Unknown world");
   });
 
   test("a world doc is versioned, capped, journaled and undone", async () => {
@@ -309,7 +309,7 @@ describe("world_move", () => {
     const { ctx, db, dear, places, film, art, daddyCast, asset } = await setup();
     await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: dear })).rejects.toThrow("world root");
     await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "dear-annete", shelf: places })).rejects.toThrow("already in DEAR ANNETE");
-    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "ART", shelf: places })).rejects.toThrow("No world matches");
+    await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "ART", shelf: places })).rejects.toThrow("Unknown world");
     await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues", shelf: art })).rejects.toThrow("not in a world");
     await expect(callAsOwner(moveToWorld)(ctx, { ownerUserId: owner, world: "daddy-issues" })).rejects.toThrow("one of them");
     // A name the target already uses needs a new name.

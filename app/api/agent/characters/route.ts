@@ -7,7 +7,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
   bareId, bareOptionalId, characterCostumeSchema, characterCreateSchema, characterLinkSchema, characterListSchema,
-  characterRefSchema, characterRemoveCostumeSchema, characterUnlinkSchema, characterUpdateSchema,
+  characterRefOf, characterRefSchema, characterRemoveCostumeSchema, characterUnlinkSchema, characterUpdateSchema, worldRefOf,
 } from "@/lib/character-contract";
 
 const actions = ["list", "get", "forAsset", "create", "update", "costume", "removeCostume", "link", "unlink", "delete"] as const;
@@ -22,31 +22,36 @@ const asset = <T extends string | null | undefined>(value: T) => bareOptionalId(
 
 export async function POST(request: Request) {
   try {
-    const body = z.record(z.string(), z.unknown()).parse(await request.json().catch(() => null));
-    const action = z.enum(actions).parse(body.action);
+    const { action: rawAction, ...body } = z.record(z.string(), z.unknown()).parse(await request.json().catch(() => null));
+    const action = z.enum(actions).parse(rawAction);
     const agent = await requireAgentAuth(request, scopes[action]);
     const ownerUserId = agent.ownerUserId;
     const client = getServerConvexClient(ownerUserId);
+    // `world` is a key, name or root id, resolved like open_world does; an
+    // unknown one fails with the resolver's message, never an opaque error.
+    const resolveWorld = async (ref: string) =>
+      (await client.query(api.worlds.resolveWorldRef, { ownerUserId, world: bareId(ref) })).worldId;
 
     if (action === "list") {
-      const input = characterListSchema.parse(body);
+      const { world, worldFolderId: alias, ...input } = characterListSchema.parse(body);
+      const worldRef = worldRefOf({ world, worldFolderId: alias });
       const rows = await client.query(api.characters.listCharacters, {
-        ownerUserId, ...input, worldFolderId: bareOptionalId(input.worldFolderId) as Id<"folders"> | undefined,
+        ownerUserId, ...input, worldFolderId: worldRef ? await resolveWorld(worldRef) : undefined,
       });
       return NextResponse.json({ count: rows.length, characters: rows });
     }
     if (action === "get") {
       const input = characterRefSchema.parse(body);
-      return NextResponse.json(await client.query(api.characters.getCharacter, { ownerUserId, character: input.character }));
+      return NextResponse.json(await client.query(api.characters.getCharacter, { ownerUserId, character: characterRefOf(input) }));
     }
     if (action === "forAsset") {
       const assetId = bareId(z.string().min(1).parse(body.assetId)) as AssetId;
       return NextResponse.json({ characters: await client.query(api.characters.listCharactersForAsset, { ownerUserId, assetId }) });
     }
     if (action === "create") {
-      const input = characterCreateSchema.parse(body);
+      const { world, worldFolderId: alias, ...input } = characterCreateSchema.parse(body);
       const result = await client.mutation(api.characters.createCharacter, {
-        ownerUserId, ...input, worldFolderId: bareId(input.worldFolderId) as Id<"folders">,
+        ownerUserId, ...input, worldFolderId: await resolveWorld(worldRefOf({ world, worldFolderId: alias })!),
         sheetAssetId: asset(input.sheetAssetId), faceAssetId: asset(input.faceAssetId),
       });
       return NextResponse.json({ ok: true, ...result, ...await client.query(api.characters.getCharacter, { ownerUserId, character: result.code }) });
@@ -87,7 +92,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...result });
     }
     const input = characterRefSchema.parse(body);
-    return NextResponse.json({ ok: true, ...await client.mutation(api.characters.deleteCharacter, { ownerUserId, character: input.character }) });
+    return NextResponse.json({ ok: true, ...await client.mutation(api.characters.deleteCharacter, { ownerUserId, character: characterRefOf(input) }) });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: z.prettifyError(error) }, { status: 400 });
