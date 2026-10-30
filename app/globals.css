@@ -687,14 +687,12 @@
 }
 
 /* The one-row toolbar's popovers (FILTERS, VIEWS, MANAGE): a panel hung
-   under the row on wide screens, a sheet above the bottom bar on phones. The
-   island must not clip them, so it has no overflow:hidden. */
+   under the row on wide screens (placed by filter-bar.tsx from the island's
+   rectangle), a sheet above the bottom bar on phones. Portalled to the body:
+   the island clips overflow and the chip rail masks its edges. */
 .lm-toolbar-popover {
-  position: absolute;
-  top: calc(100% - 6px);
-  left: 12px;
-  z-index: 40;
-  width: calc(100% - 24px);
+  position: fixed;
+  z-index: 65;
   padding: 12px 14px 14px;
   background: var(--lm-surface-1);
   border: 2px solid var(--lm-ink);
@@ -702,10 +700,6 @@
   box-shadow: var(--lm-island-shadow);
   font-family: var(--lm-font);
   animation: lm-popover-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.lm-toolbar-popover[data-align="right"] {
-  left: auto;
-  right: 12px;
 }
 .lm-toolbar-popover[role="menu"] {
   padding: 6px;
@@ -730,8 +724,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 @media (max-width: 767px) {
-  .lm-toolbar-popover,
-  .lm-toolbar-popover[data-align="right"] {
+  .lm-toolbar-popover {
     position: fixed;
     top: auto;
     left: 8px;
