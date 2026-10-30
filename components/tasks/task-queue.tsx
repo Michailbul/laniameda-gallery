@@ -65,7 +65,7 @@ function Row({ task, selected, showWorld, onSelect }: { task: TaskRow; selected:
           {task.title}
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {showWorld && <Micro color="var(--lm-coral)">{task.worldName ?? "Studio"}</Micro>}
+          {showWorld && task.worldName && <Micro color="var(--lm-coral)">{task.worldName}</Micro>}
           <Micro>{sourceOf(task)}</Micro>
           {who && <Micro color="var(--lm-text-secondary)">{who.replace(/^agent:/, "")}</Micro>}
           {task.needsRework && task.status === "open" && <Micro color="var(--lm-coral)">rework</Micro>}
@@ -140,7 +140,7 @@ function Composer({ ownerUserId, worldFolderId, onCreated, onClose }: {
       </div>
       {!worldFolderId && <select value={world} onChange={(event) => setWorld(event.target.value)} aria-label="World"
         className="px-2 py-[6px] text-[10px] font-bold uppercase tracking-[0.1em] outline-none" style={{ ...field, ...mono }}>
-        <option value="">Studio-wide</option>
+        <option value="">No world</option>
         {(worlds ?? []).map((row) => <option key={row.worldId} value={row.worldId}>{row.name}</option>)}
       </select>}
       <span className="flex-1" />
@@ -234,11 +234,11 @@ export function TaskPanel({ ownerUserId, taskId, onClose, showWorld }: { ownerUs
           <CopyChip value={taskRef(task._id)} label={`task:…${task._id.slice(-6)}`} />
           <StatusBadge status={task.status} needsRework={task.needsRework} />
           <Badge color={PRIORITY_COLOR[task.priority]}><PriorityDot priority={task.priority} size={6} /> {TASK_PRIORITY_LABEL[task.priority]}</Badge>
-          {showWorld && <Badge color="var(--lm-coral)">{task.worldName ?? "Studio"}</Badge>}
+          {showWorld && task.worldName && <Badge color="var(--lm-coral)">{task.worldName}</Badge>}
         </div>
         <h2 className="mt-2 text-[17px] font-black uppercase leading-tight tracking-tight" style={display}>{task.title}</h2>
         <p className="mt-1 text-[11px]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
-          {sourceOf(task)} · {fullStamp(task.createdAt)}
+          {task.source === "manual" ? fullStamp(task.createdAt) : `${sourceOf(task)} · ${fullStamp(task.createdAt)}`}
           {task.claimedBy && task.status === "claimed" && <> · held by <span style={{ color: "var(--lm-text-secondary)" }}>{task.claimedBy}</span>{task.leaseUntil ? ` until ${new Date(task.leaseUntil).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : ""}</>}
           {task.assignee && task.status !== "claimed" && <> · {task.assignee}</>}
         </p>

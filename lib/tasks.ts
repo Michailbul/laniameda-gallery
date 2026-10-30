@@ -102,3 +102,69 @@ export const taskAge = (at: number, now = Date.now()) => {
   if (days < 30) return `${days}d`;
   return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 };
+
+/* ── The task as an agent reads it ───────────────────────────────────────── */
+
+export type TaskMarkdownInput = {
+  _id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  worldName?: string;
+  brief?: string;
+  result?: string;
+  createdBy: string;
+  assignee?: string;
+  claimedBy?: string;
+  leaseUntil?: number;
+  needsRework?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  links: { kind: TaskLinkKind; id: string; label?: string }[];
+};
+
+const iso = (at: number) => new Date(at).toISOString().slice(0, 16).replace("T", " ") + "Z";
+
+/**
+ * One task as markdown: the same facts the agent route returns, in the order an
+ * agent reads them. The AGENT view of the queue is a list of these, and the
+ * copy button on a card copies one.
+ */
+export const taskToMarkdown = (task: TaskMarkdownInput) => {
+  const lines: string[] = [];
+  lines.push(`# ${task.title}`);
+  lines.push("");
+  const facts = [
+    `id: ${taskRef(task._id)}`,
+    `status: ${task.status}${task.needsRework && task.status === "open" ? " (rework)" : ""}`,
+    `priority: ${task.priority} (${TASK_PRIORITY_LABEL[task.priority].toLowerCase()})`,
+    `world: ${task.worldName ?? "studio"}`,
+    `created: ${iso(task.createdAt)} by ${task.createdBy}`,
+    `updated: ${iso(task.updatedAt)}`,
+  ];
+  if (task.status === "claimed" && task.claimedBy) facts.push(`claimed by: ${task.claimedBy}${task.leaseUntil ? ` until ${iso(task.leaseUntil)}` : ""}`);
+  else if (task.assignee) facts.push(`assignee: ${task.assignee}`);
+  lines.push(...facts.map((fact) => `- ${fact}`));
+  if (task.brief) lines.push("", "## Brief", "", task.brief.trim());
+  if (task.result) lines.push("", task.status === "blocked" ? "## Question for Michael" : "## Result", "", task.result.trim());
+  if (task.links.length) {
+    lines.push("", "## Links", "");
+    for (const link of task.links) lines.push(`- ${linkRef(link)}${link.label ? ` — ${link.label}` : ""}`);
+  }
+  lines.push("", `Act with claim_task / comment_task / complete_task on ${taskRef(task._id)}.`);
+  return lines.join("\n");
+};
+
+/** The first paragraph of a markdown body, as plain text, cut to `max` characters. */
+export const gistOf = (body: string | undefined, max = 280) => {
+  if (!body) return "";
+  const paragraph = body.trim().split(/\n\s*\n/).map((part) => part.trim()).find((part) => part && !/^(#|\||```|- \*\*)/.test(part)) ?? body.trim();
+  const plain = paragraph
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`>#]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.length > max ? `${plain.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : plain;
+};

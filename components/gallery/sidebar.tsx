@@ -1521,7 +1521,8 @@ function FilterRow({
         />
       ) : (
         <span
-          className="line-clamp-2 min-w-0 flex-1 break-words text-left"
+          className="min-w-0 flex-1 truncate text-left"
+          title={label}
           style={
             child
               ? {
@@ -1546,42 +1547,41 @@ function FilterRow({
       )}
       {taste && renameDraft === null && (
         <Sparkles
-          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          className="h-2.5 w-2.5 flex-shrink-0"
           style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
           aria-label="Taste collection — feeds the showcase inspiration grid"
         />
       )}
       {featured && renameDraft === null && (
         <Star
-          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          className="h-2.5 w-2.5 flex-shrink-0"
           style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
           aria-label="Featured on showcase"
         />
       )}
       {showcased && !featured && renameDraft === null && (
         <Globe
-          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          className="h-2.5 w-2.5 flex-shrink-0"
           style={{ color: "var(--lm-coral)" }}
           aria-label="Public on showcase"
         />
       )}
       {hidden && renameDraft === null && (
         <EyeOff
-          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          className="h-2.5 w-2.5 flex-shrink-0"
           style={{ color: "var(--lm-sidebar-text-ghost)" }}
           aria-label="Hidden from the gallery"
         />
       )}
       {published && renameDraft === null && (
         <Eye
-          className={`h-2.5 w-2.5 flex-shrink-0 ${manageable ? "group-hover:hidden" : ""}`}
+          className="h-2.5 w-2.5 flex-shrink-0"
           style={{ color: "var(--lm-coral)" }}
           aria-label="Has assets in the public gallery"
         />
       )}
       {count !== undefined && renameDraft === null && (
         <span
-          className={manageable ? "group-hover:hidden group-focus-within:hidden" : undefined}
           style={{
             fontSize: "9px",
             fontVariantNumeric: "tabular-nums",
@@ -1607,7 +1607,10 @@ function FilterRow({
         </Link>
       )}
       {manageable && renameDraft === null && (
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
+        <span
+          className="absolute inset-y-0 right-0 hidden items-center gap-0.5 pl-6 pr-2 group-hover:flex group-focus-within:flex"
+          style={{ background: "linear-gradient(to right, transparent, var(--lm-sidebar-bg) 22px)" }}
+        >
           {onAddSub && (
             <button
               type="button"

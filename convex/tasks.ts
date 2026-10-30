@@ -544,3 +544,72 @@ export const stripAssetFromTasks = async (ctx: MutationCtx, owner: string, asset
     }
   }
 };
+
+/* ── Review deck ─────────────────────────────────────────────────────────── */
+
+const taskCardValidator = v.object({
+  ...taskRowValidator.fields,
+  // The pictures the task is about: its asset links that still exist, first four.
+  thumbs: v.array(v.object({
+    assetId: v.id("assets"),
+    url: v.string(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+  })),
+});
+
+/** Review order: what needs Michael, then finished work to accept, then open by priority, then in flight. */
+const DECK_RANK: Record<TaskStatus, number> = { blocked: 0, done: 1, open: 2, claimed: 3, archived: 4 };
+
+/**
+ * The review deck (/tasks, Human view): every task Michael can act on, as a
+ * card with its pictures. Done tasks stay until he accepts (archives) them or
+ * sends them back with a comment.
+ */
+export const listTaskCards = ownerQuery({
+  args: {
+    ownerUserId: v.string(),
+    worldFolderId: v.optional(v.id("folders")),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(taskCardValidator),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    const limit = Math.min(TASK_LIMITS.list, Math.max(1, Math.floor(args.limit ?? TASK_LIMITS.listDefault)));
+    const statuses: TaskStatus[] = ["blocked", "done", "open", "claimed"];
+    const rows: Task[] = [];
+    if (args.worldFolderId) {
+      await requireWorld(ctx, owner, args.worldFolderId);
+      for (const status of statuses) {
+        rows.push(...await ctx.db.query("tasks")
+          .withIndex("by_world_status_createdAt", (q) => q.eq("worldFolderId", args.worldFolderId!).eq("status", status))
+          .order("desc").take(limit));
+      }
+    } else {
+      for (const candidate of resolveUserIdCandidates(owner)) {
+        for (const status of statuses) {
+          rows.push(...await ctx.db.query("tasks")
+            .withIndex("by_owner_status_createdAt", (q) => q.eq("ownerUserId", candidate).eq("status", status))
+            .order("desc").take(limit));
+        }
+      }
+    }
+    const visible = [...new Map(rows.filter((task) => owns(owner, task)).map((task) => [task._id, task])).values()]
+      .sort((a, b) => DECK_RANK[a.status] - DECK_RANK[b.status] || a.priority - b.priority || b.updatedAt - a.updatedAt)
+      .slice(0, limit);
+    const out = [];
+    for (const task of visible) {
+      const thumbs = [];
+      for (const link of task.links) {
+        if (link.kind !== "asset" || thumbs.length >= 4) continue;
+        const id = ctx.db.normalizeId("assets", link.id);
+        const asset = id ? await ctx.db.get(id) : null;
+        if (!asset || !owns(owner, asset)) continue;
+        const url = await resolveAssetThumbUrl(ctx, asset);
+        if (url) thumbs.push({ assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined });
+      }
+      out.push({ ...(await withWorld(ctx, task)), thumbs });
+    }
+    return out;
+  },
+});
