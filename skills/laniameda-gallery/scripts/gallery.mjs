@@ -1,10 +1,12 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 // The gallery's hosted MCP tools from a shell, for sessions that have no
 // gallery MCP server configured (cloud sandboxes, CI, a fresh machine).
-// No dependencies: Bun, plus a gallery agent token.
+// No dependencies: Node 20+ or Bun, plus a gallery agent token. The token is
+// LANIAMEDA_GALLERY_AGENT_TOKEN or, when that is unset, the export line in
+// ~/.config/laniameda/gallery.env (the file the shell profile sources).
 //
-//   bun gallery.mjs check                     # reads token from the environment
+//   node gallery.mjs check                    # token from env or gallery.env
 //   bun gallery.mjs tools                     # tool names and one-line summaries
 //   bun gallery.mjs schema save_assets        # one tool's full input schema
 //   bun gallery.mjs search_gallery '{"query":"rainy street at night","limit":8}'
@@ -17,6 +19,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { galleryEnvFilePath, resolveGalleryToken } from "./gallery-client.mjs";
 
 const DEFAULT_API_URL = "https://gallery.laniameda.space";
 const PROTOCOL_VERSION = "2025-06-18";
@@ -34,7 +37,9 @@ const USAGE = `Usage: gallery.mjs <command> [json | @file | -] [--out <dir>]
   <tool> '<json>'       call a tool; arguments as JSON, @file.json, or - for stdin
 
 Env:
-  LANIAMEDA_GALLERY_AGENT_TOKEN   required, an lgat_ token from /agents
+  LANIAMEDA_GALLERY_AGENT_TOKEN   an lgat_ token from /agents; when unset, the export
+                                  line in ~/.config/laniameda/gallery.env is read
+  LANIAMEDA_GALLERY_ENV_FILE      optional, another path for that file
   LANIAMEDA_GALLERY_API_URL       optional, default ${DEFAULT_API_URL}
 
 --out <dir>   where image results (preview_assets contact sheets) are written;
@@ -79,7 +84,7 @@ const readArguments = (raw) => {
 };
 
 const apiUrl = (process.env.LANIAMEDA_GALLERY_API_URL || DEFAULT_API_URL).replace(/\/+$/, "");
-const token = (process.env.LANIAMEDA_GALLERY_AGENT_TOKEN || "").trim();
+const token = resolveGalleryToken();
 
 // The server answers JSON; an SSE body is tolerated in case that changes.
 const parseBody = (text, contentType) => {
@@ -256,7 +261,8 @@ const main = async () => {
   }
   if (!token) {
     fail(
-      "LANIAMEDA_GALLERY_AGENT_TOKEN is not set. Michael issues gallery tokens on /agents; " +
+      `LANIAMEDA_GALLERY_AGENT_TOKEN is not set and ${galleryEnvFilePath()} has no export line for it. ` +
+        "Michael issues gallery tokens on /agents; on his machines the token lives in that file, " +
         "in a cloud session it belongs in the environment's variables. Ask him for it, do not guess one.",
       2,
     );

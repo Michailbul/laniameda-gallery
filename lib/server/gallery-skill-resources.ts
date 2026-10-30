@@ -36,8 +36,8 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/intake.md", title: "Inspiration intake: file, clean and process what Michael sends", access: "public" },
   { path: "references/worlds.md", title: "Michael's current world rules and IDs", access: "owner" },
   { path: "references/maintenance.md", title: "Private installation and deployment notes", access: "owner" },
-  { path: "scripts/gallery.mjs", title: "Standalone Bun MCP client", access: "public" },
-  { path: "scripts/gallery-client.mjs", title: "Importable Gallery client for custom Bun scripts", access: "public" },
+  { path: "scripts/gallery.mjs", title: "Standalone MCP client (Node or Bun)", access: "public" },
+  { path: "scripts/gallery-client.mjs", title: "Importable Gallery client for custom Node or Bun scripts", access: "public" },
 ] as const;
 
 type Dependencies = {
@@ -61,7 +61,7 @@ export const buildGalleryLlmsIndex = (version: string) => `# Laniameda Gallery
 
 Read the canonical skill below before using the gallery. Skill version in this deployment: ${version}. Public instructions come from the deployed repository; current private world policy is owner data. Public documentation does not grant access to private gallery data or authorize a write.
 
-Start with the available Gallery MCP at ${GALLERY_SKILL_ORIGIN}/api/mcp and call check_connection. Discover tools and schemas from tools/list. The read-only get_skill_instructions tool fetches this skill and its references using the connector's existing authentication; no token copying is needed. If MCP is unavailable, download the standalone client and run it with Bun and LANIAMEDA_GALLERY_AGENT_TOKEN. Tokens are issued at /agents. Never print tokens or invent owner IDs.
+Start with the available Gallery MCP at ${GALLERY_SKILL_ORIGIN}/api/mcp and call check_connection. Discover tools and schemas from tools/list. The read-only get_skill_instructions tool fetches this skill and its references using the connector's existing authentication; no token copying is needed. If MCP is unavailable, download the standalone client and run it with Node 20+ or Bun; it reads LANIAMEDA_GALLERY_AGENT_TOKEN or the export line in ~/.config/laniameda/gallery.env. Tokens are issued at /agents. Never print tokens or invent owner IDs.
 
 Media, Skills, Stories, bookmarks and YouTube video references are different objects with separate tools. Read only the references needed for the current request. Read Michael's authenticated world rules before filing, selecting references or writing about a world. Read back saved IDs, media, tags and memberships before reporting completion.
 
@@ -70,8 +70,8 @@ Media, Skills, Stories, bookmarks and YouTube video references are different obj
 - [Canonical SKILL.md](${resourceUrl("SKILL.md")}): Current repository-backed skill. Relative references resolve under the same skill directory.
 - [Web access and capability limits](${resourceUrl("references/web-access.md")}): Fetch instructions, authentication and which operations are available through MCP.
 - [Skill manifest](${resourceUrl("manifest.json")}): Version, SHA-256 fingerprint and resource URLs with public/owner access labels.
-- [Standalone MCP client](${resourceUrl("scripts/gallery.mjs")}): Download, then run bun gallery.mjs check; tools; schema <tool>.
-- [Importable client](${resourceUrl("scripts/gallery-client.mjs")}): Download for custom Bun scripts that iterate and filter gallery data before printing results.
+- [Standalone MCP client](${resourceUrl("scripts/gallery.mjs")}): Download, then run node gallery.mjs check; tools; schema <tool> (Bun works too).
+- [Importable client](${resourceUrl("scripts/gallery-client.mjs")}): Download for custom Node or Bun scripts that iterate and filter gallery data before printing results.
 - [Agent access](${GALLERY_SKILL_ORIGIN}/agents): Owner sign-in and scoped token management.
 
 ## Task references
