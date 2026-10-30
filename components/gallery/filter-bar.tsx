@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bookmark,
   BookOpenText,
@@ -190,6 +191,7 @@ export function GalleryFilterBar({
   // Which pill is showing its minus affordance (hover or keyboard focus).
   const [hoveredFilterId, setHoveredFilterId] = useState<string | null>(null);
   const [railRef, railFade] = useChipRail<HTMLDivElement>(`${viewMode}:${Boolean(views)}:${Boolean(onPublishAll)}`);
+  const islandRef = useRef<HTMLDivElement>(null);
 
   // A pill whose collection was deleted matches nothing — showing it would be
   // a dead click. The admin panel below still lists it so the owner can fix it.
@@ -218,6 +220,7 @@ export function GalleryFilterBar({
       }}
     >
       <div
+        ref={islandRef}
         className="lm-island lm-toolbar"
         style={{
           position: "relative",
@@ -270,6 +273,7 @@ export function GalleryFilterBar({
 
           <ToolbarPopover
             id="filters"
+            anchorRef={islandRef}
             open={openPanel === "filters"}
             onOpenChange={(open) => setOpenPanel(open ? "filters" : null)}
             label="Filters"
@@ -409,6 +413,7 @@ export function GalleryFilterBar({
           {views ? (
             <ToolbarPopover
               id="views"
+              anchorRef={islandRef}
               open={openPanel === "views"}
               onOpenChange={(open) => setOpenPanel(open ? "views" : null)}
               label={viewName ? `View · ${viewName}` : "Views"}
@@ -450,6 +455,7 @@ export function GalleryFilterBar({
               <div className="flex-1" style={{ minWidth: "4px" }} />
               <ToolbarPopover
                 id="manage"
+                anchorRef={islandRef}
                 open={openPanel === "manage"}
                 onOpenChange={(open) => setOpenPanel(open ? "manage" : null)}
                 label="Manage"
@@ -539,14 +545,20 @@ function PanelHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
+const PHONE_QUERY = "(max-width: 767px)";
+
 /**
  * A toolbar button that opens a panel under the row (a sheet above the
  * bottom bar on phones, see `.lm-toolbar-popover` in globals.css). The panel
- * stays open while its chips are toggled; a click outside, Esc or the button
- * closes it.
+ * is portalled to the body: the island clips its overflow and the chip rail
+ * masks its edges, so a panel inside either would be cut. It is placed
+ * from the island's rectangle (`anchorRef`) on wide screens; the phone sheet
+ * is positioned by CSS alone. The panel stays open while its chips are
+ * toggled; a click outside, Esc or the button closes it.
  */
 function ToolbarPopover({
   id,
+  anchorRef,
   open,
   onOpenChange,
   label,
@@ -560,6 +572,7 @@ function ToolbarPopover({
   children,
 }: {
   id: string;
+  anchorRef: React.RefObject<HTMLElement | null>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   label: string;
@@ -575,6 +588,39 @@ function ToolbarPopover({
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = `${useId()}-${id}`;
+  const [placement, setPlacement] = useState<React.CSSProperties | null>(null);
+
+  // Where the panel hangs on a wide screen: under the island, inset 12 px,
+  // at most `width` wide, from the island's left or right edge. Measured on
+  // open and again on resize and scroll (the bar is sticky, so it moves).
+  useLayoutEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      if (window.matchMedia(PHONE_QUERY).matches) {
+        setPlacement(null);
+        return;
+      }
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const available = Math.max(200, rect.width - 24);
+      const panelWidth = Math.min(width, available);
+      setPlacement({
+        position: "fixed",
+        top: rect.bottom - 6,
+        width: panelWidth,
+        ...(align === "right"
+          ? { left: rect.right - 12 - panelWidth }
+          : { left: rect.left + 12 }),
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open, anchorRef, width, align]);
 
   useEffect(() => {
     if (!open) return;
@@ -650,19 +696,22 @@ function ToolbarPopover({
           }}
         />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          id={panelId}
-          role={role}
-          aria-label={ariaLabel ?? label}
-          className="lm-toolbar-popover"
-          data-align={align}
-          style={{ maxWidth: `${width}px` }}
-        >
-          {children}
-        </div>
-      ) : null}
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={panelRef}
+              id={panelId}
+              role={role}
+              aria-label={ariaLabel ?? label}
+              className="lm-toolbar-popover"
+              data-align={align}
+              style={placement ?? undefined}
+            >
+              {children}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
