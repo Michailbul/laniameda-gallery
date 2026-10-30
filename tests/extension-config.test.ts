@@ -53,17 +53,27 @@ describe("extension endpoint defaults", () => {
     expect(manifest.permissions).toContain("sidePanel");
     expect(manifest.action?.default_popup).toBeUndefined();
     expect(manifest.side_panel?.default_path).toBe("popup.html");
-    expect(manifest.commands?.["add-selected-asset"]?.suggested_key?.mac).toBe(
-      "Command+Shift+L",
-    );
-    expect(manifest.commands?.["add-selected-asset"]?.suggested_key?.default).toBe(
-      "Ctrl+Shift+L",
-    );
+    // The four Dear Annete hotkeys: world, location, scene, comment.
+    for (const [command, letter] of [
+      ["add-dear-annete", "D"],
+      ["add-as-location", "L"],
+      ["add-as-scene", "P"],
+      ["add-with-comment", "M"],
+    ]) {
+      expect(manifest.commands?.[command]?.suggested_key?.mac).toBe(
+        `Command+Shift+${letter}`,
+      );
+      expect(manifest.commands?.[command]?.suggested_key?.default).toBe(
+        `Ctrl+Shift+${letter}`,
+      );
+    }
     expect(backgroundScript).toContain("openPanelOnActionClick");
     expect(backgroundScript).toContain("prepareAssetUpload");
     expect(backgroundScript).toContain("saveDroppedAsset");
     expect(backgroundScript).toContain('"collection-classification.js"');
-    expect(backgroundScript).toContain("resolveFolderAssetTypeTag");
+    // The hotkeys file through save-targets.js: world, location, scene, comment.
+    expect(backgroundScript).toContain('"save-targets.js"');
+    expect(backgroundScript).toContain("dearAnneteTarget(");
     expect(backgroundScript).toContain("getFolders()");
     expect(popupHtml).toContain('<script src="collection-classification.js"></script>');
     expect(popupHtml).not.toContain('id="uploadTypeTag"');
@@ -88,10 +98,10 @@ describe("extension endpoint defaults", () => {
     expect(popupScript).toContain('"extensionMode"');
     expect(popupScript).toContain('action: "saveActiveMidjourneyAsset"');
     expect(popupScript).toContain('continueImmediately: true');
+    // The click awaits only the destination lookup; the save itself is
+    // dispatched and left to run so Midjourney can move to the next image.
     expect(popupScript).toContain("void savePromise.then");
-    expect(popupScript).not.toContain(
-      'addSelectedAssetBtn.addEventListener("click", async',
-    );
+    expect(popupScript).not.toContain("await savePromise");
     expect(popupScript).toContain('"uploadTagNames"');
     expect(popupScript).toContain('"uploadAssetTypeTag"');
     expect(popupScript).toContain('"uploadStyleTag"');
@@ -216,9 +226,9 @@ describe("extension endpoint defaults", () => {
     expect(backgroundScript).toContain("requiredContentType");
     expect(backgroundScript).toContain("original PNG; nothing was saved");
     expect(backgroundScript).toContain("chrome.commands.onCommand");
-    expect(backgroundScript).toContain("addSelectedMidjourneyFromShortcut");
-    expect(backgroundScript).toContain("UPLOAD_ASSET_TYPE_TAG_KEY");
-    expect(backgroundScript).toContain("UPLOAD_STYLE_TAG_KEY");
+    expect(backgroundScript).toContain("quickSaveMidjourney(kind)");
+    expect(backgroundScript).toContain("openMidjourneyComment()");
+    expect(backgroundScript).toContain('action: "openGalleryComment"');
     expect(backgroundScript).toContain('triggeredByShortcut: true');
     expect(contentScript).toContain("showAsyncProgress");
     expect(contentScript).toContain("queued — move to the next");
