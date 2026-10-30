@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, BookOpenText, Film, X } from "lucide-react";
@@ -12,6 +11,7 @@ import {
   usePackRotation,
 } from "@/components/gallery/pack-deck";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
+import { buildGridImageAttrs, gridImageSizes } from "@/lib/grid-image";
 import { triggerAssetDownload } from "@/lib/download-image";
 import { hasMeaningfulPrompt } from "@/lib/prompt";
 import { SKILL_SECTION_COPY, isCinematographySkill } from "@/lib/cinematography";
@@ -56,6 +56,10 @@ interface ImageCardProps {
     promptId?: string;
     src: string;
     fullSrc: string;
+    /** The thumb and the original with their widths, for the tile's srcset. */
+    thumbSrc?: string;
+    thumbWidth?: number;
+    fullWidth?: number;
     prompt: string;
     name?: string;
     agentDescription?: string;
@@ -97,10 +101,14 @@ interface ImageCardProps {
     previewImages: GalleryEntryPreview[];
   };
   eager?: boolean;
-  /** Native `loading` for the tile's <img>. The masonry grid windows its own
-      rows, so it asks for "eager": a mounted tile should fetch at once
-      instead of waiting for the browser's lazy threshold. */
+  /** Native `loading` for the tile's <img>. The masonry grid asks for
+      "eager" on the first screen and "lazy" below it, so a fast scroll past
+      a mounted batch does not fetch every thumb in it. */
   mediaLoading?: "eager" | "lazy";
+  /** The tile's laid-out width in px, when the grid knows it: it becomes the
+      <img>'s `sizes`, so the browser picks the thumb or the original by the
+      space the tile really has. */
+  tileWidth?: number;
   onSelect?: (image: {
     id: string;
     packId?: string;
@@ -196,6 +204,7 @@ export const ImageCard = memo(function ImageCard({
   image,
   eager = false,
   mediaLoading = "lazy",
+  tileWidth,
   onSelect,
   selectedId,
   initiallyLoaded = false,
@@ -255,6 +264,9 @@ export const ImageCard = memo(function ImageCard({
           galleryItemType: "asset" as const,
           src: image.src,
           fullSrc: image.fullSrc,
+          thumbSrc: image.thumbSrc,
+          thumbWidth: image.thumbWidth,
+          fullWidth: image.fullWidth,
           prompt: image.prompt,
           name: image.name,
           agentDescription: image.agentDescription,
@@ -427,11 +439,38 @@ export const ImageCard = memo(function ImageCard({
     setPosterSettled(true);
   };
 
-  // `priority` already implies eager; passing both trips a Next warning.
-  const imgLoading = eager ? undefined : mediaLoading;
-  const responsiveSizes = isVideo
-    ? "(max-width: 640px) 100vw, (max-width: 1024px) 66vw, (max-width: 1280px) 50vw, 40vw"
-    : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
+  const imgLoading: "eager" | "lazy" = eager ? "eager" : mediaLoading;
+  const fetchPriority = eager ? ("high" as const) : undefined;
+  // The still's srcset: thumb and original at their real widths, chosen by
+  // the tile's width. Once a thumb has failed and the card fell back to the
+  // original, only the original is offered.
+  const gridAttrs = useMemo(
+    () =>
+      currentSrc === activePreview.src
+        ? buildGridImageAttrs(
+            {
+              src: currentSrc,
+              thumbSrc: activePreview.thumbSrc,
+              thumbWidth: activePreview.thumbWidth,
+              fullSrc: activePreview.fullSrc,
+              fullWidth: activePreview.fullWidth,
+            },
+            tileWidth,
+            isVideo ? "video" : "image",
+          )
+        : { src: currentSrc, sizes: gridImageSizes(tileWidth, isVideo ? "video" : "image") },
+    [
+      activePreview.fullSrc,
+      activePreview.fullWidth,
+      activePreview.src,
+      activePreview.thumbSrc,
+      activePreview.thumbWidth,
+      currentSrc,
+      isVideo,
+      tileWidth,
+    ],
+  );
+  const posterSizes = gridImageSizes(tileWidth, "video");
 
   const entranceDelay =
     index < ENTRANCE_ANIMATION_LIMIT ? `${index * 30}ms` : "0ms";
@@ -738,21 +777,23 @@ export const ImageCard = memo(function ImageCard({
                 <ImageIcon className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
               </div>
             )}
-            <Image
-              src={currentSrc || "/placeholder.svg"}
+            {/* eslint-disable-next-line @next/next/no-img-element -- R2 renditions with their own srcset; next/image adds nothing here */}
+            <img
+              src={gridAttrs.src || "/placeholder.svg"}
+              srcSet={gridAttrs.srcSet}
+              sizes={gridAttrs.sizes}
               alt={displayLabel}
-              fill
-              sizes={responsiveSizes}
-              priority={eager}
               loading={imgLoading}
-              className={`object-cover transition-transform duration-500 group-hover:scale-[1.03] ${
+              fetchPriority={fetchPriority}
+              decoding="async"
+              draggable={false}
+              className={`absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${
                 isLoading ? "opacity-0" : "opacity-100"
               }`}
               style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
               ref={attachImageNode}
               onLoad={handleImageLoad}
               onError={handleImageError}
-              unoptimized
             />
             <div className="skill-card-scrim" aria-hidden />
           </div>
@@ -934,14 +975,16 @@ export const ImageCard = memo(function ImageCard({
         ) : isVideo ? (
           <>
             {hasThumb && (
-              <Image
+              // eslint-disable-next-line @next/next/no-img-element -- the poster is an R2 still; next/image adds nothing here
+              <img
                 src={activeThumbSrc || "/placeholder.svg"}
+                sizes={posterSizes}
                 alt={displayLabel}
-                fill
-                sizes={responsiveSizes}
-                priority={eager}
                 loading={imgLoading}
-                className={`object-contain transition-opacity duration-150 ${
+                fetchPriority={fetchPriority}
+                decoding="async"
+                draggable={false}
+                className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
                   isLoading ? "opacity-0" : "opacity-100"
                 }`}
                 ref={attachPosterNode}
@@ -950,7 +993,6 @@ export const ImageCard = memo(function ImageCard({
                   setPosterSettled(true);
                 }}
                 onError={handleVideoPosterError}
-                unoptimized
               />
             )}
             {(videoScrub.active || !hasThumb || (mountVideoAtRest && posterSettled)) && (
@@ -973,14 +1015,17 @@ export const ImageCard = memo(function ImageCard({
             )}
           </>
         ) : (
-          <Image
-            src={currentSrc || "/placeholder.svg"}
+          // eslint-disable-next-line @next/next/no-img-element -- R2 renditions with their own srcset; next/image adds nothing here
+          <img
+            src={gridAttrs.src || "/placeholder.svg"}
+            srcSet={gridAttrs.srcSet}
+            sizes={gridAttrs.sizes}
             alt={displayLabel}
-            fill
-            sizes={responsiveSizes}
-            priority={eager}
             loading={imgLoading}
-            className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
+            fetchPriority={fetchPriority}
+            decoding="async"
+            draggable={false}
+            className={`absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
               isLoading ? "opacity-0" : "opacity-100"
             }`}
             style={{
@@ -989,7 +1034,6 @@ export const ImageCard = memo(function ImageCard({
             ref={attachImageNode}
             onLoad={handleImageLoad}
             onError={handleImageError}
-            unoptimized
           />
         )}
       </div>

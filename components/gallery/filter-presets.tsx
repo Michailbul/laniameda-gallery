@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Check, Plus, SlidersHorizontal, X } from "lucide-react";
-import { useChipRail } from "./filter-bar";
+import { Check, Plus, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 
@@ -13,7 +12,7 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id) => b.includes(id));
 
 // A preset reads as "on" when the live filters equal it exactly.
-const matches = (preset: PresetFilters, current: PresetFilters) =>
+export const matchesPreset = (preset: PresetFilters, current: PresetFilters) =>
   sameSet(preset.selectedFilterIds, current.selectedFilterIds) &&
   sameSet(preset.excludedFilterIds, current.excludedFilterIds) &&
   (preset.folderId ?? null) === (current.folderId ?? null) &&
@@ -23,15 +22,7 @@ const matches = (preset: PresetFilters, current: PresetFilters) =>
   preset.flattenStacks === current.flattenStacks &&
   preset.sortOrder === current.sortOrder;
 
-export function FilterPresets({
-  ownerUserId,
-  current,
-  onApply,
-  validFilterIds,
-  validFolderIds,
-  includeSkills,
-  onIncludeSkillsChange,
-}: {
+export type ViewsPanelProps = {
   ownerUserId: string;
   current: PresetFilters;
   onApply: (filters: PresetFilters) => void;
@@ -39,20 +30,49 @@ export function FilterPresets({
   validFolderIds: Set<string>;
   includeSkills: boolean;
   onIncludeSkillsChange: (next: boolean) => void;
-}) {
+  /** The owner's saved views, when the caller already has them (the toolbar
+   *  button names the active one). The panel loads them itself otherwise. */
+  presets?: Doc<"galleryPresets">[];
+};
+
+/** The saved view the live filters equal exactly, if any. */
+export const activeViewName = ({ presets, current }: Pick<ViewsPanelProps, "presets" | "current">) =>
+  presets?.find((preset) => matchesPreset(preset.filters, current))?.name ?? null;
+
+/** The owner's saved views, for the toolbar (`useViews`). */
+export function useSavedViews(ownerUserId: string) {
   const { isAuthenticated } = useConvexAuth();
-  const presets = useQuery(
+  return useQuery(api.galleryPresets.listPresets, isAuthenticated ? { ownerUserId } : "skip");
+}
+
+/**
+ * The VIEWS popover: one row per saved view (a check marks the one that is
+ * on, an x deletes it), the Skills switch, and a line to save the filters that
+ * are on right now under a name.
+ */
+export function ViewsPanel({
+  ownerUserId,
+  current,
+  onApply,
+  validFilterIds,
+  validFolderIds,
+  includeSkills,
+  onIncludeSkillsChange,
+  presets: givenPresets,
+  onApplied,
+}: ViewsPanelProps & { onApplied?: () => void }) {
+  const { isAuthenticated } = useConvexAuth();
+  const loaded = useQuery(
     api.galleryPresets.listPresets,
-    isAuthenticated ? { ownerUserId } : "skip",
+    givenPresets === undefined && isAuthenticated ? { ownerUserId } : "skip",
   );
+  const presets = givenPresets ?? loaded;
   const save = useMutation(api.galleryPresets.savePreset);
   const seed = useMutation(api.galleryPresets.seedPresets);
   const remove = useMutation(api.galleryPresets.deletePreset);
   const [name, setName] = useState("");
-  const [managing, setManaging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [railRef, railFade] = useChipRail<HTMLDivElement>(presets?.length);
 
   const apply = (filters: PresetFilters) => {
     if (
@@ -68,6 +88,7 @@ export function FilterPresets({
     }
     setError("");
     onApply(filters);
+    onApplied?.();
   };
 
   const run = async (task: () => Promise<unknown>) => {
@@ -84,219 +105,158 @@ export function FilterPresets({
   };
 
   return (
-    <div
-      className="px-4 pb-3"
-      style={{ fontFamily: "var(--lm-font)" }}
-    >
-      <div className="mx-auto" style={{ maxWidth: "1180px" }}>
-        <div className="lm-chip-row flex items-center gap-2">
-          <span
-            className="shrink-0"
-            style={{
-              fontSize: "8px",
-              fontWeight: 800,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "var(--lm-text-ghost)",
-            }}
-          >
-            Views
-          </span>
+    <div style={{ fontFamily: "var(--lm-font)" }}>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <span
+          style={{
+            fontSize: "8px",
+            fontWeight: 800,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: "var(--lm-text-ghost)",
+          }}
+        >
+          Saved views{presets ? ` · ${presets.length}` : ""}
+        </span>
+        <SkillsSwitch checked={includeSkills} onChange={onIncludeSkillsChange} />
+      </div>
 
-          <div
-            ref={railRef}
-            data-fade={railFade}
-            className="lm-chip-rail flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {presets?.map((preset) => {
-              const active = matches(preset.filters, current);
-              return (
-                <span
-                  key={preset._id}
-                  className="inline-flex shrink-0 items-center"
-                >
-                  <ViewPill active={active} onClick={() => apply(preset.filters)}>
-                    {preset.name}
-                  </ViewPill>
-                  {managing ? (
-                    <button
-                      type="button"
-                      aria-label={`Delete ${preset.name} view`}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() => remove({ ownerUserId, id: preset._id }))
-                      }
-                      className="-ml-1 flex h-5 w-5 items-center justify-center"
-                      style={{
-                        color: "var(--status-error)",
-                        borderRadius: "999px",
-                      }}
-                    >
-                      <X className="h-3 w-3" aria-hidden />
-                    </button>
-                  ) : null}
-                </span>
-              );
-            })}
-            {presets?.length === 0 ? (
+      <ul className="lm-views-list mt-1.5 flex max-h-[46dvh] flex-col gap-0.5 overflow-y-auto" role="list">
+        {presets?.map((preset) => {
+          const active = matchesPreset(preset.filters, current);
+          return (
+            <li key={preset._id} className="lm-views-row flex items-stretch">
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void run(() => seed({ ownerUserId }))}
-                className="inline-flex shrink-0 items-center gap-1 px-3 py-1"
+                onClick={() => apply(preset.filters)}
+                aria-pressed={active}
+                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left transition-colors"
                 style={{
+                  minHeight: "34px",
+                  borderRadius: "12px",
                   fontSize: "10px",
-                  fontWeight: 600,
+                  fontWeight: active ? 800 : 600,
                   letterSpacing: "0.1em",
                   textTransform: "uppercase",
-                  color: "var(--lm-text-secondary)",
-                  border: "2px dashed var(--lm-border-strong)",
-                  borderRadius: "999px",
+                  color: active ? "#fff" : "var(--lm-text-primary)",
+                  background: active
+                    ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
+                    : "transparent",
                 }}
               >
-                <Plus className="h-3 w-3" aria-hidden />
-                Add starter views
+                <Check
+                  className="h-3 w-3 shrink-0"
+                  aria-hidden
+                  style={{ opacity: active ? 1 : 0 }}
+                />
+                <span className="truncate">{preset.name}</span>
               </button>
-            ) : null}
-          </div>
-
-          <SkillsSwitch
-            checked={includeSkills}
-            onChange={onIncludeSkillsChange}
-          />
-
-          <button
-            type="button"
-            onClick={() => setManaging((open) => !open)}
-            aria-expanded={managing}
-            aria-label="Save or manage views"
-            className="flex shrink-0 items-center gap-1 px-2.5 py-1 transition-colors"
-            style={{
-              fontSize: "9px",
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: managing
-                ? "var(--lm-text-primary)"
-                : "var(--lm-text-ghost)",
-              border: managing
-                ? "2px solid var(--lm-ink)"
-                : "2px solid var(--lm-border-strong)",
-              borderRadius: "999px",
-              background: managing ? "var(--lm-surface-1)" : "transparent",
-            }}
-          >
-            <SlidersHorizontal className="h-3 w-3" aria-hidden />
-            Edit
-          </button>
-        </div>
-
-        {managing ? (
-          <form
-            className="lm-island mt-2 flex items-center gap-2 px-3 py-2"
-            style={{ borderRadius: "14px" }}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void run(async () => {
-                await save({ ownerUserId, name, filters: current });
-                setName("");
-              });
-            }}
-          >
-            <input
-              aria-label="View name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Name the filters you have on right now"
-              maxLength={80}
-              className="min-w-0 flex-1 bg-transparent py-1 outline-none"
+              <button
+                type="button"
+                aria-label={`Delete the ${preset.name} view`}
+                title={`Delete the ${preset.name} view`}
+                disabled={busy}
+                onClick={() => void run(() => remove({ ownerUserId, id: preset._id }))}
+                className="lm-views-delete flex w-9 shrink-0 items-center justify-center transition-colors"
+                style={{ color: "var(--lm-text-ghost)", borderRadius: "12px" }}
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </li>
+          );
+        })}
+        {presets?.length === 0 ? (
+          <li>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => seed({ ownerUserId }))}
+              className="inline-flex items-center gap-1 px-3 py-1.5"
               style={{
-                fontSize: "11px",
+                fontSize: "10px",
                 fontWeight: 600,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
-                color: "var(--lm-text-primary)",
-                borderBottom: "2px solid var(--lm-border-strong)",
-                caretColor: "var(--lm-coral)",
-              }}
-            />
-            <button
-              type="submit"
-              disabled={busy || !name.trim()}
-              className="inline-flex shrink-0 items-center gap-1 px-3 py-1.5"
-              style={{
-                fontSize: "9px",
-                fontWeight: 800,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "#fff",
-                background:
-                  "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+                color: "var(--lm-text-secondary)",
+                border: "2px dashed var(--lm-border-strong)",
                 borderRadius: "999px",
-                opacity: busy || !name.trim() ? 0.45 : 1,
               }}
             >
-              <Check className="h-3 w-3" aria-hidden />
-              {busy ? "Saving" : "Save view"}
+              <Plus className="h-3 w-3" aria-hidden />
+              Add starter views
             </button>
-          </form>
+          </li>
         ) : null}
+        {presets === undefined ? (
+          <li className="px-2.5 py-2" style={{ fontSize: "10px", color: "var(--lm-text-ghost)" }}>
+            Loading…
+          </li>
+        ) : null}
+      </ul>
 
-        {error ? (
-          <p
-            role="alert"
-            className="mt-2"
-            style={{
-              fontSize: "10px",
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              color: "var(--coral)",
-            }}
-          >
-            {error}
-          </p>
-        ) : null}
-      </div>
+      <form
+        className="mt-2 flex items-center gap-2 px-1 pt-2"
+        style={{ borderTop: "1px solid var(--lm-border)" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void run(async () => {
+            await save({ ownerUserId, name, filters: current });
+            setName("");
+          });
+        }}
+      >
+        <input
+          aria-label="View name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Save the filters that are on as…"
+          maxLength={80}
+          className="min-w-0 flex-1 bg-transparent py-1.5 outline-none"
+          style={{
+            fontSize: "11px",
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--lm-text-primary)",
+            borderBottom: "2px solid var(--lm-border-strong)",
+            caretColor: "var(--lm-coral)",
+          }}
+        />
+        <button
+          type="submit"
+          disabled={busy || !name.trim()}
+          className="inline-flex shrink-0 items-center gap-1 px-3 py-1.5"
+          style={{
+            fontSize: "9px",
+            fontWeight: 800,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "#fff",
+            background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+            borderRadius: "999px",
+            opacity: busy || !name.trim() ? 0.45 : 1,
+          }}
+        >
+          <Check className="h-3 w-3" aria-hidden />
+          {busy ? "Saving" : "Save view"}
+        </button>
+      </form>
+
+      {error ? (
+        <p
+          role="alert"
+          className="mt-2 px-1"
+          style={{
+            fontSize: "10px",
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            color: "var(--coral)",
+          }}
+        >
+          {error}
+        </p>
+      ) : null}
     </div>
-  );
-}
-
-function ViewPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className="inline-flex shrink-0 items-center whitespace-nowrap"
-      style={{
-        padding: "4px 12px",
-        fontSize: "10px",
-        fontWeight: active ? 700 : 600,
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-        borderRadius: "999px",
-        border: active
-          ? "2px solid var(--gradient-3)"
-          : "2px solid var(--lm-border)",
-        color: active ? "#fff" : "var(--lm-text-secondary)",
-        background: active
-          ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3), var(--gradient-5))"
-          : "var(--lm-surface-1)",
-        boxShadow: active ? "0 0 10px rgba(255, 122, 100, 0.2)" : "none",
-        transition: "all var(--lm-duration-fast)",
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -313,6 +273,7 @@ function SkillsSwitch({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
+      title={checked ? "Skill cards show in the grid" : "Skill cards are hidden from the grid"}
       className="flex shrink-0 items-center gap-2"
       style={{
         fontSize: "9px",

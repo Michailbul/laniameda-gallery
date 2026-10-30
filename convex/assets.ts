@@ -2889,6 +2889,113 @@ export const listGalleryAssetsPage = ownerQuery({
   },
 });
 
+// The private pieces of the current view, counted on the server for the
+// PUBLISH ALL confirmation. The grid only knows the cards it has loaded (the
+// same world read 44, 31 and 46 as pages arrived), so the dialog asks here
+// instead and publishes exactly the ids this returns.
+//
+// A collection view walks its membership links (the world's own shelves too
+// when includeDescendants is on); the plain grid walks the owner's newest-first
+// index. Both stop at PRIVATE_COUNT_SCAN_BUDGET source rows and say so with
+// `complete: false`: Convex reads are bounded, and a bulk publish of thousands
+// of pieces is not a one-click action anyway.
+const PRIVATE_COUNT_SCAN_BUDGET = 2000;
+
+export const countPrivateAssetsInView = ownerQuery({
+  args: {
+    ownerUserId: v.string(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    ...pageMenuFilterValidators,
+    folderId: v.optional(v.id("folders")),
+    includeDescendants: v.optional(v.boolean()),
+    modelName: v.optional(v.string()),
+    onlyLiked: v.optional(v.boolean()),
+    skipHiddenCollections: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    count: v.number(),
+    assetIds: v.array(v.id("assets")),
+    // False when the scan hit its budget before the view's last row.
+    complete: v.boolean(),
+    scanned: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const candidates = resolveUserIdCandidates(ownerUserId);
+    const hiddenFolderIds = args.skipHiddenCollections && !args.folderId
+      ? await resolveHiddenFolderIds(ctx, candidates)
+      : null;
+
+    let budget = PRIVATE_COUNT_SCAN_BUDGET;
+    let complete = true;
+    let scanned = 0;
+    const candidatesPrivate: Doc<"assets">[] = [];
+    const seen = new Set<Id<"assets">>();
+    const admit = (asset: Doc<"assets"> | null) => {
+      if (!asset || seen.has(asset._id)) return;
+      seen.add(asset._id);
+      if (asset.isPublic === true) return;
+      if (!candidates.includes(asset.ownerUserId ?? "")) return;
+      candidatesPrivate.push(asset);
+    };
+
+    if (args.folderId) {
+      const scope = await resolveScopeFolderIds(ctx, args);
+      for (const folderId of scope ?? []) {
+        for (const owner of candidates) {
+          if (budget <= 0) { complete = false; break; }
+          const links = await ctx.db
+            .query("assetFolders")
+            .withIndex("by_owner_folder_createdAt", (q) =>
+              q.eq("ownerUserId", owner).eq("folderId", folderId as Id<"folders">).gte("createdAt", 0),
+            )
+            .order("desc")
+            .take(budget + 1);
+          if (links.length > budget) {
+            complete = false;
+            links.length = budget;
+          }
+          budget -= links.length;
+          scanned += links.length;
+          for (const link of links) admit(await ctx.db.get(link.assetId));
+        }
+      }
+    } else {
+      const onlyLiked = args.onlyLiked === true;
+      const modelNameFilter = args.modelName?.trim() || null;
+      for (const owner of candidates) {
+        if (budget <= 0) { complete = false; break; }
+        const indexed = onlyLiked
+          ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", (q) =>
+              q.eq("ownerUserId", owner).eq("isLiked", true).gte("createdAt", 0))
+          : modelNameFilter
+            ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", (q) =>
+                q.eq("ownerUserId", owner).eq("modelName", modelNameFilter).gte("createdAt", 0))
+            : args.kind
+              ? ctx.db.query("assets").withIndex("by_owner_kind_createdAt", (q) =>
+                  q.eq("ownerUserId", owner).eq("kind", args.kind!).gte("createdAt", 0))
+              : ctx.db.query("assets").withIndex("by_owner_createdAt", (q) =>
+                  q.eq("ownerUserId", owner).gte("createdAt", 0));
+        const rows = await indexed.order("desc").take(budget + 1);
+        if (rows.length > budget) {
+          complete = false;
+          rows.length = budget;
+        }
+        budget -= rows.length;
+        scanned += rows.length;
+        for (const row of rows) admit(row);
+      }
+    }
+
+    const filtered = await filterGalleryPageAssets(ctx, candidatesPrivate, args, hiddenFolderIds);
+    const assetIds = filtered.assets.map((asset) => asset._id);
+    return { count: assetIds.length, assetIds, complete, scanned };
+  },
+});
+
 // Cursor-paginated members of ONE collection, newest link first ("recently
 // added" order). Backs the folder-scoped infinite scroll exactly like
 // listGalleryAssetsPage backs the unfiltered grid: the wrapper cursor walks

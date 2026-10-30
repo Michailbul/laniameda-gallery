@@ -686,6 +686,79 @@
   }
 }
 
+/* The one-row toolbar's popovers (FILTERS, VIEWS, MANAGE): a panel hung
+   under the row on wide screens, a sheet above the bottom bar on phones. The
+   island must not clip them, so it has no overflow:hidden. */
+.lm-toolbar-popover {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 12px;
+  z-index: 40;
+  width: calc(100% - 24px);
+  padding: 12px 14px 14px;
+  background: var(--lm-surface-1);
+  border: 2px solid var(--lm-ink);
+  border-radius: 20px;
+  box-shadow: var(--lm-island-shadow);
+  font-family: var(--lm-font);
+  animation: lm-popover-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lm-toolbar-popover[data-align="right"] {
+  left: auto;
+  right: 12px;
+}
+.lm-toolbar-popover[role="menu"] {
+  padding: 6px;
+}
+.lm-toolbar-menu-item:hover,
+.lm-toolbar-menu-item:focus-visible {
+  background: var(--lm-surface-2, color-mix(in srgb, var(--lm-ink) 6%, transparent));
+}
+.lm-views-delete {
+  opacity: 0;
+}
+.lm-views-row:hover .lm-views-delete,
+.lm-views-row:focus-within .lm-views-delete,
+.lm-views-delete:focus-visible {
+  opacity: 1;
+}
+.lm-views-delete:hover {
+  color: var(--status-error) !important;
+}
+@keyframes lm-popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 767px) {
+  .lm-toolbar-popover,
+  .lm-toolbar-popover[data-align="right"] {
+    position: fixed;
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--mobile-bottom-nav-height) + 14px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none !important;
+    max-height: 72dvh;
+    overflow-y: auto;
+    border-radius: 22px;
+    animation: lm-popover-up 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .lm-toolbar-popover button {
+    min-height: 40px;
+  }
+  .lm-toolbar-popover .lm-menu-pill-minus {
+    display: none !important;
+  }
+  .lm-views-delete {
+    opacity: 1;
+  }
+  @keyframes lm-popover-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
 /* Hide the horizontal scrollbar on the tab row (narrow screens). */
 [role="tablist"]::-webkit-scrollbar {
   display: none;
