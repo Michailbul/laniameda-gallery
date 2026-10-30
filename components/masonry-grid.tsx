@@ -200,9 +200,9 @@ interface MasonryGridProps {
   baseScale?: number;
 }
 
-// Rows mount in batches of this many tiles; every mounted tile fetches its
-// thumb at once (mediaLoading="eager"), so the window below is the only
-// throttle on how far ahead the grid loads.
+// Rows mount in batches of this many tiles. The first screen's tiles fetch
+// eagerly; the rest are lazy, so the browser's own viewport threshold throttles
+// a batch that mounted 2400 px ahead of the viewport.
 const BATCH_SIZE = 36;
 const EAGER_IMAGE_COUNT = 12;
 // Mount the next batch once the frontier sentinel is within this distance of
@@ -910,7 +910,8 @@ export function MasonryGrid({
               <ImageCard
                 image={image}
                 eager={originalIndex < EAGER_IMAGE_COUNT}
-                mediaLoading="eager"
+                mediaLoading={originalIndex < EAGER_IMAGE_COUNT ? "eager" : "lazy"}
+                tileWidth={tile?.width}
                 showPromptChip={showPromptChip}
                 videoHoverDelayMs={videoHoverDelayMs}
                 mountVideoAtRest={mountVideoAtRest}

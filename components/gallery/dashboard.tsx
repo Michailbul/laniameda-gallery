@@ -64,7 +64,8 @@ import {
 import { MasonryGrid } from "@/components/masonry-grid";
 import { SkillsView } from "./skills-view";
 import { StoriesView } from "./stories-view";
-import { FilterPresets } from "./filter-presets";
+import { useSavedViews } from "./filter-presets";
+import { PublishAllDialog, type PrivateCountArgs, type PublishAllOutcome } from "./publish-all-dialog";
 import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
@@ -3073,25 +3074,46 @@ export function GalleryDashboard({
   }, [canManageFoldersInCurrentView, deletingAssetId, bulkActionLoading, bulkCurationLoading,
     bulkAddBusy, selectedAssetIds, setAssetLikedMutation, ownerUserId]);
 
-  const publishAllAssetIds = useMemo(() => {
-    return images
-      .filter(
-        (image) =>
-          (image.galleryItemType === "asset" || image.galleryItemType === undefined) &&
-          !image.isPublic,
-      )
-      .map((image) => image.id);
-  }, [images]);
-
-  const runPublishAll = useCallback(async () => {
-    if (bulkCurationLoading || !canCuratePublic) return;
-    if (publishAllAssetIds.length === 0) return;
-    const confirmed = window.confirm(
-      `Make all ${publishAllAssetIds.length} currently visible private asset${publishAllAssetIds.length === 1 ? "" : "s"} public? This can't be undone in bulk — you'd need to make them private one by one.`,
+  // PUBLISH ALL lives under the toolbar's MANAGE menu, behind a dialog that
+  // counts the view's private pieces on the server (the grid only knows the
+  // cards it has loaded) and publishes exactly those.
+  const [publishAllOpen, setPublishAllOpen] = useState(false);
+  const [publishAllNotice, setPublishAllNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const privateCountArgs = useMemo<PrivateCountArgs | null>(() => {
+    if (!canCuratePublic || galleryScope !== "mine" || !canAccessMyGallery) return null;
+    return {
+      ownerUserId,
+      kind: mediaKind ?? undefined,
+      onlyLiked: likedOnly || undefined,
+      tagIdGroups: selectedTagIdGroups,
+      excludeTagIds: excludedTagIds,
+      excludeFolderIds: excludedFolderIds,
+      folderId: effectiveSelectedFolderId && !activeSmartCollectionFilter
+        ? (effectiveSelectedFolderId as Id<"folders">) : undefined,
+      includeDescendants: browsingWorldFolder || undefined,
+      modelName: selectedModelName ?? undefined,
+      skipHiddenCollections: !effectiveSelectedFolderId || undefined,
+    };
+  }, [
+    activeSmartCollectionFilter, browsingWorldFolder, canAccessMyGallery, canCuratePublic,
+    effectiveSelectedFolderId, excludedFolderIds, excludedTagIds, galleryScope, likedOnly,
+    mediaKind, ownerUserId, selectedModelName, selectedTagIdGroups,
+  ]);
+  const publishAllFiltered = Boolean(
+    menuFilterActive || mediaKind || likedOnly || selectedModelName || activeSmartCollectionFilter,
+  );
+  const handlePublished = useCallback((outcome: PublishAllOutcome) => {
+    const published = new Set(outcome.assetIds);
+    setSelectedImage((current) =>
+      current && published.has(current.id) ? { ...current, isPublic: true } : current,
     );
-    if (!confirmed) return;
-    await runBulkCuration(true, publishAllAssetIds);
-  }, [bulkCurationLoading, canCuratePublic, publishAllAssetIds, runBulkCuration]);
+    const made = `${outcome.updatedCount.toLocaleString("en-US")} piece${outcome.updatedCount === 1 ? "" : "s"} made public`;
+    const skipped = outcome.skippedCount > 0 ? ` (${outcome.skippedCount} skipped)` : "";
+    setPublishAllNotice({
+      text: outcome.error ? `${made}${skipped}, then: ${outcome.error}` : `${made}${skipped}.`,
+      error: Boolean(outcome.error),
+    });
+  }, []);
 
   const downloadSelectedAssets = useCallback(async () => {
     if (bulkActionLoading) return;
@@ -5167,6 +5189,19 @@ export function GalleryDashboard({
     () => new Map((folders ?? []).map((folder) => [folder._id as string, folder])),
     [folders],
   );
+  // The toolbar's VIEWS popover: the saved views, and which filters and
+  // collections still exist (a view naming a deleted one cannot be applied).
+  const savedViews = useSavedViews(ownerUserId);
+  const validViewFilterIds = useMemo(
+    () => new Set((menuFilters ?? []).filter((filter) => filter.kind !== "tag" || filter.tagIds.length > 0).map((filter) => String(filter._id))),
+    [menuFilters],
+  );
+  const validViewFolderIds = useMemo(
+    () => new Set((folders ?? []).map((folder) => String(folder._id))),
+    [folders],
+  );
+  const publishAllViewLabel =
+    (effectiveSelectedFolderId && folderById.get(effectiveSelectedFolderId)?.name) || "Everything";
 
   const selectedFolderIds = useMemo<string[]>(() => {
     const asset = selectedImageLive;
@@ -5807,27 +5842,46 @@ export function GalleryDashboard({
                 onSimilarityChange={setSimilarity}
                 flattenStacks={flattenStacks}
                 onFlattenStacksChange={setFlattenStacks}
+                views={
+                  viewMode === "grid" && canManageFoldersInCurrentView
+                    ? {
+                        ownerUserId,
+                        presets: savedViews,
+                        includeSkills,
+                        onIncludeSkillsChange: setIncludeSkills,
+                        validFilterIds: validViewFilterIds,
+                        validFolderIds: validViewFolderIds,
+                        current: {
+                          selectedFilterIds: selectedTags as Id<"menuFilters">[],
+                          excludedFilterIds: excludedFilters as Id<"menuFilters">[],
+                          folderId: (effectiveSelectedFolderId || undefined) as Id<"folders"> | undefined,
+                          mediaKind: mediaKind || undefined,
+                          onlyLiked: likedOnly,
+                          includeSkills,
+                          flattenStacks,
+                          sortOrder,
+                        },
+                        onApply: (filters) => {
+                          setSelectedTags(filters.selectedFilterIds); setExcludedFilters(filters.excludedFilterIds);
+                          setSelectedFolderId(filters.folderId ?? null); setMediaKind(filters.mediaKind ?? null);
+                          setLikedOnly(filters.onlyLiked); setIncludeSkills(filters.includeSkills);
+                          setFlattenStacks(filters.flattenStacks); changeSortOrder(filters.sortOrder);
+                          setSelectedModelName(null); setAssetSearchQuery(""); setSemanticMode(null);
+                        },
+                      }
+                    : undefined
+                }
+                onPublishAll={
+                  viewMode !== "skills" && privateCountArgs
+                    ? () => {
+                        setPublishAllNotice(null);
+                        setPublishAllOpen(true);
+                      }
+                    : undefined
+                }
               />
             )}
 
-            {/* Storybooks tab header */}
-            {!storybooksView && !bookmarksView && !extraTabView && !srefsCollectionView && viewMode === "grid" && canManageFoldersInCurrentView && (
-              <FilterPresets
-                ownerUserId={ownerUserId}
-                includeSkills={includeSkills}
-                onIncludeSkillsChange={setIncludeSkills}
-                validFilterIds={new Set((menuFilters ?? []).filter((filter) => filter.kind !== "tag" || filter.tagIds.length > 0).map((filter) => String(filter._id)))}
-                validFolderIds={new Set((folders ?? []).map((folder) => String(folder._id)))}
-                current={{ selectedFilterIds: selectedTags as Id<"menuFilters">[], excludedFilterIds: excludedFilters as Id<"menuFilters">[], folderId: (effectiveSelectedFolderId || undefined) as Id<"folders"> | undefined, mediaKind: mediaKind || undefined, onlyLiked: likedOnly, includeSkills, flattenStacks, sortOrder }}
-                onApply={(filters) => {
-                  setSelectedTags(filters.selectedFilterIds); setExcludedFilters(filters.excludedFilterIds);
-                  setSelectedFolderId(filters.folderId ?? null); setMediaKind(filters.mediaKind ?? null);
-                  setLikedOnly(filters.onlyLiked); setIncludeSkills(filters.includeSkills);
-                  setFlattenStacks(filters.flattenStacks); changeSortOrder(filters.sortOrder);
-                  setSelectedModelName(null); setAssetSearchQuery(""); setSemanticMode(null);
-                }}
-              />
-            )}
             {/* Storybooks shelf — lives on the main page, with its own filters. */}
             {!storybooksView &&
               !bookmarksView &&
@@ -5859,49 +5913,31 @@ export function GalleryDashboard({
 
             {/* Search Vault is now in the bottom dock */}
 
-            {!storybooksView && !bookmarksView && !extraTabView && viewMode !== "skills" && canCuratePublic && galleryScope === "mine" && publishAllAssetIds.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
+            {!storybooksView && !bookmarksView && !extraTabView && publishAllNotice && (
+              <div className="flex items-center gap-3 px-4 pb-2">
+                <p
+                  role={publishAllNotice.error ? "alert" : "status"}
+                  style={{
+                    fontFamily: "var(--lm-font)",
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: publishAllNotice.error ? "var(--lm-coral)" : "var(--lm-text-secondary)",
+                    margin: 0,
+                  }}
+                >
+                  {publishAllNotice.text}
+                </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    void runPublishAll();
-                  }}
-                  disabled={bulkCurationLoading}
-                  className="lm-btn-brutal inline-flex items-center gap-1.5"
-                  style={{
-                    borderRadius: "10px",
-                    padding: "6px 12px",
-                    fontSize: "11px",
-                    opacity: bulkCurationLoading ? 0.55 : 1,
-                    cursor: bulkCurationLoading ? "not-allowed" : "pointer",
-                  }}
-                  aria-label="Make all visible private assets public"
+                  onClick={() => setPublishAllNotice(null)}
+                  aria-label="Dismiss"
+                  className="lm-quiet-action"
+                  style={{ color: "var(--lm-text-ghost)", fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em" }}
                 >
-                  {bulkCurationLoading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5" />
-                  )}
-                  PUBLISH ALL ({publishAllAssetIds.length})
+                  OK
                 </button>
-                {(bulkCurationError || bulkCurationStatus) && (
-                  <p
-                    style={{
-                      fontFamily: "var(--lm-font)",
-                      fontSize: "10px",
-                      fontWeight: 600,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      color: bulkCurationError
-                        ? "var(--lm-coral)"
-                        : "var(--lm-text-secondary)",
-                      margin: 0,
-                    }}
-                    role={bulkCurationError ? "alert" : "status"}
-                  >
-                    {bulkCurationError ?? bulkCurationStatus}
-                  </p>
-                )}
               </div>
             )}
 
@@ -6727,6 +6763,15 @@ export function GalleryDashboard({
           </div>
         </div>
       )}
+
+      <PublishAllDialog
+        open={publishAllOpen}
+        onClose={() => setPublishAllOpen(false)}
+        viewLabel={publishAllViewLabel}
+        filtered={publishAllFiltered}
+        countArgs={privateCountArgs}
+        onPublished={handlePublished}
+      />
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
       {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&

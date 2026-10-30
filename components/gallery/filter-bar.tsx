@@ -1,20 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  Bookmark,
+  BookOpenText,
+  ChevronDown,
+  Eye,
   FolderOpen,
   Grid3X3,
   Heart,
   Image as ImageIcon,
   Layers,
+  LayoutTemplate,
   Minus,
   SlidersHorizontal,
   Video,
-  BookOpenText,
-  Bookmark,
   X,
 } from "lucide-react";
 import { MenuFilterAdmin } from "./menu-filter-admin";
+import { ViewsPanel, activeViewName, type ViewsPanelProps } from "./filter-presets";
 
 export type MediaKind = "image" | "video";
 
@@ -75,6 +79,11 @@ interface GalleryFilterBarProps {
    *  the handler is omitted. */
   flattenStacks?: boolean;
   onFlattenStacksChange?: (next: boolean) => void;
+  /** The saved views (VIEWS popover). Omitted when the view has none. */
+  views?: ViewsPanelProps;
+  /** PUBLISH ALL, under MANAGE: opens the confirmation that counts the view's
+   *  private pieces on the server. Omitted when the viewer cannot curate. */
+  onPublishAll?: () => void;
 }
 
 /**
@@ -159,18 +168,28 @@ export function GalleryFilterBar({
   onSimilarityChange,
   flattenStacks = false,
   onFlattenStacksChange,
+  views,
+  onPublishAll,
 }: GalleryFilterBarProps) {
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const excludedFilterSet = useMemo(
     () => new Set(excludedFilters),
     [excludedFilters],
   );
-  const activeFilterCount = selectedTags.length + excludedFilters.length + Number(bookmarksOnly);
+  // What the FILTERS button counts: every chip on either side, the Bookmarks
+  // pill, a media kind, Liked and Flatten.
+  const activeFilterCount =
+    selectedTags.length +
+    excludedFilters.length +
+    Number(bookmarksOnly) +
+    Number(mediaKind !== null) +
+    Number(likedOnly) +
+    Number(flattenStacks && viewMode === "grid");
   const [adminOpen, setAdminOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState<"filters" | "views" | "manage" | null>(null);
   // Which pill is showing its minus affordance (hover or keyboard focus).
   const [hoveredFilterId, setHoveredFilterId] = useState<string | null>(null);
-  const [tagScrollRef, menuFade] = useChipRail<HTMLDivElement>(menuFilters.length);
-  const [mobileRailRef, mobileFade] = useChipRail<HTMLDivElement>(viewMode);
+  const [railRef, railFade] = useChipRail<HTMLDivElement>(`${viewMode}:${Boolean(views)}:${Boolean(onPublishAll)}`);
 
   // A pill whose collection was deleted matches nothing — showing it would be
   // a dead click. The admin panel below still lists it so the owner can fix it.
@@ -180,9 +199,11 @@ export function GalleryFilterBar({
   );
 
   // Menu pills filter assets; the Skills view has its own tag and collection chips.
-  const showMenuRow =
+  const showMenuChips =
     viewMode !== "skills" &&
     (menuFilters.length > 0 || canManageMenuFilters || Boolean(onBookmarksOnlyChange));
+  const showManage = canManageMenuFilters || Boolean(onPublishAll);
+  const viewName = views ? activeViewName(views) : null;
 
   return (
     <div
@@ -197,168 +218,69 @@ export function GalleryFilterBar({
       }}
     >
       <div
-        className="lm-island"
+        className="lm-island lm-toolbar"
         style={{
+          position: "relative",
           width: "100%",
           maxWidth: "1180px",
           borderRadius: "28px",
-          overflow: "hidden",
           marginBottom: "12px",
         }}
       >
+        {/* One row. It scrolls sideways when the screen is narrower than it
+            (phones), fading the edge with more behind it. */}
         <div
-          style={{ padding: "14px 16px 10px" }}
+          ref={railRef}
+          data-fade={railFade}
+          className="lm-chip-rail flex items-center gap-1.5 overflow-x-auto"
+          style={{ padding: "10px 12px", scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex min-w-0 flex-col gap-3 md:flex-1 md:flex-row md:flex-wrap md:items-center">
-              <div
-                className="lm-scope-segment flex items-center self-start"
-                style={{
-                  borderRadius: "14px",
-                  border: "2px solid var(--lm-ink)",
-                  overflow: "hidden",
-                  boxShadow: "0 10px 30px var(--lm-scope-pill-shadow, rgba(44, 24, 12, 0.08))",
-                }}
-              >
-                <ScopePill
-                  label="PUBLIC"
-                  active={galleryScope === "public"}
-                  onClick={() => onGalleryScopeChange("public")}
-                />
-                <div
-                  style={{
-                    width: "2px",
-                    height: "100%",
-                    alignSelf: "stretch",
-                    backgroundColor: "var(--lm-ink)",
-                  }}
-                />
-                <ScopePill
-                  label="MINE"
-                  active={galleryScope === "mine"}
-                  onClick={() => onGalleryScopeChange("mine")}
-                  disabled={!canAccessMyGallery}
-                  accent
-                />
-              </div>
-
-              <div
-                className="hidden md:block"
-                style={{
-                  width: "1px",
-                  height: "24px",
-                  backgroundColor: "var(--lm-border-strong)",
-                  flexShrink: 0,
-                }}
-              />
-
-              <div className="hidden min-w-0 md:flex md:items-center md:gap-1">
-                <ContentTypePills
-                  mediaKind={mediaKind}
-                  onMediaKindChange={onMediaKindChange}
-                  likedOnly={likedOnly}
-                  onLikedOnlyChange={onLikedOnlyChange}
-                  showLiked={showLiked}
-                  flattenStacks={flattenStacks}
-                  onFlattenStacksChange={
-                    viewMode === "grid" ? onFlattenStacksChange : undefined
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="hidden md:flex md:items-center md:gap-2">
-              <div
-                style={{
-                  width: "1px",
-                  height: "24px",
-                  backgroundColor: "var(--lm-border-strong)",
-                  flexShrink: 0,
-                }}
-              />
-              <SortPills
-                sortOrder={sortOrder}
-                onSortOrderChange={onSortOrderChange}
-              />
-              {onGroupSimilarChange && viewMode === "grid" ? (
-                <GroupSimilarControl on={groupSimilar} onChange={onGroupSimilarChange} similarity={similarity} onSimilarityChange={onSimilarityChange} />
-              ) : null}
-              {onGridZoomChange && viewMode === "grid" ? (
-                <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
-              ) : null}
-              {onViewModeChange ? (
-                <ViewModeToggle
-                  viewMode={viewMode}
-                  onViewModeChange={onViewModeChange}
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div
-          ref={mobileRailRef}
-          data-fade={mobileFade}
-          className="lm-chip-rail flex items-center gap-1 overflow-x-auto px-4 pb-2 md:hidden"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          <ContentTypePills
-            mediaKind={mediaKind}
-            onMediaKindChange={onMediaKindChange}
-            likedOnly={likedOnly}
-            onLikedOnlyChange={onLikedOnlyChange}
-            showLiked={showLiked}
-            flattenStacks={flattenStacks}
-            onFlattenStacksChange={
-              viewMode === "grid" ? onFlattenStacksChange : undefined
-            }
-          />
           <div
+            className="lm-scope-segment flex shrink-0 items-center"
             style={{
-              width: "1px",
-              height: "20px",
-              backgroundColor: "var(--lm-border-strong)",
-              flexShrink: 0,
-              margin: "0 4px",
+              borderRadius: "14px",
+              border: "2px solid var(--lm-ink)",
+              overflow: "hidden",
+              boxShadow: "0 10px 30px var(--lm-scope-pill-shadow, rgba(44, 24, 12, 0.08))",
             }}
-          />
-          <SortPills sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
-          {onGroupSimilarChange && viewMode === "grid" ? (
-            <GroupSimilarControl on={groupSimilar} onChange={onGroupSimilarChange} similarity={similarity} onSimilarityChange={onSimilarityChange} />
-          ) : null}
-          {onGridZoomChange && viewMode === "grid" ? (
-            <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
-          ) : null}
-          {onViewModeChange ? (
-            <>
-              <div
-                style={{
-                  width: "1px",
-                  height: "20px",
-                  backgroundColor: "var(--lm-border-strong)",
-                  flexShrink: 0,
-                  margin: "0 4px",
-                }}
-              />
-              <ViewModeToggle
-                viewMode={viewMode}
-                onViewModeChange={onViewModeChange}
-                compact
-              />
-            </>
-          ) : null}
-        </div>
-
-        {showMenuRow ? (
-          <>
+          >
+            <ScopePill
+              label="PUBLIC"
+              active={galleryScope === "public"}
+              onClick={() => onGalleryScopeChange("public")}
+            />
             <div
               style={{
-                height: "1px",
-                backgroundColor: "var(--lm-border)",
-                margin: "0 16px",
+                width: "2px",
+                height: "100%",
+                alignSelf: "stretch",
+                backgroundColor: "var(--lm-ink)",
               }}
             />
-            <div className="lm-chip-row flex items-center gap-2 px-3 py-2">
+            <ScopePill
+              label="MINE"
+              active={galleryScope === "mine"}
+              onClick={() => onGalleryScopeChange("mine")}
+              disabled={!canAccessMyGallery}
+              accent
+            />
+          </div>
+
+          <Divider />
+
+          <ToolbarPopover
+            id="filters"
+            open={openPanel === "filters"}
+            onOpenChange={(open) => setOpenPanel(open ? "filters" : null)}
+            label="Filters"
+            icon={SlidersHorizontal}
+            badge={activeFilterCount > 0 ? activeFilterCount : undefined}
+            active={activeFilterCount > 0}
+            ariaLabel={`Filters${activeFilterCount > 0 ? `, ${activeFilterCount} on` : ""}`}
+            width={760}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <PanelHeading>Show</PanelHeading>
               {activeFilterCount > 0 ? (
                 <button
                   type="button"
@@ -379,140 +301,412 @@ export function GalleryFilterBar({
                   Clear {activeFilterCount}
                 </button>
               ) : null}
-
-              {/* Curated menu pills */}
-              <div
-                ref={tagScrollRef}
-                data-fade={menuFade}
-                className="lm-chip-rail flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1"
-                style={{
-                  scrollbarWidth: "none",
-                  msOverflowStyle: "none",
-                }}
-                onWheel={(event) => {
-                  const element = tagScrollRef.current;
-                  if (!element || event.deltaY === 0) return;
-                  if (element.scrollWidth <= element.clientWidth) return;
-                  const atStart = element.scrollLeft <= 0;
-                  const atEnd =
-                    element.scrollLeft + element.clientWidth >=
-                    element.scrollWidth - 1;
-                  if ((event.deltaY < 0 && atStart) || (event.deltaY > 0 && atEnd)) {
-                    return;
-                  }
-                  event.preventDefault();
-                  element.scrollLeft += event.deltaY;
-                }}
-              >
-                {onBookmarksOnlyChange ? (
-                  <button
-                    type="button"
-                    onClick={() => onBookmarksOnlyChange(!bookmarksOnly)}
-                    aria-pressed={bookmarksOnly}
-                    className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors"
-                    style={{
-                      background: bookmarksOnly
-                        ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
-                        : "var(--lm-surface-1)",
-                      color: bookmarksOnly ? "#fff" : "var(--lm-text-secondary)",
-                      border: bookmarksOnly ? "1px solid transparent" : "1px solid var(--lm-border-strong)",
-                      fontFamily: "var(--lm-font)",
-                      fontSize: "9px",
-                      fontWeight: 800,
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    <Bookmark className="h-3 w-3" />
-                    Bookmarks
-                  </button>
-                ) : null}
-                {visibleMenuFilters.length > 0 ? (
-                  visibleMenuFilters.map((entry) => (
-                    <MenuFilterPill
-                      key={entry._id}
-                      entry={entry}
-                      isActive={
-                        entry.kind === "tag"
-                          ? selectedTagSet.has(entry._id)
-                          : entry.folderId != null &&
-                            entry.folderId === selectedFolderId
-                      }
-                      isExcluded={excludedFilterSet.has(entry._id)}
-                      showMinus={hoveredFilterId === entry._id}
-                      onHoverChange={(hovered) =>
-                        setHoveredFilterId((current) =>
-                          hovered ? entry._id : current === entry._id ? null : current,
-                        )
-                      }
-                      onSelect={() =>
-                        entry.kind === "tag"
-                          ? onTagToggle(entry._id)
-                          : entry.folderId && onCollectionToggle(entry.folderId)
-                      }
-                      onExclude={
-                        onFilterExcludeToggle
-                          ? () => onFilterExcludeToggle(entry._id)
-                          : undefined
-                      }
-                    />
-                  ))
-                ) : (
-                  <div
-                    className="px-3 py-2"
-                    style={{
-                      color: "var(--lm-text-ghost)",
-                      fontFamily: "var(--lm-font)",
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.14em",
-                    }}
-                  >
-                    No menu filters yet — add one
-                  </div>
-                )}
-              </div>
-
-              {canManageMenuFilters ? (
-                <button
-                  type="button"
-                  onClick={() => setAdminOpen((open) => !open)}
-                  className="flex shrink-0 items-center gap-1 px-2.5 py-1 transition-colors"
-                  style={{
-                    border: adminOpen
-                      ? "2px solid var(--lm-ink)"
-                      : "2px solid var(--lm-border-strong)",
-                    borderRadius: "999px",
-                    color: adminOpen
-                      ? "var(--lm-text-primary)"
-                      : "var(--lm-text-ghost)",
-                    fontFamily: "var(--lm-font)",
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    letterSpacing: "0.14em",
-                    textTransform: "uppercase",
-                    background: adminOpen ? "var(--lm-surface-1)" : "transparent",
-                  }}
-                  aria-expanded={adminOpen}
-                  aria-label="Manage menu filters"
-                >
-                  <SlidersHorizontal className="h-3 w-3" />
-                  Edit
-                </button>
-              ) : null}
             </div>
-            {canManageMenuFilters && adminOpen ? (
-              <MenuFilterAdmin
-                ownerUserId={ownerUserId}
-                menuFilters={menuFilters}
-                onClose={() => setAdminOpen(false)}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              <ContentTypePills
+                mediaKind={mediaKind}
+                onMediaKindChange={onMediaKindChange}
+                likedOnly={likedOnly}
+                onLikedOnlyChange={onLikedOnlyChange}
+                showLiked={showLiked}
+                flattenStacks={flattenStacks}
+                onFlattenStacksChange={viewMode === "grid" ? onFlattenStacksChange : undefined}
+                outlined
               />
+            </div>
+
+            {showMenuChips ? (
+              <>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <PanelHeading>Menu</PanelHeading>
+                  <span
+                    className="hidden md:inline"
+                    style={{ fontSize: "9px", color: "var(--lm-text-ghost)", letterSpacing: "0.04em" }}
+                  >
+                    Click to show · the minus excludes
+                  </span>
+                  <span
+                    className="md:hidden"
+                    style={{ fontSize: "9px", color: "var(--lm-text-ghost)", letterSpacing: "0.04em" }}
+                  >
+                    Tap to show · hold to exclude
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-1.5">
+                  {onBookmarksOnlyChange ? (
+                    <button
+                      type="button"
+                      onClick={() => onBookmarksOnlyChange(!bookmarksOnly)}
+                      aria-pressed={bookmarksOnly}
+                      className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors"
+                      style={{
+                        background: bookmarksOnly
+                          ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+                          : "var(--lm-surface-1)",
+                        color: bookmarksOnly ? "#fff" : "var(--lm-text-secondary)",
+                        border: bookmarksOnly ? "2px solid transparent" : "2px solid var(--lm-border)",
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        letterSpacing: "0.10em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      <Bookmark className="h-3 w-3" />
+                      Bookmarks
+                    </button>
+                  ) : null}
+                  {visibleMenuFilters.length > 0 ? (
+                    visibleMenuFilters.map((entry) => (
+                      <MenuFilterPill
+                        key={entry._id}
+                        entry={entry}
+                        isActive={
+                          entry.kind === "tag"
+                            ? selectedTagSet.has(entry._id)
+                            : entry.folderId != null &&
+                              entry.folderId === selectedFolderId
+                        }
+                        isExcluded={excludedFilterSet.has(entry._id)}
+                        showMinus={hoveredFilterId === entry._id}
+                        onHoverChange={(hovered) =>
+                          setHoveredFilterId((current) =>
+                            hovered ? entry._id : current === entry._id ? null : current,
+                          )
+                        }
+                        onSelect={() =>
+                          entry.kind === "tag"
+                            ? onTagToggle(entry._id)
+                            : entry.folderId && onCollectionToggle(entry.folderId)
+                        }
+                        onExclude={
+                          onFilterExcludeToggle
+                            ? () => onFilterExcludeToggle(entry._id)
+                            : undefined
+                        }
+                      />
+                    ))
+                  ) : (
+                    <div
+                      className="px-1 py-2"
+                      style={{
+                        color: "var(--lm-text-ghost)",
+                        fontFamily: "var(--lm-font)",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.14em",
+                      }}
+                    >
+                      No menu filters yet{canManageMenuFilters ? " — add one under Manage" : ""}
+                    </div>
+                  )}
+                </div>
+              </>
             ) : null}
+          </ToolbarPopover>
+
+          {views ? (
+            <ToolbarPopover
+              id="views"
+              open={openPanel === "views"}
+              onOpenChange={(open) => setOpenPanel(open ? "views" : null)}
+              label={viewName ? `View · ${viewName}` : "Views"}
+              icon={LayoutTemplate}
+              active={Boolean(viewName)}
+              ariaLabel={viewName ? `Views, ${viewName} is on` : "Saved views"}
+              width={420}
+            >
+              <ViewsPanel {...views} onApplied={() => setOpenPanel(null)} />
+            </ToolbarPopover>
+          ) : null}
+
+          <Divider />
+
+          <SortPills
+            sortOrder={sortOrder}
+            onSortOrderChange={onSortOrderChange}
+          />
+          {onGroupSimilarChange && viewMode === "grid" ? (
+            <GroupSimilarControl on={groupSimilar} onChange={onGroupSimilarChange} similarity={similarity} onSimilarityChange={onSimilarityChange} />
+          ) : null}
+          {onGridZoomChange && viewMode === "grid" ? (
+            <div className="hidden md:flex">
+              <ZoomSlider value={gridZoom ?? 1} onChange={onGridZoomChange} />
+            </div>
+          ) : null}
+          {onViewModeChange ? (
+            <>
+              <Divider />
+              <ViewModeToggle
+                viewMode={viewMode}
+                onViewModeChange={onViewModeChange}
+              />
+            </>
+          ) : null}
+
+          {showManage ? (
+            <>
+              <div className="flex-1" style={{ minWidth: "4px" }} />
+              <ToolbarPopover
+                id="manage"
+                open={openPanel === "manage"}
+                onOpenChange={(open) => setOpenPanel(open ? "manage" : null)}
+                label="Manage"
+                icon={Eye}
+                active={adminOpen}
+                ariaLabel="Manage this view"
+                width={300}
+                align="right"
+                role="menu"
+              >
+                {canManageMenuFilters ? (
+                  <MenuItem
+                    icon={SlidersHorizontal}
+                    title={adminOpen ? "Close the chip editor" : "Edit filter chips"}
+                    hint="Add, rename or remove the menu's chips"
+                    onClick={() => {
+                      setAdminOpen((open) => !open);
+                      setOpenPanel(null);
+                    }}
+                  />
+                ) : null}
+                {onPublishAll ? (
+                  <MenuItem
+                    icon={Eye}
+                    title="Publish all private in this view…"
+                    hint="Counts them on the server first, then asks"
+                    onClick={() => {
+                      setOpenPanel(null);
+                      onPublishAll();
+                    }}
+                  />
+                ) : null}
+              </ToolbarPopover>
+            </>
+          ) : null}
+        </div>
+
+        {canManageMenuFilters && adminOpen ? (
+          <>
+            <div
+              style={{
+                height: "1px",
+                backgroundColor: "var(--lm-border)",
+                margin: "0 16px",
+              }}
+            />
+            <MenuFilterAdmin
+              ownerUserId={ownerUserId}
+              menuFilters={menuFilters}
+              onClose={() => setAdminOpen(false)}
+            />
           </>
         ) : null}
       </div>
     </div>
+  );
+}
+
+function Divider() {
+  return (
+    <div
+      aria-hidden
+      className="shrink-0"
+      style={{
+        width: "1px",
+        height: "22px",
+        backgroundColor: "var(--lm-border-strong)",
+        margin: "0 4px",
+      }}
+    />
+  );
+}
+
+function PanelHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: "8px",
+        fontWeight: 800,
+        letterSpacing: "0.2em",
+        textTransform: "uppercase",
+        color: "var(--lm-text-ghost)",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A toolbar button that opens a panel under the row (a sheet above the
+ * bottom bar on phones, see `.lm-toolbar-popover` in globals.css). The panel
+ * stays open while its chips are toggled; a click outside, Esc or the button
+ * closes it.
+ */
+function ToolbarPopover({
+  id,
+  open,
+  onOpenChange,
+  label,
+  icon: Icon,
+  badge,
+  active = false,
+  ariaLabel,
+  width,
+  align = "left",
+  role = "dialog",
+  children,
+}: {
+  id: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  label: string;
+  icon: typeof Heart;
+  badge?: number;
+  active?: boolean;
+  ariaLabel?: string;
+  width: number;
+  align?: "left" | "right";
+  role?: "dialog" | "menu";
+  children: React.ReactNode;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = `${useId()}-${id}`;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      onOpenChange(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onOpenChange]);
+
+  const lit = open || active;
+  return (
+    <div ref={rootRef} className="shrink-0" style={{ display: "contents" }}>
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        aria-expanded={open}
+        aria-haspopup={role}
+        aria-controls={open ? panelId : undefined}
+        aria-label={ariaLabel}
+        data-toolbar-popover={id}
+        className="flex shrink-0 items-center gap-1.5 px-3 py-1 transition-colors"
+        style={{
+          fontSize: "9px",
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          whiteSpace: "nowrap",
+          color: lit ? "var(--lm-text-primary)" : "var(--lm-text-secondary)",
+          border: lit ? "2px solid var(--lm-ink)" : "2px solid var(--lm-border-strong)",
+          borderRadius: "999px",
+          background: open ? "var(--lm-surface-2, var(--lm-surface-1))" : "var(--lm-surface-1)",
+          fontFamily: "var(--lm-font)",
+        }}
+      >
+        <Icon className="h-3 w-3" aria-hidden />
+        {label}
+        {badge !== undefined ? (
+          <span
+            aria-hidden
+            className="inline-flex items-center justify-center tabular-nums"
+            style={{
+              minWidth: "16px",
+              height: "16px",
+              padding: "0 4px",
+              borderRadius: "999px",
+              fontSize: "9px",
+              fontWeight: 800,
+              letterSpacing: 0,
+              color: "#fff",
+              background: "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))",
+            }}
+          >
+            {badge}
+          </span>
+        ) : null}
+        <ChevronDown
+          className="h-3 w-3"
+          aria-hidden
+          style={{
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform var(--lm-duration-fast)",
+            opacity: 0.6,
+          }}
+        />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          id={panelId}
+          role={role}
+          aria-label={ariaLabel ?? label}
+          className="lm-toolbar-popover"
+          data-align={align}
+          style={{ maxWidth: `${width}px` }}
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MenuItem({
+  icon: Icon,
+  title,
+  hint,
+  onClick,
+}: {
+  icon: typeof Heart;
+  title: string;
+  hint?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="lm-toolbar-menu-item flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors"
+      style={{ borderRadius: "12px", fontFamily: "var(--lm-font)" }}
+    >
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--lm-text-ghost)" }} aria-hidden />
+      <span className="min-w-0">
+        <span
+          className="block"
+          style={{
+            fontSize: "10px",
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "var(--lm-text-primary)",
+          }}
+        >
+          {title}
+        </span>
+        {hint ? (
+          <span className="block" style={{ fontSize: "10px", color: "var(--lm-text-ghost)", marginTop: "2px" }}>
+            {hint}
+          </span>
+        ) : null}
+      </span>
+    </button>
   );
 }
 
@@ -830,17 +1024,15 @@ function ZoomSlider({
 function ViewModeToggle({
   viewMode,
   onViewModeChange,
-  compact = false,
 }: {
   viewMode?: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  compact?: boolean;
 }) {
-  const buttonPadding = compact ? "4px 8px" : "4px 8px";
+  const buttonPadding = "4px 8px";
 
   return (
     <div
-      className="flex items-center"
+      className="flex shrink-0 items-center"
       style={{
         borderRadius: "12px",
         border: "2px solid var(--lm-border-strong)",
@@ -983,6 +1175,7 @@ function ContentTypePills({
   showLiked = false,
   flattenStacks = false,
   onFlattenStacksChange,
+  outlined = false,
 }: {
   mediaKind: MediaKind | null;
   onMediaKindChange: (kind: MediaKind | null) => void;
@@ -991,6 +1184,8 @@ function ContentTypePills({
   showLiked?: boolean;
   flattenStacks?: boolean;
   onFlattenStacksChange?: (next: boolean) => void;
+  /** Inside a panel the pills sit on paper, so they get a border at rest. */
+  outlined?: boolean;
 }) {
   const items: Array<{
     key: string;
@@ -1049,19 +1244,21 @@ function ContentTypePills({
           onClick={onClick}
           className="transition-all"
           style={{
-            padding: "4px 10px",
-            borderRadius: "12px",
+            padding: outlined ? "5px 12px" : "4px 10px",
             background: active
               ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
               : "transparent",
-            color: active ? "#fff" : "var(--lm-text-ghost)",
-            fontSize: "9px",
+            color: active ? "#fff" : outlined ? "var(--lm-text-secondary)" : "var(--lm-text-ghost)",
+            fontSize: outlined ? "10px" : "9px",
             fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: "0.14em",
             border: active
               ? "2px solid var(--gradient-1)"
-              : "2px solid transparent",
+              : outlined
+                ? "2px solid var(--lm-border)"
+                : "2px solid transparent",
+            borderRadius: outlined ? "999px" : "12px",
             cursor: "pointer",
             fontFamily: "var(--lm-font)",
             whiteSpace: "nowrap",
