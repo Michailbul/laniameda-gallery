@@ -17,6 +17,20 @@ describe("grid image srcset", () => {
     expect(attrs.sizes).toBe("362px");
   });
 
+  test("stored grid variants lead the srcset, smallest first, and a width the thumb already has is listed once", () => {
+    const attrs = buildGridImageAttrs(
+      {
+        src: thumb,
+        variants: [{ url: "https://r2.example/v/a-960.webp", width: 960 }, { url: "https://r2.example/v/a-480.webp", width: 480 }],
+        thumbSrc: thumb, thumbWidth: 1440, fullSrc: full, fullWidth: 2048,
+      },
+      362,
+    );
+    expect(attrs.srcSet).toBe(`https://r2.example/v/a-480.webp 480w, https://r2.example/v/a-960.webp 960w, ${thumb} 1440w, ${full} 2048w`);
+    const narrow = buildGridImageAttrs({ src: thumb, variants: [{ url: thumb, width: 540 }], thumbSrc: thumb, thumbWidth: 540, fullSrc: full, fullWidth: 1080 });
+    expect(narrow.srcSet).toBe(`${thumb} 540w, ${full} 1080w`);
+  });
+
   test("a soft thumb still goes in the srcset: the browser picks by the tile's width", () => {
     const attrs = buildGridImageAttrs(
       { src: full, thumbSrc: thumb, thumbWidth: 640, fullSrc: full, fullWidth: 1280 },

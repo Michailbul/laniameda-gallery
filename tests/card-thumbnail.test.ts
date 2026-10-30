@@ -1,7 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
-import { isCardThumbSharp, needsCardThumb } from "../lib/card-thumbnail";
+import { gridVariantWidthsFor, isCardThumbSharp, needsCardThumb, needsGridVariants } from "../lib/card-thumbnail";
 import { buildGalleryEntries } from "../lib/gallery-entries";
+
+describe("grid variant rules", () => {
+  test("variant widths never upscale and never repeat the card thumb's width", () => {
+    expect(gridVariantWidthsFor(2048, 1440)).toEqual([480, 960]);
+    expect(gridVariantWidthsFor(1080, 540)).toEqual([480]);
+    expect(gridVariantWidthsFor(900, 900)).toEqual([480]);
+    expect(gridVariantWidthsFor(480, 480)).toEqual([]);
+    expect(gridVariantWidthsFor(undefined, undefined)).toEqual([480, 960]);
+  });
+
+  test("an image needs variants until every width its size calls for is stored", () => {
+    expect(needsGridVariants({ kind: "image", width: 2048, thumbWidth: 1440 })).toBe(true);
+    expect(needsGridVariants({ kind: "image", width: 2048, thumbWidth: 1440, thumbVariants: [{ width: 480 }] })).toBe(true);
+    expect(needsGridVariants({ kind: "image", width: 2048, thumbWidth: 1440, thumbVariants: [{ width: 480 }, { width: 960 }] })).toBe(false);
+    expect(needsGridVariants({ kind: "image", width: 1080, thumbWidth: 540, thumbVariants: [{ width: 480 }] })).toBe(false);
+    expect(needsGridVariants({ kind: "image", width: 400, thumbWidth: 400 })).toBe(false);
+    expect(needsGridVariants({ kind: "video", width: 1920, thumbWidth: 1440 })).toBe(false);
+  });
+});
 
 describe("card thumbnail rules", () => {
   test("a portrait thumb counts by its height", () => {

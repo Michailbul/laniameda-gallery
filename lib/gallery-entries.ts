@@ -35,6 +35,8 @@ export type GalleryAssetRecord = {
   promptText?: string;
   fileName?: string;
   thumbWidth?: number;
+  /** Grid renditions below the card thumb, smallest first (lib/grid-image.ts). */
+  thumbVariants?: { width: number; height: number; url: string }[];
   width?: number;
   thumbHeight?: number;
   height?: number;
@@ -75,6 +77,8 @@ export type GalleryEntryPreview = {
   thumbSrc?: string;
   thumbWidth?: number;
   fullWidth?: number;
+  /** Grid renditions below the thumb (480, 960 wide), when stored. */
+  thumbVariants?: { url: string; width: number }[];
   prompt: string;
   name?: string;
   agentDescription?: string;
@@ -105,6 +109,7 @@ export type GalleryEntry = {
   thumbSrc?: string;
   thumbWidth?: number;
   fullWidth?: number;
+  thumbVariants?: { url: string; width: number }[];
   prompt: string;
   author: string;
   likes: number;
@@ -261,6 +266,12 @@ const displaySrc = (asset: GalleryAssetRecord): string => {
   );
 };
 
+// The stored grid renditions as srcset candidates; undefined when there are none.
+const gridVariants = (asset: GalleryAssetRecord) =>
+  asset.thumbVariants && asset.thumbVariants.length > 0
+    ? asset.thumbVariants.map((variant) => ({ url: variant.url, width: variant.width }))
+    : undefined;
+
 const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
   galleryItemId: asset._id,
@@ -272,6 +283,7 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   thumbSrc: asset.thumbUrl,
   thumbWidth: asset.thumbWidth,
   fullWidth: asset.width,
+  thumbVariants: gridVariants(asset),
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
   name: asset.name,
   agentDescription: asset.agentDescription,
@@ -334,6 +346,7 @@ const buildEntry = (
     thumbSrc: cover.thumbUrl,
     thumbWidth: cover.thumbWidth,
     fullWidth: cover.width,
+    thumbVariants: gridVariants(cover),
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",
     author: "Agent",
     likes: 0,

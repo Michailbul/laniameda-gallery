@@ -1,14 +1,16 @@
-// What a grid tile's <img> asks the browser for. R2 holds two renditions of an
-// image: the card thumb (WebP, fit inside 1440×960, lib/card-thumbnail.ts) and
-// the original. Both go in `srcset` with their real widths, and `sizes` says
-// how wide the tile is, so the browser takes the thumb for a tile and the
-// original only when the tile is wider than the thumb (a 2x screen at full
-// zoom on a soft thumb). The detail panel keeps the original: this is only for
-// tiles.
+// What a grid tile's <img> asks the browser for. R2 holds up to four
+// renditions of an image: the grid variants (480 and 960 wide, WebP), the card
+// thumb (WebP, fit inside 1440×960, lib/card-thumbnail.ts) and the original.
+// All go in `srcset` with their real widths, and `sizes` says how wide the
+// tile is, so the browser takes the smallest rendition that covers the tile
+// at its pixel density and the original only when nothing else does. The
+// detail panel keeps the original: this is only for tiles.
 
 export type GridImageSource = {
   /** The card rendition (thumb when it is sharp enough, else the original). */
   src: string;
+  /** Grid renditions below the thumb (480, 960 wide), when stored. */
+  variants?: ReadonlyArray<{ url: string; width: number }>;
   /** The thumb, when one exists and differs from the original. */
   thumbSrc?: string;
   thumbWidth?: number;
@@ -62,6 +64,7 @@ export const buildGridImageAttrs = (
     if (candidates.some((candidate) => candidate.url === url)) return;
     candidates.push({ url, width: Math.round(width) });
   };
+  for (const variant of source.variants ?? []) push(variant.url, variant.width);
   push(source.thumbSrc, source.thumbWidth);
   push(source.fullSrc, source.fullWidth);
   if (candidates.length < 2) {
