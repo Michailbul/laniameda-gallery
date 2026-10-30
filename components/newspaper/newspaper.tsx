@@ -132,8 +132,8 @@ function WorldNews({ world, tasksDone }: { world: NewspaperWorld; tasksDone: New
     world.tasks.done > 0 && plural(world.tasks.done, "task") + " done",
   ].filter(Boolean).join(" · ");
   return <article className="pt-4" aria-label={world.name}>
-    <header className="flex items-baseline justify-between gap-3">
-      <Link href={worldPath(world.key || world.worldFolderId)} className="min-w-0 truncate text-[17px] font-black uppercase leading-tight tracking-tight active:opacity-70" style={display}>{world.name}</Link>
+    <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      <Link href={worldPath(world.key || world.worldFolderId)} className="min-w-0 text-[17px] font-black uppercase leading-tight tracking-tight active:opacity-70" style={display}>{world.name}</Link>
       <Micro className="shrink-0">{counts}</Micro>
     </header>
     {world.assets.items.length > 0 && <div className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:flex-wrap md:px-0">
