@@ -12,7 +12,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, Micro, RADIUS, SCRIM, display, errorText, mono } from "@/components/inbox/inbox-ui";
 import { useDesktop } from "@/components/inbox/evidence";
-import { WorldViewToggle, type WorldViewMode } from "@/components/gallery/world-view-mode";
+import type { WorldViewMode } from "@/components/gallery/world-view-mode";
 import { TaskPanel } from "@/components/tasks/task-queue";
 import { TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
 
@@ -267,7 +267,8 @@ export function ReviewDeck({ ownerUserId, worldFolderId, showWorld = true, initi
           {/* Progress: where in the deck, and the two cards behind the top one. */}
           <div className="flex items-center justify-between px-1 pb-2">
             <Micro color="var(--lm-text-ghost)">{String(index + 1).padStart(2, "0")} <span style={{ color: "var(--lm-text-ghost)" }}>/ {String(deck.length).padStart(2, "0")}</span></Micro>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              <ViewSwitch mode={view} onChange={changeView} />
               <button type="button" aria-label="Previous" disabled={index === 0} onClick={() => setIndex((at) => Math.max(0, at - 1))} className="grid h-7 w-7 place-items-center disabled:opacity-30" style={{ color: "var(--lm-text-tertiary)" }}><ChevronLeft size={15} /></button>
               <button type="button" aria-label="Next" disabled={index >= deck.length - 1} onClick={() => setIndex((at) => Math.min(deck.length - 1, at + 1))} className="grid h-7 w-7 place-items-center disabled:opacity-30" style={{ color: "var(--lm-text-tertiary)" }}><ChevronRight size={15} /></button>
             </div>
@@ -324,12 +325,11 @@ export function ReviewDeck({ ownerUserId, worldFolderId, showWorld = true, initi
         </div>}
   </div>;
 
-  const agent = <AgentView cards={deck} />;
+  const agent = <AgentView cards={deck} view={view} onChangeView={changeView} />;
 
   return <div className="flex min-h-0 flex-1 flex-col">
     {header?.(counts)}
     {view === "human" ? human : agent}
-    <WorldViewToggle mode={view} onChange={changeView} />
     {sheet?.kind === "comment" && card && <CommentSheet key={card._id} intent={sheet.intent} title={card.title} onClose={() => setSheet(null)} onSend={sendComment} />}
     {sheet?.kind === "details" && card && <DetailsSheet ownerUserId={ownerUserId} taskId={card._id} showWorld={showWorld} onClose={() => setSheet(null)} />}
   </div>;
@@ -349,15 +349,35 @@ function Empty({ counts }: { counts: { total: number; needsYou: number; done: nu
 
 /* ── AGENT view: the markdown each card is ──────────────────────────────── */
 
-function AgentView({ cards }: { cards: Card[] }) {
+// HUMAN / AGENT, inline: two small radio buttons with the ○ / ● dots of the
+// world docs toggle, sitting in the deck's own header row.
+function ViewSwitch({ mode, onChange }: { mode: WorldViewMode; onChange: (mode: WorldViewMode) => void }) {
+  return <div role="radiogroup" aria-label="View" className="flex items-stretch overflow-hidden border text-[9px] font-bold uppercase tracking-[0.18em]"
+    style={{ ...mono, borderRadius: RADIUS, borderColor: "var(--lm-border-strong)" }}>
+    {(["human", "agent"] as const).map((value, at) => {
+      const active = mode === value;
+      return <button key={value} type="button" role="radio" aria-checked={active} onClick={() => onChange(value)}
+        title={value === "human" ? "Cards, pictures first" : "The markdown an agent reads"}
+        className="flex h-7 items-center gap-1.5 px-2.5 transition-colors"
+        style={{ borderLeft: at ? "1px solid var(--lm-border)" : undefined, color: active ? "var(--lm-text-primary)" : "var(--lm-text-ghost)", background: active ? "var(--lm-surface-2)" : "transparent" }}>
+        <span aria-hidden className="inline-block h-[6px] w-[6px] border" style={{ borderRadius: 999, borderColor: active ? "var(--lm-coral)" : "var(--lm-text-ghost)", background: active ? "var(--lm-coral)" : "transparent" }} />
+        {value}
+      </button>;
+    })}
+  </div>;
+}
+
+function AgentView({ cards, view, onChangeView }: { cards: Card[]; view: WorldViewMode; onChangeView: (mode: WorldViewMode) => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const copy = async (id: string, text: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1200); } catch { /* refused */ }
   };
   const all = cards.map((card) => taskToMarkdown(card)).join("\n\n---\n\n");
   return <div className="mx-auto w-full max-w-[860px] pb-24">
-    <div className="mb-3 flex items-center justify-between px-1">
+    <div className="mb-3 flex items-center justify-between gap-3 px-1">
       <Micro color="var(--lm-text-ghost)">{cards.length} tasks · what list_tasks returns, as markdown</Micro>
+      <span className="flex-1" />
+      <ViewSwitch mode={view} onChange={onChangeView} />
       <button type="button" onClick={() => void copy("all", all)} className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em]" style={{ ...mono, color: "var(--lm-text-secondary)" }}>
         {copied === "all" ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />} Copy all
       </button>
