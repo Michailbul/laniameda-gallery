@@ -22,7 +22,26 @@ When MCP tools are available, use:
 - `list_assets`, `search_gallery`, `get_gallery_item`
 - `list_tags`, `list_collections` for the authenticated user's taxonomy
 
-Collections are owner-scoped groupings (the `folders` table; "collection" is the product-facing name). Filter `list_assets` / `search_gallery` to one by passing its `folderId` (`scope: "mine"` only).
+Collections are owner-scoped groupings (the `folders` table; "collection" is the product-facing name). Filter `list_assets` / `search_gallery` to one by passing its `folderId` (`scope: "mine"` only), or to a whole world with `world`.
+
+## Read sizes and knobs
+
+Every MCP result is read by a language model, so the list tools return
+projections and are bounded. Reach for the filter before the list.
+
+| Tool | Default / max | Row | Narrow with |
+|---|---|---|---|
+| `list_collections` | whole tree (~220 rows) unless filtered | `_id` (the bare folderId), name, parentFolderId, group, sortOrder, kind, worldKey, isWorld, memberCount, description excerpt, slug, hidden, url; result has `count`, `total` | `world`, `parentFolderId`, `rootsOnly`, `kind`, `search` |
+| `list_tags` | 100 / 500 per page, `cursor` until `isDone`; most used first | slim: name, label (when it differs), category, description, usageCount, customized, archived; `fields: "full"` for ids, colour, sort order, times | `search`, `category`, `minUsage`, `includeArchived` |
+| `list_stories` | 200 / 500; `truncated` + `next.updatedBefore` | record without searchText, owner, creation time; `excerpt` (300 chars) + `bodyChars`; `includeBody: true` for the text | `world` / `folderId`, `kind`, `status`, `search`, `updatedBefore` |
+| `search_gallery`, `find_similar` | 24 / 96 (hybrid: per-lane cutoff, see below) | asset projection: ids, kind, size, url, thumbUrl, description, agentDescription, tagNames, folderIds, modelName, flags, `promptText` cut to 300 chars (`promptTruncated`, `promptChars`), score, visualScore, textScore | tags, pieceType, medium, liked, starred, folderId, `world` |
+| `list_assets`, `preview_assets` | bounded (24 / 48 for previews) | the same asset projection | the same filters plus `search` |
+| `list_assets_page` | 100 / 200 per page, `cursor` until `isDone` | full rows (inventory use) | the same filters |
+
+Storage keys, owner ids, tag ids and pack slots are not on the projected rows;
+`get_gallery_item` returns the full asset record and prompt, `get_story` the
+full text. A world's shelves also come back from `open_world`, which is the
+cheapest way to resolve a shelf name.
 
 The script below is direct-Convex access for this local single-owner workspace
 and admin migrations when MCP is unavailable:
@@ -185,6 +204,8 @@ Returns `alreadySaved`, `saved` (with asset IDs) and `notSaved`.
 ### `tags`
 
 The tag vocabulary, most used first, with aliases. `search` narrows by name.
+(MCP: `list_tags {search, category, minUsage, limit, cursor, fields}`, slim and
+paged; see the table above.)
 
 ```json
 { "action": "tags", "search": "light" }

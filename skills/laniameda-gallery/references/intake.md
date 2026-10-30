@@ -13,8 +13,9 @@ procedure every world shares.
 
 ## 1. Resolve the destination
 
-- Map Michael's word to a live collection with list_collections. World names,
-  their purposes and IDs come from worlds.md, never from memory.
+- Map Michael's word to a live collection: open_world for a world's shelves,
+  list_collections {world} or {search} for anything else. World names, their
+  purposes and IDs come from worlds.md and open_world, never from memory.
 - One batch can split across projects: family moments to the family world,
   cars to the car library, metro shots to a music-video board. Sort per item
   by what it actually shows, and say how you split it.

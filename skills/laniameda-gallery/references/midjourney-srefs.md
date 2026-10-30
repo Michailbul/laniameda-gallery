@@ -1,7 +1,7 @@
 # Midjourney srefs
 
 Michael keeps liked Midjourney style references in a normal private collection
-named `Midjourney Srefs`. Resolve its ID with `list_collections`. Reuse the exact
+named `Midjourney Srefs`. Resolve its ID with `list_collections {search: "srefs"}`. Reuse the exact
 name case-insensitively; create it only when requested. This is a shared style
 library, not a fictional world or a native reusable Skill.
 

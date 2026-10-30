@@ -96,7 +96,8 @@ const normalize = (data: Omit<Doc<"stories">, "_id" | "_creationTime" | "ownerUs
 };
 
 export const listStories = ownerQuery({
-  args: { ownerUserId: v.string(), folderId: v.optional(v.id("folders")), kind: v.optional(storyKindValidator), status: v.optional(storyStatusValidator), search: v.optional(v.string()), limit: v.optional(v.number()) },
+  // updatedBefore continues a bounded list: pass the oldest updatedAt of the page you have.
+  args: { ownerUserId: v.string(), folderId: v.optional(v.id("folders")), kind: v.optional(storyKindValidator), status: v.optional(storyStatusValidator), search: v.optional(v.string()), limit: v.optional(v.number()), updatedBefore: v.optional(v.number()) },
   returns: v.array(storyResultValidator),
   handler: async (ctx, args) => {
     const limit = Math.min(500, Math.max(1, Math.floor(args.limit ?? 200)));
@@ -118,6 +119,7 @@ export const listStories = ownerQuery({
       if (args.folderId && args.search?.trim()) filtered = filtered.filter((q) => q.or(...folderIds.filter((id) => id !== undefined).map((id) => q.eq(q.field("folderId"), id))));
       if (args.kind) filtered = filtered.filter((q) => q.eq(q.field("kind"), args.kind));
       if (args.status) filtered = filtered.filter((q) => q.eq(q.field("status"), args.status));
+      if (args.updatedBefore !== undefined) filtered = filtered.filter((q) => q.lt(q.field("updatedAt"), args.updatedBefore!));
       rows.push(...await filtered.take(limit));
       }
     }
