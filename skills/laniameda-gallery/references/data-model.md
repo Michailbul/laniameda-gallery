@@ -637,6 +637,38 @@ order newest/featured/shuffle. Presets upsert by owner/normalized name. They
 change browsing, never public state. See `stories.md` for MCP/API examples.
 
 
+## Typed ids: one table
+
+Ids copied from the gallery carry a prefix that says which object they are.
+Each kind has one read tool and one argument name; `open_world` returns its
+ids bare (no prefix), so the table also says where a bare id goes.
+
+| Prefix | Object | Read with | Argument | Bare id accepted |
+|---|---|---|---|---|
+| `asset:<id>` | a piece of media | `get_gallery_item` | `id` | no: add `asset:` (preview_assets, find_similar and the filing tools take either) |
+| `skill:<id>` | a reusable Skill | `get_skill` (or `get_gallery_item`) | `id` | yes; old `workflow:<id>` and migrated pack ids resolve through owner aliases |
+| `pack:<id>` | a legacy asset pack: a duplicates stack is one | `get_gallery_item` | `id` | no; a pack that was migrated into a Skill resolves to that Skill |
+| `design:<id>` | read-only legacy: an old browser-extension design capture | `get_gallery_item` | `id` | no; new design references are plain assets |
+| `moodboard:<id>` | a moodboard | `get_moodboard` | `moodboardId` (`id` is an alias) | yes |
+| `story:<id>` | a Story or style lock | `get_story` | `id` | yes |
+| `character:<id>` | a named person; the code `DA-CH-001` is the usual handle | `get_character` | `character` (`id` is an alias) | code or `character:<id>` |
+| `stack:<id>` | an Inbox stack | `list_inbox_decisions` | `stackId` (`id` is an alias) | yes |
+| `card:<id>` | one Inbox card | `list_inbox_decisions` on its stack | `stackId` | — |
+| `task:<id>` | a task | `get_task` | `taskId` | yes |
+| `video:<id>` | a YouTube reference | `get_video_ref` | `id` | yes |
+| `bookmark:<id>` | a saved X post | `list_bookmarks` (listed, not fetched) | `search` / `authorHandle` | — |
+| `collection:<id>`, `folder:<id>` | a collection or shelf | `list_collections`, `open_world` | `folderId` (bare) | collections are addressed bare everywhere |
+| `world:<id>` | a world's root collection | `open_world` | `world` (key, name or id) | yes |
+| `profile:<id>` | a Midjourney profile | `mj_profiles` | `profile` (id, name or code) | yes |
+
+`get_gallery_item` with another prefix answers with the tool that reads it;
+with a bare id it asks for the prefix (a bare gallery id is almost always
+`asset:<id>`). `pack:<id>` is live for the remaining asset packs and the
+duplicates stacks the Inbox creates; the retired pack ids mentioned under
+Native Skills below are the ones that were copied into Skills, and they
+resolve to the Skill. `design:<id>` is kept readable for old saves and is not
+documented as a target for new work.
+
 ## Private agent instruction resources
 
 agentInstructions stores ownerUserId, resourcePath, content, version, sha256,

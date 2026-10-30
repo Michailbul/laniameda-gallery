@@ -164,7 +164,7 @@ export const resolveWorld = async (ctx: Ctx, owner: string, ref: string): Promis
       ?? rows.find((row) => worldKeyFromName(row.name) === key);
     if (hit) return hit;
   }
-  throw new ConvexError(`No world matches "${ref}". Call open_world with no arguments for the list.`);
+  throw new ConvexError(`Unknown world "${ref}": expected a world key (dear-annete), name or root collection ID; open_world with no arguments lists them.`);
 };
 
 export const listWorldRoots = async (ctx: Ctx, owner: string) => {

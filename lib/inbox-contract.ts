@@ -5,9 +5,18 @@ import {
 
 // Agent-facing Inbox payloads, shared by /api/agent/inbox and the MCP tool
 // schemas. IDs may keep the prefix they were copied with (stack:, card:,
-// asset:, moodboard:, collection:).
+// asset:, moodboard:, collection:). The top-level schemas are strict: a key a
+// tool does not take is refused, not ignored.
 
 const ref = (what: string) => z.string().trim().min(1).describe(what);
+const worldRef = z.string().trim().min(1).max(200).describe("The world: its key (dear-annete), name or root collection ID, as open_world resolves it. open_world with no arguments lists the worlds.");
+const worldFolderIdAlias = z.string().trim().min(1).max(200).describe("Alias of world: the world's root collection ID.");
+const oneOf = (first: string, second: string) => (value: Record<string, unknown>) => Boolean(value[first] || value[second]);
+
+/** The world a request names: `world` first, `worldFolderId` as the older alias. */
+export const inboxWorldRefOf = (input: { world?: string; worldFolderId?: string }) => input.world ?? input.worldFolderId;
+/** The stack a request names: `stackId` first, `id` as an alias. */
+export const inboxStackRefOf = (input: { stackId?: string; id?: string }) => (input.stackId ?? input.id)!;
 
 export const inboxTargetInputSchema = z.object({
   kind: z.enum(INBOX_TARGET_KINDS).describe("moodboard: appends the image to that gallery moodboard. collection: adds the asset to that collection (other memberships stay). option: records the choice only. out: files it into the world's hidden Out collection (nothing is deleted)."),
@@ -42,35 +51,41 @@ export const inboxCardInputSchema = z.object({
   ruleText: z.string().trim().min(1).max(INBOX_LIMITS.ruleText).optional().describe("Rule cards: the proposed automatic rule."),
 });
 
-export const inboxPostSchema = z.object({
-  worldFolderId: ref("The world (root collection) whose Inbox gets the cards."),
+export const inboxPostSchema = z.strictObject({
+  world: worldRef.optional().describe("The world whose Inbox gets the cards: key (dear-annete), name or root collection ID (required unless worldFolderId is given)."),
+  worldFolderId: worldFolderIdAlias.optional(),
   stackId: ref("stack:<id>: append to this open stack.").optional(),
   stackTitle: z.string().trim().min(1).max(INBOX_LIMITS.stackTitle).optional().describe("Title of a new stack, e.g. Duplicates · 12 or Daylight V2 · 31 candidates."),
   ingestKey: z.string().trim().min(1).max(INBOX_LIMITS.ingestKey).optional().describe("Stable key: posting again with it appends to the same stack."),
   note: z.string().max(INBOX_LIMITS.note).optional().describe("Shown under the stack title: why these cards, what happens after."),
   agent: z.string().max(INBOX_LIMITS.agent).optional().describe("Who posts, e.g. Hygiene routine."),
   cards: z.array(inboxCardInputSchema).min(1).max(INBOX_LIMITS.cardsPerPost),
-});
+}).refine(oneOf("world", "worldFolderId"), { message: "world is required: the world's key, name or root collection ID.", path: ["world"] });
 
-export const inboxListSchema = z.object({
-  worldFolderId: ref("A world (root collection). Omit for every world.").optional(),
+export const inboxListSchema = z.strictObject({
+  world: worldRef.optional().describe("Only this world's stacks: key (dear-annete), name or root collection ID. Omit for every world."),
+  worldFolderId: worldFolderIdAlias.optional(),
   status: z.enum(INBOX_STACK_STATUSES).optional().describe("open (default) or closed."),
   limit: z.number().int().min(1).max(INBOX_LIMITS.listStacks).optional(),
 });
 
-export const inboxStackRefSchema = z.object({ stackId: ref("stack:<id> from post_inbox_cards or list_inbox_stacks.") });
+export const inboxStackRefSchema = z.strictObject({
+  stackId: ref("stack:<id> from post_inbox_cards or list_inbox_stacks.").optional(),
+  id: ref("Alias of stackId: stack:<id> or the bare ID.").optional(),
+}).refine(oneOf("stackId", "id"), { message: "stackId is required: stack:<id> from post_inbox_cards or list_inbox_stacks.", path: ["stackId"] });
 
-export const inboxCloseSchema = z.object({
+export const inboxCloseSchema = z.strictObject({
   stackId: ref("stack:<id>."),
   reopen: z.boolean().optional().describe("true reopens a closed stack."),
 });
 
-export const similarGroupsSchema = z.object({
-  folderId: ref("A world or any collection (ID from list_collections)."),
-  includeChildren: z.boolean().optional().describe("Also scan its child collections (a world's style branches and shelves)."),
+export const similarGroupsSchema = z.strictObject({
+  world: worldRef.optional().describe("Scan a whole world (root and shelves): key, name or root collection ID. Give world or folderId."),
+  folderId: ref("A world root or any collection (ID from list_collections or open_world).").optional(),
+  includeChildren: z.boolean().optional().describe("Also scan its child collections (a world's style branches and shelves). On by default with world."),
   maxDistance: z.number().int().min(0).max(24).optional().describe("Largest hash difference inside a group, in bits of 64. 4 ≈ the takes of one job (default 6), 10 ≈ the same shot reworked, 20 ≈ the same subject."),
   minSize: z.number().int().min(2).max(50).optional().describe("Smallest group returned (default 2)."),
   limit: z.number().int().min(1).max(50).optional().describe("Groups returned, largest first (default 30)."),
-});
+}).refine(oneOf("world", "folderId"), { message: "Give world (key, name or root ID) or folderId.", path: ["folderId"] });
 
 export const bareOptionalInboxRef = (value: string | undefined) => (value === undefined ? undefined : bareInboxRef(value));

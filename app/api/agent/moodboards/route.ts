@@ -9,7 +9,7 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import {
   bareMoodboardRef, bareOptionalMoodboardRef, moodboardAddSchema, moodboardGenerationsSchema,
   moodboardListSchema, moodboardMidjourneySchema, moodboardRefSchema, moodboardRemoveSchema,
-  moodboardReorderSchema, moodboardSaveSchema,
+  moodboardReorderSchema, moodboardSaveSchema, moodboardRefOf,
 } from "@/lib/moodboard-contract";
 import {
   moodboardRef, moodboardSyncState, profileFlagForCode, profileFlagForMoodboardId,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ count: rows.length, moodboards: rows.map(withHandles) });
     }
     if (action === "get") {
-      return NextResponse.json(await read(board(moodboardRefSchema.parse(body).moodboardId)));
+      return NextResponse.json(await read(board(moodboardRefOf(moodboardRefSchema.parse(body)))));
     }
     if (action === "generations") {
       const input = moodboardGenerationsSchema.parse(body);
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.setMoodboardMidjourney, { ownerUserId, moodboardId: board(moodboardId), ...fields, ...journal }) });
     }
     const input = moodboardRefSchema.parse(body);
-    return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.deleteMoodboard, { ownerUserId, moodboardId: board(input.moodboardId), ...journal }) });
+    return NextResponse.json({ ok: true, ...await client.mutation(api.moodboards.deleteMoodboard, { ownerUserId, moodboardId: board(moodboardRefOf(input)), ...journal }) });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: z.prettifyError(error) }, { status: 400 });

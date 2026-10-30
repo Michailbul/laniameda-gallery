@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.18.0
+version: 1.19.0
 ---
 
 # Laniameda Gallery
@@ -67,11 +67,11 @@ building one; the inbox tools already return a stack's `url` the same way.
 | Media asset | Generated image/video, production reference or external inspiration; may link to its prompt | save_asset / save_assets, list_assets_page, search_gallery, preview_assets; references/ingest.md |
 | Skill | Reusable technique, recipe or tutorial with text and optional ordered prompt/media steps | create_skill, list_skills, search_skills, get_skill, update_skill, file_skill, delete_skill; references/ingest.md |
 | World | A story universe represented by a root collection; production assets must fit its exact style | list_collections; authenticated references/worlds.md and native style locks |
-| Character | A named person in one world with a stable code (DA-CH-001), costumes (-C01), a canonical sheet and face, and typed links to every asset that shows them | list_characters, get_character, create_character, update_character, save_character_costume, link_character_assets; references/characters.md |
+| Character | A named person in one world with a stable code (DA-CH-001), costumes (-C01), a canonical sheet and face, and typed links to every asset that shows them | list_characters {world}, get_character, create_character {world}, update_character, save_character_costume, link_character_assets; references/characters.md |
 | Collection | Where assets and Skills live; root plus at most one level of children. A child can carry a display group (Styles, Places, Cast) and sortOrder | list_collections, create_collection, update_collection; references/ingest.md |
 | Asset comment | Michael's note on one asset from its detail panel or the Inbox (text, or a voice note: audioUrl, transcribe it yourself), or an agent's reply; read them before working on a piece and reply with what was done | get_gallery_item (comments), list_asset_comments, add_asset_comment |
 | Moodboard | An ordered set of gallery images that defines one look, mirrored to a Midjourney moodboard and its --profile code; belongs to one collection | list_moodboards, get_moodboard, save_moodboard, add_moodboard_items, reorder_moodboard_items, set_moodboard_midjourney, list_moodboard_generations; references/moodboards.md. Any change to a board's images is synced to its Midjourney board before the edit is done (rule in that file) |
-| Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards, list_inbox_stacks, list_inbox_decisions, close_stack, find_similar_groups; references/inbox.md |
+| Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards {world}, list_inbox_stacks {world}, list_inbox_decisions, close_stack, find_similar_groups {world}; references/inbox.md |
 | Task | One piece of work in the queue ("Tasks" in the gallery, /tasks): Michael's asset comments and Inbox answers become tasks by themselves; agents list, claim (a lease), work and complete with a result naming the ids produced, or blocked with a question for him. Start every session or cron run with list_tasks | list_tasks, get_task, create_task, claim_task, release_task, complete_task, comment_task; references/tasks.md |
 | Newspaper | One edition per Prague day (/newspaper), compiled at 07:30 from the tables: per world the journal's changes, new assets with thumbnails, storybooks, moodboards with sync drift, characters; tasks done and blocked, open Inbox stacks, and needsYou. Pure facts; an agent adds the prose. Never stars, publishes or deletes | get_newspaper, write_newspaper, compile_newspaper; references/newspapers.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
@@ -152,9 +152,11 @@ assets saved since) instead of reading every asset again. With filters, or
 Use preview_assets to visually compare numbered references before selecting.
 List and search rows are projections (ids, caption, agentDescription, tags,
 collections, urls, a 300-character prompt excerpt); get_gallery_item returns
-the full prompt, tags, source and media for asset:<id> or pack:<id>, and
-get_story the full text of a story. references/query.md lists each read's size
-and knobs.
+the full prompt, tags, source and media for asset:<id> (also skill:<id> and the
+legacy pack:<id>), and get_story the full text of a story. Every other typed id
+(moodboard:, story:, character:, stack:, task:, video:) has its own read tool
+and argument name: the typed-ID table in references/data-model.md. open_world
+returns bare ids. references/query.md lists each read's size and knobs.
 Search Skills, Stories, bookmarks and YouTube references with their own tools;
 asset semantic search does not search every object. Inspect a video beyond its
 poster before claiming anything about movement or the first 30 seconds.

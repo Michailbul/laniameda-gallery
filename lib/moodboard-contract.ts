@@ -19,7 +19,12 @@ export const moodboardListSchema = z.object({
   includeArchived: z.boolean().optional().describe("Archived boards are left out unless asked for."),
 });
 
-export const moodboardRefSchema = z.object({ moodboardId: boardRef });
+export const moodboardRefSchema = z.object({
+  moodboardId: boardRef.optional(),
+  id: boardRef.optional().describe("Alias of moodboardId: moodboard:<id> or the bare ID."),
+}).refine((value) => Boolean(value.moodboardId || value.id), { message: "moodboardId is required: moodboard:<id> from list_moodboards or open_world.", path: ["moodboardId"] });
+/** The board a request names: `moodboardId` first, `id` as an alias. */
+export const moodboardRefOf = (input: { moodboardId?: string; id?: string }) => (input.moodboardId ?? input.id)!;
 
 // One save: create without moodboardId, patch with it. No defaults, so a
 // patch keeps every omitted field; null clears a text field.

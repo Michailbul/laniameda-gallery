@@ -8,7 +8,8 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import { GALLERY_SKILL_ORIGIN } from "@/lib/server/gallery-skill-resources";
 import { bareInboxRef, inboxCardRef, inboxProgress, inboxStackRef } from "@/lib/inbox";
 import {
-  bareOptionalInboxRef, inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema,
+  bareOptionalInboxRef, inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefOf, inboxStackRefSchema, inboxWorldRefOf,
+  similarGroupsSchema,
 } from "@/lib/inbox-contract";
 
 const actions = ["post", "list", "decisions", "close", "delete", "similar_groups"] as const;
@@ -23,15 +24,19 @@ const stackUrl = (worldId: string, stackId: string) => `${GALLERY_SKILL_ORIGIN}/
 
 export async function POST(request: Request) {
   try {
-    const body = z.record(z.string(), z.unknown()).parse(await request.json().catch(() => null));
-    const action = z.enum(actions).parse(body.action);
+    const { action: rawAction, ...body } = z.record(z.string(), z.unknown()).parse(await request.json().catch(() => null));
+    const action = z.enum(actions).parse(rawAction);
     const agent = await requireAgentAuth(request, scopes[action]);
     const ownerUserId = agent.ownerUserId;
     const client = getServerConvexClient(ownerUserId);
+    // `world` is a key, name or root id, resolved like open_world does; an
+    // unknown one fails with the resolver's message, never an opaque error.
+    const resolveWorld = async (ref: string) =>
+      client.query(api.worlds.resolveWorldRef, { ownerUserId, world: bareInboxRef(ref) });
 
     if (action === "post") {
       const input = inboxPostSchema.parse(body);
-      const worldFolderId = bareInboxRef(input.worldFolderId) as Id<"folders">;
+      const worldFolderId = (await resolveWorld(inboxWorldRefOf(input)!)).worldId;
       const result = await client.mutation(api.inbox.postInboxCards, {
         ownerUserId, worldFolderId,
         stackId: bareOptionalInboxRef(input.stackId) as StackId | undefined,
@@ -54,9 +59,10 @@ export async function POST(request: Request) {
 
     if (action === "list") {
       const input = inboxListSchema.parse(body);
+      const worldRef = inboxWorldRefOf(input);
       const rows = await client.query(api.inbox.listInboxStacks, {
         ownerUserId, status: input.status, limit: input.limit, previewLimit: 0,
-        worldFolderId: bareOptionalInboxRef(input.worldFolderId) as Id<"folders"> | undefined,
+        worldFolderId: worldRef ? (await resolveWorld(worldRef)).worldId : undefined,
       });
       return NextResponse.json({
         count: rows.length,
@@ -69,7 +75,7 @@ export async function POST(request: Request) {
     if (action === "decisions") {
       // Every card with its answer, the card comment and Michael's notes on
       // its images: what the agent applies and learns from.
-      const stackId = stackIdOf(inboxStackRefSchema.parse(body).stackId);
+      const stackId = stackIdOf(inboxStackRefOf(inboxStackRefSchema.parse(body)));
       const [view, decisions, notes] = await Promise.all([
         client.query(api.inbox.getInboxStack, { ownerUserId, stackId }),
         client.query(api.inbox.listInboxDecisions, { ownerUserId, stackId }),
@@ -109,8 +115,9 @@ export async function POST(request: Request) {
 
     if (action === "similar_groups") {
       const input = similarGroupsSchema.parse(body);
+      const world = input.world ? await resolveWorld(input.world) : undefined;
       const result = await client.query(api.assetHashes.findSimilarGroups, {
-        ownerUserId, folderId: bareInboxRef(input.folderId) as Id<"folders">, includeChildren: input.includeChildren,
+        ownerUserId, folderId: world ? world.worldId : bareInboxRef(input.folderId!) as Id<"folders">, includeChildren: input.includeChildren ?? (world ? true : undefined),
         maxDistance: input.maxDistance, minSize: input.minSize, limit: input.limit,
       });
       return NextResponse.json({
@@ -130,7 +137,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...await client.mutation(api.inbox.closeInboxStack, { ownerUserId, stackId: stackIdOf(input.stackId), reopen: input.reopen }) });
     }
     const input = inboxStackRefSchema.parse(body);
-    return NextResponse.json({ ok: true, ...await client.mutation(api.inbox.deleteInboxStack, { ownerUserId, stackId: stackIdOf(input.stackId) }) });
+    return NextResponse.json({ ok: true, ...await client.mutation(api.inbox.deleteInboxStack, { ownerUserId, stackId: stackIdOf(inboxStackRefOf(input)) }) });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: z.prettifyError(error) }, { status: 400 });

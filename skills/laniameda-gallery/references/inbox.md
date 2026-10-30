@@ -74,15 +74,20 @@ recorded for you to act on: repair the image, update the board, write the rule.
 ## Tools
 
 ```text
-post_inbox_cards { worldFolderId, stackTitle | stackId, ingestKey?, note?, agent?, cards (1–100) }
+post_inbox_cards { world, stackTitle | stackId, ingestKey?, note?, agent?, cards (1–100) }
   card: { type, key?, question?, assetIds, labels?, targets?, evidence?, ruleText? }
   target: { kind: moodboard | collection | option | out, label?, moodboardId?, folderId? }
-list_inbox_stacks { worldFolderId?, status? (open | closed), limit? }
-list_inbox_decisions { stackId }
+list_inbox_stacks { world?, status? (open | closed), limit? }
+list_inbox_decisions { stackId }                     id is accepted as an alias
 close_stack { stackId, reopen? }
 delete_inbox_stack { stackId }        needs gallery:delete and Michael's word
-find_similar_groups { folderId, includeChildren?, maxDistance? (0–24, default 6), minSize?, limit? }
+find_similar_groups { world | folderId, includeChildren?, maxDistance? (0–24, default 6), minSize?, limit? }
 ```
+
+`world` is the world's key (`dear-annete`), name or root collection id, resolved
+as `open_world` resolves it; `worldFolderId` is the same argument under its
+older name. An unknown world is refused with the resolver's message. The
+schemas are strict: a key a tool does not take is refused, not ignored.
 
 A stack holds at most 300 cards and 600 images. Posting with the same
 `ingestKey` appends to the same stack; a card `key` already in the stack is

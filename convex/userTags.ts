@@ -294,6 +294,37 @@ const slimTagValidator = v.object({
   usageCount: v.number(), customized: v.optional(v.literal(true)), archived: v.optional(v.literal(true)),
 });
 
+// The vocabulary for the agent's list_tags: every tag that is used or that
+// Michael customized, with usageCount read from the tag row itself
+// (bumpTagUsage keeps it in step with assets, prompts and designs). Reading
+// the counts by scanning the owner's assets, as listUserTags does, crossed
+// Convex's 16 MB read limit once the gallery passed a few thousand pieces.
+const collectTagVocabulary = async (ctx: QueryCtx, ownerUserId: string, includeArchived: boolean | undefined): Promise<UserTagRow[]> => {
+  const [customTags, tags] = await Promise.all([
+    ctx.db.query("userTags").withIndex("by_owner_sortOrder", (q) => q.eq("ownerUserId", ownerUserId).gte("sortOrder", 0)).collect(),
+    ctx.db.query("tags").withIndex("by_normalized", (q) => q.gte("normalized", "")).collect(),
+  ]);
+  const customByTagId = new Map(customTags.filter((tag) => includeArchived || !tag.archivedAt).map((tag) => [tag.tagId, tag]));
+  const rows: UserTagRow[] = [];
+  for (const tag of tags) {
+    const custom = customByTagId.get(tag._id);
+    if (!custom && tag.usageCount <= 0) continue;
+    rows.push(custom
+      ? {
+        _id: custom._id, tagId: tag._id, ownerUserId, name: tag.name, label: custom.label, normalizedLabel: custom.normalizedLabel,
+        description: custom.description, category: custom.category ?? tag.category, pillar: custom.pillar ?? tag.pillar, source: custom.source ?? tag.source,
+        color: custom.color, sortOrder: custom.sortOrder, archivedAt: custom.archivedAt, createdAt: custom.createdAt, updatedAt: custom.updatedAt,
+        usageCount: tag.usageCount, isCustomized: true,
+      }
+      : {
+        tagId: tag._id, ownerUserId, name: tag.name, label: tag.name, normalizedLabel: tag.normalized, description: undefined,
+        category: tag.category, pillar: tag.pillar, source: tag.source, color: undefined, sortOrder: 1000, archivedAt: undefined,
+        createdAt: tag._creationTime, updatedAt: tag._creationTime, usageCount: tag.usageCount, isCustomized: false,
+      });
+  }
+  return rows;
+};
+
 // The agent's list_tags: filtered, most used first, paged, slim by default.
 // The vocabulary runs to about a thousand tags, so an unfiltered full read is
 // the wrong tool; the cursor is the next offset into the filtered order.
@@ -318,7 +349,7 @@ export const listUserTagsPage = ownerQuery({
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
     }
-    const rows = await collectUserTagRows(ctx, ownerUserId, args.includeArchived);
+    const rows = await collectTagVocabulary(ctx, ownerUserId, args.includeArchived);
     const matching = sortTagsByUsage(filterTags(rows, { search: args.search, category: args.category, minUsage: args.minUsage }));
     const { page, ...paging } = pageRows(matching, args.cursor, args.limit);
     return { tags: args.fields === "full" ? page : page.map(projectSlimTag), ...paging };

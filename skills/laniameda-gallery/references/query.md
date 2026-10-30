@@ -242,7 +242,13 @@ Resolve a copied gallery ID without first deciding which table to query.
 Supported copied ID formats:
 
 - `asset:<id>`
-- `pack:<id>`
+- `skill:<id>` (old `workflow:<id>` resolves too)
+- `pack:<id>` (a legacy asset pack or duplicates stack)
+
+Any other prefix (`moodboard:`, `story:`, `character:`, `stack:`, `task:`,
+`video:`) is refused with the name of the tool that reads it; the full
+typed-ID table (prefix, tool, argument name, whether a bare id is accepted)
+is in `references/data-model.md`.
 
 These tokens are produced by the gallery UI when the user clicks:
 
