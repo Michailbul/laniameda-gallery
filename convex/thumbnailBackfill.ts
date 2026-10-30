@@ -18,7 +18,12 @@ export const listThumbBackfillPage = internalQuery({
   },
   returns: v.object({
     candidates: v.array(
-      v.object({ assetId: v.id("assets"), url: v.union(v.string(), v.null()) }),
+      v.object({
+        assetId: v.id("assets"),
+        url: v.union(v.string(), v.null()),
+        /** The card thumb itself is fine: only the grid renditions are missing. */
+        variantsOnly: v.boolean(),
+      }),
     ),
     scanned: v.number(),
     continueCursor: v.string(),
@@ -34,10 +39,12 @@ export const listThumbBackfillPage = internalQuery({
       const thumbMetadata = asset.thumbR2Key
         ? await r2.getMetadata(ctx, asset.thumbR2Key)
         : null;
-      if (!needsCardThumb(asset, thumbMetadata?.contentType) && !needsGridVariants(asset)) continue;
+      const rebuildThumb = needsCardThumb(asset, thumbMetadata?.contentType);
+      if (!rebuildThumb && !needsGridVariants(asset)) continue;
       candidates.push({
         assetId: asset._id,
         url: (await resolveAssetUrl(ctx, asset)) ?? null,
+        variantsOnly: !rebuildThumb,
       });
     }
     return {
@@ -71,6 +78,18 @@ export const listVideosNeedingPoster = internalQuery({
       });
     }
     return result;
+  },
+});
+
+/** Add grid renditions to an asset whose card thumb is kept as it is. */
+export const applyThumbVariants = internalMutation({
+  args: { assetId: v.id("assets"), thumbVariants: v.array(thumbVariantValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) return null;
+    await ctx.db.patch(args.assetId, { thumbVariants: args.thumbVariants });
+    return null;
   },
 });
 
