@@ -102,16 +102,16 @@ describe("chipLabel", () => {
 });
 
 describe("snapshotImages", () => {
-  test("uses previews, thumb first, url as fallback, no repeats", () => {
+  test("uses the full image, then the thumb, with no repeats", () => {
     expect(
       getApi().snapshotImages({
         previews: [
           { thumbUrl: "a", url: "A" },
           { url: "b" },
-          { thumbUrl: "a" },
+          { thumbUrl: "A" },
         ],
       }),
-    ).toEqual(["a", "b"]);
+    ).toEqual(["A", "b"]);
   });
 
   test("falls back to thumbUrl for older responses", () => {

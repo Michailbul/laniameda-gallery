@@ -32,6 +32,7 @@ type BoardRow = {
   styleTag?: string;
   status?: string;
   mjCode?: string;
+  mjUrl?: string;
   itemCount?: number;
   updatedAt?: number;
   previewItems?: Array<{ thumbUrl?: string; url?: string; kind?: string }>;
@@ -70,6 +71,7 @@ const toMoodboardDtos = (rows: unknown) =>
         status: board.status ?? null,
         mjCode: code,
         flag: `-p ${code}`,
+        url: board.mjUrl ?? null,
         thumbUrl: previews[0]?.thumbUrl ?? null,
         previews,
         itemCount: board.itemCount ?? 0,

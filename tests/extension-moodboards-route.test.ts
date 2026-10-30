@@ -30,6 +30,7 @@ mock.module("@/lib/server/convex", () => ({
             styleTag: "da-film",
             status: "in-midjourney",
             mjCode: "88ji6bg",
+            mjUrl: "https://www.midjourney.com/personalize/moodboards/mb1",
             itemCount: 12,
             updatedAt: 10,
             notes: "private",
@@ -109,6 +110,7 @@ describe("GET /api/extension/moodboards", () => {
         status: "in-midjourney",
         mjCode: "88ji6bg",
         flag: "-p 88ji6bg",
+        url: "https://www.midjourney.com/personalize/moodboards/mb1",
         thumbUrl: "https://example.com/t.jpg",
         previews: [
           { thumbUrl: "https://example.com/t.jpg", url: "https://example.com/f.jpg" },
