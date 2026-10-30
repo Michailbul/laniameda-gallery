@@ -175,7 +175,7 @@ describe("parseStorybookRecord: 27 Oct free prose", () => {
     expect(model.gaps).toEqual([]);
     expect(model.status).toBe("unreviewed");
     expect(model.look).toEqual(["Film"]);
-    expect(model.prose[0]).toStartWith("scene board, 43 study frames");
+    expect(model.prose[0]).toStartWith("Scene board, 43 study frames");
     expect(model.logline).toBeNull();
     expect(model.sections[0].items.map((item) => item.label)).toEqual(["What is in the shot"]);
     expect(model.prose[1]).toStartWith("Building blocks");
@@ -269,5 +269,18 @@ describe("refs", () => {
   test("shortenUrl keeps the host and the file", () => {
     expect(shortenUrl("https://www.midjourney.com/jobs/448b8d2c-48d6-4d77-aeb2-53850989a912?index=3")).toBe("midjourney.com/…/448b8d2c-4…0989a912");
     expect(shortenUrl("https://example.com")).toBe("example.com");
+  });
+});
+
+describe("sections from the description and the script fold together", () => {
+  test("a STYLE section present in both reads once", () => {
+    const model = parseStorybookRecord({
+      name: "DEAR ANNETE · What She Keeps",
+      description: october10,
+      script: { body: `${october10}\n\nSOURCE NOTES\nLocation source: asset:j57awrdzcwcb00gb1386q1ba698e0zcc.` },
+    });
+    expect(model.sections.map((section) => section.title)).toEqual(["Style", "Source notes"]);
+    expect(model.sections[0].paragraphs).toHaveLength(1);
+    expect(model.cast).toHaveLength(2);
   });
 });
