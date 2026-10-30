@@ -34,24 +34,45 @@ describe("prompt pack data", () => {
   test("groups and packs match the brief", () => {
     expect(data().map((group) => group.heading)).toEqual([
       "Style",
-      "Where",
+      "Architecture",
+      "Exterior · Interior",
       "Light",
       "Camera",
       "Wardrobe",
       "World markers",
-      "Strange, still this world",
+      "Fantasy",
     ]);
     expect(
       data().map((group) => group.packs.map((p) => p.label)),
     ).toEqual([
-      ["Film", "3D"],
-      ["Lower city", "Upper towers", "Exterior", "Interior"],
-      ["Golden", "Night", "Lamp"],
-      ["Close", "Wide"],
-      ["Court", "Dari", "Mike"],
-      ["Cable car", "Sled", "Bridge", "Merge"],
-      ["Pale", "Crimson valley"],
+      ["Film 35mm", "3D", "Deco dark", "Deco bright"],
+      ["Lower city", "Middle districts", "Upper towers", "Beyond the walls"],
+      ["Street", "Bridge", "Low room", "Tower salon"],
+      ["Golden", "Night", "Fog", "Flower lamp"],
+      ["Close", "Wide", "Reverse"],
+      ["Court", "Middle", "Low city", "Patrol", "Dari", "Mike"],
+      ["Cable car", "Sled", "Saint", "Flowers", "Horses"],
+      ["Pale dream", "Crimson valley", "Sleeping saints", "Sign of light"],
     ]);
+  });
+
+  test("the Film pack is the lock's 35mm block and the openers are the locks' sentences", () => {
+    expect(pack("film")).toStartWith("Shot on 35mm tungsten 500T colour negative film");
+    expect(pack("3d")).toBe("Cinematic 3D animation frame.");
+    expect(pack("deco-dark")).toStartWith("Dark art deco animation frame");
+    expect(pack("deco-bright")).toStartWith("Bright art deco animation frame");
+  });
+
+  test("no real place, river, city or brand names, and no flags or aspect ratios", () => {
+    const realNames =
+      /\b(prague|praha|vltava|charles|manhattan|new york|paris|london|vienna|budapest|berlin|gotham|hogwarts|disney|pixar|ghibli)\b/i;
+    for (const group of data()) {
+      for (const p of group.packs) {
+        expect(realNames.test(p.phrase)).toBe(false);
+        expect(/(^|\s)--/.test(p.phrase)).toBe(false);
+        expect(/\b\d+:\d+\b/.test(p.phrase)).toBe(false);
+      }
+    }
   });
 
   test("ids are unique and no phrase contains another", () => {
@@ -65,10 +86,15 @@ describe("prompt pack data", () => {
   });
 
   test("keeps the banned words out", () => {
+    // Painterly words belong to the Art Deco openers only; the film look and
+    // every world phrase stay free of them (WORLD.md rule 5, film lock).
     const banned =
-      /\b(prague|cyberpunk|neon|painterly|hand-painted|medieval|castle|gotham|tram|cozy|surrealism|gilded)\b/i;
+      /\b(prague|cyberpunk|neon|painterly|hand-painted|brushstrokes|medieval|castle|gotham|tram|cozy|surrealism|gilded|cut flowers)\b/i;
     for (const group of data()) {
-      for (const p of group.packs) expect(banned.test(p.phrase)).toBe(false);
+      for (const p of group.packs) {
+        if (p.id.startsWith("deco-")) continue;
+        expect(banned.test(p.phrase)).toBe(false);
+      }
     }
   });
 
