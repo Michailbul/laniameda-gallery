@@ -6,7 +6,8 @@ direction governs filing/publication; a valid API payload alone is not permissio
 
 ## Media and collections
 
-1. Resolve existing names with list_collections. Creation must be requested or
+1. Resolve existing names from open_world's shelves or with list_collections
+   filtered by world (or parentFolderId / search). Creation must be requested or
    approved when a named collection is missing.
 2. Inspect the actual media. Provide agentDescription, sourceUrl where applicable,
    useful tags, assetRole, ingestSource: agent and a stable ingestKey.

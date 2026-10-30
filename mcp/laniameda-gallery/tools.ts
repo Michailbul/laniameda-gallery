@@ -51,10 +51,10 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "Named people are characters: one record per person per world with a stable code (DA-CH-001), costumes as -C01/-C02, a canonical sheet and face, and typed asset links. list_characters and get_character read the cast; create_character, update_character, save_character_costume and link_character_assets maintain it. Cite the code in captions and storybook CAST blocks. Read references/characters.md.",
   "Moodboards are ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (a personalization code); each belongs to a collection. list_moodboards and get_moodboard read them (get_moodboard returns full image URLs, in order, to push into Midjourney); save_moodboard, add_moodboard_items and reorder_moodboard_items maintain them; record the Midjourney code after a sync with set_moodboard_midjourney. Read references/moodboards.md.",
   "Each world has an Inbox (Decisions in the gallery, /inbox/<worldId>): stacks of cards where Michael decides and agents never judge taste. post_inbox_cards posts sort, duplicates, artifact, ab, choose or rule cards with facts as evidence; list_inbox_decisions reads his answers, comments and voice notes (transcribe them yourself) and his notes on single images; close_stack once you have applied and learned from a stack. Read references/inbox.md.",
-  "Collections (folders) are one level deep; resolve names with list_collections before filing. A child collection can carry a display group (Styles, Places, Cast) and sortOrder.",
+  "Collections (folders) are one level deep. Resolve names from open_world's shelves or with list_collections filtered by world (or parentFolderId, rootsOnly, search) before filing; an unfiltered list_collections is the whole vault. A child collection can carry a display group (Styles, Places, Cast) and sortOrder.",
   "What a piece IS is a tag: character, location, scene or inspiration. The animation tag marks animated work; no tag means live action.",
   "Every saved asset should carry sourceUrl when it came from the web, and an agentDescription: one or two plain sentences (max ~45 words) on what it shows and why it was kept.",
-  "Reuse existing tags (list_tags) before inventing new ones. Never star or publish anything unless asked. Ask before deleting.",
+  "Reuse existing tags before inventing new ones: read the world's docs/tags.md (open_world), trust the save-time canonical folding (case, -, _ and punctuation are one tag) and add_tag_aliases, and call list_tags filtered (search, category, minUsage; slim and paged) rather than whole. upsert_tags does not match aliases. Never star or publish anything unless asked. Ask before deleting.",
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
   "Michael comments on assets in the detail panel to steer the work. get_gallery_item returns an asset's comments; list_asset_comments reads one thread or the newest across the vault. Act on them, then reply with add_asset_comment saying what was done.",
   "The gallery keeps a task queue (Tasks, /tasks). Michael's asset comments and Inbox answers become tasks by themselves; open_world lists a world's open tasks. Start a session or a cron run with list_tasks {status: 'open'}; claim_task before working; comment_task for progress; complete_task with a result that names the asset:/story:/stack: ids produced, or blocked: true with the question Michael has to answer. Never stop silently. Read references/tasks.md.",
@@ -205,7 +205,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeSkillExamples: { default: false, true: "adds Skill-step assets, which otherwise stay inside their Skill unless requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
     inventoryExport: { endpoint: "POST /api/agent/inventory", client: "bun gallery.mjs all_assets --out <dir>", contents: "the default list_assets_page inventory (no filters) plus folders, as a snapshot rebuilt at most daily, with assets saved since appended", freshness: "maxAgeMinutes (default 1440); refresh:true rebuilds when the snapshot is older than 15 minutes; edits and deletions after generatedAt are not reflected", prefer: "Use it for complete inventories instead of paging every asset; page list_assets_page for filtered or exact live reads." },
     videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
-    limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listCharacters: 1000, linkCharacterAssets: 100, moodboardItems: 1000, addMoodboardItems: 100, listMoodboardGenerations: 60, postInboxCards: 100, inboxStackCards: 300, inboxTargets: "2–9", listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
+    limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: { default: 200, max: 500, includeBody: "false by default: a 300-character excerpt plus bodyChars; the result carries count, limit, truncated and next.updatedBefore" }, listTags: { default: 100, max: 500, fields: "slim by default; cursor pages" }, listCollections: "the owner's whole tree unless filtered by world, parentFolderId, rootsOnly, kind or search", listCharacters: 1000, linkCharacterAssets: 100, moodboardItems: 1000, addMoodboardItems: 100, listMoodboardGenerations: 60, postInboxCards: 100, inboxStackCards: 300, inboxTargets: "2–9", listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
     resources: ["worlds", "worldDocs", "worldJournal", "mjProfiles", "assets", "collections", "menuFilters", "skills", "stories", "characters", "moodboards", "inbox", "tasks", "newspapers", "presets", "bookmarks", "videoRefs"],
     policy: { source: "get_skill_instructions or authenticated canonical /skills/laniameda-gallery/ manifest resources", privateWorldRules: "references/worlds.md", sourceOfTruth: "Deployed schemas and scoped backend functions; instructions explain filing policy. Collections and menu filters are distinct from raw tags." },
   }));
@@ -354,7 +354,17 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   server.registerTool("compile_newspaper", { title: "Compile Newspaper", annotations: taskWrite, description: "Compile today's edition now (or a given date's), from the gallery's tables, without waiting for the 07:30 Prague cron. Recompiling a date replaces its facts and keeps its prose. Returns the edition as get_newspaper does.", inputSchema: newspaperCompileSchema.shape }, newspaper("compile"));
 
   server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
-  server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), world: worldFilterShape, folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
+  server.registerTool("list_stories", {
+    title: "List Stories", annotations: readAnnotations,
+    description: "Find private text ideas, scripts and style locks by keyword, world (or its collection), kind or status, newest first. Each row has story:<id> fields, title, kind, status, logline, hook, styleTag, tagNames, assetIds, revision, updatedAt, url, bodyChars and a 300-character excerpt; includeBody: true returns the full text instead (a world's scripts can run to hundreds of KB, so ask for it only when you will read it). Default limit 200, max 500; the result carries count, limit and truncated, and when truncated, next.updatedBefore to pass for the following page. get_story reads one record in full.",
+    inputSchema: {
+      search: z.string().optional(), world: worldFilterShape, folderId: z.string().optional(),
+      kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(),
+      includeBody: z.boolean().describe("true: full body on every row (large). Default false: excerpt plus bodyChars.").optional(),
+      limit: z.number().int().min(1).max(500).describe("Rows per call (default 200, max 500).").optional(),
+      updatedBefore: z.number().describe("Continue a truncated list: the next.updatedBefore of the previous result (only rows updated before it).").optional(),
+    },
+  }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
   server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
   server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
@@ -651,7 +661,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Assets",
       annotations: readAnnotations,
-      description: "List the authenticated user's gallery assets.",
+      description: "List the authenticated user's gallery assets, newest first (bounded; list_assets_page for a complete traversal). Rows carry asset ids, kind, size, url and thumbUrl, caption, agentDescription, tagNames, folderIds, model, flags and a 300-character promptText excerpt (promptTruncated, promptChars when cut); get_gallery_item has the full prompt and record.",
       inputSchema: {
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
@@ -681,7 +691,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "Search Gallery",
       annotations: { ...readAnnotations, openWorldHint: true },
       description:
-        "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection filters. Results carry agentDescription, score, visualScore and textScore.",
+        "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection / world filters. Results (default 24, max 96) carry asset ids, agentDescription, caption, tagNames, folderIds, url, thumbUrl, a 300-character promptText excerpt, score, visualScore and textScore; get_gallery_item has the full prompt and record.",
       inputSchema: {
         query: z.string(),
         mode: z
@@ -946,8 +956,14 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Tags",
       annotations: readAnnotations,
-      description: "List the authenticated user's customized and used tags.",
+      description: "The tag vocabulary, most used first, filtered and paged. Always narrow it: search (substring of the name or label), category (style, environment, lighting, content_type …) or minUsage; the whole vocabulary is about a thousand tags and never the answer. Rows are slim by default (name, label when it differs, category, description, usageCount, customized, archived); fields: 'full' adds ids, colour, sort order and times. Default 100 rows, max 500; follow cursor until isDone. Before inventing a tag read the world's docs/tags.md (open_world) and remember that saves fold case, '-', '_' and punctuation into one tag and add_tag_aliases redirects spellings.",
       inputSchema: {
+        search: z.string().max(80).describe("Substring of the tag name or label, case-insensitive (a prefix works too).").optional(),
+        category: z.string().max(40).describe("Only this category, e.g. style, environment, lighting, content_type, custom.").optional(),
+        minUsage: z.number().int().min(0).describe("Only tags on at least this many assets.").optional(),
+        limit: z.number().int().min(1).max(500).describe("Rows per page (default 100, max 500).").optional(),
+        cursor: z.string().nullable().describe("From the previous page; omit for the first page.").optional(),
+        fields: z.enum(["slim", "full"]).describe("slim (default) or full rows.").optional(),
         includeArchived: z.boolean().optional(),
       },
     },
@@ -1043,13 +1059,20 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "List Collections",
       annotations: readAnnotations,
       description:
-        "List the authenticated user's collections. Collections are owner-scoped folders used to organize saved assets and prompts. A child collection may carry a display group (e.g. Styles) and sortOrder that order it inside its world.",
-      inputSchema: {},
+        "The owner's collections (folders): one level deep, worlds are marked roots. Narrow it: world (key, name or root id: that world's root and shelves, the same list open_world gives), parentFolderId (one root's children), rootsOnly, kind or search; with no filter it is the whole vault (about 220 rows). Each row: _id (the folderId every save and filing tool takes, bare), name, parentFolderId, group and sortOrder (display order inside a world), kind (storybook or plain), worldKey and isWorld, memberCount, description (excerpt), slug, hidden, url. The result carries count and total.",
+      inputSchema: {
+        world: worldFilterShape,
+        parentFolderId: z.string().describe("Only the children of this root collection.").optional(),
+        rootsOnly: z.boolean().describe("Only root collections (worlds and shared shelves).").optional(),
+        kind: z.enum(["storybook", "plain"]).describe("Only storybooks, or only plain collections.").optional(),
+        search: z.string().max(80).describe("Words that must all appear in the name, description, world key or slug.").optional(),
+      },
     },
-    async () =>
+    async (input) =>
       jsonText(
         await apiFetch("/api/agent/customize", {
           action: "listFolders",
+          ...input,
         }),
       ),
   );

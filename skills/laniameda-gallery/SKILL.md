@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.17.0
+version: 1.18.0
 ---
 
 # Laniameda Gallery
@@ -104,7 +104,9 @@ cost above the limits there.
 
 ## Make media findable
 
-Resolve named collections with list_collections first. Reuse an exact existing
+Resolve named collections from `open_world`'s shelves, or with
+`list_collections` filtered by `world` (or `parentFolderId`, `rootsOnly`,
+`search`); the unfiltered list is the whole vault. Reuse an exact existing
 name case-insensitively; ask before creating a missing collection unless creation
 was requested. Pass folderIds for multiple memberships; the first is primary.
 Leave a piece uncategorized when no destination was requested or clearly fits.
@@ -116,8 +118,12 @@ Leave a piece uncategorized when no destination was requested or clearly fits.
   without that tag, including photoreal rendered output; it does not prove footage
   was photographed. Judge the actual visual rather than its filename.
 - Reuse existing tags; keep them lowercase, singular and hyphenated. Add about
-  up to 5 useful tags. Use typedTags and source: agent for inferred labels. Preserve
-  the source's model name only when stated; never guess it from a look or prompt.
+  up to 5 useful tags. Read the world's `docs/tags.md` (from `open_world`) first;
+  saves fold case, `-`, `_` and punctuation into one tag and `add_tag_aliases`
+  redirects spellings, so call `list_tags` only filtered (`search`, `category`,
+  `minUsage`; slim rows, paged), never whole. Use typedTags and source: agent for
+  inferred labels. Preserve the source's model name only when stated; never guess
+  it from a look or prompt.
 - Write agentDescription on agent-created media and video references: one or two
   plain sentences, at most about 45 words/400 characters, describing the actual
   subject/look and why it was kept. Keep Michael's caption in description and his
@@ -143,8 +149,12 @@ all_assets command: it downloads the cached export (rebuilt at most daily, plus
 assets saved since) instead of reading every asset again. With filters, or
 {"live":true}, it pages list_assets_page.
 
-Use preview_assets to visually compare numbered references before selecting;
-get_gallery_item returns prompt, tags, source and media for asset:<id> or pack:<id>.
+Use preview_assets to visually compare numbered references before selecting.
+List and search rows are projections (ids, caption, agentDescription, tags,
+collections, urls, a 300-character prompt excerpt); get_gallery_item returns
+the full prompt, tags, source and media for asset:<id> or pack:<id>, and
+get_story the full text of a story. references/query.md lists each read's size
+and knobs.
 Search Skills, Stories, bookmarks and YouTube references with their own tools;
 asset semantic search does not search every object. Inspect a video beyond its
 poster before claiming anything about movement or the first 30 seconds.

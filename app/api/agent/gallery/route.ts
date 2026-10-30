@@ -7,6 +7,7 @@ import { CINEMATOGRAPHY_TAG, isCinematographySkill } from "@/lib/cinematography"
 import { makeFunctionReference } from "convex/server";
 import { galleryAssetPageInputSchema } from "@/lib/gallery-pagination";
 import { resolveSkillForOwner } from "@/lib/server/agent-skills";
+import { projectAgentAssets } from "@/lib/agent-read-projections";
 
 type GalleryIdKind = "asset" | "pack" | "design" | "skill";
 
@@ -177,7 +178,7 @@ export async function POST(request: Request) {
         search: stringValue(data.search),
         limit: numberValue(data.limit),
       });
-      return NextResponse.json({ assets });
+      return NextResponse.json({ count: assets.length, assets: projectAgentAssets(assets) });
     }
 
     if (action === "searchAssets") {
@@ -201,7 +202,7 @@ export async function POST(request: Request) {
         minRelativeScore: numberValue(data.minRelativeScore),
         limit: numberValue(data.limit),
       });
-      return NextResponse.json({ results });
+      return NextResponse.json({ count: results.length, results: projectAgentAssets(results) });
     }
 
     if (action === "findSimilar") {
@@ -221,7 +222,7 @@ export async function POST(request: Request) {
         minRelativeScore: numberValue(data.minRelativeScore),
         limit: numberValue(data.limit),
       });
-      return NextResponse.json({ results });
+      return NextResponse.json({ count: results.length, results: projectAgentAssets(results) });
     }
 
     if (action === "findBySourceUrls") {

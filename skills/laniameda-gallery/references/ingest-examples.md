@@ -2,7 +2,7 @@
 
 Discover the live tool schema first. These examples use the authenticated MCP or
 scripts/gallery.mjs tool surface; owner comes from the token. Replace placeholders
-with IDs returned by list_collections/prepare_uploads. Scripts/files containing
+with IDs returned by open_world, list_collections (filtered by world) or prepare_uploads. Scripts/files containing
 real tokens or signed slots are private and must not enter Git or chat reports.
 
 ## Generated media

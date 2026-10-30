@@ -60,9 +60,15 @@ bun skills/laniameda-gallery/scripts/gallery.mjs list_stories '{"search":"tram",
 bun skills/laniameda-gallery/scripts/gallery.mjs get_story '{"id":"story:<id>"}'
 ```
 
-`list_stories` filters by `search`, `folderId`, `kind`, `status`, and `limit`
-(1–500, default 200). Results include full text. `get_story`, `save_story` and
-`update_story` return the story with its gallery page as `url`
+`list_stories` filters by `search`, `world` (or `folderId`), `kind`, `status`
+and `limit` (1–500, default 200). Rows carry the record without `searchText`,
+owner or creation time: title, kind, status, logline, hook, styleTag, tagNames,
+assetIds, ingestKey, revision, updatedAt, `url`, `bodyChars` and a 300-character
+`excerpt`; `includeBody: true` returns the full `body` instead (a world's
+scripts can run to hundreds of KB). The result carries `count`, `limit`,
+`truncated` and, when truncated, `next.updatedBefore`: pass it as
+`updatedBefore` for the following page. `get_story` reads one record in full.
+`get_story`, `save_story` and `update_story` return the story with its gallery page as `url`
 (`https://gallery.laniameda.space/stories/<id>`), for Michael to open. The browser offers world,
 status, and type filters and keyword search over the returned texts.
 

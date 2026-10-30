@@ -183,7 +183,12 @@ publish.
 - `tags` rows are global and deduped by `canonicalKey` (`canonicalTagKey(name)`);
   `aliases` hold alternate spellings.
 - `userTags` is Michael's catalogue on top: label, description, colour, sort
-  order, archive state. Read it with `list_tags` before inventing a tag.
+  order, archive state. Before inventing a tag: read the world's `docs/tags.md`
+  (`open_world`), rely on the save-time `canonicalTagKey` folding and
+  `add_tag_aliases`, then call `list_tags` filtered (`search`, `category`,
+  `minUsage`; slim rows, most used first, `limit` + `cursor`). The vocabulary is
+  about a thousand tags; an unfiltered read is never the answer. `upsert_tags`
+  creates or edits catalogue entries by exact name and does not match aliases.
 - **Aliases**: `tags.aliases` redirect alternate spellings to one tag at save
   time (`filmic` → `cinematic`). A real tag name always wins over an alias.
   Add them with `tags:addTagAliases {name, aliases}` (MCP `add_tag_aliases`);

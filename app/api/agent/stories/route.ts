@@ -5,6 +5,7 @@ import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/se
 import { getServerConvexClient } from "@/lib/server/convex";
 import { storyInputSchema, storyPatchSchema } from "@/lib/story-contract";
 import { galleryPageUrl } from "@/lib/gallery-routes";
+import { projectStoryRow, storyListPage } from "@/lib/agent-read-projections";
 import { z } from "zod";
 
 const scopes: Record<string, AgentTokenScope> = { list: "gallery:read", get: "gallery:read", revisions: "gallery:read", save: "gallery:write", update: "gallery:write", delete: "gallery:delete" };
@@ -22,9 +23,17 @@ export async function POST(request: Request) {
     if (action === "list") {
       const world = z.string().trim().min(1).optional().parse(body.world);
       if (world) body.folderId = (await client.query(api.worlds.resolveWorldRef, { ownerUserId, world })).worldId;
-      const filters = z.object({ folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), search: z.string().optional(), limit: z.number().int().min(1).max(500).optional() }).parse(body);
+      const { includeBody, ...filters } = z.object({
+        folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(),
+        search: z.string().optional(), limit: z.number().int().min(1).max(500).optional(), updatedBefore: z.number().optional(), includeBody: z.boolean().optional(),
+      }).parse(body);
       const stories = await client.query(api.stories.listStories, { ownerUserId, ...filters, folderId: filters.folderId as Id<"folders"> | undefined });
-      return NextResponse.json({ count: stories.length, stories });
+      // Rows for an agent: no searchText (it repeats the body), owner or creation
+      // time; an excerpt unless includeBody; and whether the limit cut the list.
+      return NextResponse.json({
+        ...storyListPage(stories, filters.limit ?? 200),
+        stories: stories.map((story) => withUrl(projectStoryRow(story, includeBody === true))),
+      });
     }
     if (action === "save" || action === "update") {
       const existing = action === "update" ? await client.query(api.stories.getStory, { ownerUserId, id: idSchema.parse(body.id) }) : undefined;

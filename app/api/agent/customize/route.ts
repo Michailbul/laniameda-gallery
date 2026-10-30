@@ -4,7 +4,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { requireSkillForOwner } from "@/lib/server/agent-skills";
+import { clientErrorMessage } from "@/lib/server/route-error";
 import { collectionPageUrl } from "@/lib/gallery-routes";
+import { filterCollections, projectCollectionRow } from "@/lib/agent-read-projections";
 
 type AgentScope = "gallery:read" | "gallery:write" | "gallery:delete";
 
@@ -85,11 +87,19 @@ export async function POST(request: Request) {
     const client = getServerConvexClient(agent.ownerUserId);
 
     if (action === "listTags") {
-      const tags = await client.query(api.userTags.listUserTags, {
+      // Filtered, most used first, paged and slim by default: the vocabulary
+      // is about a thousand tags, so the whole catalogue is never the answer.
+      const page = await client.query(api.userTags.listUserTagsPage, {
         ownerUserId: agent.ownerUserId,
         includeArchived: data.includeArchived === true,
+        search: stringValue(data.search) ?? stringValue(data.prefix),
+        category: stringValue(data.category),
+        minUsage: numberValue(data.minUsage),
+        limit: numberValue(data.limit),
+        cursor: typeof data.cursor === "string" ? data.cursor : undefined,
+        fields: data.fields === "full" ? "full" : "slim",
       });
-      return NextResponse.json({ tags });
+      return NextResponse.json(page);
     }
 
     if (action === "upsertTag") {
@@ -151,9 +161,26 @@ export async function POST(request: Request) {
       const folders = await client.query(api.folders.listFolders, {
         ownerUserId: agent.ownerUserId,
       });
+      // `world` narrows to one world's root and shelves (same resolver as
+      // open_world); parentFolderId, rootsOnly, kind and search narrow further.
+      const worldRef = stringValue(data.world);
+      const world = worldRef
+        ? await client.query(api.worlds.resolveWorldRef, { ownerUserId: agent.ownerUserId, world: worldRef })
+        : undefined;
+      const kind = data.kind === "storybook" || data.kind === "plain" ? data.kind : undefined;
+      const matching = filterCollections(folders, {
+        ids: world?.folderIds,
+        parentFolderId: stringValue(data.parentFolderId),
+        rootsOnly: data.rootsOnly === true,
+        search: stringValue(data.search),
+        kind,
+      });
       // Each collection's page in the gallery: /w/<worldKey|rootId>[/<shelfId>].
       return NextResponse.json({
-        folders: folders.map((folder) => ({ ...folder, url: collectionPageUrl(folders, folder) })),
+        count: matching.length,
+        total: folders.length,
+        ...(world ? { world: { id: world.worldId, key: world.key, name: world.name } } : {}),
+        folders: matching.map((folder) => projectCollectionRow({ ...folder, url: collectionPageUrl(folders, folder) })),
       });
     }
 
@@ -251,7 +278,6 @@ export async function POST(request: Request) {
     if (error instanceof AgentAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: clientErrorMessage(error, "Gallery request failed.") }, { status: 400 });
   }
 }
