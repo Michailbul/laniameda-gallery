@@ -382,9 +382,10 @@ export function StorybookModal({
             }}
             aria-label="Open the cover frame"
           >
+            {/* The thumb (1440 px) paints at once; the full PNG can be 7 MB. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={cover.fullSrc ?? cover.thumbSrc}
+              src={cover.thumbSrc}
               alt={cover.caption ?? ""}
               className="block w-full object-cover"
               style={{

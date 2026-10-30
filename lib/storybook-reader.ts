@@ -422,6 +422,28 @@ const mergeItems = (primary: ReaderItem[], secondary: ReaderItem[]): ReaderItem[
   return out;
 };
 
+/** Same-titled sections fold together; a paragraph or item seen once stays once. */
+const mergeSections = (primary: ReaderSection[], secondary: ReaderSection[]): ReaderSection[] => {
+  const out = primary.map((section) => ({ ...section, items: [...section.items], paragraphs: [...section.paragraphs] }));
+  for (const section of secondary) {
+    const match = out.find((entry) => entry.title.toLowerCase() === section.title.toLowerCase());
+    if (!match) {
+      out.push({ ...section });
+      continue;
+    }
+    match.items = mergeItems(match.items, section.items);
+    const seen = new Set(match.paragraphs.map((paragraph) => paragraph.slice(0, 80).toLowerCase()));
+    for (const paragraph of section.paragraphs) {
+      const key = paragraph.slice(0, 80).toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        match.paragraphs.push(paragraph);
+      }
+    }
+  }
+  return out;
+};
+
 /** The reader model for one storybook. Never throws. */
 export function parseStorybookRecord(input: ReaderInput): ReaderModel {
   const parts = splitStorybookName(input.name);
@@ -456,7 +478,8 @@ export function parseStorybookRecord(input: ReaderInput): ReaderModel {
       continue;
     }
     if (clean && clean.length <= 48) look.push(clean);
-    else if (clean) main.prose.unshift(clean);
+    // A long remainder is the opening sentence, read as prose.
+    else if (clean) main.prose.unshift(clean.charAt(0).toUpperCase() + clean.slice(1));
   }
   if (!duration) duration = shortDuration(headerText) ?? (second ? shortDuration(second.header ?? "") : null);
   if (!medium) {
@@ -522,7 +545,7 @@ export function parseStorybookRecord(input: ReaderInput): ReaderModel {
     props: mergeItems(main.props, second?.props ?? []),
     gaps,
     gapNotes,
-    sections: [...main.sections, ...(second?.sections ?? [])],
+    sections: mergeSections(main.sections, second?.sections ?? []),
     prose: [...main.prose, ...(second?.prose ?? [])],
     sources,
     storyRefs,

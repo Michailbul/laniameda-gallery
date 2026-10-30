@@ -154,7 +154,7 @@ function BlockTitle({ children, aside }: { children: ReactNode; aside?: ReactNod
   );
 }
 
-function Frame({ asset, onOpenAsset, caption, large = false }: { asset: ReaderAsset; onOpenAsset: (id: string) => void; caption?: boolean; large?: boolean }) {
+function Frame({ asset, onOpenAsset, caption, large = false, eager = false }: { asset: ReaderAsset; onOpenAsset: (id: string) => void; caption?: boolean; large?: boolean; eager?: boolean }) {
   if (!asset.thumbSrc) return null;
   return (
     <figure className="min-w-0">
@@ -170,7 +170,7 @@ function Frame({ asset, onOpenAsset, caption, large = false }: { asset: ReaderAs
           src={asset.thumbSrc}
           alt={asset.caption ?? ""}
           className="block w-full"
-          loading="lazy"
+          loading={eager ? "eager" : "lazy"}
           style={{
             aspectRatio: asset.width && asset.height ? `${asset.width} / ${asset.height}` : large ? "16 / 9" : "4 / 3",
             objectFit: "cover",
@@ -198,17 +198,17 @@ function Frame({ asset, onOpenAsset, caption, large = false }: { asset: ReaderAs
 function FrameGrid({ frames, onOpenAsset, columns = "grid-cols-2 md:grid-cols-3 min-[900px]:grid-cols-4" }: { frames: ReaderAsset[]; onOpenAsset: (id: string) => void; columns?: string }) {
   return (
     <div className={`grid gap-3 ${columns}`}>
-      {frames.map((frame) => (
-        <Frame key={frame.id} asset={frame} onOpenAsset={onOpenAsset} caption />
+      {frames.map((frame, index) => (
+        <Frame key={frame.id} asset={frame} onOpenAsset={onOpenAsset} caption eager={index < 8} />
       ))}
     </div>
   );
 }
 
-function GapList({ gaps, notes, lookup, onOpenAsset }: { gaps: ReaderGap[]; notes: string[]; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void }) {
+function GapList({ gaps, notes, blocking, lookup, onOpenAsset }: { gaps: ReaderGap[]; notes: string[]; blocking: number | null; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void }) {
   return (
     <section className="p-4 md:p-5" style={{ borderRadius: RADIUS, border: "1px solid color-mix(in srgb, var(--coral) 35%, transparent)", backgroundColor: "color-mix(in srgb, var(--coral) 5%, transparent)" }}>
-      <BlockTitle aside={`${gaps.length} listed`}>
+      <BlockTitle aside={blocking !== null && blocking !== gaps.length ? `${blocking} blocking` : undefined}>
         <span style={{ color: "var(--coral)" }}>{gaps.length === 1 ? "1 gap" : `${gaps.length} gaps`}</span>
       </BlockTitle>
       <ol className="flex flex-col gap-3">
@@ -380,7 +380,7 @@ export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderPr
         </section>
       )}
 
-      {model.gaps.length > 0 && <GapList gaps={model.gaps} notes={model.gapNotes} lookup={lookup} onOpenAsset={onOpenAsset} />}
+      {model.gaps.length > 0 && <GapList gaps={model.gaps} notes={model.gapNotes} blocking={model.blockingGaps} lookup={lookup} onOpenAsset={onOpenAsset} />}
 
       {model.prose.length > 0 && (
         <section className="flex flex-col gap-3">
@@ -391,6 +391,11 @@ export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderPr
           ))}
         </section>
       )}
+
+      {/* A book with no beats is prose and frames: its notes read before the grid. */}
+      {!hasBeats && model.sections.map((section, index) => (
+        <SectionBlock key={`${section.title}-${index}`} section={section} lookup={lookup} onOpenAsset={onOpenAsset} />
+      ))}
 
       {hasBeats && (
         <section>
@@ -434,7 +439,7 @@ export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderPr
                   </div>
                   {lead && (
                     <div className="flex flex-col gap-2 min-[900px]:pl-1">
-                      <Frame asset={lead} onOpenAsset={onOpenAsset} />
+                      <Frame asset={lead} onOpenAsset={onOpenAsset} eager />
                       {rest.length > 0 && (
                         <div className="grid grid-cols-4 gap-1.5">
                           {rest.slice(0, 4).map((frame) => (
@@ -462,7 +467,7 @@ export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderPr
       <ItemBlock title="Locations" items={model.locations} lookup={lookup} onOpenAsset={onOpenAsset} plates={placement.plates} />
       <ItemBlock title="Props" items={model.props} lookup={lookup} onOpenAsset={onOpenAsset} />
 
-      {model.sections.map((section, index) => (
+      {hasBeats && model.sections.map((section, index) => (
         <SectionBlock key={`${section.title}-${index}`} section={section} lookup={lookup} onOpenAsset={onOpenAsset} />
       ))}
 
