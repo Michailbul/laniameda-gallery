@@ -152,7 +152,7 @@ function Composer({ ownerUserId, worldFolderId, onCreated, onClose }: {
 
 /* ── Detail panel ────────────────────────────────────────────────────────── */
 
-function LinkChip({ link }: { link: TaskView["links"][number] }) {
+export function LinkChip({ link }: { link: TaskView["links"][number] }) {
   const ref = linkRef(link);
   const body = <>
     {link.thumbUrl && (
@@ -182,7 +182,7 @@ const EVENT_LABEL: Record<TaskView["events"][number]["kind"], string> = {
   create: "filed", claim: "claimed", release: "released", status: "", comment: "", edit: "edited",
 };
 
-function Timeline({ events }: { events: TaskView["events"] }) {
+export function Timeline({ events }: { events: TaskView["events"] }) {
   return <ol className="flex flex-col gap-3">
     {events.map((event) => {
       const status = event.kind === "status" && event.to ? TASK_STATUS_LABEL[event.to].toLowerCase() : "";

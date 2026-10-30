@@ -599,11 +599,27 @@ export const listTaskCards = ownerQuery({
       .slice(0, limit);
     const out = [];
     for (const task of visible) {
+      // Every picture the task is about, in this order: its asset links, the
+      // asset:<id> references in its result and brief, and for a task filed
+      // from an Inbox stack the images of that stack's cards. Michael's rule:
+      // if images are related, they are shown. Eight at most.
+      const candidates: string[] = task.links.filter((link) => link.kind === "asset").map((link) => link.id);
+      for (const match of `${task.result ?? ""}\n${task.brief ?? ""}`.matchAll(/asset:([a-z0-9]{20,40})/g)) candidates.push(match[1]!);
+      if (task.source === "inbox" && task.sourceRef) {
+        const stackId = ctx.db.normalizeId("inboxStacks", task.sourceRef);
+        if (stackId) {
+          const cards = await ctx.db.query("inboxCards").withIndex("by_stack_position", (q) => q.eq("stackId", stackId)).take(8);
+          candidates.push(...cards.flatMap((card) => card.assetIds as string[]));
+        }
+      }
       const thumbs = [];
-      for (const link of task.links) {
-        if (link.kind !== "asset" || thumbs.length >= 4) continue;
-        const id = ctx.db.normalizeId("assets", link.id);
-        const asset = id ? await ctx.db.get(id) : null;
+      const seenAssets = new Set<string>();
+      for (const candidate of candidates) {
+        if (thumbs.length >= 8) break;
+        const id = ctx.db.normalizeId("assets", candidate);
+        if (!id || seenAssets.has(id)) continue;
+        seenAssets.add(id);
+        const asset = await ctx.db.get(id);
         if (!asset || !owns(owner, asset)) continue;
         const url = await resolveAssetThumbUrl(ctx, asset);
         if (url) thumbs.push({ assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined });
