@@ -246,8 +246,9 @@ export const processAndReplaceThumbnail = ownerAction({
 
 // ── Backfill ────────────────────────────────────────────────────────────────
 // Rebuilds every image thumb that is missing, soft, or heavy (see
-// needsCardThumb), and every image that lacks its grid renditions
-// (needsGridVariants). Walks the assets table one page per action run and
+// needsCardThumb), and adds the grid renditions to every image that lacks
+// them (needsGridVariants; a sound thumb is kept and only the renditions are
+// stored). Walks the assets table one page per action run and
 // schedules the next page, so it survives the action time limit. Old thumb
 // objects stay on R2: a copied asset row may still point at one.
 //
@@ -261,6 +262,9 @@ const listThumbBackfillPageRef = makeFunctionReference<"query">(
 const applyCardThumbnailRef = makeFunctionReference<"mutation">(
   "thumbnailBackfill:applyCardThumbnail",
 );
+const applyThumbVariantsRef = makeFunctionReference<"mutation">(
+  "thumbnailBackfill:applyThumbVariants",
+);
 const backfillCardThumbnailsRef = makeFunctionReference<"action">(
   "thumbnails:backfillCardThumbnails",
 );
@@ -268,6 +272,8 @@ const backfillCardThumbnailsRef = makeFunctionReference<"action">(
 type BackfillCandidate = {
   assetId: Id<"assets">;
   url: string | null;
+  /** The card thumb is fine; store the grid renditions only. */
+  variantsOnly?: boolean;
 };
 
 const BACKFILL_PAGE_SIZE = 16;
@@ -282,10 +288,16 @@ const rebuildThumb = async (ctx: ActionCtx, candidate: BackfillCandidate) => {
     );
     return "failed" as const;
   }
-  const thumb = await storeCardThumbnail(
-    ctx,
-    Buffer.from(await response.arrayBuffer()),
-  );
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (candidate.variantsOnly) {
+    // Keep the card thumb object; add the renditions beside it.
+    const encoded = await encodeCardThumbnail(buffer);
+    if (!encoded) return "failed" as const;
+    const thumbVariants = await storeThumbVariants(ctx, encoded);
+    await ctx.runMutation(applyThumbVariantsRef, { assetId: candidate.assetId, thumbVariants });
+    return "rebuilt" as const;
+  }
+  const thumb = await storeCardThumbnail(ctx, buffer);
   if (!thumb) return "failed" as const;
   await ctx.runMutation(applyCardThumbnailRef, {
     assetId: candidate.assetId,
