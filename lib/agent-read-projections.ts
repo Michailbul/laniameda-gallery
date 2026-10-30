@@ -106,7 +106,7 @@ export const filterCollections = <T extends CollectionRowInput>(folders: T[], fi
 // owner-only); they are noise that doubles a search result's size.
 const ASSET_PLUMBING = new Set([
   "ownerUserId", "storageId", "thumbStorageId", "r2Key", "r2Bucket", "thumbR2Key", "thumbR2Bucket",
-  "tagIds", "ingestSource", "packSlotIndex", "curatedByUserId", "designInspirationId", "_creationTime",
+  "tagIds", "ingestSource", "packSlotIndex", "curatedByUserId", "designInspirationId", "_creationTime", "thumbVariants",
 ]);
 
 /** One asset row as search_gallery, find_similar, list_assets and preview_assets return it. */

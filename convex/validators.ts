@@ -426,3 +426,11 @@ export const assetDocValidator = v.object({
   cinemaMetadata: cinemaMetadataValidator,
   createdAt: v.number(),
 });
+
+/** A stored grid rendition of an image (lib/card-thumbnail.ts ThumbVariant). */
+export const thumbVariantValidator = v.object({
+  width: v.number(),
+  height: v.number(),
+  size: v.number(),
+  r2Key: v.string(),
+});

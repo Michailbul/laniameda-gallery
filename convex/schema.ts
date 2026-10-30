@@ -34,6 +34,7 @@ import {
   bookmarkPostFields,
   tagSourceValidator,
   workflowTypeValidator,
+  thumbVariantValidator,
 } from "./validators";
 import { SEMANTIC_VECTOR_DIMENSIONS } from "./semanticStorage";
 
@@ -508,6 +509,10 @@ export default defineSchema({
     thumbSize: v.optional(v.number()),
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
+    // Smaller grid renditions of the card thumb (480 and 960 wide, WebP) for
+    // the tile srcset; made at ingest and by the thumbnail backfill. Absent
+    // on videos without a poster and on images narrower than the widths.
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
     // The saved social post this asset belongs to. A post's own preview has

@@ -1,6 +1,7 @@
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { needsCardThumb, isCardThumbSharp } from "../lib/card-thumbnail";
+import { needsCardThumb, needsGridVariants, isCardThumbSharp } from "../lib/card-thumbnail";
+import { thumbVariantValidator } from "./validators";
 import { resolveAssetUrl } from "./r2_url";
 import { r2 } from "./r2";
 
@@ -8,8 +9,8 @@ import { r2 } from "./r2";
 // convex/thumbnails.ts, which needs the Node runtime for sharp.
 
 /** One page of the assets table, reduced to the images whose card thumb is
- *  missing, soft, or not yet a card-encoder WebP, each with the URL of its
- *  original. */
+ *  missing, soft, or not yet a card-encoder WebP, or that lack their grid
+ *  renditions, each with the URL of its original. */
 export const listThumbBackfillPage = internalQuery({
   args: {
     cursor: v.union(v.string(), v.null()),
@@ -33,7 +34,7 @@ export const listThumbBackfillPage = internalQuery({
       const thumbMetadata = asset.thumbR2Key
         ? await r2.getMetadata(ctx, asset.thumbR2Key)
         : null;
-      if (!needsCardThumb(asset, thumbMetadata?.contentType)) continue;
+      if (!needsCardThumb(asset, thumbMetadata?.contentType) && !needsGridVariants(asset)) continue;
       candidates.push({
         assetId: asset._id,
         url: (await resolveAssetUrl(ctx, asset)) ?? null,
@@ -82,6 +83,7 @@ export const applyCardThumbnail = internalMutation({
     thumbWidth: v.number(),
     thumbHeight: v.number(),
     thumbSize: v.number(),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
   },
@@ -96,6 +98,7 @@ export const applyCardThumbnail = internalMutation({
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
       thumbSize: args.thumbSize,
+      ...(args.thumbVariants ? { thumbVariants: args.thumbVariants } : {}),
       ...(fillDimensions ? { width: args.width, height: args.height } : {}),
     });
     return null;

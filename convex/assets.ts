@@ -47,6 +47,7 @@ import {
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
+  thumbVariantValidator,
 } from "./validators";
 import { ownerMutation, ownerQuery, signedOwnerMutation } from "./actor";
 import { detachAssetFromCharacters } from "./characters";
@@ -633,6 +634,7 @@ export const createAsset = ownerMutation({
     thumbSize: v.optional(v.number()),
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
     tagIds: v.array(v.id("tags")),
@@ -722,6 +724,7 @@ export const createAsset = ownerMutation({
       thumbSize: args.thumbSize,
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
+      thumbVariants: args.thumbVariants,
       promptId: args.promptId,
       designInspirationId: args.designInspirationId,
       tagIds,
@@ -4165,6 +4168,19 @@ export const listPublicCollections = query({
   },
 });
 
+// The grid renditions a new thumb replaces are gone from R2 with it; one that
+// the new set still names (same key) is kept.
+const deleteReplacedVariants = async (
+  ctx: MutationCtx,
+  previous: { r2Key: string }[] | undefined,
+  next: { r2Key: string }[] | undefined,
+) => {
+  const keep = new Set((next ?? []).map((variant) => variant.r2Key));
+  for (const variant of previous ?? []) {
+    if (!keep.has(variant.r2Key)) await r2.deleteObject(ctx, variant.r2Key);
+  }
+};
+
 export const replaceAssetThumbnail = ownerMutation({
   args: {
     ownerUserId: v.string(),
@@ -4175,6 +4191,7 @@ export const replaceAssetThumbnail = ownerMutation({
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
     thumbSize: v.optional(v.number()),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
   },
   returns: v.id("assets"),
   handler: async (ctx, args) => {
@@ -4198,6 +4215,7 @@ export const replaceAssetThumbnail = ownerMutation({
     if (asset.thumbR2Key && asset.thumbR2Key !== args.newThumbR2Key) {
       await r2.deleteObject(ctx, asset.thumbR2Key);
     }
+    await deleteReplacedVariants(ctx, asset.thumbVariants, args.thumbVariants);
 
     await ctx.db.patch(args.assetId, {
       thumbStorageId: args.newThumbStorageId,
@@ -4206,6 +4224,7 @@ export const replaceAssetThumbnail = ownerMutation({
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
       thumbSize: args.thumbSize,
+      thumbVariants: args.thumbVariants,
     });
 
     return args.assetId;
@@ -4231,6 +4250,7 @@ export const replaceAssetMedia = ownerMutation({
     thumbSize: v.optional(v.number()),
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
   },
   returns: v.id("assets"),
   handler: async (ctx, args) => {
@@ -4246,6 +4266,7 @@ export const replaceAssetMedia = ownerMutation({
     if (!canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
       throw new ConvexError("Asset does not belong to this user.");
     }
+    await deleteReplacedVariants(ctx, asset.thumbVariants, args.thumbVariants);
 
     if (asset.storageId && asset.storageId !== args.storageId) {
       await ctx.storage.delete(asset.storageId);
@@ -4276,6 +4297,7 @@ export const replaceAssetMedia = ownerMutation({
       thumbSize: args.thumbSize,
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
+      thumbVariants: args.thumbVariants,
     });
 
     await ctx.scheduler.runAfter(0, reindexAssetAction, {

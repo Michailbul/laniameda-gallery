@@ -10,6 +10,9 @@ import {
   CARD_THUMB_MAX_HEIGHT,
   CARD_THUMB_MAX_WIDTH,
   CARD_THUMB_WEBP_QUALITY,
+  GRID_VARIANT_WEBP_QUALITY,
+  gridVariantWidthsFor,
+  type ThumbVariant,
 } from "../lib/card-thumbnail";
 import { ownerAction, signedOwnerAction } from "./actor";
 
@@ -18,6 +21,8 @@ import { ownerAction, signedOwnerAction } from "./actor";
 // door the piece came in through. sharp does the work (WebP, EXIF-aware, reads
 // WebP/AVIF sources that Jimp cannot); Jimp stays as a JPEG fallback in case
 // the native sharp binary ever fails to load on the Convex runtime.
+
+export type EncodedVariant = { blob: Blob; width: number; height: number; size: number };
 
 export type CardThumbnail = {
   blob: Blob;
@@ -28,6 +33,8 @@ export type CardThumbnail = {
   /** The source image's own dimensions, EXIF orientation applied. */
   sourceWidth?: number;
   sourceHeight?: number;
+  /** Grid renditions below the card thumb (480, 960 wide); sharp only. */
+  variants: EncodedVariant[];
 };
 
 type Sharp = (typeof import("sharp"))["default"];
@@ -87,14 +94,26 @@ const encodeWithSharp = async (
     })
     .webp({ quality: CARD_THUMB_WEBP_QUALITY })
     .toBuffer({ resolveWithObject: true });
+  const sourceWidth = metadata.autoOrient?.width ?? metadata.width;
+  // The grid renditions, each from the source bytes (not from the thumb).
+  const variants: EncodedVariant[] = [];
+  for (const width of gridVariantWidthsFor(sourceWidth, info.width)) {
+    const variant = await sharp(buffer, { failOn: "none" })
+      .autoOrient()
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality: GRID_VARIANT_WEBP_QUALITY })
+      .toBuffer({ resolveWithObject: true });
+    variants.push({ blob: toBlob(variant.data, "image/webp"), width: variant.info.width, height: variant.info.height, size: variant.data.byteLength });
+  }
   return {
     blob: toBlob(data, "image/webp"),
     contentType: "image/webp",
     width: info.width,
     height: info.height,
     size: data.byteLength,
-    sourceWidth: metadata.autoOrient?.width ?? metadata.width,
+    sourceWidth,
     sourceHeight: metadata.autoOrient?.height ?? metadata.height,
+    variants,
   };
 };
 
@@ -113,6 +132,7 @@ const encodeWithJimp = async (buffer: Buffer): Promise<CardThumbnail> => {
     size: data.byteLength,
     sourceWidth,
     sourceHeight,
+    variants: [],
   };
 };
 
@@ -137,15 +157,26 @@ export const encodeCardThumbnail = async (
   }
 };
 
-/** Encode and store a card thumbnail on R2. */
+/** Store an encoded thumb's grid renditions on R2. */
+export const storeThumbVariants = async (ctx: ActionCtx, thumb: Pick<CardThumbnail, "variants">): Promise<ThumbVariant[]> => {
+  const stored: ThumbVariant[] = [];
+  for (const variant of thumb.variants) {
+    const r2Key = await storeBlobToR2(ctx, variant.blob, { type: "image/webp" });
+    stored.push({ width: variant.width, height: variant.height, size: variant.size, r2Key });
+  }
+  return stored;
+};
+
+/** Encode and store a card thumbnail and its grid renditions on R2. */
 export const storeCardThumbnail = async (
   ctx: ActionCtx,
   buffer: Buffer,
-): Promise<(CardThumbnail & { r2Key: string }) | null> => {
+): Promise<(CardThumbnail & { r2Key: string; thumbVariants: ThumbVariant[] }) | null> => {
   const thumb = await encodeCardThumbnail(buffer);
   if (!thumb) return null;
   const r2Key = await storeBlobToR2(ctx, thumb.blob, { type: thumb.contentType });
-  return { ...thumb, r2Key };
+  const thumbVariants = await storeThumbVariants(ctx, thumb);
+  return { ...thumb, r2Key, thumbVariants };
 };
 
 // ── Owner-driven thumbnail replacement ──────────────────────────────────────
@@ -168,7 +199,7 @@ export const setVideoPosterFromApi = signedOwnerAction({
     if (!thumb) throw new ConvexError("The poster image could not be decoded.");
     return await ctx.runMutation(replaceAssetThumbnailRef, {
       ownerUserId: args.ownerUserId, assetId: args.assetId,
-      newThumbR2Key: thumb.r2Key, thumbWidth: thumb.width, thumbHeight: thumb.height, thumbSize: thumb.size,
+      newThumbR2Key: thumb.r2Key, thumbWidth: thumb.width, thumbHeight: thumb.height, thumbSize: thumb.size, thumbVariants: thumb.thumbVariants,
     }) as Id<"assets">;
   },
 });
@@ -203,6 +234,7 @@ export const processAndReplaceThumbnail = ownerAction({
       thumbWidth: thumb.width,
       thumbHeight: thumb.height,
       thumbSize: thumb.size,
+      thumbVariants: thumb.thumbVariants,
     })) as Id<"assets">;
 
     // Delete the raw upload (it was just a temp intermediary)
@@ -214,7 +246,8 @@ export const processAndReplaceThumbnail = ownerAction({
 
 // ── Backfill ────────────────────────────────────────────────────────────────
 // Rebuilds every image thumb that is missing, soft, or heavy (see
-// needsCardThumb). Walks the assets table one page per action run and
+// needsCardThumb), and every image that lacks its grid renditions
+// (needsGridVariants). Walks the assets table one page per action run and
 // schedules the next page, so it survives the action time limit. Old thumb
 // objects stay on R2: a copied asset row may still point at one.
 //
@@ -260,6 +293,7 @@ const rebuildThumb = async (ctx: ActionCtx, candidate: BackfillCandidate) => {
     thumbWidth: thumb.width,
     thumbHeight: thumb.height,
     thumbSize: thumb.size,
+    thumbVariants: thumb.thumbVariants,
     width: thumb.sourceWidth,
     height: thumb.sourceHeight,
   });
@@ -359,6 +393,7 @@ export const attachVideoPoster = internalAction({
       thumbWidth: thumb.width,
       thumbHeight: thumb.height,
       thumbSize: thumb.size,
+      thumbVariants: thumb.thumbVariants,
       width: args.videoWidth,
       height: args.videoHeight,
     });

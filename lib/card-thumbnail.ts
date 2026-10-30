@@ -9,6 +9,36 @@ export const CARD_THUMB_MAX_WIDTH = 1440;
 export const CARD_THUMB_MAX_HEIGHT = 960;
 export const CARD_THUMB_WEBP_QUALITY = 78;
 
+/** Grid renditions beside the card thumb, by width. A tile is 200–450 px wide
+ *  on most screens, so 480 covers a 1x tile and 960 a 2x one; the card thumb
+ *  (up to 1440) and the original stay in the srcset above them. */
+export const GRID_VARIANT_WIDTHS = [480, 960] as const;
+export const GRID_VARIANT_WEBP_QUALITY = 74;
+
+/** One stored grid rendition of an image: its R2 object and pixel size. */
+export type ThumbVariant = { width: number; height: number; size: number; r2Key: string };
+
+/** The variant widths worth making for a source: never an upscale, never a
+ *  width the card thumb already has. */
+export const gridVariantWidthsFor = (sourceWidth: number | null | undefined, thumbWidth?: number | null) =>
+  GRID_VARIANT_WIDTHS.filter(
+    (width) => (!sourceWidth || width < sourceWidth) && (!thumbWidth || width < thumbWidth),
+  );
+
+/** True when an image is missing a grid rendition its size calls for. */
+export const needsGridVariants = (asset: {
+  kind?: string | null;
+  width?: number | null;
+  thumbWidth?: number | null;
+  thumbVariants?: readonly { width: number }[] | null;
+}) => {
+  if (asset.kind && asset.kind !== "image") return false;
+  const wanted = gridVariantWidthsFor(asset.width, asset.thumbWidth);
+  if (wanted.length === 0) return false;
+  const have = new Set((asset.thumbVariants ?? []).map((variant) => variant.width));
+  return wanted.some((width) => !have.has(width));
+};
+
 /** A thumb at least this wide, or this tall, reads sharp on a retina tile. */
 const SHARP_MIN_WIDTH = 800;
 const SHARP_MIN_HEIGHT = 720;

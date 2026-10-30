@@ -60,6 +60,7 @@ interface ImageCardProps {
     thumbSrc?: string;
     thumbWidth?: number;
     fullWidth?: number;
+    thumbVariants?: { url: string; width: number }[];
     prompt: string;
     name?: string;
     agentDescription?: string;
@@ -267,6 +268,7 @@ export const ImageCard = memo(function ImageCard({
           thumbSrc: image.thumbSrc,
           thumbWidth: image.thumbWidth,
           fullWidth: image.fullWidth,
+          thumbVariants: image.thumbVariants,
           prompt: image.prompt,
           name: image.name,
           agentDescription: image.agentDescription,
@@ -450,6 +452,7 @@ export const ImageCard = memo(function ImageCard({
         ? buildGridImageAttrs(
             {
               src: currentSrc,
+              variants: activePreview.thumbVariants,
               thumbSrc: activePreview.thumbSrc,
               thumbWidth: activePreview.thumbWidth,
               fullSrc: activePreview.fullSrc,
@@ -464,6 +467,7 @@ export const ImageCard = memo(function ImageCard({
       activePreview.fullWidth,
       activePreview.src,
       activePreview.thumbSrc,
+      activePreview.thumbVariants,
       activePreview.thumbWidth,
       currentSrc,
       isVideo,
