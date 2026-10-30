@@ -11,8 +11,39 @@ export const PUBLISH_BATCH_SIZE = 200;
 export type PrivateCount = {
   count: number;
   assetIds: string[];
-  /** False when the server stopped scanning before the view's last row. */
+  /** False when the count gave up before the view's last row. */
   complete: boolean;
+};
+
+export type PrivateCountPage = {
+  count: number;
+  assetIds: string[];
+  continueCursor: string | null;
+  isDone: boolean;
+};
+
+/** A view is counted in pages of source rows (assets.countPrivateAssetsInView
+ *  reads one page per call); this many pages is the most one dialog asks for. */
+export const PRIVATE_COUNT_MAX_PAGES = 60;
+
+/** Counts a whole view by calling `fetchPage` with each `continueCursor`
+ *  until the server says it is done. Ids are de-duplicated: a piece filed in
+ *  two folders of a world comes back once. */
+export const collectPrivateCount = async (
+  fetchPage: (cursor: string | null) => Promise<PrivateCountPage>,
+  maxPages = PRIVATE_COUNT_MAX_PAGES,
+): Promise<PrivateCount> => {
+  const ids = new Set<string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result: PrivateCountPage = await fetchPage(cursor);
+    for (const id of result.assetIds) ids.add(id);
+    if (result.isDone || result.continueCursor === null) {
+      return { count: ids.size, assetIds: [...ids], complete: true };
+    }
+    cursor = result.continueCursor;
+  }
+  return { count: ids.size, assetIds: [...ids], complete: false };
 };
 
 export const chunkIds = (ids: readonly string[], size = PUBLISH_BATCH_SIZE): string[][] => {
@@ -49,7 +80,7 @@ export const describePrivateCount = (
   if (!result.complete) {
     return {
       headline: `More than ${pieces(result.count)} are private`,
-      detail: `${viewLabel} is too large to publish in one go (the count stopped at ${result.count.toLocaleString("en-US")}). Open a world or a shelf and publish from there.`,
+      detail: `${viewLabel} is too large to publish in one go (the count stopped at ${result.count.toLocaleString("en-US")}). Open a shelf and publish from there.`,
       publishable: false,
     };
   }

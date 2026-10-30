@@ -2894,12 +2894,30 @@ export const listGalleryAssetsPage = ownerQuery({
 // same world read 44, 31 and 46 as pages arrived), so the dialog asks here
 // instead and publishes exactly the ids this returns.
 //
-// A collection view walks its membership links (the world's own shelves too
-// when includeDescendants is on); the plain grid walks the owner's newest-first
-// index. Both stop at PRIVATE_COUNT_SCAN_BUDGET source rows and say so with
-// `complete: false`: Convex reads are bounded, and a bulk publish of thousands
-// of pieces is not a one-click action anyway.
-const PRIVATE_COUNT_SCAN_BUDGET = 2000;
+// One call reads one page of source rows: a collection view walks its
+// membership links folder by folder (the world's own shelves too when
+// includeDescendants is on), the plain grid walks the owner's newest-first
+// index, each over the legacy owner spellings in turn. The caller keeps
+// calling with `continueCursor` until `isDone` (lib/publish-all.ts
+// collectPrivateCount), so a view of any size counts exactly while every
+// single call stays inside Convex's read budget.
+const PRIVATE_COUNT_PAGE = 800;
+
+type PrivateCountCursor = { f: number; o: number; c: string | null };
+
+const parsePrivateCountCursor = (raw: string | undefined | null): PrivateCountCursor => {
+  if (!raw) return { f: 0, o: 0, c: null };
+  try {
+    const parsed = JSON.parse(raw) as Partial<PrivateCountCursor>;
+    return {
+      f: Number.isInteger(parsed.f) && parsed.f! >= 0 ? parsed.f! : 0,
+      o: Number.isInteger(parsed.o) && parsed.o! >= 0 ? parsed.o! : 0,
+      c: typeof parsed.c === "string" ? parsed.c : null,
+    };
+  } catch {
+    return { f: 0, o: 0, c: null };
+  }
+};
 
 export const countPrivateAssetsInView = ownerQuery({
   args: {
@@ -2911,13 +2929,16 @@ export const countPrivateAssetsInView = ownerQuery({
     modelName: v.optional(v.string()),
     onlyLiked: v.optional(v.boolean()),
     skipHiddenCollections: v.optional(v.boolean()),
+    cursor: v.optional(v.string()),
   },
   returns: v.object({
+    // Private pieces matching the view on THIS page of source rows. An asset
+    // filed in two folders of the scope can appear on two pages; the caller
+    // de-duplicates by id.
     count: v.number(),
     assetIds: v.array(v.id("assets")),
-    // False when the scan hit its budget before the view's last row.
-    complete: v.boolean(),
-    scanned: v.number(),
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const ownerUserId = args.ownerUserId.trim();
@@ -2928,71 +2949,76 @@ export const countPrivateAssetsInView = ownerQuery({
     const hiddenFolderIds = args.skipHiddenCollections && !args.folderId
       ? await resolveHiddenFolderIds(ctx, candidates)
       : null;
+    const cursor = parsePrivateCountCursor(args.cursor);
+    const ownerIndex = Math.min(cursor.o, candidates.length - 1);
+    const owner = candidates[ownerIndex]!;
 
-    let budget = PRIVATE_COUNT_SCAN_BUDGET;
-    let complete = true;
-    let scanned = 0;
-    const candidatesPrivate: Doc<"assets">[] = [];
     const seen = new Set<Id<"assets">>();
+    const privateRows: Doc<"assets">[] = [];
     const admit = (asset: Doc<"assets"> | null) => {
       if (!asset || seen.has(asset._id)) return;
       seen.add(asset._id);
       if (asset.isPublic === true) return;
       if (!candidates.includes(asset.ownerUserId ?? "")) return;
-      candidatesPrivate.push(asset);
+      privateRows.push(asset);
     };
 
-    if (args.folderId) {
-      const scope = await resolveScopeFolderIds(ctx, args);
-      for (const folderId of scope ?? []) {
-        for (const owner of candidates) {
-          if (budget <= 0) { complete = false; break; }
-          const links = await ctx.db
-            .query("assetFolders")
-            .withIndex("by_owner_folder_createdAt", (q) =>
-              q.eq("ownerUserId", owner).eq("folderId", folderId as Id<"folders">).gte("createdAt", 0),
-            )
-            .order("desc")
-            .take(budget + 1);
-          if (links.length > budget) {
-            complete = false;
-            links.length = budget;
-          }
-          budget -= links.length;
-          scanned += links.length;
-          for (const link of links) admit(await ctx.db.get(link.assetId));
-        }
+    // Where the next call continues: the next owner spelling of the same
+    // source, then the next scope folder, then done.
+    const next = (
+      scopeCount: number,
+      page: { isDone: boolean; continueCursor: string },
+    ): { continueCursor: string | null; isDone: boolean } => {
+      if (!page.isDone) {
+        return { continueCursor: JSON.stringify({ f: cursor.f, o: ownerIndex, c: page.continueCursor }), isDone: false };
       }
+      if (ownerIndex < candidates.length - 1) {
+        return { continueCursor: JSON.stringify({ f: cursor.f, o: ownerIndex + 1, c: null }), isDone: false };
+      }
+      if (cursor.f < scopeCount - 1) {
+        return { continueCursor: JSON.stringify({ f: cursor.f + 1, o: 0, c: null }), isDone: false };
+      }
+      return { continueCursor: null, isDone: true };
+    };
+
+    let position: { continueCursor: string | null; isDone: boolean };
+    if (args.folderId) {
+      const scope = [...((await resolveScopeFolderIds(ctx, args)) ?? [])] as Id<"folders">[];
+      const folderId = scope[Math.min(cursor.f, scope.length - 1)];
+      if (!folderId) {
+        return { count: 0, assetIds: [], continueCursor: null, isDone: true };
+      }
+      const page = await ctx.db
+        .query("assetFolders")
+        .withIndex("by_owner_folder_createdAt", (q) =>
+          q.eq("ownerUserId", owner).eq("folderId", folderId).gte("createdAt", 0),
+        )
+        .order("desc")
+        .paginate({ cursor: cursor.c, numItems: PRIVATE_COUNT_PAGE });
+      for (const link of page.page) admit(await ctx.db.get(link.assetId));
+      position = next(scope.length, page);
     } else {
       const onlyLiked = args.onlyLiked === true;
       const modelNameFilter = args.modelName?.trim() || null;
-      for (const owner of candidates) {
-        if (budget <= 0) { complete = false; break; }
-        const indexed = onlyLiked
-          ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", (q) =>
-              q.eq("ownerUserId", owner).eq("isLiked", true).gte("createdAt", 0))
-          : modelNameFilter
-            ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", (q) =>
-                q.eq("ownerUserId", owner).eq("modelName", modelNameFilter).gte("createdAt", 0))
-            : args.kind
-              ? ctx.db.query("assets").withIndex("by_owner_kind_createdAt", (q) =>
-                  q.eq("ownerUserId", owner).eq("kind", args.kind!).gte("createdAt", 0))
-              : ctx.db.query("assets").withIndex("by_owner_createdAt", (q) =>
-                  q.eq("ownerUserId", owner).gte("createdAt", 0));
-        const rows = await indexed.order("desc").take(budget + 1);
-        if (rows.length > budget) {
-          complete = false;
-          rows.length = budget;
-        }
-        budget -= rows.length;
-        scanned += rows.length;
-        for (const row of rows) admit(row);
-      }
+      const indexed = onlyLiked
+        ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", (q) =>
+            q.eq("ownerUserId", owner).eq("isLiked", true).gte("createdAt", 0))
+        : modelNameFilter
+          ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", (q) =>
+              q.eq("ownerUserId", owner).eq("modelName", modelNameFilter).gte("createdAt", 0))
+          : args.kind
+            ? ctx.db.query("assets").withIndex("by_owner_kind_createdAt", (q) =>
+                q.eq("ownerUserId", owner).eq("kind", args.kind!).gte("createdAt", 0))
+            : ctx.db.query("assets").withIndex("by_owner_createdAt", (q) =>
+                q.eq("ownerUserId", owner).gte("createdAt", 0));
+      const page = await indexed.order("desc").paginate({ cursor: cursor.c, numItems: PRIVATE_COUNT_PAGE });
+      for (const row of page.page) admit(row);
+      position = next(1, page);
     }
 
-    const filtered = await filterGalleryPageAssets(ctx, candidatesPrivate, args, hiddenFolderIds);
+    const filtered = await filterGalleryPageAssets(ctx, privateRows, args, hiddenFolderIds);
     const assetIds = filtered.assets.map((asset) => asset._id);
-    return { count: assetIds.length, assetIds, complete, scanned };
+    return { count: assetIds.length, assetIds, ...position };
   },
 });
 

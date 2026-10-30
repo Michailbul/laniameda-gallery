@@ -1,11 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
-import { chunkIds, describePrivateCount, publishInBatches } from "../lib/publish-all";
+import { chunkIds, collectPrivateCount, describePrivateCount, publishInBatches, type PrivateCountPage } from "../lib/publish-all";
 import { countPrivateAssetsInView } from "../convex/assets";
 import { callAsOwner } from "./helpers/call-as-owner";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 
 const owner = "owner";
+
+type CountArgs = Omit<Parameters<ReturnType<typeof callAsOwner<typeof countPrivateAssetsInView>>>[1], "cursor">;
+
+// The dialog's loop over the query: one call per page until the server is done.
+const countView = (harness: ReturnType<typeof createMockConvexMutationCtx>, args: CountArgs) =>
+  collectPrivateCount((cursor) =>
+    callAsOwner(countPrivateAssetsInView)(harness.ctx as never, { ...args, cursor: cursor ?? undefined }) as Promise<PrivateCountPage>,
+  );
 
 const seed = async (harness: ReturnType<typeof createMockConvexMutationCtx>) => {
   const world = await harness.db.insert("folders", { ownerUserId: owner, name: "DEAR ANNETE", createdAt: 1 });
@@ -33,7 +41,7 @@ describe("countPrivateAssetsInView", () => {
   test("a world counts its own and its shelves' private pieces, never the public ones", async () => {
     const harness = createMockConvexMutationCtx();
     const ids = await seed(harness);
-    const result = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
+    const result = await countView(harness, {
       ownerUserId: owner, folderId: ids.world, includeDescendants: true,
     });
     expect(result.complete).toBe(true);
@@ -44,28 +52,22 @@ describe("countPrivateAssetsInView", () => {
   test("a shelf on its own, and the view's chips, narrow the count", async () => {
     const harness = createMockConvexMutationCtx();
     const ids = await seed(harness);
-    const shelf = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
-      ownerUserId: owner, folderId: ids.shelf,
-    });
+    const shelf = await countView(harness, { ownerUserId: owner, folderId: ids.shelf });
     expect(shelf.assetIds).toEqual([ids.inShelf]);
-    const tagged = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
+    const tagged = await countView(harness, {
       ownerUserId: owner, folderId: ids.world, includeDescendants: true, tagIdGroups: [[ids.tag]],
     });
     expect(tagged.assetIds).toEqual([ids.inShelf]);
-    const videos = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
-      ownerUserId: owner, kind: "video",
-    });
+    const videos = await countView(harness, { ownerUserId: owner, kind: "video" });
     expect(videos.assetIds).toEqual([ids.inOther]);
   });
 
   test("Everything counts every private piece, minus excluded collections", async () => {
     const harness = createMockConvexMutationCtx();
     const ids = await seed(harness);
-    const all = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, { ownerUserId: owner });
+    const all = await countView(harness, { ownerUserId: owner });
     expect(all.count).toBe(4);
-    const withoutArt = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
-      ownerUserId: owner, excludeFolderIds: [ids.other],
-    });
+    const withoutArt = await countView(harness, { ownerUserId: owner, excludeFolderIds: [ids.other] });
     expect(new Set(withoutArt.assetIds)).toEqual(new Set([ids.inWorld, ids.inShelf, ids.loose]));
   });
 
@@ -73,8 +75,40 @@ describe("countPrivateAssetsInView", () => {
     const harness = createMockConvexMutationCtx();
     await seed(harness);
     await harness.db.insert("assets", { ownerUserId: "someone-else", kind: "image", tagIds: [], isPublic: false, createdAt: 99 });
-    const all = await callAsOwner(countPrivateAssetsInView)(harness.ctx as never, { ownerUserId: owner });
+    const all = await countView(harness, { ownerUserId: owner });
     expect(all.count).toBe(4);
+  });
+
+  test("a view larger than one page is counted across pages, a piece in two folders once", async () => {
+    const harness = createMockConvexMutationCtx();
+    const ids = await seed(harness);
+    // Filed in the world and in its shelf: two links, one piece.
+    await harness.db.insert("assetFolders", { ownerUserId: owner, assetId: ids.inShelf, folderId: ids.world, createdAt: 12 });
+    for (let index = 0; index < 1650; index += 1) {
+      const id = await harness.db.insert("assets", { ownerUserId: owner, kind: "image", tagIds: [], isPublic: index % 3 === 0, createdAt: 100 + index });
+      await harness.db.insert("assetFolders", { ownerUserId: owner, assetId: id, folderId: ids.shelf, createdAt: 100 + index });
+    }
+    const calls: Array<string | null> = [];
+    const result = await collectPrivateCount((cursor) => {
+      calls.push(cursor);
+      return callAsOwner(countPrivateAssetsInView)(harness.ctx as never, {
+        ownerUserId: owner, folderId: ids.world, includeDescendants: true, cursor: cursor ?? undefined,
+      }) as Promise<PrivateCountPage>;
+    });
+    expect(result.complete).toBe(true);
+    expect(result.count).toBe(2 + 1100);
+    expect(calls.length).toBeGreaterThan(2);
+    expect(new Set(result.assetIds).size).toBe(result.assetIds.length);
+  });
+
+  test("the dialog gives up, and says so, past its page limit", async () => {
+    let served = 0;
+    const result = await collectPrivateCount(async (cursor) => {
+      served += 1;
+      return { count: 1, assetIds: [`a${cursor ?? 0}`], continueCursor: String(served), isDone: false };
+    }, 3);
+    expect(served).toBe(3);
+    expect(result).toMatchObject({ complete: false, count: 3 });
   });
 });
 

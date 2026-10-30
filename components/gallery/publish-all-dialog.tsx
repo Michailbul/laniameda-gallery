@@ -6,13 +6,14 @@ import { Eye, Loader2, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { FunctionArgs } from "convex/server";
 import {
+  collectPrivateCount,
   describePrivateCount,
   publishInBatches,
   type PrivateCount,
   type PublishBatchResult,
 } from "@/lib/publish-all";
 
-export type PrivateCountArgs = FunctionArgs<typeof api.assets.countPrivateAssetsInView>;
+export type PrivateCountArgs = Omit<FunctionArgs<typeof api.assets.countPrivateAssetsInView>, "cursor">;
 
 export type PublishAllOutcome = PublishBatchResult & {
   requested: number;
@@ -57,8 +58,9 @@ export function PublishAllDialog({
     setCount(null);
     setCountState("counting");
     setError(null);
-    convex
-      .query(api.assets.countPrivateAssetsInView, countArgs)
+    collectPrivateCount((cursor) =>
+      convex.query(api.assets.countPrivateAssetsInView, { ...countArgs, cursor: cursor ?? undefined }),
+    )
       .then((result) => {
         if (!live) return;
         setCount(result);
