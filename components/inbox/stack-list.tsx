@@ -7,19 +7,9 @@ import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, ArrowRight, Inbox, Loader2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { INBOX_CARD_LABEL } from "@/lib/inbox";
 import { ActionButton, Micro, RADIUS, display, mono } from "./inbox-ui";
 
 type StackRow = FunctionReturnType<typeof api.inbox.listInboxStacks>[number];
-
-const ago = (at: number) => {
-  const minutes = Math.round((Date.now() - at) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-};
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -54,40 +44,36 @@ function Empty({ title, children }: { title: string; children: React.ReactNode }
 
 const Spinner = () => <div className="grid place-items-center py-24"><Loader2 className="animate-spin" size={18} style={{ color: "var(--lm-text-ghost)" }} aria-label="Loading" /></div>;
 
+// A stack is its pictures: a 4:3 mosaic of the first cards, the title over
+// the bottom, how far along it is, and one way in.
 function StackCard({ row, showWorld }: { row: StackRow; showWorld?: boolean }) {
   const open = row.cards - row.decided;
   const share = row.cards ? row.decided / row.cards : 0;
   const finished = open === 0;
-  return <Link href={`/inbox/${row.worldFolderId}/${row._id}`} className="group flex flex-col border transition-[border-color,transform] hover:-translate-y-px"
+  const previews = row.previewItems.slice(0, 4);
+  return <Link href={`/inbox/${row.worldFolderId}/${row._id}`} className="group relative flex flex-col overflow-hidden border transition-[border-color,transform] hover:-translate-y-px hover:border-[var(--lm-coral)]"
     style={{ borderRadius: RADIUS, borderColor: "var(--lm-border)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-sm)" }}>
-    <div className="flex gap-3 p-3">
-      <div className="grid h-[92px] w-[92px] shrink-0 grid-cols-2 grid-rows-2 gap-[2px] overflow-hidden" style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)" }}>
-        {row.previewItems.slice(0, 4).map((preview, index) => <div key={`${preview.assetId}-${index}`}
-          className={row.previewItems.length === 1 ? "col-span-2 row-span-2" : row.previewItems.length === 3 && index === 0 ? "row-span-2" : ""}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- card thumbnails */}
-          <img src={preview.thumbUrl ?? preview.url} alt="" loading="lazy" className="h-full w-full object-cover" />
-        </div>)}
+    <div className={`relative grid aspect-[4/3] w-full gap-[2px] ${previews.length <= 1 ? "grid-cols-1" : previews.length === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2"}`} style={{ background: "var(--lm-border)" }}>
+      {previews.length === 0 && <div className="grid place-items-center" style={{ background: "var(--lm-surface-2)" }}><Inbox size={22} style={{ color: "var(--lm-text-ghost)" }} aria-hidden /></div>}
+      {previews.map((preview, index) => <div key={`${preview.assetId}-${index}`} className={`relative overflow-hidden ${previews.length === 3 && index === 0 ? "row-span-2" : ""}`} style={{ background: "var(--lm-surface-2)" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- card thumbnails */}
+        <img src={preview.thumbUrl ?? preview.url} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+      </div>)}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 px-4 pb-3 pt-14" style={{ background: "linear-gradient(to top, color-mix(in srgb, var(--lm-paper) 94%, transparent) 30%, transparent)" }}>
+        {showWorld && <Micro color="var(--lm-coral)" className="truncate">{row.worldName}</Micro>}
+        <p className="text-[17px] font-black uppercase leading-[1.05] tracking-tight" style={{ ...display, textWrap: "balance" }}>{row.title}</p>
       </div>
-      <div className="min-w-0 flex-1">
-        {showWorld && <Micro color="var(--lm-coral)" className="mb-1 block truncate">{row.worldName}</Micro>}
-        <p className="truncate text-[14px] font-black uppercase leading-tight tracking-tight" style={display}>{row.title}</p>
-        {row.note && <p className="mt-1 line-clamp-2 text-[13px] leading-5" style={{ color: "var(--lm-text-secondary)" }}>{row.note}</p>}
-        <Micro color="var(--lm-text-ghost)" className="mt-1.5 block truncate">{[row.agent, ago(row.createdAt)].filter(Boolean).join(" · ")}</Micro>
-      </div>
-    </div>
-    <div className="flex flex-wrap gap-1.5 px-3">
-      {row.cardTypes.map((type) => <span key={type} className="border px-1.5 py-[3px] text-[10px] font-bold uppercase leading-none tracking-[0.1em]"
-        style={{ ...mono, borderRadius: RADIUS, borderColor: "var(--lm-border)", color: "var(--lm-text-secondary)" }}>{INBOX_CARD_LABEL[type]}</span>)}
-    </div>
-    <div className="mt-3 flex items-center gap-3 border-t px-3 py-2.5" style={{ borderColor: "var(--lm-border)" }}>
-      <span className="text-[12px] font-bold tabular-nums" style={mono}>
-        {String(row.decided).padStart(2, "0")}<span style={{ color: "var(--lm-text-ghost)" }}> / {String(row.cards).padStart(2, "0")}</span>
+      <span className="absolute left-3 top-3 px-2 py-[5px] text-[11px] font-black leading-none tabular-nums backdrop-blur" style={{ ...mono, borderRadius: RADIUS, background: finished ? "var(--lm-ink)" : "var(--lm-coral)", color: "var(--lm-paper)" }}>
+        {finished ? "Done" : `${open} to decide`}
       </span>
+    </div>
+    <div className="flex items-center gap-3 px-4 py-3">
       <div className="h-[3px] flex-1" style={{ background: "var(--lm-border)" }}>
         <div className="h-full" style={{ width: `${share * 100}%`, background: finished ? "var(--lm-text-tertiary)" : "var(--lm-coral)" }} />
       </div>
-      <ActionButton tone={finished ? "ghost" : "ink"} tabIndex={-1} className="pointer-events-none py-1.5" icon={<ArrowRight size={12} aria-hidden />}>
-        {finished ? "Review" : row.decided ? "Continue" : "Start"}
+      <span className="text-[11px] font-bold tabular-nums" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>{row.decided}/{row.cards}</span>
+      <ActionButton tone={finished ? "ghost" : "ink"} tabIndex={-1} className="pointer-events-none h-9 px-4" icon={<ArrowRight size={12} aria-hidden />}>
+        {finished ? "Review" : row.decided ? "Continue" : "Decide"}
       </ActionButton>
     </div>
   </Link>;
@@ -122,7 +108,7 @@ export function InboxHome({ ownerUserId }: { ownerUserId: string }) {
     </div>}
     {stacks === undefined ? <Spinner /> : stacks.length === 0
       ? <Empty title={status === "open" ? "Nothing to decide" : "No closed stacks"}>Agents post stacks of cards into a world&rsquo;s Inbox with post_inbox_cards. You decide; they apply and learn.</Empty>
-      : <div className="grid gap-3 md:grid-cols-2">{stacks.map((row) => <StackCard key={row._id} row={row} showWorld />)}</div>}
+      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{stacks.map((row) => <StackCard key={row._id} row={row} showWorld />)}</div>}
   </Shell>;
 }
 
@@ -139,6 +125,6 @@ export function WorldInbox({ ownerUserId, worldId }: { ownerUserId: string; worl
     actions={<StatusChips status={status} setStatus={setStatus} />}>
     {stacks === undefined ? <Spinner /> : stacks.length === 0
       ? <Empty title={status === "open" ? "Inbox empty" : "No closed stacks"}>Nothing waits for you in this world.</Empty>
-      : <div className="grid gap-3 md:grid-cols-2">{stacks.map((row) => <StackCard key={row._id} row={row} />)}</div>}
+      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{stacks.map((row) => <StackCard key={row._id} row={row} />)}</div>}
   </Shell>;
 }
