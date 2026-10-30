@@ -101,13 +101,13 @@
     return head || short;
   }
 
-  // Picture URLs for a board's hover snapshot, from the route's previews.
-  // Falls back to the single thumbUrl of older responses. At most 6, no repeats.
+  // Picture URLs for a board's hover snapshot. The full image, so the
+  // sheet is sharp. A thumb is only the fallback. At most 6, no repeats.
   function snapshotImages(board) {
     const urls = [];
     const list = Array.isArray(board && board.previews) ? board.previews : [];
     for (const item of list) {
-      const url = item && (item.thumbUrl || item.url);
+      const url = item && (item.url || item.thumbUrl);
       if (typeof url === "string" && url && !urls.includes(url)) urls.push(url);
     }
     if (!urls.length && board && typeof board.thumbUrl === "string" && board.thumbUrl) {
