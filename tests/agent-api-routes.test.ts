@@ -27,6 +27,7 @@ const moodboardsRoutePath = new URL("../app/api/agent/moodboards/route.ts", impo
 const inboxRoutePath = new URL("../app/api/agent/inbox/route.ts", import.meta.url).pathname;
 const worldsRoutePath = new URL("../app/api/agent/worlds/route.ts", import.meta.url).pathname;
 const storiesRoutePath = new URL("../app/api/agent/stories/route.ts", import.meta.url).pathname;
+const instructionsRoutePath = new URL("../app/api/agent/instructions/route.ts", import.meta.url).pathname;
 
 class MockAgentAuthError extends Error {
   constructor(
@@ -568,5 +569,51 @@ describe("agent API routes", () => {
       { ownerUserId: state.ownerUserId, stackId: "s1", reopen: undefined },
       { ownerUserId: state.ownerUserId, stackId: "s1" },
     ]);
+  });
+
+  test("instructions write is owner-only, write-scoped, carries the last-read sha256 and keeps reads unchanged", async () => {
+    const { POST } = await import(instructionsRoutePath);
+    const send = (payload: Record<string, unknown>) => POST(new Request("http://localhost/api/agent/instructions", {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer test" }, body: JSON.stringify(payload),
+    }));
+    const previousOwner = process.env.KB_OWNER_USER_ID;
+    const previousAllowed = process.env.MCP_ALLOWED_USER_IDS;
+    process.env.KB_OWNER_USER_ID = state.ownerUserId;
+    delete process.env.MCP_ALLOWED_USER_IDS;
+    try {
+      const sha = "a".repeat(64);
+      const written = await send({ action: "write", resource: "references/worlds.md", content: "# Worlds\n\n| dear-annete-3d |", expectedSha256: sha });
+      expect(written.status).toBe(200);
+      expect(await written.json()).toMatchObject({ ok: true, resource: "references/worlds.md", chars: 28, changed: true });
+      expect(state.requiredScopes).toEqual(["gallery:write"]);
+      expect(state.mutationCalls[0]?.payload).toMatchObject({ ownerUserId: state.ownerUserId, resourcePath: "references/worlds.md", content: "# Worlds\n\n| dear-annete-3d |", expectedSha256: sha });
+      expect(typeof state.mutationCalls[0]?.payload.version).toBe("string");
+      expect((state.mutationCalls[0]?.payload.version as string).length).toBeGreaterThan(0);
+
+      // Only the two owner-data resources are writable; a public skill file is not.
+      expect((await send({ action: "write", resource: "SKILL.md", content: "x" })).status).toBe(400);
+      expect(state.mutationCalls).toHaveLength(1);
+
+      // A stale hash comes back as 409, in the backend's own words.
+      state.mutationFailure = "Instructions changed. Read the current resource before updating.";
+      const stale = await send({ action: "write", resource: "references/worlds.md", content: "y", expectedSha256: sha });
+      expect(stale.status).toBe(409);
+      state.mutationFailure = undefined;
+
+      // Someone who is not the configured owner is refused before any write.
+      process.env.KB_OWNER_USER_ID = "telegram:1";
+      expect((await send({ action: "write", resource: "references/worlds.md", content: "z", expectedSha256: sha })).status).toBe(403);
+      expect(state.mutationCalls).toHaveLength(2);
+
+      // Reads still take only {resource} and stay read-scoped.
+      state.requiredScopes = [];
+      const read = await send({ resource: "SKILL.md" });
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ resource: "SKILL.md" });
+      expect(state.requiredScopes).toEqual(["gallery:read"]);
+    } finally {
+      if (previousOwner === undefined) delete process.env.KB_OWNER_USER_ID; else process.env.KB_OWNER_USER_ID = previousOwner;
+      if (previousAllowed === undefined) delete process.env.MCP_ALLOWED_USER_IDS; else process.env.MCP_ALLOWED_USER_IDS = previousAllowed;
+    }
   });
 });

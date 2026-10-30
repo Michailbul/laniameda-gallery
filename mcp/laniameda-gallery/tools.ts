@@ -232,6 +232,17 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     inputSchema: { resource: z.string().min(1).max(160).describe("Allowlisted skill-relative path: SKILL.md (default), manifest.json, references/worlds.md, references/video-refs.md, or another reference listed by the manifest.").optional() },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (input) => jsonText(await apiFetch("/api/agent/instructions", input)));
+  server.registerTool("update_skill_instructions", {
+    title: "Update Gallery Instructions",
+    description: "Replace one of the owner-only instruction resources (references/worlds.md: the world table, shared shelves and gallery-wide filing rules; references/maintenance.md) that get_skill_instructions serves. Owner only, gallery:write. Read the resource first and pass its sha256 as expectedSha256: a stale one is refused (409), so nothing is overwritten unseen. content replaces the whole text (1 to 200,000 characters); version defaults to the deployed skill version. The manifest hash covers SKILL.md only, so no skill version bump is needed. A world's own rules live in its WORLD.md (world_doc), not here.",
+    inputSchema: {
+      resource: z.enum(["references/worlds.md", "references/maintenance.md"]),
+      content: z.string().min(1).max(200_000).describe("The whole new text of the resource."),
+      expectedSha256: z.string().regex(/^[0-9a-f]{64}$/).describe("sha256 from get_skill_instructions for this resource. Required when the resource exists.").optional(),
+      version: z.string().trim().min(1).max(40).describe("Recorded on the resource; default the deployed skill version.").optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (input) => jsonText(await apiFetch("/api/agent/instructions", { action: "write", ...input })));
 
   // Worlds: open one, read and edit its files, file pieces, shape shelves and
   // storybooks, keep Midjourney profiles, and read or undo the journal.

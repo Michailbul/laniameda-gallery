@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.19.0
+version: 1.20.0
 ---
 
 # Laniameda Gallery
@@ -21,6 +21,8 @@ manifest.json for the deployed version, content hashes and resource URLs.
 Public resources come from the deployed repository. Owner-only world and
 maintenance policies are private data served through the same skill paths;
 public repository copies contain fetch instructions rather than private IDs.
+They are edited over MCP with `update_skill_instructions` (owner only): read,
+change, write back with the sha256 the read returned.
 
 With a connector, call get_skill_instructions for SKILL.md or a skill-relative
 reference, then check_connection and discover the live tool schemas. Without

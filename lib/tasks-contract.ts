@@ -44,6 +44,7 @@ export const taskClaimSchema = taskRefSchema.extend({
 
 export const taskReleaseSchema = taskRefSchema.extend({
   note: z.string().min(1).max(TASK_LIMITS.comment).optional().describe("Why it goes back to the queue."),
+  assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });
 
 export const taskCompleteSchema = taskRefSchema.extend({
@@ -51,8 +52,10 @@ export const taskCompleteSchema = taskRefSchema.extend({
   blocked: z.boolean().optional().describe("true = you need Michael (status blocked, shown under Needs you); false/omitted = done."),
   links: z.array(taskLinkSchema).max(TASK_LIMITS.links).optional().describe("What the work produced, added to the task's links."),
   session: z.string().min(1).max(80).optional().describe("Journal session label of the work, so the journal shows it next to the task."),
+  assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });
 
 export const taskCommentSchema = taskRefSchema.extend({
   body: z.string().min(1).max(TASK_LIMITS.comment).describe("Plain text or markdown. A progress note renews your claim."),
+  assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });

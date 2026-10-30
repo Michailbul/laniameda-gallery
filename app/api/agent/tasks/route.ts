@@ -79,19 +79,19 @@ export async function POST(request: Request) {
     }
     if (action === "release") {
       const input = taskReleaseSchema.parse(body);
-      const task = await client.mutation(api.tasks.releaseTask, { ownerUserId, taskId: taskId(), actor, note: input.note });
+      const task = await client.mutation(api.tasks.releaseTask, { ownerUserId, taskId: taskId(), actor: input.assignee ?? actor, note: input.note });
       return NextResponse.json({ ok: true, task: row(task) });
     }
     if (action === "complete") {
       const input = taskCompleteSchema.parse(body);
       const task = await client.mutation(api.tasks.completeTask, {
         ownerUserId, taskId: taskId(), result: input.result, status: input.blocked ? "blocked" : "done",
-        links: input.links?.map(stripLink), actor, session: input.session,
+        links: input.links?.map(stripLink), actor: input.assignee ?? actor, session: input.session,
       });
       return NextResponse.json({ ok: true, task: row(task) });
     }
     const input = taskCommentSchema.parse(body);
-    const result = await client.mutation(api.tasks.commentTask, { ownerUserId, taskId: taskId(), body: input.body, author: actor });
+    const result = await client.mutation(api.tasks.commentTask, { ownerUserId, taskId: taskId(), body: input.body, author: input.assignee ?? actor });
     return NextResponse.json({ ok: true, reopened: result.reopened, task: row(result.task) });
   } catch (error) {
     if (error instanceof AgentAuthError) return NextResponse.json({ error: error.message }, { status: error.status });

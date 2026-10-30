@@ -82,6 +82,10 @@ private world map/locks/IDs; references/maintenance.md returns setup and deploym
 policy. They require gallery:read, the configured owner and allowed MCP access.
 HTTP resource reads use Authorization: Bearer and private no-store responses.
 Do not guess rules from old installed copies if access is unavailable.
+update_skill_instructions (owner, gallery:write) replaces one of these two
+resources: pass the whole new text and the sha256 of the version you read;
+a stale sha256 is refused with 409. Over HTTP it is POST /api/agent/instructions
+with {action: "write", resource, content, expectedSha256}.
 
 ## Object operations and completion
 
