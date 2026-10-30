@@ -1,5 +1,10 @@
 // Scoped Gallery SDK for agent-written local JavaScript. No dependency, eval,
-// raw database credentials or server-side arbitrary code execution.
+// raw database credentials or server-side arbitrary code execution. Runs on
+// Node 20+ or Bun.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export class GalleryError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -18,12 +23,38 @@ const decode = (result) => {
   return result;
 };
 
+const TOKEN_VARIABLE = "LANIAMEDA_GALLERY_AGENT_TOKEN";
+
+/** Where the shell profile keeps the token on Michael's machines. */
+export const galleryEnvFilePath = (env = globalThis.process?.env ?? {}) =>
+  env.LANIAMEDA_GALLERY_ENV_FILE?.trim() || join(env.HOME?.trim() || homedir(), ".config", "laniameda", "gallery.env");
+
+// The file is a shell fragment: `export LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_…`,
+// optionally quoted. Only the token line is read; nothing is executed. A
+// missing or unreadable file yields "", and so does a value that is not a
+// bearer token (RFC 6750 characters only), so a broken file cannot smuggle
+// anything into an Authorization header.
+export const readGalleryTokenFile = (path) => {
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch { return ""; }
+  const pattern = new RegExp(`^\\s*(?:export\\s+)?${TOKEN_VARIABLE}=(?:"([^"]*)"|'([^']*)'|([^\\s#]*))\\s*(?:#.*)?$`, "m");
+  const match = pattern.exec(text);
+  const value = (match?.[1] ?? match?.[2] ?? match?.[3] ?? "").trim();
+  return /^[A-Za-z0-9._~+/=-]+$/.test(value) ? value : "";
+};
+
+/** The token for HTTP calls: the environment first, then gallery.env. */
+export const resolveGalleryToken = (env = globalThis.process?.env ?? {}) =>
+  (env[TOKEN_VARIABLE] ?? "").trim() || readGalleryTokenFile(galleryEnvFilePath(env));
+
 /**
- * Use an env-scoped bearer token for HTTP, or supply callTool(name,args) and
- * listTools() bridges from an already-authenticated MCP environment.
+ * Use an env-scoped bearer token for HTTP (LANIAMEDA_GALLERY_AGENT_TOKEN, or
+ * the export line in ~/.config/laniameda/gallery.env), or supply
+ * callTool(name,args) and listTools() bridges from an already-authenticated
+ * MCP environment.
  */
 export function createGalleryClient(options = {}) {
-  const token = options.token ?? globalThis.process?.env?.LANIAMEDA_GALLERY_AGENT_TOKEN;
+  const token = options.token ?? resolveGalleryToken();
   const apiUrl = (options.apiUrl ?? globalThis.process?.env?.LANIAMEDA_GALLERY_API_URL ?? "https://gallery.laniameda.space").replace(/\/+$/, "");
   const requestFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 300_000;
@@ -31,7 +62,7 @@ export function createGalleryClient(options = {}) {
   let calls = 0;
   let requestId = 0;
   let toolCache;
-  if (!options.callTool && !token?.trim()) throw new GalleryError("LANIAMEDA_GALLERY_AGENT_TOKEN is required, or provide an authenticated MCP callTool bridge.");
+  if (!options.callTool && !token?.trim()) throw new GalleryError(`LANIAMEDA_GALLERY_AGENT_TOKEN is required (set it, or put its export line in ${galleryEnvFilePath()}), or provide an authenticated MCP callTool bridge.`);
   if (!/^https?:\/\//.test(apiUrl)) throw new GalleryError("Gallery apiUrl must use http or https.");
   if (!Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(timeoutMs) || timeoutMs < 1) throw new GalleryError("Invalid client call or timeout budget.");
 

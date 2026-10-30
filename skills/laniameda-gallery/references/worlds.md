@@ -10,10 +10,10 @@ With an authenticated Gallery MCP, call get_skill_instructions with:
 {"resource":"references/worlds.md"}
 ```
 
-Without a connector, use the authenticated Bun client:
+Without a connector, use the authenticated client (Node or Bun):
 
 ```bash
-bun <this skill>/scripts/gallery.mjs get_skill_instructions '{"resource":"references/worlds.md"}'
+node <this skill>/scripts/gallery.mjs get_skill_instructions '{"resource":"references/worlds.md"}'
 ```
 
 The owner-issued token selects the gallery; gallery:read and owner access are

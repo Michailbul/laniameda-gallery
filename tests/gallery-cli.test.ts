@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -158,12 +158,33 @@ describe("gallery.mjs", () => {
     expect(readFileSync(image).toString()).toBe("fake-jpeg-bytes");
   });
 
-  test("fails without a token, and never calls the server", async () => {
+  test("fails without a token, names gallery.env, and never calls the server", async () => {
     const before = seen.length;
-    const result = await run(["check"], { LANIAMEDA_GALLERY_AGENT_TOKEN: "" });
+    const home = mkdtempSync(join(tmpdir(), "gallery-cli-home-"));
+    const result = await run(["check"], { LANIAMEDA_GALLERY_AGENT_TOKEN: "", HOME: home });
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("LANIAMEDA_GALLERY_AGENT_TOKEN is not set");
+    expect(result.stderr).toContain(join(home, ".config", "laniameda", "gallery.env"));
     expect(seen.length).toBe(before);
+  });
+
+  test("reads the token from ~/.config/laniameda/gallery.env when the variable is unset", async () => {
+    const home = mkdtempSync(join(tmpdir(), "gallery-cli-home-"));
+    mkdirSync(join(home, ".config", "laniameda"), { recursive: true });
+    writeFileSync(join(home, ".config", "laniameda", "gallery.env"), `# shell fragment\nexport LANIAMEDA_GALLERY_AGENT_TOKEN="${TOKEN}"\n`);
+    const result = await run(["check"], { LANIAMEDA_GALLERY_AGENT_TOKEN: "", HOME: home });
+    expect(result.code).toBe(0);
+    expect(seen.at(-1)?.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(result.stdout).toContain('"ok":true');
+  });
+
+  test("LANIAMEDA_GALLERY_ENV_FILE points at another token file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gallery-cli-envfile-"));
+    const file = join(dir, "other.env");
+    writeFileSync(file, `LANIAMEDA_GALLERY_AGENT_TOKEN=${TOKEN}\n`);
+    const result = await run(["check"], { LANIAMEDA_GALLERY_AGENT_TOKEN: "", HOME: dir, LANIAMEDA_GALLERY_ENV_FILE: file });
+    expect(result.code).toBe(0);
+    expect(seen.at(-1)?.authorization).toBe(`Bearer ${TOKEN}`);
   });
 
   test("reports a refused token without echoing it", async () => {

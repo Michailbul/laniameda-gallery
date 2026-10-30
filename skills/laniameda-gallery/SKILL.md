@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.16.0
+version: 1.17.0
 ---
 
 # Laniameda Gallery
@@ -24,7 +24,9 @@ public repository copies contain fetch instructions rather than private IDs.
 
 With a connector, call get_skill_instructions for SKILL.md or a skill-relative
 reference, then check_connection and discover the live tool schemas. Without
-a connector, use the dependency-free Bun client described in references/web-access.md.
+a connector, run the dependency-free client (Node 20+ or Bun) described in
+references/web-access.md; it reads the token from LANIAMEDA_GALLERY_AGENT_TOKEN
+or, when that is unset, from `~/.config/laniameda/gallery.env`.
 Keep credentials in the environment; never print or paste tokens into reports.
 Local source can be newer than the deployed contract until publication.
 
@@ -195,12 +197,11 @@ is drawn in the same style as the original reference with an identical face; a
 new character such as a daughter is designed from the anchor's look first.
 Every character in a storybook needs one (references/storybooks.md).
 
-Dear Annete's live-action cast must read as believable human photography, like
-the Dari photoreal direction. Adding skin pores to a LIZ/Arcane/game-style face
-does not qualify. Keep LIZ animated anchors and new live-action interpretations
-separate in filing and storybooks; read `references/worlds.md` before generation.
-Respect the user's cumulative budget and test scope rather than launching the
-whole cast. Save full prompts, declared completions and stage/source provenance.
+Before generating any character, call `open_world` for its world and follow
+that WORLD.md's cast rules and current style lock; the skill carries no
+per-world canon. Respect the user's cumulative budget and test scope rather
+than launching the whole cast. Save full prompts, declared completions and
+stage/source provenance.
 
 
 ## Access and safe completion
@@ -224,15 +225,21 @@ removes only that saved view. These approval rules are agent instructions, not a
 claim that an agent-supplied flag proves human consent.
 
 1. Prefer authenticated Gallery MCP at https://gallery.laniameda.space/api/mcp.
-2. Without MCP, run Bun scripts/gallery.mjs; token auth reaches the same tools.
+2. Without MCP, run scripts/gallery.mjs with `node` (20+) or `bun`; token auth
+   reaches the same tools. The token comes from `LANIAMEDA_GALLERY_AGENT_TOKEN`
+   or, when that variable is empty, from the `export` line in
+   `~/.config/laniameda/gallery.env` (override the path with
+   `LANIAMEDA_GALLERY_ENV_FILE`). Michael issues tokens at /agents; never
+   guess or print one. `scripts/mcp-headers.sh` is only the `headersHelper`
+   for a repo `.mcp.json` static header, not part of this fallback.
 3. Direct Convex scripts are local/admin compatibility tools only and require
    signed owner auth. Read authenticated references/maintenance.md first.
 
 ```bash
-bun <this skill>/scripts/gallery.mjs check
-bun <this skill>/scripts/gallery.mjs tools
-bun <this skill>/scripts/gallery.mjs schema save_assets
-bun <this skill>/scripts/gallery.mjs all_assets --out ./inventory
+node <this skill>/scripts/gallery.mjs check
+node <this skill>/scripts/gallery.mjs tools
+node <this skill>/scripts/gallery.mjs schema save_assets
+node <this skill>/scripts/gallery.mjs all_assets --out ./inventory
 ```
 
 Upload local bytes with prepare_uploads, run its returned PUT commands, then

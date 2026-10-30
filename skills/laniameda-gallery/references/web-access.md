@@ -14,26 +14,33 @@ owner-issued bearer token. Call get_skill_instructions for the needed reference,
 check_connection, then discover tools/input schemas. get_skill reads a saved
 reusable Skill; get_skill_instructions reads this instruction package.
 
-Without a connector, download both public client modules into the same directory:
+Without a connector, download both public client modules into the same directory
+and run them with `node` (20 or newer) or `bun`; neither needs packages:
 
 ```bash
 curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniameda-gallery/scripts/gallery.mjs --output gallery.mjs
 curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniameda-gallery/scripts/gallery-client.mjs --output gallery-client.mjs
-bun gallery.mjs check
-bun gallery.mjs tools
-bun gallery.mjs schema save_assets
-bun gallery.mjs all_assets --out ./inventory
-bun gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
+node gallery.mjs check
+node gallery.mjs tools
+node gallery.mjs schema save_assets
+node gallery.mjs all_assets --out ./inventory
+node gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
 ```
 
-LANIAMEDA_GALLERY_AGENT_TOKEN comes from the owner's /agents token management.
-LANIAMEDA_GALLERY_API_URL can select a local preview or otherwise defaults to the
-canonical host. Never print tokens, paste them into URLs or include them in files
-destined for public Git. Public instructions grant no private data/write permission.
+The token is read from `LANIAMEDA_GALLERY_AGENT_TOKEN`. When that variable is
+empty, the client reads the `export LANIAMEDA_GALLERY_AGENT_TOKEN=…` line in
+`~/.config/laniameda/gallery.env` (the file Michael's shell profile sources;
+`LANIAMEDA_GALLERY_ENV_FILE` names another path). Only that line is parsed,
+nothing is executed. When both are empty the script exits 2 and names the file.
+Tokens come from the owner's /agents token management; in a cloud sandbox they
+belong in the environment's variables. LANIAMEDA_GALLERY_API_URL can select a
+local preview or otherwise defaults to the canonical host. Never print tokens,
+paste them into URLs or include them in files destined for public Git. Public
+instructions grant no private data/write permission.
 
 ## Custom scripts
 
-Import createGalleryClient from scripts/gallery-client.mjs in Bun. Configure
+Import createGalleryClient from scripts/gallery-client.mjs in Node or Bun. Configure
 token/apiUrl/fetch/timeoutMs/maxCalls as needed (or authenticated callTool/listTools
 bridges); discover/schema/call expose live
 tools. Resource namespaces include assets, collections, menuFilters, Skills, Stories,
@@ -63,7 +70,7 @@ const byKind = inventory.assets.reduce((counts, asset) => {
 console.log({ complete: inventory.complete, count: inventory.assets.length, byKind });
 ```
 
-Run this with Bun and the token in the environment. The code aggregates private
+Run this with Node or Bun; the token comes from the environment or gallery.env. The code aggregates private
 reads locally; no arbitrary server code or raw database access is required.
 A partial write throws GalleryError with the result/persisted IDs attached;
 inspect that state before repeating a write.
