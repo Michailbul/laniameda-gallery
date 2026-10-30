@@ -22,7 +22,7 @@ test("task tools reach one scoped route, say the loop out loud and disclose thei
   expect(String(tools.get("complete_task")!.config.description)).toContain("blocked: true");
   expect(String(tools.get("complete_task")!.config.description)).toContain("never a silent stop");
   expect(Object.keys(tools.get("list_tasks")!.config.inputSchema as JsonRecord)).toEqual(["world", "status", "assignee", "source", "limit"]);
-  expect(Object.keys(tools.get("complete_task")!.config.inputSchema as JsonRecord)).toEqual(["taskId", "result", "blocked", "links", "session"]);
+  expect(Object.keys(tools.get("complete_task")!.config.inputSchema as JsonRecord)).toEqual(["taskId", "result", "blocked", "links", "session", "assignee"]);
   expect(Object.keys(tools.get("claim_task")!.config.inputSchema as JsonRecord)).toEqual(["taskId", "assignee", "leaseMinutes"]);
 
   await tools.get("list_tasks")!.handler({ status: "open", world: "dear-annete" });

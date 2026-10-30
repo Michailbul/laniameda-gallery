@@ -64,13 +64,19 @@ list_tasks { world?, status? (active | open | claimed | blocked | done | archive
 get_task { taskId }
 create_task { world?, title, brief?, priority?, assignee?, links?, dueAt?, ingestKey?, session? }
 claim_task { taskId, assignee?, leaseMinutes? }
-release_task { taskId, note? }
-complete_task { taskId, result, blocked?, links?, session? }
-comment_task { taskId, body }
+release_task { taskId, note?, assignee? }
+complete_task { taskId, result, blocked?, links?, session?, assignee? }
+comment_task { taskId, body, assignee? }
 ```
 
 Rows come back in queue order: blocked, then claimed, then open by priority,
 newest first inside a group. Each carries `url` (the task open in /tasks).
+
+A claim is held by a label (`claimedBy`), by default this token's own agent
+label. If you claimed under another label (`claim_task {assignee}`), pass the
+same `assignee` on `comment_task`, `release_task` and `complete_task`: the
+check is label against label, and a lease held by one label cannot be
+completed by another until it lapses.
 
 ## Example: a cron run
 

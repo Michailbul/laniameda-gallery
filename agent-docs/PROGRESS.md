@@ -121,13 +121,16 @@ Last updated: 2026-10-28
   both entries and the piece memberships together.
 
 ### 2026-10-23 (#69, #70; backend pushed 23 Oct, live) — gallery harness 1.0
-- Worlds are marked roots (`folders.worldKey`); 12 marked. Convex refuses any
+- Worlds are marked roots (`folders.worldKey`); 12 marked then, 13 since
+  `dear-annete-3d` was marked on 29 Oct 2026. Convex refuses any
   write that puts an asset, board item, character link or new story link into
   a second world; shelves cannot move across worlds. Storybooks are children of
   their world (group Storybooks); 17 root storybooks moved in.
 - World files (`worldDocs`): WORLD.md / LEARNINGS.md / docs/*.md with caps.
-  Seeded for all 12 worlds; the private worlds.md shrank from 42k to 12.5k
-  (gallery-wide rules only). Backup and migration log are private, outside the repo.
+  Seeded for all worlds (12 then, 13 now); the private worlds.md shrank from
+  42k to 12.5k (gallery-wide rules only) and is edited over MCP with
+  `update_skill_instructions` since 30 Oct 2026 (#104). Backup and migration
+  log are private, outside the repo.
 - Journal (`worldChanges`) for every world write, including the collection
   editor and update_gallery_item; `world_undo` is content-based, all or
   nothing, exact dry runs. `mjProfiles` with a role per world (9 imported).

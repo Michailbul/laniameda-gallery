@@ -676,7 +676,11 @@ createdAt and updatedAt, indexed by owner/path. Signed owner reads retrieve the
 private full worlds/maintenance resources; tracked public files only explain how
 to fetch them. Generic storage holds policy text without hardcoding world names
 or private IDs into backend logic. Resource replacement requires the last-read
-expectedSha256; exact content/version retries are idempotent.
+expectedSha256; exact content/version retries are idempotent. Agents write it
+with `update_skill_instructions {resource, content, expectedSha256, version?}`
+(owner only, gallery:write; `POST /api/agent/instructions {action: "write"}`),
+which calls `agentInstructions:saveResource` as the owner; the manifest hash
+covers SKILL.md only, so a worlds.md edit needs no skill version bump.
 
 Agent tokens may store an internal oauthCodeHash indexed for atomic one-time OAuth
 code consumption. It is not public token metadata and never contains a raw code.
