@@ -31,8 +31,11 @@ rendition with no `srcset`.
   filters (collection with descendants, chips, exclusions, kind, Liked,
   hidden collections), states that number ("Make 1,140 pieces public") and
   publishes exactly those ids, 200 per request, with a progress bar. The
-  count stops at 2,000 source rows and then refuses ("More than 2,000 … open
-  a world or a shelf"). Nothing floats over the grid any more and the phone
+  query reads one page of 800 source rows per call (folder by folder, owner
+  spelling by owner spelling, or the owner's newest-first index for the
+  plain grid and the tag-backed smart collections) and the dialog follows
+  `continueCursor` until `isDone`, so a view of any size counts exactly; it
+  gives up after 60 pages and says so. Nothing floats over the grid any more and the phone
   browsing view has no publish control at all; the result shows once as a
   line under the toolbar.
 - **Tiles** (`lib/grid-image.ts`, `components/image-card.tsx`,
@@ -55,7 +58,10 @@ rendition with no `srcset`.
   (`convex/thumbnails.ts`, a backfill over every asset) and is not in this
   branch; the `srcset` and `sizes` are in place for it.
 - `countPrivateAssetsInView` returns the ids with the count so the dialog
-  publishes what it counted, not what the grid had loaded.
+  publishes what it counted, not what the grid had loaded. It is paged
+  because a world like DEAR ANNETE — ART DECO is a smart collection (its
+  grid is a tag predicate over the whole vault): a single capped scan
+  reported "more than 396" on the first live run.
 
 ## Tests
 
