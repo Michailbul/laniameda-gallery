@@ -262,6 +262,42 @@
     return node;
   };
 
+  const compose = { hover: new Set(), holdUntil: 0 };
+  const COMPOSE_HOLD_MS = 350;
+
+  // The dock and the packs show only while a prompt is being written: the
+  // prompt or one of our bars has focus, or the pointer rests on a bar. The
+  // rest of the time they fold away and the page (the grid, a single image)
+  // is clear.
+  function isComposing() {
+    const active = document.activeElement;
+    if (textarea && active === textarea) return true;
+    if (active && active.closest && active.closest(".stg-mb-dock, .stg-pp-bar")) return true;
+    if (compose.hover.size > 0) return true;
+    return Date.now() < compose.holdUntil;
+  }
+
+  function setHover(name, on) {
+    if (on) compose.hover.add(name);
+    else compose.hover.delete(name);
+    if (!on) compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
+    notifyCompose();
+  }
+
+  let composeTimer = null;
+  function notifyCompose() {
+    queueLayout();
+    document.dispatchEvent(new CustomEvent("stg-compose-change"));
+    clearTimeout(composeTimer);
+    composeTimer = setTimeout(() => {
+      queueLayout();
+      document.dispatchEvent(new CustomEvent("stg-compose-change"));
+    }, COMPOSE_HOLD_MS + 30);
+  }
+
+  globalScope.SaveToGalleryMoodboardDock.isComposing = isComposing;
+  globalScope.SaveToGalleryMoodboardDock.setHover = setHover;
+
   function findTextarea() {
     // Midjourney shortens the placeholder to "Imagine" when the bar is narrow.
     return (
@@ -647,6 +683,8 @@
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
     dock.append(top, statusLine, strip, profileRow, snapshot);
+    dock.addEventListener("mouseenter", () => setHover("dock", true));
+    dock.addEventListener("mouseleave", () => setHover("dock", false));
     document.body.appendChild(dock);
   }
 
@@ -674,6 +712,11 @@
       dropDock();
       buildDock();
       render();
+    }
+    if (!isComposing()) {
+      dock.hidden = true;
+      hideSnapshot();
+      return;
     }
     const rect = bar.getBoundingClientRect();
     dock.hidden = false;
@@ -724,6 +767,11 @@
       queueLayout();
     }).observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", queueLayout);
+    document.addEventListener("focusin", notifyCompose);
+    document.addEventListener("focusout", () => {
+      compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
+      notifyCompose();
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") refresh();
     });
