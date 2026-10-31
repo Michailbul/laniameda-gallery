@@ -10,6 +10,10 @@ type DockApi = {
     board: { name?: string; shortName?: string; mjCode?: string },
     boards: { name?: string; shortName?: string; mjCode?: string }[],
   ) => string;
+  toggleProfileInPrompt: (promptText: string, code: string) => string;
+  flagCodes: (promptText: string) => string[];
+  stickyCodes: (sticky: { board?: string | null; profiles?: string[] } | null, moodboardCodes: string[], profileCodes: string[]) => string[];
+  withStickyFlag: (promptText: string, codes: string[]) => string | null;
   snapshotImages: (board: {
     previews?: { thumbUrl?: string; url?: string }[];
     thumbUrl?: string | null;
@@ -120,5 +124,59 @@ describe("snapshotImages", () => {
 
   test("empty when the board has no pictures", () => {
     expect(getApi().snapshotImages({ previews: [], thumbUrl: null })).toEqual([]);
+  });
+});
+
+describe("toggleProfileInPrompt", () => {
+  const toggle = (prompt: string, code: string) => getApi().toggleProfileInPrompt(prompt, code);
+
+  test("adds a profile flag to a prompt that has none", () => {
+    expect(toggle("a tram at dusk", "h2eu2z6")).toBe("a tram at dusk -p h2eu2z6");
+    expect(toggle("", "h2eu2z6")).toBe("-p h2eu2z6");
+  });
+
+  test("stacks a profile after the moodboard code and keeps every other flag", () => {
+    expect(toggle("a tram --ar 16:9 -p 88ji6bg --s 600", "h2eu2z6")).toBe("a tram --ar 16:9 -p 88ji6bg h2eu2z6 --s 600");
+  });
+
+  test("removes the profile when it is already in the flag", () => {
+    expect(toggle("a tram -p 88ji6bg h2eu2z6 --s 600", "h2eu2z6")).toBe("a tram -p 88ji6bg --s 600");
+  });
+
+  test("drops the flag when the profile was its only code", () => {
+    expect(toggle("a tram -p h2eu2z6 --s 600", "h2eu2z6")).toBe("a tram --s 600");
+  });
+
+  test("merges split profile flags into one", () => {
+    expect(toggle("a tram --profile 88ji6bg --s 600 -p 9ts8jmb", "h2eu2z6")).toBe("a tram -p 88ji6bg 9ts8jmb h2eu2z6 --s 600");
+  });
+
+  test("a moodboard switch keeps the profile that was added", () => {
+    const withProfile = toggle("a tram -p 88ji6bg", "h2eu2z6");
+    expect(apply(withProfile, "gms8ial")).toBe("a tram -p gms8ial h2eu2z6");
+  });
+
+  test("flagCodes lists every code in every profile flag", () => {
+    expect(getApi().flagCodes("x -p 88ji6bg h2eu2z6 --s 6 --profile 9ts8jmb")).toEqual(["88ji6bg", "h2eu2z6", "9ts8jmb"]);
+  });
+});
+
+describe("sticky selection", () => {
+  const api = () => getApi();
+
+  test("the board comes first, then the profiles, only while they exist", () => {
+    expect(api().stickyCodes({ board: "88ji6bg", profiles: ["h2eu2z6", "gone123"] }, CODES, ["h2eu2z6", "9ts8jmb"])).toEqual(["88ji6bg", "h2eu2z6"]);
+    expect(api().stickyCodes({ board: "oldcode", profiles: [] }, CODES, [])).toEqual([]);
+    expect(api().stickyCodes(null, CODES, [])).toEqual([]);
+  });
+
+  test("a new prompt gets the remembered flag at its end", () => {
+    expect(api().withStickyFlag("a tram at dusk ", ["88ji6bg", "h2eu2z6"])).toBe("a tram at dusk -p 88ji6bg h2eu2z6");
+  });
+
+  test("a prompt that already has a flag, or no words, is left alone", () => {
+    expect(api().withStickyFlag("a tram -p 5no6b1c", ["88ji6bg"])).toBeNull();
+    expect(api().withStickyFlag("   ", ["88ji6bg"])).toBeNull();
+    expect(api().withStickyFlag("a tram", [])).toBeNull();
   });
 });

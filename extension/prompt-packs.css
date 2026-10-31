@@ -75,30 +75,25 @@
 }
 
 .stg-pp-strip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 10px;
 }
 
 .stg-pp-strip[hidden] {
   display: none;
 }
 
-.stg-pp-strip::-webkit-scrollbar {
-  display: none;
-}
-
 .stg-pp-group {
-  flex: none;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
+  min-width: 0;
 }
 
 .stg-pp-heading {
-  margin-right: 2px;
+  padding-top: 3px;
   color: #6f6b66;
   font: 10px ui-monospace, "JetBrains Mono", monospace;
   letter-spacing: 0.06em;
@@ -106,9 +101,21 @@
   white-space: nowrap;
 }
 
+/* A narrow prompt bar: the heading sits above its chips. */
+@media (max-width: 720px) {
+  .stg-pp-strip {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .stg-pp-heading {
+    padding-top: 4px;
+  }
+}
+
 .stg-pp-chip {
   flex: none;
-  padding: 2px 8px;
+  padding: 2px 7px;
   color: inherit;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid transparent;

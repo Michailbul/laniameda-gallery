@@ -233,22 +233,14 @@
     });
     top.append(title, modes, collapseButton);
 
+    // Every group is one row: its heading, then its chips wrapping onto as
+    // many lines as they need. Nothing scrolls sideways.
     strip = el("div", "stg-pp-strip");
-    strip.addEventListener(
-      "wheel",
-      (event) => {
-        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-          strip.scrollLeft += event.deltaY;
-          event.preventDefault();
-        }
-      },
-      { passive: false },
-    );
     for (const group of globalScope.SaveToGalleryPromptPackData || []) {
-      const section = el("div", "stg-pp-group");
       const heading = el("span", "stg-pp-heading", group.heading);
       if (group.note) heading.title = group.note;
-      section.appendChild(heading);
+      const section = el("div", "stg-pp-group");
+      strip.appendChild(heading);
       for (const pack of group.packs) {
         const chip = el("button", "stg-pp-chip", pack.label);
         chip.type = "button";
@@ -293,19 +285,25 @@
     } else if (bar.parentElement === document.body && bar !== document.body.lastElementChild) {
       document.body.appendChild(bar);
     }
-    // Stack next to the moodboard dock when it is showing, else next to the prompt.
-    const anchor = dock && !dock.hidden ? dock : promptBar;
+    // Stack next to the moodboard dock when it is showing, else next to the
+    // prompt, and never over Midjourney's settings panel.
+    const findPanel = globalScope.SaveToGalleryMoodboardDock?.findPromptPanel;
+    const panel = typeof findPanel === "function" ? findPanel(textarea) : null;
     const prompt = promptBar.getBoundingClientRect();
-    const rect = anchor.getBoundingClientRect();
+    const dockShown = dock && !dock.hidden;
+    const anchor = dockShown ? dock.getBoundingClientRect() : panel || prompt;
+    const above = panel ? !panel.below : prompt.top > window.innerHeight * 0.5;
     bar.style.left = `${Math.round(prompt.left)}px`;
     bar.style.width = `${Math.round(prompt.width)}px`;
-    if (prompt.top > window.innerHeight * 0.5) {
+    if (above) {
       bar.style.top = "auto";
-      bar.style.bottom = `${Math.round(window.innerHeight - rect.top + BAR_GAP_PX)}px`;
+      bar.style.bottom = `${Math.round(window.innerHeight - anchor.top + BAR_GAP_PX)}px`;
     } else {
       bar.style.bottom = "auto";
-      bar.style.top = `${Math.round(rect.bottom + BAR_GAP_PX)}px`;
+      bar.style.top = `${Math.round(anchor.bottom + BAR_GAP_PX)}px`;
     }
+    const placed = bar.getBoundingClientRect();
+    bar.hidden = Boolean(panel) && (placed.top < 0 || placed.bottom > window.innerHeight);
   }
 
   function queueLayout() {

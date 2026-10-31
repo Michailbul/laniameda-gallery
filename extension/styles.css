@@ -2068,9 +2068,8 @@ html.stg-x-capturing .stg-badge {
 
 .stg-mb-strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 .stg-mb-strip::-webkit-scrollbar {
@@ -2097,6 +2096,17 @@ html.stg-x-capturing .stg-badge {
   color: #191919;
   background: #fff4ea;
   border-color: #ff8c42;
+}
+
+/* Remembered for the next prompt, not in this one yet. */
+.stg-mb-chip--armed,
+.stg-mb-pchip--armed {
+  border-color: #ff8c42;
+  border-style: dashed;
+}
+
+.stg-mb-active--next {
+  color: #9a958f;
 }
 
 .stg-mb-snap {
@@ -2160,6 +2170,79 @@ html.stg-x-capturing .stg-badge {
   flex: none;
   color: #ff8c42;
   font: 11px ui-monospace, "JetBrains Mono", monospace;
+}
+
+/* Profiles: taste codes that stack in the same -p flag as the board. Square
+   chips with a teal edge so they never read as a moodboard. */
+.stg-mb-prow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stg-mb-prow[hidden] {
+  display: none;
+}
+
+.stg-mb-plabel {
+  flex: none;
+  padding-top: 4px;
+  color: #6f6b66;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stg-mb-pstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stg-mb-pchip {
+  flex: none;
+  padding: 3px 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(121, 183, 145, 0.45);
+  border-radius: 4px;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-pchip:hover {
+  background: rgba(121, 183, 145, 0.12);
+}
+
+.stg-mb-pchip--on {
+  color: #191919;
+  background: #79b791;
+  border-color: #79b791;
+}
+
+.stg-mb-pcard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+
+.stg-mb-pcard-role {
+  color: #bfb8b0;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.stg-mb-pcard-kind {
+  color: #79b791;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .stg-mb-status {
