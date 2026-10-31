@@ -262,7 +262,9 @@
     return node;
   };
 
-  const compose = { hover: new Set(), holdUntil: 0 };
+  // engaged: a click or a key in the prompt since this page opened. Midjourney
+  // focuses the prompt on every page by itself, so focus alone means nothing.
+  const compose = { hover: new Set(), holdUntil: 0, engaged: false, href: "" };
   const COMPOSE_HOLD_MS = 350;
 
   // The dock and the packs show only while a prompt is being written: the
@@ -270,8 +272,12 @@
   // rest of the time they fold away and the page (the grid, a single image)
   // is clear.
   function isComposing() {
+    if (location.href !== compose.href) {
+      compose.href = location.href;
+      compose.engaged = false;
+    }
     const active = document.activeElement;
-    if (textarea && active === textarea) return true;
+    if (textarea && active === textarea && (compose.engaged || wordsOf(textarea.value))) return true;
     if (active && active.closest && active.closest(".stg-mb-dock, .stg-pp-bar")) return true;
     if (compose.hover.size > 0) return true;
     return Date.now() < compose.holdUntil;
@@ -293,6 +299,12 @@
       queueLayout();
       document.dispatchEvent(new CustomEvent("stg-compose-change"));
     }, COMPOSE_HOLD_MS + 30);
+  }
+
+  function engage() {
+    if (compose.engaged) return;
+    compose.engaged = true;
+    notifyCompose();
   }
 
   globalScope.SaveToGalleryMoodboardDock.isComposing = isComposing;
@@ -692,9 +704,17 @@
     layoutQueued = false;
     const area = findTextarea();
     if (area !== textarea) {
-      if (textarea) textarea.removeEventListener("input", onPromptInput);
+      if (textarea) {
+        textarea.removeEventListener("input", onPromptInput);
+        textarea.removeEventListener("pointerdown", engage);
+        textarea.removeEventListener("keydown", engage);
+      }
       textarea = area;
-      if (textarea) textarea.addEventListener("input", onPromptInput);
+      if (textarea) {
+        textarea.addEventListener("input", onPromptInput);
+        textarea.addEventListener("pointerdown", engage);
+        textarea.addEventListener("keydown", engage);
+      }
       freshPrompt = !textarea || !wordsOf(textarea.value);
       syncActive();
     }
@@ -768,7 +788,12 @@
     }).observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", queueLayout);
     document.addEventListener("focusin", notifyCompose);
-    document.addEventListener("focusout", () => {
+    document.addEventListener("focusout", (event) => {
+      // Leaving the prompt for the page (not for one of our bars) ends the writing.
+      const next = event.relatedTarget;
+      if (event.target === textarea && !(next && next.closest && next.closest(".stg-mb-dock, .stg-pp-bar"))) {
+        compose.engaged = false;
+      }
       compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
       notifyCompose();
     });
