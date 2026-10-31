@@ -2,6 +2,7 @@
   "use strict";
 
   const WORLD_STORAGE_KEY = "stgMoodboardWorld";
+  const STICKY_STORAGE_KEY = "stgMoodboardSticky";
   const DEFAULT_WORLD_KEY = "dear-annete";
   const REFRESH_INTERVAL_MS = 45000;
   const DOCK_GAP_PX = 6;
@@ -54,6 +55,79 @@
       }
     }
     return result;
+  }
+
+  // Adds or removes one taste profile code in the prompt's profile flag. The
+  // moodboard code and every other code stay. Removing the last code drops
+  // the flag. Everything outside the flags is untouched.
+  function toggleProfileInPrompt(promptText, code) {
+    const prompt = String(promptText || "");
+    const flags = [];
+    PROFILE_FLAG_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = PROFILE_FLAG_PATTERN.exec(prompt))) {
+      const start = match.index + match[1].length;
+      flags.push({
+        start,
+        end: match.index + match[0].length,
+        leadStart: match.index,
+        codes: match[3].trim().split(/\s+/),
+      });
+    }
+    if (flags.length === 0) {
+      const flag = `-p ${code}`;
+      if (!prompt || /\s$/.test(prompt)) return prompt + flag;
+      return `${prompt} ${flag}`;
+    }
+    const all = flags.flatMap((flag) => flag.codes);
+    const codes = all.includes(code) ? all.filter((entry) => entry !== code) : [...all, code];
+    const replacement = codes.length ? `-p ${codes.join(" ")}` : "";
+    let result = prompt;
+    for (let index = flags.length - 1; index >= 0; index -= 1) {
+      const flag = flags[index];
+      if (index === 0 && replacement) {
+        result = result.slice(0, flag.start) + replacement + result.slice(flag.end);
+      } else if (flag.leadStart < flag.start) {
+        result = result.slice(0, flag.leadStart) + result.slice(flag.end);
+      } else {
+        const tail = result.slice(flag.end).replace(/^\s+/, "");
+        result = result.slice(0, flag.start) + tail;
+      }
+    }
+    return result;
+  }
+
+  function flagCodes(promptText) {
+    const found = [];
+    PROFILE_FLAG_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = PROFILE_FLAG_PATTERN.exec(String(promptText || "")))) {
+      found.push(...match[3].trim().split(/\s+/));
+    }
+    return found;
+  }
+
+  // The flag a new prompt gets from the remembered selection: the board code
+  // first, then the profiles, each only while it still exists in the world.
+  function stickyCodes(sticky, moodboardCodes, profileCodes) {
+    const boards = new Set(moodboardCodes || []);
+    const profiles = new Set(profileCodes || []);
+    const codes = [];
+    if (sticky && sticky.board && boards.has(sticky.board)) codes.push(sticky.board);
+    for (const code of (sticky && sticky.profiles) || []) {
+      if (profiles.has(code) && !codes.includes(code)) codes.push(code);
+    }
+    return codes;
+  }
+
+  // A prompt that was empty a moment ago and now has words but no profile
+  // flag gets the remembered flag at its end. The caret stays where the
+  // words are being typed. A prompt that already has a flag is left alone.
+  function withStickyFlag(promptText, codes) {
+    const prompt = String(promptText || "");
+    if (!codes.length || !prompt.trim() || flagCodes(prompt).length) return null;
+    const body = prompt.replace(/\s+$/, "");
+    return `${body} -p ${codes.join(" ")}`;
   }
 
   function activeBoardCodes(promptText, moodboardCodes) {
@@ -116,8 +190,35 @@
     return urls.slice(0, 6);
   }
 
+  // Midjourney's settings panel (Stylize, Weirdness, Variety, Model...) opens
+  // as a scrolling box right under the prompt (or right over it when the
+  // prompt sits at the bottom). Returns its rectangle, or null when closed.
+  function findPromptPanel(area) {
+    if (!area || typeof document === "undefined") return null;
+    const prompt = area.getBoundingClientRect();
+    let root = area;
+    for (let level = 0; level < 4 && root.parentElement; level += 1) root = root.parentElement;
+    for (const node of root.querySelectorAll("div")) {
+      if (node.closest(".stg-mb-dock, .stg-pp-bar, .stg-mb-snap")) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.height < 150 || rect.width < 300) continue;
+      const below = rect.top >= prompt.bottom - 8 && rect.top <= prompt.bottom + 80;
+      const above = rect.bottom <= prompt.top + 8 && rect.bottom >= prompt.top - 80;
+      if (!below && !above) continue;
+      const overflow = getComputedStyle(node).overflowY;
+      if (overflow !== "auto" && overflow !== "scroll") continue;
+      return { top: rect.top, bottom: rect.bottom, below };
+    }
+    return null;
+  }
+
   globalScope.SaveToGalleryMoodboardDock = {
     applyMoodboardToPrompt,
+    toggleProfileInPrompt,
+    flagCodes,
+    stickyCodes,
+    withStickyFlag,
+    findPromptPanel,
     activeBoardCodes,
     chipLabel,
     snapshotImages,
@@ -133,6 +234,9 @@
     worlds: [],
     worldKey: "",
     moodboards: [],
+    profiles: [],
+    // The board and profiles picked last, per world: every new prompt gets them.
+    sticky: {},
     signature: "",
     loading: true,
     error: "",
@@ -142,10 +246,14 @@
   let worldSelect = null;
   let activeLabel = null;
   let strip = null;
+  let profileRow = null;
+  let profileStrip = null;
   let statusLine = null;
   let textarea = null;
   let layoutQueued = false;
   let snapshot = null;
+  // True while the prompt is empty: the next words typed get the remembered flag.
+  let freshPrompt = true;
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -309,33 +417,136 @@
     state.worlds = Array.isArray(res.worlds) ? res.worlds : state.worlds;
     state.worldKey = res.world?.key || key;
     const next = Array.isArray(res.moodboards) ? res.moodboards : [];
-    const signature = JSON.stringify([state.worldKey, state.worlds, next]);
+    const profiles = Array.isArray(res.profiles) ? res.profiles : [];
+    const signature = JSON.stringify([state.worldKey, state.worlds, next, profiles]);
     if (signature !== state.signature) {
       state.signature = signature;
       state.moodboards = next;
+      state.profiles = profiles;
     }
     render();
   }
 
-  function onChipClick(board) {
-    if (!textarea || !textarea.isConnected) return;
-    const next = applyMoodboardToPrompt(textarea.value, board.mjCode, boardCodes());
-    writeTextareaValue(textarea, next);
+  function profileCodes() {
+    return state.profiles.map((profile) => profile.code);
+  }
+
+  function stickyFor(key = state.worldKey) {
+    return state.sticky[key] || { board: null, profiles: [] };
+  }
+
+  const wordsOf = (value) => String(value || "").replace(PROFILE_FLAG_PATTERN, "").trim();
+
+  // The flag given here becomes what every next prompt starts with.
+  function rememberSelection(value) {
+    const codes = flagCodes(value);
+    const boards = new Set(boardCodes());
+    const profiles = new Set(profileCodes());
+    state.sticky[state.worldKey] = {
+      board: codes.find((code) => boards.has(code)) || null,
+      profiles: codes.filter((code) => profiles.has(code)),
+    };
+    try {
+      chrome.storage.local.set({ [STICKY_STORAGE_KEY]: state.sticky });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+  }
+
+  // The current selection as a flag: the prompt's own when it has words,
+  // else the remembered one (an empty prompt only arms the next prompt).
+  function selectionSource() {
+    const value = textarea ? textarea.value : "";
+    if (wordsOf(value)) return { value, live: true };
+    const codes = stickyCodes(stickyFor(), boardCodes(), profileCodes());
+    return { value: codes.length ? `-p ${codes.join(" ")}` : "", live: false };
+  }
+
+  function applySelection(next, live) {
+    rememberSelection(next);
+    if (live) writeTextareaValue(textarea, next);
+    else freshPrompt = true;
     textarea.focus();
     syncActive();
   }
 
+  function onChipClick(board) {
+    if (!textarea || !textarea.isConnected) return;
+    const source = selectionSource();
+    applySelection(applyMoodboardToPrompt(source.value, board.mjCode, boardCodes()), source.live);
+  }
+
+  // Midjourney empties the prompt after a submit. The first words of the next
+  // prompt bring the remembered board and profiles back.
+  function onPromptInput() {
+    if (!textarea) return;
+    const value = textarea.value;
+    if (!wordsOf(value)) {
+      freshPrompt = true;
+      syncActive();
+      return;
+    }
+    if (freshPrompt) {
+      freshPrompt = false;
+      const next = withStickyFlag(value, stickyCodes(stickyFor(), boardCodes(), profileCodes()));
+      if (next) {
+        const caret = textarea.selectionStart;
+        setTimeout(() => {
+          if (!textarea || textarea.value !== value) return;
+          writeTextareaValue(textarea, next);
+          textarea.setSelectionRange(caret, caret);
+          syncActive();
+        }, 0);
+      }
+    }
+    syncActive();
+  }
+
+  function onProfileClick(profile) {
+    if (!textarea || !textarea.isConnected) return;
+    const source = selectionSource();
+    applySelection(toggleProfileInPrompt(source.value, profile.code), source.live);
+  }
+
   function syncActive() {
     if (!dock) return;
-    const active = textarea
-      ? activeBoardCodes(textarea.value, boardCodes())
-      : [];
+    const value = textarea ? textarea.value : "";
+    const active = activeBoardCodes(value, boardCodes());
+    const codes = flagCodes(value);
+    const sticky = stickyCodes(stickyFor(), boardCodes(), profileCodes());
+    const waiting = !wordsOf(value);
     for (const chip of strip.children) {
       const on = active.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-chip--on", on);
+      chip.classList.toggle("stg-mb-chip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    activeLabel.textContent = active.length ? `-p ${active.join(" ")}` : "";
+    for (const chip of profileStrip.querySelectorAll(".stg-mb-pchip")) {
+      const on = codes.includes(chip.dataset.code);
+      chip.classList.toggle("stg-mb-pchip--on", on);
+      chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    if (codes.length) activeLabel.textContent = `-p ${codes.join(" ")}`;
+    else activeLabel.textContent = sticky.length && waiting ? `next prompt: -p ${sticky.join(" ")}` : "";
+    activeLabel.classList.toggle("stg-mb-active--next", !codes.length && sticky.length > 0);
+  }
+
+  // A profile has no pictures: its hover card is the name, the world's role
+  // for it and its code.
+  function showProfileCard(profile, chip) {
+    if (!dock || !snapshot) return;
+    snapshot.textContent = "";
+    const card = el("div", "stg-mb-pcard");
+    card.append(
+      el("span", "stg-mb-snap-name", profile.name),
+      el("span", "stg-mb-pcard-role", profile.role || "Taste profile"),
+    );
+    const meta = el("div", "stg-mb-snap-meta");
+    meta.append(el("span", "stg-mb-pcard-kind", "Profile"), el("span", "stg-mb-snap-code", profile.flag || `-p ${profile.code}`));
+    snapshot.append(card, meta);
+    snapshot.hidden = false;
+    placeSnapshot(chip);
   }
 
   function renderWorlds() {
@@ -379,6 +590,21 @@
         chip.addEventListener("blur", hideSnapshot);
         strip.appendChild(chip);
       }
+      profileStrip.textContent = "";
+      for (const profile of state.profiles) {
+        const chip = el("button", "stg-mb-pchip", profile.name);
+        chip.type = "button";
+        chip.dataset.code = profile.code;
+        chip.title = [profile.name, profile.role, profile.flag].filter(Boolean).join("\n");
+        chip.addEventListener("mousedown", (event) => event.preventDefault());
+        chip.addEventListener("click", () => onProfileClick(profile));
+        chip.addEventListener("mouseenter", () => showProfileCard(profile, chip));
+        chip.addEventListener("focus", () => showProfileCard(profile, chip));
+        chip.addEventListener("mouseleave", hideSnapshot);
+        chip.addEventListener("blur", hideSnapshot);
+        profileStrip.appendChild(chip);
+      }
+      profileRow.hidden = state.profiles.length === 0;
     }
     syncActive();
   }
@@ -398,6 +624,7 @@
       }
       state.loading = true;
       state.moodboards = [];
+      state.profiles = [];
       state.signature = "";
       render();
       refresh();
@@ -411,21 +638,15 @@
     top.append(worldSelect, refreshButton, activeLabel);
 
     strip = el("div", "stg-mb-strip");
-    strip.addEventListener(
-      "wheel",
-      (event) => {
-        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-          strip.scrollLeft += event.deltaY;
-          event.preventDefault();
-        }
-      },
-      { passive: false },
-    );
+    profileRow = el("div", "stg-mb-prow");
+    profileRow.hidden = true;
+    profileStrip = el("div", "stg-mb-pstrip");
+    profileRow.append(el("span", "stg-mb-plabel", "Profiles"), profileStrip);
     statusLine = el("div", "stg-mb-status");
     snapshot = el("div", "stg-mb-snap");
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
-    dock.append(top, statusLine, strip, snapshot);
+    dock.append(top, statusLine, strip, profileRow, snapshot);
     document.body.appendChild(dock);
   }
 
@@ -433,9 +654,15 @@
     layoutQueued = false;
     const area = findTextarea();
     if (area !== textarea) {
-      if (textarea) textarea.removeEventListener("input", syncActive);
+      if (textarea) textarea.removeEventListener("input", onPromptInput);
       textarea = area;
-      if (textarea) textarea.addEventListener("input", syncActive);
+      if (textarea) textarea.addEventListener("input", onPromptInput);
+      freshPrompt = !textarea || !wordsOf(textarea.value);
+      syncActive();
+    }
+    // A submit empties the prompt without an input event: notice it here.
+    if (textarea && !wordsOf(textarea.value) && !freshPrompt) {
+      freshPrompt = true;
       syncActive();
     }
     const bar = findBar(textarea);
@@ -456,14 +683,22 @@
     }
     dock.style.left = `${Math.round(rect.left)}px`;
     dock.style.width = `${Math.round(rect.width)}px`;
+    // Midjourney's settings panel is open: sit past it, or step aside.
+    const panel = findPromptPanel(textarea);
+    const above = panel ? !panel.below : rect.top > window.innerHeight * 0.5;
+    const edgeTop = panel ? panel.top : rect.top;
+    const edgeBottom = panel ? panel.bottom : rect.bottom;
     // Bottom prompt (narrow): sit above it. Top prompt (wide): sit under it.
-    if (rect.top > window.innerHeight * 0.5) {
+    if (above) {
       dock.style.top = "auto";
-      dock.style.bottom = `${Math.round(window.innerHeight - rect.top + DOCK_GAP_PX)}px`;
+      dock.style.bottom = `${Math.round(window.innerHeight - edgeTop + DOCK_GAP_PX)}px`;
     } else {
       dock.style.bottom = "auto";
-      dock.style.top = `${Math.round(rect.bottom + DOCK_GAP_PX)}px`;
+      dock.style.top = `${Math.round(edgeBottom + DOCK_GAP_PX)}px`;
     }
+    const placed = dock.getBoundingClientRect();
+    dock.hidden = Boolean(panel) && (placed.top < 0 || placed.bottom > window.innerHeight);
+    dock.dataset.panel = panel ? "open" : "";
   }
 
   function queueLayout() {
@@ -475,8 +710,10 @@
   function start() {
     dropDock();
     try {
-      chrome.storage.local.get([WORLD_STORAGE_KEY], (stored) => {
+      chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
+        const sticky = stored?.[STICKY_STORAGE_KEY];
+        state.sticky = sticky && typeof sticky === "object" ? sticky : {};
         refresh();
       });
     } catch {

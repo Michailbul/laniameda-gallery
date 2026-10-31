@@ -13,6 +13,22 @@ mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
     query: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.queryCalls.push(payload);
+      if ("includeRetired" in payload) {
+        return [
+          {
+            id: "profile1",
+            name: "DARI",
+            code: "h2eu2z6",
+            status: "active",
+            uses: [
+              { world: "dear-annete-3d", role: "Dark variant only." },
+              { world: "dear-annete", role: "Film taste with Golden.", styleTag: "da-film" },
+            ],
+          },
+          { id: "profile2", name: "OLD", code: "zzzzzzz", status: "retired", uses: [] },
+          { id: "profile3", name: "NO CODE", code: " ", status: "active", uses: [] },
+        ];
+      }
       if ("world" in payload) {
         return {
           worldId: "world1",
@@ -88,6 +104,7 @@ describe("GET /api/extension/moodboards", () => {
       worlds: [{ worldId: "world1", key: "dear-annete", name: "DEAR ANNETE" }],
       world: null,
       moodboards: [],
+      profiles: [],
     });
   });
 
@@ -123,6 +140,23 @@ describe("GET /api/extension/moodboards", () => {
         updatedAt: 10,
       },
     ]);
+  });
+
+  test("returns the world's profiles with the role this world gives them", async () => {
+    const response = await getMoodboards("?world=dear-annete");
+    const body = await response.json();
+    expect(body.profiles).toEqual([
+      {
+        id: "profile1",
+        name: "DARI",
+        code: "h2eu2z6",
+        flag: "-p h2eu2z6",
+        role: "Film taste with Golden.",
+        styleTag: "da-film",
+      },
+    ]);
+    const profileQuery = state.queryCalls.find((call) => "includeRetired" in call);
+    expect(profileQuery).toMatchObject({ world: "dear-annete", includeRetired: false });
   });
 
   test("asks for child boards with six previews each", async () => {

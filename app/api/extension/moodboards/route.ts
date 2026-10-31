@@ -14,6 +14,9 @@ const resolveWorldRefQuery = makeFunctionReference<"query">(
 const listMoodboardsQuery = makeFunctionReference<"query">(
   "moodboards:listMoodboards",
 );
+const listProfilesQuery = makeFunctionReference<"query">(
+  "mjProfiles:listProfiles",
+);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +39,14 @@ type BoardRow = {
   itemCount?: number;
   updatedAt?: number;
   previewItems?: Array<{ thumbUrl?: string; url?: string; kind?: string }>;
+};
+
+type ProfileRow = {
+  id: string;
+  name?: string;
+  code?: string;
+  status?: string;
+  uses?: Array<{ world?: string; role?: string; styleTag?: string }>;
 };
 
 const toWorldDto = (world: WorldRow) => ({
@@ -79,6 +90,25 @@ const toMoodboardDtos = (rows: unknown) =>
       };
     });
 
+// The world's Midjourney taste profiles: one chip each in the dock, toggled
+// in the prompt's profile flag beside the moodboard code. The role is the
+// world's own use of the profile, shown on hover.
+const toProfileDtos = (rows: unknown, worldKey: string) =>
+  (Array.isArray(rows) ? (rows as ProfileRow[]) : [])
+    .filter((profile) => typeof profile.code === "string" && profile.code.trim() && profile.status !== "retired")
+    .map((profile) => {
+      const code = String(profile.code).trim();
+      const use = (profile.uses ?? []).find((entry) => entry.world === worldKey) ?? profile.uses?.[0];
+      return {
+        id: String(profile.id),
+        name: profile.name ?? code,
+        code,
+        flag: `-p ${code}`,
+        role: use?.role ?? "",
+        styleTag: use?.styleTag ?? null,
+      };
+    });
+
 export async function GET(request: Request) {
   try {
     if (!validateExtensionToken(request)) {
@@ -100,6 +130,7 @@ export async function GET(request: Request) {
         worlds: worldList,
         world: null,
         moodboards: [],
+        profiles: [],
       });
     }
 
@@ -113,11 +144,22 @@ export async function GET(request: Request) {
       includeChildren: true,
       previewLimit: 6,
     });
+    // A profile lookup that fails leaves the moodboards working.
+    let profiles: ReturnType<typeof toProfileDtos> = [];
+    try {
+      profiles = toProfileDtos(
+        await client.query(listProfilesQuery, { ownerUserId, world: resolved.key, includeRetired: false }),
+        resolved.key,
+      );
+    } catch {
+      profiles = [];
+    }
     return corsJson({
       ok: true,
       worlds: worldList,
       world: toWorldDto(resolved),
       moodboards: toMoodboardDtos(rows),
+      profiles,
     });
   } catch (error) {
     const message =
