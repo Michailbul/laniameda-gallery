@@ -20,6 +20,7 @@ import {
   generationTypeValidator,
   ingestSourceValidator,
   lineageRoleValidator,
+  midjourneyMetadataValidator,
   modelProviderValidator,
   optionalPillarValidator,
   promptProfileValidator,
@@ -575,6 +576,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
     // Where the piece came from (post permalink, page URL). Defaults to `url`
     // when the media itself was fetched from a URL.
     sourceUrl: v.optional(v.string()),
+    midjourneyMetadata: midjourneyMetadataValidator,
     modelProvider: modelProviderValidator,
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -826,6 +828,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
           ingestKey: args.ingestKey,
           contentHash,
           modelName: args.modelName,
+          midjourneyMetadata: args.midjourneyMetadata,
           pillar: args.pillar,
           generationType: args.generationType,
           assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,

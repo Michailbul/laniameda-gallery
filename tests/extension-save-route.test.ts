@@ -195,6 +195,110 @@ describe("POST /api/extension/save", () => {
     ]);
   });
 
+  describe("Midjourney generation metadata", () => {
+    const jobId = "edbfc881-5abb-4d36-8553-27fd4d84bbb3";
+    const save = async (body: Record<string, unknown>) => {
+      const { POST } = await import(routePath);
+      return POST(
+        new Request("http://localhost/api/extension/save", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-extension-token": "test-extension-token",
+          },
+          body: JSON.stringify({
+            imageUrl: `https://cdn.midjourney.com/${jobId}/0_1_640_N.webp`,
+            sourceUrl: "https://www.midjourney.com/explore?tab=top",
+            promptText: "a knight --ar 4:3 --v 8.2",
+            ...body,
+          }),
+        }),
+      );
+    };
+
+    test("stores it on the asset, with the job page as the source", async () => {
+      const response = await save({
+        midjourneyMetadata: {
+          jobId,
+          tileIndex: 1,
+          aspectRatio: "4:3",
+          stylize: 650,
+          hd: true,
+          seed: "5106",
+          speed: "relax",
+          personalization: [
+            { code: "w5eljw4", type: "moodboard", name: "DA DECO · World", id: "7510649976797390241" },
+            { code: "8fpptvh", type: "profile", name: "ART DECO 1" },
+          ],
+        },
+      });
+
+      expect(response.status).toBe(200);
+      const call = state.actionCalls[0];
+      expect(call?.sourceUrl).toBe(`https://www.midjourney.com/jobs/${jobId}?index=1`);
+      expect(call?.promptText).toBe("a knight --ar 4:3 --v 8.2");
+      expect(call?.midjourneyMetadata).toEqual({
+        jobId,
+        jobUrl: `https://www.midjourney.com/jobs/${jobId}?index=1`,
+        tileIndex: 1,
+        aspectRatio: "4:3",
+        stylize: 650,
+        hd: true,
+        seed: "5106",
+        speed: "relax",
+        personalization: [
+          { code: "w5eljw4", type: "moodboard", name: "DA DECO · World", id: "7510649976797390241" },
+          { code: "8fpptvh", type: "profile", name: "ART DECO 1" },
+        ],
+      });
+      // The page it was saved from still decides the tags and the prompt domain.
+      expect(call?.domain).toBe("https://www.midjourney.com/explore?tab=top");
+      expect(call?.tagNames).toContain("midjourney-explore");
+    });
+
+    test("cuts off-shape fields and never trusts a link from the client", async () => {
+      const response = await save({
+        midjourneyMetadata: {
+          jobId,
+          jobUrl: "javascript:alert(1)",
+          tileIndex: -2,
+          stylize: "a lot",
+          hd: "yes",
+          no: ["text", 7, ""],
+          personalization: [{ code: "abc", type: "evil" }, { type: "profile" }, "nope"],
+          injected: { anything: true },
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(state.actionCalls[0]?.midjourneyMetadata).toEqual({
+        jobId,
+        jobUrl: `https://www.midjourney.com/jobs/${jobId}`,
+        no: ["text"],
+        personalization: [{ code: "abc", type: "unknown" }],
+      });
+    });
+
+    test("a malformed job id drops the metadata and the save still goes through", async () => {
+      const response = await save({ midjourneyMetadata: { jobId: "../../evil" } });
+
+      expect(response.status).toBe(200);
+      expect(state.actionCalls[0]?.midjourneyMetadata).toBeUndefined();
+      expect(state.actionCalls[0]?.sourceUrl).toBeUndefined();
+    });
+
+    test("is ignored on a save from another site", async () => {
+      const response = await save({
+        imageUrl: "https://i.pinimg.com/736x/a.jpg",
+        sourceUrl: "https://www.pinterest.com/pin/1/",
+        midjourneyMetadata: { jobId },
+      });
+
+      expect(response.status).toBe(200);
+      expect(state.actionCalls[0]?.midjourneyMetadata).toBeUndefined();
+    });
+  });
+
   test("adds filterable Midjourney explore page tags", async () => {
     const { POST } = await import(routePath);
 

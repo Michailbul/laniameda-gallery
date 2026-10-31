@@ -461,8 +461,306 @@
     return output || null;
   }
 
+  // ── Generation metadata for a save ──
+  //
+  // A content script runs in an isolated world: it shares the DOM with the page
+  // but not its JS, so the React props `findJobObject` walks are invisible there.
+  // Metadata therefore comes from three places, best first:
+  //   1. /api/job-status: the canonical full_command, reachable from the
+  //      content script because it shares the page's origin and cookies.
+  //   2. The page world (see readJobFromPageWorld): typed personalization codes
+  //      plus seed and speed, which job-status does not return.
+  //   3. The job page's prompt panel: the moodboard and profile names as shown.
+  // Any of them may fail. A save never waits on them for long and never fails
+  // because of them.
+
+  const METADATA_FETCH_TIMEOUT_MS = 2500;
+  const NAMES_CACHE_TTL_MS = 5 * 60 * 1000;
+  const SPEED_FLAGS = new Set(["fast", "relax", "turbo"]);
+  const FLAG_PATTERN = /(?:^|\s)--([a-zA-Z][\w-]*)(?=\s|$)/g;
+
+  function getSaveSelection(rawMediaUrl, rawPageUrl) {
+    // The media URL names the exact tile. The page URL only stands in for
+    // media that carries no job id (a data: placeholder, a blob: video).
+    return getMediaSelection(rawMediaUrl) || getJobPageSelection(rawPageUrl);
+  }
+
+  function toFiniteFlagNumber(value) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  function parseCommand(command) {
+    const source = String(command || "").trim();
+    const flags = [];
+    FLAG_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = FLAG_PATTERN.exec(source))) {
+      flags.push({
+        name: match[1].toLowerCase(),
+        start: match.index,
+        valueStart: FLAG_PATTERN.lastIndex,
+      });
+    }
+
+    const settings = { codes: [], otherFlags: [] };
+    flags.forEach((flag, index) => {
+      const end = index + 1 < flags.length ? flags[index + 1].start : source.length;
+      const value = source.slice(flag.valueStart, end).trim();
+      const keepAsOther = () =>
+        settings.otherFlags.push(value ? `--${flag.name} ${value}` : `--${flag.name}`);
+
+      if (flag.name === "ar" || flag.name === "aspect") {
+        if (value) settings.aspectRatio = value;
+      } else if (flag.name === "s" || flag.name === "stylize") {
+        settings.stylize = toFiniteFlagNumber(value);
+      } else if (flag.name === "c" || flag.name === "chaos") {
+        settings.chaos = toFiniteFlagNumber(value);
+      } else if (flag.name === "v" || flag.name === "version") {
+        if (value) settings.version = value;
+      } else if (flag.name === "seed") {
+        if (value) settings.seed = value;
+      } else if (flag.name === "raw") {
+        settings.raw = true;
+      } else if (flag.name === "style" && value.toLowerCase() === "raw") {
+        settings.raw = true;
+      } else if (flag.name === "hd") {
+        settings.hd = true;
+      } else if (SPEED_FLAGS.has(flag.name)) {
+        settings.speed = flag.name;
+      } else if (flag.name === "no") {
+        const terms = value.split(",").map((term) => term.trim()).filter(Boolean);
+        if (terms.length) settings.no = terms;
+      } else if ((flag.name === "profile" || flag.name === "p") && value) {
+        settings.codes.push(...value.split(/\s+/).filter(Boolean));
+      } else {
+        keepAsOther();
+      }
+    });
+
+    return settings;
+  }
+
+  // The prompt panel on a job page. One button per flag: a hidden span holds the
+  // exact flag and a visible one the label, such as "moodboard DA DECO · World".
+  function readLightboxContext(root) {
+    if (!root || typeof root.querySelector !== "function") return null;
+    const body = root.querySelector(".notranslate")?.textContent?.trim() || "";
+    const flags = [];
+    const personalization = [];
+
+    for (const button of root.querySelectorAll("button[title]")) {
+      const flag = button.querySelector("span.text-transparent")?.textContent?.trim() || "";
+      if (!flag.startsWith("--")) continue;
+      flags.push(flag);
+
+      const code = flag.match(/^--(?:profile|p)\s+(\S+)$/)?.[1];
+      if (!code) continue;
+      const label = button.querySelector("span.select-none")?.textContent?.trim() || "";
+      const typed = label.match(/^(moodboard|profile)\s*(.*)$/i);
+      personalization.push({
+        code,
+        type: typed ? typed[1].toLowerCase() : undefined,
+        name: (typed ? typed[2] : label).trim() || undefined,
+      });
+    }
+
+    return {
+      command: [body, flags.join(" ")].filter(Boolean).join(" ").trim(),
+      personalization,
+    };
+  }
+
+  // Runs in the page's own world through chrome.scripting.executeScript, which
+  // serializes this function: it must not reference anything outside itself.
+  function readJobFromPageWorld(jobId) {
+    const selector = ["a[href", "img[src", "img[srcset", "video[poster", "video[src"]
+      .map((attribute) => `${attribute}*="${jobId}"]`)
+      .join(",");
+    const nodes = Array.from(document.querySelectorAll(selector)).slice(0, 8);
+
+    for (const node of nodes) {
+      const fiberKey = Object.keys(node).find((key) => key.startsWith("__reactFiber"));
+      let fiber = fiberKey ? node[fiberKey] : null;
+      for (let depth = 0; depth < 60 && fiber; depth++, fiber = fiber.return) {
+        const job = fiber.memoizedProps?.job;
+        if (job?.id === jobId) {
+          return JSON.parse(JSON.stringify({
+            id: job.id,
+            prompt: job.prompt,
+            personalization_codes: job.personalization_codes,
+          }));
+        }
+      }
+    }
+    return null;
+  }
+
+  function mergePersonalization({ codes, pageCodes, lightbox, namesById }) {
+    const byCode = new Map();
+    const entryFor = (code) => {
+      if (!byCode.has(code)) byCode.set(code, { code, type: "unknown" });
+      return byCode.get(code);
+    };
+
+    for (const code of codes) entryFor(code);
+    for (const shown of lightbox) {
+      const entry = entryFor(shown.code);
+      if (shown.type) entry.type = shown.type;
+      if (shown.name) entry.name = shown.name;
+    }
+    for (const typed of pageCodes) {
+      if (typeof typed?.code !== "string" || !typed.code) continue;
+      const entry = entryFor(typed.code);
+      if (typed.type === "moodboard" || typed.type === "profile") entry.type = typed.type;
+      if (typed.id != null) {
+        entry.id = String(typed.id);
+        const name = namesById?.get(entry.id);
+        if (name) entry.name = name;
+      }
+    }
+    return Array.from(byCode.values());
+  }
+
+  function buildSaveMetadata({ selection, job, pageJob, lightbox, namesById }) {
+    const prompt = pageJob?.prompt && typeof pageJob.prompt === "object" ? pageJob.prompt : {};
+    const command =
+      readFirstString(job?.full_command) ||
+      (pageJob ? reconstructPrompt(pageJob) : null) ||
+      lightbox?.command ||
+      "";
+    const parsed = parseCommand(command);
+    const pageSpeed = typeof prompt.speed === "string" ? prompt.speed.toLowerCase() : undefined;
+    const seed = parsed.seed ?? (prompt.seed != null ? String(prompt.seed) : undefined);
+
+    const metadata = {
+      jobId: selection.jobId,
+      tileIndex: selection.index,
+      personalization: mergePersonalization({
+        codes: parsed.codes,
+        pageCodes: Array.isArray(pageJob?.personalization_codes)
+          ? pageJob.personalization_codes
+          : [],
+        lightbox: lightbox?.personalization || [],
+        namesById,
+      }),
+      aspectRatio: parsed.aspectRatio,
+      stylize: parsed.stylize,
+      chaos: parsed.chaos,
+      raw: parsed.raw,
+      version: parsed.version,
+      seed,
+      hd: parsed.hd,
+      speed: parsed.speed ?? (SPEED_FLAGS.has(pageSpeed) ? pageSpeed : undefined),
+      no: parsed.no,
+      otherFlags: parsed.otherFlags.length ? parsed.otherFlags : undefined,
+    };
+
+    return { promptText: command, metadata };
+  }
+
+  function withTimeout(promise, timeoutMs) {
+    let timer;
+    const expiry = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Timed out.")), timeoutMs);
+    });
+    return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+  }
+
+  async function fetchMidjourneyJson(path, init, fetchImpl) {
+    const origin = globalScope.location?.origin || "https://www.midjourney.com";
+    const response = await withTimeout(
+      fetchImpl(`${origin}${path}`, {
+        credentials: "include",
+        ...init,
+        headers: { "X-CSRF-Protection": "1", ...init?.headers },
+      }),
+      METADATA_FETCH_TIMEOUT_MS,
+    );
+    if (!response.ok) throw new Error(`Midjourney ${path}: HTTP ${response.status}`);
+    return withTimeout(response.json(), METADATA_FETCH_TIMEOUT_MS);
+  }
+
+  async function fetchJobStatus(jobId, fetchImpl) {
+    // Midjourney answers 400 without _frontend_source (checked 31 Oct 2026).
+    const jobs = await fetchMidjourneyJson(
+      "/api/job-status",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobIds: [jobId],
+          _frontend_source: "useJobSubmitter_fetchJobStatus",
+        }),
+      },
+      fetchImpl,
+    );
+    const job = Array.isArray(jobs) ? jobs.find((entry) => entry?.id === jobId) : null;
+    return job || null;
+  }
+
+  let namesCache = null;
+
+  async function fetchPersonalizationNames(fetchImpl) {
+    if (namesCache && Date.now() - namesCache.at < NAMES_CACHE_TTL_MS) {
+      return namesCache.names;
+    }
+    const [moodboards, profiles] = await Promise.all([
+      fetchMidjourneyJson("/api/moodboards", {}, fetchImpl),
+      fetchMidjourneyJson("/api/personalized-profiles", {}, fetchImpl),
+    ]);
+    const names = new Map();
+    for (const board of Array.isArray(moodboards) ? moodboards : []) {
+      if (board?.moodboard_id && board.title) names.set(String(board.moodboard_id), board.title);
+    }
+    for (const profile of Array.isArray(profiles?.profiles) ? profiles.profiles : []) {
+      if (profile?.id && profile.title) names.set(String(profile.id), profile.title);
+    }
+    namesCache = { at: Date.now(), names };
+    return names;
+  }
+
+  async function collectSaveMetadata({
+    imageUrl,
+    pageUrl,
+    lightboxRoot,
+    readPageJob,
+    fetchImpl = globalScope.fetch?.bind(globalScope),
+  }) {
+    const selection = getSaveSelection(imageUrl, pageUrl);
+    if (!selection) return null;
+
+    // Read before the first await: the user may move on while the save runs,
+    // and the panel only describes the job the page is showing right now.
+    const lightbox =
+      getJobPageSelection(pageUrl)?.jobId === selection.jobId
+        ? readLightboxContext(lightboxRoot)
+        : null;
+
+    const [job, pageJob] = await Promise.all([
+      fetchJobStatus(selection.jobId, fetchImpl).catch((err) => {
+        console.warn("[Save to Gallery] Midjourney job-status unavailable:", err?.message);
+        return null;
+      }),
+      withTimeout(Promise.resolve(readPageJob?.(selection.jobId)), METADATA_FETCH_TIMEOUT_MS)
+        .catch(() => null),
+    ]);
+
+    const hasCodesToName = (pageJob?.personalization_codes || []).some((code) => code?.id);
+    const namesById = hasCodesToName
+      ? await fetchPersonalizationNames(fetchImpl).catch((err) => {
+          console.warn("[Save to Gallery] Midjourney names unavailable:", err?.message);
+          return null;
+        })
+      : null;
+
+    return buildSaveMetadata({ selection, job, pageJob, lightbox, namesById });
+  }
+
   globalScope.SaveToGalleryMidjourney = {
     MIN_RENDERED_EDGE,
+    buildSaveMetadata,
+    collectSaveMetadata,
     extractUrlsFromCssImage,
     findJobObject,
     getBestSrcFromSrcset,
@@ -470,9 +768,13 @@
     getMediaUrl,
     getOriginalImageUrl,
     getRenderedSize,
+    getSaveSelection,
     isMidjourneyMediaUrl,
     isLikedGenerationElement,
     isQualifiedMediaElement,
+    parseCommand,
+    readJobFromPageWorld,
+    readLightboxContext,
     reconstructPrompt,
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);

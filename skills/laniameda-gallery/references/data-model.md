@@ -31,7 +31,27 @@ can never hit.
 
 Plus the provenance fields that make a piece traceable: `sourceUrl`,
 `agentDescription`, `description`, `modelName`, `ingestSource`, `assetRole`,
-and the linked prompt.
+`midjourneyMetadata` and the linked prompt.
+
+## Midjourney metadata
+
+`assets.midjourneyMetadata` (added 31 Oct 2026) records what a Midjourney job was
+made with. The browser extension collects it on every save from midjourney.com;
+`/api/extension/save` sanitizes it and passes it to `ingest:ingestFromApi`.
+
+- `jobId`, `jobUrl` (rebuilt server-side, includes `?index=` when known),
+  `tileIndex`.
+- `personalization[]`: every `--profile` code, with `type` (`moodboard`, `profile`
+  or `unknown`), and `name` and `id` when Midjourney showed them. `id` is the
+  stable one: a moodboard's code changes as the board is edited.
+- `aspectRatio`, `stylize`, `chaos`, `raw`, `version`, `seed`, `hd`, `speed`, `no`,
+  and `otherFlags` for everything else verbatim (`--sref 123`, `--weird 20`).
+
+The full prompt stays on the linked prompt row. On a Midjourney save, `sourceUrl`
+is the job page, not the page the save was made from. A repeat save fills a
+missing `midjourneyMetadata` or `promptId` and never overwrites one. Only
+`getGalleryAsset` returns the field; grid queries leave it out to stay slim.
+Missing or malformed metadata never fails a save.
 
 ## Agent description
 

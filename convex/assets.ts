@@ -44,6 +44,7 @@ import {
   assetDocValidator,
   assetRoleValidator,
   cinemaMetadataValidator,
+  midjourneyMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
@@ -569,10 +570,18 @@ const mergeRepeatedSaveMetadata = async (
     agentDescription?: string;
     agentDescriptionSource?: "agent" | "auto";
     sourceUrl?: string;
+    promptId?: Id<"prompts">;
+    midjourneyMetadata?: Doc<"assets">["midjourneyMetadata"];
   },
 ) => {
   // A repeat save can fill what the first save lacked, never overwrite it.
   const fill: Partial<Doc<"assets">> = {};
+  if (input.promptId && !asset.promptId) {
+    fill.promptId = input.promptId;
+  }
+  if (input.midjourneyMetadata && !asset.midjourneyMetadata) {
+    fill.midjourneyMetadata = input.midjourneyMetadata;
+  }
   const agentDescription = normalizeAgentDescription(input.agentDescription);
   if (agentDescription && !asset.agentDescription) {
     fill.agentDescription = agentDescription;
@@ -648,6 +657,7 @@ export const createAsset = ownerMutation({
     assetRole: assetRoleValidator,
     ingestSource: ingestSourceValidator,
     cinemaMetadata: cinemaMetadataValidator,
+    midjourneyMetadata: midjourneyMetadataValidator,
     // Short agent-written description (see schema). Normalized to 400 chars.
     agentDescription: v.optional(v.string()),
     agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
@@ -740,6 +750,7 @@ export const createAsset = ownerMutation({
       assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,
       ingestSource: args.ingestSource,
       cinemaMetadata: args.cinemaMetadata,
+      midjourneyMetadata: args.midjourneyMetadata,
       ...(agentDescription
         ? {
             agentDescription,
@@ -1605,7 +1616,9 @@ export const getGalleryAsset = ownerQuery({
       return null;
     }
     const [hydrated] = await hydrateGalleryAssetResults(ctx, [asset]);
-    return hydrated ?? null;
+    return hydrated
+      ? { ...hydrated, midjourneyMetadata: asset.midjourneyMetadata }
+      : null;
   },
 });
 

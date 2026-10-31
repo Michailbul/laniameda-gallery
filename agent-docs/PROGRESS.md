@@ -2,11 +2,28 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-28
+Last updated: 2026-10-31
 
 ---
 
 ## ✔ Shipped
+
+### 2026-10-31 — Midjourney saves keep their metadata; the copy list (branch `midjourney-save-metadata`, not merged)
+
+- A save from midjourney.com stores `assets.midjourneyMetadata`: job, tile,
+  every moodboard and profile code with its type and name, and the job's
+  settings. The asset's `sourceUrl` is the job page. The detail panel shows it
+  with copyable flags. Field detail: `skills/laniameda-gallery/references/data-model.md`.
+  Convex must be pushed before the Next route ships: `ingestFromApi` rejects the
+  new argument until it is.
+- Copy list (extension): each Midjourney image gets a link control beside Save
+  that adds `https://www.midjourney.com/jobs/<id>?index=<n>` to a list Michael
+  hands to an agent. Separate from the gallery: adding saves nothing, saving adds
+  nothing. Prompt and codes are read after the link is stored and sit beside it.
+  A dock on midjourney.com shows the count, Copy all and the list. Copying never
+  clears; only Clear list (two clicks) empties it. Stored in
+  `chrome.storage.local`, written only through the service worker's queue so two
+  tabs cannot overwrite each other. Code: `extension/midjourney-copy-list.js`.
 
 ### 2026-10-30 — The morning newspaper (branch `feat/newspaper`)
 

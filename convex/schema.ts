@@ -12,6 +12,7 @@ import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
   cinemaMetadataValidator,
+  midjourneyMetadataValidator,
   designCaptureKindValidator,
   designInspirationStatusValidator,
   designInspirationTypeValidator,
@@ -554,6 +555,7 @@ export default defineSchema({
     assetPackId: v.optional(v.id("assetPacks")),
     packSlotIndex: v.optional(v.number()),
     cinemaMetadata: cinemaMetadataValidator,
+    midjourneyMetadata: midjourneyMetadataValidator,
     // Agent-written description: one or two plain sentences on what the piece
     // shows and why it was kept. Separate from `description` (Michael's own
     // caption) so user metadata and agent-derived metadata never mix. Indexed

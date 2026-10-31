@@ -7,6 +7,8 @@ importScripts(
   "collection-classification.js",
   "asset-status.js",
   "save-targets.js",
+  "midjourney-adapter.js",
+  "midjourney-copy-list.js",
 );
 
 const saveTargets = globalThis.SaveToGallerySaveTargets;
@@ -211,6 +213,7 @@ async function saveToGallery(payload) {
         collectionPillar: payload.collectionPillar || undefined,
         promptText: payload.promptText || undefined,
         modelName: payload.modelName || undefined,
+        midjourneyMetadata: payload.midjourneyMetadata || undefined,
         tagNames: payload.tagNames || [],
         file: payload.file || undefined,
         ingestKey: payload.ingestKey || undefined,
@@ -535,6 +538,37 @@ async function saveOriginalMidjourneyAsset(payload) {
   };
 }
 
+// Only the page's own world can see the React props that hold a job's typed
+// personalization codes, seed and speed. Asked for at save time, so nothing of
+// ours stays running in the page.
+async function readMidjourneyPageJob(jobId, sender) {
+  const tabId = sender?.tab?.id;
+  if (typeof tabId !== "number" || !/^[0-9a-f-]{20,}$/i.test(String(jobId || ""))) {
+    return null;
+  }
+  if (!isMidjourneyDocumentUrl(sender.tab.url)) return null;
+  const [injection] = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [sender.frameId ?? 0] },
+    world: "MAIN",
+    func: globalThis.SaveToGalleryMidjourney.readJobFromPageWorld,
+    args: [jobId],
+  });
+  return injection?.result ?? null;
+}
+
+// The one writer of the copy list, so two Midjourney tabs cannot overwrite each
+// other. Tabs follow the list through chrome.storage.onChanged.
+const midjourneyCopyList = globalThis.SaveToGalleryMidjourneyCopyList.createStore(
+  chrome.storage.local,
+);
+const MIDJOURNEY_COPY_LIST_ACTIONS = {
+  copyListAdd: (message) => midjourneyCopyList.add(message.entry),
+  copyListAddDetails: (message) =>
+    midjourneyCopyList.addDetails(message.key, message.details),
+  copyListRemove: (message) => midjourneyCopyList.remove(message.key),
+  copyListClear: () => midjourneyCopyList.clear(),
+};
+
 async function addExtensionComment(assetId, body) {
   const id = String(assetId || "").trim();
   const text = String(body || "").trim();
@@ -724,6 +758,7 @@ const CONTENT_SCRIPT_JS_FILES = [
   "image-convert.js",
   "image-qualification.js",
   "midjourney-adapter.js",
+  "midjourney-copy-list.js",
   "krea-adapter.js",
   "higgsfield-adapter.js",
   "pinterest-adapter.js",
@@ -1267,13 +1302,35 @@ async function requestUploadSession(payload) {
   };
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const copyListAction = MIDJOURNEY_COPY_LIST_ACTIONS[message.action];
+  if (copyListAction) {
+    copyListAction(message)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.warn("[Save to Gallery] copy list write failed:", err?.message);
+        sendResponse({ ok: false, error: err?.message || "Could not update the copy list." });
+      });
+    return true;
+  }
+
+  if (message.action === "readMidjourneyPageJob") {
+    readMidjourneyPageJob(message.jobId, sender)
+      .then(sendResponse)
+      .catch((err) => {
+        console.warn("[Save to Gallery] page job read failed:", err?.message);
+        sendResponse(null);
+      });
+    return true;
+  }
+
   if (message.action === "saveOriginalMidjourneyAsset") {
     saveOriginalMidjourneyAsset({
       imageUrl: message.imageUrl,
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
+      midjourneyMetadata: message.midjourneyMetadata,
       folderId: message.folderId,
       folderIds: message.folderIds,
       tagNames: message.tagNames,
@@ -1293,6 +1350,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
+      midjourneyMetadata: message.midjourneyMetadata,
       folderId: message.folderId,
       folderIds: message.folderIds,
       collectionPillar: message.collectionPillar,

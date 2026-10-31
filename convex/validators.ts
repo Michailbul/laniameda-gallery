@@ -328,6 +328,37 @@ export const cinemaMetadataValidator = v.optional(
   }),
 );
 
+// What a Midjourney job was made with, saved by the extension next to the asset.
+// The full prompt lives on the linked prompt row. Read through getGalleryAsset
+// only: grid queries do not carry it.
+export const midjourneyMetadataFields = v.object({
+  jobId: v.string(),
+  jobUrl: v.string(),
+  tileIndex: v.optional(v.number()),
+  // Every --profile code, moodboards and taste profiles alike. `id` is
+  // Midjourney's stable id: a moodboard's code changes as the board is edited.
+  personalization: v.array(
+    v.object({
+      code: v.string(),
+      type: v.union(v.literal("moodboard"), v.literal("profile"), v.literal("unknown")),
+      name: v.optional(v.string()),
+      id: v.optional(v.string()),
+    }),
+  ),
+  aspectRatio: v.optional(v.string()),
+  stylize: v.optional(v.number()),
+  chaos: v.optional(v.number()),
+  raw: v.optional(v.boolean()),
+  version: v.optional(v.string()),
+  seed: v.optional(v.string()),
+  hd: v.optional(v.boolean()),
+  speed: v.optional(v.string()),
+  no: v.optional(v.array(v.string())),
+  // Everything else in the command, verbatim: --sref 123, --weird 20, --oref …
+  otherFlags: v.optional(v.array(v.string())),
+});
+export const midjourneyMetadataValidator = v.optional(midjourneyMetadataFields);
+
 export const ingestSourceValidator = v.optional(v.union(
   v.literal("api"),
   v.literal("agent"),
@@ -424,6 +455,7 @@ export const assetDocValidator = v.object({
   assetPackId: v.optional(v.id("assetPacks")),
   packSlotIndex: v.optional(v.number()),
   cinemaMetadata: cinemaMetadataValidator,
+  midjourneyMetadata: midjourneyMetadataValidator,
   createdAt: v.number(),
 });
 

@@ -76,6 +76,7 @@ import {
 import { CollectionViewActions } from "./collection-view-actions";
 import { StyleScopeSwitcher } from "./style-scope-switcher";
 import { EmptyFolderPrompt } from "./empty-folder-prompt";
+import type { MidjourneyMetadata } from "@/lib/midjourney-metadata";
 import { CollectionTabs } from "./collection-tabs";
 import {
   buildStyleShelfStacks,
@@ -173,6 +174,7 @@ type SelectedImage = {
   ingestSource?: string;
   tagNames?: string[];
   sourceUrl?: string;
+  midjourneyMetadata?: MidjourneyMetadata;
   description?: string;
   fileName?: string;
   createdAt?: number;
@@ -4946,6 +4948,7 @@ export function GalleryDashboard({
       starNote: liveSelectedAsset.starNote,
       modelName: liveSelectedAsset.modelName ?? selectedImage.modelName,
       sourceUrl: liveSelectedAsset.sourceUrl ?? selectedImage.sourceUrl,
+      midjourneyMetadata: liveSelectedAsset.midjourneyMetadata,
       createdAt: liveSelectedAsset.createdAt,
       bookmark:
         (liveSelectedAsset.bookmark as BookmarkPost | undefined) ??

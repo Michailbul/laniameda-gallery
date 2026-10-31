@@ -23,6 +23,8 @@ import {
 import { useConvexAuth, useQuery } from "convex/react";
 import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
 import { AssetComments } from "./asset-comments";
+import { MidjourneyMetadataBlock } from "./midjourney-metadata-block";
+import type { MidjourneyMetadata } from "@/lib/midjourney-metadata";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
 import { triggerAssetDownload } from "@/lib/download-image";
@@ -95,6 +97,8 @@ interface GalleryDetailPanelProps {
     ingestSource?: string;
     tagNames?: string[];
     sourceUrl?: string;
+    /** Absent until the live single-asset read arrives. */
+    midjourneyMetadata?: MidjourneyMetadata;
     description?: string;
     fileName?: string;
     createdAt?: number;
@@ -1729,6 +1733,12 @@ export function GalleryDetailPanel({
                       </a>
                     )}
                   </div>
+                </Field>
+              )}
+
+              {image.midjourneyMetadata && !isDesignView && (
+                <Field label="Midjourney">
+                  <MidjourneyMetadataBlock metadata={image.midjourneyMetadata} />
                 </Field>
               )}
 

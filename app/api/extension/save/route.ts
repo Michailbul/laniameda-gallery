@@ -8,6 +8,7 @@ import {
   validateExtensionToken,
 } from "@/lib/server/extension-auth";
 import { normalizeCollectionSection } from "@/lib/collection-sections";
+import { sanitizeMidjourneyMetadata } from "@/lib/midjourney-metadata";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
@@ -307,6 +308,11 @@ export async function POST(request: Request) {
     // What the piece IS, last, after the source tags.
     addTagName(sectionTag);
 
+    // Malformed metadata is dropped here: it must never fail the image save.
+    const midjourneyMetadata = isMidjourneySave
+      ? sanitizeMidjourneyMetadata(data.midjourneyMetadata)
+      : undefined;
+
     const effectiveModelName = isMidjourneySave
       ? "Midjourney"
       : isHiggsfieldSave
@@ -436,6 +442,11 @@ export async function POST(request: Request) {
       tagNames,
       modelName: effectiveModelName,
       modelProvider: effectiveModelProvider,
+      // The job page is the asset's source. The page it was saved from still
+      // decides the tags above and stays on the prompt as `domain`.
+      ...(midjourneyMetadata
+        ? { midjourneyMetadata, sourceUrl: midjourneyMetadata.jobUrl }
+        : {}),
       folderId: folderId || undefined,
       generationType: effectiveGenerationType,
       promptType: isVideoSave ? "video_gen" : "image_gen",

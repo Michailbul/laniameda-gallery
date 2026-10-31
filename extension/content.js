@@ -40,9 +40,11 @@
   ];
   const SAVE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
   const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  const LINK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>`;
   const CHEVRON_ICON = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7.5 5 5 5-5"/></svg>`;
   const imageQualification = globalThis.SaveToGalleryImageQualification;
   const midjourneyAdapter = globalThis.SaveToGalleryMidjourney;
+  const midjourneyCopyListApi = globalThis.SaveToGalleryMidjourneyCopyList;
   const kreaAdapter = globalThis.SaveToGalleryKrea;
   const higgsfieldAdapter = globalThis.SaveToGalleryHiggsfield;
   const pinterestAdapter = globalThis.SaveToGalleryPinterest;
@@ -314,6 +316,7 @@
     ".stg-mj-quick-save",
     ".stg-mj-notes",
     ".stg-mj-notes-layer",
+    ".stg-mj-copylist",
     ".stg-bulk-toggle",
     ".stg-bulk-bar",
     ".stg-bulk-check",
@@ -397,26 +400,7 @@
     const promptContainer = document.querySelector("#lightboxPrompt");
     if (!promptContainer) return null;
 
-    // Extract prompt text from the .notranslate container
-    const notranslate = promptContainer.querySelector(".notranslate");
-    const promptText = notranslate ? notranslate.textContent.trim() : "";
-
-    // Extract parameters (--ar, --s, --v, etc.) from parameter buttons
-    const paramButtons = promptContainer.querySelectorAll("button[title]");
-    const params = [];
-    for (const btn of paramButtons) {
-      // Hidden spans contain the full param string like "--ar 2:3"
-      const hiddenSpan = btn.querySelector("span.text-transparent");
-      if (hiddenSpan) {
-        const paramText = hiddenSpan.textContent.trim();
-        if (paramText.startsWith("--")) params.push(paramText);
-      }
-    }
-
-    // Combine prompt + params into full prompt string
-    const fullPrompt = params.length > 0
-      ? `${promptText} ${params.join(" ")}`.trim()
-      : promptText;
+    const fullPrompt = midjourneyAdapter?.readLightboxContext?.(promptContainer)?.command;
 
     // Extract image URL from lightbox video poster or img
     const lightboxVideo = document.querySelector("video[id^='lightbox-video-']");
@@ -430,6 +414,33 @@
       imageUrl: imageUrl || null,
       modelName: "Midjourney",
     };
+  }
+
+  // Adds the generation metadata to a save bound for the gallery. It only ever
+  // adds: when Midjourney's data is out of reach the save goes through as it was.
+  // `keepPrompt` holds on to a prompt the user edited in the save popover.
+  async function withMidjourneyMetadata(message, { keepPrompt = false } = {}) {
+    if (!isMidjourneyPage() || !midjourneyAdapter?.collectSaveMetadata) return message;
+    try {
+      const collected = await midjourneyAdapter.collectSaveMetadata({
+        imageUrl: message.imageUrl,
+        pageUrl: location.href,
+        lightboxRoot: document.querySelector("#lightboxPrompt"),
+        readPageJob: (jobId) =>
+          sendRuntimeMessage({ action: "readMidjourneyPageJob", jobId }),
+      });
+      if (!collected) return message;
+      return {
+        ...message,
+        midjourneyMetadata: collected.metadata,
+        promptText: keepPrompt
+          ? message.promptText
+          : collected.promptText || message.promptText,
+      };
+    } catch (err) {
+      console.warn("[Save to Gallery] Midjourney metadata unavailable:", err?.message);
+      return message;
+    }
   }
 
   // ── Midjourney /explore grid adapter ──
@@ -1907,6 +1918,7 @@
     sourceUrl,
     mediaType,
     inputImages,
+    promptEdited = false,
     topRight = false,
   }) {
     badge.innerHTML = `<span>Saving…</span>`;
@@ -1923,7 +1935,7 @@
     try {
       let response;
       try {
-        response = await sendRuntimeMessage({
+        response = await sendRuntimeMessage(await withMidjourneyMetadata({
           action: "saveImage",
           imageUrl,
           // Item-specific permalink (e.g. the pin URL) beats the feed URL.
@@ -1941,7 +1953,7 @@
           imageHeight: effectiveHeight || undefined,
           mediaType: mediaType || undefined,
           inputImages: Array.isArray(inputImages) ? inputImages : undefined,
-        });
+        }, { keepPrompt: promptEdited }));
       } catch (msgErr) {
         msgErr.message = `chrome.runtime.sendMessage failed: ${msgErr.message}`;
         throw msgErr;
@@ -2006,6 +2018,8 @@
           sourceUrl: saveContext.sourceUrl,
           mediaType: saveContext.mediaType,
           inputImages: saveContext.inputImages,
+          promptEdited:
+            (promptText || "").trim() !== (saveContext.promptText || "").trim(),
           topRight,
         });
       },
@@ -2131,7 +2145,7 @@
 
     let response;
     try {
-      response = await sendRuntimeMessage({
+      response = await sendRuntimeMessage(await withMidjourneyMetadata({
         action: "saveImage",
         imageUrl,
         sourceUrl,
@@ -2144,7 +2158,7 @@
         ...buildUploadedMediaPayload(fileData),
         imageWidth: fileData?.width || undefined,
         imageHeight: fileData?.height || undefined,
-      });
+      }));
     } catch (err) {
       response = { ok: false, error: err?.message || "Save failed." };
     }
@@ -2317,6 +2331,7 @@
     extensionEnabled = Boolean(nextEnabled);
     if (!extensionEnabled) {
       clearInjectedUi();
+      removeCopyListDock();
     } else if (isPersistentSaveSite()) {
       scheduleMidjourneyMediaScan();
     }
@@ -2816,6 +2831,7 @@
     if (midjourneyViewerSaveWidget) {
       positionMidjourneyWidget(midjourneyViewerSaveWidget, media);
       refreshViewerGallerySavedState(midjourneyViewerSaveWidget, media);
+      syncCopyListButton(midjourneyViewerSaveWidget);
       return;
     }
 
@@ -2863,7 +2879,7 @@
   }
 
   function isQualifiedMidjourneyMediaTarget(target) {
-    if (!target || target.closest?.(".stg-badge, .stg-popover")) return false;
+    if (!target || target.closest?.(".stg-badge, .stg-popover, .stg-mj-copylist")) return false;
     if (target.hasAttribute?.(MJ_MEDIA_BADGE_ATTR)) return false;
 
     const tagName = target.tagName?.toLowerCase();
@@ -3070,7 +3086,7 @@
     }
 
     const folderIds = normalizeFolderIdList(message.folderIds);
-    const response = await sendRuntimeMessage({
+    const response = await sendRuntimeMessage(await withMidjourneyMetadata({
       action: "saveOriginalMidjourneyAsset",
       imageUrl: selection.originalImageUrl,
       sourceUrl: location.href,
@@ -3081,7 +3097,7 @@
       folderIds,
       tagNames: mergeTagNames(saveContext.tagNames, message.tagNames),
       comment: typeof message.comment === "string" ? message.comment : undefined,
-    });
+    }));
 
     if (!response?.ok) {
       return { ok: false, error: response?.error || "Gallery save failed." };
@@ -4675,6 +4691,365 @@
     widget.__stgUnfloat?.();
   }
 
+  // ── Midjourney copy list ──
+  //
+  // A list of job links Michael hands to an agent. Separate from the gallery: no
+  // path here saves anything, and no save touches the list. The worker owns the
+  // writes (see midjourney-copy-list.js); this copy of the list follows storage.
+
+  const COPY_LIST_DOUBLE_CLICK_MS = 400;
+  const COPY_LIST_COPY_WAIT_MS = 1500;
+  const COPY_LIST_CLEAR_CONFIRM_MS = 3000;
+
+  let copyList = [];
+  let copyListKeys = new Set();
+  let copyListLoaded = false;
+  let copyListDock = null;
+  let copyListOpen = false;
+  // Prompt and code reads still running, so Copy all can wait for them briefly.
+  const copyListPendingDetails = new Set();
+
+  function setCopyList(list) {
+    copyList = list;
+    copyListKeys = new Set(list.map((entry) => entry.key));
+    copyListLoaded = true;
+    if (isRetiredInstance()) return;
+    syncCopyListDock({ rebuild: true });
+    if (midjourneyViewerSaveWidget) syncCopyListButton(midjourneyViewerSaveWidget);
+    syncAllCopyListButtons();
+  }
+
+  function startCopyListSync() {
+    if (!isMidjourneyPage() || !midjourneyCopyListApi) return;
+    const key = midjourneyCopyListApi.STORAGE_KEY;
+    try {
+      chrome.storage?.onChanged?.addListener((changes, area) => {
+        if (area !== "local" || !changes[key]) return;
+        setCopyList(midjourneyCopyListApi.readList({ [key]: changes[key].newValue }));
+      });
+    } catch (err) {
+      console.warn("[Save to Gallery] Could not watch the copy list:", err);
+    }
+    void getStorageLocal([key])
+      .then((stored) => setCopyList(midjourneyCopyListApi.readList(stored)))
+      .catch((err) => console.warn("[Save to Gallery] Could not read the copy list:", err));
+  }
+
+  // Read when asked, never when the widget was made: Midjourney swaps the image
+  // on the same node as you move between tiles, and a recycled feed card can
+  // come back holding a different job.
+  function getCopyListSelection(target) {
+    const link = target?.closest?.(MJ_GRID_THUMB_SELECTOR);
+    return midjourneyAdapter?.getSaveSelection?.(
+      getMidjourneyMediaUrl(target),
+      link?.href || location.href,
+    ) || null;
+  }
+
+  function syncCopyListButton(widget) {
+    const button = widget.querySelector(".stg-mj-copy-add");
+    if (!button) return;
+    const selection = getCopyListSelection(widget.__stgTarget);
+    const hidden = !selection;
+    if (button.hidden !== hidden) button.hidden = hidden;
+    if (hidden) return;
+    const inList = copyListKeys.has(
+      midjourneyCopyListApi.entryKey(selection.jobId, selection.index),
+    );
+    if (button.classList.contains("stg-mj-copy-add--in-list") === inList &&
+        button.dataset.stgReady === "1") {
+      return;
+    }
+    button.dataset.stgReady = "1";
+    button.classList.toggle("stg-mj-copy-add--in-list", inList);
+    button.innerHTML = inList ? CHECK_ICON : LINK_ICON;
+    button.title = inList ? "In the copy list. Click to take it out" : "Add link to the copy list";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", String(inList));
+  }
+
+  function syncAllCopyListButtons() {
+    if (!isMidjourneyPage()) return;
+    for (const widget of document.querySelectorAll(".stg-mj-quick-save")) {
+      syncCopyListButton(widget);
+    }
+  }
+
+  async function writeCopyList(message) {
+    const response = await sendRuntimeMessage(message);
+    if (!response?.ok) throw new Error(response?.error || "Could not update the copy list.");
+  }
+
+  function reportCopyListError(err) {
+    showContextToast(
+      "error",
+      `Copy list: ${err?.message || "Could not update it."}`.slice(0, 90),
+      err?.message,
+    );
+  }
+
+  // The prompt and codes follow the link. The link is already safe in the list
+  // by the time this runs, so a failed read only leaves the link on its own.
+  function addCopyListDetails(entry) {
+    const pending = midjourneyAdapter
+      .collectSaveMetadata({
+        imageUrl: midjourneyAdapter.getOriginalImageUrl("", entry.url),
+        pageUrl: location.href,
+        lightboxRoot: document.querySelector("#lightboxPrompt"),
+        readPageJob: (jobId) =>
+          sendRuntimeMessage({ action: "readMidjourneyPageJob", jobId }),
+      })
+      .then((collected) => {
+        const details = midjourneyCopyListApi.detailsFromMetadata(collected);
+        if (Object.keys(details).length === 0) return undefined;
+        return writeCopyList({ action: "copyListAddDetails", key: entry.key, details });
+      })
+      .catch((err) => {
+        console.warn("[Save to Gallery] Copy list details unavailable:", err?.message);
+      })
+      .finally(() => copyListPendingDetails.delete(pending));
+    copyListPendingDetails.add(pending);
+  }
+
+  async function toggleCopyListEntry(target, selection) {
+    const key = midjourneyCopyListApi.entryKey(selection.jobId, selection.index);
+    if (copyListKeys.has(key)) {
+      await writeCopyList({ action: "copyListRemove", key });
+      return;
+    }
+    const entry = midjourneyCopyListApi.buildEntry(selection, {
+      previewUrl: resolveAbsoluteUrl(getMidjourneyMediaUrl(target)),
+    });
+    await writeCopyList({ action: "copyListAdd", entry });
+    addCopyListDetails(entry);
+  }
+
+  function addCopyListButton(widget, target) {
+    if (!midjourneyCopyListApi) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stg-mj-copy-add";
+    widget.classList.add("stg-mj-quick-save--with-copy");
+    widget.querySelector(".stg-mj-save-arrow").after(button);
+    syncCopyListButton(widget);
+
+    // The second half of a double-click must not undo the first. Only on the same
+    // tile: in the viewer, the next tile can be one arrow key and one click away.
+    let lastClick = { key: "", at: 0 };
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const selection = getCopyListSelection(target);
+      if (!selection) return;
+      const key = midjourneyCopyListApi.entryKey(selection.jobId, selection.index);
+      const now = Date.now();
+      if (key === lastClick.key && now - lastClick.at < COPY_LIST_DOUBLE_CLICK_MS) return;
+      lastClick = { key, at: now };
+      void toggleCopyListEntry(target, selection).catch(reportCopyListError);
+    }, true);
+  }
+
+  async function writeToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // A page's permissions policy can refuse the async clipboard.
+      const field = document.createElement("textarea");
+      field.className = "stg-mj-copylist__clipboard";
+      field.value = text;
+      document.body.appendChild(field);
+      field.select();
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      } finally {
+        field.remove();
+      }
+    }
+  }
+
+  async function copyWholeList(button) {
+    // Whatever was added a moment ago should carry its prompt, if it is close.
+    if (copyListPendingDetails.size > 0) {
+      await Promise.race([
+        Promise.allSettled([...copyListPendingDetails]),
+        wait(COPY_LIST_COPY_WAIT_MS),
+      ]);
+    }
+    const key = midjourneyCopyListApi.STORAGE_KEY;
+    // A tab left open across an extension reload can no longer read storage, but
+    // the list it already holds is still worth copying.
+    const list = isExtensionContextValid()
+      ? midjourneyCopyListApi.readList(await getStorageLocal([key]))
+      : copyList;
+    if (list.length === 0) return;
+    const copied = await writeToClipboard(midjourneyCopyListApi.formatList(list));
+    if (!copied) {
+      showContextToast("error", "Copy failed. Chrome refused the clipboard. Click again.");
+      return;
+    }
+    button.textContent = `Copied ${list.length}`;
+    button.classList.add("stg-mj-copylist__copy--done");
+    clearTimeout(button.__stgResetTimer);
+    button.__stgResetTimer = setTimeout(() => {
+      button.textContent = "Copy all";
+      button.classList.remove("stg-mj-copylist__copy--done");
+    }, 1800);
+  }
+
+  function buildCopyListDock() {
+    const dock = document.createElement("div");
+    dock.className = "stg-mj-copylist";
+    dock.innerHTML = `
+      <div class="stg-mj-copylist__panel" hidden>
+        <div class="stg-mj-copylist__rows"></div>
+        <div class="stg-mj-copylist__foot">
+          <button type="button" class="stg-mj-copylist__clear">Clear list</button>
+        </div>
+      </div>
+      <div class="stg-mj-copylist__bar">
+        <button type="button" class="stg-mj-copylist__toggle" aria-expanded="false">
+          ${LINK_ICON}<span class="stg-mj-copylist__count"></span>${CHEVRON_ICON}
+        </button>
+        <button type="button" class="stg-mj-copylist__copy">Copy all</button>
+      </div>
+    `;
+    bindExtensionUiEventShield(dock);
+
+    const panel = dock.querySelector(".stg-mj-copylist__panel");
+    const toggle = dock.querySelector(".stg-mj-copylist__toggle");
+    const copyButton = dock.querySelector(".stg-mj-copylist__copy");
+    const clearButton = dock.querySelector(".stg-mj-copylist__clear");
+
+    toggle.addEventListener("click", () => {
+      copyListOpen = !copyListOpen;
+      panel.hidden = !copyListOpen;
+      toggle.setAttribute("aria-expanded", String(copyListOpen));
+      dock.classList.toggle("stg-mj-copylist--open", copyListOpen);
+    });
+    copyButton.addEventListener("click", () => {
+      void copyWholeList(copyButton).catch(reportCopyListError);
+    });
+
+    // Clearing is the one way to lose the whole list, so it takes two clicks.
+    let clearTimer = null;
+    const disarmClear = () => {
+      clearTimeout(clearTimer);
+      clearTimer = null;
+      clearButton.textContent = "Clear list";
+      clearButton.classList.remove("stg-mj-copylist__clear--armed");
+    };
+    clearButton.addEventListener("click", () => {
+      if (!clearTimer) {
+        clearButton.textContent = `Clear all ${copyList.length}?`;
+        clearButton.classList.add("stg-mj-copylist__clear--armed");
+        clearTimer = setTimeout(disarmClear, COPY_LIST_CLEAR_CONFIRM_MS);
+        return;
+      }
+      disarmClear();
+      void writeCopyList({ action: "copyListClear" }).catch(reportCopyListError);
+    });
+
+    dock.querySelector(".stg-mj-copylist__rows").addEventListener("click", (event) => {
+      const link = event.target?.closest?.(".stg-mj-copylist__link");
+      if (link) {
+        window.open(link.dataset.url, "_blank", "noopener");
+        return;
+      }
+      const remove = event.target?.closest?.(".stg-mj-copylist__remove");
+      if (!remove) return;
+      void writeCopyList({ action: "copyListRemove", key: remove.dataset.key })
+        .catch(reportCopyListError);
+    });
+    return dock;
+  }
+
+  function buildCopyListRow(entry, position) {
+    const row = document.createElement("div");
+    row.className = "stg-mj-copylist__row";
+
+    const thumb = document.createElement("img");
+    thumb.className = "stg-mj-copylist__thumb";
+    thumb.alt = "";
+    thumb.loading = "lazy";
+    if (entry.previewUrl) thumb.src = entry.previewUrl;
+
+    const body = document.createElement("div");
+    body.className = "stg-mj-copylist__body";
+
+    // A button, not a link: an <a href="/jobs/…"> here would match the selector
+    // the rest of this file uses to find Midjourney's own tiles.
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "stg-mj-copylist__link";
+    link.dataset.url = entry.url;
+    link.title = entry.url;
+    link.textContent = `${position}. ${entry.jobId.slice(0, 8)} · tile ${entry.index + 1}`;
+    body.append(link);
+
+    if (entry.prompt) {
+      const prompt = document.createElement("p");
+      prompt.className = "stg-mj-copylist__prompt";
+      prompt.textContent = entry.prompt;
+      body.append(prompt);
+    }
+    if (entry.personalization?.length) {
+      const codes = document.createElement("div");
+      codes.className = "stg-mj-copylist__codes";
+      for (const { code, name } of entry.personalization) {
+        const chip = document.createElement("span");
+        chip.className = "stg-mj-copylist__code";
+        chip.textContent = code;
+        chip.title = name || code;
+        codes.append(chip);
+      }
+      body.append(codes);
+    }
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "stg-mj-copylist__remove";
+    remove.dataset.key = entry.key;
+    remove.title = "Take out of the list";
+    remove.setAttribute("aria-label", remove.title);
+    remove.textContent = "×";
+
+    row.append(thumb, body, remove);
+    return row;
+  }
+
+  function removeCopyListDock() {
+    copyListDock?.remove();
+    copyListDock = null;
+  }
+
+  // Called from every scan so the dock comes back if the page removes it. Rows
+  // are rebuilt only when the list changed: the scan runs many times a second.
+  function syncCopyListDock({ rebuild = false } = {}) {
+    if (!isMidjourneyPage() || !copyListLoaded || !configLoaded || !extensionEnabled ||
+        copyList.length === 0) {
+      removeCopyListDock();
+      return;
+    }
+    const mounted = copyListDock?.isConnected;
+    if (!copyListDock) copyListDock = buildCopyListDock();
+    if (!mounted) document.body.appendChild(copyListDock);
+    if (mounted && !rebuild) return;
+
+    const panel = copyListDock.querySelector(".stg-mj-copylist__panel");
+    panel.hidden = !copyListOpen;
+    copyListDock.classList.toggle("stg-mj-copylist--open", copyListOpen);
+    copyListDock.querySelector(".stg-mj-copylist__toggle")
+      .setAttribute("aria-expanded", String(copyListOpen));
+    copyListDock.querySelector(".stg-mj-copylist__count").textContent =
+      copyList.length === 1 ? "1 link" : `${copyList.length} links`;
+    copyListDock.querySelector(".stg-mj-copylist__rows")
+      .replaceChildren(...copyList.map((entry, index) => buildCopyListRow(entry, index + 1)));
+  }
+
   function createMidjourneyMediaWidget(target) {
     const widget = document.createElement("div");
     widget.className = "stg-mj-quick-save";
@@ -4687,6 +5062,7 @@
       <div class="stg-mj-menu" role="listbox" aria-label="Collections" aria-multiselectable="true" hidden></div>
     `;
     bindExtensionUiEventShield(widget);
+    if (isMidjourneyPage()) addCopyListButton(widget, target);
 
     const mainButton = widget.querySelector(".stg-mj-save-main");
     const arrowButton = widget.querySelector(".stg-mj-save-arrow");
@@ -4838,6 +5214,7 @@
       return;
     }
     if (!configLoaded || !extensionEnabled || !isPersistentSaveSite()) return;
+    syncCopyListDock();
     if (suppressMidjourneySaveUiForViewer()) return;
 
     dropOrphanedMidjourneyBadgeAttrs();
@@ -4858,6 +5235,7 @@
       endPageControlRectPass();
     }
     updateMidjourneyWidgetPositions();
+    syncAllCopyListButtons();
     updateMidjourneyLikedNavigation();
     syncMidjourneyNotesPresence();
     ensureBulkSelectUi();
@@ -5734,7 +6112,7 @@
       : undefined;
 
     try {
-      const response = await sendRuntimeMessage({
+      const response = await sendRuntimeMessage(await withMidjourneyMetadata({
         action: "saveImage",
         imageUrl: ctx.imageUrl,
         sourceUrl: ctx.sourceUrl || location.href,
@@ -5750,7 +6128,7 @@
         imageWidth: Number(fileData?.width) || ctx.imageWidth || undefined,
         imageHeight: Number(fileData?.height) || ctx.imageHeight || undefined,
         mediaType: ctx.mediaType || undefined,
-      });
+      }));
       if (!response?.ok) {
         return { ok: false, error: response?.error || "Save failed" };
       }
@@ -6174,6 +6552,9 @@
   // so sweep them before building fresh UI. No-op on a normal page load.
   removeExtensionReloadBanner();
   clearInjectedUi();
+  // The dock survives clearInjectedUi on purpose: viewer pages clear on every
+  // scan. A predecessor's dock is dead, though, so it goes here.
+  for (const staleDock of document.querySelectorAll(".stg-mj-copylist")) staleDock.remove();
   // A pre-takeover predecessor (≤0.4.8) may raise its banner AFTER our first
   // sweep — it only detects the dead context on its next scan tick. Sweep a
   // few more times; it never re-creates the banner once shown.
@@ -6182,6 +6563,7 @@
   }
 
   syncSiteStateFromStorage();
+  startCopyListSync();
   startMidjourneyMediaObserver();
   startXPostObserver();
 

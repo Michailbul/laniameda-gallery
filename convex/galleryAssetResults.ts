@@ -8,6 +8,7 @@ import {
   agentDescriptionSourceValidator,
   bookmarkSummaryValidator,
   cinemaMetadataValidator,
+  midjourneyMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
@@ -64,6 +65,8 @@ export const galleryAssetResultValidator = v.object({
   assetPackId: v.optional(v.id("assetPacks")),
   packSlotIndex: v.optional(v.number()),
   cinemaMetadata: cinemaMetadataValidator,
+  // Set by getGalleryAsset only, so grid pages stay slim.
+  midjourneyMetadata: midjourneyMetadataValidator,
   createdAt: v.number(),
   url: v.optional(v.string()),
   thumbUrl: v.optional(v.string()),
