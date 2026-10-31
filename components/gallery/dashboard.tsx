@@ -151,6 +151,7 @@ import {
 } from "@/lib/collection-worlds";
 import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
+import { useBreakpoint } from "@/lib/use-breakpoint";
 
 type SelectedImage = {
   id: string;
@@ -507,7 +508,8 @@ export function GalleryDashboard({
   const [selectedImage, setSelectedImage] =
     useState<SelectedImage | null>(null);
   // Which frame of an open pack is on show. Held here, not in the panel: the
-  // desktop view and the mobile sheet are both mounted, the keyboard steps
+  // desktop view and the mobile sheet can both be mounted (until the
+  // breakpoint is known, and across a resize), the keyboard steps
   // through frames, and the live per-file read follows the same frame. Tied
   // to the entry it was set for, so opening another entry starts at 0.
   const [slideState, setSlideState] = useState<{
@@ -516,6 +518,13 @@ export function GalleryDashboard({
   }>({ entryId: null, index: 0 });
   const [sheetDismissing, setSheetDismissing] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
+  // Mount only the layout on screen. The desktop sidebar (~4,000 nodes), the
+  // dock and the desktop detail view stay out of the phone's React tree, and
+  // the phone's sheet and bottom nav out of the desktop's. null (server,
+  // hydration) mounts both, as before, and the CSS classes pick one.
+  const breakpoint = useBreakpoint();
+  const mountDesktop = breakpoint !== "phone";
+  const mountPhone = breakpoint !== "desktop";
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
   const [uploadInitialFiles, setUploadInitialFiles] = useState<
@@ -5639,6 +5648,7 @@ export function GalleryDashboard({
       </a>
 
       {/* Sidebar (desktop only) */}
+      {mountDesktop && (
       <div className="hidden md:block">
         <GallerySidebar
           collapsed={sidebarCollapsed}
@@ -5776,6 +5786,7 @@ export function GalleryDashboard({
           }
         />
       </div>
+      )}
 
       {/* Main content area (offset by sidebar) */}
       <div
@@ -6603,7 +6614,7 @@ export function GalleryDashboard({
 
       {/* Desktop expanded view — cardless: the image + details float directly
           on the dark canvas, no modal window. */}
-      {selectedImage && (
+      {selectedImage && mountDesktop && (
         <div
           className="fixed inset-0 z-[70] hidden md:block"
           role="dialog"
@@ -6640,7 +6651,7 @@ export function GalleryDashboard({
       )}
 
       {/* Mobile detail sheet */}
-      {selectedImage && (
+      {selectedImage && mountPhone && (
         <div
           className="fixed inset-0 z-[65] md:hidden"
           role="dialog"
@@ -6695,7 +6706,7 @@ export function GalleryDashboard({
       )}
 
       {/* Mobile bottom nav */}
-      {!selectedImage && (
+      {!selectedImage && mountPhone && (
         <MobileBottomNav
           onAddClick={openAddModal}
           onSearchClick={() => setBrowseSheetOpen(true)}
@@ -6711,7 +6722,7 @@ export function GalleryDashboard({
 
       {/* Phone: the browse sheet behind the Search tab. Rows go through the
           same routes the sidebar and the address bar use. */}
-      {canAccessMyGallery && galleryScope === "mine" && (
+      {mountPhone && canAccessMyGallery && galleryScope === "mine" && (
         <MobileBrowseSheet
           open={browseSheetOpen}
           onClose={() => setBrowseSheetOpen(false)}
@@ -7106,6 +7117,7 @@ export function GalleryDashboard({
       )}
 
       {/* Desktop bottom dock — centered to content area */}
+      {mountDesktop && (
       <div
         className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none"
         style={{
@@ -7146,6 +7158,7 @@ export function GalleryDashboard({
           />
         </div>
       </div>
+      )}
 
       {/* Modals */}
       <UploadModal
