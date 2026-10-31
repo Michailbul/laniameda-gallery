@@ -3,7 +3,8 @@
 // thumb (WebP, fit inside 1440×960, lib/card-thumbnail.ts) and the original.
 // All go in `srcset` with their real widths, and `sizes` says how wide the
 // tile is, so the browser takes the smallest rendition that covers the tile
-// at its pixel density and the original only when nothing else does. The
+// at its pixel density (capped at 2x) and the original only when nothing else
+// does. The
 // detail panel keeps the original: this is only for tiles.
 
 export type GridImageSource = {
@@ -34,17 +35,35 @@ export const GRID_VIDEO_SIZES =
 const usableWidth = (width: number | undefined): width is number =>
   typeof width === "number" && Number.isFinite(width) && width > 0;
 
+/** The densest screen a tile is fetched for. The renditions were cut for a
+ *  2x tile (lib/card-thumbnail.ts); on a 3x phone a 2x tile is sharp, and the
+ *  next rendition up costs twice the bytes and twice the decoded memory. */
+export const GRID_MAX_DENSITY = 2;
+
+/** The screen's pixel density, or 1 where there is no screen (server, tests). */
+const screenDensity = (): number => {
+  if (typeof window === "undefined") return 1;
+  const dpr = window.devicePixelRatio;
+  return typeof dpr === "number" && Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+};
+
 /** `sizes` for one tile: its laid-out width when the grid knows it (the
- *  justified layout does), else the breakpoint estimate. */
+ *  justified layout does), else the breakpoint estimate. Above 2x the width is
+ *  scaled down so the browser picks what a 2x screen would: a 355 px tile on
+ *  a 3x phone asks for 237 px, i.e. 710 device px, so 960w instead of 1440w.
+ *  The known width only exists after the client lays the grid out, so this
+ *  never differs between server and client HTML. */
 export const gridImageSizes = (
   tileWidth: number | undefined,
   kind: "image" | "video" | undefined = "image",
-): string =>
-  usableWidth(tileWidth)
-    ? `${Math.round(tileWidth)}px`
-    : kind === "video"
-      ? GRID_VIDEO_SIZES
-      : GRID_IMAGE_SIZES;
+  density: number = screenDensity(),
+): string => {
+  if (!usableWidth(tileWidth)) {
+    return kind === "video" ? GRID_VIDEO_SIZES : GRID_IMAGE_SIZES;
+  }
+  const scale = density > GRID_MAX_DENSITY ? GRID_MAX_DENSITY / density : 1;
+  return `${Math.max(1, Math.round(tileWidth * scale))}px`;
+};
 
 /**
  * `src`, `srcSet` and `sizes` for a tile. The srcset lists each distinct
@@ -56,8 +75,9 @@ export const buildGridImageAttrs = (
   source: GridImageSource,
   tileWidth?: number,
   kind: "image" | "video" | undefined = "image",
+  density?: number,
 ): GridImageAttrs => {
-  const sizes = gridImageSizes(tileWidth, kind);
+  const sizes = gridImageSizes(tileWidth, kind, density);
   const candidates: Array<{ url: string; width: number }> = [];
   const push = (url: string | undefined, width: number | undefined) => {
     if (!url || !usableWidth(width)) return;
