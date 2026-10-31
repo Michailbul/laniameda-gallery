@@ -254,6 +254,9 @@
       strip.appendChild(section);
     }
     bar.append(top, strip);
+    const hover = (on) => globalScope.SaveToGalleryMoodboardDock?.setHover?.("packs", on);
+    bar.addEventListener("mouseenter", () => hover(true));
+    bar.addEventListener("mouseleave", () => hover(false));
     document.body.appendChild(bar);
     syncSettings();
   }
@@ -276,6 +279,12 @@
       document.querySelectorAll(".stg-pp-bar").forEach((node) => node.remove());
       buildBar();
       syncActive();
+    }
+    // Only while a prompt is being written (the dock decides; see isComposing).
+    const composing = globalScope.SaveToGalleryMoodboardDock?.isComposing;
+    if (typeof composing === "function" && !composing()) {
+      bar.hidden = true;
+      return;
     }
     bar.hidden = false;
     // The moodboard dock stays last in the document, so sit right in front of it.
@@ -329,6 +338,7 @@
       queueLayout();
     }).observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", queueLayout);
+    document.addEventListener("stg-compose-change", queueLayout);
     queueLayout();
   }
 
