@@ -5,7 +5,7 @@ import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
-import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
@@ -27,6 +27,11 @@ const storybookPreviewValidator = v.object({
   height: v.optional(v.number()),
   thumbWidth: v.optional(v.number()),
   thumbHeight: v.optional(v.number()),
+  // Grid renditions (480/960 wide) so the shelf's cover and strip dots can
+  // pick a small file through srcset instead of the 1440 card thumb.
+  thumbVariants: v.optional(
+    v.array(v.object({ width: v.number(), height: v.number(), url: v.string() })),
+  ),
 });
 
 const storybookSummaryValidator = v.object({
@@ -90,6 +95,14 @@ export const listStorybooks = ownerQuery({
               resolveAssetUrl(ctx, asset),
               resolveAssetThumbUrl(ctx, asset),
             ]);
+            const thumbVariants = (asset.thumbVariants ?? [])
+              .flatMap((variant) => {
+                const variantUrl = buildR2PublicUrl(variant.r2Key);
+                return variantUrl
+                  ? [{ width: variant.width, height: variant.height, url: variantUrl }]
+                  : [];
+              })
+              .sort((left, right) => left.width - right.width);
             return {
               assetId: asset._id,
               kind: asset.kind,
@@ -100,6 +113,7 @@ export const listStorybooks = ownerQuery({
               height: asset.height,
               thumbWidth: asset.thumbWidth,
               thumbHeight: asset.thumbHeight,
+              ...(thumbVariants.length > 0 ? { thumbVariants } : {}),
             };
           }),
         );

@@ -2699,6 +2699,12 @@ export function GalleryDashboard({
         previews: storybook.previewAssets.map((preview) => ({
           src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
           kind: preview.kind,
+          variants: preview.thumbVariants,
+          thumbSrc: preview.thumbUrl,
+          thumbWidth: preview.thumbWidth,
+          // A video's url is the clip itself, never an <img> candidate.
+          fullSrc: preview.kind === "image" ? preview.url : undefined,
+          fullWidth: preview.kind === "image" ? preview.width : undefined,
         })),
         };
       }),
