@@ -13,7 +13,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, Micro, errorText } from "@/components/inbox/inbox-ui";
 import { useDesktop } from "@/components/inbox/evidence";
 import { ZoomViewer } from "@/components/inbox/zoom-viewer";
-import { WorldDocProse } from "@/components/gallery/world-doc-prose";
+import { LazyWorldDocProse as WorldDocProse, usePreloadWorldDocProse } from "@/components/gallery/world-doc-prose-lazy";
 import { fullStamp, timeAgo } from "@/components/gallery/world-ui";
 import { LinkChip, Timeline } from "@/components/tasks/task-queue";
 import { TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
@@ -814,6 +814,7 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   header: (context: WallHeaderContext) => ReactNode;
 }) {
   const { isAuthenticated } = useConvexAuth();
+  usePreloadWorldDocProse();
   const cards = useQuery(api.tasks.listTaskCards, isAuthenticated ? { ownerUserId, worldFolderId, limit: TASK_LIMITS.list } : "skip");
   const stacks = useQuery(api.inbox.listInboxStacks, isAuthenticated && !galleryOnly ? { ownerUserId, worldFolderId, status: "open", previewLimit: 1 } : "skip");
   const update = useMutation(api.tasks.updateTask);
