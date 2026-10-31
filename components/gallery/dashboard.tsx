@@ -62,10 +62,8 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
-import { SkillsView } from "./skills-view";
-import { StoriesView } from "./stories-view";
 import { useSavedViews } from "./filter-presets";
-import { PublishAllDialog, type PrivateCountArgs, type PublishAllOutcome } from "./publish-all-dialog";
+import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
 import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
@@ -83,16 +81,30 @@ import {
   resolveFoldersViewWorld,
   resolveWorldStyleScope,
 } from "@/lib/style-scope";
-import { FeaturedPanel } from "./featured-panel";
+import type { AssetFilingTarget, AssetMembership } from "./detail-panel";
+import type { CinemaModalAsset } from "./cinema-modal";
 import {
+  AddToPanel,
+  BookmarksView,
+  CinemaModal,
+  FeaturedPanel,
   GalleryDetailPanel,
-  type AssetFilingTarget,
-  type AssetMembership,
-} from "./detail-panel";
-import { SkillModal } from "./skill-modal";
-import { StorybookModal } from "./storybook-modal";
-import { UploadModal } from "@/components/upload-modal";
-import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
+  MidjourneySrefsView,
+  MoodboardPicker,
+  MoodboardsTab,
+  MotionView,
+  MountOnceOpen,
+  PublishAllDialog,
+  SkillModal,
+  SkillsView,
+  StorybookModal,
+  StoriesView,
+  UploadModal,
+  WorldInstructionsPanel,
+  WorldJournalTab,
+  WorldTasksTab,
+  usePreloadDashboardChunks,
+} from "./lazy-dashboard";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MobileBrowseSheet, type BrowseSheetSection } from "./mobile-browse-sheet";
 import { CopyLinkButton } from "@/components/youtube/copy-link-button";
@@ -118,28 +130,18 @@ import { reachedGalleryInserts } from "@/lib/gallery-stream";
 import { useGalleryStream } from "./use-gallery-stream";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
-import {
-  AddToPanel,
-  type PanelCollection,
-} from "./add-to-panel";
+import type { PanelCollection } from "./add-to-panel";
 import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
-import { BookmarksView } from "@/components/gallery/bookmarks-view";
-import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
 import {
   MoodboardsView,
   type MoodboardAssetSummary,
   type MoodboardPickTarget,
 } from "@/components/gallery/moodboards-view";
-import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
-import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
-import { WorldInstructionsPanel } from "@/components/gallery/world-instructions";
 import type { WorldRef } from "@/lib/world-doc-markdown";
-import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
-import { WorldTasksTab } from "./world-tasks-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
 import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
@@ -149,7 +151,6 @@ import {
   isWorldCollection,
   orderRootCollections,
 } from "@/lib/collection-worlds";
-import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 import { useBreakpoint } from "@/lib/use-breakpoint";
 
@@ -371,6 +372,7 @@ export function GalleryDashboard({
     ""
   ).trim();
   const canAccessMyGallery = Boolean(ownerUserId);
+  usePreloadDashboardChunks(canAccessMyGallery);
 
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
@@ -6785,6 +6787,7 @@ export function GalleryDashboard({
         </div>
       )}
 
+      <MountOnceOpen open={publishAllOpen}>
       <PublishAllDialog
         open={publishAllOpen}
         onClose={() => setPublishAllOpen(false)}
@@ -6793,6 +6796,7 @@ export function GalleryDashboard({
         countArgs={privateCountArgs}
         onPublished={handlePublished}
       />
+      </MountOnceOpen>
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
       {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&
@@ -7165,6 +7169,7 @@ export function GalleryDashboard({
       )}
 
       {/* Modals */}
+      <MountOnceOpen open={isUploadOpen}>
       <UploadModal
         open={isUploadOpen}
         onClose={closeUploadModal}
@@ -7176,18 +7181,24 @@ export function GalleryDashboard({
         canPromoteToPublic={canCuratePublic}
         initialFiles={uploadInitialFiles}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(selectedCinemaAsset)}>
       <CinemaModal
         asset={selectedCinemaAsset}
         onClose={() => setSelectedCinemaAsset(null)}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(selectedSkillId)}>
       <SkillModal
         skillId={selectedSkillId}
         ownerUserId={ownerUserId}
         onClose={() => setSelectedSkillId(null)}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(openStorybookId)}>
       <StorybookModal
         ownerUserId={ownerUserId}
         storybookId={openStorybookId}
@@ -7205,8 +7216,10 @@ export function GalleryDashboard({
         suspended={Boolean(selectedImage)}
         onClose={() => setOpenStorybookId(null)}
       />
+      </MountOnceOpen>
 
       {canAccessMyGallery && (
+        <MountOnceOpen open={featuredPanelOpen}>
         <FeaturedPanel
           ownerUserId={ownerUserId}
           open={featuredPanelOpen}
@@ -7217,6 +7230,7 @@ export function GalleryDashboard({
             if (match) setSelectedImage(match as unknown as SelectedImage);
           }}
         />
+        </MountOnceOpen>
       )}
 
       {canAccessMyGallery && moodboardPicker && (
@@ -7238,6 +7252,7 @@ export function GalleryDashboard({
       )}
 
       {canAccessMyGallery && (
+        <MountOnceOpen open={addToPanelOpen}>
         <AddToPanel
           open={addToPanelOpen}
           onClose={() => setAddToPanelOpen(false)}
@@ -7250,6 +7265,7 @@ export function GalleryDashboard({
           onCreateSubCollection={createSubCollectionFromAssets}
           onUpdateDescription={updateFolderDescription}
         />
+        </MountOnceOpen>
       )}
     </div>
     </CoralToastProvider>
