@@ -10,7 +10,7 @@ import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import UserEdit01Icon from "@hugeicons/core-free-icons/UserEdit01Icon";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useMeasure from "react-use-measure";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
