@@ -239,6 +239,36 @@ export const listTags = query({
   },
 });
 
+// The vocabulary the gallery UI keeps subscribed (upload tag list, bookmark
+// and workflow tag ids, motion facets): id, name and category only. It leaves
+// out usageCount on purpose. bumpTagUsage patches tag docs on every save,
+// retag and delete, which re-runs any query over this table; Convex only pushes
+// a re-run whose result hash changed, so without the counts an agent's save
+// burst no longer re-sends the whole list to every open phone (it did for
+// listTags: 1,365 tags, 276 KB per save). It is also about a third of the size
+// on first load. listTags stays as it was for the agent scripts.
+export const listTagVocabulary = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("tags"),
+      name: v.string(),
+      category: tagCategoryValidator,
+    }),
+  ),
+  handler: async (ctx) => {
+    const tags = await ctx.db
+      .query("tags")
+      .withIndex("by_normalized", (q) => q.gte("normalized", ""))
+      .collect();
+    return tags.map((tag) =>
+      tag.category === undefined
+        ? { _id: tag._id, name: tag.name }
+        : { _id: tag._id, name: tag.name, category: tag.category },
+    );
+  },
+});
+
 // Backfill/repair for tags.canonicalKey (see schema comment). Safe to re-run:
 //   bunx convex run tags:backfillCanonicalKeys
 export const backfillCanonicalKeys = internalMutation({
