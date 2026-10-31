@@ -1265,7 +1265,7 @@ export function GalleryDashboard({
   );
 
   // Image navigation
-  const tags = useQuery(api.tags.listTags, {});
+  const tags = useQuery(api.tags.listTagVocabulary, {});
   // Curated filter pills (admin-managed) — the only tag UI on the main menu.
   // Counts come from the backend using the same predicates the grid filter
   // applies, so pill numbers always match what a click shows.
