@@ -2928,6 +2928,11 @@ export function GalleryDashboard({
         ])
       : null,
   );
+  // Card handlers read the grid through this ref, so their identity does not
+  // change with every page append or Convex re-emit: a new onSelect would
+  // re-render every memoised card at once.
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
 
   // Group similar: clusters of near-identical images by perceptual hash.
   // Hashes load only while the view option is on.
@@ -3205,7 +3210,7 @@ export function GalleryDashboard({
         const plainCollectionIds = new Set(
           collectionFoldersWithCounts.map((folder) => String(folder._id)),
         );
-        const imageById = new Map(images.map((image) => [image.id, image]));
+        const imageById = new Map(imagesRef.current.map((image) => [image.id, image]));
         let moved = 0;
         for (const assetId of assetIds) {
           const image = imageById.get(assetId);
@@ -3261,7 +3266,6 @@ export function GalleryDashboard({
       bulkAssignAssetTypeMutation,
       collectionFoldersWithCounts,
       folderNameById,
-      images,
       ownerUserId,
       setAssetFoldersMutation,
     ],
@@ -3486,7 +3490,7 @@ export function GalleryDashboard({
 
   const removeAssetFromFolder = useCallback(
     async (imageId: string, folderId: string) => {
-      const image = images.find((entry) => entry.id === imageId);
+      const image = imagesRef.current.find((entry) => entry.id === imageId);
       // Gallery variants carry collection memberships or a primary folder.
       // Narrow safely before changing the media's filing.
       const currentFolderIds: string[] = image
@@ -3514,7 +3518,7 @@ export function GalleryDashboard({
         });
       }
     },
-    [folderNameById, images, ownerUserId, setAssetFoldersMutation],
+    [folderNameById, ownerUserId, setAssetFoldersMutation],
   );
 
   // ── One-click exclude ──
@@ -3664,7 +3668,7 @@ export function GalleryDashboard({
         ? Array.from(selectedAssetIds)
         : [imageId];
       const assetIds = ids.filter((id) => {
-        const image = images.find((entry) => entry.id === id);
+        const image = imagesRef.current.find((entry) => entry.id === id);
         return (
           image !== undefined &&
           (image.galleryItemType === "asset" ||
@@ -3699,7 +3703,7 @@ export function GalleryDashboard({
       // somewhere to drop without hunting for a button first.
       setAddToPanelOpen(true);
     },
-    [images, selectedAssetIds],
+    [selectedAssetIds],
   );
 
   // Dropping on a collection ADDS membership, exactly like storybooks below —
@@ -4074,7 +4078,7 @@ export function GalleryDashboard({
       }
       // Cinema frames open the cinema popout (shared-layout animation), not the side panel.
       if (img.pillar === "cinema-inspiration") {
-        const entry = images.find((candidate) => candidate.id === img.id);
+        const entry = imagesRef.current.find((candidate) => candidate.id === img.id);
         const meta =
           entry && "cinemaMetadata" in entry
             ? (entry as { cinemaMetadata?: CinemaModalAsset["metadata"] | null }).cinemaMetadata
@@ -4100,7 +4104,7 @@ export function GalleryDashboard({
         ),
       });
     },
-    [images, toggleAssetSelection],
+    [toggleAssetSelection],
   );
 
   const selectImageByEntry = useCallback(
