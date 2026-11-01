@@ -108,6 +108,9 @@ using `expectedRevision`. Read it and the authenticated content of
 `references/worlds.md` before creating scenes or sheets. Style locks belong to
 worlds; inspiration stories do not.
 
+To package a found recipe as a lock in one call (examples checked, moodboard
+linked, cited or flagged), use `package_style`: references/styles.md.
+
 The private world policy records the current world map and exact rendering
 lanes. Read its current content rather than copying world identities into this
 public reference. A visual storybook keeps one coherent style and cast.

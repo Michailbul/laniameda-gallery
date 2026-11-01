@@ -23,6 +23,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/stories.md", title: "Stories, style locks and filter presets", access: "public" },
   { path: "references/characters.md", title: "Named characters: codes, costumes and asset links", access: "public" },
   { path: "references/moodboards.md", title: "Moodboards: gallery looks mirrored to Midjourney, and collection groups", access: "public" },
+  { path: "references/styles.md", title: "Package a style: recipe to style lock, examples and moodboard", access: "public" },
   { path: "references/inbox.md", title: "The world Inbox: decision cards agents post and Michael answers", access: "public" },
   { path: "references/tasks.md", title: "Tasks: the queue between Michael's review and the agents' work", access: "public" },
   { path: "references/newspapers.md", title: "The morning newspaper: Michael's daily review of what agents did", access: "public" },

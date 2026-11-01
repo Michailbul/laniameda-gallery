@@ -190,6 +190,9 @@ export function createGalleryClient(options = {}) {
       unlink: (character, assetIds) => call("unlink_character_assets", { character, assetIds }),
       delete: character => call("delete_character", { character }),
     },
+    styles: {
+      package: named("package_style"),
+    },
     moodboards: {
       list: named("list_moodboards"), get: moodboardId => call("get_moodboard", { moodboardId }), save: named("save_moodboard"),
       add: (moodboardId, assetIds, note) => call("add_moodboard_items", { moodboardId, assetIds, ...(note ? { note } : {}) }),
