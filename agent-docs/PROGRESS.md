@@ -8,6 +8,20 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — Speed thread finished (#122, #123)
+
+- Grid page first, sidebar data after: on home the first Convex frame went from
+  864,626 B to 407,903 B; the folder tree, tags, counts, saved views and badges
+  follow once the grid's first page is in. `listSkills` takes `slim`;
+  `listStorybooks` sends story head, first beat and world name.
+- Home no longer jumps: the storybook shelf opens from the last visit's books
+  (home addresses only). Lighthouse mobile `/` 10 → 56, CLS 0.545 → 0, TBT
+  6.1 s → 0.6 s; signed out `/` and `/w/dear-annete` 98.
+- `thumbnails:backfillCardThumbnails` takes `assetIds`; the 40 shelf previews
+  without 480/960 renditions were rebuilt.
+- Grid virtualisation measured unnecessary. Report, data, decisions and next
+  steps: `agent-docs/perf/report-2026-11-01.md` (+ `.html`).
+
 ### 2026-11-01 — Questions for Michael are pictures (branch `feat/visual-asks`)
 
 - A blocked task needs an `ask`: one-line question (≤140), 2–4 options, each

@@ -1,0 +1,65 @@
+[
+ {
+  "kind": "skip",
+  "verdict": "Not built",
+  "title": "Grid virtualisation",
+  "why": "Native lazy loading already keeps far tiles from downloading, and .card-base's content-visibility already bounds style and paint. Unmounting tiles would add marquee and re-entry complexity for no download saving.",
+  "evidence": "Live /, 390x844 at DPR 3, cache off, focus emulated, no eager forcing: at load 36 tiles mounted, 27 of them more than 1.5 screens below the fold, 3 of those 27 downloaded. After 10 screens of scrolling: 72 tiles, 5,816 DOM nodes, 63 image requests. The 31 Oct refuter's 4x-CPU scroll showed the same frame-time distribution at 37 and 109 mounted tiles."
+ },
+ {
+  "kind": "done",
+  "verdict": "Live",
+  "title": "Sidebar data after the grid",
+  "why": "On home the folder tree, folder counts, tag vocabulary, saved views and the inbox/task badges now subscribe after the grid's first page is in, and skills and storybooks travel slimmer. A world address still loads the folder tree first, because it picks the world's grid from it.",
+  "evidence": "First websocket frame on / (raw JSON): 864,626 B before, 407,903 B after; it still carries the grid page (149,788 B), the shelf (54,629 B) and the skill cards (195,186 B). The support frame follows 0.45 s later unthrottled. /w/dear-annete first frame: 1,003,912 B (31 Oct) to 624,138 B."
+ },
+ {
+  "kind": "done",
+  "verdict": "Live",
+  "title": "Home layout shift",
+  "why": "The storybook shelf arrived above the grid about 5 s in and pushed everything down. It now opens from the last visit's books and reads its collapsed state before the first paint.",
+  "evidence": "Lighthouse mobile /, CLS 0.545 (30 Oct and 1 Nov before) to 0 (median of 3 after #123). The world route regression this caused in #122 (CLS 0.545) is fixed in #123."
+ },
+ {
+  "kind": "done",
+  "verdict": "Live",
+  "title": "480/960 renditions for shelf previews",
+  "why": "The repo's own sharp backfill now takes a list of asset ids, so it ran on the shelf previews alone instead of rewriting 4,867 thumbs across the vault. No paid image service is involved.",
+  "evidence": "40 of 63 shelf preview images lacked renditions; thumbnails:backfillCardThumbnails {assetIds} rebuilt 40, failed 0. A full-table dry run lists 4,867 candidates; that wider pass was left alone."
+ },
+ {
+  "kind": "note",
+  "verdict": "Written down",
+  "title": "Folder descriptions stay in the tree",
+  "why": "Descriptions are 111 KB of the 210 KB folder tree, but the Add-to drawer edits them from that list, so a cut-down copy could save a truncated description. On home the tree is no longer in the first frame; on a world address it costs about 35 KB on the wire.",
+  "evidence": "folders:listFolders, 259 rows: description 110,931 B of 209,415 B raw. Editor: add-to-panel DescriptionEditor seeded from the folder list."
+ },
+ {
+  "kind": "note",
+  "verdict": "Next",
+  "title": "Home LCP is the data chain, not the image",
+  "why": "The largest paint on / and /w is the first grid tile. It already loads eager with fetchpriority=high, but the browser only learns its URL after the JS, the sign-in check and the first Convex frame. Server-rendering the first row of tiles (or preloading their 480w URLs from the server) is the next lever. That is an architecture change, so this thread stopped short of it.",
+  "evidence": "Lighthouse mobile / after #123, median run: LCP 7.2 s, of which resource load delay 1,580 ms and load duration 130 ms (lcp-breakdown); 'request discoverable in initial document: false'. Signed-out / (no Convex wait): LCP 1.1 s."
+ },
+ {
+  "kind": "note",
+  "verdict": "Next",
+  "title": "/tasks review wall shifts",
+  "why": "/tasks changed into the review wall after 30 Oct and now carries 1.4 MB of images. Its wall shifts once as it fills. It is outside this thread (no speed PR touched it) and needs its own fix: reserved heights for the wall strip.",
+  "evidence": "Lighthouse mobile /tasks, 3 runs after #123: score 57 / 59 / 52, CLS 0.113 / 0.113 / 0.209 on main.lmw-wall, LCP 6.7 s on div.lmw-strip img. 30 Oct: score 74, 516 KiB."
+ },
+ {
+  "kind": "note",
+  "verdict": "Next",
+  "title": "Folder tree re-sent on every agent save",
+  "why": "While an agent was saving, listFolders (210 KB) and folderAssetCounts were re-sent with each grid re-emit, about every 2.5 s. Filing an asset patches the denormalized folders.memberCount (recountFolderMembers), which changes the folder list. Serving counts apart from the tree (the UI already has folderAssetCounts) would stop the re-send.",
+  "evidence": "Live /, LTE + 4x CPU, 1 Nov 20:55: frames at 4.7, 7.2 and 9.8 s each 378-381 KB, carrying folders:listFolders 210,182 B and assets:folderAssetCounts 15,298 B."
+ },
+ {
+  "kind": "skip",
+  "verdict": "Not shipped",
+  "title": "The ?skip= switch",
+  "why": "The desktop/mobile detail-panel A/B switch from the 31 Oct refute lived in a throwaway worktree only. It is not on any branch; the two refute worktrees were removed.",
+  "evidence": "git grep 'skip=' on main: no match in components/gallery/dashboard.tsx."
+ }
+]

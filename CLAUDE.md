@@ -138,6 +138,29 @@ bun run typecheck    # TypeScript check
 bun run convex:dev   # Local Convex backend; does not publish the real gallery
 ```
 
+## Speed is rule one (set 30 Oct 2026)
+
+Michael's words: the gallery must feel and be fast, with no lag; it is the number one rule.
+It is read on a phone, one thumb, often on a slow link. So, for every change:
+
+- Measure before you merge. Lighthouse mobile (performance only) on `/`, `/w/dear-annete`,
+  `/tasks`, `/inbox`, plus the route you touched; `npm run build` route sizes; the byte size of
+  the Convex payloads you subscribe to. A route that gets slower does not ship.
+- Grids are paginated; the dashboard never holds the whole vault in React state. Far tiles rely
+  on native lazy loading and `content-visibility`; windowing was measured unnecessary on 1 Nov
+  (`agent-docs/perf/report-2026-11-01.md`). Re-measure before adding it.
+- The first websocket frame carries what the first screen draws (grid page, shelf, skill cards);
+  sidebar and support queries subscribe after the grid's first page is in.
+- Queries return the fields the screen draws (thumb URL, size, id, title) and nothing else; no
+  `await` inside a loop over rows when one indexed query would do; no subscription for a tab
+  that is not on screen.
+- Images: the 480/960 WebP variants with `srcset`/`sizes` that match the column width, the
+  original never in a grid, `loading="lazy"` below the fold, `fetchpriority="high"` on the first
+  row, reserved aspect ratios so nothing shifts, a colour under every picture before it lands.
+- JavaScript: tabs, modals, editors and readers are `dynamic()` imports; no heavy library in the
+  first-load JS of `/` and `/w`; no inline object or closure per card per render; memoised rows.
+- The baseline and the per-PR measurements live under `agent-docs/perf/`.
+
 ## Verification
 Use lint, type checking, builds and native operational readbacks suited to the
 change. Follow the user's validation directions; the approved 8 October audit

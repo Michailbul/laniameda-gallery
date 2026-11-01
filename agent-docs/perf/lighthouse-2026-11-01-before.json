@@ -1,0 +1,218 @@
+{
+ "label": "1 Nov 2026, before #122",
+ "runs": {
+  "home": {
+   "route": "/",
+   "url": "https://gallery.laniameda.space/",
+   "fetchTime": "2026-11-01T19:29:08.612Z",
+   "score": 14,
+   "fcpMs": 1944,
+   "lcpMs": 8753,
+   "tbtMs": 4170,
+   "cls": 0.545,
+   "speedIndexMs": 8466,
+   "totalKiB": 1469,
+   "appJsKiB": 415,
+   "imageKiB": 840,
+   "requests": 91,
+   "shifts": [
+    {
+     "score": 0.545,
+     "selector": "div.flex > div.flex > div.min-h-0 > main#gallery-main-content"
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "Unattributable",
+     "totalMs": 3060,
+     "scriptingMs": 347
+    },
+    {
+     "url": "https://gallery.laniameda.space/",
+     "totalMs": 2175,
+     "scriptingMs": 13
+    },
+    {
+     "url": "llery.laniameda.space/_next/static/chunks/4bd1b696-10cb4c9d2844a506.js",
+     "totalMs": 1657,
+     "scriptingMs": 42
+    }
+   ]
+  },
+  "world": {
+   "route": "/w/dear-annete",
+   "url": "https://gallery.laniameda.space/w/dear-annete",
+   "fetchTime": "2026-11-01T19:32:44.900Z",
+   "score": 56,
+   "fcpMs": 1151,
+   "lcpMs": 5178,
+   "tbtMs": 727,
+   "cls": 0.0,
+   "speedIndexMs": 7012,
+   "totalKiB": 857,
+   "appJsKiB": 421,
+   "imageKiB": 221,
+   "requests": 64,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 1486,
+     "scriptingMs": 1259
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 834,
+     "scriptingMs": 138
+    },
+    {
+     "url": "https://gallery.laniameda.space/w/dear-annete",
+     "totalMs": 761,
+     "scriptingMs": 11
+    }
+   ]
+  },
+  "inbox": {
+   "route": "/inbox",
+   "url": "https://gallery.laniameda.space/inbox",
+   "fetchTime": "2026-11-01T19:35:55.174Z",
+   "score": 65,
+   "fcpMs": 1087,
+   "lcpMs": 4087,
+   "tbtMs": 733,
+   "cls": 0.023,
+   "speedIndexMs": 4909,
+   "totalKiB": 990,
+   "appJsKiB": 342,
+   "imageKiB": 432,
+   "requests": 56,
+   "shifts": [
+    {
+     "score": 0.023,
+     "selector": null
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "Unattributable",
+     "totalMs": 969,
+     "scriptingMs": 149
+    },
+    {
+     "url": "chrome-extension://idopcicidlhkbcgoeddlffhojhbhopcb/content.js",
+     "totalMs": 398,
+     "scriptingMs": 363
+    },
+    {
+     "url": "https://gallery.laniameda.space/inbox",
+     "totalMs": 389,
+     "scriptingMs": 14
+    }
+   ]
+  },
+  "tasks": {
+   "route": "/tasks",
+   "url": "https://gallery.laniameda.space/tasks",
+   "fetchTime": "2026-11-01T19:38:53.403Z",
+   "score": 57,
+   "fcpMs": 1083,
+   "lcpMs": 6242,
+   "tbtMs": 472,
+   "cls": 0.113,
+   "speedIndexMs": 6230,
+   "totalKiB": 1258,
+   "appJsKiB": 329,
+   "imageKiB": 722,
+   "requests": 42,
+   "shifts": [
+    {
+     "score": 0.112,
+     "selector": "body.__variable_245d8d > div.lmw > main.lmw-wall"
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 1709,
+     "scriptingMs": 1135
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 693,
+     "scriptingMs": 250
+    },
+    {
+     "url": "https://gallery.laniameda.space/tasks",
+     "totalMs": 435,
+     "scriptingMs": 13
+    }
+   ]
+  },
+  "home-public": {
+   "route": "/ (signed out)",
+   "url": "https://gallery.laniameda.space/",
+   "fetchTime": "2026-11-01T19:39:13.232Z",
+   "score": 98,
+   "fcpMs": 1156,
+   "lcpMs": 1156,
+   "tbtMs": 148,
+   "cls": 0,
+   "speedIndexMs": 2240,
+   "totalKiB": 964,
+   "appJsKiB": 348,
+   "imageKiB": 383,
+   "requests": 42,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 523,
+     "scriptingMs": 472
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 176,
+     "scriptingMs": 11
+    },
+    {
+     "url": "https://gallery.laniameda.space/",
+     "totalMs": 161,
+     "scriptingMs": 8
+    }
+   ]
+  },
+  "world-public": {
+   "route": "/w/dear-annete (signed out)",
+   "url": "https://gallery.laniameda.space/w/dear-annete",
+   "fetchTime": "2026-11-01T19:39:30.113Z",
+   "score": 95,
+   "fcpMs": 1122,
+   "lcpMs": 1122,
+   "tbtMs": 204,
+   "cls": 0,
+   "speedIndexMs": 3607,
+   "totalKiB": 1158,
+   "appJsKiB": 350,
+   "imageKiB": 566,
+   "requests": 52,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 914,
+     "scriptingMs": 771
+    },
+    {
+     "url": "https://gallery.laniameda.space/w/dear-annete",
+     "totalMs": 515,
+     "scriptingMs": 8
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 248,
+     "scriptingMs": 27
+    }
+   ]
+  }
+ }
+}
