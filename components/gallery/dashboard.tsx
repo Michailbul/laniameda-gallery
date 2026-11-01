@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import "@/app/tokens.css";
 import {
   type CollectionSectionKey,
@@ -78,6 +79,11 @@ import {
 } from "./browse-breadcrumb";
 import { CollectionViewActions } from "./collection-view-actions";
 import { StyleScopeSwitcher } from "./style-scope-switcher";
+// The world page's styles strip: its own chunk, loaded once a world is open.
+const WorldStylesStrip = dynamic(
+  () => import("@/components/styles/world-styles-strip").then((module) => module.WorldStylesStrip),
+  { ssr: false },
+);
 import { EmptyFolderPrompt } from "./empty-folder-prompt";
 import type { MidjourneyMetadata } from "@/lib/midjourney-metadata";
 import { CollectionTabs } from "./collection-tabs";
@@ -2055,6 +2061,10 @@ export function GalleryDashboard({
       : activeCollectionFolder
     : undefined;
   const activeWorldKey = activeWorldRoot?.worldKey;
+  // A world root opens on its styles strip (components/styles/world-styles-strip).
+  const worldRootStripShown = Boolean(
+    galleryScope === "mine" && activeWorldKey && activeCollectionFolder && !activeCollectionFolder.parentFolderId,
+  );
   const activeWorldPanel =
     activeWorldKey &&
     activeCollectionFolder &&
@@ -2870,15 +2880,26 @@ export function GalleryDashboard({
       };
     };
     const { groups, ungrouped } = groupChildCollections(stacks);
+    const sections = groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      entries: group.members.map(toEntry),
+    }));
+    // At a world root the styles strip leads; the raw style shelves (some not
+    // named styles yet) move to the end so they do not repeat it.
+    const shelvesLast = worldRootStripShown
+      ? [
+          ...sections.filter((section) => section.label.trim().toLowerCase() !== "styles"),
+          ...sections
+            .filter((section) => section.label.trim().toLowerCase() === "styles")
+            .map((section) => ({ ...section, label: "Style shelves" })),
+        ]
+      : sections;
     return {
       childCollectionEntries: ungrouped.map(toEntry),
-      groupedChildSections: groups.map((group) => ({
-        key: group.key,
-        label: group.label,
-        entries: group.members.map(toEntry),
-      })),
+      groupedChildSections: shelvesLast,
     };
-  }, [stackCollections, storybookChildStacks]);
+  }, [stackCollections, storybookChildStacks, worldRootStripShown]);
 
   const childCollectionIds = useMemo(
     () =>
@@ -6189,7 +6210,14 @@ export function GalleryDashboard({
                 />
               )}
               {!storybooksView && !bookmarksView && !extraTabView &&
+                worldRootStripShown && supportQueriesOn && ownerUserId && activeWorldKey &&
+                viewMode === "grid" && !moodboardsViewActive && !activeWorldPanel && (
+                <WorldStylesStrip key={`styles-${activeWorldKey}`} ownerUserId={ownerUserId} worldKey={activeWorldKey} />
+              )}
+              {!storybooksView && !bookmarksView && !extraTabView &&
                 viewMode === "grid" && !moodboardsViewActive && !activeWorldPanel &&
+                // At a world root the styles strip above stands for it.
+                !worldRootStripShown &&
                 worldStyleScope && worldStyleScope.styles.length > 1 && (
                 <StyleScopeSwitcher
                   styles={worldStyleScope.styles}
