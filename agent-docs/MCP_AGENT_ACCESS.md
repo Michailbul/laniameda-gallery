@@ -15,6 +15,9 @@ with check_connection and get_skill_instructions. /llms.txt and
 World/maintenance resources are owner-only private documents retrieved through
 get_skill_instructions; public Git/plugin files are bootstrap instructions.
 
+A visual map of the tools, their scopes and their limits, dated to its commit, is
+[MCP_CAPABILITIES.html](MCP_CAPABILITIES.html). Live schemas still win over it.
+
 ## No connector
 
 Use scripts/gallery.mjs and importable gallery-client.mjs with Bun; no packages
