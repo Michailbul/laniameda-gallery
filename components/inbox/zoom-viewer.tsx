@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "lucide-react";
 import { shortAssetId } from "@/lib/inbox";
+import type { ZoneActions, ZoneKind } from "@/lib/inbox-zones";
+import { HoverZones } from "./hover-zones";
 import { CopyChip, Micro, RADIUS, SCRIM, mono } from "./inbox-ui";
 
 type View = { scale: number; x: number; y: number };
@@ -13,12 +15,16 @@ const MAX_SCALE = 12;
  * Full-screen look at one card. The thumbnail paints first and the original
  * replaces it when decoded. Pinch or wheel to zoom, drag to pan, double-tap
  * (or 1) for 100 %: one image pixel per screen pixel. Esc or × closes.
+ * At fit size the image carries the Keep / Archive / Comment hover zones;
+ * K, X and C do the same from the keyboard at any zoom.
  */
-export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect, onClose }: {
+export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect, zones, onClose, onZone }: {
   assetId: string; kind: "image" | "video"; url?: string; thumbUrl?: string; width?: number; height?: number;
   /** An artifact's box in 0–1 image coordinates, drawn over the image. */
   defect?: { x: number; y: number; w: number; h: number };
+  zones?: { actions: ZoneActions; kept?: boolean; archived?: boolean; noted?: boolean };
   onClose: () => void;
+  onZone?: (zone: ZoneKind) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(FIT);
@@ -60,6 +66,14 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Capture phase: these keys never reach the stack's own shortcuts
+      // (K there is the duplicates' Keep all).
+      const zone = ({ k: "keep", x: "archive", c: "comment" } as const)[event.key.toLowerCase() as "k" | "x" | "c"];
+      if (zone && zones && onZone && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault(); event.stopPropagation();
+        if (zone === "comment" ? zones.actions.comment : zones.actions[zone]) onZone(zone);
+        return;
+      }
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
       else if (event.key === "1" || event.key === "0") {
         event.preventDefault(); event.stopPropagation();
@@ -68,7 +82,7 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, oneToOne]);
+  }, [onClose, onZone, oneToOne, zones]);
 
   useEffect(() => {
     const element = stage.current;
@@ -147,7 +161,7 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
       onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       {kind === "video" && url
         ? <video src={url} poster={thumbUrl} controls autoPlay playsInline className="absolute inset-0 m-auto max-h-full max-w-full" />
-        : <div className="absolute left-1/2 top-1/2" style={{
+        : <div className="absolute left-1/2 top-1/2" data-izone-archived={zones?.archived} style={{
             width: fitted.w || "100%", height: fitted.h || "100%",
             transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
             transformOrigin: "center", willChange: "transform",
@@ -161,6 +175,7 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
               left: `${defect.x * 100}%`, top: `${defect.y * 100}%`, width: `${defect.w * 100}%`, height: `${defect.h * 100}%`,
               border: `${2 / view.scale}px solid var(--lm-coral)`, boxShadow: "0 0 0 9999px rgba(0,0,0,0.18)",
             }} />}
+            {zones && onZone && view.scale === 1 && <HoverZones {...zones} large onAction={onZone} />}
           </div>}
     </div>
   </div>;
