@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -21,7 +21,10 @@ import {
 export type ShelfBook = {
   id: string;
   name: string;
+  /** The story's head (status, runtime and medium lines). */
   story?: string;
+  /** First story beat, sent by the server so the shelf needs no full text. */
+  hook?: string | null;
   count: number;
   previews: Array<ShelfPreview>;
 };
@@ -35,6 +38,40 @@ export type ShelfPreview = {
   thumbWidth?: number;
   fullSrc?: string;
   fullWidth?: number;
+};
+
+// The shelf opens from the books of the last visit, so it has its final
+// height in the first frame instead of arriving with the Convex data and
+// pushing the whole grid down (home CLS 0.545 on 30 Oct and 1 Nov 2026).
+// The live list replaces it as soon as it lands.
+const shelfCacheKey = (ownerUserId: string) => `lm.storybookShelf.books.v1.${ownerUserId}`;
+
+export function readShelfCache(ownerUserId: string): ShelfBook[] {
+  if (typeof window === "undefined" || !ownerUserId) return [];
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(shelfCacheKey(ownerUserId)) ?? "[]");
+    return Array.isArray(parsed) ? (parsed as ShelfBook[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeShelfCache(ownerUserId: string, books: ShelfBook[]) {
+  if (typeof window === "undefined" || !ownerUserId) return;
+  try {
+    window.localStorage.setItem(shelfCacheKey(ownerUserId), JSON.stringify(books));
+  } catch {
+    /* storage full or blocked: the shelf just waits for the live list */
+  }
+}
+
+const readCollapsed = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
 };
 
 // The shelf card is clamp(240px, 24vw, 292px) wide; the grid view's cards
@@ -106,18 +143,12 @@ export function StorybookShelf({
   const [status, setStatus] = useState<StatusFilter>("active");
   const [world, setWorld] = useState<string | null>(null);
   const [medium, setMedium] = useState<StorybookMedium | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  // Read before the first paint: a shelf that folds after mounting shifts
+  // the grid under it.
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    try {
-      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === "1");
-    } catch {
-      /* storage can be blocked; the shelf just starts open */
-    }
-  }, []);
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -135,7 +166,7 @@ export function StorybookShelf({
     () =>
       books.map((book) => ({
         book,
-        meta: parseStorybookMeta(book.name, book.story),
+        meta: parseStorybookMeta(book.name, book.story, book.hook),
       })),
     [books],
   );

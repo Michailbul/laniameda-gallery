@@ -64,7 +64,12 @@ import {
 import { MasonryGrid } from "@/components/masonry-grid";
 import { useSavedViews } from "./filter-presets";
 import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
-import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
+import {
+  StorybookShelf,
+  readShelfCache,
+  writeShelfCache,
+  type ShelfBook,
+} from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
 import {
@@ -399,6 +404,24 @@ export function GalleryDashboard({
   // The story open in the Stories view, so /stories/<id> can name it.
   const [storiesOpenId, setStoriesOpenId] = useState<string | null>(null);
   const [includeSkills, setIncludeSkills] = useState(true);
+  // Grid first (speed is rule one, 30 Oct 2026). The sidebar and support
+  // queries (folder tree on home, folder counts, tag vocabulary, saved views,
+  // inbox and task badges) subscribe once the grid's first page is in, so
+  // that page travels in a small websocket frame of its own instead of
+  // sharing one ~860 KB frame with them. A timer turns them on regardless.
+  // A world or collection address needs the folder tree to pick its grid,
+  // so there the tree loads at once.
+  const [supportQueriesOn, setSupportQueriesOn] = useState(false);
+  const [startsOnHome] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      (parseGalleryRoute(window.location.pathname, window.location.search)?.route.kind ?? "home") === "home",
+  );
+  useEffect(() => {
+    if (supportQueriesOn) return;
+    const timer = window.setTimeout(() => setSupportQueriesOn(true), 2500);
+    return () => window.clearTimeout(timer);
+  }, [supportQueriesOn]);
   // The Bookmarks tab: saved X posts as post cards, by collection.
   const [bookmarksView, setBookmarksView] = useState(false);
   // The Motion tab: assets tagged motion-design, filtered by their own facets.
@@ -700,7 +723,7 @@ export function GalleryDashboard({
   const { isAuthenticated: convexSignedIn } = useConvexAuth();
   const inboxWorlds = useQuery(
     api.inbox.listInboxWorlds,
-    canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+    canAccessMyGallery && convexSignedIn && supportQueriesOn ? { ownerUserId } : "skip",
   );
   const inboxCountByWorld = useMemo(
     () => new Map((inboxWorlds ?? []).map((row) => [row.worldFolderId as string, row.openCards])),
@@ -711,7 +734,7 @@ export function GalleryDashboard({
   // Tasks link. Blocked ones need Michael; the /tasks page shows them first.
   const taskCounts = useQuery(
     api.tasks.countOpenTasks,
-    canAccessMyGallery && convexSignedIn ? { ownerUserId } : "skip",
+    canAccessMyGallery && convexSignedIn && supportQueriesOn ? { ownerUserId } : "skip",
   );
   const tasksOpenCount = (taskCounts ?? []).reduce((sum, row) => sum + row.open + row.claimed + row.blocked, 0);
 
@@ -1269,7 +1292,12 @@ export function GalleryDashboard({
   );
 
   // Image navigation
-  const tags = useQuery(api.tags.listTagVocabulary, {});
+  // The vocabulary also feeds two grid filters (Bookmarks only, Skills off):
+  // with either on, the grid needs it first.
+  const tags = useQuery(
+    api.tags.listTagVocabulary,
+    supportQueriesOn || bookmarksOnly || !includeSkills ? {} : "skip",
+  );
   // Curated filter pills (admin-managed) — the only tag UI on the main menu.
   // Counts come from the backend using the same predicates the grid filter
   // applies, so pill numbers always match what a click shows.
@@ -1285,11 +1313,11 @@ export function GalleryDashboard({
   );
   const folders = useQuery(
     api.folders.listFolders,
-    canAccessMyGallery ? { ownerUserId } : "skip",
+    canAccessMyGallery && (supportQueriesOn || !startsOnHome) ? { ownerUserId } : "skip",
   );
   const folderAssetCounts = useQuery(
     api.assets.folderAssetCounts,
-    canAccessMyGallery ? { ownerUserId } : "skip",
+    canAccessMyGallery && supportQueriesOn ? { ownerUserId } : "skip",
   );
   const folderNameById = useMemo(
     () =>
@@ -1592,7 +1620,7 @@ export function GalleryDashboard({
       list.push({
         _id: book._id as string,
         name: book.name,
-        description: book.story,
+        description: book.storyHead,
         parentFolderId: world._id,
         group: folder?.group?.trim() || "Storybooks",
         sortOrder: folder?.sortOrder,
@@ -1625,7 +1653,7 @@ export function GalleryDashboard({
   const gridSkills = useQuery(
     api.skills.listSkills,
     canAccessMyGallery && galleryScope === "mine"
-      ? { ownerUserId, previewLimit: 8, excludeTagNames: [CINEMATOGRAPHY_TAG] }
+      ? { ownerUserId, previewLimit: 8, excludeTagNames: [CINEMATOGRAPHY_TAG], slim: true }
       : "skip",
   );
   const deleteSkillMutation = useMutation(api.skills.deleteSkill);
@@ -1637,7 +1665,8 @@ export function GalleryDashboard({
     folders.every((folder) => folder.publicMemberCount !== undefined);
   const publicCollections = useQuery(
     api.assets.listPublicCollections,
-    galleryScope === "public" || (canAccessMyGallery && !ownerPublicCountsReady)
+    galleryScope === "public" ||
+      (canAccessMyGallery && folders !== undefined && !ownerPublicCountsReady)
       ? {}
       : "skip",
   );
@@ -2146,6 +2175,12 @@ export function GalleryDashboard({
         ? mineCreatedPagedAssets : minePagedAssets
       : publicPagedAssets;
   const anyPaginationActive = paginationActive || folderPaginationActive;
+  // The grid's first page is in: the sidebar and support queries may follow.
+  const gridFirstPageIn =
+    !anyPaginationActive || activePagedAssets.status !== "LoadingFirstPage";
+  useEffect(() => {
+    if (gridFirstPageIn) setSupportQueriesOn(true);
+  }, [gridFirstPageIn]);
   // The grid calls this repeatedly while its frontier is exposed; loadMore is
   // a no-op unless a next page is actually available.
   const loadNextGalleryPage = useCallback(() => {
@@ -2699,15 +2734,18 @@ export function GalleryDashboard({
     return source.map(skillCardToEntry);
   }, [folderSkills, gridSkills, showFolderSkillCards]);
 
-  const shelfBooks = useMemo<ShelfBook[]>(
+  const [cachedShelfBooks] = useState(() => readShelfCache(ownerUserId));
+  const liveShelfBooks = useMemo<ShelfBook[] | undefined>(
     () =>
-      (storybooks ?? []).map((storybook) => {
+      storybooks?.map((storybook) => {
         // A storybook inside a world reads "WORLD · Title" on the shelf.
-        const world = storybookWorldById.get(storybook._id as string);
+        const worldName =
+          storybookWorldById.get(storybook._id as string)?.name ?? storybook.worldName;
         return {
         id: storybook._id as string,
-        name: world ? `${world.name} · ${storybook.name}` : storybook.name,
-        story: storybook.story,
+        name: worldName ? `${worldName} · ${storybook.name}` : storybook.name,
+        story: storybook.storyHead,
+        hook: storybook.storyHook ?? null,
         count: storybook.count,
         previews: storybook.previewAssets.map((preview) => ({
           src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
@@ -2723,6 +2761,10 @@ export function GalleryDashboard({
       }),
     [storybookWorldById, storybooks],
   );
+  useEffect(() => {
+    if (liveShelfBooks) writeShelfCache(ownerUserId, liveShelfBooks);
+  }, [liveShelfBooks, ownerUserId]);
+  const shelfBooks = liveShelfBooks ?? cachedShelfBooks;
 
   // Child collections as stack entries, split by display group: grouped
   // children render under their group headings above the grid; the rest
@@ -5215,7 +5257,7 @@ export function GalleryDashboard({
   );
   // The toolbar's VIEWS popover: the saved views, and which filters and
   // collections still exist (a view naming a deleted one cannot be applied).
-  const savedViews = useSavedViews(ownerUserId);
+  const savedViews = useSavedViews(ownerUserId, supportQueriesOn);
   const validViewFilterIds = useMemo(
     () => new Set((menuFilters ?? []).filter((filter) => filter.kind !== "tag" || filter.tagIds.length > 0).map((filter) => String(filter._id))),
     [menuFilters],

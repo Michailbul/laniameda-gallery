@@ -40,9 +40,12 @@ export const activeViewName = ({ presets, current }: Pick<ViewsPanelProps, "pres
   presets?.find((preset) => matchesPreset(preset.filters, current))?.name ?? null;
 
 /** The owner's saved views, for the toolbar (`useViews`). */
-export function useSavedViews(ownerUserId: string) {
+export function useSavedViews(ownerUserId: string, enabled = true) {
   const { isAuthenticated } = useConvexAuth();
-  return useQuery(api.galleryPresets.listPresets, isAuthenticated ? { ownerUserId } : "skip");
+  return useQuery(
+    api.galleryPresets.listPresets,
+    isAuthenticated && enabled ? { ownerUserId } : "skip",
+  );
 }
 
 /**
