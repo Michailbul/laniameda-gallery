@@ -62,10 +62,8 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
-import { SkillsView } from "./skills-view";
-import { StoriesView } from "./stories-view";
 import { useSavedViews } from "./filter-presets";
-import { PublishAllDialog, type PrivateCountArgs, type PublishAllOutcome } from "./publish-all-dialog";
+import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
 import { StorybookShelf, type ShelfBook } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
@@ -84,16 +82,30 @@ import {
   resolveFoldersViewWorld,
   resolveWorldStyleScope,
 } from "@/lib/style-scope";
-import { FeaturedPanel } from "./featured-panel";
+import type { AssetFilingTarget, AssetMembership } from "./detail-panel";
+import type { CinemaModalAsset } from "./cinema-modal";
 import {
+  AddToPanel,
+  BookmarksView,
+  CinemaModal,
+  FeaturedPanel,
   GalleryDetailPanel,
-  type AssetFilingTarget,
-  type AssetMembership,
-} from "./detail-panel";
-import { SkillModal } from "./skill-modal";
-import { StorybookModal } from "./storybook-modal";
-import { UploadModal } from "@/components/upload-modal";
-import { CinemaModal, type CinemaModalAsset } from "./cinema-modal";
+  MidjourneySrefsView,
+  MoodboardPicker,
+  MoodboardsTab,
+  MotionView,
+  MountOnceOpen,
+  PublishAllDialog,
+  SkillModal,
+  SkillsView,
+  StorybookModal,
+  StoriesView,
+  UploadModal,
+  WorldInstructionsPanel,
+  WorldJournalTab,
+  WorldTasksTab,
+  usePreloadDashboardChunks,
+} from "./lazy-dashboard";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MobileBrowseSheet, type BrowseSheetSection } from "./mobile-browse-sheet";
 import { CopyLinkButton } from "@/components/youtube/copy-link-button";
@@ -119,28 +131,18 @@ import { reachedGalleryInserts } from "@/lib/gallery-stream";
 import { useGalleryStream } from "./use-gallery-stream";
 import { canActorAccessByUserId, parseUserIdList } from "@/lib/identity";
 import { writeAssetDragPayload } from "@/lib/asset-drag";
-import {
-  AddToPanel,
-  type PanelCollection,
-} from "./add-to-panel";
+import type { PanelCollection } from "./add-to-panel";
 import {
   resolveAccessibleGalleryScope,
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
-import { BookmarksView } from "@/components/gallery/bookmarks-view";
-import { MidjourneySrefsView } from "@/components/gallery/midjourney-srefs-view";
 import {
   MoodboardsView,
   type MoodboardAssetSummary,
   type MoodboardPickTarget,
 } from "@/components/gallery/moodboards-view";
-import { MoodboardPicker } from "@/components/gallery/moodboard-picker";
-import { MoodboardsTab } from "@/components/gallery/moodboards-tab";
-import { WorldInstructionsPanel } from "@/components/gallery/world-instructions";
 import type { WorldRef } from "@/lib/world-doc-markdown";
-import { WorldJournalTab } from "@/components/gallery/world-journal-tab";
-import { WorldTasksTab } from "./world-tasks-tab";
 import { MoodboardPickBar } from "@/components/gallery/moodboard-pick-bar";
 import { CollectionStackGroups } from "@/components/gallery/collection-stack-groups";
 import { groupChildCollections, orderChildCollections } from "@/lib/collection-groups";
@@ -150,8 +152,8 @@ import {
   isWorldCollection,
   orderRootCollections,
 } from "@/lib/collection-worlds";
-import { MotionView } from "@/components/gallery/motion-view";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
+import { useBreakpoint } from "@/lib/use-breakpoint";
 
 type SelectedImage = {
   id: string;
@@ -372,6 +374,7 @@ export function GalleryDashboard({
     ""
   ).trim();
   const canAccessMyGallery = Boolean(ownerUserId);
+  usePreloadDashboardChunks(canAccessMyGallery);
 
   const [galleryScope, setGalleryScope] = useState<GalleryScope>(
     canAccessMyGallery ? "mine" : "public",
@@ -509,7 +512,8 @@ export function GalleryDashboard({
   const [selectedImage, setSelectedImage] =
     useState<SelectedImage | null>(null);
   // Which frame of an open pack is on show. Held here, not in the panel: the
-  // desktop view and the mobile sheet are both mounted, the keyboard steps
+  // desktop view and the mobile sheet can both be mounted (until the
+  // breakpoint is known, and across a resize), the keyboard steps
   // through frames, and the live per-file read follows the same frame. Tied
   // to the entry it was set for, so opening another entry starts at 0.
   const [slideState, setSlideState] = useState<{
@@ -518,6 +522,13 @@ export function GalleryDashboard({
   }>({ entryId: null, index: 0 });
   const [sheetDismissing, setSheetDismissing] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
+  // Mount only the layout on screen. The desktop sidebar (~4,000 nodes), the
+  // dock and the desktop detail view stay out of the phone's React tree, and
+  // the phone's sheet and bottom nav out of the desktop's. null (server,
+  // hydration) mounts both, as before, and the CSS classes pick one.
+  const breakpoint = useBreakpoint();
+  const mountDesktop = breakpoint !== "phone";
+  const mountPhone = breakpoint !== "desktop";
   const mobileDetailRef = useRef<HTMLDivElement>(null);
   const [isUploadOpen, setUploadOpen] = useState(false);
   const [uploadInitialFiles, setUploadInitialFiles] = useState<
@@ -1258,7 +1269,7 @@ export function GalleryDashboard({
   );
 
   // Image navigation
-  const tags = useQuery(api.tags.listTags, {});
+  const tags = useQuery(api.tags.listTagVocabulary, {});
   // Curated filter pills (admin-managed) — the only tag UI on the main menu.
   // Counts come from the backend using the same predicates the grid filter
   // applies, so pill numbers always match what a click shows.
@@ -2701,6 +2712,12 @@ export function GalleryDashboard({
         previews: storybook.previewAssets.map((preview) => ({
           src: preview.thumbUrl ?? preview.url ?? "/placeholder.svg",
           kind: preview.kind,
+          variants: preview.thumbVariants,
+          thumbSrc: preview.thumbUrl,
+          thumbWidth: preview.thumbWidth,
+          // A video's url is the clip itself, never an <img> candidate.
+          fullSrc: preview.kind === "image" ? preview.url : undefined,
+          fullWidth: preview.kind === "image" ? preview.width : undefined,
         })),
         };
       }),
@@ -2915,6 +2932,11 @@ export function GalleryDashboard({
         ])
       : null,
   );
+  // Card handlers read the grid through this ref, so their identity does not
+  // change with every page append or Convex re-emit: a new onSelect would
+  // re-render every memoised card at once.
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
 
   // Group similar: clusters of near-identical images by perceptual hash.
   // Hashes load only while the view option is on.
@@ -3192,7 +3214,7 @@ export function GalleryDashboard({
         const plainCollectionIds = new Set(
           collectionFoldersWithCounts.map((folder) => String(folder._id)),
         );
-        const imageById = new Map(images.map((image) => [image.id, image]));
+        const imageById = new Map(imagesRef.current.map((image) => [image.id, image]));
         let moved = 0;
         for (const assetId of assetIds) {
           const image = imageById.get(assetId);
@@ -3248,7 +3270,6 @@ export function GalleryDashboard({
       bulkAssignAssetTypeMutation,
       collectionFoldersWithCounts,
       folderNameById,
-      images,
       ownerUserId,
       setAssetFoldersMutation,
     ],
@@ -3473,7 +3494,7 @@ export function GalleryDashboard({
 
   const removeAssetFromFolder = useCallback(
     async (imageId: string, folderId: string) => {
-      const image = images.find((entry) => entry.id === imageId);
+      const image = imagesRef.current.find((entry) => entry.id === imageId);
       // Gallery variants carry collection memberships or a primary folder.
       // Narrow safely before changing the media's filing.
       const currentFolderIds: string[] = image
@@ -3501,7 +3522,7 @@ export function GalleryDashboard({
         });
       }
     },
-    [folderNameById, images, ownerUserId, setAssetFoldersMutation],
+    [folderNameById, ownerUserId, setAssetFoldersMutation],
   );
 
   // ── One-click exclude ──
@@ -3651,7 +3672,7 @@ export function GalleryDashboard({
         ? Array.from(selectedAssetIds)
         : [imageId];
       const assetIds = ids.filter((id) => {
-        const image = images.find((entry) => entry.id === id);
+        const image = imagesRef.current.find((entry) => entry.id === id);
         return (
           image !== undefined &&
           (image.galleryItemType === "asset" ||
@@ -3686,7 +3707,7 @@ export function GalleryDashboard({
       // somewhere to drop without hunting for a button first.
       setAddToPanelOpen(true);
     },
-    [images, selectedAssetIds],
+    [selectedAssetIds],
   );
 
   // Dropping on a collection ADDS membership, exactly like storybooks below —
@@ -4061,7 +4082,7 @@ export function GalleryDashboard({
       }
       // Cinema frames open the cinema popout (shared-layout animation), not the side panel.
       if (img.pillar === "cinema-inspiration") {
-        const entry = images.find((candidate) => candidate.id === img.id);
+        const entry = imagesRef.current.find((candidate) => candidate.id === img.id);
         const meta =
           entry && "cinemaMetadata" in entry
             ? (entry as { cinemaMetadata?: CinemaModalAsset["metadata"] | null }).cinemaMetadata
@@ -4087,7 +4108,7 @@ export function GalleryDashboard({
         ),
       });
     },
-    [images, toggleAssetSelection],
+    [toggleAssetSelection],
   );
 
   const selectImageByEntry = useCallback(
@@ -5636,6 +5657,7 @@ export function GalleryDashboard({
       </a>
 
       {/* Sidebar (desktop only) */}
+      {mountDesktop && (
       <div className="hidden md:block">
         <GallerySidebar
           collapsed={sidebarCollapsed}
@@ -5773,6 +5795,7 @@ export function GalleryDashboard({
           }
         />
       </div>
+      )}
 
       {/* Main content area (offset by sidebar) */}
       <div
@@ -6600,7 +6623,7 @@ export function GalleryDashboard({
 
       {/* Desktop expanded view — cardless: the image + details float directly
           on the dark canvas, no modal window. */}
-      {selectedImage && (
+      {selectedImage && mountDesktop && (
         <div
           className="fixed inset-0 z-[70] hidden md:block"
           role="dialog"
@@ -6637,7 +6660,7 @@ export function GalleryDashboard({
       )}
 
       {/* Mobile detail sheet */}
-      {selectedImage && (
+      {selectedImage && mountPhone && (
         <div
           className="fixed inset-0 z-[65] md:hidden"
           role="dialog"
@@ -6692,7 +6715,7 @@ export function GalleryDashboard({
       )}
 
       {/* Mobile bottom nav */}
-      {!selectedImage && (
+      {!selectedImage && mountPhone && (
         <MobileBottomNav
           onAddClick={openAddModal}
           onSearchClick={() => setBrowseSheetOpen(true)}
@@ -6708,7 +6731,7 @@ export function GalleryDashboard({
 
       {/* Phone: the browse sheet behind the Search tab. Rows go through the
           same routes the sidebar and the address bar use. */}
-      {canAccessMyGallery && galleryScope === "mine" && (
+      {mountPhone && canAccessMyGallery && galleryScope === "mine" && (
         <MobileBrowseSheet
           open={browseSheetOpen}
           onClose={() => setBrowseSheetOpen(false)}
@@ -6767,6 +6790,7 @@ export function GalleryDashboard({
         </div>
       )}
 
+      <MountOnceOpen open={publishAllOpen}>
       <PublishAllDialog
         open={publishAllOpen}
         onClose={() => setPublishAllOpen(false)}
@@ -6775,6 +6799,7 @@ export function GalleryDashboard({
         countArgs={privateCountArgs}
         onPublished={handlePublished}
       />
+      </MountOnceOpen>
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
       {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&
@@ -7103,6 +7128,7 @@ export function GalleryDashboard({
       )}
 
       {/* Desktop bottom dock — centered to content area */}
+      {mountDesktop && (
       <div
         className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none"
         style={{
@@ -7143,8 +7169,10 @@ export function GalleryDashboard({
           />
         </div>
       </div>
+      )}
 
       {/* Modals */}
+      <MountOnceOpen open={isUploadOpen}>
       <UploadModal
         open={isUploadOpen}
         onClose={closeUploadModal}
@@ -7156,18 +7184,24 @@ export function GalleryDashboard({
         canPromoteToPublic={canCuratePublic}
         initialFiles={uploadInitialFiles}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(selectedCinemaAsset)}>
       <CinemaModal
         asset={selectedCinemaAsset}
         onClose={() => setSelectedCinemaAsset(null)}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(selectedSkillId)}>
       <SkillModal
         skillId={selectedSkillId}
         ownerUserId={ownerUserId}
         onClose={() => setSelectedSkillId(null)}
       />
+      </MountOnceOpen>
 
+      <MountOnceOpen open={Boolean(openStorybookId)}>
       <StorybookModal
         ownerUserId={ownerUserId}
         storybookId={openStorybookId}
@@ -7185,8 +7219,10 @@ export function GalleryDashboard({
         suspended={Boolean(selectedImage)}
         onClose={() => setOpenStorybookId(null)}
       />
+      </MountOnceOpen>
 
       {canAccessMyGallery && (
+        <MountOnceOpen open={featuredPanelOpen}>
         <FeaturedPanel
           ownerUserId={ownerUserId}
           open={featuredPanelOpen}
@@ -7197,6 +7233,7 @@ export function GalleryDashboard({
             if (match) setSelectedImage(match as unknown as SelectedImage);
           }}
         />
+        </MountOnceOpen>
       )}
 
       {canAccessMyGallery && moodboardPicker && (
@@ -7218,6 +7255,7 @@ export function GalleryDashboard({
       )}
 
       {canAccessMyGallery && (
+        <MountOnceOpen open={addToPanelOpen}>
         <AddToPanel
           open={addToPanelOpen}
           onClose={() => setAddToPanelOpen(false)}
@@ -7230,6 +7268,7 @@ export function GalleryDashboard({
           onCreateSubCollection={createSubCollectionFromAssets}
           onUpdateDescription={updateFolderDescription}
         />
+        </MountOnceOpen>
       )}
     </div>
     </CoralToastProvider>

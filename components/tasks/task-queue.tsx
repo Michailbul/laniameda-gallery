@@ -8,7 +8,7 @@ import { ArrowLeft, Check, ChevronDown, ChevronRight, ListChecks, Loader2, Plus,
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ActionButton, Badge, CopyChip, Micro, RADIUS, display, errorText, mono } from "@/components/inbox/inbox-ui";
-import { WorldDocProse } from "@/components/gallery/world-doc-prose";
+import { LazyWorldDocProse as WorldDocProse } from "@/components/gallery/world-doc-prose-lazy";
 import { ActorBadge, fullStamp, timeAgo } from "@/components/gallery/world-ui";
 import {
   TASK_LIMITS, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, linkRef, taskRef, type TaskPriority, type TaskStatus,

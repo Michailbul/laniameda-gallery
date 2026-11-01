@@ -62,7 +62,7 @@ export function MotionView({ ownerUserId }: MotionViewProps) {
     tagNames: [MOTION_TAG],
     limit: 2000,
   }) as MotionAsset[] | undefined;
-  const allTags = useQuery(api.tags.listTags, {});
+  const allTags = useQuery(api.tags.listTagVocabulary, {});
 
   // tag name (canonical) -> facet. Tags with no motion category still search
   // and show in the modal, they just have no filter row.

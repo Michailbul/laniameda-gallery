@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import {
   BookOpen,
   ChevronDown,
@@ -11,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
+import { buildGridImageAttrs } from "@/lib/grid-image";
 import {
   parseStorybookMeta,
   type StorybookMedium,
@@ -23,8 +23,50 @@ export type ShelfBook = {
   name: string;
   story?: string;
   count: number;
-  previews: Array<{ src: string; kind?: "image" | "video" }>;
+  previews: Array<ShelfPreview>;
 };
+
+export type ShelfPreview = {
+  src: string;
+  kind?: "image" | "video";
+  /** Renditions for srcset (lib/grid-image.ts), when the asset has them. */
+  variants?: ReadonlyArray<{ url: string; width: number }>;
+  thumbSrc?: string;
+  thumbWidth?: number;
+  fullSrc?: string;
+  fullWidth?: number;
+};
+
+// The shelf card is clamp(240px, 24vw, 292px) wide; the grid view's cards
+// fill minmax(260px, 1fr) columns. The strip dots are 30px.
+const SHELF_COVER_SIZES =
+  "(max-width: 1000px) 240px, (max-width: 1216px) 24vw, 292px";
+const GRID_COVER_SIZES = "(max-width: 640px) 100vw, 400px";
+const STRIP_SIZES = "30px";
+
+function ShelfImage({
+  preview,
+  sizes,
+  className,
+}: {
+  preview: ShelfPreview;
+  sizes: string;
+  className: string;
+}) {
+  const attrs = buildGridImageAttrs(preview);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- srcset over R2 renditions, see lib/grid-image.ts
+    <img
+      src={attrs.src}
+      srcSet={attrs.srcSet}
+      sizes={attrs.srcSet ? sizes : undefined}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`absolute inset-0 h-full w-full ${className}`}
+    />
+  );
+}
 
 type StatusFilter = "active" | StorybookStatus;
 
@@ -624,12 +666,9 @@ function Tile({
         style={{ aspectRatio: "16 / 10", backgroundColor: "var(--surface-3)" }}
       >
         {cover ? (
-          <Image
-            src={cover.src}
-            alt=""
-            fill
-            unoptimized
-            sizes="300px"
+          <ShelfImage
+            preview={cover}
+            sizes={fixedWidth ? SHELF_COVER_SIZES : GRID_COVER_SIZES}
             className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
           />
         ) : (
@@ -674,12 +713,9 @@ function Tile({
                   border: "1px solid rgba(255,244,234,0.55)",
                 }}
               >
-                <Image
-                  src={frame.src}
-                  alt=""
-                  fill
-                  unoptimized
-                  sizes="30px"
+                <ShelfImage
+                  preview={frame}
+                  sizes={STRIP_SIZES}
                   className="object-cover"
                 />
               </div>

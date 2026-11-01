@@ -54,6 +54,29 @@ describe("grid image srcset", () => {
     expect(gridImageSizes(Number.NaN)).toBe(GRID_IMAGE_SIZES);
   });
 
+  test("above 2x the tile asks for what a 2x screen would, so a 3x phone takes 960w, not 1440w", () => {
+    expect(gridImageSizes(355, "image", 3)).toBe("237px");
+    expect(gridImageSizes(355, "image", 2)).toBe("355px");
+    expect(gridImageSizes(355, "image", 1)).toBe("355px");
+    expect(gridImageSizes(355, "image", 2.625)).toBe("270px");
+    expect(gridImageSizes(undefined, "image", 3)).toBe(GRID_IMAGE_SIZES);
+    const attrs = buildGridImageAttrs(
+      {
+        src: thumb,
+        variants: [{ url: "https://r2.example/v/a-480.webp", width: 480 }, { url: "https://r2.example/v/a-960.webp", width: 960 }],
+        thumbSrc: thumb, thumbWidth: 1440, fullSrc: full, fullWidth: 2048,
+      },
+      355,
+      "image",
+      3,
+    );
+    expect(attrs.sizes).toBe("237px");
+    // 237 css px x 3 = 711 device px: the 960w rendition is the smallest that covers it.
+    const needed = 237 * 3;
+    const widths = (attrs.srcSet ?? "").split(", ").map((entry) => Number(entry.split(" ")[1].replace("w", "")));
+    expect(widths.find((width) => width >= needed)).toBe(960);
+  });
+
   test("gallery entries carry the two renditions for the tile", () => {
     const [entry] = buildGalleryEntries({
       sortOrder: "newest",
