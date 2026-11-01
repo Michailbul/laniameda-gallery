@@ -637,7 +637,7 @@ export function StorybookBook({
       <div className="lm-sb-book-top">
         <button type="button" className={`lm-sb-id${idCopied ? " done" : ""}`} onClick={() => void copyId()} title="Copy the storybook ID">
           {idCopied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
-          {idCopied ? "Copied" : storybookId}
+          {idCopied ? "Copied" : `book:…${storybookId.slice(-6)}`}
         </button>
         <div className="lm-sb-modes" role="group" aria-label="View">
           {(
