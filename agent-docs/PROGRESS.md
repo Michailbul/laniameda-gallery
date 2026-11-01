@@ -8,6 +8,26 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — World styles: a world holds several named styles (branch `feature/world-styles-page`)
+
+- New table `worldStyles` (name, slug, one-line look, family, status draft/ready/
+  archived/merged, its shelf, covers, recipes of moodboards + profiles in stack
+  order with parameters, prompt template and frame counts, raises/lowers, style
+  lock story). `folders.universeRootId` joins sibling worlds into one universe
+  (DEAR ANNETE + 3D + Art Deco + Iron Stage) so they read together.
+- Page `/w/<world>/styles[/<style>]`: wide, no sidebar, a carousel of every
+  style in the universe grouped by family, then the style's frames in masonry
+  with the recipe rail (moodboard and profile names; codes only in the Agent
+  view). Keys: ←/→ style, O open frame, A agent view; S/M/L tile size. A Styles
+  tab sits in a world's tab row.
+- Agent tools: list_styles, get_style, save_style, file_style, merge_styles
+  (dryRun), world_universe, and find_assets (batch "is this in the gallery" by
+  Midjourney job + index, mj-<job>-<i> file names, board short ids, URLs).
+  Route `/api/agent/styles`; registered in the hosted MCP route map.
+- Seeded 23 DEAR ANNETE styles as drafts from the Look Library board
+  (session `world-styles-seed-2026-11-01`); five looks with no shelf yet wait
+  for the 3D-in-Film call.
+
 ### 2026-11-01 — Extension 0.17.0: ⌘⇧P saves with the last settings (branch `feat/extension-sticky-save`)
 
 - ⌘⇧P (Ctrl+Shift+P) saves the image under the pointer, or Midjourney's open

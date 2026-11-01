@@ -257,7 +257,7 @@ function StyleCard({ style, active, onChoose, view }: { style: Card; active: boo
       </span>
       <span className="mt-2 block truncate text-[13px] font-extrabold uppercase leading-tight tracking-tight" style={display}>{style.name}</span>
       <span className="mt-0.5 block truncate text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
-        {style.frameCount} frames{view === "agent" ? ` · ${style.slug}` : ""}
+        {framesLabel(style.frameCount)}{view === "agent" ? ` · ${style.slug}` : ""}
       </span>
     </button>
   );
@@ -271,7 +271,7 @@ function StyleHeader({ card, detail, view }: { card: Card; detail: Detail | unde
       <div className="flex flex-wrap items-center gap-2">
         <span className="lms-chip">{card.world.short}</span>
         <span className="lms-chip" data-tone={card.status}>{card.status === "ready" ? "Ready" : card.status === "draft" ? "Draft" : card.status}</span>
-        <span className="lms-chip">{card.frameCount} frames</span>
+        <span className="lms-chip">{framesLabel(card.frameCount)}</span>
         {view === "agent" ? <CopyChip value={`style:${card.id}`} title="Copy the style id for an agent" /> : null}
       </div>
       <h2 className="mt-3 text-[34px] font-black uppercase leading-[0.92] tracking-tight md:text-[56px]" style={display}>{card.name}</h2>
@@ -284,6 +284,8 @@ function StyleHeader({ card, detail, view }: { card: Card; detail: Detail | unde
     </div>
   );
 }
+
+const framesLabel = (count: number, noun = "frame") => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 function FrameGrid({ frames, size, covers, loading, canLoadMore, onLoadMore, onOpen, onHover, view }: {
   frames: Frame[]; size: Size; covers: string[]; loading: boolean; canLoadMore: boolean; onLoadMore: () => void;
@@ -384,7 +386,7 @@ function RecipeRail({ detail, view }: { detail: Detail | undefined; view: View }
                 </div>
               ))}
             </div>
-            {recipe.frames !== undefined ? <p className="mt-2 text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>Made {recipe.frames} saved frames</p> : null}
+            {recipe.frames !== undefined ? <p className="mt-2 text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>Made {framesLabel(recipe.frames, "saved frame")}</p> : null}
             {agent ? <AgentRecipe recipe={recipe} /> : null}
             {recipe.template ? <Template recipe={recipe} agent={agent} /> : null}
             {recipe.note ? <p className="mt-2 text-[12px] leading-relaxed" style={{ color: "var(--lm-text-secondary)" }}>{recipe.note}</p> : null}
