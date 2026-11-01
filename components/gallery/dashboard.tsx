@@ -121,6 +121,7 @@ import {
   parseGalleryRoute,
   resolveWorldSegment,
   worldSegment,
+  worldStylesPath,
   type GalleryLocation,
   type GalleryRoute,
 } from "@/lib/gallery-routes";
@@ -6157,6 +6158,7 @@ export function GalleryDashboard({
                   showFolders={Boolean(foldersViewWorldId)}
                   showWorldTabs={Boolean(activeWorldKey)}
                   worldFolderId={activeWorldRoot ? String(activeWorldRoot._id) : undefined}
+                  stylesHref={activeWorldKey ? worldStylesPath(activeWorldKey) : undefined}
                   always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
                   active={
                     viewMode === "collections"

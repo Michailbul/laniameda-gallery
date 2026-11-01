@@ -1,30 +1,122 @@
-# Package a style: recipe to style lock, examples and moodboard
+# Styles: a world's named looks, their recipes and frames
 
-A found look becomes reusable when an agent can read one record and make it
-again. That record is a world style lock (a Story of kind `style-lock`) with
-the recipe, a copy-ready prompt, the example frames with their full prompts,
-the moodboards behind the codes and what raises or lowers the look.
-`package_style` builds it in one call. Use it when Michael likes a recipe and
-asks for it to be kept, or when a board of likes shows one recipe that works.
+A world holds several styles. DEAR ANNETE has Ink Noir, Lantern Dusk, Lacquer
+& Brass, Long Sun and more, spread over its sibling worlds (Film, 3D, Art Deco,
+Iron Stage). A style is **how a frame is made**: medium, rendering, light,
+palette. It holds any subject. Places, compositions, motifs, shot types and
+sheet setups are not styles (Michael, 1 Nov 2026); keep those as tags
+(`motif-*`) or shelves in other groups.
 
-## Before the call
+Each style is one record (`style:<id>`) with:
+
+| Part | What it is |
+|---|---|
+| name, line | The style's name and one plain sentence on how a frame in it looks |
+| family | Carousel group inside the universe (Film, Art Deco, 3D); default the world's short name |
+| status | `draft` → `ready` (Michael's word only); `archived`; `merged` (set by merge_styles) |
+| shelf | The child collection (group Styles) holding its frames. Frames = the shelf's members |
+| covers | Up to 12 frames, in order; the first is its face in the carousel |
+| recipes | Up to 8, the first is the main one: gallery moodboards and Midjourney profiles in stack order, codes with no gallery record yet (`unknownCodes`), parameters, a copy-ready prompt template, how many frames it made, a note |
+| raises, lowers | What pushes the look up and what breaks it, with numbers when measured |
+| lock | The style lock story (`package_style`) holding the long recipe text |
+
+The styles page shows it: `https://gallery.laniameda.space/w/<world>/styles[/<style slug>]`
+(`list_styles` and `get_style` return the `url`). Wide, no sidebar: every
+style of the universe across the top as cover cards, grouped by family; the
+chosen style's frames in big masonry; its recipe beside them. HUMAN view shows
+moodboard and profile **names** only; AGENT view adds codes, ids and a "Copy
+for agent" brief. The prompt template shows codes as names and copies as the
+runnable text.
+
+## Universes
+
+Sibling worlds of one story universe read together. `world_universe {world,
+universe}` puts a world into another world's universe (DEAR ANNETE — 3D,
+— ART DECO and IRON STAGE join `dear-annete`); `universe: null` takes it out.
+One level only. It changes nothing about membership: filing, moodboards,
+stories and characters stay per world, and an asset still belongs to one world.
+`open_world` returns `universe` (the head world and its members) and
+`world.stylesUrl`.
+
+## Tools
+
+```text
+list_styles  { world, universe?: true, includeArchived?, covers?: 2 }
+get_style    { style, world?, frames?: 0..60 }          // frames with prompt excerpts
+save_style   { world, style?, name?, line?, family?, status?, shelf?, coverAssetIds?, addCoverAssetIds?,
+               recipes?: [{ name?, moodboardIds[], profileIds[], unknownCodes[], parameters?, template?, frames?, note? }],
+               raises?, lowers?, lockStoryId?, notes?, sortOrder?, expectedRevision?, session }
+file_style   { style, world?, assetIds[], remove?, covers?, move?, note?, session }
+merge_styles { from, into, world?, move?, dryRun?, session }
+world_universe { world, universe | null, session }
+find_assets  { items[] }                                // "is this in the gallery?"
+```
+
+- A style is named by `style:<id>`, or by its name or slug with `world` (the
+  world's own styles first, then the rest of its universe).
+- `save_style` without `style` creates. With no `shelf`, it uses the shelf of
+  the same name or makes one in the group Styles. To adopt an existing Styles
+  shelf, name it (`list_styles` lists `unrecordedShelves`: Styles shelves with
+  no record yet). A rename also renames the shelf when the shelf carried the
+  old name. `shelf: null` unlinks it; the shelf and its frames stay.
+- `coverAssetIds` replaces the covers, `addCoverAssetIds` puts frames first and
+  keeps the rest. Covers must be pieces of the style's world.
+- Recipes take ids: moodboards from `open_world` / `list_moodboards`, profiles
+  by id, name or code from `mj_profiles`. A code the gallery has no board or
+  profile for goes in `unknownCodes`; the page shows it as "unnamed profile"
+  until it is registered (`mj_profiles save`) or its board is made (gallery
+  board first, references/moodboards.md).
+- `file_style` is `world_file` onto the style's shelf, 100 per journaled change,
+  any number per call. `covers: true` also makes them the first covers.
+- `merge_styles` (dry run first): the `from` frames move onto `into`'s shelf
+  (off `from`'s shelf), recipes, covers, raises and lowers join, `from` becomes
+  `merged` pointing at `into`, and its empty shelf moves to the group Merged.
+  Nothing is deleted. Across two worlds of a universe only with `move: true`
+  on Michael's word (the frames change worlds).
+- Every write is journaled in its world (`style.save`, `style.merge`,
+  `world.universe`, plus the `assets.file` and `shelf.*` entries it makes);
+  `world_undo` with the session reverts it as a unit.
+- Never publish, star or delete as part of style work.
+
+## "Is this in the gallery?" for local boards
+
+`find_assets { items }` takes up to 500 references in any mix and answers each
+with `found`, the matching `asset:<id>`s, their Midjourney job and tile, the
+worlds and styles they are in and a thumbnail:
+
+- `https://www.midjourney.com/jobs/<job>?index=2`, `https://cdn.midjourney.com/<job>/0_2.png`
+- the saved file name `mj-<job>-2.png`
+- a local board's short id `<first 8 hex of the job>-<tile>` (`04fc5ee9-2`)
+- a bare job id (every tile of the job), `asset:<id>`
+- any other source URL, an exact file name or an ingestKey
+
+A board builder runs it once over its frame ids before a round and marks what
+is saved and where. `check_sources` stays for exact post permalinks.
+
+## Making a style from a found look
 
 1. `open_world` for the world the look belongs to. Decide the world by the
    picture, not the recipe: a recipe that renders glossy 3D belongs in the 3D
-   world even when its moodboard is an Art Deco board. A look that is its own
-   universe (Iron Stage) has its own world.
-2. The examples are saved in that world with their full prompts. Check with
-   `get_gallery_item`; save missing frames with `save_assets` first (full
-   Midjourney command, `sourceUrl` = the job permalink, `generated_output`).
-   Frames in another world are refused; move them with `world_file` only when
-   Michael said so.
-3. A style shelf in the group Styles (`world_shelf`) is optional. Given, the
-   lock and the examples are filed there.
-4. Count what you can: how many takes of the recipe hit the look, how many he
-   liked, what one change (a word, `--raw`, a profile) did. Those numbers go
-   into `raises`, `lowers` and `evidence`. Write "not measured" over guessing.
+   world even when its moodboard is an Art Deco board.
+2. Check the frames are saved (`find_assets`); save missing ones with
+   `save_assets` (full Midjourney command, `sourceUrl` = the job permalink,
+   `generated_output`).
+3. `save_style { world, name, line, recipes, covers }`, then
+   `file_style { style, assetIds }`. Count what you can: how many takes of the
+   recipe hit the look, how many he liked, what one change did. Those numbers
+   go into `recipes[].frames`, `raises` and `lowers`. Write "not measured"
+   over guessing.
+4. For the long recipe text, `package_style` (below) and then `save_style
+   { style, lockStoryId }`.
+5. A name the agent proposed, a status change to ready or a merge is
+   Michael's call: post it to the world's Inbox (`post_inbox_cards`).
 
-## The call
+## package_style: recipe to style lock
+
+A style lock (a Story of kind `style-lock`) carries the long recipe: a
+copy-ready prompt, the example frames with their full prompts, the moodboards
+behind the codes and what raises or lowers the look. `package_style` builds it
+in one call.
 
 ```text
 package_style {
@@ -39,8 +131,6 @@ package_style {
 ```
 
 Run it with `dryRun: true` first and read the body. Then run it without.
-
-## What it does
 
 - Reads every example, refuses one outside the world, and copies its full
   prompt into the lock.
@@ -62,15 +152,13 @@ Run it with `dryRun: true` first and read the body. Then run it without.
 - Never creates, edits or syncs a moodboard, never touches Midjourney, never
   stars or publishes.
 
-## After the call
+After the call: read the lock back with `get_story`; link it to the style
+(`save_style { style, lockStoryId }`); if the board is borrowed from another
+world, add a line to that board's `notes` naming the style that uses it;
+register a profile the recipe uses with `mj_profiles` (op save, world) if the
+world does not list it yet; add the style to WORLD.md's Styles section
+(`world_doc`).
 
-- Read the lock back with `get_story` and check the examples and moodboard
-  lines against live reads before reporting.
-- A name the agent proposed, a status change or a shelf rename is Michael's
-  call: post it to the world's Inbox (`post_inbox_cards`, a rule card).
-- If the board is borrowed from another world, add a line to that board's
-  `notes` (`save_moodboard` patch) naming the style that uses it, so the link
-  can be found from both sides.
-- Register a profile the recipe uses with `mj_profiles` (op save, world) if
-  the world does not list it yet.
-- Add the style to WORLD.md's Styles section (`world_doc`).
+`open_world` still lists `styles` (style tags with their locks and board
+counts) beside `worldStyles` (the named style records). The style tag is a
+lane (da-film, da-deco) that many named styles share.

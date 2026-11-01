@@ -19,6 +19,7 @@ import { POST as commentsPost } from "@/app/api/agent/comments/route";
 import { POST as editsPost } from "@/app/api/agent/edits/route";
 import { POST as inboxPost } from "@/app/api/agent/inbox/route";
 import { POST as worldsPost } from "@/app/api/agent/worlds/route";
+import { POST as stylesPost } from "@/app/api/agent/styles/route";
 import { POST as tasksPost } from "@/app/api/agent/tasks/route";
 import { POST as newspaperPost } from "@/app/api/agent/newspaper/route";
 
@@ -31,6 +32,7 @@ export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response
   "/api/agent/edits": editsPost,
   "/api/agent/inbox": inboxPost,
   "/api/agent/worlds": worldsPost,
+  "/api/agent/styles": stylesPost,
   "/api/agent/tasks": tasksPost,
   "/api/agent/newspaper": newspaperPost,
   "/api/agent/skills": skillsPost,

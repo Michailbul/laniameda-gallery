@@ -177,6 +177,7 @@ export function createGalleryClient(options = {}) {
       search: (query, filters = {}) => call("search_gallery", { query, ...filters }), similar: byId("find_similar"),
       save: named("save_asset"), saveMany: items => call("save_assets", { items }), update: named("update_gallery_item"), delete: named("delete_gallery_item"),
       setPoster: (assetId, posterUploadId) => call("set_video_poster", { assetId, posterUploadId }),
+      find: items => call("find_assets", { items }),
     },
     collections: { list: named("list_collections"), create: named("create_collection"), update: named("update_collection"), setOption: named("set_collection_option"), delete: folderId => call("delete_collection", { folderId }) },
     menuFilters: { list: named("list_menu_filters") },
@@ -191,7 +192,9 @@ export function createGalleryClient(options = {}) {
       delete: character => call("delete_character", { character }),
     },
     styles: {
-      package: named("package_style"),
+      list: named("list_styles"), get: (style, fields = {}) => call("get_style", { style, ...fields }),
+      save: named("save_style"), file: named("file_style"), merge: named("merge_styles"),
+      universe: named("world_universe"), package: named("package_style"),
     },
     moodboards: {
       list: named("list_moodboards"), get: moodboardId => call("get_moodboard", { moodboardId }), save: named("save_moodboard"),

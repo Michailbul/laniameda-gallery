@@ -160,3 +160,20 @@ test("inbox tools reach one scoped route, state facts only and disclose their ef
   expect(contract.resources).toContain("inbox");
   expect(contract.limits).toMatchObject({ postInboxCards: 100 });
 });
+test("style tools reach the styles route, read tools are read-only and writes take a session", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  for (const name of ["list_styles", "get_style", "find_assets"]) expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+  for (const name of ["save_style", "file_style", "merge_styles", "world_universe"]) {
+    expect(tools.get(name)!.config.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(Object.keys(tools.get(name)!.config.inputSchema as JsonRecord)).toContain("session");
+  }
+  await tools.get("list_styles")!.handler({ world: "dear-annete" });
+  await tools.get("merge_styles")!.handler({ from: "style:a", into: "style:b", dryRun: true });
+  await tools.get("find_assets")!.handler({ items: ["04fc5ee9-2"] });
+  expect(calls).toEqual([
+    { path: "/api/agent/styles", input: { action: "list", world: "dear-annete" } },
+    { path: "/api/agent/styles", input: { action: "merge", from: "style:a", into: "style:b", dryRun: true } },
+    { path: "/api/agent/styles", input: { action: "lookup", items: ["04fc5ee9-2"] } },
+  ]);
+});

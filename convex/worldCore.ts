@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { canonicalFolderName } from "./folderHelpers";
 
 // A world is a root collection marked with `worldKey`. Its children (style
 // branches, shelves, storybooks) belong to it; nothing belongs to two worlds.
@@ -177,6 +178,28 @@ export const listWorldRoots = async (ctx: Ctx, owner: string) => {
   return [...new Map(rows.map((row) => [row._id, row])).values()].sort((a, b) => a.name.localeCompare(b.name));
 };
 
+/* ── Shelves ─────────────────────────────────────────────────────────────── */
+
+export type ShelfState = {
+  folderId: Id<"folders">; name: string; normalizedName?: string; description?: string; group?: string;
+  sortOrder?: number; parentFolderId?: Id<"folders">; kind?: "storybook";
+};
+
+export const shelfState = (folder: Folder): ShelfState => ({
+  folderId: folder._id, name: folder.name, normalizedName: folder.normalizedName, description: folder.description,
+  group: folder.group, sortOrder: folder.sortOrder, parentFolderId: folder.parentFolderId, kind: folder.kind,
+});
+
+export const scopedName = (name: string, parent: Id<"folders"> | undefined) =>
+  parent ? `${parent}/${canonicalFolderName(name)}` : canonicalFolderName(name);
+
+export const assertNameFree = async (ctx: Ctx, owner: string, normalizedName: string, self?: Id<"folders">) => {
+  for (const candidate of resolveUserIdCandidates(owner)) {
+    const clash = await ctx.db.query("folders").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("normalizedName", normalizedName)).first();
+    if (clash && clash._id !== self) throw new ConvexError(`A collection named "${clash.name}" already exists there.`);
+  }
+};
+
 export const childrenOf = async (ctx: Ctx, folderId: Id<"folders">) =>
   ctx.db.query("folders").withIndex("by_parent", (q) => q.eq("parentFolderId", folderId)).collect();
 
@@ -199,6 +222,9 @@ export type WorldChangeOp =
   | "story.save"
   | "task.create"
   | "task.update"
+  | "style.save"
+  | "style.merge"
+  | "world.universe"
   | "undo";
 
 export type JournalMeta = { actor?: string; session?: string };

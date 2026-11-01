@@ -5,6 +5,9 @@ import {
   buildStyleLockBody, matchBoards, MISSING_BOARD_FLAG, stylePackageIngestKey, stylePackageSchema, type BoardRow, type StyleExample,
 } from "../../lib/style-package";
 import { createSkillInputSchema } from "../../lib/skill-contract";
+import {
+  assetLookupSchema, styleFileSchema, styleGetSchema, styleListSchema, styleMergeSchema, styleSaveSchema, styleUniverseSchema,
+} from "../../lib/style-contract";
 import { galleryAssetPageInputSchema } from "../../lib/gallery-pagination";
 import {
   characterCostumeSchema, characterCreateSchema, characterLinkSchema, characterListSchema, characterRefSchema,
@@ -54,6 +57,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
   "Named people are characters: one record per person per world with a stable code (DA-CH-001), costumes as -C01/-C02, a canonical sheet and face, and typed asset links. list_characters and get_character read the cast; create_character, update_character, save_character_costume and link_character_assets maintain it. Cite the code in captions and storybook CAST blocks. Read references/characters.md.",
   "Moodboards are ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (a personalization code); each belongs to a collection. list_moodboards and get_moodboard read them (get_moodboard returns full image URLs, in order, to push into Midjourney); save_moodboard, add_moodboard_items and reorder_moodboard_items maintain them; record the Midjourney code after a sync with set_moodboard_midjourney. Read references/moodboards.md.",
+  "A world holds several named styles (how a frame is made: medium, rendering, light, palette). list_styles reads a world's universe of styles with covers and recipe names; get_style one style with its moodboards, profiles, template, raises and lowers; save_style creates, renames, recovers or re-covers one; file_style puts frames on it; merge_styles folds two; world_universe joins sibling worlds (DEAR ANNETE — 3D into DEAR ANNETE) so they show on one styles page (/w/<world>/styles). find_assets answers 'is this Midjourney frame in the gallery?' for up to 500 job ids, file names or URLs at once.",
   "A look worth keeping is packaged with package_style: one style-lock Story with the recipe, a copy-ready prompt, the example frames and their full prompts, the moodboards behind its codes (linked, cited from another world, or flagged MOODBOARD NOT CREATED YET) and what raises or lowers it. Run it with dryRun first. Read references/styles.md.",
   "Each world has an Inbox (Decisions in the gallery, /inbox/<worldId>): stacks of cards where Michael decides and agents never judge taste. post_inbox_cards posts sort, duplicates, artifact, ab, choose or rule cards with facts as evidence; list_inbox_decisions reads his answers, comments and voice notes (transcribe them yourself) and his notes on single images; close_stack once you have applied and learned from a stack. Read references/inbox.md.",
   "Collections (folders) are one level deep. Resolve names from open_world's shelves or with list_collections filtered by world (or parentFolderId, rootsOnly, search) before filing; an unfiltered list_collections is the whole vault. A child collection can carry a display group (Styles, Places, Cast) and sortOrder.",
@@ -260,7 +264,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   server.registerTool("open_world", {
     title: "Open World",
     annotations: readAnnotations,
-    description: "Start here for any world work. No arguments: the list of worlds (key, name, counts). With a world: everything an agent needs in one call: WORLD.md (the world's rules), LEARNINGS.md, its other docs, styles with their style locks, shelves and storybooks (with their stories), moodboards with codes and Midjourney sync state, Midjourney profiles with their role here, characters and the recent journal. Its ids are bare (no prefix): a shelf or storybook id is the folderId the filing tools take; a moodboard id goes to get_moodboard {moodboardId}; a story id to get_story {id}; a character by its code to get_character {character}; a profile to mj_profiles {profile}. Worlds are separate: nothing is filed, linked or boarded across them.",
+    description: "Start here for any world work. No arguments: the list of worlds (key, name, counts). With a world: everything an agent needs in one call: WORLD.md (the world's rules), LEARNINGS.md, its other docs, style tags with their style locks, worldStyles (the world's named styles; list_styles reads the universe with covers) and universe (the sibling worlds read together; world.stylesUrl is the styles page), shelves and storybooks (with their stories), moodboards with codes and Midjourney sync state, Midjourney profiles with their role here, characters and the recent journal. Its ids are bare (no prefix): a shelf or storybook id is the folderId the filing tools take; a moodboard id goes to get_moodboard {moodboardId}; a story id to get_story {id}; a character by its code to get_character {character}; a profile to mj_profiles {profile}. Worlds are separate: nothing is filed, linked or boarded across them.",
     inputSchema: worldOpenSchema.shape,
   }, worlds("open"));
   server.registerTool("world_doc", {
@@ -463,6 +467,52 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       story: { id: story._id ? `story:${story._id}` : undefined, url: story.url, title: story.title, status: story.status, revision: story.revision, folderId: story.folderId, assetIds: story.assetIds },
     });
   });
+  // Named styles of a world, read across its universe (world_styles page).
+  const styles = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/styles", { action, ...input }));
+  const styleWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_styles", {
+    title: "List Styles",
+    annotations: readAnnotations,
+    description: "The named styles of a world's universe (DEAR ANNETE with its 3D, Art Deco and Iron Stage worlds): each style's name, one-line look, family, status, world, frame count, main recipe in names (moodboards + profiles), cover thumbnails and its page (url). unrecordedShelves lists shelves in the group Styles that have no style record yet. A style is how a frame is made (medium, rendering, light, palette), never a place or motif. Read references/styles.md.",
+    inputSchema: styleListSchema.shape,
+  }, styles("list"));
+  server.registerTool("get_style", {
+    title: "Get Style",
+    annotations: readAnnotations,
+    description: "One style in full: its line, covers, shelf, every recipe (moodboards with code, sync status and the world they live in; profiles with code and role; unnamed codes; parameters; prompt template; frames made), raises, lowers, notes, the style lock story, merges and revision. frames: N adds the newest N frames with prompt excerpts. style:<id>, or the name with world.",
+    inputSchema: styleGetSchema.shape,
+  }, styles("get"));
+  server.registerTool("save_style", {
+    title: "Save Style",
+    annotations: styleWrite,
+    description: "Create a style in a world or change one: name (a rename follows onto its shelf), line, family, status (ready only on Michael's word), shelf (create: the same-named shelf or a new one in the group Styles; adopt an existing Styles shelf by naming it), covers (coverAssetIds replaces, addCoverAssetIds puts first), recipes (moodboards and profiles by id in stack order, unknown codes, parameters, template, frames), raises, lowers, lock story, notes, sortOrder. Pass expectedRevision from get_style when changing. Journaled; world_undo reverts it. Never publishes, stars or deletes.",
+    inputSchema: styleSaveSchema.shape,
+  }, styles("save"));
+  server.registerTool("file_style", {
+    title: "File Into Style",
+    annotations: styleWrite,
+    description: "Put frames into a style (onto its shelf), or take them off with remove: true. Any number of assets, filed 100 per journaled world_file change. covers: true also makes them the first covers. Frames must belong to the style's world; move: true takes them out of another world (only on Michael's word). Use find_assets first to turn Midjourney job ids or file names into asset ids.",
+    inputSchema: styleFileSchema.shape,
+  }, styles("file"));
+  server.registerTool("merge_styles", {
+    title: "Merge Styles",
+    annotations: { ...styleWrite, idempotentHint: false },
+    description: "Fold one style into another: its frames move onto the kept style's shelf, its recipes, covers, raises and lowers join, and it stays as a merged record pointing at the kept style; its empty shelf moves to the group Merged (nothing is deleted). Across two worlds of one universe only with move: true. Run dryRun: true first. Journaled; world_undo with the session reverts it all.",
+    inputSchema: styleMergeSchema.shape,
+  }, styles("merge"));
+  server.registerTool("world_universe", {
+    title: "World Universe",
+    annotations: worldWrite,
+    description: "Put a world into another world's universe (DEAR ANNETE — 3D joins dear-annete) so one styles page and list_styles show every style of the story universe together; null takes it out. Membership, filing and moodboards stay per world. One level: a universe's own world joins nothing. Journaled.",
+    inputSchema: styleUniverseSchema.shape,
+  }, styles("universe"));
+  server.registerTool("find_assets", {
+    title: "Find Assets",
+    annotations: readAnnotations,
+    description: "Is this frame in the gallery? Up to 500 references per call, any mix: Midjourney job URLs or CDN URLs, file names (mj-<job>-<i>.png), a local board's short id (<first 8 of job>-<tile>), a bare job id (every tile), asset:<id>, other source URLs, ingestKeys. Each comes back found or not, with the matching asset ids, tile, worlds and styles it is in and a thumbnail. check_sources stays for exact post permalinks.",
+    inputSchema: assetLookupSchema.shape,
+  }, styles("lookup"));
+
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));

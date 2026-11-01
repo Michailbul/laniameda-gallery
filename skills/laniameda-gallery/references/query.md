@@ -37,6 +37,9 @@ projections and are bounded. Reach for the filter before the list.
 | `search_gallery`, `find_similar` | 24 / 96 (hybrid: per-lane cutoff, see below) | asset projection: ids, kind, size, url, thumbUrl, description, agentDescription, tagNames, folderIds, modelName, flags, `promptText` cut to 300 chars (`promptTruncated`, `promptChars`), score, visualScore, textScore | tags, pieceType, medium, liked, starred, folderId, `world` |
 | `list_assets`, `preview_assets` | bounded (24 / 48 for previews) | the same asset projection | the same filters plus `search` |
 | `list_assets_page` | 100 / 200 per page, `cursor` until `isDone` | full rows (inventory use) | the same filters |
+| `list_styles` | every style of the world's universe | id, name, line, family, status, world, frames, main recipe in names, 2 cover thumbs, url; `unrecordedShelves` | `universe: false` (one world), `covers: 0`, `includeArchived` |
+| `get_style` | one style | recipes with boards (code, items, other world) and profiles (code, role), covers, shelf, lock, raises/lowers | `frames: N` (≤ 60) adds the newest frames with 300-char prompts |
+| `find_assets` | 500 items per call | per item: `found`, matches with asset id, job, tile, file name, source, worlds, styles, thumbUrl | — |
 
 Storage keys, owner ids, tag ids and pack slots are not on the projected rows;
 `get_gallery_item` returns the full asset record and prompt, `get_story` the
