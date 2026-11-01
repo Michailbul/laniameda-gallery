@@ -43,8 +43,6 @@ const storybookSummaryValidator = v.object({
   // (getStorybook). Sending only these keeps ~65 KB out of the first frame.
   storyHead: v.optional(v.string()),
   storyHook: v.optional(v.string()),
-  // TRANSITION: the full text, for the frontend still live during the deploy.
-  story: v.optional(v.string()),
   // The world a storybook sits in (its parent collection), so the shelf can
   // read "WORLD · Title" before the folder tree has loaded.
   worldName: v.optional(v.string()),
@@ -136,7 +134,6 @@ export const listStorybooks = ownerQuery({
           ...(parent ? { worldName: parent.name } : {}),
           storyHead: folder.description?.slice(0, STORYBOOK_HEAD_CHARS),
           storyHook: storybookHook(folder.description) ?? undefined,
-          story: folder.description,
           count: members.length,
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt,
