@@ -1,5 +1,6 @@
 // Number keys on the hovered Inbox image (and in the zoom view): 1 approve
-// (A, K), 2 archive (X), 3 comment (C), 4 open or close the zoom. Which keys
+// (A, K), 2 archive (X), 3 comment (C), 4 open or close the zoom. E opens
+// the zoom with the in-place edit panel. Which keys
 // an image takes depends on the answers its card type takes
 // (INBOX_CHOICES_BY_TYPE); a key never sends an answer the backend refuses.
 import { INBOX_CHOICES_BY_TYPE, type InboxCardType, type InboxChoice } from "./inbox";
@@ -58,12 +59,14 @@ export const isDigitKey = (key: string, code = "") => /^(?:Digit|Numpad)\d$/.tes
 
 // The key hint pinned bottom-left: only the keys this card type takes. On a
 // sort card's own image the numbers drop on targets, so it shows letters.
-export function imageKeyHint(actions: ImageActions, mode: { zoom?: boolean; letters?: boolean } = {}) {
-  const keys: { key: string; label: string; tone: ImageKey }[] = [];
+export function imageKeyHint(actions: ImageActions, mode: { zoom?: boolean; letters?: boolean; edit?: boolean } = {}) {
+  const keys: { key: string; label: string; tone: ImageKey | "edit" }[] = [];
   const k = (digit: string, letter: string) => (mode.letters ? letter : digit);
   if (actions.keep) keys.push({ key: k("1", "A"), label: "approve", tone: "keep" });
   if (actions.archive) keys.push({ key: k("2", "X"), label: "archive", tone: "archive" });
   if (actions.comment) keys.push({ key: k("3", "C"), label: "comment", tone: "comment" });
   keys.push({ key: mode.zoom ? "4" : k("4", "F"), label: mode.zoom ? "close" : "open", tone: "open" });
+  // E: an in-place edit on the image (the zoom opens with the edit panel).
+  if (mode.edit) keys.push({ key: "E", label: "edit", tone: "edit" });
   return keys;
 }

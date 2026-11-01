@@ -214,6 +214,64 @@ export default defineSchema({
   })
     .index("by_asset_createdAt", ["assetId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  // In-place edits: one row per model per take sent on an asset from the
+  // detail panel, the Inbox zoom or an agent. Runs on fal or Pika along the
+  // model's route (lib/edit-models.ts); the result lands as a new asset in
+  // the source's collections with edit_source lineage. See convex/editJobs.ts.
+  editJobs: defineTable({
+    ownerUserId: v.string(),
+    sourceAssetId: v.id("assets"),
+    // The source's collections when the edit was sent; the result joins them.
+    folderIds: v.array(v.id("folders")),
+    worldFolderId: v.optional(v.id("folders")),
+    prompt: v.string(),
+    model: v.string(),
+    modelName: v.string(),
+    // The route in use (or the one that landed) and its request at the provider.
+    provider: v.string(),
+    endpoint: v.string(),
+    requestId: v.optional(v.string()),
+    statusUrl: v.optional(v.string()),
+    responseUrl: v.optional(v.string()),
+    attempts: v.array(v.object({
+      provider: v.string(),
+      endpoint: v.string(),
+      requestId: v.optional(v.string()),
+      error: v.optional(v.string()),
+      outOfCredit: v.optional(v.boolean()),
+      at: v.number(),
+    })),
+    // Bumped by every Retry that sends a new request (a fresh idempotency key).
+    retries: v.number(),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+    error: v.optional(v.string()),
+    errorKind: v.optional(v.union(
+      v.literal("out_of_credit"), v.literal("provider"), v.literal("timeout"), v.literal("ingest"),
+    )),
+    estimateUsd: v.number(),
+    chargedUsd: v.optional(v.number()),
+    // True when the provider reported the charge (Pika billing); false = the estimate.
+    chargedExact: v.optional(v.boolean()),
+    batch: v.string(),
+    take: v.number(),
+    of: v.number(),
+    refAssetIds: v.array(v.id("assets")),
+    refNames: v.array(v.string()),
+    refsDropped: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    resultAssetId: v.optional(v.id("assets")),
+    resultUrl: v.optional(v.string()),
+    createdBy: v.union(v.literal("owner"), v.literal("agent")),
+    pollCount: v.number(),
+    submittedAt: v.optional(v.number()),
+    finishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source_createdAt", ["sourceAssetId", "createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_result", ["resultAssetId"]),
   // The world Inbox ("Decisions"): stacks of cards agents post for Michael,
   // one decision per card. See convex/inbox.ts.
   inboxStacks: defineTable(inboxStackFields)

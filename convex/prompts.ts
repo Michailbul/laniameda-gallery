@@ -1,5 +1,5 @@
-import { internalMutation, internalQuery } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { v, ConvexError, type ObjectType } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
 import { syncPromptAssetPack } from "./assetPackHelpers";
@@ -96,8 +96,7 @@ const matchesPromptSearch = (
     .some((value) => value.toLowerCase().includes(needle));
 };
 
-export const createPrompt = ownerMutation({
-  args: {
+const createPromptArgs = {
     ownerUserId: v.string(),
     text: v.string(),
     tagIds: v.array(v.id("tags")),
@@ -111,12 +110,14 @@ export const createPrompt = ownerMutation({
     workflowType: workflowTypeValidator,
     promptSections: promptSectionsValidator,
     promptProfile: promptProfileValidator,
-  },
+};
+const createPromptDefinition = {
+  args: createPromptArgs,
   returns: v.object({
     promptId: v.id("prompts"),
     created: v.boolean(),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx: MutationCtx, args: ObjectType<typeof createPromptArgs>) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
@@ -172,7 +173,10 @@ export const createPrompt = ownerMutation({
 
     return { promptId, created: true };
   },
-});
+};
+export const createPrompt = ownerMutation(createPromptDefinition);
+// For scheduled jobs without a signed actor (an in-place edit's result).
+export const createPromptInternal = internalMutation(createPromptDefinition);
 
 export const updatePrompt = ownerMutation({
   args: {

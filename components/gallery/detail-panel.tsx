@@ -23,6 +23,8 @@ import {
 import { useConvexAuth, useQuery } from "convex/react";
 import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
 import { AssetComments } from "./asset-comments";
+import { EditInPlace } from "./edit-in-place";
+import { BeforeAfterWipe, type EditCompare } from "./before-after-wipe";
 import { MidjourneyMetadataBlock } from "./midjourney-metadata-block";
 import type { MidjourneyMetadata } from "@/lib/midjourney-metadata";
 import type { BookmarkPost } from "@/lib/bookmarks";
@@ -441,6 +443,9 @@ export function GalleryDetailPanel({
   const promptForDisplay = meaningfulPrompt(activePrompt);
   const currentAssetId = currentSlide.id ?? image.id;
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
+  // A landed in-place edit wiped against its source on the stage.
+  const [compare, setCompare] = useState<EditCompare | null>(null);
+  useEffect(() => setCompare(null), [currentAssetId]);
   const canEditThis = Boolean(canEditDetails && !isDesignView);
 
   // The prompt as a module: sections, the files that share it, and the
@@ -918,6 +923,10 @@ export function GalleryDetailPanel({
                 unoptimized
               />
             </>
+          )}
+
+          {compare && currentSlide.kind !== "video" && (
+            <BeforeAfterWipe compare={compare} fit={isModal ? "contain" : "cover"} />
           )}
 
           {/* Sidebar: the pack's tabs ride on the image, with small arrows. */}
@@ -1610,6 +1619,21 @@ export function GalleryDetailPanel({
                     )}
                   </Field>
                 </>
+              )}
+
+              {/* Edit in place: a targeted edit on this image, its takes and the wipe. */}
+              {canEditDetails && ownerUserId && !isDesignView && currentAssetId && currentSlide.kind !== "video" &&
+                (!image.galleryItemType || image.galleryItemType === "asset" || image.galleryItemType === "pack") && (
+                <EditInPlace
+                  key={currentAssetId}
+                  assetId={currentAssetId}
+                  ownerUserId={ownerUserId}
+                  width={currentSlide.width}
+                  height={currentSlide.height}
+                  assetUrl={currentSlide.fullSrc}
+                  compare={compare}
+                  onCompare={setCompare}
+                />
               )}
 
               {/* Comments: Michael's notes on this piece, agents' replies. */}

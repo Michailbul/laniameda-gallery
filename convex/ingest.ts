@@ -432,7 +432,7 @@ type ProcessedMedia = {
   thumbVariants?: ThumbVariant[];
 };
 
-const processMediaInput = async (
+export const processMediaInput = async (
   ctx: ActionCtx,
   input: {
     file?: { base64: string; fileName?: string; contentType?: string };
