@@ -96,7 +96,7 @@ const toPublicJob = async (ctx: QueryCtx, job: Doc<"editJobs">) => {
     of: job.of,
     refNames: job.refNames,
     refsDropped: job.refsDropped,
-    tried: job.attempts.map((attempt) => attempt.provider + (attempt.error ? `: ${attempt.error}` : "")),
+    tried: job.attempts.map((attempt) => attempt.error ?? `${attempt.provider}: accepted ${attempt.requestId ?? ""}`.trim()),
     retries: job.retries,
     resultAssetId: result ? result._id : undefined,
     resultUrl: result ? await resolveAssetUrl(ctx, result) : undefined,
