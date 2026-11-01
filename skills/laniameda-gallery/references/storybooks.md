@@ -7,7 +7,7 @@ a paragraph of text is not a storybook. A board whose images do not match its
 story is worse than an empty one, because it looks finished.
 
 Storage: a collection with `kind: "storybook"` (root, never nested). The story
-text lives in the collection `description` and is edited in the storybook modal.
+text lives in the collection `description` and is edited on the book's "Agent's text" tab in the Storybooks view (/storybooks/<id>).
 Member assets are the images and clips the episode uses. The source or longer
 text, if any, lives in a native Story (references/stories.md) linked by
 `storybookId`.

@@ -18,7 +18,7 @@ export const GalleryDetailPanel = lazyComponent(() => import("./detail-panel").t
 export const UploadModal = lazyComponent(() => import("@/components/upload-modal").then((m) => m.UploadModal));
 export const CinemaModal = lazyComponent(() => import("./cinema-modal").then((m) => m.CinemaModal));
 export const SkillModal = lazyComponent(() => import("./skill-modal").then((m) => m.SkillModal));
-export const StorybookModal = lazyComponent(() => import("./storybook-modal").then((m) => m.StorybookModal));
+export const StorybooksView = lazyComponent(() => import("./storybooks-view").then((m) => m.StorybooksView), ViewSkeleton);
 export const FeaturedPanel = lazyComponent(() => import("./featured-panel").then((m) => m.FeaturedPanel));
 export const MoodboardPicker = lazyComponent(() => import("./moodboard-picker").then((m) => m.MoodboardPicker));
 export const AddToPanel = lazyComponent(() => import("./add-to-panel").then((m) => m.AddToPanel));
@@ -86,11 +86,11 @@ export function usePreloadDashboardChunks(owner: boolean) {
     const stopFirst = preloadInIdle(first, 1500);
     const rest: Loader[] = owner
       ? [
-          SkillModal, StorybookModal, FeaturedPanel, MoodboardPicker, AddToPanel, PublishAllDialog,
+          SkillModal, StorybooksView, FeaturedPanel, MoodboardPicker, AddToPanel, PublishAllDialog,
           SkillsView, StoriesView, MotionView, BookmarksView, MidjourneySrefsView, MoodboardsTab,
           WorldInstructionsPanel, WorldJournalTab, WorldTasksTab,
         ].map((component) => component.preload)
-      : [SkillModal.preload, StorybookModal.preload];
+      : [SkillModal.preload];
     const stopRest = preloadInIdle(rest, 6000);
     return () => {
       stopFirst();

@@ -135,7 +135,7 @@ interface MasonryGridProps {
   onExcludeAssetFromView?: (imageId: string) => Promise<void> | void;
   excludeLabel?: string;
   excludeFolderId?: string;
-  /** Opens the storybook modal for entries with galleryItemType "storybook". */
+  /** Opens the book in the Storybooks view for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
