@@ -16,7 +16,7 @@ import { ZoomViewer } from "@/components/inbox/zoom-viewer";
 import { LazyWorldDocProse as WorldDocProse, usePreloadWorldDocProse } from "@/components/gallery/world-doc-prose-lazy";
 import { fullStamp, timeAgo } from "@/components/gallery/world-ui";
 import { LinkChip, Timeline } from "@/components/tasks/task-queue";
-import { TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
+import { ASK_LETTERS, TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
 
 // The review wall: Michael's side of the task queue as a production wall. One
 // row per world, every task a storyboard frame pinned to graph paper. A task
@@ -26,7 +26,9 @@ import { TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@
 // coral bar fills), a sideways swipe discards, a tap lifts the frame into the
 // focus sheet. The sheet obeys "show, don't tell": the question in one
 // sentence, every related picture large, the answer as choices or as the two
-// or three stamps, everything else behind one Details disclosure. The AGENT
+// or three stamps, everything else behind one Details disclosure. A blocked
+// task carries an ask: its options are picture columns side by side, picked
+// with a click or the letter key. The AGENT
 // view is the same wall as the markdown an agent receives.
 
 type Card = FunctionReturnType<typeof api.tasks.listTaskCards>[number];
@@ -125,7 +127,8 @@ const sentencesOf = (text: string) => {
  * that asks (a "?", or the one carrying the A / B options, else the first);
  * for a done task what was done; for an open or claimed task the brief.
  */
-export const questionOf = (card: Pick<Card, "status" | "brief" | "result" | "title">) => {
+export const questionOf = (card: Pick<Card, "status" | "brief" | "result" | "title"> & { askView?: Card["askView"] }) => {
+  if (card.status === "blocked" && card.askView) return card.askView.question;
   const asked = card.status === "blocked" || card.status === "done";
   const source = asked ? card.result || card.brief : card.brief || card.result;
   const gist = gistOf(source, 400);
@@ -319,6 +322,22 @@ const CSS = `
 .lmw-choice:hover{border-color:var(--lm-coral)} .lmw-choice:active{transform:translate(1px,1px)}
 .lmw-choice b{flex:0 0 auto;width:34px;height:34px;display:grid;place-items:center;font:900 16px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
 .lmw-choice span{font:600 14px/1.3 var(--lm-font-display);overflow-wrap:anywhere}
+.lmw-choice em,.lmw-ask-head em{font:700 9px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--lm-coral);margin-left:auto;white-space:nowrap}
+.lmw-ask{display:grid;gap:10px;padding:14px 16px 2px}
+.lmw-ask-col{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px;border:1.5px solid var(--lm-border);border-radius:var(--lm-radius);background:var(--lm-surface-2);transition:border-color var(--lmw-dur)}
+.lmw-ask-col:hover,.lmw-ask-col.rec{border-color:var(--lm-coral)}
+.lmw-ask-head{display:flex;align-items:center;gap:10px;min-height:40px;padding:2px 2px 2px 0;text-align:left;background:none;border:0;color:var(--lm-text-primary);cursor:pointer}
+.lmw-ask-head b{flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;font:900 15px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
+.lmw-ask-head span{font:800 13px/1.2 var(--lm-font-display);letter-spacing:.01em;text-transform:uppercase;overflow-wrap:anywhere;min-width:0}
+.lmw-ask-pics{display:flex;flex-direction:column;gap:4px}
+.lmw-ask-pics .cell{position:relative;overflow:hidden;background:var(--lm-surface-3);cursor:zoom-in;border-radius:2px;max-height:30vh}
+.lmw-ask-pics .cell img{display:block;width:100%;height:100%;object-fit:contain}
+.lmw-sacts .lmw-pick{justify-content:flex-start;text-transform:none;letter-spacing:.01em;font:700 13px/1.2 var(--lm-font-display);white-space:normal;text-align:left;padding:8px 14px 8px 8px}
+.lmw-sacts .lmw-pick b{flex:0 0 auto;width:28px;height:28px;display:grid;place-items:center;font:900 14px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
+.lmw-sacts .lmw-pick.primary b{background:var(--lm-paper);color:var(--lm-coral)}
+.lmw-sacts .lmw-pick em{font:700 8.5px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;opacity:.8;white-space:nowrap}
+.lmw-ask-pics .chip{position:absolute;left:5px;bottom:5px;z-index:2}
+
 .lmw-details{margin:10px 16px 0;border-top:1px solid var(--lm-border)}
 .lmw-details summary{list-style:none;cursor:pointer;padding:12px 0;font:700 9.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary);display:flex;align-items:center;gap:8px;min-height:40px}
 .lmw-details summary::-webkit-details-marker{display:none}
@@ -534,7 +553,7 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
     {picture
       ? <div className="lmw-pic" {...control}>
         <Pic thumb={picture} eager={eager} />
-        <div className="lmw-ovl"><span className="t">{card.title}</span>{chip}</div>
+        <div className="lmw-ovl"><span className="t">{card.status === "blocked" && card.askView ? card.askView.question : card.title}</span>{chip}</div>
         <div className="lmw-hold" />
       </div>
       : <div className={`lmw-plate tone-${card.status}`} {...control}>
@@ -628,6 +647,37 @@ function PictureSet({ thumbs, onZoom }: { thumbs: Thumb[]; onZoom: (thumb: Thumb
   </div>;
 }
 
+/**
+ * A blocked task's ask: one column per picture option, side by side, its
+ * frames stacked in the same order in every column so rows compare across.
+ * Every option, pictured or not, is also a pick button in the sheet's
+ * bottom bar, so all of them show without scrolling. A click on a column
+ * head, a pick button or the letter key sends the pick as his answer.
+ */
+function AskBoard({ ask, disabled, onPick, onZoom }: {
+  ask: NonNullable<Card["askView"]>; disabled: boolean; onPick: (index: number) => void; onZoom: (thumb: Thumb) => void;
+}) {
+  const options = ask.options.map((option, index) => ({ ...option, index, letter: ASK_LETTERS[index]! }));
+  const pictured = options.filter((option) => option.pics.length > 0);
+  return <>
+    {pictured.length > 0 && <div className="lmw-ask" style={{ gridTemplateColumns: `repeat(${pictured.length}, minmax(0, 1fr))` }}>
+      {pictured.map((option) => <div key={option.letter} className={`lmw-ask-col${option.recommended ? " rec" : ""}`}>
+        <button type="button" className="lmw-ask-head" disabled={disabled} onClick={() => onPick(option.index)}>
+          <b>{option.letter}</b><span>{option.label}</span>{option.recommended && <em>Agent pick</em>}
+        </button>
+        <div className="lmw-ask-pics">
+          {option.pics.map((thumb) => <div key={thumb.assetId} className="cell" style={{ aspectRatio: `${aspectOf(thumb)}` }} role="button" tabIndex={0} aria-label="Open full size"
+            onClick={() => onZoom(thumb)} onKeyDown={(event) => { if (event.key === "Enter") onZoom(thumb); }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- the gallery's own thumbnail */}
+            <img src={thumb.url} alt="" draggable={false} decoding="async" />
+            <span className="chip"><CopyChip value={`asset:${thumb.assetId}`} label={thumb.assetId.slice(-6)} /></span>
+          </div>)}
+        </div>
+      </div>)}
+    </div>}
+  </>;
+}
+
 /** Behind "Details": the whole brief and result, the other links, the timeline. */
 function Details({ ownerUserId, taskId }: { ownerUserId: string; taskId: Id<"tasks"> }) {
   const { isAuthenticated } = useConvexAuth();
@@ -693,10 +743,34 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
   }, []);
 
   const question = questionOf(card);
-  const choices = card.status === "blocked" && !stamp ? parseChoices(question) ?? parseChoices(card.result?.slice(0, 300)) : null;
+  const ask = card.status === "blocked" ? card.askView : undefined;
+  const choices = card.status === "blocked" && !stamp && !ask ? parseChoices(question) ?? parseChoices(card.result?.slice(0, 300)) : null;
+  const send = async (body: string) => {
+    setBusy(true); setError(undefined);
+    try { await onAct("choice", body); } catch (failure) { setError(errorText(failure, "Not sent.")); setBusy(false); }
+  };
+  const pick = (index: number) => {
+    const option = ask?.options[index];
+    if (!option || busy || stamp) return;
+    void send(`Picked ${ASK_LETTERS[index]}: ${option.label}`);
+  };
+  // A–D pick an option while the sheet is up (not while typing an answer).
+  useEffect(() => {
+    if (!ask) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+      const index = ASK_LETTERS.indexOf(event.key.toUpperCase() as (typeof ASK_LETTERS)[number]);
+      if (index < 0 || index >= ask.options.length) return;
+      event.preventDefault();
+      pick(index);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const actions = actionsFor(card);
   const fieldAction = field ? findAction(card, field) : undefined;
-  const pictures = card.thumbs.length > 0;
+  const sheetThumbs = ask ? ask.context : card.thumbs;
+  const pictures = sheetThumbs.length > 0 || Boolean(ask?.options.some((option) => option.pics.length > 0));
   const toned = !pictures;
 
   // Drag the head: down closes, sideways past the threshold stamps (right) or discards (left).
@@ -750,10 +824,11 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
         <div style={{ marginTop: 10 }}><CopyChip value={taskRef(card._id)} label={shortTask(card._id)} /></div>
       </div>
       <div className="lmw-sbody">
-        {pictures && <PictureSet thumbs={card.thumbs} onZoom={setZoom} />}
+        {sheetThumbs.length > 0 && <PictureSet thumbs={sheetThumbs} onZoom={setZoom} />}
+        {ask && <AskBoard ask={ask} disabled={busy || Boolean(stamp)} onPick={pick} onZoom={setZoom} />}
         {choices && <div className="lmw-choices">
           {choices.map((choice) => <button key={choice.letter} type="button" className="lmw-choice" disabled={busy}
-            onClick={async () => { setBusy(true); setError(undefined); try { await onAct("choice", `${choice.letter}: ${choice.text}`); } catch (failure) { setError(errorText(failure, "Not sent.")); setBusy(false); } }}>
+            onClick={() => void send(`${choice.letter}: ${choice.text}`)}>
             <b>{choice.letter}</b><span>{choice.text}</span>
           </button>)}
         </div>}
@@ -767,6 +842,13 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
           ? <span className="lmw-stamped-line"><Check size={14} aria-hidden /> Stamped · {stamp.label}</span>
           : fieldAction
             ? <ReplyField key={`${card._id}-${fieldAction.kind}`} action={fieldAction} onSend={(body) => onAct(fieldAction.kind, body)} onBack={() => onField(undefined)} />
+            : ask ? <>
+              {ask.options.map((option, index) => <button key={index} type="button" className={`lmw-stamp lmw-pick${option.recommended ? " primary" : ""}`} disabled={busy}
+                onClick={() => pick(index)}><b>{ASK_LETTERS[index]}</b>{option.label}{option.recommended && <em>Agent pick</em>}</button>)}
+              <button type="button" className="lmw-stamp ghost" disabled={busy} onClick={() => onField("answer")}>Other answer</button>
+              <button type="button" className="lmw-stamp ghost" disabled={busy} onClick={() => void onAct("later")}>Later</button>
+              {error && <p className="lmw-err">{error}</p>}
+            </>
             : <>
               {actions.map((action, index) => <button key={action.kind} type="button" className={`lmw-stamp${index === 0 ? " primary" : ""}`} disabled={busy}
                 onClick={() => void onAct(action.kind)}>{action.label}{index === 0 && desktop && <kbd>→</kbd>}</button>)}

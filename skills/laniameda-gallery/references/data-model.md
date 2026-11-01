@@ -623,7 +623,10 @@ role `other`, stageOrder 2 and on). Deleting the source deletes its jobs.
 claimed, done, blocked, archived), `priority` (1 now, 2 next, 3 later),
 `createdBy` (`owner` or `agent:<label>`), `assignee`, `claimedBy`,
 `claimedAt`, `leaseUntil` (a claim lapses past it), `result` (markdown,
-6,000: what was done, or the question for Michael when blocked), `links`
+6,000: what was done, or the reasoning behind a blocked task's ask), `ask`
+(blocked only, required since 1 Nov 2026: `{question` one line ≤140, `assetIds?`
+context frames ≤8, `options: [{label` ≤60, `assetIds?` ≤6, `recommended?}]` 2–4`}`,
+at least one frame, every frame his own asset; cleared when done), `links`
 (typed handles `{kind: asset | story | stack | moodboard | character |
 collection | doc | url, id, label?}`), `source` (manual, comment, inbox,
 newspaper), `sourceRef` (the comment or stack id), `ingestKey` (stable key:

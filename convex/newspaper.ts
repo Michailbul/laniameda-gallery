@@ -54,7 +54,8 @@ const assetItem = async (ctx: Ctx, asset: Doc<"assets">): Promise<NewspaperAsset
 const taskItem = (task: Doc<"tasks">, worldName: string): NewspaperTaskItem => ({
   taskId: task._id, title: task.title, worldFolderId: task.worldFolderId, worldName,
   status: task.status, priority: task.priority,
-  result: task.result ? excerpt(task.result) : undefined,
+  // A blocked task's one-line question stands in for its reasoning.
+  result: task.status === "blocked" && task.ask ? task.ask.question : task.result ? excerpt(task.result) : undefined,
   claimedBy: task.claimedBy, updatedAt: task.updatedAt, path: taskPath(task._id),
 });
 

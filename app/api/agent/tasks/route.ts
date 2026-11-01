@@ -6,7 +6,7 @@ import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/se
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
-  taskClaimSchema, taskCommentSchema, taskCompleteSchema, taskCreateSchema, taskListSchema, taskRefSchema, taskReleaseSchema,
+  completeInputProblem, taskClaimSchema, taskCommentSchema, taskCompleteSchema, taskCreateSchema, taskListSchema, taskRefSchema, taskReleaseSchema,
 } from "@/lib/tasks-contract";
 import { agentActor, bareTaskRef, linkRef, taskAge, taskRef } from "@/lib/tasks";
 
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         count: tasks.length,
         tasks: tasks.map(row),
-        next: "claim_task before working; comment_task for progress; complete_task with a result naming the asset:/story:/stack: ids produced, or blocked: true with a question for Michael.",
+        next: "claim_task before working; comment_task for progress; complete_task with a result naming the asset:/story:/stack: ids produced, or blocked: true with ask {question, options with their frames} for Michael.",
       });
     }
     if (action === "get") {
@@ -84,8 +84,10 @@ export async function POST(request: Request) {
     }
     if (action === "complete") {
       const input = taskCompleteSchema.parse(body);
+      const problem = completeInputProblem(input);
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       const task = await client.mutation(api.tasks.completeTask, {
-        ownerUserId, taskId: taskId(), result: input.result, status: input.blocked ? "blocked" : "done",
+        ownerUserId, taskId: taskId(), result: input.result, status: input.blocked ? "blocked" : "done", ask: input.blocked ? input.ask : undefined,
         links: input.links?.map(stripLink), actor: input.assignee ?? actor, session: input.session,
       });
       return NextResponse.json({ ok: true, task: row(task) });

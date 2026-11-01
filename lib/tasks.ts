@@ -21,6 +21,13 @@ export const TASK_LIMITS = {
   leaseMinutesMax: 24 * 60,
   // open_world carries this many open tasks.
   worldPreview: 5,
+  // A question for Michael (a blocked task): one line, 2–4 picture options.
+  askQuestion: 140,
+  askLabel: 60,
+  askOptionsMin: 2,
+  askOptionsMax: 4,
+  askOptionAssets: 6,
+  askAssets: 8,
 } as const;
 
 export const TASK_STATUSES = ["open", "claimed", "done", "blocked", "archived"] as const;
@@ -49,6 +56,41 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   blocked: "Needs you",
   done: "Done",
   archived: "Archived",
+};
+
+/**
+ * A question for Michael, the only way a task becomes blocked (Needs you):
+ * one plain line, and 2–4 options he picks with one click, each showing the
+ * frames it is about. assetIds on the ask itself are context shown above the
+ * options. The reasoning goes in the result, behind Details. Set 1 Nov 2026
+ * after a pilot came back as a table and three paragraphs he could not act on.
+ */
+export type TaskAskOption = { label: string; assetIds?: string[]; recommended?: boolean };
+export type TaskAsk = { question: string; assetIds?: string[]; options: TaskAskOption[] };
+
+export const ASK_LETTERS = ["A", "B", "C", "D"] as const;
+
+/** Why an ask cannot go to Michael as written, or null. Asset ids are checked for existence by the backend. */
+export const askProblem = (ask: TaskAsk | undefined): string | null => {
+  const how = "A question for Michael is pictures and a one-click pick: ask {question: one line, options: 2–4 {label, assetIds}}. Reasoning goes in result.";
+  if (!ask) return `Pass ask with the question and its picture options. ${how}`;
+  const question = ask.question.trim();
+  if (!question) return `The ask needs a question. ${how}`;
+  if (/\n/.test(question)) return "Keep the question on one line; the reasoning goes in result.";
+  if (question.length > TASK_LIMITS.askQuestion) return `The question is ${question.length} characters; keep it under ${TASK_LIMITS.askQuestion}, in plain words. The reasoning goes in result.`;
+  const { options } = ask;
+  if (options.length < TASK_LIMITS.askOptionsMin || options.length > TASK_LIMITS.askOptionsMax) return `Give ${TASK_LIMITS.askOptionsMin}–${TASK_LIMITS.askOptionsMax} options to pick from.`;
+  for (const option of options) {
+    const label = option.label.trim();
+    if (!label) return "Every option needs a label.";
+    if (label.length > TASK_LIMITS.askLabel) return `Option "${label.slice(0, 40)}…" is too long; ${TASK_LIMITS.askLabel} characters at most, a few words.`;
+    if ((option.assetIds?.length ?? 0) > TASK_LIMITS.askOptionAssets) return `An option shows ${TASK_LIMITS.askOptionAssets} images at most.`;
+  }
+  if (options.filter((option) => option.recommended).length > 1) return "Recommend one option at most.";
+  if ((ask.assetIds?.length ?? 0) > TASK_LIMITS.askAssets) return `The ask shows ${TASK_LIMITS.askAssets} context images at most.`;
+  const pictures = (ask.assetIds?.length ?? 0) + options.reduce((sum, option) => sum + (option.assetIds?.length ?? 0), 0);
+  if (pictures === 0) return "Show it: put the frames he decides on in the options (assetIds), or as context on the ask. A question without pictures does not reach him.";
+  return null;
 };
 
 /** `task:<id>` is the handle agents and Michael pass around; a bare id is accepted too. */
@@ -113,6 +155,7 @@ export type TaskMarkdownInput = {
   worldName?: string;
   brief?: string;
   result?: string;
+  ask?: TaskAsk;
   createdBy: string;
   assignee?: string;
   claimedBy?: string;
@@ -146,7 +189,17 @@ export const taskToMarkdown = (task: TaskMarkdownInput) => {
   else if (task.assignee) facts.push(`assignee: ${task.assignee}`);
   lines.push(...facts.map((fact) => `- ${fact}`));
   if (task.brief) lines.push("", "## Brief", "", task.brief.trim());
-  if (task.result) lines.push("", task.status === "blocked" ? "## Question for Michael" : "## Result", "", task.result.trim());
+  const asking = task.status === "blocked" && task.ask;
+  if (asking) {
+    lines.push("", "## Question for Michael", "", task.ask!.question.trim());
+    if (task.ask!.assetIds?.length) lines.push("", `Context: ${task.ask!.assetIds.map((id) => `asset:${id}`).join(" ")}`);
+    lines.push("");
+    task.ask!.options.forEach((option, index) => {
+      const pictures = option.assetIds?.length ? ` (${option.assetIds.map((id) => `asset:${id}`).join(" ")})` : "";
+      lines.push(`- ${ASK_LETTERS[index]}: ${option.label}${option.recommended ? " [agent pick]" : ""}${pictures}`);
+    });
+  }
+  if (task.result) lines.push("", asking ? "## Details" : task.status === "blocked" ? "## Question for Michael" : "## Result", "", task.result.trim());
   if (task.links.length) {
     lines.push("", "## Links", "");
     for (const link of task.links) lines.push(`- ${linkRef(link)}${link.label ? ` — ${link.label}` : ""}`);

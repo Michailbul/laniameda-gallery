@@ -17,10 +17,57 @@ The loop:
 3. The agent `claim_task`s one, works, leaves `comment_task` progress notes,
    and `complete_task`s it with a result that names the `asset:` / `story:` /
    `stack:` ids it produced. A question for Michael is `complete_task` with
-   `blocked: true`: the task moves under **Needs you**. Never stop silently.
+   `blocked: true` and an `ask` (below): the task moves under **Needs you**.
+   Never stop silently.
 4. Michael reads the result in /tasks. He closes it, or comments: his comment
    on a done task reopens it flagged **rework**; on a blocked task it is the
-   answer and the task is open again.
+   answer and the task is open again. On an ask he clicks an option (or presses
+   its letter): his comment reads `Picked B: Subject first` and the task is open
+   again.
+
+## A question for Michael is pictures and a one-click pick
+
+Michael answers by looking, at art-direction level. He has no time to read a
+report to find out what is being asked. Set 1 Nov 2026 after a pilot came back
+as a scoring table and three paragraphs of experiment jargon ("S1 vs S2, seed
+4201, stylize 600, 64 grids") with no pictures: he could not tell what to do.
+
+`complete_task {blocked: true}` needs an `ask`; the gallery refuses it otherwise.
+
+- `question`: one line, under 140 characters, plain words, a call he can make
+  by looking. "Which street look is better?" Never experiment names, settings,
+  seeds, counts or scores.
+- `options`: 2–4, each a few words (`label`, 60 characters at most) and the
+  frames that show it (`assetIds`, up to 6). Put the frames in the same order
+  in every option (street, close-up, object) so the rows compare across the
+  columns. An option may have no frames when it is an action ("Run the bigger
+  test"), but the ask must show at least one frame somewhere.
+- `recommended: true` on your pick, one at most. It is marked "Agent pick".
+- `assetIds` on the ask itself: context frames shown above the options, when
+  the options are actions.
+- `result`: the reasoning, tables and numbers, if any. He sees it only when he
+  opens Details. Write it for the next agent, not for him.
+- Every option must lead somewhere you can act on without a second question.
+  Fold a follow-up into the options ("Keep our way, stop testing" / "Run the
+  bigger test") instead of asking two things.
+- Frames must be saved in the gallery first (`save_asset`): an ask shows his
+  own assets, nothing else.
+
+```text
+complete_task {
+  taskId: "task:t9", blocked: true,
+  ask: {
+    question: "Two ways of writing the prompt. Which set looks better?",
+    options: [
+      { label: "A · place first (our way)", assetIds: ["a1", "a2", "a3"] },
+      { label: "B · subject first (the guide)", assetIds: ["b1", "b2", "b3"] },
+      { label: "Same to me: keep A, stop testing", recommended: true },
+      { label: "Can't tell: run the bigger test" }
+    ]
+  },
+  result: "Pilot scores and the plan for the bigger run …"
+}
+```
 
 ## Rules for agents
 
@@ -31,7 +78,8 @@ The loop:
   agent's live claim is refused with who holds it and until when; a lapsed
   lease can be taken over. Claiming again or commenting renews yours.
 - **Complete with a result, always.** Done: what changed and the ids
-  produced, also as `links`. Blocked: the one question Michael has to answer.
+  produced, also as `links`. Blocked: an `ask` (one line, picture options);
+  the reasoning goes in `result`.
   `release_task` with a note when you cannot do it this session.
 - A comment task: act on the comment, reply on the asset with
   `add_asset_comment`, then complete the task. An inbox task: read
@@ -48,7 +96,7 @@ The loop:
 `task:<id>` is the handle. `world` is the world's key, name or collection id;
 a task without one is studio-wide. `status`: `open` (waiting), `claimed` (held
 under a lease, `claimedBy`, `leaseUntil`), `blocked` (needs Michael; `result`
-is the question), `done` (`result` says what changed), `archived`. `priority`:
+is the reasoning, `ask` the question with its picture options), `done` (`result` says what changed), `archived`. `priority`:
 1 now, 2 next (default), 3 later. `createdBy` is `owner` or `agent:<label>`
 (the agent token's label). `source`: `manual`, `comment` (sourceRef = the
 comment id), `inbox` (sourceRef = the stack id), `newspaper`. `links`: typed
@@ -65,7 +113,7 @@ get_task { taskId }
 create_task { world?, title, brief?, priority?, assignee?, links?, dueAt?, ingestKey?, session? }
 claim_task { taskId, assignee?, leaseMinutes? }
 release_task { taskId, note?, assignee? }
-complete_task { taskId, result, blocked?, links?, session?, assignee? }
+complete_task { taskId, result?, blocked?, ask?: { question, assetIds?, options: [{ label, assetIds?, recommended? }] }, links?, session?, assignee? }
 comment_task { taskId, body, assignee? }
 ```
 
