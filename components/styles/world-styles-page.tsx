@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -10,16 +10,19 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, InboxGate, Micro, display, mono } from "@/components/inbox/inbox-ui";
 import { buildGridImageAttrs } from "@/lib/grid-image";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
+import { MOSAIC_COVERS, MOSAIC_CSS, StyleCaption, StyleMosaic, framesLabel, orderMedia } from "./style-mosaic";
 
 // The styles page of a world's universe: every style across the top as a
-// carousel of covers, the chosen style's frames in a wide masonry and its
-// recipe beside them. HUMAN shows names (moodboards, profiles); AGENT adds the
+// carousel of mosaic covers filtered by medium, the chosen style's frames by
+// storybook and then all of them in a wide masonry, its recipe beside them. HUMAN shows names (moodboards, profiles); AGENT adds the
 // codes and ids an agent pastes. Its own page: no sidebar, all width.
 
 type Listing = FunctionReturnType<typeof api.worldStyles.listStyles>;
 type Card = Listing["styles"][number];
 type Detail = FunctionReturnType<typeof api.worldStyles.getStyle>;
+type Story = FunctionReturnType<typeof api.worldStyles.listStyleStories>[number];
 type Frame = Card["covers"][number];
+type Opened = { frames: Frame[]; index: number; story?: Story };
 type View = "human" | "agent";
 type Size = "s" | "m" | "l";
 
@@ -49,23 +52,24 @@ export function WorldStylesPage({ world, styleRef }: { world: string; styleRef?:
 
 function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; world: string; styleRef?: string }) {
   const { isAuthenticated } = useConvexAuth();
-  const listing = useQuery(api.worldStyles.listStyles, isAuthenticated ? { ownerUserId, world, coverLimit: 3 } : "skip");
+  const listing = useQuery(api.worldStyles.listStyles, isAuthenticated ? { ownerUserId, world, coverLimit: MOSAIC_COVERS } : "skip");
   const [family, setFamily] = useState<string | null>(null);
   const [chosenId, setActiveId] = useState<Id<"worldStyles"> | null>(null);
   const [view, setView] = useState<View>("human");
   const [size, setSize] = useState<Size>("m");
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
-  const hovered = useRef<number | null>(null);
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const hovered = useRef<Opened | null>(null);
 
-  const families = useMemo(() => {
-    const seen: string[] = [];
-    for (const style of listing?.styles ?? []) if (!seen.includes(style.family)) seen.push(style.family);
-    return seen;
-  }, [listing]);
-  const shown = useMemo(
-    () => (listing?.styles ?? []).filter((style) => !family || style.family === family),
-    [listing, family],
-  );
+  const families = useMemo(() => orderMedia([...new Set((listing?.styles ?? []).map((style) => style.family))]), [listing]);
+  // Grouped by medium in the filter's order, each keeping its own order.
+  const shown = useMemo(() => {
+    const rank = new Map(families.map((name, index) => [name, index]));
+    return (listing?.styles ?? [])
+      .filter((style) => !family || style.family === family)
+      .map((style, index) => ({ style, index }))
+      .sort((a, b) => (rank.get(a.style.family) ?? 9) - (rank.get(b.style.family) ?? 9) || a.index - b.index)
+      .map(({ style }) => style);
+  }, [listing, family, families]);
 
   // Before a pick: the style the address names, else the first of the
   // world that was asked for, else the first of the universe.
@@ -91,10 +95,11 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
     isAuthenticated && activeId ? { ownerUserId, styleId: activeId } : "skip",
     { initialNumItems: PAGE },
   );
+  const stories = useQuery(api.worldStyles.listStyleStories, isAuthenticated && activeId ? { ownerUserId, styleId: activeId } : "skip");
 
   const choose = useCallback((id: Id<"worldStyles">) => {
     setActiveId(id);
-    setOpenIndex(null);
+    setOpened(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
@@ -110,20 +115,20 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (openIndex !== null) {
-        if (event.key === "Escape" || event.key.toLowerCase() === "o") { setOpenIndex(null); event.preventDefault(); }
-        else if (event.key === "ArrowRight") { setOpenIndex((index) => Math.min((index ?? 0) + 1, frames.results.length - 1)); event.preventDefault(); }
-        else if (event.key === "ArrowLeft") { setOpenIndex((index) => Math.max((index ?? 0) - 1, 0)); event.preventDefault(); }
+      if (opened !== null) {
+        if (event.key === "Escape" || event.key.toLowerCase() === "o") { setOpened(null); event.preventDefault(); }
+        else if (event.key === "ArrowRight") { setOpened((open) => open && { ...open, index: Math.min(open.index + 1, open.frames.length - 1) }); event.preventDefault(); }
+        else if (event.key === "ArrowLeft") { setOpened((open) => open && { ...open, index: Math.max(open.index - 1, 0) }); event.preventDefault(); }
         return;
       }
       if (event.key === "ArrowRight" || event.key === "]") { step(1); event.preventDefault(); }
       else if (event.key === "ArrowLeft" || event.key === "[") { step(-1); event.preventDefault(); }
-      else if (event.key.toLowerCase() === "o" && hovered.current !== null) { setOpenIndex(hovered.current); event.preventDefault(); }
+      else if (event.key.toLowerCase() === "o" && hovered.current !== null) { setOpened(hovered.current); event.preventDefault(); }
       else if (event.key.toLowerCase() === "a") setView((mode) => (mode === "human" ? "agent" : "human"));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openIndex, frames.results.length, step]);
+  }, [opened, step]);
 
   if (listing === undefined) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
@@ -133,7 +138,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
 
   return (
     <main className="min-h-dvh pb-16" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)" }}>
-      <style>{PAGE_CSS}</style>
+      <style>{MOSAIC_CSS + PAGE_CSS}</style>
       <TopBar listing={listing} world={world} families={families} family={family} onFamily={setFamily}
         view={view} onView={setView} size={size} onSize={setSize} />
       <Carousel styles={shown} activeId={activeId} onChoose={choose} view={view} grouped={!family} />
@@ -143,18 +148,22 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         <section className="lms-body px-3 pt-6 md:px-6">
           <div className="min-w-0">
             <StyleHeader card={active} detail={detail} view={view} />
+            <StorySections stories={stories} onOpen={setOpened} onHover={(open) => { hovered.current = open; }} />
+            {stories?.length ? <h3 className="mb-3 mt-2 flex items-baseline gap-3"><span className="text-[15px] font-black uppercase tracking-tight" style={display}>Every frame</span><Micro>{framesLabel(active.frameCount)}</Micro></h3> : null}
             <FrameGrid frames={frames.results} size={size} covers={detail?.coverAssetIds ?? []} loading={frames.status === "LoadingFirstPage"}
               canLoadMore={frames.status === "CanLoadMore"} onLoadMore={() => frames.loadMore(PAGE)}
-              onOpen={setOpenIndex} onHover={(index) => { hovered.current = index; }} view={view} />
+              onOpen={(index) => setOpened({ frames: frames.results, index })}
+              onHover={(index) => { hovered.current = index === null ? null : { frames: frames.results, index }; }} view={view} />
           </div>
           <RecipeRail detail={detail} view={view} />
         </section>
       ) : null}
-      {openIndex !== null && frames.results[openIndex] ? (
-        <Lightbox ownerUserId={ownerUserId} frames={frames.results} index={openIndex} onIndex={setOpenIndex}
-          onClose={() => setOpenIndex(null)} galleryHref={active ? galleryRoutePath({ kind: "world", world: active.world.key, shelf: active.shelfId }, frames.results[openIndex]!.assetId) : undefined} />
+      {opened !== null && opened.frames[opened.index] ? (
+        <Lightbox ownerUserId={ownerUserId} frames={opened.frames} index={opened.index} onIndex={(index) => setOpened({ ...opened, index })}
+          onClose={() => setOpened(null)} story={opened.story}
+          galleryHref={active ? galleryRoutePath({ kind: "world", world: active.world.key, shelf: active.shelfId }, opened.frames[opened.index]!.assetId) : undefined} />
       ) : null}
-      <KeyHint open={openIndex !== null} />
+      <KeyHint open={opened !== null} />
     </main>
   );
 }
@@ -174,7 +183,7 @@ function TopBar({ listing, world, families, family, onFamily, view, onView, size
         <Micro color="var(--lm-text-secondary)">{listing.universe.name}</Micro>
       </Link>
       <h1 className="text-[22px] font-black uppercase leading-none tracking-tight md:text-[26px]" style={display}>Styles</h1>
-      <nav aria-label="Families" className="flex flex-wrap items-center gap-1">
+      <nav aria-label="Medium" className="flex flex-wrap items-center gap-1">
         {[null, ...families].map((name) => {
           const on = name === family;
           return <button key={name ?? "all"} type="button" onClick={() => onFamily(name)} className="lms-pill" data-on={on || undefined}>
@@ -200,7 +209,8 @@ function TopBar({ listing, world, families, family, onFamily, view, onView, size
 
 /* ── Carousel ─────────────────────────────────────────────────────────────── */
 
-const CARD_HEIGHT = 168;
+const CARD_WIDTH = 200;
+const CARD_ROW = 92;
 
 function Carousel({ styles, activeId, onChoose, view, grouped }: {
   styles: Card[]; activeId: string | null; onChoose: (id: Id<"worldStyles">) => void; view: View; grouped: boolean;
@@ -230,35 +240,17 @@ function Carousel({ styles, activeId, onChoose, view, grouped }: {
   );
 }
 
-// One style in the carousel: its cover at its own shape, the pointer skims
-// through its other covers, the name and frame count under it.
+// One style in the carousel: four of its frames as a mosaic, the name, its
+// medium and frame count under it.
 function StyleCard({ style, active, onChoose, view }: { style: Card; active: boolean; onChoose: (id: Id<"worldStyles">) => void; view: View }) {
-  const [cover, setCover] = useState(0);
-  const frame = style.covers[cover] ?? style.covers[0];
-  const width = Math.round(Math.min(Math.max((frame ? aspectOf(frame) : 0.8) * CARD_HEIGHT, 120), 300));
-  const onMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (style.covers.length < 2) return;
-    const box = event.currentTarget.getBoundingClientRect();
-    setCover(Math.min(style.covers.length - 1, Math.floor(((event.clientX - box.left) / box.width) * style.covers.length)));
-  };
   return (
-    <button type="button" data-style={style.id} onClick={() => onChoose(style.id)} onPointerMove={onMove} onPointerLeave={() => setCover(0)}
-      className="lms-card group text-left" data-on={active || undefined} style={{ width }} aria-pressed={active}>
-      <span className="lms-card-img" style={{ height: CARD_HEIGHT }}>
-        {frame ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img {...imageAttrs(frame, width)} alt="" loading="lazy" decoding="async" draggable={false}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        ) : <span className="grid h-full place-items-center"><Micro>No frames yet</Micro></span>}
-        {style.covers.length > 1 ? (
-          <span className="lms-dots" aria-hidden>{style.covers.map((c, i) => <i key={c.assetId} data-on={i === cover || undefined} />)}</span>
-        ) : null}
+    <button type="button" data-style={style.id} onClick={() => onChoose(style.id)}
+      className="lms-card text-left" data-on={active || undefined} style={{ width: CARD_WIDTH }} aria-pressed={active} title={style.line ?? style.name}>
+      <StyleMosaic style={style} width={CARD_WIDTH} rowHeight={CARD_ROW} active={active}>
         {style.status === "ready" ? <span className="lms-chip lms-chip-teal absolute right-1.5 top-1.5">Ready</span> : null}
-      </span>
-      <span className="mt-2 block truncate text-[13px] font-extrabold uppercase leading-tight tracking-tight" style={display}>{style.name}</span>
-      <span className="mt-0.5 block truncate text-[10px] uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
-        {framesLabel(style.frameCount)}{view === "agent" ? ` · ${style.slug}` : ""}
-      </span>
+      </StyleMosaic>
+      <StyleCaption style={style} />
+      {view === "agent" ? <span className="block truncate text-[10px]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>{style.slug}</span> : null}
     </button>
   );
 }
@@ -285,7 +277,48 @@ function StyleHeader({ card, detail, view }: { card: Card; detail: Detail | unde
   );
 }
 
-const framesLabel = (count: number, noun = "frame") => `${count} ${noun}${count === 1 ? "" : "s"}`;
+// The style read as story: one row per storybook that uses it, its frames in
+// the book's order at one height, so a beat sequence reads left to right.
+const STORY_HEIGHT = 150;
+
+function StorySections({ stories, onOpen, onHover }: {
+  stories: Story[] | undefined; onOpen: (open: Opened) => void; onHover: (open: Opened | null) => void;
+}) {
+  if (!stories?.length) return null;
+  return (
+    <div className="mb-8 flex flex-col gap-6" onPointerLeave={() => onHover(null)}>
+      <h3 className="flex items-baseline gap-3">
+        <span className="text-[15px] font-black uppercase tracking-tight" style={display}>In the stories</span>
+        <Micro>{stories.length} {stories.length === 1 ? "storybook" : "storybooks"}</Micro>
+      </h3>
+      {stories.map((story) => (
+        <section key={story.id} aria-label={story.name} className="lms-story">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <Link href={`/storybooks/${story.id}`} className="text-[13px] font-extrabold uppercase tracking-tight hover:underline" style={display}>{story.name}</Link>
+            <Micro>{story.count} of its {story.total} frames in this style</Micro>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {story.frames.map((frame, index) => (
+              <button key={frame.assetId} type="button" className="lms-story-frame shrink-0" aria-label={`Open frame ${index + 1} of ${story.name}`}
+                onClick={() => onOpen({ frames: story.frames, index, story })}
+                onPointerEnter={() => onHover({ frames: story.frames, index, story })}
+                style={{ width: Math.round(Math.min(Math.max(aspectOf(frame), 0.5), 2.4) * STORY_HEIGHT), height: STORY_HEIGHT }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img {...imageAttrs(frame, Math.round(aspectOf(frame) * STORY_HEIGHT))} alt="" loading="lazy" decoding="async" draggable={false} />
+                <span className="lms-beat">{index + 1}</span>
+              </button>
+            ))}
+            {story.count > story.frames.length ? (
+              <Link href={`/storybooks/${story.id}`} className="lms-story-more shrink-0" style={{ height: STORY_HEIGHT }}>
+                <Micro>+{story.count - story.frames.length} more</Micro>
+              </Link>
+            ) : null}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 function FrameGrid({ frames, size, covers, loading, canLoadMore, onLoadMore, onOpen, onHover, view }: {
   frames: Frame[]; size: Size; covers: string[]; loading: boolean; canLoadMore: boolean; onLoadMore: () => void;
@@ -405,7 +438,7 @@ function RecipeRail({ detail, view }: { detail: Detail | undefined; view: View }
       <Block title="Where it lives">
         <div className="flex flex-wrap gap-1.5">
           {detail.shelf ? <Link className="lms-chip lms-chip-link" href={galleryRoutePath({ kind: "world", world: detail.world.key, shelf: detail.shelf.id })}>Shelf · {detail.shelf.name}</Link> : null}
-          {detail.lock ? <Link className="lms-chip lms-chip-link" href={`/stories/${detail.lock.id}`}>Full recipe · {detail.lock.status}</Link> : null}
+          {detail.lock ? <Link className="lms-chip lms-chip-link" href={`/stories/${detail.lock.id}`}>Style lock · {detail.lock.status}</Link> : null}
           <span className="lms-chip">{detail.world.name}</span>
         </div>
         {agent ? (
@@ -490,8 +523,8 @@ function EmptyUniverse({ listing, view }: { listing: Listing; view: View }) {
 
 /* ── Open view ────────────────────────────────────────────────────────────── */
 
-function Lightbox({ ownerUserId, frames, index, onIndex, onClose, galleryHref }: {
-  ownerUserId: string; frames: Frame[]; index: number; onIndex: (index: number) => void; onClose: () => void; galleryHref?: string;
+function Lightbox({ ownerUserId, frames, index, onIndex, onClose, galleryHref, story }: {
+  ownerUserId: string; frames: Frame[]; index: number; onIndex: (index: number) => void; onClose: () => void; galleryHref?: string; story?: Story;
 }) {
   const frame = frames[index]!;
   const { isAuthenticated } = useConvexAuth();
@@ -524,7 +557,7 @@ function Lightbox({ ownerUserId, frames, index, onIndex, onClose, galleryHref }:
             <button type="button" aria-label="Close" onClick={onClose} className="lms-seg"><X size={12} /></button>
           </div>
         </div>
-        <Micro>{index + 1} / {frames.length}</Micro>
+        <Micro>{story ? `${story.name} · ` : ""}{index + 1} / {frames.length}</Micro>
         {info?.prompt ? (
           <div className="mt-3">
             <div className="mb-1.5 flex items-center justify-between"><Micro>Prompt</Micro><CopyChip value={info.prompt} label="Copy prompt" /></div>
@@ -559,11 +592,6 @@ const PAGE_CSS = `
 .lms-rail{scroll-snap-type:x proximity}
 .lms-card{scroll-snap-align:center;flex-shrink:0;opacity:.62;transition:opacity .15s}
 .lms-card:hover,.lms-card[data-on]{opacity:1}
-.lms-card-img{position:relative;display:block;overflow:hidden;border-radius:var(--lm-radius);background:var(--lm-surface-2);outline:2px solid transparent;outline-offset:2px;transition:outline-color .15s,box-shadow .15s}
-.lms-card[data-on] .lms-card-img{outline-color:var(--lm-coral);box-shadow:0 0 0 6px rgba(255,122,100,.12),0 8px 30px -10px rgba(255,122,100,.55)}
-.lms-dots{position:absolute;left:6px;right:6px;bottom:6px;display:flex;gap:3px}
-.lms-dots i{flex:1;height:2px;background:rgba(240,232,224,.28);border-radius:2px}
-.lms-dots i[data-on]{background:var(--lm-ink)}
 .lms-family{align-self:stretch;display:flex;align-items:flex-end;padding:0 2px 34px 6px;border-left:1px solid var(--lm-border)}
 .lms-family span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:var(--lm-font);font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--lm-text-tertiary);white-space:nowrap}
 .lms-railbtn{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;display:grid;place-items:center;border-radius:999px;background:color-mix(in srgb,var(--lm-paper) 78%,transparent);border:1px solid var(--lm-border-strong);color:var(--lm-text-primary);backdrop-filter:blur(8px);z-index:5}
@@ -588,6 +616,12 @@ a.lms-stack-row:hover{border-color:var(--lm-border-strong)}
 .lms-move{display:flex;gap:8px;font-size:12.5px;line-height:1.5;color:var(--lm-text-secondary)}
 .lms-move b{font-family:var(--lm-font);width:10px;flex-shrink:0}
 .lms-dim{font-size:12px;color:var(--lm-text-tertiary)}
+.lms-story-frame{position:relative;overflow:hidden;border-radius:var(--lm-radius);background:var(--lm-surface-2)}
+.lms-story-frame img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s cubic-bezier(.2,.7,.2,1)}
+.lms-story-frame:hover img{transform:scale(1.02)}
+.lms-beat{position:absolute;left:6px;top:6px;font-family:var(--lm-font);font-size:10px;font-weight:800;line-height:1;padding:3px 5px;border-radius:var(--lm-radius);background:color-mix(in srgb,var(--lm-paper) 74%,transparent);color:var(--lm-text-primary);backdrop-filter:blur(6px)}
+.lms-story-more{display:grid;place-items:center;padding:0 18px;border-radius:var(--lm-radius);border:1px dashed var(--lm-border-strong)}
+.lms-story-more:hover{border-color:var(--lm-text-tertiary)}
 .lms-masonry{column-fill:balance}
 .lms-tile{position:relative;break-inside:avoid;overflow:hidden;border-radius:var(--lm-radius);content-visibility:auto;contain-intrinsic-size:auto 300px}
 .lms-tile img,.lms-tile video{transition:transform .35s cubic-bezier(.2,.7,.2,1)}

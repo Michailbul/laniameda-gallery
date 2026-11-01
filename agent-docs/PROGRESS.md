@@ -8,6 +8,25 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — World page opens on its styles (branch `feat/world-page-styles`)
+
+- A world root in the vault (`/w/<world>`, Pieces) now starts with a styles
+  strip: every style of the universe as a 2×2 mosaic card (name, medium chip,
+  frame count), filtered by medium chips (Film / Art Deco / 3D / Iron Stage)
+  instead of reading the sibling worlds one by one. A card opens
+  `/w/<world>/styles/<style>`. The strip is its own `dynamic()` chunk and
+  subscribes after the grid's first page (`supportQueriesOn`). At the root the
+  old style switcher row is hidden and the Styles shelf group moves to the end
+  as "Style shelves" (some shelves are not named styles yet).
+- Styles page: mosaic carousel cards, medium chips in film / deco / 3D order,
+  and "In the stories": one row per storybook of the style's world that holds
+  its frames, in the book's filing order with beat numbers, before every frame.
+  New query `worldStyles.listStyleStories` (read only, backend pushed 1 Nov
+  23:20). "Full recipe" reads "Style lock".
+- Same night, audit of the four DEAR ANNETE worlds: 186 type tags corrected
+  under session `world-audit-2026-11-01` (undo with world_undo); report and
+  logs in `~/AI-video-work/Dear Annette/world-audit-2026-11-01/`.
+
 ### 2026-11-01 — World styles: a world holds several named styles (branch `feature/world-styles-page`)
 
 - New table `worldStyles` (name, slug, one-line look, family, status draft/ready/

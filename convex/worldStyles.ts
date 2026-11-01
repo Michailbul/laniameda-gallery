@@ -357,6 +357,47 @@ export const listStyleFramesPage = ownerQuery({
   },
 });
 
+// A style read as story: every storybook of the style's world that holds some
+// of its frames, in the book's own order (first filed first, which is how
+// books are built beat by beat), the first `perBook` frames each and how many
+// it holds in all. Books with none of the style's frames are left out.
+const STORY_LINKS_PER_BOOK = 400;
+export const listStyleStories = ownerQuery({
+  args: { ownerUserId: v.string(), styleId: v.id("worldStyles"), perBook: v.optional(v.number()) },
+  returns: v.array(v.object({
+    id: v.id("folders"), name: v.string(),
+    count: v.number(), total: v.number(),
+    frames: v.array(frameValidator),
+  })),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    const style = await ctx.db.get(args.styleId);
+    if (!owned(owner, style)) throw new ConvexError("Style not found.");
+    const shelfId = style.shelfFolderId;
+    if (!shelfId) return [];
+    const perBook = Math.min(Math.max(Math.floor(args.perBook ?? 12), 1), 40);
+    const books = (await childrenOf(ctx, style.worldFolderId)).filter((child) => child.kind === "storybook" && owned(owner, child));
+    const stories = [];
+    for (const book of books) {
+      const links = await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", book._id))
+        .order("asc").take(STORY_LINKS_PER_BOOK);
+      const frames: Frame[] = [];
+      let count = 0;
+      for (const link of links) {
+        const inStyle = await ctx.db.query("assetFolders")
+          .withIndex("by_asset_folder", (q) => q.eq("assetId", link.assetId).eq("folderId", shelfId)).first();
+        if (!inStyle) continue;
+        count += 1;
+        if (frames.length >= perBook) continue;
+        const asset = await ctx.db.get(link.assetId);
+        if (owned(owner, asset)) frames.push(await frameOf(ctx, asset));
+      }
+      if (count) stories.push({ id: book._id, name: book.name, count, total: book.memberCount ?? links.length, frames });
+    }
+    return stories.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  },
+});
+
 /** The ids of every frame on a style's shelf, a page at a time (merges and agents). */
 export const listStyleFrameIds = ownerQuery({
   args: { ownerUserId: v.string(), styleId: v.id("worldStyles"), cursor: v.optional(v.union(v.string(), v.null())) },
