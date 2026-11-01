@@ -6,13 +6,13 @@ import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/se
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import {
-  completeInputProblem, taskClaimSchema, taskCommentSchema, taskCompleteSchema, taskCreateSchema, taskListSchema, taskRefSchema, taskReleaseSchema,
+  completeInputProblem, taskClaimSchema, taskCommentSchema, taskCompleteSchema, taskCreateSchema, taskEditSchema, taskListSchema, taskRefSchema, taskReleaseSchema,
 } from "@/lib/tasks-contract";
 import { agentActor, bareTaskRef, linkRef, taskAge, taskRef } from "@/lib/tasks";
 
 // The agent task queue: list the work waiting, claim a task, comment while
 // working, complete it with a result. Michael reviews in /tasks.
-const actions = ["list", "get", "create", "claim", "release", "complete", "comment"] as const;
+const actions = ["list", "get", "create", "claim", "release", "complete", "comment", "edit"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   list: "gallery:read",
   get: "gallery:read",
@@ -21,6 +21,7 @@ const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   release: "gallery:write",
   complete: "gallery:write",
   comment: "gallery:write",
+  edit: "gallery:write",
 };
 
 const TASKS_URL = "https://gallery.laniameda.space/tasks";
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
     if (action === "create") {
       const input = taskCreateSchema.parse(body);
       const result = await client.mutation(api.tasks.createTask, {
-        ownerUserId, world: input.world, title: input.title, brief: input.brief, priority: input.priority, createdBy: actor,
+        ownerUserId, world: input.world, title: input.title, summary: input.summary, brief: input.brief, priority: input.priority, createdBy: actor,
         assignee: input.assignee, links: input.links?.map(stripLink), dueAt: input.dueAt, ingestKey: input.ingestKey, session: input.session,
       });
       return NextResponse.json({ ok: true, created: result.created, task: row(result.task) });
@@ -87,9 +88,14 @@ export async function POST(request: Request) {
       const problem = completeInputProblem(input);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       const task = await client.mutation(api.tasks.completeTask, {
-        ownerUserId, taskId: taskId(), result: input.result, status: input.blocked ? "blocked" : "done", ask: input.blocked ? input.ask : undefined,
+        ownerUserId, taskId: taskId(), result: input.result, status: input.blocked ? "blocked" : "done", ask: input.blocked ? input.ask : undefined, summary: input.summary,
         links: input.links?.map(stripLink), actor: input.assignee ?? actor, session: input.session,
       });
+      return NextResponse.json({ ok: true, task: row(task) });
+    }
+    if (action === "edit") {
+      const input = taskEditSchema.parse(body);
+      const task = await client.mutation(api.tasks.updateTask, { ownerUserId, taskId: taskId(), title: input.title, summary: input.summary, brief: input.brief, actor });
       return NextResponse.json({ ok: true, task: row(task) });
     }
     const input = taskCommentSchema.parse(body);

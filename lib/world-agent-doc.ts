@@ -185,7 +185,7 @@ export function buildWorldAgentSections(context: WorldContext, docs: WorldDocBod
         : [
           ...tasks.next.map((task) => `- [P${task.priority}] ${task.title} · task:${task.id}`),
           "",
-          "_Claim one with claim_task before working; complete_task with a result naming the asset:/story:/stack: ids produced. list_tasks {world} shows them all._",
+          "_Claim one with claim_task before working; complete_task with a plain one-line summary for Michael and a result naming the asset:/story:/stack: ids produced. A question for him is an ask with picture options, never prose. list_tasks {world} shows them all._",
         ]),
     ),
   });

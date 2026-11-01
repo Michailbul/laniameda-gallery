@@ -27,8 +27,9 @@ export const taskRefSchema = z.object({ taskId: ref("task:<id> or a bare id, fro
 
 export const taskCreateSchema = z.object({
   world: world.optional(),
-  title: z.string().min(1).max(TASK_LIMITS.title).describe("One line: what to do."),
-  brief: z.string().min(1).max(TASK_LIMITS.brief).optional().describe("Markdown: the whole instruction, with the asset:/story: ids it concerns."),
+  title: z.string().min(1).max(TASK_LIMITS.humanTitle).describe(`What Michael reads on the wall, in his words, under ${TASK_LIMITS.humanTitle} characters: "Run the bigger prompt test", "Make Mila's character sheet". No ids, file paths, tool names, flags or experiment codes; those go in the brief.`),
+  summary: z.string().min(1).max(TASK_LIMITS.summary).describe("One plain line under the title for Michael: why it matters or what he will get. Required."),
+  brief: z.string().min(1).max(TASK_LIMITS.brief).optional().describe("Markdown for the agent who takes it: the whole instruction, with the asset:/story: ids it concerns. Only the Agent view shows it."),
   priority: taskPrioritySchema.optional(),
   assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Who should take it (agent:<name>); anyone may claim an unassigned task."),
   links: z.array(taskLinkSchema).max(TASK_LIMITS.links).optional().describe("Typed handles to what the task is about."),
@@ -61,7 +62,8 @@ export const taskAskSchema = z.object({
 });
 
 export const taskCompleteSchema = taskRefSchema.extend({
-  result: z.string().min(1).max(TASK_LIMITS.result).optional().describe("Markdown. Done: what was done and the asset:/story:/stack: ids produced (required). Blocked: the reasoning behind the ask; he sees it only under Details."),
+  result: z.string().min(1).max(TASK_LIMITS.result).optional().describe("Markdown for agents. Done: what was done and the asset:/story:/stack: ids produced (required). Blocked: the reasoning behind the ask. Only the Agent view shows it."),
+  summary: z.string().min(1).max(TASK_LIMITS.summary).optional().describe("Done: one plain line for Michael, what he will see now ('Mila's sheet is ready: front, side and back'). Required when done; put the frames in links."),
   blocked: z.boolean().optional().describe("true = you need Michael (status blocked, shown under Needs you): pass ask. false/omitted = done."),
   ask: taskAskSchema.optional().describe("Required with blocked: true. The question as pictures and one-click options; at least one frame. A text-only question is refused."),
   links: z.array(taskLinkSchema).max(TASK_LIMITS.links).optional().describe("What the work produced, added to the task's links."),
@@ -69,10 +71,17 @@ export const taskCompleteSchema = taskRefSchema.extend({
   assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });
 
+export const taskEditSchema = taskRefSchema.extend({
+  title: z.string().min(1).max(TASK_LIMITS.humanTitle).optional().describe("A plainer title for the wall."),
+  summary: z.string().min(1).max(TASK_LIMITS.summary).optional().describe("A plainer one-line summary for the wall."),
+  brief: z.string().min(1).max(TASK_LIMITS.brief).optional().describe("Replace the agent brief."),
+});
+
 /** Done needs a result; blocked needs an ask. Checked in the route, so the MCP input schema stays a plain object. */
 export const completeInputProblem = (input: z.infer<typeof taskCompleteSchema>) =>
   input.blocked ? (input.ask ? null : "blocked: true needs ask {question, options: 2–4 {label, assetIds}}: Michael answers pictures, not prose.")
-    : input.result ? null : "Say what was done in result and name the asset:/story:/stack: ids produced.";
+    : !input.result ? "Say what was done in result and name the asset:/story:/stack: ids produced."
+      : input.summary ? null : "Add summary: one plain line for Michael, what he will see now.";
 
 export const taskCommentSchema = taskRefSchema.extend({
   body: z.string().min(1).max(TASK_LIMITS.comment).describe("Plain text or markdown. A progress note renews your claim."),

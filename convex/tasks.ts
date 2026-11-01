@@ -8,7 +8,9 @@ import { resolveAssetThumbUrl } from "./r2_url";
 import {
   taskAskValidator, taskDocValidator, taskEventDocValidator, taskLinkValidator, taskPriorityValidator, taskSourceValidator, taskStatusValidator,
 } from "./taskValidators";
-import { TASK_ACTIVE_STATUSES, TASK_LIMITS, askProblem, isOwnerActor, leaseActive, type TaskAsk, type TaskStatus } from "../lib/tasks";
+import {
+  TASK_ACTIVE_STATUSES, TASK_LIMITS, askProblem, isOwnerActor, leaseActive, summaryProblem, titleProblem, type TaskAsk, type TaskStatus,
+} from "../lib/tasks";
 
 // The agent task queue ("Tasks" in the gallery). Michael comments on an asset
 // or answers an Inbox stack, or someone files a task by hand; an agent lists
@@ -48,6 +50,13 @@ const requireTask = async (ctx: QueryCtx, owner: string, taskId: Id<"tasks">) =>
 const cleanActor = (value: string | undefined, fallback = "owner") => {
   const actor = value?.trim().slice(0, TASK_LIMITS.createdBy);
   return actor || fallback;
+};
+
+/** An agent writes the Human view in plain words: refuse a title or summary Michael would have to decode. */
+const checkHumanText = (actor: string, fields: { title?: string; summary?: string }, summaryRequired: boolean) => {
+  if (isOwnerActor(actor)) return;
+  const problem = (fields.title !== undefined ? titleProblem(fields.title) : null) ?? summaryProblem(fields.summary, summaryRequired);
+  if (problem) throw new ConvexError(problem);
 };
 
 const cleanLinks = (links: Link[] | undefined): Link[] => {
@@ -96,6 +105,7 @@ const findByIngestKey = async (ctx: QueryCtx, owner: string, ingestKey: string) 
 export type NewTask = {
   worldFolderId?: Id<"folders">;
   title: string;
+  summary?: string;
   brief?: string;
   priority?: 1 | 2 | 3;
   createdBy: string;
@@ -127,6 +137,7 @@ export const upsertTask = async (ctx: MutationCtx, owner: string, input: NewTask
     ownerUserId: world?.ownerUserId ?? owner,
     worldFolderId: world?._id,
     title,
+    summary: text(input.summary, TASK_LIMITS.summary, "Summary"),
     brief: text(input.brief, TASK_LIMITS.brief, "Brief"),
     status: "open" as const,
     priority: input.priority ?? 2,
@@ -223,20 +234,22 @@ export const countOpenTasks = ownerQuery({
     open: v.number(),
     claimed: v.number(),
     blocked: v.number(),
+    // Finished work waiting for his Accept: a world with only these still gets a chip on /tasks.
+    done: v.number(),
   })),
   handler: async (ctx, args) => {
-    const byWorld = new Map<string, { worldFolderId?: Id<"folders">; open: number; claimed: number; blocked: number }>();
+    const byWorld = new Map<string, { worldFolderId?: Id<"folders">; open: number; claimed: number; blocked: number; done: number }>();
     const seen = new Set<string>();
     for (const candidate of resolveUserIdCandidates(args.ownerUserId)) {
-      for (const status of TASK_ACTIVE_STATUSES) {
+      for (const status of [...TASK_ACTIVE_STATUSES, "done" as const]) {
         const rows = await ctx.db.query("tasks")
           .withIndex("by_owner_status_createdAt", (q) => q.eq("ownerUserId", candidate).eq("status", status)).take(500);
         for (const row of rows) {
           if (seen.has(row._id)) continue;
           seen.add(row._id);
           const key = row.worldFolderId ?? "";
-          const entry = byWorld.get(key) ?? { worldFolderId: row.worldFolderId, open: 0, claimed: 0, blocked: 0 };
-          if (row.status === "open" || row.status === "claimed" || row.status === "blocked") entry[row.status] += 1;
+          const entry = byWorld.get(key) ?? { worldFolderId: row.worldFolderId, open: 0, claimed: 0, blocked: 0, done: 0 };
+          if (row.status === "open" || row.status === "claimed" || row.status === "blocked" || row.status === "done") entry[row.status] += 1;
           byWorld.set(key, entry);
         }
       }
@@ -315,6 +328,7 @@ export const createTask = ownerMutation({
     // Alternative to worldFolderId: a world key, name or collection id.
     world: v.optional(v.string()),
     title: v.string(),
+    summary: v.optional(v.string()),
     brief: v.optional(v.string()),
     priority: v.optional(taskPriorityValidator),
     createdBy: v.optional(v.string()),
@@ -329,9 +343,10 @@ export const createTask = ownerMutation({
   returns: v.object({ task: taskRowValidator, created: v.boolean() }),
   handler: async (ctx, args) => {
     const owner = args.ownerUserId;
+    checkHumanText(cleanActor(args.createdBy), { title: args.title, summary: args.summary }, true);
     const worldFolderId = args.worldFolderId ?? (args.world ? (await resolveWorld(ctx, owner, args.world))._id : undefined);
     const { task, created } = await upsertTask(ctx, owner, {
-      worldFolderId, title: args.title, brief: args.brief, priority: args.priority,
+      worldFolderId, title: args.title, summary: args.summary, brief: args.brief, priority: args.priority,
       createdBy: cleanActor(args.createdBy), assignee: args.assignee, links: args.links,
       source: args.source ?? "manual", sourceRef: args.sourceRef, ingestKey: args.ingestKey, dueAt: args.dueAt, session: args.session,
     });
@@ -435,6 +450,8 @@ export const completeTask = ownerMutation({
     taskId: v.id("tasks"),
     // Done: what was done. Blocked: the reasoning behind the ask (optional).
     result: v.optional(v.string()),
+    // Done: one plain line for Michael, what he will see now. Required from agents.
+    summary: v.optional(v.string()),
     ask: v.optional(taskAskValidator),
     status: v.optional(v.union(v.literal("done"), v.literal("blocked"))),
     links: v.optional(v.array(taskLinkValidator)),
@@ -448,12 +465,14 @@ export const completeTask = ownerMutation({
     const status = args.status ?? "done";
     const result = text(args.result, TASK_LIMITS.result, "Result");
     if (!result && status === "done") throw new ConvexError("Say what was done and name the asset:/story:/stack: ids produced.");
+    const summary = text(args.summary, TASK_LIMITS.summary, "Summary") ?? task.summary;
     if (task.status === "archived") throw new ConvexError(`task:${task._id} is archived.`);
     const ask = status === "blocked" ? await cleanAsk(ctx, args.ownerUserId, args.ask) : undefined;
-    if (task.status === status && task.result === result && JSON.stringify(task.ask) === JSON.stringify(ask)) return await withWorld(ctx, task);
+    if (task.status === status && task.result === result && task.summary === summary && JSON.stringify(task.ask) === JSON.stringify(ask)) return await withWorld(ctx, task);
     if (!mayAct(task, actor)) throw new ConvexError(`task:${task._id} is held by ${task.claimedBy}; claim it first or wait for the lease to lapse.`);
+    checkHumanText(actor, { summary: args.summary }, status === "done");
     const finished = await patchTask(ctx, task, {
-      status, result, ask, links: mergeLinks(task.links, args.links),
+      status, result, ask, summary, links: mergeLinks(task.links, args.links),
       claimedBy: undefined, claimedAt: undefined, leaseUntil: undefined,
       needsRework: undefined,
       assignee: task.assignee ?? (isOwnerActor(actor) ? undefined : actor),
@@ -494,23 +513,49 @@ export const commentTask = ownerMutation({
   },
 });
 
-/** Michael's edits from the queue: close, reopen, archive, or change title, brief, priority, due date. */
+/**
+ * Michael's edits from the queue: close, reopen, archive, or change title,
+ * summary, brief, priority, due date. Agents use it (edit_task) to rewrite a
+ * title or summary in plain words; theirs are checked like on create.
+ */
 export const updateTask = ownerMutation({
   args: {
     ownerUserId: v.string(),
     taskId: v.id("tasks"),
     status: v.optional(v.union(v.literal("open"), v.literal("done"), v.literal("archived"))),
     title: v.optional(v.string()),
+    summary: v.optional(v.union(v.string(), v.null())),
     brief: v.optional(v.union(v.string(), v.null())),
     priority: v.optional(taskPriorityValidator),
     dueAt: v.optional(v.union(v.number(), v.null())),
     actor: v.optional(v.string()),
+    // Michael's undo on /tasks: put the task back exactly as it was before his
+    // stamp (a blocked question, or an agent's claim and lease), not just open.
+    restore: v.optional(v.object({
+      status: taskStatusValidator,
+      claimedBy: v.optional(v.string()),
+      claimedAt: v.optional(v.number()),
+      leaseUntil: v.optional(v.number()),
+    })),
   },
   returns: taskRowValidator,
   handler: async (ctx, args) => {
     const task = await requireTask(ctx, args.ownerUserId, args.taskId);
     const actor = cleanActor(args.actor);
+    if (args.restore) {
+      if (!isOwnerActor(actor)) throw new ConvexError("Only Michael's undo restores a task.");
+      const { status, claimedBy, claimedAt, leaseUntil } = args.restore;
+      if (status === "blocked" && !task.ask) throw new ConvexError(`task:${task._id} has no question to restore.`);
+      const restored = await patchTask(ctx, task, {
+        status, claimedBy: status === "claimed" ? claimedBy : undefined, claimedAt: status === "claimed" ? claimedAt : undefined,
+        leaseUntil: status === "claimed" ? leaseUntil : undefined,
+      });
+      await addEvent(ctx, task, { kind: "status", author: actor, from: task.status, to: status, body: "undo" });
+      return await withWorld(ctx, restored);
+    }
     const patch: Partial<Task> = {};
+    checkHumanText(actor, { title: args.title, summary: args.summary ?? undefined }, false);
+    if (args.summary !== undefined) patch.summary = args.summary === null ? undefined : text(args.summary, TASK_LIMITS.summary, "Summary");
     if (args.title !== undefined) {
       const title = text(args.title, TASK_LIMITS.title, "Title");
       if (!title) throw new ConvexError("A task needs a title.");
@@ -589,6 +634,9 @@ const taskCardValidator = v.object({
   ...taskRowValidator.fields,
   // The pictures the task is about: its asset links that still exist, first four.
   thumbs: v.array(cardThumbValidator),
+  // His latest answer or rework note on a task now back with the agents, so
+  // the frame says what he said instead of looking untouched.
+  lastAnswer: v.optional(v.object({ body: v.string(), at: v.number() })),
   // A blocked task's question, its pictures resolved: what the sheet draws.
   askView: v.optional(v.object({
     question: v.string(),
@@ -607,7 +655,7 @@ const cardThumb = async (ctx: QueryCtx, owner: string, candidate: string) => {
 
 const cardThumbs = async (ctx: QueryCtx, owner: string, ids: string[] | undefined) => {
   const out = [];
-  for (const id of ids ?? []) { const thumb = await cardThumb(ctx, owner, id); if (thumb) out.push(thumb); }
+  for (const thumb of await Promise.all((ids ?? []).map((id) => cardThumb(ctx, owner, id)))) if (thumb) out.push(thumb);
   return out;
 };
 
@@ -669,15 +717,14 @@ export const listTaskCards = ownerQuery({
           candidates.push(...cards.flatMap((card) => card.assetIds as string[]));
         }
       }
-      const thumbs = [];
-      const seenAssets = new Set<string>();
-      for (const candidate of candidates) {
-        if (thumbs.length >= 8) break;
-        const id = ctx.db.normalizeId("assets", candidate);
-        if (!id || seenAssets.has(id)) continue;
-        seenAssets.add(id);
-        const thumb = await cardThumb(ctx, owner, id);
-        if (thumb) thumbs.push(thumb);
+      const ids = [...new Set(candidates.map((candidate) => ctx.db.normalizeId("assets", candidate)).filter((id): id is Id<"assets"> => Boolean(id)))].slice(0, 12);
+      const thumbs = (await Promise.all(ids.map((id) => cardThumb(ctx, owner, id)))).filter((thumb) => thumb !== null).slice(0, 8);
+      let lastAnswer: { body: string; at: number } | undefined;
+      if (task.status === "open" || task.status === "claimed") {
+        const recent = await ctx.db.query("taskEvents").withIndex("by_task_createdAt", (q) => q.eq("taskId", task._id)).order("desc").take(4);
+        // Michael spoke last: his comment, possibly followed by the reopen it caused.
+        const spoke = recent.find((event) => event.kind === "comment" || (event.kind === "status" && event.author !== "owner"));
+        if (spoke?.kind === "comment" && spoke.author === "owner" && spoke.body) lastAnswer = { body: spoke.body.slice(0, 200), at: spoke.createdAt };
       }
       const askView = ask && {
         question: ask.question,
@@ -686,7 +733,7 @@ export const listTaskCards = ownerQuery({
           label: option.label, recommended: option.recommended === true, pics: await cardThumbs(ctx, owner, option.assetIds),
         }))),
       };
-      out.push({ ...(await withWorld(ctx, task)), thumbs, ...(askView ? { askView } : {}) });
+      out.push({ ...(await withWorld(ctx, task)), thumbs, ...(lastAnswer ? { lastAnswer } : {}), ...(askView ? { askView } : {}) });
     }
     return out;
   },

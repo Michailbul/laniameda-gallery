@@ -9,9 +9,9 @@ import { addAssetComment } from "../convex/assetComments";
 import { decideInboxCard, postInboxCards, setInboxCardComment } from "../convex/inbox";
 import { getWorldContext } from "../convex/worlds";
 import {
-  TASK_LIMITS, agentActor, askProblem, bareTaskRef, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, taskToMarkdown, titleFromText,
+  TASK_LIMITS, agentActor, askProblem, bareTaskRef, jargonIn, summaryProblem, titleProblem, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, taskToMarkdown, titleFromText,
 } from "../lib/tasks";
-import { completeInputProblem, taskCompleteSchema, taskCreateSchema, taskListSchema } from "../lib/tasks-contract";
+import { completeInputProblem, taskCompleteSchema, taskCreateSchema, taskEditSchema, taskListSchema } from "../lib/tasks-contract";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 import { callAsOwner } from "./helpers/call-as-owner";
 
@@ -41,7 +41,7 @@ const setup = async () => {
     callAsOwner(fn)(ctx, { ownerUserId: "stranger", ...args });
   const doc = async (id: string) => (await db.get(id)) as AnyDoc;
   const create = (fields: Record<string, unknown> = {}) =>
-    call(createTask, { worldFolderId: world, title: "Fix the hands", createdBy: "agent:claude-eallin", ...fields });
+    call(createTask, { worldFolderId: world, title: "Fix the hands", summary: "Six fingers on the left hand.", createdBy: "agent:claude-eallin", ...fields });
   return { db, ctx, world, shelf, asset, call, stranger, doc, create };
 };
 
@@ -73,8 +73,11 @@ describe("task helpers", () => {
   test("the zod contract names the loop and accepts handles", () => {
     expect(taskListSchema.parse({ status: "active", world: "dear-annete" })).toMatchObject({ status: "active" });
     expect(() => taskListSchema.parse({ status: "waiting" })).toThrow();
-    expect(taskCreateSchema.parse({ title: "x", links: [{ kind: "asset", id: "asset:a1" }] }).links).toHaveLength(1);
-    expect(() => taskCreateSchema.parse({ title: "x".repeat(TASK_LIMITS.title + 1) })).toThrow();
+    expect(taskCreateSchema.parse({ title: "x", summary: "y", links: [{ kind: "asset", id: "asset:a1" }] }).links).toHaveLength(1);
+    expect(() => taskCreateSchema.parse({ title: "x".repeat(TASK_LIMITS.humanTitle + 1), summary: "y" })).toThrow();
+    expect(() => taskCreateSchema.parse({ title: "x" })).toThrow();
+    expect(completeInputProblem(taskCompleteSchema.parse({ taskId: "t1", result: "Done: asset:a2" }))).toContain("Add summary");
+    expect(taskEditSchema.parse({ taskId: "task:t1", title: "Run the bigger prompt test" })).toMatchObject({ title: "Run the bigger prompt test" });
     const asked = taskCompleteSchema.parse({ taskId: "task:t1", blocked: true, ask: { question: "Which hand?", options: [{ label: "Left", assetIds: ["asset:a1"] }, { label: "Right" }] } });
     expect(asked).toMatchObject({ blocked: true, ask: { options: [{ label: "Left" }, { label: "Right" }] } });
     expect(completeInputProblem(asked)).toBeNull();
@@ -82,6 +85,21 @@ describe("task helpers", () => {
     expect(completeInputProblem(taskCompleteSchema.parse({ taskId: "task:t1" }))).toContain("Say what was done");
     expect(() => taskCompleteSchema.parse({ taskId: "t1", blocked: true, ask: { question: "x".repeat(TASK_LIMITS.askQuestion + 1), options: [{ label: "a" }, { label: "b" }] } })).toThrow();
     expect(() => taskCompleteSchema.parse({ taskId: "t1", blocked: true, ask: { question: "Which?", options: [{ label: "only one" }] } })).toThrow();
+  });
+
+  test("what Michael reads is plain words: no paths, ids, tools, flags or markdown", () => {
+    for (const plain of ["Run the bigger prompt test", "Make the sheet for Mila (DA-CH-006, flower courier)", "3D style lock: ready or draft?", "Midjourney likes of the last two weeks → the Dear Annete worlds"]) expect(jargonIn(plain)).toBeNull();
+    expect(jargonIn("Plan: ~/openclaw-agents/dear-annete/experiments/2026-10-30-prompt-structure.md (iMac)")).toBe("a file path");
+    expect(jargonIn("Read docs/prompting-guide-v8-2.md")).toBe("a file path");
+    expect(jargonIn("Fix the hands on asset:j57abc")).toBe("an id");
+    expect(jargonIn("Fix j57bzskmj9ytcs8nbm36zrkgh98haev4")).toBe("an id");
+    expect(jargonIn("one job each with --profile m1")).toBe("a command flag");
+    expect(jargonIn("record with set_moodboard_midjourney")).toBe("a tool or field name");
+    expect(jargonIn("**Pilot** result")).toBe("markdown");
+    expect(titleProblem("x".repeat(81))).toContain("under 80");
+    expect(summaryProblem(undefined, true)).toContain("Add summary");
+    expect(summaryProblem(undefined, false)).toBeNull();
+    expect(summaryProblem("Two lines\nhere", true)).toContain("one line");
   });
 
   test("an ask is a one-line question with 2–4 options and at least one picture", () => {
@@ -150,8 +168,21 @@ describe("tasks backend", () => {
     // Release puts it back; a done task cannot be claimed.
     await expect(env.call(releaseTask, { taskId: task._id, actor: "agent:claude-eallin" })).rejects.toThrow("held by agent:claude-artist");
     expect((await env.call(releaseTask, { taskId: task._id, actor: "owner", note: "not now" })).status).toBe("open");
-    await env.call(completeTask, { taskId: task._id, result: "Done: asset:a2", actor: "agent:claude-artist" });
+    await env.call(completeTask, { taskId: task._id, result: "Done: asset:a2", summary: "Hands fixed.", actor: "agent:claude-artist" });
     await expect(env.call(claimTask, { taskId: task._id, claimedBy: "agent:claude-artist" })).rejects.toThrow("is done");
+  });
+
+  test("an agent writes the Human view in plain words; Michael may write anything", async () => {
+    const env = await setup();
+    await expect(env.create({ title: "Plan: ~/openclaw-agents/dear-annete/experiments/plan.md" })).rejects.toThrow("has a file path");
+    await expect(env.create({ summary: undefined })).rejects.toThrow("Add summary");
+    await expect(env.create({ summary: "Runs set_moodboard_midjourney six times" })).rejects.toThrow("tool or field name");
+    const { task } = await env.create({ title: "EXP-002: run the main cells" });
+    await expect(env.call(updateTask, { taskId: task._id, title: "Run with --profile m1", actor: "agent:claude-eallin" })).rejects.toThrow("command flag");
+    const edited = await env.call(updateTask, { taskId: task._id, title: "Run the bigger prompt test", summary: "64 more test images once you pick on the pilot.", actor: "agent:claude-eallin" });
+    expect(edited).toMatchObject({ title: "Run the bigger prompt test", summary: "64 more test images once you pick on the pilot.", status: "open" });
+    const mine = await env.call(createTask, { title: "Look at asset:j57abc and ~/x/y.md", createdBy: "owner" });
+    expect(mine.task.title).toBe("Look at asset:j57abc and ~/x/y.md");
   });
 
   test("complete writes the result and links; blocked waits for Michael; his comment reopens", async () => {
@@ -178,13 +209,22 @@ describe("tasks backend", () => {
     expect(card.askView).toMatchObject({ question: "Which hand reads better?", context: [], options: [{ label: "Left", recommended: false, pics: [{ assetId: left }] }, { label: "Right", recommended: true, pics: [{ assetId: right }] }] });
     expect(card.thumbs.map((thumb: AnyDoc) => thumb.assetId).slice(0, 2)).toEqual([left, right]);
     expect(taskToMarkdown(card)).toContain(`- B: Right [agent pick] (asset:${right})`);
-    expect(await env.call(countOpenTasks, {})).toEqual([{ worldFolderId: env.world, worldName: "DEAR ANNETE", open: 0, claimed: 0, blocked: 1 }]);
+    expect(await env.call(countOpenTasks, {})).toEqual([{ worldFolderId: env.world, worldName: "DEAR ANNETE", open: 0, claimed: 0, blocked: 1, done: 0 }]);
+    // His undo puts a discarded question back as a question, not as open work.
+    await env.call(updateTask, { taskId: task._id, status: "archived", actor: "owner" });
+    const restored = await env.call(updateTask, { taskId: task._id, restore: { status: "blocked" }, actor: "owner" });
+    expect(restored).toMatchObject({ status: "blocked", ask: { question: "Which hand reads better?" } });
+    await expect(env.call(updateTask, { taskId: task._id, restore: { status: "open" }, actor: "agent:claude-eallin" })).rejects.toThrow("Only Michael");
     // Michael answers: the task is open again, without the rework flag.
     const answered = await env.call(commentTask, { taskId: task._id, body: "Left.", author: "owner" });
     expect(answered).toMatchObject({ reopened: true, task: { status: "open", needsRework: undefined } });
+    // The wall says what he answered instead of showing a fresh "waiting" frame.
+    expect((await env.call(listTaskCards, {})).find((row: AnyDoc) => row._id === task._id).lastAnswer).toMatchObject({ body: "Left." });
     await env.call(claimTask, { taskId: task._id, claimedBy: "agent:claude-eallin" });
+    await expect(env.call(completeTask, { taskId: task._id, result: `Repaired: asset:${a2}`, actor: "agent:claude-eallin" })).rejects.toThrow("Add summary");
+    await expect(env.call(completeTask, { taskId: task._id, result: "x", summary: `Fixed on asset:${a2}`, actor: "agent:claude-eallin" })).rejects.toThrow("has an id");
     const done = await env.call(completeTask, {
-      taskId: task._id, result: `Repaired: asset:${a2}`, links: [{ kind: "asset", id: a2 }], actor: "agent:claude-eallin", session: "hands-2026-10-29",
+      taskId: task._id, result: `Repaired: asset:${a2}`, summary: "The hands are fixed: five fingers, ring kept.", links: [{ kind: "asset", id: a2 }], actor: "agent:claude-eallin", session: "hands-2026-10-29",
     });
     expect(done).toMatchObject({ status: "done", links: [{ kind: "asset", id: "a1" }, { kind: "asset", id: a2 }] });
     expect(done.ask).toBeUndefined();
@@ -232,9 +272,9 @@ describe("tasks backend", () => {
     expect(await env.stranger(listTasks, {})).toEqual([]);
 
     expect(await env.call(countOpenTasks, {})).toEqual([
-      { worldFolderId: env.world, worldName: "DEAR ANNETE", open: 2, claimed: 1, blocked: 1 },
-      { worldFolderId: other, worldName: "ANDROMEDA", open: 1, claimed: 0, blocked: 0 },
-      { worldFolderId: undefined, worldName: "Studio", open: 1, claimed: 0, blocked: 0 },
+      { worldFolderId: env.world, worldName: "DEAR ANNETE", open: 2, claimed: 1, blocked: 1, done: 1 },
+      { worldFolderId: other, worldName: "ANDROMEDA", open: 1, claimed: 0, blocked: 0, done: 0 },
+      { worldFolderId: undefined, worldName: "Studio", open: 1, claimed: 0, blocked: 0, done: 0 },
     ]);
     expect(await worldTaskSummary(env.ctx as never, env.world as never)).toEqual({
       open: 2, claimed: 1, blocked: 1,
@@ -253,7 +293,7 @@ describe("tasks backend", () => {
     const [task] = env.db.getTableDocs("tasks");
     expect(task).toMatchObject({
       worldFolderId: env.world, source: "comment", sourceRef: comment._id, ingestKey: `comment:${comment._id}`, status: "open", createdBy: "owner",
-      title: `Comment on asset:${a1}: Fix the hands.`, links: [{ kind: "asset", id: a1 }],
+      title: "Fix the hands.", links: [{ kind: "asset", id: a1 }],
     });
     expect(String(task.brief)).toContain("Fix the hands.\n\nThe lamp is fine.");
     await env.call(addAssetComment, { assetId: a1, body: "Done: asset:a9", author: "agent" });
@@ -262,7 +302,7 @@ describe("tasks backend", () => {
     // An asset in no world files a studio-wide task.
     const loose = await env.asset();
     await env.call(addAssetComment, { assetId: loose, body: "More like this.", author: "owner" });
-    expect(env.db.getTableDocs("tasks")[1]).toMatchObject({ worldFolderId: undefined, title: `Comment on asset:${loose}: More like this.` });
+    expect(env.db.getTableDocs("tasks")[1]).toMatchObject({ worldFolderId: undefined, title: "More like this." });
     // Deleting the asset strips the link, not the task.
     await stripAssetFromTasks(env.ctx as never, OWNER, a1 as never);
     expect((await env.doc(task._id)).links).toEqual([]);
@@ -278,7 +318,7 @@ describe("tasks backend", () => {
     await env.call(decideInboxCard, { cardId: ab, choice: "winner", pickedAssetId: a2 });
     const [task] = env.db.getTableDocs("tasks");
     expect(task).toMatchObject({
-      title: "Apply decisions: Golden pass", source: "inbox", sourceRef: stackId, ingestKey: `inbox:${stackId}`, worldFolderId: env.world,
+      title: "Apply your picks: Golden pass", source: "inbox", sourceRef: stackId, ingestKey: `inbox:${stackId}`, worldFolderId: env.world,
       links: [{ kind: "stack", id: stackId, label: "Golden pass" }],
     });
     expect(String(task.brief)).toContain("(1 of 2 cards decided)");

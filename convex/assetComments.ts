@@ -191,7 +191,7 @@ const taskFromOwnerComment = async (
   const what = comment.body ? titleFromText(comment.body, 100) : "Voice note";
   await upsertTask(ctx, owner, {
     worldFolderId,
-    title: `Comment on asset:${asset._id}: ${what}`,
+    title: what,
     brief: [
       comment.body || "_A voice note: read the thread with list_asset_comments and transcribe it._",
       "",

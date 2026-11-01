@@ -28,8 +28,12 @@ expired; Michael creates a new one at https://gallery.laniameda.space/agents.
 
 0. **Check the queue.** `list_tasks {status: "open"}` shows the work waiting: Michael's asset
    comments and Inbox answers become tasks by themselves. `claim_task` one before working on it
-   and `complete_task` it with a result naming the ids produced (or `blocked: true` with the
-   question for him). `open_world` also lists a world's open tasks. Read `references/tasks.md`.
+   and `complete_task` it with a plain one-line `summary` for Michael and a result naming the ids
+   produced (or `blocked: true` with an `ask`: one plain question, 2–4 picture options).
+   **Michael reads at art-direction level, by looking:** titles, summaries and questions are plain
+   words plus frames, never ids, paths, tool names, seeds, scores or tables; those go in the
+   brief and result (the Agent view). `open_world` also lists a world's open tasks. Read
+   `references/tasks.md`.
    A morning run also reads `get_newspaper` and, if its `prose` is empty, writes the day's
    paragraph with `write_newspaper` (`references/newspapers.md`).
 1. **Open the world.** `open_world {}` lists the worlds (key, name, counts).

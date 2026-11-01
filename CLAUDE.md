@@ -11,6 +11,17 @@ Read these files first:
 
 ---
 
+## Michael is the human in the loop: plain words and pictures
+He reads at product and art-direction level, by looking, in seconds. Anything
+an agent shows him (task titles and summaries, questions, the newspaper, boards,
+the Human view of /tasks) is plain words plus frames: never ids, file paths,
+tool names, flags, seeds, scores, tables or experiment codes. A question is
+one line and 2–4 picture options he picks with a click (a task `ask`). The
+details for agents go in the brief and result (the Agent view). The backend
+refuses an agent's blocked task without an ask, and a title or summary with
+ids, paths, tool names, flags or markdown. Rule and examples:
+`skills/laniameda-gallery/references/tasks.md`. Set 1 Nov 2026.
+
 ## Using the gallery itself from an agent session
 To read from or save into Michael's gallery (not to change this codebase), follow
 `skills/laniameda-gallery/SKILL.md`. Access, in order: the gallery MCP tools if
