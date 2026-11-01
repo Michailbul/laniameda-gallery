@@ -48,7 +48,7 @@ export const folderKindValidator = v.optional(
   ),
 );
 
-const folderReturnValidator = v.object({
+export const folderReturnValidator = v.object({
   _id: v.id("folders"),
   _creationTime: v.number(),
   ownerUserId: v.optional(v.string()),
@@ -70,6 +70,7 @@ const folderReturnValidator = v.object({
   memberCount: v.optional(v.number()),
   publicMemberCount: v.optional(v.number()),
   worldKey: v.optional(v.string()),
+  universeRootId: v.optional(v.id("folders")),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
