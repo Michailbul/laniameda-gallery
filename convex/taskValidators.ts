@@ -29,6 +29,18 @@ export const taskLinkValidator = v.object({
   label: v.optional(v.string()),
 });
 
+// A question for Michael (lib/tasks.ts TaskAsk): one line and 2–4 options he
+// picks with a click, each with the frames it is about (bare asset ids).
+export const taskAskValidator = v.object({
+  question: v.string(),
+  assetIds: v.optional(v.array(v.string())),
+  options: v.array(v.object({
+    label: v.string(),
+    assetIds: v.optional(v.array(v.string())),
+    recommended: v.optional(v.boolean()),
+  })),
+});
+
 export const taskFields = {
   ownerUserId: v.string(),
   // The world (a root collection) the task belongs to; absent = studio-wide.
@@ -48,6 +60,9 @@ export const taskFields = {
   leaseUntil: v.optional(v.number()),
   // Markdown written on complete or block: what was done, what is needed.
   result: v.optional(v.string()),
+  // On a blocked task: the question as pictures and one-click options. The
+  // result holds the reasoning behind it. Cleared when the task is done.
+  ask: v.optional(taskAskValidator),
   links: v.array(taskLinkValidator),
   source: taskSourceValidator,
   sourceRef: v.optional(v.string()),

@@ -47,13 +47,32 @@ export const taskReleaseSchema = taskRefSchema.extend({
   assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });
 
+const askAssetIds = (max: number, what: string) => z.array(z.string().min(1).max(200)).max(max).optional().describe(what);
+
+export const taskAskSchema = z.object({
+  question: z.string().min(1).max(TASK_LIMITS.askQuestion)
+    .describe(`One line, plain words, an art-direction call he can make by looking: "Which street look is better?", "Keep the gold coat or the black?". Under ${TASK_LIMITS.askQuestion} characters. No experiment names, settings or numbers.`),
+  assetIds: askAssetIds(TASK_LIMITS.askAssets, "Context frames shown above the options (asset:<id> or bare), when the options themselves carry none."),
+  options: z.array(z.object({
+    label: z.string().min(1).max(TASK_LIMITS.askLabel).describe("A few words he can pick: 'Place first (our way)', 'Run the big test'."),
+    assetIds: askAssetIds(TASK_LIMITS.askOptionAssets, "The frames that show this option, same order in every option so rows line up (street, close-up, object)."),
+    recommended: z.boolean().optional().describe("Your pick; one option at most."),
+  })).min(TASK_LIMITS.askOptionsMin).max(TASK_LIMITS.askOptionsMax).describe("2–4 options; he picks one with a click."),
+});
+
 export const taskCompleteSchema = taskRefSchema.extend({
-  result: z.string().min(1).max(TASK_LIMITS.result).describe("Markdown: what was done and the asset:/story:/stack: ids produced; or, with blocked: true, the question Michael has to answer."),
-  blocked: z.boolean().optional().describe("true = you need Michael (status blocked, shown under Needs you); false/omitted = done."),
+  result: z.string().min(1).max(TASK_LIMITS.result).optional().describe("Markdown. Done: what was done and the asset:/story:/stack: ids produced (required). Blocked: the reasoning behind the ask; he sees it only under Details."),
+  blocked: z.boolean().optional().describe("true = you need Michael (status blocked, shown under Needs you): pass ask. false/omitted = done."),
+  ask: taskAskSchema.optional().describe("Required with blocked: true. The question as pictures and one-click options; at least one frame. A text-only question is refused."),
   links: z.array(taskLinkSchema).max(TASK_LIMITS.links).optional().describe("What the work produced, added to the task's links."),
   session: z.string().min(1).max(80).optional().describe("Journal session label of the work, so the journal shows it next to the task."),
   assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Act as this label when the task was claimed under one that is not this token's own (the claim_task assignee); default this token's agent label."),
 });
+
+/** Done needs a result; blocked needs an ask. Checked in the route, so the MCP input schema stays a plain object. */
+export const completeInputProblem = (input: z.infer<typeof taskCompleteSchema>) =>
+  input.blocked ? (input.ask ? null : "blocked: true needs ask {question, options: 2–4 {label, assetIds}}: Michael answers pictures, not prose.")
+    : input.result ? null : "Say what was done in result and name the asset:/story:/stack: ids produced.";
 
 export const taskCommentSchema = taskRefSchema.extend({
   body: z.string().min(1).max(TASK_LIMITS.comment).describe("Plain text or markdown. A progress note renews your claim."),

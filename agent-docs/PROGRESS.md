@@ -8,6 +8,18 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — Questions for Michael are pictures (branch `feat/visual-asks`)
+
+- A blocked task needs an `ask`: one-line question (≤140), 2–4 options, each
+  a few words and the frames that show it, at least one frame, one optional
+  agent pick. `complete_task {blocked: true}` without it is refused (route and
+  `completeTask`); the reasoning moves to `result`, behind Details.
+- /tasks sheet: the options are picture columns side by side, rows in the same
+  order; a click or the letter key A–D sends `Picked B: …` and reopens the
+  task. The wall frame and the newspaper show the question, not the prose.
+- Rule source: `skills/laniameda-gallery/references/tasks.md`, "A question for
+  Michael is pictures and a one-click pick".
+
 ### 2026-11-01 — In-place edits (branch `feat/in-place-edits`)
 
 - The reviewer kit's quick edit, in the gallery. "Edit in place" in the asset

@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import schema from "../convex/schema";
 import { taskDocValidator, taskEventDocValidator } from "../convex/taskValidators";
 import {
-  claimTask, commentTask, completeTask, countOpenTasks, createTask, getTask, listTasks, releaseTask, sortTasks, stripAssetFromTasks,
+  claimTask, commentTask, completeTask, countOpenTasks, createTask, getTask, listTaskCards, listTasks, releaseTask, sortTasks, stripAssetFromTasks,
   updateTask, worldTaskSummary,
 } from "../convex/tasks";
 import { addAssetComment } from "../convex/assetComments";
 import { decideInboxCard, postInboxCards, setInboxCardComment } from "../convex/inbox";
 import { getWorldContext } from "../convex/worlds";
 import {
-  TASK_LIMITS, agentActor, bareTaskRef, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, titleFromText,
+  TASK_LIMITS, agentActor, askProblem, bareTaskRef, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, taskToMarkdown, titleFromText,
 } from "../lib/tasks";
-import { taskCompleteSchema, taskCreateSchema, taskListSchema } from "../lib/tasks-contract";
+import { completeInputProblem, taskCompleteSchema, taskCreateSchema, taskListSchema } from "../lib/tasks-contract";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
 import { callAsOwner } from "./helpers/call-as-owner";
 
@@ -75,7 +75,27 @@ describe("task helpers", () => {
     expect(() => taskListSchema.parse({ status: "waiting" })).toThrow();
     expect(taskCreateSchema.parse({ title: "x", links: [{ kind: "asset", id: "asset:a1" }] }).links).toHaveLength(1);
     expect(() => taskCreateSchema.parse({ title: "x".repeat(TASK_LIMITS.title + 1) })).toThrow();
-    expect(taskCompleteSchema.parse({ taskId: "task:t1", result: "done", blocked: true })).toMatchObject({ blocked: true });
+    const asked = taskCompleteSchema.parse({ taskId: "task:t1", blocked: true, ask: { question: "Which hand?", options: [{ label: "Left", assetIds: ["asset:a1"] }, { label: "Right" }] } });
+    expect(asked).toMatchObject({ blocked: true, ask: { options: [{ label: "Left" }, { label: "Right" }] } });
+    expect(completeInputProblem(asked)).toBeNull();
+    expect(completeInputProblem(taskCompleteSchema.parse({ taskId: "task:t1", result: "Which hand: left or right?", blocked: true }))).toContain("needs ask");
+    expect(completeInputProblem(taskCompleteSchema.parse({ taskId: "task:t1" }))).toContain("Say what was done");
+    expect(() => taskCompleteSchema.parse({ taskId: "t1", blocked: true, ask: { question: "x".repeat(TASK_LIMITS.askQuestion + 1), options: [{ label: "a" }, { label: "b" }] } })).toThrow();
+    expect(() => taskCompleteSchema.parse({ taskId: "t1", blocked: true, ask: { question: "Which?", options: [{ label: "only one" }] } })).toThrow();
+  });
+
+  test("an ask is a one-line question with 2–4 options and at least one picture", () => {
+    const two = [{ label: "Place first", assetIds: ["a1"] }, { label: "Subject first", assetIds: ["a2"] }];
+    expect(askProblem({ question: "Which street look is better?", options: two })).toBeNull();
+    expect(askProblem(undefined)).toContain("Pass ask");
+    expect(askProblem({ question: "Which?\nWhy: a table follows", options: two })).toContain("one line");
+    expect(askProblem({ question: "x".repeat(141), options: two })).toContain("141 characters");
+    expect(askProblem({ question: "Which?", options: [two[0]!] })).toContain("2–4 options");
+    expect(askProblem({ question: "Which?", options: [...two, ...two, two[0]!] })).toContain("2–4 options");
+    expect(askProblem({ question: "Which?", options: [{ label: "y".repeat(61) }, { label: "n" }] })).toContain("too long");
+    expect(askProblem({ question: "Go for the main run?", options: [{ label: "Yes" }, { label: "No" }] })).toContain("Show it");
+    expect(askProblem({ question: "Go?", assetIds: ["a1"], options: [{ label: "Yes", recommended: true }, { label: "No", recommended: true }] })).toContain("one option at most");
+    expect(askProblem({ question: "Go?", assetIds: ["a1"], options: [{ label: "Yes", recommended: true }, { label: "No" }] })).toBeNull();
   });
 });
 
@@ -141,8 +161,23 @@ describe("tasks backend", () => {
     await env.call(claimTask, { taskId: task._id, claimedBy: "agent:claude-eallin" });
     await expect(env.call(completeTask, { taskId: task._id, result: "x", actor: "agent:claude-artist" })).rejects.toThrow("held by agent:claude-eallin");
     await expect(env.call(completeTask, { taskId: task._id, result: "  ", actor: "agent:claude-eallin" })).rejects.toThrow("name the asset");
-    const blocked = await env.call(completeTask, { taskId: task._id, result: "Which hand: left or right?", status: "blocked", actor: "agent:claude-eallin" });
-    expect(blocked).toMatchObject({ status: "blocked", claimedBy: undefined, result: "Which hand: left or right?" });
+    // A question for Michael is pictures: prose alone, a stranger's frame or a missing one is refused.
+    const left = await env.asset({ agentDescription: "Left hand fixed.", thumbR2Key: "left.jpg" });
+    const right = await env.asset({ agentDescription: "Right hand fixed.", thumbR2Key: "right.jpg" });
+    const theirs = await env.db.insert("assets", { ownerUserId: "stranger", kind: "image", tagIds: [], createdAt: Date.now() });
+    const ask = (ids: string[]) => ({ question: "Which hand reads better?", options: [{ label: "Left", assetIds: [`asset:${ids[0]}`] }, { label: "Right", assetIds: [ids[1]], recommended: true }] });
+    await expect(env.call(completeTask, { taskId: task._id, result: "Which hand: left or right?", status: "blocked", actor: "agent:claude-eallin" })).rejects.toThrow("Pass ask");
+    await expect(env.call(completeTask, { taskId: task._id, status: "blocked", actor: "agent:claude-eallin", ask: { question: "Left or right?", options: [{ label: "Left" }, { label: "Right" }] } })).rejects.toThrow("Show it");
+    await expect(env.call(completeTask, { taskId: task._id, status: "blocked", actor: "agent:claude-eallin", ask: ask([left, theirs]) })).rejects.toThrow("not in the gallery");
+    const blocked = await env.call(completeTask, { taskId: task._id, result: "Both fixed with Krea 3; the left keeps the ring.", status: "blocked", actor: "agent:claude-eallin", ask: ask([left, right]) });
+    expect(blocked).toMatchObject({ status: "blocked", claimedBy: undefined, result: "Both fixed with Krea 3; the left keeps the ring." });
+    expect(blocked.ask).toEqual({ question: "Which hand reads better?", assetIds: undefined, options: [{ label: "Left", assetIds: [left] }, { label: "Right", assetIds: [right], recommended: true }] });
+    const base = process.env.R2_PUBLIC_BASE_URL;
+    process.env.R2_PUBLIC_BASE_URL = "https://r2.test";
+    const [card] = await env.call(listTaskCards, {}).finally(() => { if (base === undefined) delete process.env.R2_PUBLIC_BASE_URL; else process.env.R2_PUBLIC_BASE_URL = base; });
+    expect(card.askView).toMatchObject({ question: "Which hand reads better?", context: [], options: [{ label: "Left", recommended: false, pics: [{ assetId: left }] }, { label: "Right", recommended: true, pics: [{ assetId: right }] }] });
+    expect(card.thumbs.map((thumb: AnyDoc) => thumb.assetId).slice(0, 2)).toEqual([left, right]);
+    expect(taskToMarkdown(card)).toContain(`- B: Right [agent pick] (asset:${right})`);
     expect(await env.call(countOpenTasks, {})).toEqual([{ worldFolderId: env.world, worldName: "DEAR ANNETE", open: 0, claimed: 0, blocked: 1 }]);
     // Michael answers: the task is open again, without the rework flag.
     const answered = await env.call(commentTask, { taskId: task._id, body: "Left.", author: "owner" });
@@ -152,6 +187,7 @@ describe("tasks backend", () => {
       taskId: task._id, result: `Repaired: asset:${a2}`, links: [{ kind: "asset", id: a2 }], actor: "agent:claude-eallin", session: "hands-2026-10-29",
     });
     expect(done).toMatchObject({ status: "done", links: [{ kind: "asset", id: "a1" }, { kind: "asset", id: a2 }] });
+    expect(done.ask).toBeUndefined();
     const full = await env.call(getTask, { taskId: task._id });
     expect(full.links[1]).toMatchObject({ kind: "asset", id: a2, title: "The repaired hands." });
     expect(full.links[0]).toMatchObject({ kind: "asset", id: "a1", missing: true });
@@ -177,7 +213,8 @@ describe("tasks backend", () => {
     const flight = await env.create({ title: "In flight" });
     await env.call(claimTask, { taskId: flight.task._id, claimedBy: "agent:claude-bul" });
     const stuck = await env.create({ title: "Stuck" });
-    await env.call(completeTask, { taskId: stuck.task._id, result: "?", status: "blocked", actor: "agent:claude-bul" });
+    const frame = await env.asset();
+    await env.call(completeTask, { taskId: stuck.task._id, status: "blocked", actor: "agent:claude-bul", ask: { question: "Which?", assetIds: [frame], options: [{ label: "Yes" }, { label: "No" }] } });
     const studio = await env.call(createTask, { title: "Studio chore", createdBy: "owner", source: "manual" });
     const elsewhere = await env.call(createTask, { worldFolderId: other, title: "Elsewhere", createdBy: "owner" });
     const finished = await env.create({ title: "Finished" });

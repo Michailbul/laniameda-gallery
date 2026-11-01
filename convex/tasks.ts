@@ -6,9 +6,9 @@ import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { recordWorldChange, resolveWorld } from "./worldCore";
 import { resolveAssetThumbUrl } from "./r2_url";
 import {
-  taskDocValidator, taskEventDocValidator, taskLinkValidator, taskPriorityValidator, taskSourceValidator, taskStatusValidator,
+  taskAskValidator, taskDocValidator, taskEventDocValidator, taskLinkValidator, taskPriorityValidator, taskSourceValidator, taskStatusValidator,
 } from "./taskValidators";
-import { TASK_ACTIVE_STATUSES, TASK_LIMITS, isOwnerActor, leaseActive, type TaskStatus } from "../lib/tasks";
+import { TASK_ACTIVE_STATUSES, TASK_LIMITS, askProblem, isOwnerActor, leaseActive, type TaskAsk, type TaskStatus } from "../lib/tasks";
 
 // The agent task queue ("Tasks" in the gallery). Michael comments on an asset
 // or answers an Inbox stack, or someone files a task by hand; an agent lists
@@ -397,15 +397,45 @@ export const releaseTask = ownerMutation({
 });
 
 /**
+ * A question for Michael, trimmed and checked: one line, 2–4 options, at
+ * least one picture, and every picture an asset of his. Throws what to fix.
+ */
+const cleanAsk = async (ctx: QueryCtx, owner: string, raw: TaskAsk | undefined): Promise<TaskAsk> => {
+  const ids = (list: string[] | undefined) => {
+    const bare = [...new Set((list ?? []).map((id) => id.trim().replace(/^asset:/, "")).filter(Boolean))];
+    return bare.length ? bare : undefined;
+  };
+  const ask = raw && {
+    question: raw.question.trim(),
+    assetIds: ids(raw.assetIds),
+    options: raw.options.map((option) => ({
+      label: option.label.trim(), assetIds: ids(option.assetIds), ...(option.recommended ? { recommended: true } : {}),
+    })),
+  };
+  const problem = askProblem(ask);
+  if (problem) throw new ConvexError(problem);
+  for (const id of [...(ask!.assetIds ?? []), ...ask!.options.flatMap((option) => option.assetIds ?? [])]) {
+    const assetId = ctx.db.normalizeId("assets", id);
+    const asset = assetId ? await ctx.db.get(assetId) : null;
+    if (!asset || !owns(owner, asset)) throw new ConvexError(`asset:${id} is not in the gallery; the ask shows his own saved frames.`);
+  }
+  return ask!;
+};
+
+/**
  * Finish a task: done with a result that names what was produced (links), or
- * blocked with the question Michael has to answer. A blocked task shows under
- * Needs you; his comment reopens it.
+ * blocked with a question for Michael. A blocked task needs an ask: one line
+ * and 2–4 picture options he picks with a click (lib/tasks.ts askProblem);
+ * the result is then the reasoning, behind Details. It shows under Needs you;
+ * his pick or comment reopens it.
  */
 export const completeTask = ownerMutation({
   args: {
     ownerUserId: v.string(),
     taskId: v.id("tasks"),
-    result: v.string(),
+    // Done: what was done. Blocked: the reasoning behind the ask (optional).
+    result: v.optional(v.string()),
+    ask: v.optional(taskAskValidator),
     status: v.optional(v.union(v.literal("done"), v.literal("blocked"))),
     links: v.optional(v.array(taskLinkValidator)),
     actor: v.optional(v.string()),
@@ -417,17 +447,18 @@ export const completeTask = ownerMutation({
     const actor = cleanActor(args.actor);
     const status = args.status ?? "done";
     const result = text(args.result, TASK_LIMITS.result, "Result");
-    if (!result) throw new ConvexError(status === "done" ? "Say what was done and name the asset:/story:/stack: ids produced." : "Say what you need from Michael.");
+    if (!result && status === "done") throw new ConvexError("Say what was done and name the asset:/story:/stack: ids produced.");
     if (task.status === "archived") throw new ConvexError(`task:${task._id} is archived.`);
-    if (task.status === status && task.result === result) return await withWorld(ctx, task);
+    const ask = status === "blocked" ? await cleanAsk(ctx, args.ownerUserId, args.ask) : undefined;
+    if (task.status === status && task.result === result && JSON.stringify(task.ask) === JSON.stringify(ask)) return await withWorld(ctx, task);
     if (!mayAct(task, actor)) throw new ConvexError(`task:${task._id} is held by ${task.claimedBy}; claim it first or wait for the lease to lapse.`);
     const finished = await patchTask(ctx, task, {
-      status, result, links: mergeLinks(task.links, args.links),
+      status, result, ask, links: mergeLinks(task.links, args.links),
       claimedBy: undefined, claimedAt: undefined, leaseUntil: undefined,
       needsRework: undefined,
       assignee: task.assignee ?? (isOwnerActor(actor) ? undefined : actor),
     });
-    await addEvent(ctx, task, { kind: "status", author: actor, from: task.status, to: status, body: result });
+    await addEvent(ctx, task, { kind: "status", author: actor, from: task.status, to: status, body: ask ? ask.question : result });
     await journal(ctx, "task.update", task, finished, actor, args.session);
     return await withWorld(ctx, finished);
   },
@@ -547,16 +578,38 @@ export const stripAssetFromTasks = async (ctx: MutationCtx, owner: string, asset
 
 /* ── Review deck ─────────────────────────────────────────────────────────── */
 
+const cardThumbValidator = v.object({
+  assetId: v.id("assets"),
+  url: v.string(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+});
+
 const taskCardValidator = v.object({
   ...taskRowValidator.fields,
   // The pictures the task is about: its asset links that still exist, first four.
-  thumbs: v.array(v.object({
-    assetId: v.id("assets"),
-    url: v.string(),
-    width: v.optional(v.number()),
-    height: v.optional(v.number()),
+  thumbs: v.array(cardThumbValidator),
+  // A blocked task's question, its pictures resolved: what the sheet draws.
+  askView: v.optional(v.object({
+    question: v.string(),
+    context: v.array(cardThumbValidator),
+    options: v.array(v.object({ label: v.string(), recommended: v.boolean(), pics: v.array(cardThumbValidator) })),
   })),
 });
+
+const cardThumb = async (ctx: QueryCtx, owner: string, candidate: string) => {
+  const id = ctx.db.normalizeId("assets", candidate);
+  const asset = id ? await ctx.db.get(id) : null;
+  if (!asset || !owns(owner, asset)) return null;
+  const url = await resolveAssetThumbUrl(ctx, asset);
+  return url ? { assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined } : null;
+};
+
+const cardThumbs = async (ctx: QueryCtx, owner: string, ids: string[] | undefined) => {
+  const out = [];
+  for (const id of ids ?? []) { const thumb = await cardThumb(ctx, owner, id); if (thumb) out.push(thumb); }
+  return out;
+};
 
 /** Review order: what needs Michael, then finished work to accept, then open by priority, then in flight. */
 const DECK_RANK: Record<TaskStatus, number> = { blocked: 0, done: 1, open: 2, claimed: 3, archived: 4 };
@@ -603,7 +656,11 @@ export const listTaskCards = ownerQuery({
       // asset:<id> references in its result and brief, and for a task filed
       // from an Inbox stack the images of that stack's cards. Michael's rule:
       // if images are related, they are shown. Eight at most.
-      const candidates: string[] = task.links.filter((link) => link.kind === "asset").map((link) => link.id);
+      const ask = task.status === "blocked" ? task.ask : undefined;
+      const candidates: string[] = [
+        ...(ask ? [...(ask.assetIds ?? []), ...ask.options.flatMap((option) => option.assetIds ?? [])] : []),
+        ...task.links.filter((link) => link.kind === "asset").map((link) => link.id),
+      ];
       for (const match of `${task.result ?? ""}\n${task.brief ?? ""}`.matchAll(/asset:([a-z0-9]{20,40})/g)) candidates.push(match[1]!);
       if (task.source === "inbox" && task.sourceRef) {
         const stackId = ctx.db.normalizeId("inboxStacks", task.sourceRef);
@@ -619,12 +676,17 @@ export const listTaskCards = ownerQuery({
         const id = ctx.db.normalizeId("assets", candidate);
         if (!id || seenAssets.has(id)) continue;
         seenAssets.add(id);
-        const asset = await ctx.db.get(id);
-        if (!asset || !owns(owner, asset)) continue;
-        const url = await resolveAssetThumbUrl(ctx, asset);
-        if (url) thumbs.push({ assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined });
+        const thumb = await cardThumb(ctx, owner, id);
+        if (thumb) thumbs.push(thumb);
       }
-      out.push({ ...(await withWorld(ctx, task)), thumbs });
+      const askView = ask && {
+        question: ask.question,
+        context: await cardThumbs(ctx, owner, ask.assetIds),
+        options: await Promise.all(ask.options.map(async (option) => ({
+          label: option.label, recommended: option.recommended === true, pics: await cardThumbs(ctx, owner, option.assetIds),
+        }))),
+      };
+      out.push({ ...(await withWorld(ctx, task)), thumbs, ...(askView ? { askView } : {}) });
     }
     return out;
   },
