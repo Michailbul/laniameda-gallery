@@ -45,8 +45,12 @@ export const taskFields = {
   ownerUserId: v.string(),
   // The world (a root collection) the task belongs to; absent = studio-wide.
   worldFolderId: v.optional(v.id("folders")),
+  // What Michael reads on the wall: plain words (lib/tasks.ts titleProblem).
   title: v.string(),
-  // Markdown: the whole instruction.
+  // One plain line under the title in the Human view: why it matters, or
+  // what he will see now that it is done. Agents must write it.
+  summary: v.optional(v.string()),
+  // Markdown for the agent: the whole instruction. Agent view only.
   brief: v.optional(v.string()),
   status: taskStatusValidator,
   priority: taskPriorityValidator,

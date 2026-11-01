@@ -8,6 +8,22 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — Tasks: Human view and Agent view (branch `feat/tasks-human-view`)
+
+- Two layers per task: `title` + new `summary` (one plain line) are Michael's;
+  `brief` + `result` are the agent's. Agents must write a summary on create
+  and on done; a title or summary with a path, id, tool name, flag or markdown
+  is refused (`lib/tasks.ts` jargonIn / titleProblem / summaryProblem).
+- `edit_task` (route action `edit`) lets an agent rewrite a title or summary.
+- Auto tasks: a comment task is titled with his comment's first line, an
+  Inbox task "Apply your picks: <stack>".
+- The sheet's headline is the title (or the ask); the summary sits under it;
+  "Details" is gone from the Human view, replaced by "Agent notes", which opens
+  the task in the Agent view.
+- The rule reaches every agent: MCP server instructions and task tool texts,
+  the skill (tasks.md, SKILL.md), the plugin skill, open_world's task note,
+  the repo CLAUDE.md/AGENTS.md and the global CLAUDE.md.
+
 ### 2026-11-01 — Speed thread finished (#122, #123)
 
 - Grid page first, sidebar data after: on home the first Convex frame went from

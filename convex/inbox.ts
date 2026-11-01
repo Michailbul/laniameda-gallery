@@ -99,7 +99,7 @@ const ownedAsset = async (ctx: QueryCtx, owner: string, assetId: Id<"assets">) =
 };
 
 // Michael's answers are work for an agent: the first decision or comment on a
-// stack files one task "Apply decisions: <stack>" (ingestKey inbox:<stackId>);
+// stack files one task "Apply your picks: <stack>" (ingestKey inbox:<stackId>);
 // later answers keep its brief current while it is still open.
 const taskFromInboxAnswer = async (ctx: MutationCtx, owner: string, stack: Stack) => {
   const counts = await countOf(ctx, stack._id);
@@ -112,7 +112,7 @@ const taskFromInboxAnswer = async (ctx: MutationCtx, owner: string, stack: Stack
   ].join("\n");
   const { task, created } = await upsertTask(ctx, owner, {
     worldFolderId: stack.worldFolderId,
-    title: `Apply decisions: ${stack.title}`,
+    title: `Apply your picks: ${stack.title}`,
     brief, priority: 2, createdBy: "owner",
     links: [{ kind: "stack", id: stack._id, label: stack.title }],
     source: "inbox", sourceRef: stack._id, ingestKey: `inbox:${stack._id}`,

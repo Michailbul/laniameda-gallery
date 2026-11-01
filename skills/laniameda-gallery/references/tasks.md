@@ -10,8 +10,9 @@ The loop:
 
 1. Michael reviews. He comments on an asset in the detail panel, answers an
    Inbox stack, or files a task by hand. **A task appears by itself**:
-   `Comment on asset:<id>: <first line>` (source `comment`) or
-   `Apply decisions: <stack title>` (source `inbox`, one per stack).
+   titled with the first line of his comment (source `comment`, the asset in
+   its links and brief) or `Apply your picks: <stack title>` (source `inbox`,
+   one per stack).
 2. An agent (a session, or a cron run) calls `list_tasks` and sees the queue.
    `open_world` also carries the world's counts and its five newest open tasks.
 3. The agent `claim_task`s one, works, leaves `comment_task` progress notes,
@@ -24,6 +25,30 @@ The loop:
    answer and the task is open again. On an ask he clicks an option (or presses
    its letter): his comment reads `Picked B: Subject first` and the task is open
    again.
+
+## Two layers: what Michael reads, what agents read
+
+/tasks has a **Human view** (the wall Michael works in) and an **Agent view**
+(every task as markdown). Write each task twice:
+
+| Field | For | Rule |
+|---|---|---|
+| `title` | Michael | Plain words, under 80 characters: "Run the bigger prompt test", "Make Mila's character sheet". |
+| `summary` | Michael | One plain line under the title: why it matters, or (when done) what he will see now. Required from agents on create and on done. |
+| links (assets) | Michael | The frames the task is about or produced. The wall shows them big. |
+| `ask` | Michael | Blocked only: the question and its picture options (below). |
+| `brief`, `result` | Agents | Markdown with ids, paths, tools, settings, plans, tables. Agent view only. |
+
+The gallery refuses an agent's title or summary with a file path, an id
+(`asset:…`, long ids), a tool or field name (`set_moodboard_midjourney`), a
+command flag (`--profile`), backticks or markdown. Experiment codes and
+jargon ("EXP-002 main cells", "S1 vs S2", "stylize 600") are not caught by the
+check but break the same rule: write what it is in his words. Fix an existing
+title or summary with `edit_task`.
+
+Bad: `Refresh codes of the six boards edited 29 Oct: one job each with --profile m<id>, record with set_moodboard_midjourney`
+Good: title `Update the six Midjourney moodboards you edited`, summary
+`Midjourney still uses the old versions; one job each brings them in line.`
 
 ## A question for Michael is pictures and a one-click pick
 
@@ -77,8 +102,9 @@ complete_task {
 - **Claim before working.** A claim is a lease (default 120 minutes). Another
   agent's live claim is refused with who holds it and until when; a lapsed
   lease can be taken over. Claiming again or commenting renews yours.
-- **Complete with a result, always.** Done: what changed and the ids
-  produced, also as `links`. Blocked: an `ask` (one line, picture options);
+- **Complete with a result, always.** Done: `summary` (one plain line, what
+  he will see now), the frames as `links`, and a `result` for agents with
+  what changed and the ids produced. Blocked: an `ask` (one line, picture options);
   the reasoning goes in `result`.
   `release_task` with a note when you cannot do it this session.
 - A comment task: act on the comment, reply on the asset with
@@ -93,7 +119,8 @@ complete_task {
 
 ## Fields
 
-`task:<id>` is the handle. `world` is the world's key, name or collection id;
+`task:<id>` is the handle. `title` and `summary` are Michael's (plain words),
+`brief` and `result` the agent's. `world` is the world's key, name or collection id;
 a task without one is studio-wide. `status`: `open` (waiting), `claimed` (held
 under a lease, `claimedBy`, `leaseUntil`), `blocked` (needs Michael; `result`
 is the reasoning, `ask` the question with its picture options), `done` (`result` says what changed), `archived`. `priority`:
@@ -110,10 +137,11 @@ done task with a comment.
 ```text
 list_tasks { world?, status? (active | open | claimed | blocked | done | archived | all), assignee?, source?, limit? }
 get_task { taskId }
-create_task { world?, title, brief?, priority?, assignee?, links?, dueAt?, ingestKey?, session? }
+create_task { world?, title, summary, brief?, priority?, assignee?, links?, dueAt?, ingestKey?, session? }
+edit_task { taskId, title?, summary?, brief? }
 claim_task { taskId, assignee?, leaseMinutes? }
 release_task { taskId, note?, assignee? }
-complete_task { taskId, result?, blocked?, ask?: { question, assetIds?, options: [{ label, assetIds?, recommended? }] }, links?, session?, assignee? }
+complete_task { taskId, result?, summary?, blocked?, ask?: { question, assetIds?, options: [{ label, assetIds?, recommended? }] }, links?, session?, assignee? }
 comment_task { taskId, body, assignee? }
 ```
 
@@ -135,5 +163,5 @@ claim_task {taskId: "task:t1"}
 get_task {taskId: "task:t1"}                     → brief = his comment, link asset:a1
 … repair, save_asset → asset:a2 …
 add_asset_comment {assetId: "asset:a1", body: "Repaired hands: asset:a2"}
-complete_task {taskId: "task:t1", result: "Repaired the hands with Krea 3: asset:a2. $0.06.", links: [{kind: "asset", id: "a2"}], session: "hands-2026-10-29"}
+complete_task {taskId: "task:t1", summary: "The hands are fixed: five fingers, ring kept.", result: "Repaired the hands with Krea 3: asset:a2. $0.06.", links: [{kind: "asset", id: "a2"}], session: "hands-2026-10-29"}
 ```

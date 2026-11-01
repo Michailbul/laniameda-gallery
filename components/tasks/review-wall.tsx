@@ -13,9 +13,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, Micro, errorText } from "@/components/inbox/inbox-ui";
 import { useDesktop } from "@/components/inbox/evidence";
 import { ZoomViewer } from "@/components/inbox/zoom-viewer";
-import { LazyWorldDocProse as WorldDocProse, usePreloadWorldDocProse } from "@/components/gallery/world-doc-prose-lazy";
-import { fullStamp, timeAgo } from "@/components/gallery/world-ui";
-import { LinkChip, Timeline } from "@/components/tasks/task-queue";
+import { timeAgo } from "@/components/gallery/world-ui";
 import { ASK_LETTERS, TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
 
 // The review wall: Michael's side of the task queue as a production wall. One
@@ -34,16 +32,16 @@ import { ASK_LETTERS, TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskSta
 type Card = FunctionReturnType<typeof api.tasks.listTaskCards>[number];
 type Stack = FunctionReturnType<typeof api.inbox.listInboxStacks>[number];
 type Thumb = Card["thumbs"][number];
-type TaskView = NonNullable<FunctionReturnType<typeof api.tasks.getTask>>;
 export type WallView = "human" | "agent";
 type Tone = "coral" | "ink" | "gray";
-type Kind = "answer" | "accept" | "rework" | "go" | "later" | "carry" | "note" | "discard" | "choice";
+type Kind = "answer" | "accept" | "rework" | "go" | "later" | "note" | "discard" | "choice";
 type Action = { kind: Kind; label: string; done: string; tone: Tone; text?: boolean; placeholder?: string };
-type Stamp = { kind: Kind; label: string; tone: Tone; at: number };
+// order: where the frame stood when stamped, so it stays put while the server catches up.
+type Stamp = { kind: Kind; label: string; tone: Tone; at: number; order: [number, number, number] };
 type Ghost = { card: Card; until: number };
-type HistoryEntry = { id: string; prev: Stamp | null; revert?: () => Promise<unknown> };
+type HistoryEntry = { id: string; prev: Stamp | null; at: number; title: string; revert?: () => Promise<unknown> };
 type Toast = { key: number; what: string; who: string; tone: "ok" | "error"; undo: boolean };
-type Counts = { total: number; needsYou: number; toAccept: number };
+type Counts = { total: number; needsYou: number; toAccept: number; waiting: number; working: number };
 type Focus = { id: string; field?: Kind };
 type Choice = { letter: string; text: string };
 
@@ -53,29 +51,31 @@ const HOLD_MS = 480;
 const SWIPE_PX = 96;
 const TOAST_MS = 6000;
 const GHOST_MS = 6000;
+// A pick waits this long before it reaches the agent: the toast's undo window.
+const PICK_DELAY_MS = TOAST_MS;
+const UNDO_WINDOW_MS = 10 * 60_000;
 const VIEW_KEY = "lm-tasks-view";
 const GALLERY = "Gallery";
+const NEEDS_YOU_ROW = "needs-you";
 
 const RANK: Record<TaskStatus, number> = { blocked: 0, done: 1, open: 2, claimed: 3, archived: 4 };
-const STATUS_WORD: Record<TaskStatus, string> = {
-  blocked: "Needs you", done: "Accept?", open: "Waiting for an agent", claimed: "With an agent", archived: "Archived",
-};
+// Every stamp changes something he can see again after a reload: a pick or
+// answer goes to the agent, Do next / Not now set the priority the frame's
+// tab shows, Accept and the X archive (undo restores exactly what was there).
 const ACTIONS: Record<TaskStatus, Action[]> = {
   blocked: [
     { kind: "answer", label: "Answer", done: "Answered", tone: "coral", text: true, placeholder: "Your answer. The agent carries on with it." },
-    { kind: "later", label: "Later", done: "Later", tone: "ink" },
   ],
   done: [
     { kind: "accept", label: "Accept", done: "Accepted", tone: "coral" },
     { kind: "rework", label: "Rework", done: "Rework", tone: "ink", text: true, placeholder: "What to change. The task goes back to the agent." },
   ],
   open: [
-    { kind: "go", label: "Go", done: "Go", tone: "coral" },
-    { kind: "later", label: "Later", done: "Later", tone: "ink" },
+    { kind: "go", label: "Do next", done: "Next up", tone: "coral" },
+    { kind: "later", label: "Not now", done: "Not now", tone: "ink" },
   ],
   claimed: [
-    { kind: "carry", label: "Carry on", done: "Carry on", tone: "coral" },
-    { kind: "note", label: "Note", done: "Noted", tone: "ink", text: true, placeholder: "A note for the agent. The task stays with it." },
+    { kind: "note", label: "Note for the agent", done: "Noted", tone: "ink", text: true, placeholder: "A note for the agent. The task stays with it." },
   ],
   archived: [],
 };
@@ -93,6 +93,21 @@ const isTyping = (target: EventTarget | null) =>
 const shortTask = (id: string) => `task:…${id.slice(-5)}`;
 const worldKeyOf = (card: { worldFolderId?: Id<"folders"> }) => card.worldFolderId ?? "";
 const aspectOf = (thumb: { width?: number; height?: number }) => (thumb.width && thumb.height ? thumb.width / thumb.height : 1.5);
+
+/** The word on a frame's tab: where the task stands, in his terms, for every status. */
+const frameTab = (card: Card): { word: string; tone: string } => {
+  switch (card.status) {
+    case "blocked": return { word: "Needs you", tone: "need" };
+    case "done": return { word: "Accept?", tone: "accept" };
+    case "claimed": return { word: card.lastAnswer ? "Agent on your answer" : "Agent working", tone: "quiet" };
+    default:
+      if (card.needsRework) return { word: "Rework", tone: "said" };
+      if (card.lastAnswer) return { word: "You answered", tone: "said" };
+      if (card.priority === 1) return { word: "Next up", tone: "next" };
+      if (card.priority === 3) return { word: "Not now", tone: "quiet" };
+      return { word: "Waiting", tone: "quiet" };
+  }
+};
 
 /* ── Text: the one sentence, the choices ────────────────────────────────── */
 
@@ -123,12 +138,14 @@ const sentencesOf = (text: string) => {
 };
 
 /**
- * The question a frame asks, one sentence: for a blocked task the sentence
- * that asks (a "?", or the one carrying the A / B options, else the first);
- * for a done task what was done; for an open or claimed task the brief.
+ * The sheet's headline: a blocked task's ask; for an older blocked task
+ * without one, the sentence that asks (a "?", or the one carrying the A / B
+ * options, else the first); for every other task its title.
  */
 export const questionOf = (card: Pick<Card, "status" | "brief" | "result" | "title"> & { askView?: Card["askView"] }) => {
   if (card.status === "blocked" && card.askView) return card.askView.question;
+  // Michael's layer is the title; the brief and result are the agent's.
+  if (card.status !== "blocked") return card.title;
   const asked = card.status === "blocked" || card.status === "done";
   const source = asked ? card.result || card.brief : card.brief || card.result;
   const gist = gistOf(source, 400);
@@ -179,7 +196,7 @@ const startSize = (title: string) => {
 /* ── Styles: the wall's own sheet, hoisted once ─────────────────────────── */
 
 const CSS = `
-.lmw{--lmw-bar:0px;--lmw-w:282px;--lmw-dur:200ms;position:relative;min-height:100dvh;background:var(--lm-paper);color:var(--lm-text-primary);
+.lmw{--lmw-ember:#FF8C42;--lmw-bar:0px;--lmw-w:282px;--lmw-dur:200ms;position:relative;min-height:100dvh;background:var(--lm-paper);color:var(--lm-text-primary);
   /* The font tokens resolve here from the next/font variables on body; at :root they are invalid and a font: shorthand would drop whole. */
   --lm-font:var(--font-geist-mono,ui-monospace),ui-monospace,"SF Mono",monospace;--lm-font-display:var(--font-geist-sans,system-ui),system-ui,sans-serif;
   font-family:var(--lm-font-display);-webkit-text-size-adjust:100%;text-size-adjust:100%;
@@ -210,6 +227,7 @@ const CSS = `
 .lmw-row-head{position:sticky;top:var(--lmw-bar);z-index:10;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding:11px 16px 9px;
   background:linear-gradient(180deg,var(--lm-sidebar-glass-fill-top),var(--lm-sidebar-glass-fill-bottom));
   backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);border-bottom:1px solid var(--lm-sidebar-glass-border)}
+.lmw-row-head.need .lmw-row-title{color:var(--lm-coral)}
 .lmw-row-title{font:700 10px/1 var(--lm-font);letter-spacing:.18em;text-transform:uppercase;margin:0;color:var(--lm-text-primary)}
 .lmw-row-meta{display:flex;gap:14px;font:600 9.5px/1 var(--lm-font);letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-ghost)}
 .lmw-row-meta .hot{color:var(--lm-coral)} .lmw-row-meta .warm{color:var(--lm-text-muted)}
@@ -226,6 +244,12 @@ const CSS = `
 .lmw-tab{position:absolute;top:-13px;left:10px;height:13px;padding:0 8px;z-index:2;font:700 8px/13px var(--lm-font);letter-spacing:.16em;text-transform:uppercase;border-radius:2px 2px 0 0}
 .lmw-tab.need{background:var(--lm-coral);color:var(--lm-paper)}
 .lmw-tab.accept{background:var(--lm-ink);color:var(--lm-paper)}
+.lmw-tab.next{background:var(--lm-text-primary);color:var(--lm-paper)}
+.lmw-tab.quiet{background:var(--lm-surface-3);color:var(--lm-text-tertiary)}
+.lmw-tab.said{background:var(--lm-surface-3);color:var(--lm-coral)}
+.lmw-idc{position:absolute;top:8px;right:8px;z-index:3;opacity:0;transition:opacity var(--lmw-dur)}
+.lmw-pic:hover .lmw-idc,.lmw-pic:focus-within .lmw-idc{opacity:1}
+@media (hover:none){.lmw-idc{display:none}}
 .lmw-pic,.lmw-plate{position:relative;aspect-ratio:16/10;overflow:hidden;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;touch-action:pan-y;cursor:pointer;outline:none}
 .lmw-pic:focus-visible,.lmw-plate:focus-visible{box-shadow:inset 0 0 0 2px var(--lm-coral)}
 .lmw-pic{background:var(--lm-surface-2)}
@@ -305,6 +329,12 @@ const CSS = `
 .lmw-shead:not(.toned) .lmw-sfacts .hot{color:var(--lm-coral)}
 .lmw-shead:not(.toned) .lmw-sfacts .warm{color:var(--lm-text-muted)}
 .lmw-q{margin:12px 0 0;font:800 clamp(22px,6.2vw,30px)/1.1 var(--lm-font-display);letter-spacing:-.022em;text-wrap:balance;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+.lmw-said{margin:10px 0 0;font:500 13.5px/1.4 var(--lm-font-display);display:flex;gap:10px;align-items:baseline;max-width:60ch}
+.lmw-said b{flex:0 0 auto;font:700 9px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-coral)}
+.lmw-ssum{margin:10px 0 0;font:500 15px/1.4 var(--lm-font-display);max-width:60ch;opacity:.85;text-wrap:pretty}
+.lmw-agentlink{display:inline-flex;align-items:center;gap:6px;margin:14px 16px 16px;padding:8px 0;background:none;border:0;cursor:pointer;font:700 9.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmw-agentlink:hover{color:var(--lm-text-secondary)}
+.lmw-md.is-flash{outline:2px solid var(--lm-coral);outline-offset:4px;transition:outline-color 1s}
 .lmw-stitle{margin:8px 0 0;font:600 10px/1.3 var(--lm-font);letter-spacing:.08em;text-transform:uppercase;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lmw-stools .lmw-close{background:rgba(8,7,6,.3);opacity:1}
 .lmw-shead:not(.toned) .lmw-stools .lmw-close{background:var(--lm-surface-3);color:var(--lm-text-primary)}
@@ -322,10 +352,11 @@ const CSS = `
 .lmw-choice:hover{border-color:var(--lm-coral)} .lmw-choice:active{transform:translate(1px,1px)}
 .lmw-choice b{flex:0 0 auto;width:34px;height:34px;display:grid;place-items:center;font:900 16px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
 .lmw-choice span{font:600 14px/1.3 var(--lm-font-display);overflow-wrap:anywhere}
-.lmw-choice em,.lmw-ask-head em{font:700 9px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--lm-coral);margin-left:auto;white-space:nowrap}
+.lmw-choice em,.lmw-ask-head em{font:700 9px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--lmw-ember);margin-left:auto;white-space:nowrap}
 .lmw-ask{display:grid;gap:10px;padding:14px 16px 2px}
 .lmw-ask-col{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px;border:1.5px solid var(--lm-border);border-radius:var(--lm-radius);background:var(--lm-surface-2);transition:border-color var(--lmw-dur)}
-.lmw-ask-col:hover,.lmw-ask-col.rec{border-color:var(--lm-coral)}
+.lmw-ask-col:hover{border-color:var(--lm-coral)}
+.lmw-ask-col.rec{border-color:var(--lmw-ember)}
 .lmw-ask-head{display:flex;align-items:center;gap:10px;min-height:40px;padding:2px 2px 2px 0;text-align:left;background:none;border:0;color:var(--lm-text-primary);cursor:pointer}
 .lmw-ask-head b{flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;font:900 15px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
 .lmw-ask-head span{font:800 13px/1.2 var(--lm-font-display);letter-spacing:.01em;text-transform:uppercase;overflow-wrap:anywhere;min-width:0}
@@ -333,9 +364,16 @@ const CSS = `
 .lmw-ask-pics .cell{position:relative;overflow:hidden;background:var(--lm-surface-3);cursor:zoom-in;border-radius:2px;max-height:30vh}
 .lmw-ask-pics .cell img{display:block;width:100%;height:100%;object-fit:contain}
 .lmw-sacts .lmw-pick{justify-content:flex-start;text-transform:none;letter-spacing:.01em;font:700 13px/1.2 var(--lm-font-display);white-space:normal;text-align:left;padding:8px 14px 8px 8px}
+@media (max-width:899px){
+  .lmw-sacts:has(.lmw-pick){display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .lmw-sacts .lmw-pick{min-height:44px;padding:6px 10px 6px 6px;font-size:12.5px;overflow:hidden}
+  .lmw-sacts .lmw-pick em{display:none}
+  .lmw-sacts:has(.lmw-pick) .lmw-stamp.ghost,.lmw-sacts:has(.lmw-pick) .lmw-stamp.x{min-height:36px}
+}
 .lmw-sacts .lmw-pick b{flex:0 0 auto;width:28px;height:28px;display:grid;place-items:center;font:900 14px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
-.lmw-sacts .lmw-pick.primary b{background:var(--lm-paper);color:var(--lm-coral)}
-.lmw-sacts .lmw-pick em{font:700 8.5px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;opacity:.8;white-space:nowrap}
+.lmw-sacts .lmw-pick.rec{border-color:var(--lmw-ember)}
+.lmw-sacts .lmw-pick.rec b{background:var(--lmw-ember)}
+.lmw-sacts .lmw-pick em{font:700 8.5px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--lmw-ember);white-space:nowrap}
 .lmw-ask-pics .chip{position:absolute;left:5px;bottom:5px;z-index:2}
 
 .lmw-details{margin:10px 16px 0;border-top:1px solid var(--lm-border)}
@@ -462,6 +500,10 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
   const cue = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const canAct = !stamp;
+  // Hold stamps only where the stamp is safe without opening: Do next on a waiting task.
+  // Swipe (discard) never takes work out of an agent's hands.
+  const canHold = canAct && card.status === "open";
+  const canSwipe = canAct && card.status !== "claimed";
 
   // A frame that flew out comes back stamped: the inline fly-out is cleared
   // before the row measures it for its slide to the end.
@@ -486,7 +528,7 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
     const node = frame.current;
     const current: Gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, t0: performance.now(), timer: null, moved: false, swiping: false, dx: 0, fired: false };
     gesture.current = current;
-    if (canAct && node) {
+    if (canHold && node) {
       node.classList.add("is-holding");
       current.timer = setTimeout(() => {
         if (gesture.current !== current || current.moved) return;
@@ -502,10 +544,10 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
     if (!current || current.id !== event.pointerId) return;
     const dx = event.clientX - current.x, dy = event.clientY - current.y;
     if (!current.swiping) {
-      if (Math.hypot(dx, dy) <= 8) return;
+      if (Math.hypot(dx, dy) <= 14) return;
       current.moved = true;
       stopHold();
-      if (!(canAct && Math.abs(dx) > Math.abs(dy) * 1.3)) { gesture.current = null; return; }
+      if (!(canSwipe && Math.abs(dx) > Math.abs(dy) * 2)) { gesture.current = null; return; }
       current.swiping = true;
       frame.current?.classList.add("is-swiping");
       try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* a mouse without capture still works */ }
@@ -538,7 +580,7 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
   };
 
   const picture = card.thumbs[0];
-  const tab = stamp ? null : card.status === "blocked" ? <span className="lmw-tab need">Needs you</span> : card.status === "done" ? <span className="lmw-tab accept">Accept?</span> : null;
+  const tab = stamp ? null : <span className={`lmw-tab ${frameTab(card).tone}`}>{frameTab(card).word}</span>;
   const chip = <CopyChip value={taskRef(card._id)} label={shortTask(card._id)} />;
   const control = {
     role: "button", tabIndex: 0, "aria-label": `Open ${card.title}`,
@@ -553,11 +595,12 @@ function Frame({ card, stamp, eager, onOpen, onPrimary, onDiscard }: {
     {picture
       ? <div className="lmw-pic" {...control}>
         <Pic thumb={picture} eager={eager} />
-        <div className="lmw-ovl"><span className="t">{card.status === "blocked" && card.askView ? card.askView.question : card.title}</span>{chip}</div>
+        <div className="lmw-ovl"><span className="t">{card.status === "blocked" && card.askView ? card.askView.question : card.title}</span></div>
+        <div className="lmw-idc">{chip}</div>
         <div className="lmw-hold" />
       </div>
       : <div className={`lmw-plate tone-${card.status}`} {...control}>
-        <div className="lmw-pf"><span>{timeAgo(card.updatedAt)}</span><span>{STATUS_WORD[card.status]}</span></div>
+        <div className="lmw-pf"><span>{timeAgo(card.updatedAt)}</span></div>
         <FitTitle title={card.title} />
         <div className="lmw-pb">{chip}</div>
         <div className="lmw-hold" />
@@ -678,25 +721,6 @@ function AskBoard({ ask, disabled, onPick, onZoom }: {
   </>;
 }
 
-/** Behind "Details": the whole brief and result, the other links, the timeline. */
-function Details({ ownerUserId, taskId }: { ownerUserId: string; taskId: Id<"tasks"> }) {
-  const { isAuthenticated } = useConvexAuth();
-  const view = useQuery(api.tasks.getTask, isAuthenticated ? { ownerUserId, taskId } : "skip") as TaskView | undefined | null;
-  if (!view) return <div className="grid place-items-center py-8"><Loader2 className="animate-spin" size={16} style={{ color: "var(--lm-text-ghost)" }} aria-label="Loading" /></div>;
-  const { task, links, events } = view;
-  const others = links.filter((link) => link.kind !== "asset");
-  return <div className="lmw-full">
-    {task.result && <section>
-      <Micro color={task.status === "blocked" ? "var(--lm-coral)" : undefined}>{task.status === "blocked" ? "The question in full" : "Result"}</Micro>
-      <div className="prose" style={{ color: "var(--lm-text-primary)" }}><WorldDocProse body={task.result} inline /></div>
-    </section>}
-    {task.brief && <section><Micro>Brief</Micro><div className="prose"><WorldDocProse body={task.brief} inline /></div></section>}
-    {others.length > 0 && <section><Micro>Links</Micro><div className="links">{others.map((link, index) => <LinkChip key={`${link.kind}-${link.id}-${index}`} link={link} />)}</div></section>}
-    <section><Micro>Timeline</Micro><Timeline events={events} /></section>
-    <Micro color="var(--lm-text-ghost)" style={{ textTransform: "none", letterSpacing: 0 }}>{fullStamp(task.createdAt)}{task.claimedBy && task.status === "claimed" ? ` · ${task.claimedBy.replace(/^agent:/, "")}` : ""}</Micro>
-  </div>;
-}
-
 /** The words an action asks for: Answer, Rework or Note. ⌘↵ sends, Esc goes back. */
 function ReplyField({ action, onSend, onBack }: { action: Action; onSend: (body: string) => Promise<void> | void; onBack: () => void }) {
   const desktop = useDesktop();
@@ -725,18 +749,18 @@ function ReplyField({ action, onSend, onBack }: { action: Action; onSend: (body:
   </>;
 }
 
-function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNext, onClose, onPrev, onNext, onAct, onField }: {
+function FocusSheet({ card, stamp, field, showWorld, hasPrev, hasNext, onClose, onPrev, onNext, onAgentView, onAct, onField }: {
   ownerUserId: string; card: Card; stamp: Stamp | null; field: Kind | undefined; showWorld: boolean; hasPrev: boolean; hasNext: boolean;
-  onClose: () => void; onPrev: () => void; onNext: () => void;
+  onClose: () => void; onPrev: () => void; onNext: () => void; onAgentView: () => void;
   onAct: (kind: Kind, text?: string) => Promise<void> | void; onField: (kind: Kind | undefined) => void;
 }) {
-  const desktop = useDesktop();
   const [zoom, setZoom] = useState<Thumb | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const sheet = useRef<HTMLElement>(null);
   useEffect(() => {
+    // Keyboard focus moves into the sheet, off the wall behind it.
+    sheet.current?.focus({ preventScroll: true });
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = overflow; };
@@ -803,14 +827,14 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
   };
 
   const facts = <div className="lmw-sfacts">
-    <span className={card.status === "blocked" ? "hot" : card.status === "done" ? "warm" : ""}>{STATUS_WORD[card.status]}</span>
+    <span className={card.status === "blocked" ? "hot" : card.status === "done" ? "warm" : ""}>{frameTab(card).word}</span>
     {showWorld && <span>{card.worldName ?? GALLERY}</span>}
     <span>{timeAgo(card.updatedAt)}</span>
     {stamp && <span className="hot">Stamped {stamp.label}</span>}
   </div>;
 
   return <><div className="lmw-scrim" onClick={onClose}>
-    <section ref={sheet} className="lmw-sheet" role="dialog" aria-modal="true" aria-label={card.title} onClick={(event) => event.stopPropagation()}>
+    <section ref={sheet} tabIndex={-1} className="lmw-sheet" role="dialog" aria-modal="true" aria-label={card.title} onClick={(event) => event.stopPropagation()}>
       <div className={`lmw-shead${toned ? ` toned tone-${card.status}` : ""}`} onPointerDown={onHeadDown} onPointerMove={onHeadMove} onPointerUp={onHeadEnd} onPointerCancel={onHeadEnd}>
         <span className="lmw-grip" aria-hidden />
         <div className="lmw-stools">
@@ -820,6 +844,8 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
         </div>
         {facts}
         <h2 className="lmw-q">{question}</h2>
+        {card.summary && <p className="lmw-ssum">{card.summary}</p>}
+        {card.lastAnswer && card.status !== "blocked" && <p className="lmw-said"><b>You said</b>{card.lastAnswer.body}</p>}
         {question !== card.title && <p className="lmw-stitle">{card.title}</p>}
         <div style={{ marginTop: 10 }}><CopyChip value={taskRef(card._id)} label={shortTask(card._id)} /></div>
       </div>
@@ -832,10 +858,7 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
             <b>{choice.letter}</b><span>{choice.text}</span>
           </button>)}
         </div>}
-        <details className="lmw-details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-          <summary>Details</summary>
-          {detailsOpen && <Details ownerUserId={ownerUserId} taskId={card._id} />}
-        </details>
+        <button type="button" className="lmw-agentlink" onClick={onAgentView}>Agent notes<ArrowRight size={12} aria-hidden /></button>
       </div>
       <div className="lmw-sacts">
         {stamp
@@ -843,15 +866,15 @@ function FocusSheet({ ownerUserId, card, stamp, field, showWorld, hasPrev, hasNe
           : fieldAction
             ? <ReplyField key={`${card._id}-${fieldAction.kind}`} action={fieldAction} onSend={(body) => onAct(fieldAction.kind, body)} onBack={() => onField(undefined)} />
             : ask ? <>
-              {ask.options.map((option, index) => <button key={index} type="button" className={`lmw-stamp lmw-pick${option.recommended ? " primary" : ""}`} disabled={busy}
+              {ask.options.map((option, index) => <button key={index} type="button" className={`lmw-stamp lmw-pick${option.recommended ? " rec" : ""}`} disabled={busy}
                 onClick={() => pick(index)}><b>{ASK_LETTERS[index]}</b>{option.label}{option.recommended && <em>Agent pick</em>}</button>)}
               <button type="button" className="lmw-stamp ghost" disabled={busy} onClick={() => onField("answer")}>Other answer</button>
-              <button type="button" className="lmw-stamp ghost" disabled={busy} onClick={() => void onAct("later")}>Later</button>
+              <button type="button" className="lmw-stamp x" disabled={busy} onClick={() => void onAct("discard")} aria-label="Discard" title="Discard"><X size={15} aria-hidden /></button>
               {error && <p className="lmw-err">{error}</p>}
             </>
             : <>
               {actions.map((action, index) => <button key={action.kind} type="button" className={`lmw-stamp${index === 0 ? " primary" : ""}`} disabled={busy}
-                onClick={() => void onAct(action.kind)}>{action.label}{index === 0 && desktop && <kbd>→</kbd>}</button>)}
+                onClick={() => void onAct(action.kind)}>{action.label}</button>)}
               <button type="button" className="lmw-stamp x" disabled={busy} onClick={() => void onAct("discard")} aria-label="Discard" title="Discard"><X size={15} aria-hidden /></button>
               {error && <p className="lmw-err">{error}</p>}
             </>}
@@ -880,7 +903,7 @@ function AgentDoc({ card, stamp, copied, onCopy }: { card: Card; stamp: Stamp | 
 
 /* ── The wall ────────────────────────────────────────────────────────────── */
 
-type Row = { key: string; worldFolderId?: Id<"folders">; name: string; tasks: Card[]; stacks: Stack[]; needsYou: number; toAccept: number; withAgents: number };
+type Row = { key: string; worldFolderId?: Id<"folders">; name: string; tasks: Card[]; stacks: Stack[]; needsYou: number; toAccept: number };
 
 export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, showWorlds, stickyHeader = true, initialTaskId, header }: {
   ownerUserId: string;
@@ -896,7 +919,6 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   header: (context: WallHeaderContext) => ReactNode;
 }) {
   const { isAuthenticated } = useConvexAuth();
-  usePreloadWorldDocProse();
   const cards = useQuery(api.tasks.listTaskCards, isAuthenticated ? { ownerUserId, worldFolderId, limit: TASK_LIMITS.list } : "skip");
   const stacks = useQuery(api.inbox.listInboxStacks, isAuthenticated && !galleryOnly ? { ownerUserId, worldFolderId, status: "open", previewLimit: 1 } : "skip");
   const update = useMutation(api.tasks.updateTask);
@@ -941,25 +963,28 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     const byKey = new Map<string, Row>();
     const rowFor = (key: string, id: Id<"folders"> | undefined, name: string) => {
       let row = byKey.get(key);
-      if (!row) { row = { key, worldFolderId: id, name, tasks: [], stacks: [], needsYou: 0, toAccept: 0, withAgents: 0 }; byKey.set(key, row); }
+      if (!row) { row = { key, worldFolderId: id, name, tasks: [], stacks: [], needsYou: 0, toAccept: 0 }; byKey.set(key, row); }
       return row;
     };
+    // His questions come first, from every world, in one band at the top.
+    const asking = (card: Card) => card.status === "blocked" || stamps.get(card._id)?.order[0] === RANK.blocked;
+    if (showWorlds && tasks.some(asking)) rowFor(NEEDS_YOU_ROW, undefined, "Needs you");
     for (const card of tasks) {
-      const row = showWorlds ? rowFor(worldKeyOf(card), card.worldFolderId, card.worldName ?? GALLERY) : rowFor("all", worldFolderId, "");
+      const row = showWorlds ? (asking(card) ? byKey.get(NEEDS_YOU_ROW)! : rowFor(worldKeyOf(card), card.worldFolderId, card.worldName ?? GALLERY)) : rowFor("all", worldFolderId, "");
       row.tasks.push(card);
-      if (!stamps.has(card._id)) { if (card.status === "blocked") row.needsYou += 1; else if (card.status === "done") row.toAccept += 1; else row.withAgents += 1; }
+      if (!stamps.has(card._id)) { if (card.status === "blocked") row.needsYou += 1; else if (card.status === "done") row.toAccept += 1; }
     }
     for (const stack of stacks ?? []) (showWorlds ? rowFor(stack.worldFolderId, stack.worldFolderId, stack.worldName) : rowFor("all", worldFolderId, "")).stacks.push(stack);
-    const rank = (card: Card) => RANK[card.status];
+    // A stamped frame keeps the place it had when stamped; the stamp is the feedback.
+    const order = (card: Card) => stamps.get(card._id)?.order ?? [RANK[card.status], card.priority, -card.updatedAt];
     for (const row of byKey.values()) {
       row.tasks.sort((a, b) => {
-        const sa = stamps.get(a._id), sb = stamps.get(b._id);
-        if (!!sa !== !!sb) return sa ? 1 : -1;
-        if (sa && sb) return sa.at - sb.at;
-        return rank(a) - rank(b) || a.priority - b.priority || b.updatedAt - a.updatedAt;
+        const oa = order(a), ob = order(b);
+        return oa[0] - ob[0] || oa[1] - ob[1] || oa[2] - ob[2];
       });
     }
     return [...byKey.values()].sort((a, b) => {
+      if ((a.key === NEEDS_YOU_ROW) !== (b.key === NEEDS_YOU_ROW)) return a.key === NEEDS_YOU_ROW ? -1 : 1;
       if ((a.key === "") !== (b.key === "")) return a.key === "" ? 1 : -1;
       return b.needsYou - a.needsYou || b.toAccept - a.toAccept || a.name.localeCompare(b.name);
     });
@@ -970,6 +995,8 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     total: tasks.length,
     needsYou: tasks.filter((card) => card.status === "blocked" && !stamps.has(card._id)).length,
     toAccept: tasks.filter((card) => card.status === "done" && !stamps.has(card._id)).length,
+    waiting: tasks.filter((card) => card.status === "open" && !stamps.has(card._id)).length,
+    working: tasks.filter((card) => card.status === "claimed" && !stamps.has(card._id)).length,
   }), [tasks, stamps]);
 
   // ?task=<id>: that frame opens as soon as the wall arrives.
@@ -998,6 +1025,16 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   }, []);
   const dropGhost = useCallback((id: string) => setGhosts((current) => { if (!current.has(id)) return current; const next = new Map(current); next.delete(id); return next; }), []);
 
+  // A pick waits PICK_DELAY_MS before it reaches the agent, so a stray click or
+  // letter key can be undone; leaving the page sends what is waiting.
+  const pending = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; send: () => Promise<unknown> }>());
+  useEffect(() => {
+    const waiting = pending.current;
+    const flush = () => { for (const entry of waiting.values()) { clearTimeout(entry.timer); void entry.send().catch(() => undefined); } waiting.clear(); };
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, []);
+
   const act = useCallback(async (card: Card, kind: Kind, text?: string) => {
     const action = findAction(card, kind);
     if (!action) return;
@@ -1007,58 +1044,69 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     let request: Promise<unknown> | null = null;
     let revert: (() => Promise<unknown>) | undefined;
     let archive = false;
+    let undoable = !action.text;
+    const prev = stampsRef.current.get(id) ?? null;
+    const fail = (failure: unknown) => {
+      setStamp(id, prev);
+      dropGhost(id);
+      setHistory((current) => current.filter((entry) => !(entry.id === id && entry.revert === revert)));
+      say({ what: "Not saved", who: errorText(failure, "That did not go through."), tone: "error", undo: false });
+    };
     switch (kind) {
-      case "discard":
+      case "discard": case "accept":
         archive = true;
         request = update({ ...owner, taskId: id, status: "archived" });
-        revert = () => update({ ...owner, taskId: id, status: card.status === "done" ? "done" : "open" });
-        break;
-      case "accept":
-        archive = true;
-        request = update({ ...owner, taskId: id, status: "archived" });
-        revert = () => update({ ...owner, taskId: id, status: "done" });
+        // Back exactly as it was: a question stays a question, an agent keeps its claim.
+        revert = () => update({ ...owner, taskId: id, restore: { status: card.status, claimedBy: card.claimedBy, claimedAt: card.claimedAt, leaseUntil: card.leaseUntil } });
         break;
       case "go":
         if (card.priority !== 1) { request = update({ ...owner, taskId: id, priority: 1 }); revert = () => update({ ...owner, taskId: id, priority: card.priority }); }
         break;
       case "later":
-        if (card.status === "open" && card.priority !== 3) { request = update({ ...owner, taskId: id, priority: 3 }); revert = () => update({ ...owner, taskId: id, priority: card.priority }); }
+        if (card.priority !== 3) { request = update({ ...owner, taskId: id, priority: 3 }); revert = () => update({ ...owner, taskId: id, priority: card.priority }); }
         break;
-      case "answer": case "rework": case "note": case "choice":
+      case "choice": {
+        const send = () => comment({ ownerUserId, taskId: id, body: text!, author: "owner" });
+        const timer = setTimeout(() => { pending.current.delete(id); send().catch(fail); }, PICK_DELAY_MS);
+        pending.current.set(id, { timer, send });
+        revert = async () => {
+          const waiting = pending.current.get(id);
+          if (!waiting) throw new Error("Already with the agent; answer again to change it.");
+          clearTimeout(waiting.timer);
+          pending.current.delete(id);
+        };
+        undoable = true;
+        break;
+      }
+      case "answer": case "rework": case "note":
         request = comment({ ownerUserId, taskId: id, body: text!, author: "owner" });
         break;
-      case "carry":
-        break;
     }
-    const prev = stampsRef.current.get(id) ?? null;
-    const stamp: Stamp = { kind, label: action.done, tone: action.tone, at: Date.now() };
-    const undoable = !action.text;
+    const stamp: Stamp = { kind, label: action.done, tone: action.tone, at: Date.now(), order: [RANK[card.status], card.priority, -card.updatedAt] };
     setStamp(id, stamp);
     if (archive) setGhosts((current) => new Map(current).set(id, { card, until: Date.now() + GHOST_MS }));
-    if (undoable) setHistory((current) => [...current, { id, prev, revert }]);
+    if (undoable) setHistory((current) => [...current, { id, prev, at: Date.now(), title: card.title, revert }]);
     setFocus((current) => (current?.id === id ? null : current));
-    say({ what: action.done, who: card.title, tone: "ok", undo: undoable });
+    say({ what: kind === "choice" ? `${action.done}: ${text!.replace(/^Picked /, "")}` : action.done, who: card.title, tone: "ok", undo: undoable });
     if (!request) return;
     try {
       await request;
     } catch (failure) {
-      setStamp(id, prev);
-      dropGhost(id);
-      setHistory((current) => current.filter((entry) => !(entry.id === id && entry.revert === revert)));
-      say({ what: "Not saved", who: errorText(failure, "That did not go through."), tone: "error", undo: false });
+      fail(failure);
       throw failure;
     }
   }, [ownerUserId, update, comment, say, setStamp, dropGhost]);
 
   const undo = useCallback(async () => {
     const entry = historyRef.current[historyRef.current.length - 1];
-    if (!entry) return;
+    if (!entry || Date.now() - entry.at > UNDO_WINDOW_MS) { say({ what: "Nothing to undo", who: "Undo reaches back ten minutes.", tone: "ok", undo: false }); return; }
     setHistory((current) => current.slice(0, -1));
     setStamp(entry.id, entry.prev);
     dropGhost(entry.id);
-    setToast(null);
-    if (!entry.revert) return;
-    try { await entry.revert(); } catch (failure) { say({ what: "Undo failed", who: errorText(failure, "That did not go through."), tone: "error", undo: false }); }
+    try {
+      await entry.revert?.();
+      say({ what: "Undone", who: entry.title, tone: "ok", undo: false });
+    } catch (failure) { say({ what: "Undo failed", who: errorText(failure, "That did not go through."), tone: "error", undo: false }); }
   }, [setStamp, dropGhost, say]);
 
   const copyText = useCallback(async (key: string, text: string) => {
@@ -1088,15 +1136,31 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     <Undo2 size={12} aria-hidden /> Undo
   </button>;
   const viewSwitch = <WallViewSwitch view={view} onChange={setView} />;
+  // The sheet's "Agent notes": the same task in the Agent view, scrolled to and flashed.
+  const openInAgentView = (id: string) => {
+    setFocus(null);
+    setView("agent");
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const node = document.querySelector<HTMLElement>(`.lmw-md[data-id="${id}"]`);
+      if (!node) return;
+      node.scrollIntoView({ block: "center" });
+      node.classList.add("is-flash");
+      setTimeout(() => node.classList.remove("is-flash"), 1400);
+    }));
+  };
 
   const rowHead = (row: Row) => {
     const parts: ReactNode[] = [];
     if (row.needsYou) parts.push(<span key="n" className="hot">{row.needsYou} need{row.needsYou === 1 ? "s" : ""} you</span>);
     if (row.toAccept) parts.push(<span key="a" className="warm">{row.toAccept} to accept</span>);
-    if (row.withAgents) parts.push(<span key="w">{row.withAgents} with agents</span>);
-    if (row.stacks.length) parts.push(<span key="s">{row.stacks.length} to decide</span>);
+    const waiting = row.tasks.filter((card) => card.status === "open" && !stamps.has(card._id)).length;
+    const working = row.tasks.filter((card) => card.status === "claimed" && !stamps.has(card._id)).length;
+    if (waiting) parts.push(<span key="w">{waiting} waiting</span>);
+    if (working) parts.push(<span key="k">{working} being worked on</span>);
+    const undecided = row.stacks.filter((stack) => stack.cards === 0 || stack.decided < stack.cards).length;
+    if (undecided) parts.push(<span key="s">{undecided} to decide</span>);
     if (!parts.length) parts.push(<span key="x">all stamped</span>);
-    return <div className="lmw-row-head"><h2 className="lmw-row-title">{row.name}</h2><div className="lmw-row-meta">{parts}</div></div>;
+    return <div className={`lmw-row-head${row.key === NEEDS_YOU_ROW ? " need" : ""}`}><h2 className="lmw-row-title">{row.name}</h2><div className="lmw-row-meta">{parts}</div></div>;
   };
 
   let eagerLeft = 8;
@@ -1138,6 +1202,7 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     {focused && <FocusSheet key={focused._id} ownerUserId={ownerUserId} card={focused} stamp={stamps.get(focused._id) ?? null} field={focus?.field}
       showWorld={showWorlds} hasPrev={focusIndex > 0} hasNext={focusIndex < flat.length - 1}
       onClose={() => setFocus(null)} onPrev={() => setFocus({ id: flat[focusIndex - 1]!._id })} onNext={() => setFocus({ id: flat[focusIndex + 1]!._id })}
+      onAgentView={() => openInAgentView(focused._id)}
       onAct={(kind, text) => act(focused, kind, text)} onField={(kind) => setFocus({ id: focused._id, field: kind })} />}
     {toast && <div key={toast.key} className={`lmw-toast${toast.tone === "error" ? " error" : ""}`} role="status" aria-live="polite">
       <span className="what">{toast.what}</span><span className="who">{toast.who}</span>
@@ -1165,7 +1230,8 @@ export function ReviewWallHome({ ownerUserId }: { ownerUserId: string }) {
       <p className="lmw-counts">
         {counts.needsYou ? <span className="hot">{counts.needsYou} need{counts.needsYou === 1 ? "s" : ""} you</span> : null}
         {counts.toAccept ? <span className="warm">{counts.toAccept} to accept</span> : null}
-        <span>{counts.total} total</span>
+        {counts.waiting ? <span>{counts.waiting} waiting</span> : null}
+        {counts.working ? <span>{counts.working} being worked on</span> : null}
       </p>
       {chips.length > 1 && <div className="lmw-chips lm-chip-row" role="group" aria-label="World">
         <button type="button" className="lm-chip" data-active={world === null ? "true" : undefined} onClick={() => setWorld(null)}>All</button>

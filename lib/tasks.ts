@@ -28,6 +28,9 @@ export const TASK_LIMITS = {
   askOptionsMax: 4,
   askOptionAssets: 6,
   askAssets: 8,
+  // What Michael reads on the wall: an agent's title and its one-line summary.
+  humanTitle: 80,
+  summary: 160,
 } as const;
 
 export const TASK_STATUSES = ["open", "claimed", "done", "blocked", "archived"] as const;
@@ -93,6 +96,43 @@ export const askProblem = (ask: TaskAsk | undefined): string | null => {
   return null;
 };
 
+/**
+ * Michael reads the wall (Human view) at product and art-direction level; the
+ * agent reads the brief and result (Agent view). An agent's title and summary
+ * are for him: plain words, nothing he would have to decode. Returns what
+ * gives a line away as agent text, or null.
+ */
+export const jargonIn = (line: string): string | null => {
+  if (/(^|[\s(])~?\/[\w.-]+\/|\b[\w-]+\.(md|mdx|ts|tsx|js|mjs|json|py|sh|html)\b/i.test(line)) return "a file path";
+  if (/\b(asset|task|story|stack|skill|pack|moodboard|collection|folder|doc|video|design):\S/.test(line)) return "an id";
+  if (/\b(?=[a-z0-9]*\d)[a-z0-9]{24,}\b/.test(line)) return "an id";
+  if (/(^|\s)--[a-z]/i.test(line)) return "a command flag";
+  if (line.includes("`")) return "code";
+  if (/\b[a-z]+_[a-z0-9_]+\b/.test(line)) return "a tool or field name";
+  if (/[*#|]|\]\(/.test(line)) return "markdown";
+  return null;
+};
+
+const plainProblem = (what: string, value: string, max: number) => {
+  if (/\n/.test(value)) return `Keep the ${what} on one line.`;
+  if (value.length > max) return `The ${what} is ${value.length} characters; keep it under ${max}, in plain words.`;
+  const jargon = jargonIn(value);
+  return jargon ? `The ${what} has ${jargon} in it. Michael reads it on the wall: plain words only; ids, paths, tools and settings go in the brief.` : null;
+};
+
+/** An agent's task title: what the work is, in his words. "Run the bigger prompt test", not "EXP-002: run the main cells". */
+export const titleProblem = (title: string) => plainProblem("title", title.trim(), TASK_LIMITS.humanTitle);
+
+/**
+ * The one line under the title in the Human view: why it matters or what he
+ * will see. Required when an agent files a task and when it finishes one.
+ */
+export const summaryProblem = (summary: string | undefined, required: boolean) => {
+  const line = summary?.trim() ?? "";
+  if (!line) return required ? "Add summary: one plain line for Michael (what this is, or what he will see now). The details go in the brief or result." : null;
+  return plainProblem("summary", line, TASK_LIMITS.summary);
+};
+
 /** `task:<id>` is the handle agents and Michael pass around; a bare id is accepted too. */
 export const taskRef = (id: string) => `task:${id}`;
 export const bareTaskRef = (value: string) => value.trim().replace(/^task:/, "");
@@ -150,6 +190,7 @@ export const taskAge = (at: number, now = Date.now()) => {
 export type TaskMarkdownInput = {
   _id: string;
   title: string;
+  summary?: string;
   status: TaskStatus;
   priority: TaskPriority;
   worldName?: string;
@@ -177,6 +218,7 @@ export const taskToMarkdown = (task: TaskMarkdownInput) => {
   const lines: string[] = [];
   lines.push(`# ${task.title}`);
   lines.push("");
+  if (task.summary) lines.push(`> ${task.summary}`, "");
   const facts = [
     `id: ${taskRef(task._id)}`,
     `status: ${task.status}${task.needsRework && task.status === "open" ? " (rework)" : ""}`,
