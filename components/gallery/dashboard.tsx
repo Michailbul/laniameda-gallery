@@ -109,7 +109,7 @@ import {
   PublishAllDialog,
   SkillModal,
   SkillsView,
-  StorybookModal,
+  StorybooksView,
   StoriesView,
   UploadModal,
   WorldInstructionsPanel,
@@ -503,6 +503,19 @@ export function GalleryDashboard({
     // Leaving the skills view closes whatever skill was open with it.
     if (mode !== "skills") setSelectedSkillId(null);
   }, []);
+  // A storybook opens in the Storybooks view, below its cover strip, from
+  // anywhere (the home shelf, a world's storybook card, a grid card).
+  const openStorybook = useCallback((storybookId: string) => {
+    setStoriesView(false);
+    setMoodboardsTab(false);
+    setBookmarksView(false);
+    setMotionView(false);
+    setCinematographyView(false);
+    setViewModeRaw("grid");
+    setSelectedSkillId(null);
+    setStorybooksView(true);
+    setOpenStorybookId(storybookId);
+  }, []);
   // Grid tile size (0.4–1, 1 = full size), persisted across sessions.
   const [gridZoom, setGridZoomRaw] = useState(1);
   useEffect(() => {
@@ -598,8 +611,7 @@ export function GalleryDashboard({
   // fight over the drag and the drop goes nowhere.
   const canAcceptShellDrop =
     canAccessMyGallery &&
-    !isUploadOpen &&
-    !openStorybookId;
+    !isUploadOpen;
 
   const handleShellDragEnter = useCallback(
     (event: React.DragEvent) => {
@@ -1644,13 +1656,13 @@ export function GalleryDashboard({
     (folderId: string) => {
       // A world's storybook card opens the storybook, not a filtered grid.
       if (storybookWorldById.has(folderId)) {
-        setOpenStorybookId(folderId);
+        openStorybook(folderId);
         return;
       }
       setSelectedFolderId(folderId);
       setViewMode("grid");
     },
-    [setViewMode, storybookWorldById],
+    [openStorybook, setViewMode, storybookWorldById],
   );
 
   // Saved Skills join the default grid as one card each — an insert is a
@@ -4144,9 +4156,9 @@ export function GalleryDashboard({
         setSelectedSkillId(img.id);
         return;
       }
-      // Storybooks expand into their own modal (images + editable story).
+      // A storybook card opens the book in the Storybooks view.
       if (img.galleryItemType === "storybook") {
-        setOpenStorybookId(img.galleryItemId ?? img.id);
+        openStorybook(img.galleryItemId ?? img.id);
         return;
       }
       // Cinema frames open the cinema popout (shared-layout animation), not the side panel.
@@ -4177,7 +4189,7 @@ export function GalleryDashboard({
         ),
       });
     },
-    [toggleAssetSelection],
+    [openStorybook, toggleAssetSelection],
   );
 
   const selectImageByEntry = useCallback(
@@ -4332,9 +4344,8 @@ export function GalleryDashboard({
   const currentRoute = useMemo<GalleryRoute>(() => {
     if (galleryScope !== "mine") return { kind: "home" };
     // Documents open over any view; their address names the document.
-    if (openStorybookId) return { kind: "storybooks", id: openStorybookId };
+    if (storybooksView) return openStorybookId ? { kind: "storybooks", id: openStorybookId } : { kind: "storybooks" };
     if (selectedSkillId) return { kind: "skills", id: selectedSkillId };
-    if (storybooksView) return { kind: "storybooks" };
     if (activeMoodboardsTab) return moodboardsTabBoardId ? { kind: "moodboards", id: moodboardsTabBoardId } : { kind: "moodboards" };
     if (activeStoriesView) return storiesOpenId ? { kind: "stories", id: storiesOpenId } : { kind: "stories" };
     if (bookmarksView) return { kind: "bookmarks" };
@@ -4435,6 +4446,7 @@ export function GalleryDashboard({
           if (child?.kind === "storybook") {
             setSelectedFolderId(String(root._id));
             setViewModeRaw("grid");
+            setStorybooksView(true);
             setOpenStorybookId(String(child._id));
             break;
           }
@@ -4506,6 +4518,12 @@ export function GalleryDashboard({
         });
     },
     [convex, currentAssetId, folders, handleImageSelect, leaveEveryView, ownerUserId],
+  );
+
+  const openStorybookAsset = useCallback(
+    (storybookId: string, assetId: string) =>
+      applyLocation({ route: { kind: "storybooks", id: storybookId }, asset: assetId }, "click"),
+    [applyLocation],
   );
 
   // Apply what the address asks for as soon as the data it names is here.
@@ -5991,9 +6009,8 @@ export function GalleryDashboard({
               !likedOnly &&
               shelfBooks.length > 0 && (
                 <StorybookShelf
-                  mode="shelf"
                   books={shelfBooks}
-                  onOpen={setOpenStorybookId}
+                  onOpen={openStorybook}
                   onCreate={createStorybook}
                   onSeeAll={() => {
                     setBookmarksView(false);
@@ -6328,12 +6345,17 @@ export function GalleryDashboard({
               ) : srefsCollectionView && ownerUserId && activeCollectionFolder ? (
                 <MidjourneySrefsView key={activeCollectionFolder._id} ownerUserId={ownerUserId} folderId={activeCollectionFolder._id as Id<"folders">} />
               ) : storybooksView ? (
-                <StorybookShelf
-                  mode="grid"
+                <StorybooksView
+                  ownerUserId={ownerUserId}
                   books={shelfBooks}
-                  onOpen={setOpenStorybookId}
+                  selectedId={openStorybookId}
+                  onSelect={setOpenStorybookId}
                   onCreate={createStorybook}
                   onDropAssets={handleAssetsDropOnStorybook}
+                  // A frame opens the detail panel over the book, through the
+                  // address (/storybooks/<id>?asset=<id>).
+                  onOpenAsset={openStorybookAsset}
+                  suspended={Boolean(selectedImage)}
                 />
               ) : viewMode === "collections" ? (
                 galleryScope === "mine" && canAccessMyGallery ? (
@@ -6427,7 +6449,7 @@ export function GalleryDashboard({
                           onImageSelect={handleImageSelect}
                           onImageLoad={markImageLoaded}
                           onCollectionOpen={handleCardCollectionOpen}
-                          onStorybookOpen={setOpenStorybookId}
+                          onStorybookOpen={openStorybook}
                           zoom={gridZoom}
                         />
                       )}
@@ -6495,7 +6517,7 @@ export function GalleryDashboard({
                     }
                     excludeLabel={excludeScope?.label}
                     excludeFolderId={excludeScope?.folderId}
-                    onStorybookOpen={setOpenStorybookId}
+                    onStorybookOpen={openStorybook}
                     onCollectionOpen={handleCardCollectionOpen}
                     onAddAssetToMoodboard={
                       canManageFoldersInCurrentView ? addAssetToMoodboard : undefined
@@ -7275,26 +7297,6 @@ export function GalleryDashboard({
         skillId={selectedSkillId}
         ownerUserId={ownerUserId}
         onClose={() => setSelectedSkillId(null)}
-      />
-      </MountOnceOpen>
-
-      <MountOnceOpen open={Boolean(openStorybookId)}>
-      <StorybookModal
-        ownerUserId={ownerUserId}
-        storybookId={openStorybookId}
-        worldName={
-          openStorybookId
-            ? storybookWorldById.get(openStorybookId)?.name
-            : undefined
-        }
-        // A piece cited in the record opens the detail panel over the book,
-        // through the address (/storybooks/<id>?asset=<id>).
-        onOpenAsset={(assetId) => {
-          if (!openStorybookId) return;
-          applyLocation({ route: { kind: "storybooks", id: openStorybookId }, asset: assetId }, "click");
-        }}
-        suspended={Boolean(selectedImage)}
-        onClose={() => setOpenStorybookId(null)}
       />
       </MountOnceOpen>
 

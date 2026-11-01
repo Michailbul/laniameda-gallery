@@ -94,3 +94,18 @@ export function parseStorybookMeta(
 
   return { world, title, status, gaps, runtimeSeconds, medium, hook: firstBeat };
 }
+
+/** The status chip on a storybook cover, in plain words: "Ready", "4 gaps",
+ *  "Not ready", "Unreviewed", "Archived". */
+export function storybookStatusLabel(
+  meta: Pick<StorybookMeta, "status" | "gaps">,
+): { text: string; tone: "ready" | "gaps" | "ghost" } {
+  if (meta.status === "ready") return { text: "Ready", tone: "ready" };
+  if (meta.status === "not-ready") {
+    return {
+      text: meta.gaps !== null ? `${meta.gaps} ${meta.gaps === 1 ? "gap" : "gaps"}` : "Not ready",
+      tone: "gaps",
+    };
+  }
+  return { text: meta.status === "archived" ? "Archived" : "Unreviewed", tone: "ghost" };
+}

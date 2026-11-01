@@ -8,6 +8,19 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — Storybooks as a board (branch `feat/storybooks-masonry`)
+
+- /storybooks has the HEEL board's shape: one chip row of filters, a strip of
+  covers (2×2 mosaic, name, status chip), then the chosen book inline as bare
+  masonry by beat (S/M/L, natural aspect, srcset renditions, name chips on the
+  frame, section chips that filter). Address follows the selection.
+- A frame opens the gallery's detail panel (Edit in place). Story and Agent's
+  text tabs replace READ/RAW; the storybook modal is gone, and a book opened
+  anywhere lands in this view.
+- Quirk: `--lm-font`/`--lm-font-display` resolve to nothing (Tailwind
+  `@theme inline` never emits `--font-sans`/`--font-mono`); new CSS reads
+  `--font-geist-sans`/`--font-geist-mono` directly, as `.wdoc` does.
+
 ### 2026-11-01 — World page opens on its styles (branch `feat/world-page-styles`)
 
 - A world root in the vault (`/w/<world>`, Pieces) now starts with a styles

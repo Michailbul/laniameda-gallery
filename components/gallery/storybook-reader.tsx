@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { ExternalLink, FileText, Play } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 import {
-  placeFrames,
   splitRefs,
   type ReaderGap,
   type ReaderItem,
@@ -11,26 +10,21 @@ import {
   type ReaderSection,
 } from "@/lib/storybook-reader";
 
-/** What the reader needs to know about a piece to draw it. */
+// The Story tab of an open storybook: the record read as text (logline,
+// beats, gaps, cast, locations, props, notes, sources). Frames live on the
+// Board tab (storybook-book.tsx); here a cited piece is a small chip.
+
+/** What the text needs to know about a piece it cites. */
 export type ReaderAsset = {
   id: string;
   thumbSrc: string | null;
-  fullSrc: string | null;
-  kind?: "image" | "video";
-  width?: number;
-  height?: number;
-  /** The agent's description, the owner's description and the file name. */
-  notes?: string | null;
-  tagNames?: string[];
-  /** The caption under a frame: the agent's sentence, else the prompt. */
+  /** The caption: the agent's sentence, else the prompt. */
   caption?: string | null;
 };
 
 type ReaderProps = {
   model: ReaderModel;
-  /** The frames filed on the storybook shelf, in shelf order. */
-  frames: ReaderAsset[];
-  /** Pieces the record cites that are not on the shelf, by id. */
+  /** Pieces the record cites, on the shelf or not, by id. */
   lookup: Map<string, ReaderAsset>;
   onOpenAsset: (assetId: string) => void;
 };
@@ -154,57 +148,6 @@ function BlockTitle({ children, aside }: { children: ReactNode; aside?: ReactNod
   );
 }
 
-function Frame({ asset, onOpenAsset, caption, large = false, eager = false }: { asset: ReaderAsset; onOpenAsset: (id: string) => void; caption?: boolean; large?: boolean; eager?: boolean }) {
-  if (!asset.thumbSrc) return null;
-  return (
-    <figure className="min-w-0">
-      <button
-        type="button"
-        onClick={() => onOpenAsset(asset.id)}
-        className="group/frame relative block w-full overflow-hidden text-left transition-opacity hover:opacity-95"
-        style={{ borderRadius: RADIUS, border: "1px solid var(--lm-border)", backgroundColor: "var(--lm-surface-2)" }}
-        aria-label={asset.caption ?? "Storybook frame"}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={asset.thumbSrc}
-          alt={asset.caption ?? ""}
-          className="block w-full"
-          loading={eager ? "eager" : "lazy"}
-          style={{
-            aspectRatio: asset.width && asset.height ? `${asset.width} / ${asset.height}` : large ? "16 / 9" : "4 / 3",
-            objectFit: "cover",
-            maxHeight: large ? "60vh" : undefined,
-          }}
-        />
-        {asset.kind === "video" && (
-          <span className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center" style={{ borderRadius: "8px", backgroundColor: "rgba(0,0,0,0.65)", color: "#FFF4EA" }}>
-            <Play className="h-3 w-3" />
-          </span>
-        )}
-        <span className="absolute bottom-2 right-2 px-1.5 py-0.5 text-[9px] font-mono opacity-0 transition-opacity group-hover/frame:opacity-100" style={{ borderRadius: "6px", backgroundColor: "rgba(0,0,0,0.6)", color: "#FFF4EA" }}>
-          {shortId(asset.id)}
-        </span>
-      </button>
-      {caption && asset.caption && (
-        <figcaption className="mt-1.5 line-clamp-2 text-[11px] leading-snug" style={{ color: "var(--lm-text-tertiary)" }}>
-          {asset.caption}
-        </figcaption>
-      )}
-    </figure>
-  );
-}
-
-function FrameGrid({ frames, onOpenAsset, columns = "grid-cols-2 md:grid-cols-3 min-[900px]:grid-cols-4" }: { frames: ReaderAsset[]; onOpenAsset: (id: string) => void; columns?: string }) {
-  return (
-    <div className={`grid gap-3 ${columns}`}>
-      {frames.map((frame, index) => (
-        <Frame key={frame.id} asset={frame} onOpenAsset={onOpenAsset} caption eager={index < 8} />
-      ))}
-    </div>
-  );
-}
-
 function GapList({ gaps, notes, blocking, lookup, onOpenAsset }: { gaps: ReaderGap[]; notes: string[]; blocking: number | null; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void }) {
   return (
     <section className="p-4 md:p-5" style={{ borderRadius: RADIUS, border: "1px solid color-mix(in srgb, var(--coral) 35%, transparent)", backgroundColor: "color-mix(in srgb, var(--coral) 5%, transparent)" }}>
@@ -247,7 +190,7 @@ function GapList({ gaps, notes, blocking, lookup, onOpenAsset }: { gaps: ReaderG
 }
 
 /** A cast member, a location or a prop: its pieces, its name, its text. */
-function ItemRow({ item, lookup, onOpenAsset, plates }: { item: ReaderItem; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void; plates?: ReaderAsset[] }) {
+function ItemRow({ item, lookup, onOpenAsset }: { item: ReaderItem; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void }) {
   const pieces = item.assetIds.map((id) => lookup.get(id)).filter((asset): asset is ReaderAsset => Boolean(asset?.thumbSrc));
   const lead = pieces[0];
   return (
@@ -277,9 +220,9 @@ function ItemRow({ item, lookup, onOpenAsset, plates }: { item: ReaderItem; look
         <p className="text-[14px] leading-[1.6]" style={{ color: item.label ? "var(--lm-text-secondary)" : "var(--lm-text-tertiary)" }}>
           <RefText text={item.text} lookup={lookup} onOpenAsset={onOpenAsset} />
         </p>
-        {(pieces.length > 1 || (plates && plates.length > 0)) && (
+        {pieces.length > 1 && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {[...pieces.slice(1), ...(plates ?? [])].map((asset) => (
+            {pieces.slice(1).map((asset) => (
               <button key={asset.id} type="button" onClick={() => onOpenAsset(asset.id)} className="overflow-hidden transition-opacity hover:opacity-90" style={{ borderRadius: "6px", border: "1px solid var(--lm-border)", width: 96, height: 60, backgroundColor: "var(--lm-surface-2)" }} aria-label={asset.caption ?? "Open piece"}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={asset.thumbSrc ?? ""} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -292,17 +235,16 @@ function ItemRow({ item, lookup, onOpenAsset, plates }: { item: ReaderItem; look
   );
 }
 
-function ItemBlock({ title, items, lookup, onOpenAsset, plates }: { title: string; items: ReaderItem[]; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void; plates?: ReaderAsset[] }) {
-  if (items.length === 0 && (!plates || plates.length === 0)) return null;
+function ItemBlock({ title, items, lookup, onOpenAsset }: { title: string; items: ReaderItem[]; lookup: Map<string, ReaderAsset>; onOpenAsset: (id: string) => void }) {
+  if (items.length === 0) return null;
   return (
     <section>
       <BlockTitle aside={items.length > 1 ? `${items.length}` : undefined}>{title}</BlockTitle>
       <ul className="flex flex-col gap-4">
         {items.map((item, index) => (
-          <ItemRow key={index} item={item} lookup={lookup} onOpenAsset={onOpenAsset} plates={index === 0 ? plates : undefined} />
+          <ItemRow key={index} item={item} lookup={lookup} onOpenAsset={onOpenAsset} />
         ))}
       </ul>
-      {items.length === 0 && plates && plates.length > 0 && <FrameGrid frames={plates} onOpenAsset={onOpenAsset} columns="grid-cols-2 md:grid-cols-3" />}
     </section>
   );
 }
@@ -335,48 +277,63 @@ function SectionBlock({ section, lookup, onOpenAsset }: { section: ReaderSection
   );
 }
 
-/* ── The reader ─────────────────────────────────────────────────────────── */
 
-/** The status row under the title: readiness, runtime, medium, look, world. */
-export function ReaderChips({ model }: { model: ReaderModel }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {model.status === "ready" && <Chip tone="ready">Ready</Chip>}
-      {model.status === "not-ready" && (
-        <Chip tone="coral">Not ready{model.blockingGaps !== null ? ` · ${model.blockingGaps} blocking` : ""}</Chip>
-      )}
-      {model.status === "archived" && <Chip tone="ghost">Archived</Chip>}
-      {model.status === "unreviewed" && <Chip tone="ghost">Unreviewed</Chip>}
-      {model.duration && <Chip>{model.duration}</Chip>}
-      {model.medium && <Chip>{model.medium === "animated" ? "Animated" : "Live action"}</Chip>}
-      {model.draftKind && <Chip tone="ghost">{model.draftKind}</Chip>}
-      {model.look.map((look) => (
-        <Chip key={look}>{look}</Chip>
-      ))}
-    </div>
-  );
-}
+/* ── The Story tab ──────────────────────────────────────────────────────── */
 
-export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderProps) {
-  const placement = useMemo(() => placeFrames(model, frames), [model, frames]);
+export function StorybookText({ model, lookup, onOpenAsset }: ReaderProps) {
   const hasBeats = model.beats.length > 0;
-  const beatSeconds = model.beats.filter((beat) => beat.time).length;
-
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex max-w-[860px] flex-col gap-10">
       {(model.logline || model.hook) && (
         <section className="flex flex-col gap-2">
           {model.logline && (
-            <p className="text-[17px] font-medium leading-[1.5] md:text-[19px]" style={{ color: "var(--lm-text-primary)" }}>
+            <p className="text-[17px] font-medium leading-[1.5] md:text-[19px]" style={{ color: "var(--lm-text-primary)", fontFamily: "var(--sb-sans)" }}>
               {model.logline}
             </p>
           )}
           {model.hook && model.hook !== model.logline && (
-            <p className="text-[14px] leading-[1.6]" style={{ color: "var(--lm-text-secondary)" }}>
+            <p className="text-[14px] leading-[1.6]" style={{ color: "var(--lm-text-secondary)", fontFamily: "var(--sb-sans)" }}>
               <span className="mr-2 text-[9px] font-mono font-bold uppercase tracking-[0.18em]" style={{ color: "var(--lm-text-tertiary)" }}>Hook</span>
               {model.hook}
             </p>
           )}
+        </section>
+      )}
+
+      {hasBeats && (
+        <section>
+          <BlockTitle aside={`${model.beats.length} beats${model.duration ? ` · ${model.duration}` : ""}`}>Story</BlockTitle>
+          <ol className="flex flex-col gap-4">
+            {model.beats.map((beat) => (
+              <li key={beat.number} className="flex gap-3 md:gap-4">
+                <span className="w-7 shrink-0 text-[20px] font-black leading-none tabular-nums" style={{ color: "var(--coral)", fontFamily: "var(--sb-sans)" }}>
+                  {beat.number}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {beat.time && (
+                    <span className={`${EYEBROW} mb-1 block`} style={{ color: "var(--lm-text-tertiary)" }}>
+                      {beat.time}
+                    </span>
+                  )}
+                  <p className="text-[15px] leading-[1.65]" style={{ color: "var(--lm-text-primary)", fontFamily: "var(--sb-sans)" }}>
+                    <RefText text={beat.text} lookup={lookup} onOpenAsset={onOpenAsset} />
+                  </p>
+                  {(beat.missing || beat.assetIds.length > 0) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {beat.assetIds.map((id) => (
+                        <AssetChip key={id} id={id} lookup={lookup} onOpenAsset={onOpenAsset} />
+                      ))}
+                      {beat.missing && (
+                        <span className="text-[11px] leading-snug" style={{ color: "var(--coral)" }}>
+                          {beat.missing}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
@@ -385,89 +342,18 @@ export function StorybookReader({ model, frames, lookup, onOpenAsset }: ReaderPr
       {model.prose.length > 0 && (
         <section className="flex flex-col gap-3">
           {model.prose.map((paragraph, index) => (
-            <p key={index} className="text-[15px] leading-[1.7]" style={{ color: "var(--lm-text-secondary)" }}>
+            <p key={index} className="text-[15px] leading-[1.7]" style={{ color: "var(--lm-text-secondary)", fontFamily: "var(--sb-sans)" }}>
               <RefText text={paragraph} lookup={lookup} onOpenAsset={onOpenAsset} />
             </p>
           ))}
         </section>
       )}
 
-      {/* A book with no beats is prose and frames: its notes read before the grid. */}
-      {!hasBeats && model.sections.map((section, index) => (
-        <SectionBlock key={`${section.title}-${index}`} section={section} lookup={lookup} onOpenAsset={onOpenAsset} />
-      ))}
-
-      {hasBeats && (
-        <section>
-          <BlockTitle aside={`${model.beats.length} beats${beatSeconds > 0 && model.duration ? ` · ${model.duration}` : ""}`}>Story</BlockTitle>
-          <ol className="flex flex-col gap-3">
-            {model.beats.map((beat) => {
-              const beatFrames = placement.byBeat.get(beat.number) ?? [];
-              const [lead, ...rest] = beatFrames;
-              return (
-                <li
-                  key={beat.number}
-                  className={`grid gap-4 p-4 md:p-5 ${lead ? "min-[900px]:grid-cols-[minmax(0,1fr)_minmax(260px,38%)]" : ""}`}
-                  style={{ borderRadius: RADIUS, border: "1px solid var(--lm-border)", backgroundColor: "var(--lm-surface-1)" }}
-                >
-                  <div className="flex min-w-0 gap-3 md:gap-4">
-                    <span className="w-7 shrink-0 text-[22px] font-black leading-none tabular-nums md:text-[26px]" style={{ color: "var(--coral)" }}>
-                      {beat.number}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      {beat.time && (
-                        <span className={`${EYEBROW} mb-1.5 block`} style={{ color: "var(--lm-text-tertiary)" }}>
-                          {beat.time}
-                        </span>
-                      )}
-                      <p className="text-[15px] leading-[1.65]" style={{ color: "var(--lm-text-primary)" }}>
-                        <RefText text={beat.text} lookup={lookup} onOpenAsset={onOpenAsset} />
-                      </p>
-                      {(beat.missing || beat.assetIds.length > 0) && (
-                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                          {beat.assetIds.map((id) => (
-                            <AssetChip key={id} id={id} lookup={lookup} onOpenAsset={onOpenAsset} />
-                          ))}
-                          {beat.missing && (
-                            <span className="text-[11px] leading-snug" style={{ color: "var(--coral)" }}>
-                              {beat.missing}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {lead && (
-                    <div className="flex flex-col gap-2 min-[900px]:pl-1">
-                      <Frame asset={lead} onOpenAsset={onOpenAsset} eager />
-                      {rest.length > 0 && (
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {rest.slice(0, 4).map((frame) => (
-                            <Frame key={frame.id} asset={frame} onOpenAsset={onOpenAsset} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      )}
-
-      {placement.strip.length > 0 && (
-        <section>
-          <BlockTitle aside={`${placement.strip.length}`}>{hasBeats ? "More frames on the shelf" : "Frames"}</BlockTitle>
-          <FrameGrid frames={placement.strip} onOpenAsset={onOpenAsset} />
-        </section>
-      )}
-
       <ItemBlock title="Cast" items={model.cast} lookup={lookup} onOpenAsset={onOpenAsset} />
-      <ItemBlock title="Locations" items={model.locations} lookup={lookup} onOpenAsset={onOpenAsset} plates={placement.plates} />
+      <ItemBlock title="Locations" items={model.locations} lookup={lookup} onOpenAsset={onOpenAsset} />
       <ItemBlock title="Props" items={model.props} lookup={lookup} onOpenAsset={onOpenAsset} />
 
-      {hasBeats && model.sections.map((section, index) => (
+      {model.sections.map((section, index) => (
         <SectionBlock key={`${section.title}-${index}`} section={section} lookup={lookup} onOpenAsset={onOpenAsset} />
       ))}
 
