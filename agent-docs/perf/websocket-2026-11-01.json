@@ -1,0 +1,148 @@
+{
+ "frames": [
+  {
+   "label": "Home, first frame, before #122",
+   "bytes": 864626,
+   "deflatedKB": 218,
+   "queries": [
+    [
+     "tags:listTagVocabulary",
+     112123
+    ],
+    [
+     "menuFilters:listMenuFilters",
+     2951
+    ],
+    [
+     "folders:listFolders",
+     220356
+    ],
+    [
+     "assets:folderAssetCounts",
+     16792
+    ],
+    [
+     "storybooks:listStorybooks",
+     96852
+    ],
+    [
+     "skills:listSkills",
+     283490
+    ],
+    [
+     "assets:listPublicCollections",
+     7779
+    ],
+    [
+     "assets:listGalleryAssetsPage",
+     161942
+    ]
+   ]
+  },
+  {
+   "label": "Home, first frame, after (grid page, shelf, skill cards)",
+   "bytes": 407903,
+   "deflatedKB": 89,
+   "queries": [
+    [
+     "menuFilters:listMenuFilters",
+     2682
+    ],
+    [
+     "storybooks:listStorybooks",
+     54629
+    ],
+    [
+     "skills:listSkills",
+     195186
+    ],
+    [
+     "assets:listGalleryAssetsPage",
+     149788
+    ]
+   ]
+  },
+  {
+   "label": "Home, second frame, after (sidebar and support, ~0.45 s later)",
+   "bytes": 516155,
+   "deflatedKB": 126,
+   "queries": [
+    [
+     "tasks:countOpenTasks",
+     336
+    ],
+    [
+     "tags:listTagVocabulary",
+     112123
+    ],
+    [
+     "folders:listFolders",
+     221162
+    ],
+    [
+     "assets:folderAssetCounts",
+     16857
+    ],
+    [
+     "assets:listGalleryAssetsPage",
+     177921
+    ],
+    [
+     "galleryPresets:listPresets",
+     10354
+    ]
+   ]
+  },
+  {
+   "label": "/w/dear-annete, first frame, after (folder tree stays first)",
+   "bytes": 624138,
+   "deflatedKB": 144,
+   "queries": [
+    [
+     "menuFilters:listMenuFilters",
+     2682
+    ],
+    [
+     "folders:listFolders",
+     210182
+    ],
+    [
+     "storybooks:listStorybooks",
+     54629
+    ],
+    [
+     "skills:listSkills",
+     195186
+    ],
+    [
+     "assets:listGalleryAssetsPage",
+     153465
+    ]
+   ]
+  },
+  {
+   "label": "Home, first frame right now (another session re-published the #122 backend, full story field back)",
+   "bytes": 476706,
+   "deflatedKB": 106,
+   "queries": [
+    [
+     "menuFilters:listMenuFilters",
+     2951
+    ],
+    [
+     "storybooks:listStorybooks",
+     124272
+    ],
+    [
+     "skills:listSkills",
+     206600
+    ],
+    [
+     "assets:listGalleryAssetsPage",
+     160450
+    ]
+   ]
+  }
+ ],
+ "note": "Raw JSON bytes per Convex Transition frame, captured from the live site in the signed-in Chrome (390x844). \"On the wire\" is a zlib level-6 estimate of permessage-deflate. On 31 Oct the world route first frame was 1,003,912 B. Before the change the grid page sat inside one 865 KB frame with every sidebar query, so the slowest of them (listSkills, ~300 ms server time) also gated the grid. \"After\" rows are main's backend as published at 20:54 on 1 Nov. Between 20:55 and 21:25 another session published a branch cut at #122 (with an unmerged tasks.ask field), which put the transitional full story text back into listStorybooks (last row). It goes away on the next publish from main; this run did not publish over that session's schema."
+}

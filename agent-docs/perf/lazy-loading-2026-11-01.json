@@ -1,0 +1,45 @@
+{
+ "url": "https://gallery.laniameda.space/",
+ "steps": [
+  {
+   "at": "load",
+   "scrollTop": 0,
+   "imgs": 36,
+   "inView": 2,
+   "near": 7,
+   "far": 27,
+   "farLoaded": 3,
+   "farRequested": 3,
+   "imgRequests": 28,
+   "imgKB": 0,
+   "domNodes": 3253
+  },
+  {
+   "at": "scroll5",
+   "scrollTop": 4220,
+   "imgs": 36,
+   "inView": 5,
+   "near": 11,
+   "far": 20,
+   "farLoaded": 12,
+   "farRequested": 12,
+   "imgRequests": 44,
+   "imgKB": 0,
+   "domNodes": 3141
+  },
+  {
+   "at": "scroll10",
+   "scrollTop": 8440,
+   "imgs": 72,
+   "inView": 5,
+   "near": 11,
+   "far": 56,
+   "farLoaded": 31,
+   "farRequested": 31,
+   "imgRequests": 63,
+   "imgKB": 0,
+   "domNodes": 5816
+  }
+ ],
+ "networkImageRequests": 63
+}

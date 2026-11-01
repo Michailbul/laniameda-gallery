@@ -1,0 +1,316 @@
+{
+ "label": "1 Nov 2026 after #122 + #123, median of 3 (signed-in), 1 run (signed-out)",
+ "runs": {
+  "home": {
+   "route": "home-1",
+   "score": 56,
+   "fcpMs": 1244,
+   "lcpMs": 7246,
+   "tbtMs": 634,
+   "cls": 0.0,
+   "speedIndexMs": 4346,
+   "totalKiB": 1226,
+   "appJsKiB": 415,
+   "imageKiB": 596,
+   "requests": 91,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 1152,
+     "scriptingMs": 1055
+    },
+    {
+     "url": "https://gallery.laniameda.space/",
+     "totalMs": 1115,
+     "scriptingMs": 20
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 936,
+     "scriptingMs": 151
+    }
+   ]
+  },
+  "world": {
+   "route": "world-1",
+   "score": 56,
+   "fcpMs": 1082,
+   "lcpMs": 5751,
+   "tbtMs": 852,
+   "cls": 0,
+   "speedIndexMs": 4201,
+   "totalKiB": 801,
+   "appJsKiB": 422,
+   "imageKiB": 164,
+   "requests": 64,
+   "shifts": [
+    {
+     "score": 0.031,
+     "selector": null
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 1556,
+     "scriptingMs": 1257
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 869,
+     "scriptingMs": 118
+    },
+    {
+     "url": "https://gallery.laniameda.space/w/dear-annete",
+     "totalMs": 667,
+     "scriptingMs": 14
+    }
+   ]
+  },
+  "inbox": {
+   "route": "inbox-1",
+   "score": 69,
+   "fcpMs": 1082,
+   "lcpMs": 6251,
+   "tbtMs": 392,
+   "cls": 0.023,
+   "speedIndexMs": 2053,
+   "totalKiB": 988,
+   "appJsKiB": 342,
+   "imageKiB": 432,
+   "requests": 56,
+   "shifts": [
+    {
+     "score": 0.023,
+     "selector": null
+    },
+    {
+     "score": 0.023,
+     "selector": null
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "Unattributable",
+     "totalMs": 486,
+     "scriptingMs": 126
+    },
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 369,
+     "scriptingMs": 323
+    },
+    {
+     "url": "https://gallery.laniameda.space/inbox",
+     "totalMs": 337,
+     "scriptingMs": 16
+    }
+   ]
+  },
+  "tasks": {
+   "route": "tasks-1",
+   "score": 57,
+   "fcpMs": 1077,
+   "lcpMs": 6742,
+   "tbtMs": 424,
+   "cls": 0.113,
+   "speedIndexMs": 5699,
+   "totalKiB": 1388,
+   "appJsKiB": 329,
+   "imageKiB": 852,
+   "requests": 43,
+   "shifts": [
+    {
+     "score": 0.112,
+     "selector": "body.__variable_245d8d > div.lmw > main.lmw-wall"
+    },
+    {
+     "score": 0.112,
+     "selector": "body.__variable_245d8d > div.lmw > main.lmw-wall"
+    },
+    {
+     "score": 0.209,
+     "selector": "body.__variable_245d8d > div.lmw > main.lmw-wall"
+    }
+   ],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 975,
+     "scriptingMs": 595
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 859,
+     "scriptingMs": 111
+    },
+    {
+     "url": "https://gallery.laniameda.space/tasks",
+     "totalMs": 300,
+     "scriptingMs": 12
+    }
+   ]
+  },
+  "home-public": {
+   "route": "/ (signed out)",
+   "url": "https://gallery.laniameda.space/",
+   "fetchTime": "2026-11-01T20:08:46.432Z",
+   "score": 98,
+   "fcpMs": 1070,
+   "lcpMs": 1070,
+   "tbtMs": 157,
+   "cls": 0,
+   "speedIndexMs": 1444,
+   "totalKiB": 965,
+   "appJsKiB": 348,
+   "imageKiB": 383,
+   "requests": 42,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 206,
+     "scriptingMs": 177
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 169,
+     "scriptingMs": 11
+    },
+    {
+     "url": "llery.laniameda.space/_next/static/chunks/4bd1b696-10cb4c9d2844a506.js",
+     "totalMs": 165,
+     "scriptingMs": 144
+    }
+   ]
+  },
+  "world-public": {
+   "route": "/w/dear-annete (signed out)",
+   "url": "https://gallery.laniameda.space/w/dear-annete",
+   "fetchTime": "2026-11-01T20:09:00.502Z",
+   "score": 98,
+   "fcpMs": 1130,
+   "lcpMs": 1130,
+   "tbtMs": 147,
+   "cls": 0,
+   "speedIndexMs": 2088,
+   "totalKiB": 1158,
+   "appJsKiB": 351,
+   "imageKiB": 566,
+   "requests": 52,
+   "shifts": [],
+   "heaviestScripts": [
+    {
+     "url": "https://gallery.laniameda.space/w/dear-annete",
+     "totalMs": 812,
+     "scriptingMs": 8
+    },
+    {
+     "url": "//gallery.laniameda.space/_next/static/chunks/3794-19ff641dc300a6b4.js",
+     "totalMs": 272,
+     "scriptingMs": 230
+    },
+    {
+     "url": "Unattributable",
+     "totalMs": 265,
+     "scriptingMs": 17
+    }
+   ]
+  }
+ },
+ "spread": {
+  "home": "3 runs: score 55 / 65 / 56 \u00b7 CLS 0.000 / 0.000 / 0.000 \u00b7 TBT 634 / 362 / 816 ms",
+  "world": "3 runs: score 56 / 56 / 62 \u00b7 CLS 0.000 / 0.000 / 0.031 \u00b7 TBT 852 / 907 / 709 ms",
+  "inbox": "3 runs: score 77 / 65 / 69 \u00b7 CLS 0.023 / 0.000 / 0.023 \u00b7 TBT 112 / 465 / 392 ms",
+  "tasks": "3 runs: score 57 / 59 / 52 \u00b7 CLS 0.113 / 0.113 / 0.209 \u00b7 TBT 441 / 424 / 397 ms"
+ },
+ "filmstrip": {
+  "home": "raw/2026-11-01-after-home-3.json.gz",
+  "world": "raw/2026-11-01-after-world-2.json.gz",
+  "inbox": "raw/2026-11-01-after-inbox-3.json.gz",
+  "tasks": "raw/2026-11-01-after-tasks-1.json.gz"
+ },
+ "perRun": {
+  "home": [
+   {
+    "score": 55,
+    "lcpMs": 7280,
+    "tbtMs": 634,
+    "cls": 0.0
+   },
+   {
+    "score": 65,
+    "lcpMs": 6816,
+    "tbtMs": 362,
+    "cls": 0.0
+   },
+   {
+    "score": 56,
+    "lcpMs": 7246,
+    "tbtMs": 816,
+    "cls": 0
+   }
+  ],
+  "world": [
+   {
+    "score": 56,
+    "lcpMs": 5751,
+    "tbtMs": 852,
+    "cls": 0.0
+   },
+   {
+    "score": 56,
+    "lcpMs": 5769,
+    "tbtMs": 907,
+    "cls": 0
+   },
+   {
+    "score": 62,
+    "lcpMs": 5013,
+    "tbtMs": 709,
+    "cls": 0.031
+   }
+  ],
+  "inbox": [
+   {
+    "score": 77,
+    "lcpMs": 6251,
+    "tbtMs": 112,
+    "cls": 0.023
+   },
+   {
+    "score": 65,
+    "lcpMs": 7033,
+    "tbtMs": 465,
+    "cls": 0
+   },
+   {
+    "score": 69,
+    "lcpMs": 5703,
+    "tbtMs": 392,
+    "cls": 0.023
+   }
+  ],
+  "tasks": [
+   {
+    "score": 57,
+    "lcpMs": 6735,
+    "tbtMs": 441,
+    "cls": 0.113
+   },
+   {
+    "score": 59,
+    "lcpMs": 6742,
+    "tbtMs": 424,
+    "cls": 0.113
+   },
+   {
+    "score": 52,
+    "lcpMs": 6844,
+    "tbtMs": 397,
+    "cls": 0.209
+   }
+  ]
+ }
+}
