@@ -589,6 +589,32 @@ syncing never moves a stack's members. `assetComments` may carry a voice note
 (`audioStorageId`, `audioDurationMs`, `audioContentType`; `body` may then be
 empty) and `source: "inbox"`. See `inbox.md`.
 
+# In-place edits (1 November 2026)
+
+`editJobs`: one row per model per take of a targeted edit on an image, sent
+from the detail panel or the Inbox zoom (key E) or by an agent (`edit_asset`).
+Fields: `sourceAssetId`, the source's `folderIds` and `worldFolderId` at send
+time, `prompt`, `model` / `modelName`, the route in use (`provider` fal or
+pika, `endpoint`), `requestId` with fal's `statusUrl` / `responseUrl`,
+`attempts` (one per route tried, with `error` and `outOfCredit`), `retries`
+(each Retry that sends again bumps it, giving a fresh idempotency key),
+`status` queued / running / done / error with `error` and `errorKind`
+(out_of_credit, provider, timeout, ingest), `estimateUsd`, `chargedUsd` with
+`chargedExact` (true when Pika billed it; fal charges are the estimate),
+`batch` / `take` / `of`, `refAssetIds` / `refNames` (<image-2> and on),
+`refsDropped`, `resultAssetId` / `resultUrl`, `createdBy` owner or agent.
+
+Routes, prices and request bodies live in `lib/edit-models.ts` (the routing
+table: krea-3 fal; seedream-5 Pika then fal; gpt-flare and gpt-sunburst fal
+then Pika; nano-21 Pika; kontext-max fal). A billing or auth refusal falls
+through to the next route; a send of $30 or more is refused. A job with a
+`requestId` is only polled, never resubmitted; Retry polls it again after a
+timeout or a failed filing, otherwise sends a new request. The result is a new
+asset with the source's tags, in its collections, a prompt whose
+`promptSections.generationNotes` names the source, model, provider, cost and
+job, and `generationLineage` role `edit_source` to the source (references as
+role `other`, stageOrder 2 and on). Deleting the source deletes its jobs.
+
 # Tasks (29 October 2026)
 
 `tasks` is one piece of work in the agent queue ("Tasks" in the gallery,

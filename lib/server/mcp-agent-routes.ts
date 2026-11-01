@@ -16,6 +16,7 @@ import { POST as srefsPost } from "@/app/api/agent/srefs/route";
 import { POST as charactersPost } from "@/app/api/agent/characters/route";
 import { POST as moodboardsPost } from "@/app/api/agent/moodboards/route";
 import { POST as commentsPost } from "@/app/api/agent/comments/route";
+import { POST as editsPost } from "@/app/api/agent/edits/route";
 import { POST as inboxPost } from "@/app/api/agent/inbox/route";
 import { POST as worldsPost } from "@/app/api/agent/worlds/route";
 import { POST as tasksPost } from "@/app/api/agent/tasks/route";
@@ -27,6 +28,7 @@ export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response
   "/api/agent/characters": charactersPost,
   "/api/agent/moodboards": moodboardsPost,
   "/api/agent/comments": commentsPost,
+  "/api/agent/edits": editsPost,
   "/api/agent/inbox": inboxPost,
   "/api/agent/worlds": worldsPost,
   "/api/agent/tasks": tasksPost,

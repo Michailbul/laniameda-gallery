@@ -16,6 +16,16 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   declaration from `api.d.ts`/`api.js`. For a new module, adding its two lines
   to `convex/_generated/api.d.ts` by hand matches what codegen lists.
 - Queries and mutations must NOT call external APIs; always use actions for that.
+- Scheduled functions carry no signed actor, so they cannot call the owner
+  wrappers (`ownerMutation`, `signedOwnerMutation`). Convex holds only the
+  public JWKS, not the signing key. Share the definition object instead and
+  register an internal twin (`assets:createAssetInternal`,
+  `prompts:createPromptInternal`, `assets:addAssetFoldersInternal`), as the
+  in-place edit runner does to file its results.
+- A `"use node"` action that schedules or calls its own module through
+  `internal.<module>` needs explicit handler return types (`Promise<null>`),
+  or the generated `api` type turns circular and every route's Convex
+  results degrade to `{}`.
 - Convex fails a query past 4,096 reads ("Too many reads in a single function
   execution"): each newly read document (`db.get`) and each index range counts
   once, however many rows the range returns. Per-link `db.get` fan-outs and

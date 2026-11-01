@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { shortAssetId } from "@/lib/inbox";
 import { imageKeyOf, type ImageKey } from "@/lib/inbox-keys";
 import { CopyChip, Micro, RADIUS, SCRIM, mono } from "./inbox-ui";
+import { EditInPlace } from "@/components/gallery/edit-in-place";
+import { BeforeAfterWipe, type EditCompare } from "@/components/gallery/before-after-wipe";
 
 type View = { scale: number; x: number; y: number };
 const FIT: View = { scale: 1, x: 0, y: 0 };
@@ -14,9 +16,11 @@ const MAX_SCALE = 12;
  * Full-screen look at one card. The thumbnail paints first and the original
  * replaces it when decoded. Pinch or wheel to zoom, drag to pan, double-tap
  * (or 0) for 100 %: one image pixel per screen pixel. Esc, 4 or × closes.
- * 1 / A / K approve, 2 / X archive, 3 / C comment (`onKey`).
+ * 1 / A / K approve, 2 / X archive, 3 / C comment (`onKey`). E opens the
+ * in-place edit panel beside the image (with `ownerUserId`); a landed take
+ * wipes against the original on the stage.
  */
-export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect, archived, onClose, onKey }: {
+export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect, archived, onClose, onKey, ownerUserId, startEditing = false }: {
   assetId: string; kind: "image" | "video"; url?: string; thumbUrl?: string; width?: number; height?: number;
   /** An artifact's box in 0–1 image coordinates, drawn over the image. */
   defect?: { x: number; y: number; w: number; h: number };
@@ -24,6 +28,10 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
   archived?: boolean;
   onClose: () => void;
   onKey?: (key: ImageKey) => void;
+  /** Enables the edit panel (E). */
+  ownerUserId?: string;
+  /** Open with the edit panel showing and its prompt focused. */
+  startEditing?: boolean;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(FIT);
@@ -32,6 +40,11 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ distance: number; scale: number; mid: { x: number; y: number }; view: View } | null>(null);
   const lastTap = useRef(0);
+  const canEdit = Boolean(ownerUserId) && kind === "image";
+  const [editing, setEditing] = useState(startEditing && canEdit);
+  const [focusSignal, setFocusSignal] = useState(startEditing ? 1 : 0);
+  const [compare, setCompare] = useState<EditCompare | null>(null);
+  const openEdit = useCallback(() => { setEditing(true); setFocusSignal((n) => n + 1); }, []);
 
   useEffect(() => {
     const measure = () => {
@@ -39,8 +52,10 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
       if (rect) setBox({ w: rect.width, h: rect.height });
     };
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // The stage narrows when the edit panel opens beside it.
+    const observer = new ResizeObserver(measure);
+    if (stage.current) observer.observe(stage.current);
+    return () => observer.disconnect();
   }, []);
 
   // The image's fitted size on screen; 100 % is its natural width over that.
@@ -65,6 +80,17 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Typing an edit prompt: the keys are text. Escape leaves the field.
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); target.blur(); }
+        return;
+      }
+      if (canEdit && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "e") {
+        event.preventDefault(); event.stopPropagation();
+        if (editing) setEditing(false); else openEdit();
+        return;
+      }
       // Capture phase: these keys never reach the stack's own shortcuts
       // (K there is the duplicates' Keep all, numbers answer the card).
       const key = event.metaKey || event.ctrlKey || event.altKey ? null : imageKeyOf(event.key, event.code);
@@ -82,7 +108,7 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose, onKey, oneToOne]);
+  }, [onClose, onKey, oneToOne, canEdit, editing, openEdit]);
 
   useEffect(() => {
     const element = stage.current;
@@ -149,6 +175,11 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
           {percent}%
         </button>}
         {kind === "image" && !original && url && <Micro color="var(--lm-text-ghost)">Loading original…</Micro>}
+        {canEdit && <button type="button" onClick={() => (editing ? setEditing(false) : openEdit())} title="Edit in place (E)"
+          className="flex items-center gap-1.5 px-2 py-[5px] text-[10px] font-bold uppercase tracking-[0.1em]"
+          style={{ ...mono, borderRadius: RADIUS, background: editing ? "var(--lm-coral)" : SCRIM, border: `1px solid ${editing ? "var(--lm-coral)" : "var(--lm-border-strong)"}`, color: editing ? "#0a0805" : "var(--lm-text-primary)" }}>
+          <Pencil size={11} aria-hidden />Edit · E
+        </button>}
       </div>
       <button type="button" onClick={onClose} aria-label="Close" className="pointer-events-auto grid h-10 w-10 place-items-center"
         style={{ borderRadius: RADIUS, background: SCRIM, border: "1px solid var(--lm-border-strong)", color: "var(--lm-text-primary)" }}>
@@ -156,7 +187,8 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
       </button>
     </div>
 
-    <div ref={stage} className="relative min-h-0 flex-1 touch-none select-none overflow-hidden"
+    <div className="flex min-h-0 flex-1">
+    <div ref={stage} className="relative min-h-0 min-w-0 flex-1 touch-none select-none overflow-hidden"
       onPointerDown={kind === "image" ? onPointerDown : undefined} onPointerMove={kind === "image" ? onPointerMove : undefined}
       onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       {kind === "video" && url
@@ -175,7 +207,15 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
               left: `${defect.x * 100}%`, top: `${defect.y * 100}%`, width: `${defect.w * 100}%`, height: `${defect.h * 100}%`,
               border: `${2 / view.scale}px solid var(--lm-coral)`, boxShadow: "0 0 0 9999px rgba(0,0,0,0.18)",
             }} />}
+            {compare && <BeforeAfterWipe compare={compare} />}
           </div>}
+    </div>
+    {editing && ownerUserId && <aside className="relative z-10 w-[400px] max-w-[46vw] shrink-0 overflow-y-auto overscroll-contain px-4 pb-6"
+      style={{ paddingTop: "max(64px, env(safe-area-inset-top))", background: "var(--lm-paper)", borderLeft: "1px solid var(--lm-border)" }}
+      aria-label="Edit in place">
+      <EditInPlace assetId={assetId} ownerUserId={ownerUserId} width={width} height={height} assetUrl={url}
+        compare={compare} onCompare={setCompare} focusSignal={focusSignal} listenForE={false} />
+    </aside>}
     </div>
   </div>;
 }

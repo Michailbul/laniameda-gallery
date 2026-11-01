@@ -45,7 +45,7 @@ type HoverHandlers = { onPointerEnter: (event: ReactPointerEvent<HTMLElement>) =
 type Flash = { key: number; text: string; tone: "keep" | "archive" | "back"; x: number; y: number };
 type Toast = { key: number; text: string; detail?: string; tone: "ok" | "error" };
 type Fly = { dx: number; dy: number; scale: number };
-type Zoom = { asset: CardAsset; defect?: { x: number; y: number; w: number; h: number } };
+type Zoom = { asset: CardAsset; defect?: { x: number; y: number; w: number; h: number }; edit?: boolean };
 type NoteTarget = { kind: "image"; assetId: Id<"assets"> } | { kind: "card" };
 
 const FLY_MS = 230;
@@ -396,6 +396,12 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
         actOn(hotCard, hot.asset, imageKey, hot.el, hot.own);
         return;
       }
+      // E: an in-place edit on the hovered image (or the card's first).
+      if (key === "e" && !event.shiftKey) {
+        const target = hot?.asset ?? firstImage;
+        if (target && !target.missing && (target.kind ?? "image") === "image") { event.preventDefault(); setZoom({ asset: target, edit: true }); }
+        return;
+      }
       if (key === "s" || key === " ") { event.preventDefault(); void commit({ choice: "skip" }); return; }
       if (key === "enter") { event.preventDefault(); openNote(); return; }
       if (key === "f" && firstImage) { event.preventDefault(); setZoom({ asset: firstImage, defect: card.evidence?.defect?.box }); return; }
@@ -538,7 +544,9 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   // The keys this card takes, pinned bottom-left on screens with a mouse.
   const hintAsset = zoom?.asset ?? firstImage;
   const hintKeys = card && hintAsset && open && !gridOpen && (zoom || !done)
-    ? imageKeyHint(actionsOf(card, hintAsset), { zoom: Boolean(zoom), letters: !zoom && card.type === "sort" }) : [];
+    ? imageKeyHint(actionsOf(card, hintAsset), {
+      zoom: Boolean(zoom), letters: !zoom && card.type === "sort", edit: !hintAsset.missing && (hintAsset.kind ?? "image") === "image",
+    }) : [];
   const keyHint = hintKeys.length > 0 && <div className="ikey-hint" aria-hidden>
     <span>{zoom ? "Full size" : card?.assets.length === 1 ? "Hover the image" : "Hover an image"}</span>
     {hintKeys.map((entry) => <span key={entry.tone} className={`ikey-hint-${entry.tone}`}><kbd>{entry.key}</kbd>{entry.label}</span>)}
@@ -657,6 +665,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
 
     {zoom && !zoom.asset.missing && <ZoomViewer assetId={zoom.asset.assetId} kind={zoom.asset.kind ?? "image"} url={zoom.asset.url} thumbUrl={zoom.asset.thumbUrl}
       width={zoom.asset.width} height={zoom.asset.height} defect={zoom.defect} onClose={() => setZoom(null)}
+      key={`${zoom.asset.assetId}-${zoom.edit ? "edit" : "look"}`} ownerUserId={ownerUserId} startEditing={zoom.edit}
       archived={card ? archivedOf(card, zoom.asset) : false} onKey={(key) => { if (card) actOn(card, zoom.asset, key, null, true); }} />}
     {keyHint}
     {flash && <span key={flash.key} className={`ikey-flash ikey-flash-${flash.tone}`} style={{ left: flash.x, top: flash.y }} role="status">{flash.text}</span>}

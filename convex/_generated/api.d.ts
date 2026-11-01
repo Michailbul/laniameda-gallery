@@ -36,6 +36,8 @@ import type * as designExtensionSaves from "../designExtensionSaves.js";
 import type * as designInspirations from "../designInspirations.js";
 import type * as designSaveHelpers from "../designSaveHelpers.js";
 import type * as designSaveTemplates from "../designSaveTemplates.js";
+import type * as editJobs from "../editJobs.js";
+import type * as editRunner from "../editRunner.js";
 import type * as files from "../files.js";
 import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
@@ -126,6 +128,8 @@ declare const fullApi: ApiFromModules<{
   designInspirations: typeof designInspirations;
   designSaveHelpers: typeof designSaveHelpers;
   designSaveTemplates: typeof designSaveTemplates;
+  editJobs: typeof editJobs;
+  editRunner: typeof editRunner;
   files: typeof files;
   folderHelpers: typeof folderHelpers;
   folders: typeof folders;

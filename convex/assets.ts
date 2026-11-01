@@ -7,7 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { ConvexError, v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer, type ObjectType } from "convex/values";
 import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -55,6 +55,7 @@ import { detachAssetFromCharacters } from "./characters";
 import { detachAssetFromMoodboards } from "./moodboards";
 import { deleteHashForAsset } from "./assetHashes";
 import { deleteCommentsForAsset } from "./assetComments";
+import { detachAssetFromEditJobs } from "./editJobs";
 import { stripAssetFromTasks } from "./tasks";
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
@@ -623,8 +624,7 @@ const mergeRepeatedSaveMetadata = async (
   await bumpTagUsage(ctx, extraTagIds, 1);
 };
 
-export const createAsset = ownerMutation({
-  args: {
+const createAssetArgs = {
     ownerUserId: v.string(),
     kind: v.union(v.literal("image"), v.literal("video")),
     storageId: v.optional(v.id("_storage")),
@@ -661,14 +661,16 @@ export const createAsset = ownerMutation({
     // Short agent-written description (see schema). Normalized to 400 chars.
     agentDescription: v.optional(v.string()),
     agentDescriptionSource: v.optional(agentDescriptionSourceValidator),
-  },
+};
+const createAssetDefinition = {
+  args: createAssetArgs,
   returns: v.object({
     assetId: v.id("assets"),
     created: v.boolean(),
     /** True when identical BYTES were already in the vault. */
     duplicate: v.optional(v.boolean()),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx: MutationCtx, args: ObjectType<typeof createAssetArgs>) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
@@ -793,7 +795,11 @@ export const createAsset = ownerMutation({
 
     return { assetId, created: true };
   },
-});
+};
+export const createAsset = ownerMutation(createAssetDefinition);
+// The same write for a scheduled job, which carries no signed actor: an
+// in-place edit's result (convex/editRunner.ts) files itself with this.
+export const createAssetInternal = internalMutation(createAssetDefinition);
 
 // Patch fields for an agent-description write. `undefined` leaves the stored
 // value alone (Convex patch deletes fields set to undefined, so the keys must
@@ -1142,18 +1148,19 @@ export const setAssetFolders = ownerMutation({
   },
 });
 
-export const addAssetFolders = ownerMutation({
-  args: {
-    ownerUserId: v.string(),
-    assetId: v.id("assets"),
-    folderIds: v.array(v.id("folders")),
-  },
+const addAssetFoldersArgs = {
+  ownerUserId: v.string(),
+  assetId: v.id("assets"),
+  folderIds: v.array(v.id("folders")),
+};
+const addAssetFoldersDefinition = {
+  args: addAssetFoldersArgs,
   returns: v.object({
     assetId: v.id("assets"),
     folderId: v.optional(v.id("folders")),
     folderIds: v.array(v.id("folders")),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx: MutationCtx, args: ObjectType<typeof addAssetFoldersArgs>) => {
     const ownerUserId = args.ownerUserId.trim();
     if (!ownerUserId) {
       throw new ConvexError("ownerUserId is required.");
@@ -1197,7 +1204,9 @@ export const addAssetFolders = ownerMutation({
       folderIds,
     };
   },
-});
+};
+export const addAssetFolders = ownerMutation(addAssetFoldersDefinition);
+export const addAssetFoldersInternal = internalMutation(addAssetFoldersDefinition);
 
 // Drop ONE membership and leave every other one alone — the card's one-click
 // "not relevant here". Idempotent: removing a collection the asset was never
@@ -4343,6 +4352,7 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   await detachAssetFromMoodboards(ctx, asset._id);
   // Its comment thread goes with it, and its perceptual hash.
   await deleteCommentsForAsset(ctx, asset._id);
+  await detachAssetFromEditJobs(ctx, asset._id);
   await deleteHashForAsset(ctx, asset._id);
   // Tasks keep their text; only the link to this asset is dropped.
   await stripAssetFromTasks(ctx, asset.ownerUserId ?? "", asset._id);

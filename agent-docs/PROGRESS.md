@@ -2,11 +2,27 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-01 — In-place edits (branch `feat/in-place-edits`)
+
+- The reviewer kit's quick edit, in the gallery. "Edit in place" in the asset
+  detail panel and beside the Inbox zoom (key E): prompt, model pills priced
+  for the image on the route each would take now, takes 1–8, the world's cast
+  (canonical sheet and face) attached as `<image-2>` and on. Takes list under
+  the source with status, cost and Retry; a landed take opens a before/after
+  wipe that follows the pointer.
+- `editJobs` table, `convex/editJobs.ts` (start, retry, list, runner
+  bookkeeping) and `convex/editRunner.ts` ("use node": submit along the route
+  with out-of-credit fall-through, poll by request id via the scheduler, file
+  the result). Pure routing, prices and request bodies: `lib/edit-models.ts`.
+- Agents: `edit_asset`, `list_asset_edits`, `retry_asset_edit` through
+  `/api/agent/edits`.
+- `FAL_KEY` and `PIKA_API_KEY` are Convex environment variables.
 
 ### 2026-10-31 — Midjourney saves keep their metadata; the copy list (branch `midjourney-save-metadata`, not merged)
 
