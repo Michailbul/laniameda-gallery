@@ -2133,13 +2133,14 @@
     );
     const preset = messageFolderIds.length ? null : await readSavePreset();
     const folderIds = preset ? preset.folderIds : messageFolderIds;
-    const collectionPillar = preset ? preset.collectionPillar : "";
+    const collectionPillar = preset ? preset.collectionPillar : String(message?.collectionPillar || "");
     const sourceUrl =
       typeof message?.sourceUrl === "string" && message.sourceUrl
         ? message.sourceUrl
         : location.href;
 
-    showContextToast("saving", "Saving to laniameda...");
+    const savedLabel = typeof message?.savedLabel === "string" && message.savedLabel ? message.savedLabel : "";
+    showContextToast("saving", savedLabel ? `Saving · ${savedLabel}` : "Saving to laniameda...");
     const fileData = await captureImageBytesForSave(imageUrl);
     const styleTag = await readStyleTag();
 
@@ -2174,8 +2175,90 @@
       return { handled: true, ok: false, error };
     }
 
-    showContextToast("saved", "Saved to laniameda");
+    showContextToast("saved", savedLabel ? `Saved · ${savedLabel}` : "Saved to laniameda");
     return { handled: true, ok: true, result: response.result };
+  }
+
+  // ── ⌘⇧P: save with the last save's settings ──
+  //
+  // Michael saves runs of images into the same place. The shortcut saves the
+  // image under the pointer (on Midjourney, the image open in the viewer) with
+  // the collections, piece type and style tag of the previous save, without
+  // opening the menu. The toast names where it went.
+
+  let lastHoveredMedia = null;
+  document.addEventListener("pointerover", (event) => {
+    if (event.target?.closest?.(EXTENSION_UI_SELECTOR)) return;
+    const found = findBulkTargetFromEvent(event);
+    if (found) lastHoveredMedia = found;
+  }, true);
+
+  async function describeSavePreset(preset, styleTag) {
+    const parts = [];
+    if (preset.folderIds.length) {
+      const { folders } = await loadFoldersCached();
+      const names = preset.folderIds
+        .map((id) => folders.find((folder) => folder.id === id)?.name)
+        .filter(Boolean);
+      parts.push(names.length ? names.join(" + ") : `${preset.folderIds.length} collection${preset.folderIds.length === 1 ? "" : "s"}`);
+    } else {
+      parts.push("No collection");
+    }
+    const pillar = COLLECTION_PILLAR_OPTIONS.find((option) => option.value === preset.collectionPillar);
+    if (pillar) parts.push(pillar.label);
+    if (styleTag) parts.push(styleTag === "live-action" ? "Live action" : "Animation");
+    return parts.join(" · ");
+  }
+
+  async function saveWithLastSettings() {
+    const isEnabled = await ensureSiteStateLoaded();
+    if (!isEnabled) {
+      showContextToast("error", "Save disabled on this site");
+      return { ok: false, error: "Save to laniameda is disabled on this site." };
+    }
+    const preset = await readSavePreset();
+    const styleTag = await readStyleTag();
+    const savedLabel = await describeSavePreset(preset, styleTag);
+
+    if (isMidjourneyPage()) {
+      const selection = getActiveMidjourneyPanelSelection();
+      if (!selection.available) {
+        showContextToast("error", "Open an image, then ⌘⇧P", selection.error);
+        return { ok: false, error: selection.error || "No open Midjourney image." };
+      }
+      showContextToast("saving", `Saving · ${savedLabel}`);
+      const response = await saveActiveMidjourneyPanelSelection({
+        folderIds: preset.folderIds,
+        tagNames: styleTag ? [styleTag] : [],
+      });
+      showContextToast(
+        response?.ok ? "saved" : "error",
+        response?.ok ? `Saved · ${savedLabel}` : String(response?.error || "Save failed.").slice(0, 90),
+      );
+      return response;
+    }
+
+    const media = lastHoveredMedia?.isConnected ? lastHoveredMedia : null;
+    if (!media) {
+      showContextToast("error", "Point at an image, then ⌘⇧P");
+      return { ok: false, error: "No image under the pointer." };
+    }
+    if (media.tagName === "VIDEO") {
+      showContextToast("error", "⌘⇧P saves images. Use Save on the video.");
+      return { ok: false, error: "Videos save through the Save badge." };
+    }
+    const imageUrl = resolveAbsoluteUrl(getImageUrl(media));
+    if (!imageUrl) {
+      showContextToast("error", "Image URL unavailable");
+      return { ok: false, error: "Image URL unavailable." };
+    }
+    return handleContextMenuImageSave({
+      imageUrl,
+      sourceUrl: location.href,
+      folderIds: preset.folderIds,
+      collectionPillar: preset.collectionPillar,
+      savedLabel,
+    });
   }
 
   // Right-click → "Save to gallery…" opens the collection menu on the media that
@@ -5522,6 +5605,16 @@
               ok: false,
               error: err?.message || "Could not open the save menu.",
             });
+          });
+        return true;
+      }
+
+      if (message?.action === "saveWithLastSettings") {
+        saveWithLastSettings()
+          .then(sendResponse)
+          .catch((err) => {
+            showContextToast("error", String(err?.message || "Save failed.").slice(0, 90));
+            sendResponse({ ok: false, error: err?.message || "Save failed." });
           });
         return true;
       }

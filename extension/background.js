@@ -40,6 +40,10 @@ const QUICK_SAVE_COMMANDS = {
   "add-as-scene": "scene",
 };
 const COMMENT_SAVE_COMMAND = "add-with-comment";
+// ⌘⇧P: the hovered image (or Midjourney's open one) with the last save's settings.
+const LAST_SETTINGS_SAVE_COMMAND = "save-last-settings";
+const CONTENT_SCRIPT_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.js ?? [];
+const CONTENT_STYLE_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.css ?? [];
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const OPEN_SAVE_MENU_CONTEXT_MENU_ID = "open-save-menu-laniameda";
 // Pinterest's hover layer covers the <img>, so a right-click on a pin rarely
@@ -1539,13 +1543,46 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     console.warn("[Save to Gallery] context menu handler failed:", err);
   });
 });
+// A tab opened before the extension was (re)loaded has no content script yet:
+// inject it once, then deliver the message.
+async function sendToActiveTab(message) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error("No active tab.");
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: CONTENT_STYLE_FILES }).catch(() => undefined);
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_SCRIPT_FILES });
+    return chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
+// The extension is loaded unpacked from the gallery repo. When a pull changes
+// the files on disk, the running worker is stale: compare the manifest on disk
+// with the one this worker started from and reload. Checked at most once a minute.
+let lastUpdateCheck = 0;
+async function reloadIfUpdatedOnDisk() {
+  if (Date.now() - lastUpdateCheck < 60_000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const onDisk = await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json();
+    if (onDisk?.version && onDisk.version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
+  } catch {
+    /* an unreadable manifest mid-write: try again next time */
+  }
+}
+chrome.tabs.onActivated.addListener(() => { void reloadIfUpdatedOnDisk(); });
+
 chrome.commands.onCommand.addListener((command) => {
+  void reloadIfUpdatedOnDisk();
   const kind = QUICK_SAVE_COMMANDS[command];
-  const run = kind
-    ? quickSaveMidjourney(kind)
-    : command === COMMENT_SAVE_COMMAND
-      ? openMidjourneyComment()
-      : null;
+  const run = command === LAST_SETTINGS_SAVE_COMMAND
+    ? sendToActiveTab({ action: "saveWithLastSettings" })
+    : kind
+      ? quickSaveMidjourney(kind)
+      : command === COMMENT_SAVE_COMMAND
+        ? openMidjourneyComment()
+        : null;
   if (!run) return;
   run.catch((err) => {
     console.warn("[Save to Gallery] shortcut failed:", err);
