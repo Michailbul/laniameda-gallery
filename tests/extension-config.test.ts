@@ -53,11 +53,15 @@ describe("extension endpoint defaults", () => {
     expect(manifest.permissions).toContain("sidePanel");
     expect(manifest.action?.default_popup).toBeUndefined();
     expect(manifest.side_panel?.default_path).toBe("popup.html");
-    // The four Dear Annete hotkeys: world, location, scene, comment.
+    // Four suggested keys (Chrome allows four): ⌘⇧P saves the hovered image
+    // with the last save's settings; world, location and comment for Dear
+    // Annete. Scene keeps its command, bindable in chrome://extensions/shortcuts.
+    expect(manifest.commands?.["add-as-scene"]?.suggested_key).toBeUndefined();
+    expect(backgroundScript).toContain(`"save-last-settings"`);
     for (const [command, letter] of [
+      ["save-last-settings", "P"],
       ["add-dear-annete", "D"],
       ["add-as-location", "L"],
-      ["add-as-scene", "P"],
       ["add-with-comment", "M"],
     ]) {
       expect(manifest.commands?.[command]?.suggested_key?.mac).toBe(

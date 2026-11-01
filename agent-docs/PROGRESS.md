@@ -8,6 +8,19 @@ Last updated: 2026-11-01
 
 ## ✔ Shipped
 
+### 2026-11-01 — Extension 0.17.0: ⌘⇧P saves with the last settings (branch `feat/extension-sticky-save`)
+
+- ⌘⇧P (Ctrl+Shift+P) saves the image under the pointer, or Midjourney's open
+  image, with the last save's collections, piece type and style tag, no menu;
+  the toast names where it went. A tab opened before the extension loaded gets
+  the content script injected on first use. Videos still save through Save.
+- Dear Annete "scene" keeps its command without a suggested key (Chrome allows
+  four); bind it in chrome://extensions/shortcuts if wanted.
+- The unpacked extension reloads itself when the manifest version on disk
+  changes (checked on tab switch and shortcut, once a minute).
+- Michael's Chrome (profile mbuloichykai) loads it unpacked from the main
+  checkout's `extension/`; that checkout was 128 commits behind (0.12.1).
+
 ### 2026-11-01 — Tasks: Human view and Agent view (branch `feat/tasks-human-view`)
 
 - Two layers per task: `title` + new `summary` (one plain line) are Michael's;
