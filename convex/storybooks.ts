@@ -11,6 +11,7 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import { ownerQuery } from "./actor";
+import { STORYBOOK_HEAD_CHARS, storybookHook } from "../lib/storybook-meta";
 
 // How many member thumbnails the masonry stack card gets.
 const STACK_PREVIEW_LIMIT = 4;
@@ -37,7 +38,16 @@ const storybookPreviewValidator = v.object({
 const storybookSummaryValidator = v.object({
   _id: v.id("folders"),
   name: v.string(),
+  // The shelf reads the status/runtime/medium lines (first 600 characters)
+  // and the first beat; the full story loads in the storybook modal
+  // (getStorybook). Sending only these keeps ~65 KB out of the first frame.
+  storyHead: v.optional(v.string()),
+  storyHook: v.optional(v.string()),
+  // TRANSITION: the full text, for the frontend still live during the deploy.
   story: v.optional(v.string()),
+  // The world a storybook sits in (its parent collection), so the shelf can
+  // read "WORLD · Title" before the folder tree has loaded.
+  worldName: v.optional(v.string()),
   count: v.number(),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
@@ -117,9 +127,15 @@ export const listStorybooks = ownerQuery({
             };
           }),
         );
+        const parent = folder.parentFolderId
+          ? await ctx.db.get(folder.parentFolderId)
+          : null;
         return {
           _id: folder._id,
           name: folder.name,
+          ...(parent ? { worldName: parent.name } : {}),
+          storyHead: folder.description?.slice(0, STORYBOOK_HEAD_CHARS),
+          storyHook: storybookHook(folder.description) ?? undefined,
           story: folder.description,
           count: members.length,
           createdAt: folder.createdAt,

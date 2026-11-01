@@ -255,9 +255,14 @@ export const processAndReplaceThumbnail = ownerAction({
 //   bunx convex run thumbnails:backfillCardThumbnails '{"dryRun": true}'
 //   bunx convex run thumbnails:backfillCardThumbnails '{"maxPages": 2}'
 //   bunx convex run thumbnails:backfillCardThumbnails '{}'
+//   bunx convex run thumbnails:backfillCardThumbnails '{"assetIds": ["<id>", ...]}'
+//     (only those assets, in one run, without walking the table)
 
 const listThumbBackfillPageRef = makeFunctionReference<"query">(
   "thumbnailBackfill:listThumbBackfillPage",
+);
+const listThumbBackfillCandidatesRef = makeFunctionReference<"query">(
+  "thumbnailBackfill:listThumbBackfillCandidates",
 );
 const applyCardThumbnailRef = makeFunctionReference<"mutation">(
   "thumbnailBackfill:applyCardThumbnail",
@@ -326,19 +331,30 @@ export const backfillCardThumbnails = internalAction({
     /** Stop after this many pages: a canary run before the full pass. */
     maxPages: v.optional(v.number()),
     totals: v.optional(backfillTotalsValidator),
+    /** Only these assets, in one run (keep it to a few dozen per call). */
+    assetIds: v.optional(v.array(v.id("assets"))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const totals = args.totals ?? { scanned: 0, rebuilt: 0, failed: 0, skipped: 0 };
-    const page = (await ctx.runQuery(listThumbBackfillPageRef, {
-      cursor: args.cursor ?? null,
-      numItems: BACKFILL_PAGE_SIZE,
-    })) as {
-      candidates: BackfillCandidate[];
-      scanned: number;
-      continueCursor: string;
-      isDone: boolean;
-    };
+    const page = args.assetIds
+      ? {
+          candidates: (await ctx.runQuery(listThumbBackfillCandidatesRef, {
+            assetIds: args.assetIds,
+          })) as BackfillCandidate[],
+          scanned: args.assetIds.length,
+          continueCursor: "",
+          isDone: true,
+        }
+      : ((await ctx.runQuery(listThumbBackfillPageRef, {
+          cursor: args.cursor ?? null,
+          numItems: BACKFILL_PAGE_SIZE,
+        })) as {
+          candidates: BackfillCandidate[];
+          scanned: number;
+          continueCursor: string;
+          isDone: boolean;
+        });
     totals.scanned += page.scanned;
 
     if (args.dryRun) {

@@ -233,6 +233,12 @@ const buildSkillCard = async (
   previewImages: await collectSkillPreviewMedia(ctx, workflow._id, previewLimit),
 });
 
+const slimSkillCard = (card: Awaited<ReturnType<typeof buildSkillCard>>) => ({
+  ...card,
+  excerpt: card.description?.trim() ? undefined : card.excerpt,
+  previewImages: card.previewImages.map(({ description: _caption, ...preview }) => preview),
+});
+
 // Returns the workflow's prompt steps ordered by step index, each paired with
 // its linked assets resolved to playable/thumbnail URLs.
 const collectSkillSteps = async (
@@ -337,6 +343,11 @@ export const listSkills = ownerQuery({
     search: v.optional(v.string()),
     limit: v.optional(v.number()),
     previewLimit: v.optional(v.number()),
+    // Grid cards (the dashboard's first websocket frame): previews without
+    // their per-file captions, and the body excerpt only when the skill has
+    // no description (the card shows the description first). Agents leave
+    // it off and get the full card.
+    slim: v.optional(v.boolean()),
   },
   returns: v.array(skillCardValidator),
   handler: async (ctx, args) => {
@@ -412,7 +423,8 @@ export const listSkills = ownerQuery({
       if (args.search && !skillMatchesSearch(workflow, tagNames, args.search)) {
         continue;
       }
-      cards.push(await buildSkillCard(ctx, workflow, previewLimit, tagNames));
+      const card = await buildSkillCard(ctx, workflow, previewLimit, tagNames);
+      cards.push(args.slim ? slimSkillCard(card) : card);
     }
     return cards;
   },

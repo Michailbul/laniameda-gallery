@@ -1,4 +1,5 @@
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { needsCardThumb, needsGridVariants, isCardThumbSharp } from "../lib/card-thumbnail";
 import { thumbVariantValidator } from "./validators";
@@ -11,20 +12,50 @@ import { r2 } from "./r2";
 /** One page of the assets table, reduced to the images whose card thumb is
  *  missing, soft, or not yet a card-encoder WebP, or that lack their grid
  *  renditions, each with the URL of its original. */
+const backfillCandidateValidator = v.object({
+  assetId: v.id("assets"),
+  url: v.union(v.string(), v.null()),
+  /** The card thumb itself is fine: only the grid renditions are missing. */
+  variantsOnly: v.boolean(),
+});
+
+const backfillCandidate = async (ctx: QueryCtx, asset: Doc<"assets">) => {
+  if (asset.kind !== "image") return null;
+  const thumbMetadata = asset.thumbR2Key
+    ? await r2.getMetadata(ctx, asset.thumbR2Key)
+    : null;
+  const rebuildThumb = needsCardThumb(asset, thumbMetadata?.contentType);
+  if (!rebuildThumb && !needsGridVariants(asset)) return null;
+  return {
+    assetId: asset._id,
+    url: (await resolveAssetUrl(ctx, asset)) ?? null,
+    variantsOnly: !rebuildThumb,
+  };
+};
+
+/** The same candidates for a named set of assets (a targeted backfill, e.g.
+ *  the storybook shelf previews), without walking the whole table. */
+export const listThumbBackfillCandidates = internalQuery({
+  args: { assetIds: v.array(v.id("assets")) },
+  returns: v.array(backfillCandidateValidator),
+  handler: async (ctx, args) => {
+    const candidates = [];
+    for (const assetId of args.assetIds) {
+      const asset = await ctx.db.get(assetId);
+      const candidate = asset ? await backfillCandidate(ctx, asset) : null;
+      if (candidate) candidates.push(candidate);
+    }
+    return candidates;
+  },
+});
+
 export const listThumbBackfillPage = internalQuery({
   args: {
     cursor: v.union(v.string(), v.null()),
     numItems: v.number(),
   },
   returns: v.object({
-    candidates: v.array(
-      v.object({
-        assetId: v.id("assets"),
-        url: v.union(v.string(), v.null()),
-        /** The card thumb itself is fine: only the grid renditions are missing. */
-        variantsOnly: v.boolean(),
-      }),
-    ),
+    candidates: v.array(backfillCandidateValidator),
     scanned: v.number(),
     continueCursor: v.string(),
     isDone: v.boolean(),
@@ -35,17 +66,8 @@ export const listThumbBackfillPage = internalQuery({
       .paginate({ cursor: args.cursor, numItems: args.numItems });
     const candidates = [];
     for (const asset of page.page) {
-      if (asset.kind !== "image") continue;
-      const thumbMetadata = asset.thumbR2Key
-        ? await r2.getMetadata(ctx, asset.thumbR2Key)
-        : null;
-      const rebuildThumb = needsCardThumb(asset, thumbMetadata?.contentType);
-      if (!rebuildThumb && !needsGridVariants(asset)) continue;
-      candidates.push({
-        assetId: asset._id,
-        url: (await resolveAssetUrl(ctx, asset)) ?? null,
-        variantsOnly: !rebuildThumb,
-      });
+      const candidate = await backfillCandidate(ctx, asset);
+      if (candidate) candidates.push(candidate);
     }
     return {
       candidates,
