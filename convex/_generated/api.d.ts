@@ -91,6 +91,8 @@ import type * as validators from "../validators.js";
 import type * as videoRefs from "../videoRefs.js";
 import type * as worldCore from "../worldCore.js";
 import type * as worldCounts from "../worldCounts.js";
+import type * as worldStyleValidators from "../worldStyleValidators.js";
+import type * as worldStyles from "../worldStyles.js";
 import type * as worlds from "../worlds.js";
 
 import type {
@@ -183,6 +185,8 @@ declare const fullApi: ApiFromModules<{
   videoRefs: typeof videoRefs;
   worldCore: typeof worldCore;
   worldCounts: typeof worldCounts;
+  worldStyleValidators: typeof worldStyleValidators;
+  worldStyles: typeof worldStyles;
   worlds: typeof worlds;
 }>;
 

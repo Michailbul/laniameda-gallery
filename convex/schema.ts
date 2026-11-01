@@ -8,6 +8,7 @@ import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./
 import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
 import { taskEventFields, taskFields } from "./taskValidators";
 import { newspaperFields } from "./newspaperValidators";
+import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
@@ -96,6 +97,33 @@ export default defineSchema({
   })
     .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
     .index("by_owner_code", ["ownerUserId", "code"]),
+  // One named style of a world (Ink Noir, Lacquer & Brass, Long Sun): how a
+  // frame is made, whatever it shows. Its frames are the members of its
+  // shelf (a child collection in the group Styles); the record holds what the
+  // shelf cannot: a one-line description, the cover frames, the recipes
+  // (moodboards and profiles in stack order, parameters, a prompt template)
+  // and what raises or lowers the look. The long recipe text stays in the
+  // style lock (a style-lock Story), linked by lockStoryId.
+  worldStyles: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    name: v.string(), slug: v.string(),
+    line: v.optional(v.string()),
+    // Carousel group inside the universe ("Film", "Art Deco", "3D").
+    family: v.optional(v.string()),
+    status: worldStyleStatusValidator,
+    shelfFolderId: v.optional(v.id("folders")),
+    coverAssetIds: v.array(v.id("assets")),
+    recipes: v.array(worldStyleRecipeValidator),
+    raises: v.array(v.string()),
+    lowers: v.array(v.string()),
+    lockStoryId: v.optional(v.id("stories")),
+    notes: v.optional(v.string()),
+    mergedIntoStyleId: v.optional(v.id("worldStyles")),
+    sortOrder: v.optional(v.number()),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_world_slug", ["ownerUserId", "worldFolderId", "slug"])
+    .index("by_owner_shelf", ["ownerUserId", "shelfFolderId"]),
   // Text is a first-class private save; no placeholder media or prompt needed.
   stories: defineTable({
     ownerUserId: v.string(), ...storyFields,
@@ -445,6 +473,10 @@ export default defineSchema({
     // Lowercase hyphenated, unique per owner ("dear-annete"). Undefined = not
     // a world (ART, LOVE and other shared shelves).
     worldKey: v.optional(v.string()),
+    // A world root that is part of another world's universe: DEAR ANNETE —
+    // 3D, — ART DECO and IRON STAGE point at DEAR ANNETE, so one styles page
+    // shows every style of the story universe. Membership stays per world.
+    universeRootId: v.optional(v.id("folders")),
     // Exact public assets, deduped across links + the legacy primary pointer.
     // Only readable as complete after publicCollectionCountBackfill is done.
     publicMemberCount: v.optional(v.number()),
@@ -639,6 +671,9 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_name", ["ownerUserId", "name"])
+    // "Is this in the gallery?" for local boards: prefix ranges over
+    // mj-<job>-<index>.png and other saved file names (worldStyles.findAssets).
+    .index("by_owner_fileName", ["ownerUserId", "fileName"])
     .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
     // Backs the starred-first prepend: a small set read on its own so a starred
     // asset leads the grid even when its natural page hasn't streamed in yet.

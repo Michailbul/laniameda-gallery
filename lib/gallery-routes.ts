@@ -84,6 +84,7 @@ function routeFromSegments(parts: string[]): GalleryRoute | null {
     const world = bareId(second);
     if (!world) return null;
     if (!third) return { kind: "world", world };
+    if (third === "styles") return null;
     const rest = third === "docs" ? "instructions" : third;
     if (isWorldTab(rest)) return { kind: "world", world, tab: rest };
     const shelf = bareId(third);
@@ -130,6 +131,14 @@ function pathFor(route: GalleryRoute): string {
 /** Absolute link to a view, for agents. */
 export const galleryPageUrl = (route: GalleryRoute, asset?: string | null) =>
   `${GALLERY_ORIGIN}${galleryRoutePath(route, asset)}`;
+
+/**
+ * The styles page of a world's universe: /w/<world>/styles[/<style slug or id>].
+ * Its own page (no sidebar), so it is not a dashboard route.
+ */
+export const worldStylesPath = (world: string, style?: string | null) =>
+  `/w/${segment(world)}/styles${style ? `/${segment(style)}` : ""}`;
+export const worldStylesUrl = (world: string, style?: string | null) => `${GALLERY_ORIGIN}${worldStylesPath(world, style)}`;
 
 /** True for every path the dashboard renders. */
 export const isGalleryPath = (pathname: string) => parseGalleryRoute(pathname) !== null;

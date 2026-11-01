@@ -317,7 +317,7 @@ Tables:
   Caps live in `lib/world-docs.ts` and are enforced on write.
 - `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
   `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
-  `world.mark`, `world.move`, `world.recount`), actor (`agent:<token label>` or `owner`), optional `session`,
+  `world.mark`, `world.move`, `world.recount`, `world.universe`, `style.save`, `style.merge`), actor (`agent:<token label>` or `owner`), optional `session`,
   JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
   transaction as the change by world docs, filing, shelves, moodboards in a
   world, profiles and stories in a world. `worlds:undoWorldChanges` restores
@@ -326,6 +326,25 @@ Tables:
 - `mjProfiles` — Midjourney personalization profiles: name, `code` (the
   `--profile` code), `mjProfileId`, `status` (active/retired), `codeHistory`,
   and `uses: [{ worldFolderId, role, styleTag? }]`. A world reads only its use.
+
+- `worldStyles` — a world's named styles: `worldFolderId`, `name`, `slug`
+  (unique per world), `line`, `family`, `status` (draft, ready, archived,
+  merged), `shelfFolderId` (the child collection whose members are its frames;
+  one style per shelf), `coverAssetIds` (≤ 12, world pieces), `recipes` (≤ 8:
+  `moodboardIds`, `profileIds`, `unknownCodes`, `parameters`, `template`,
+  `frames`, `note`), `raises`, `lowers`, `lockStoryId`, `notes`,
+  `mergedIntoStyleId`, `sortOrder`, `revision`. Indexes `by_owner_world_slug`,
+  `by_owner_shelf`. Reads tolerate a deleted cover, shelf or board.
+- `folders.universeRootId` — on a world root: the world whose universe it
+  reads in (one level). Changes nothing about membership.
+- `assets` index `by_owner_fileName` backs `find_assets` prefix lookups
+  (`mj-<job>`), with `by_owner_sourceUrl` prefix ranges for job and CDN URLs.
+
+Functions: `worldStyles:listStyles`, `getStyle`, `listStyleFramesPage`,
+`listStyleFrameIds`, `getFrameDetail`, `saveStyle`, `mergeStyleRecords`,
+`setWorldUniverse`, `findAssets`; agent route `/api/agent/styles`; MCP tools
+`list_styles`, `get_style`, `save_style`, `file_style`, `merge_styles`,
+`world_universe`, `find_assets` (references/styles.md).
 
 Functions: `worlds:listWorlds`, `getWorldContext`, `readWorldDoc`,
 `listWorldDocs`, `writeWorldDoc`, `deleteWorldDoc`, `worldDocHistory`,
@@ -709,6 +728,7 @@ ids bare (no prefix), so the table also says where a bare id goes.
 | `collection:<id>`, `folder:<id>` | a collection or shelf | `list_collections`, `open_world` | `folderId` (bare) | collections are addressed bare everywhere |
 | `world:<id>` | a world's root collection | `open_world` | `world` (key, name or id) | yes |
 | `profile:<id>` | a Midjourney profile | `mj_profiles` | `profile` (id, name or code) | yes |
+| `style:<id>` | a world's named style | `get_style` | `style` (or its name with `world`) | yes |
 
 `get_gallery_item` with another prefix answers with the tool that reads it;
 with a bare id it asks for the prefix (a bare gallery id is almost always

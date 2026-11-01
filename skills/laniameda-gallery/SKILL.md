@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.22.0
+version: 1.23.0
 ---
 
 # Laniameda Gallery
@@ -38,7 +38,10 @@ A world (DEAR ANNETE, ANDROMEDA — ANYA …) is a separate story universe. For 
 world work call `open_world` first: it returns the world's own rules (WORLD.md),
 learnings, styles and style locks, shelves, storybooks with their stories,
 moodboards with codes and sync state, Midjourney profiles and recent changes.
-Search with `world` to stay inside it. Change it through `world_doc`,
+Search with `world` to stay inside it. A world holds several named styles;
+`list_styles` reads every style of its universe (DEAR ANNETE with its 3D, Art
+Deco and Iron Stage worlds) and `get_style` one style's recipe and frames
+(references/styles.md). Change it through `world_doc`,
 `world_file`, `world_shelf`, `mj_profiles` and the moodboard and story tools,
 with a `session` label; `world_journal` shows every change and `world_undo`
 reverts one or a whole session. An asset never belongs to two worlds. Shelves,
@@ -57,7 +60,7 @@ report can link what it names: `open_world` (the world, each shelf, storybook,
 moodboard and story; `instructionsUrl`, `tasksUrl`, `journalUrl`),
 `list_collections` (each collection), `list_moodboards` / `get_moodboard` and
 `get_story`. The pages: `/w/<worldKey|rootId>`, `/w/<world>/<shelfId>`,
-`/w/<world>/instructions|journal|tasks|moodboards`, `/storybooks/<id>`,
+`/w/<world>/instructions|journal|tasks|moodboards`, `/w/<world>/styles[/<style>]`, `/storybooks/<id>`,
 `/moodboards/<id>`, `/stories/<id>`, `/skills/<id>`, and `?asset=<id>` on any of
 them opens that piece in the detail panel. Prefer the returned `url` over
 building one; the inbox tools already return a stack's `url` the same way.
@@ -79,7 +82,7 @@ building one; the inbox tools already return a stack's `url` the same way.
 | Newspaper | One edition per Prague day (/newspaper), compiled at 07:30 from the tables: per world the journal's changes, new assets with thumbnails, storybooks, moodboards with sync drift, characters; tasks done and blocked, open Inbox stacks, and needsYou. Pure facts; an agent adds the prose. Never stars, publishes or deletes | get_newspaper, write_newspaper, compile_newspaper; references/newspapers.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
-| Style | A found look packaged for reuse: a world style lock with the recipe, a copy-ready prompt, example frames with full prompts, the moodboards behind its codes (linked, cited from another world, or flagged MOODBOARD NOT CREATED YET) and what raises or lowers it | package_style (dryRun first), then get_story; references/styles.md |
+| Style | One named look of a world (how a frame is made, whatever it shows): name, one-line look, covers, its shelf of frames, recipes (moodboards and profiles in stack order, parameters, prompt template), raises and lowers, and its style lock. Sibling worlds of one universe read together on the styles page /w/<world>/styles | list_styles, get_style, save_style, file_style, merge_styles (dryRun first), world_universe; package_style for the long style lock; references/styles.md |
 | Storybook | A collection (kind storybook) holding one production-ready episode of 60 seconds or less: plain story, cast with character sheets, location plates and descriptions, asset links, gap flags | create_collection, update_collection, update_gallery_item; references/storybooks.md |
 | X bookmark | The post's text, author, quote and note; linked to actual media when saved | save_bookmarks / list_bookmarks; references/bookmarks.md |
 | YouTube reference | Separate video/channel research and copied stills; themes are labels rather than collection IDs | save_video_refs / list_video_refs / get_video_ref; references/video-refs.md |
@@ -143,6 +146,11 @@ Semantic indexing is asynchronous; stored readback and search readiness are
 separate checks. Leave the retired pillar field unset on ordinary saves.
 
 ## Find and inspect
+
+"Is this frame in the gallery?" for a local board: `find_assets` with up to
+500 Midjourney job URLs, file names (`mj-<job>-<i>.png`), short board ids
+(`<8 hex>-<tile>`) or other URLs answers each with its asset ids, worlds and
+styles in one call.
 
 Use search_gallery for meaning or visual similarity; find_similar expands around
 an asset. Use list_assets_page with filters and its opaque cursor for a complete

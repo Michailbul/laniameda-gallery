@@ -7,7 +7,7 @@ import type { RecountCursor, RecountRow } from "@/convex/worldCounts";
 import { AgentAuthError, requireAgentAuth, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { galleryPageUrl } from "@/lib/gallery-routes";
+import { galleryPageUrl, worldStylesUrl } from "@/lib/gallery-routes";
 import {
   worldDocSchema, worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema,
   worldRecountSchema, worldShelfSchema, worldUndoSchema,
@@ -78,6 +78,7 @@ export async function POST(request: Request) {
           instructionsUrl: galleryPageUrl({ kind: "world", world: key, tab: "instructions" }),
           tasksUrl: galleryPageUrl({ kind: "world", world: key, tab: "tasks" }),
           journalUrl: galleryPageUrl({ kind: "world", world: key, tab: "journal" }),
+          stylesUrl: worldStylesUrl(context.universe.key),
         },
         shelves: context.shelves.map((shelf) => ({ ...shelf, url: inWorld(shelf.id) })),
         storybooks: context.storybooks.map((book) => ({ ...book, url: galleryPageUrl({ kind: "storybooks", id: book.id }) })),

@@ -129,14 +129,17 @@ describe("agent API routes", () => {
     expect(worlds[0].url).toBe("https://gallery.laniameda.space/w/dear-annete");
 
     state.queryResult = {
-      world: { id: "w1", key: "dear-annete", name: "DEAR ANNETE" },
+      world: { id: "w1", key: "dear-annete-3d", name: "DEAR ANNETE — 3D" },
+      universe: { id: "w0", key: "dear-annete", name: "DEAR ANNETE", worlds: [] },
       shelves: [{ id: "s1", name: "Cast" }], storybooks: [{ id: "b1", name: "Two Pears" }],
       moodboards: [{ id: "m1", name: "Golden" }], stories: [{ id: "t1", title: "Idea" }],
     };
     const context = await (await send(worldsRoutePath, { action: "open", world: "dear-annete" })()).json();
-    expect(context.world.url).toBe("https://gallery.laniameda.space/w/dear-annete");
-    expect(context.world.instructionsUrl).toBe("https://gallery.laniameda.space/w/dear-annete/instructions");
-    expect(context.shelves[0].url).toBe("https://gallery.laniameda.space/w/dear-annete/s1");
+    expect(context.world.url).toBe("https://gallery.laniameda.space/w/dear-annete-3d");
+    expect(context.world.instructionsUrl).toBe("https://gallery.laniameda.space/w/dear-annete-3d/instructions");
+    // A world's styles page is its universe's page.
+    expect(context.world.stylesUrl).toBe("https://gallery.laniameda.space/w/dear-annete/styles");
+    expect(context.shelves[0].url).toBe("https://gallery.laniameda.space/w/dear-annete-3d/s1");
     expect(context.storybooks[0].url).toBe("https://gallery.laniameda.space/storybooks/b1");
     expect(context.moodboards[0].url).toBe("https://gallery.laniameda.space/moodboards/m1");
     expect(context.stories[0].url).toBe("https://gallery.laniameda.space/stories/t1");

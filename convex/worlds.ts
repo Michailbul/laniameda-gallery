@@ -4,17 +4,19 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
-import { canonicalFolderName, normalizeFolderName, recountFolderMembers } from "./folderHelpers";
+import { normalizeFolderName, recountFolderMembers } from "./folderHelpers";
 import { canonicalTagKey, normalizeTagName } from "./helpers";
 import { replaceAssetTagLinks, resolveTagIdsForNames } from "./assets";
 import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import { restoreMoodboardSnapshot, snapshotMoodboard, type MoodboardSnapshot } from "./moodboards";
 import { restoreProfileSnapshot, type ProfileSnapshot } from "./mjProfiles";
 import { restoreStorySnapshot, type StorySnapshot } from "./stories";
+import { restoreStyleSnapshot, revertStyleMerge, type MergeState, type StyleSnapshot } from "./worldStyles";
 import { worldTaskSummary, worldTaskSummaryValidator } from "./tasks";
 import {
   WORLD_KEY_PATTERN, assertMembersFitWorld, assertSingleWorld, assetFolderIds, childrenOf, cleanSession, listWorldRoots,
-  recordWorldChange, resolveWorld, worldIdOfFolder, worldKeyFromName, worldRootOfFolder, type JournalMeta, type WorldChangeOp, type WorldMemo,
+  assertNameFree, recordWorldChange, resolveWorld, scopedName, shelfState, worldIdOfFolder, worldKeyFromName, worldRootOfFolder,
+  type JournalMeta, type ShelfState, type WorldChangeOp, type WorldMemo,
 } from "./worldCore";
 import {
   WORLD_DOC_LEARNINGS, WORLD_DOC_LIMITS, WORLD_DOC_MAIN, countLearningEntries, normalizeWorldDocPath, worldDocCapError,
@@ -151,6 +153,14 @@ export const getWorldContext = ownerQuery({
     limits: v.object({ worldDoc: v.number(), learnings: v.number(), learningEntries: v.number(), doc: v.number(), docs: v.number() }),
     styles: v.array(v.object({ styleTag: v.string(), branch: v.optional(v.string()), locks: v.array(storyRefValidator), moodboards: v.number() })),
     otherLocks: v.array(v.object({ id: v.id("stories"), title: v.string(), status: v.string(), styleTag: v.optional(v.string()) })),
+    // The named styles of this world (list_styles reads the whole universe
+    // with covers; get_style one style with its recipes).
+    worldStyles: v.array(v.object({
+      id: v.id("worldStyles"), name: v.string(), slug: v.string(), status: v.string(), family: v.optional(v.string()),
+      shelfId: v.optional(v.id("folders")), frames: v.number(), recipes: v.number(),
+    })),
+    // The story universe this world reads in: itself, or the world it joined.
+    universe: v.object({ id: v.id("folders"), key: v.string(), name: v.string(), worlds: v.array(v.object({ id: v.id("folders"), key: v.string(), name: v.string() })) }),
     storyCount: v.number(),
     shelves: v.array(shelfValidator),
     storybooks: v.array(v.object({ id: v.id("folders"), name: v.string(), count: v.number(), description: v.optional(v.string()), stories: v.array(storyRefValidator) })),
@@ -239,6 +249,26 @@ export const getWorldContext = ownerQuery({
       };
     });
 
+    const styleRows: Doc<"worldStyles">[] = [];
+    for (const candidate of resolveUserIdCandidates(owner)) {
+      styleRows.push(...await ctx.db.query("worldStyles")
+        .withIndex("by_owner_world_slug", (q) => q.eq("ownerUserId", candidate).eq("worldFolderId", root._id)).collect());
+    }
+    const countOf = new Map(children.map((child) => [child._id as string, child.memberCount ?? 0]));
+    const worldStyles = styleRows
+      .sort((a, b) => (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name))
+      .map((style) => ({
+        id: style._id, name: style.name, slug: style.slug, status: style.status, family: style.family, shelfId: style.shelfFolderId,
+        frames: style.shelfFolderId ? countOf.get(style.shelfFolderId) ?? 0 : style.coverAssetIds.length, recipes: style.recipes.length,
+      }));
+    const head = root.universeRootId ? await ctx.db.get(root.universeRootId) : null;
+    const universeRoot = head?.worldKey && owned(owner, head) ? head : root;
+    const universeWorlds = (await listWorldRoots(ctx, owner))
+      .filter((row) => row._id === universeRoot._id || row.universeRootId === universeRoot._id)
+      .sort((a, b) => (a._id === universeRoot._id ? -1 : b._id === universeRoot._id ? 1 : a.name.localeCompare(b.name)))
+      .map((row) => ({ id: row._id, key: row.worldKey!, name: row.name }));
+    const universe = { id: universeRoot._id, key: universeRoot.worldKey!, name: universeRoot.name, worlds: universeWorlds };
+
     const shelves = children.filter((child) => child.kind === undefined).map((child) => ({
       id: child._id, name: child.name, kind: "shelf" as const, group: child.group, sortOrder: child.sortOrder,
       count: child.memberCount ?? 0,
@@ -267,7 +297,7 @@ export const getWorldContext = ownerQuery({
         worldDoc: WORLD_DOC_LIMITS.main, learnings: WORLD_DOC_LIMITS.learnings, learningEntries: WORLD_DOC_LIMITS.learningEntries,
         doc: WORLD_DOC_LIMITS.doc, docs: WORLD_DOC_LIMITS.docs,
       },
-      styles, otherLocks, shelves, storybooks,
+      styles, otherLocks, worldStyles, universe, shelves, storybooks,
       // The 25 newest loose stories; list_stories with world reads them all.
       storyCount: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).length,
       stories: stories.filter((story) => story.kind !== "style-lock" && !story.storybookId).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 25).map(storyRef),
@@ -584,25 +614,6 @@ export const fileWorldAssets = ownerMutation({
 
 /* ── Shelves and storybooks ──────────────────────────────────────────────── */
 
-type ShelfState = {
-  folderId: Id<"folders">; name: string; normalizedName?: string; description?: string; group?: string;
-  sortOrder?: number; parentFolderId?: Id<"folders">; kind?: "storybook";
-};
-
-const shelfState = (folder: Folder): ShelfState => ({
-  folderId: folder._id, name: folder.name, normalizedName: folder.normalizedName, description: folder.description,
-  group: folder.group, sortOrder: folder.sortOrder, parentFolderId: folder.parentFolderId, kind: folder.kind,
-});
-
-const scopedName = (name: string, parent: Id<"folders"> | undefined) =>
-  parent ? `${parent}/${canonicalFolderName(name)}` : canonicalFolderName(name);
-
-const assertNameFree = async (ctx: QueryCtx, owner: string, normalizedName: string, self?: Id<"folders">) => {
-  for (const candidate of resolveUserIdCandidates(owner)) {
-    const clash = await ctx.db.query("folders").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("normalizedName", normalizedName)).first();
-    if (clash && clash._id !== self) throw new ConvexError(`A collection named "${clash.name}" already exists there.`);
-  }
-};
 
 export const saveWorldShelf = ownerMutation({
   args: {
@@ -1296,6 +1307,30 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, jou
       const outcome = await restoreStorySnapshot(ctx, owner, change.targetId as Id<"stories">, before, after, false);
       if (!outcome.ok) return outcome;
       await record(change.summary, after, outcome.restored);
+      return { ok: true, summary: change.summary };
+    }
+    case "style.save": {
+      const before = parse<StyleSnapshot>(change.before);
+      const after = parse<StyleSnapshot>(change.after);
+      const outcome = await restoreStyleSnapshot(ctx, owner, change.targetId as Id<"worldStyles">, before, after);
+      if (!outcome.ok) return outcome;
+      await record(change.summary, after, outcome.restored, "style.save", outcome.restored?.styleId ?? change.targetId);
+      return { ok: true, summary: change.summary };
+    }
+    case "style.merge": {
+      const before = parse<MergeState>(change.before)!;
+      const after = parse<MergeState>(change.after)!;
+      const outcome = await revertStyleMerge(ctx, owner, before, after);
+      if (!outcome.ok) return outcome;
+      await record(change.summary, after, outcome.restored);
+      return { ok: true, summary: change.summary };
+    }
+    case "world.universe": {
+      const before = parse<{ universeRootId: Id<"folders"> | null }>(change.before)!;
+      const after = parse<{ universeRootId: Id<"folders"> | null }>(change.after)!;
+      if ((root.universeRootId ?? null) !== after.universeRootId) return { ok: false, reason: "the world's universe changed since" };
+      await ctx.db.patch(root._id, { universeRootId: before.universeRootId ?? undefined, updatedAt: Date.now() });
+      await record(change.summary, after, before);
       return { ok: true, summary: change.summary };
     }
     default:
