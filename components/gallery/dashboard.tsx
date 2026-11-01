@@ -2734,7 +2734,12 @@ export function GalleryDashboard({
     return source.map(skillCardToEntry);
   }, [folderSkills, gridSkills, showFolderSkillCards]);
 
-  const [cachedShelfBooks] = useState(() => readShelfCache(ownerUserId));
+  // Only an address that opens on home shows the shelf; a world address
+  // would paint the cached shelf and then swap it for the world (CLS 0.545
+  // on /w/dear-annete, 1 Nov 2026).
+  const [cachedShelfBooks] = useState(() =>
+    startsOnHome ? readShelfCache(ownerUserId) : [],
+  );
   const liveShelfBooks = useMemo<ShelfBook[] | undefined>(
     () =>
       storybooks?.map((storybook) => {
