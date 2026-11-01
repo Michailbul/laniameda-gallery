@@ -19,8 +19,9 @@ import {
   type InboxCardType, type InboxChoice,
 } from "@/lib/inbox";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
-import { zoneActions, zoneAt, zoneState, type ZoneActions, type ZoneKind } from "@/lib/inbox-zones";
-import { HoverZones } from "./hover-zones";
+import {
+  imageActions, imageKeyHint, imageKeyOf, imageState, isDigitKey, type ImageActions, type ImageKey,
+} from "@/lib/inbox-keys";
 import { ActionButton, CopyChip, Hotkey, Micro, RADIUS, SCRIM, display, errorText, mono } from "./inbox-ui";
 import { NoteSheet, type ImageNote } from "./note-sheet";
 import { ZoomViewer } from "./zoom-viewer";
@@ -36,9 +37,12 @@ type Answer = {
   choice: InboxChoice; targetHotkey?: number; pickedAssetId?: Id<"assets">;
   coverAssetId?: Id<"assets">; deleteAssetIds?: Id<"assets">[];
 };
-// `after: null` is a card sent back to open (a second click on its zone).
+// `after: null` is a card sent back to open (a second press of its key).
 type Step = { cardId: Id<"inboxCards">; before: Answer | null; after: Answer | null };
-type ZoneProps = { actions: ZoneActions; kept: boolean; archived: boolean; noted?: boolean };
+// The image under the mouse: the current card's own (`own`) or a mini tile's.
+type Hovered = { cardId: Id<"inboxCards">; asset: CardAsset; el: HTMLElement; own: boolean };
+type HoverHandlers = { onPointerEnter: (event: ReactPointerEvent<HTMLElement>) => void; onPointerLeave: (event: ReactPointerEvent<HTMLElement>) => void };
+type Flash = { key: number; text: string; tone: "keep" | "archive" | "back"; x: number; y: number };
 type Toast = { key: number; text: string; detail?: string; tone: "ok" | "error" };
 type Fly = { dx: number; dy: number; scale: number };
 type Zoom = { asset: CardAsset; defect?: { x: number; y: number; w: number; h: number } };
@@ -161,6 +165,8 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   const [redoStack, setRedoStack] = useState<Step[]>([]);
   const [fly, setFly] = useState<Fly | null>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const hovered = useRef<Hovered | null>(null);
   const zones = useRef(new Map<number, HTMLElement>());
   const cardRef = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
@@ -272,19 +278,19 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     }
   }, [card, current, decisions, ids, index, open, say, send]);
 
-  // A second click on a Keep or Archive zone takes the answer back.
-  const reopen = useCallback(async () => {
-    if (!card || !open || busy.current || !current) return;
-    setUndoStack((stack) => [...stack.slice(-199), { cardId: card._id, before: current, after: null }]);
+  // Answer a card where it is, without the flight: a second press of a key
+  // (null: back to open), or a card's mini tile in the overview.
+  const answerInPlace = useCallback(async (target: Card, answer: Answer | null) => {
+    if (!open || busy.current) return;
+    setUndoStack((stack) => [...stack.slice(-199), { cardId: target._id, before: answerOf(decisions.get(target._id)), after: answer }]);
     setRedoStack([]);
-    setReviewing(true);
     try {
-      await send(card._id, null);
-      say({ tone: "ok", text: "Back to open" });
+      await send(target._id, answer);
+      say({ tone: "ok", text: answer ? answerLabel(target, answer) ?? "Done" : "Back to open" });
     } catch (failure) {
-      say({ tone: "error", text: errorText(failure, "That card was not reopened.") });
+      say({ tone: "error", text: errorText(failure, "That answer was not saved.") });
     }
-  }, [card, current, open, say, send]);
+  }, [decisions, open, say, send]);
 
   const undo = useCallback(async () => {
     if (!open || busy.current) return;
@@ -380,6 +386,16 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       if (key === "z") { event.preventDefault(); void (event.shiftKey ? redo() : undo()); return; }
       if (event.metaKey || event.ctrlKey) return;
       if (key === "escape") { if (confirm) setConfirm(null); else if (gridOpen) setGridOpen(false); return; }
+      // The hovered image takes 1–4 / A K X C first. On a sort card's own
+      // image the numbers stay its target drops, so there only letters act.
+      const hot = hovered.current?.el.isConnected ? hovered.current : null;
+      const imageKey = hot && !event.shiftKey ? imageKeyOf(event.key, event.code) : null;
+      const hotCard = hot ? cards.find((entry) => entry._id === hot.cardId) : undefined;
+      if (hot && imageKey && hotCard && !(hot.own && hotCard.type === "sort" && isDigitKey(event.key, event.code))) {
+        event.preventDefault();
+        actOn(hotCard, hot.asset, imageKey, hot.el, hot.own);
+        return;
+      }
       if (key === "s" || key === " ") { event.preventDefault(); void commit({ choice: "skip" }); return; }
       if (key === "enter") { event.preventDefault(); openNote(); return; }
       if (key === "f" && firstImage) { event.preventDefault(); setZoom({ asset: firstImage, defect: card.evidence?.defect?.box }); return; }
@@ -426,28 +442,64 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     ? { transform: `translate(${fly.dx}px, ${fly.dy}px) scale(${fly.scale})`, opacity: 0.15, transition: `transform ${FLY_MS}ms cubic-bezier(.4,0,.2,1), opacity ${FLY_MS}ms ease-in` }
     : { transform: "none", transition: "transform 260ms cubic-bezier(.2,.9,.3,1.25), opacity 160ms ease-out" };
 
-  // Hover zones: keep and archive answer the card (a second click reopens
-  // it), comment opens the image's note. Zoom closes on any of them.
-  const zoneProps = (asset: CardAsset): ZoneProps => {
-    const actions: ZoneActions = card && open && !asset.missing ? zoneActions(card, asset.assetId) : { comment: false };
-    return { actions, ...zoneState(actions, current), noted: notesOf.get(asset.assetId)?.some((entry) => entry.author === "owner") };
+  // Number keys on the hovered image (and in the zoom): 1 approve, 2 archive,
+  // 3 comment, 4 open. A second 1 or 2 takes the answer back.
+  const actionsOf = (target: Card, asset: CardAsset | undefined): ImageActions => {
+    if (!open || !asset || asset.missing) return { comment: false };
+    // A mini tile shows one image of a group; there it only comments and opens.
+    if (target.assets.length > 1 && target._id !== card?._id) return { comment: true };
+    return imageActions(target, asset.assetId);
   };
-  const onZone = (asset: CardAsset, zone: ZoneKind) => {
-    if (!card || !open) return;
+  const archivedOf = (target: Card, asset: CardAsset) => imageState(actionsOf(target, asset), answerOf(decisions.get(target._id))).archived;
+  const pop = (el: HTMLElement | null, text: string, tone: Flash["tone"]) => {
+    const rect = el?.isConnected ? el.getBoundingClientRect() : undefined;
+    setFlash({ key: Date.now(), text, tone, x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2, y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2 });
+  };
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), 950);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const goTo = (target: Card) => { setIndex(ids.indexOf(target._id)); setReviewing(true); setGridOpen(false); };
+  const actOn = (target: Card, asset: CardAsset, key: ImageKey, el: HTMLElement | null, own: boolean) => {
+    if (key === "open") {
+      if (zoom) setZoom(null);
+      else if (!own) goTo(target);
+      else if (!asset.missing) setZoom({ asset, defect: target.type === "artifact" ? target.evidence?.defect?.box : undefined });
+      return;
+    }
+    const actions = actionsOf(target, asset);
+    if (key === "comment") {
+      if (!actions.comment) return;
+      setZoom(null);
+      if (!own) goTo(target);
+      setNote(own || target.assets.length === 1 ? { kind: "image", assetId: asset.assetId } : { kind: "card" });
+      return;
+    }
+    const answer = key === "keep" ? actions.keep : actions.archive;
+    if (!answer || busy.current) return;
+    const state = imageState(actions, answerOf(decisions.get(target._id)));
+    const undoing = key === "keep" ? state.kept : state.archived;
+    pop(el, undoing ? (key === "keep" ? "Unkept" : "Restored") : key === "keep" ? "Approved" : "Archived", undoing ? "back" : key);
     setZoom(null);
-    if (zone === "comment") return setNote({ kind: "image", assetId: asset.assetId });
-    const { actions, kept, archived } = zoneProps(asset);
-    const answer = zone === "keep" ? actions.keep : actions.archive;
-    if (!answer) return;
-    if (zone === "keep" ? kept : archived) void reopen();
-    else void commit(answer as Answer);
+    if (undoing) {
+      // Back to open: the card stays on screen.
+      goTo(target);
+      void answerInPlace(target, null);
+    } else if (own) void commit(answer as Answer);
+    else void answerInPlace(target, answer as Answer);
+  };
+  // Mouse only: a touch has no hover, so taps change nothing.
+  const hoverOf = (target: Card, asset: CardAsset | undefined, own: boolean): HoverHandlers | undefined => asset && {
+    onPointerEnter: (event) => { if (event.pointerType === "mouse") hovered.current = { cardId: target._id, asset, el: event.currentTarget, own }; },
+    onPointerLeave: (event) => { if (hovered.current?.el === event.currentTarget) hovered.current = null; },
   };
 
   const tileProps = (asset: CardAsset) => ({
     asset, notes: notesOf.get(asset.assetId), desktop,
     onZoom: () => setZoom({ asset }),
     onNote: open ? () => setNote({ kind: "image", assetId: asset.assetId }) : undefined,
-    zone: zoneProps(asset), onZone: (zone: ZoneKind) => onZone(asset, zone),
+    archived: card ? archivedOf(card, asset) : false, hoverHandlers: card ? hoverOf(card, asset, true) : undefined,
   });
 
   // On the desk every picture is sized to the measured evidence area; a phone
@@ -458,9 +510,9 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
 
   const body = card && (desktop && !fit ? null : <>
     {card.type === "sort" && <SortCard asset={card.assets[0]!} answer={current} card={card} open={open} hover={hover} setHover={setHover} box={boxFor(card.assets[0]!)}
-      zones={zones} zone={zoneProps(card.assets[0]!)} onZone={(zone) => onZone(card.assets[0]!, zone)} onZoom={() => setZoom({ asset: card.assets[0]! })} onDrop={(hotkey) => void commit({ choice: "target", targetHotkey: hotkey }, zones.current.get(hotkey))} />}
+      zones={zones} archived={archivedOf(card, card.assets[0]!)} hoverHandlers={hoverOf(card, card.assets[0], true)} onZoom={() => setZoom({ asset: card.assets[0]! })} onDrop={(hotkey) => void commit({ choice: "target", targetHotkey: hotkey }, zones.current.get(hotkey))} />}
     {card.type === "artifact" && <ArtifactCard asset={card.assets[0]!} card={card} box={boxFor(card.assets[0]!)}
-      zone={zoneProps(card.assets[0]!)} onZone={(zone) => onZone(card.assets[0]!, zone)} onZoom={() => setZoom({ asset: card.assets[0]!, defect: card.evidence?.defect?.box })} />}
+      archived={archivedOf(card, card.assets[0]!)} hoverHandlers={hoverOf(card, card.assets[0], true)} onZoom={() => setZoom({ asset: card.assets[0]!, defect: card.evidence?.defect?.box })} />}
     {card.type === "ab" && <TileGrid cols={tileColumns(card.assets)} fit={fit}>
       {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} badge={card.labels?.[at] || (at === 0 ? "A" : "B")} hotkey={at + 1}
         chosen={current?.choice === "winner" && current.pickedAssetId === asset.assetId}
@@ -482,6 +534,15 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       ? card.assets.length > 0 && <TileGrid cols="grid-cols-3" fit={fit}>{card.assets.map((asset) => <Tile key={asset.assetId} {...tileProps(asset)} />)}</TileGrid>
       : <RuleCard card={card} tile={(asset) => <Tile key={asset.assetId} {...tileProps(asset)} />} />)}
   </>);
+
+  // The keys this card takes, pinned bottom-left on screens with a mouse.
+  const hintAsset = zoom?.asset ?? firstImage;
+  const hintKeys = card && hintAsset && open && !gridOpen && (zoom || !done)
+    ? imageKeyHint(actionsOf(card, hintAsset), { zoom: Boolean(zoom), letters: !zoom && card.type === "sort" }) : [];
+  const keyHint = hintKeys.length > 0 && <div className="ikey-hint" aria-hidden>
+    <span>{zoom ? "Full size" : card?.assets.length === 1 ? "Hover the image" : "Hover an image"}</span>
+    {hintKeys.map((entry) => <span key={entry.tone} className={`ikey-hint-${entry.tone}`}><kbd>{entry.key}</kbd>{entry.label}</span>)}
+  </div>;
 
   const toastNode = toast && <div key={toast.key} role="status" aria-live="polite"
     className="pointer-events-none absolute left-1/2 top-3 z-40 flex max-w-[92%] -translate-x-1/2 items-center gap-2 px-3 py-2 animate-fade-in"
@@ -538,7 +599,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     {desktop
       ? <div className={`grid min-h-0 flex-1 gap-8 px-7 pb-6 pt-5 ${done ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)]"}`}>
         <section className="relative flex min-h-0 flex-col" aria-label="Evidence">
-          {done ? <DoneView view={view} decisions={decisions} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+          {done ? <DoneView view={view} decisions={decisions} hoverOf={(entry) => hoverOf(entry, entry.assets.find((asset) => !asset.missing), false)} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
             : card && <>
               <div className="shrink-0 pb-5">
                 <h1 className="max-w-[40ch] text-[26px] font-bold leading-[1.15] tracking-tight" style={display}>{question}</h1>
@@ -576,7 +637,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       </div>
       : <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] gap-3 px-4 pb-3 pt-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
         <section className="relative flex min-h-0 flex-col">
-          {done ? <DoneView view={view} decisions={decisions} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+          {done ? <DoneView view={view} decisions={decisions} hoverOf={(entry) => hoverOf(entry, entry.assets.find((asset) => !asset.missing), false)} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
             : card && <>
               <div ref={cardRef} key={card._id} className="relative flex min-h-0 flex-1 flex-col" style={cardStyle} aria-label={`Card ${position} of ${cards.length}`}>{body}</div>
               {toastNode}
@@ -596,11 +657,13 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
 
     {zoom && !zoom.asset.missing && <ZoomViewer assetId={zoom.asset.assetId} kind={zoom.asset.kind ?? "image"} url={zoom.asset.url} thumbUrl={zoom.asset.thumbUrl}
       width={zoom.asset.width} height={zoom.asset.height} defect={zoom.defect} onClose={() => setZoom(null)}
-      zones={zoneProps(zoom.asset)} onZone={(zone) => onZone(zoom.asset, zone)} />}
+      archived={card ? archivedOf(card, zoom.asset) : false} onKey={(key) => { if (card) actOn(card, zoom.asset, key, null, true); }} />}
+    {keyHint}
+    {flash && <span key={flash.key} className={`ikey-flash ikey-flash-${flash.tone}`} style={{ left: flash.x, top: flash.y }} role="status">{flash.text}</span>}
     {note && card && <NoteSheet key={`${card._id}-${note.kind === "image" ? note.assetId : "card"}`} ownerUserId={ownerUserId}
       target={note.kind === "image" ? { kind: "image", assetId: note.assetId, notes: notesOf.get(note.assetId) ?? [] } : { kind: "card", cardId: card._id, comment }}
       onClose={() => setNote(null)} />}
-    {gridOpen && <CardGrid view={view} decisions={decisions} active={index}
+    {gridOpen && <CardGrid view={view} decisions={decisions} active={index} hoverOf={(entry) => hoverOf(entry, entry.assets.find((asset) => !asset.missing), false)}
       onOpen={(at) => { setIndex(at); setReviewing(true); setGridOpen(false); }} onClose={() => setGridOpen(false)} />}
   </main>;
 }
@@ -682,9 +745,9 @@ function CornerChips({ asset, label }: { asset: CardAsset; label?: string }) {
 // A sort card: drag the image onto a target, or tap it to see it full size.
 // With `box` (the desk) the card is exactly the picture's size; without it
 // (a phone) it fills the screen.
-function SortCard({ asset, card, answer, open, hover, setHover, zones, zone, box, onZone, onZoom, onDrop }: {
+function SortCard({ asset, card, answer, open, hover, setHover, zones, archived, hoverHandlers, box, onZoom, onDrop }: {
   asset: CardAsset; card: Card; answer: Answer | null; open: boolean; hover: number | null; setHover: (hotkey: number | null) => void;
-  zones: React.RefObject<Map<number, HTMLElement>>; zone: ZoneProps; box?: CSSProperties; onZone: (zone: ZoneKind) => void; onZoom: () => void; onDrop: (hotkey: number) => void;
+  zones: React.RefObject<Map<number, HTMLElement>>; archived: boolean; hoverHandlers?: HoverHandlers; box?: CSSProperties; onZoom: () => void; onDrop: (hotkey: number) => void;
 }) {
   const [drag, setDrag] = useState<{ pointerId: number; startX: number; startY: number; dx: number; dy: number; moved: boolean } | null>(null);
   const targetAt = (x: number, y: number) => {
@@ -711,12 +774,7 @@ function SortCard({ asset, card, answer, open, hover, setHover, zones, zone, box
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const hotkey = drag.moved ? targetAt(event.clientX, event.clientY) : null;
-    // A mouse click lands in a hover zone or opens the zoom; a tap always zooms.
-    const rect = event.currentTarget.getBoundingClientRect();
-    const hit = !drag.moved && event.pointerType === "mouse"
-      ? zoneAt((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, zone.actions) : null;
-    if (hit) onZone(hit);
-    else if (!drag.moved) onZoom();
+    if (!drag.moved) onZoom();
     else if (hotkey !== null) onDrop(hotkey);
     setDrag(null);
     if (hotkey === null) setHover(null);
@@ -727,17 +785,16 @@ function SortCard({ asset, card, answer, open, hover, setHover, zones, zone, box
   return <div className={`relative touch-none select-none overflow-hidden border ${box ? "max-w-full" : "min-h-0 flex-1"}`}
     style={{ borderRadius: RADIUS, borderColor: hover ? "var(--lm-coral)" : "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)", cursor: open ? "grab" : "zoom-in", ...box, ...style }}
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => { setDrag(null); setHover(null); }}
-    aria-label="Drag onto a target, or tap to see it full size" data-izone-archived={zone.archived}>
+    aria-label="Drag onto a target, or tap to see it full size" data-archived={archived} {...hoverHandlers}>
     <Picture asset={asset} />
-    {!drag?.moved && <HoverZones {...zone} passive />}
     <CornerChips asset={asset} label={answerLabel(card, answer)} />
     <Caption asset={asset} />
   </div>;
 }
 
 // An artifact: the image with the defect boxed, and a zoomed crop of it.
-function ArtifactCard({ asset, card, box, zone, onZone, onZoom }: {
-  asset: CardAsset; card: Card; box?: CSSProperties; zone: ZoneProps; onZone: (zone: ZoneKind) => void; onZoom: () => void;
+function ArtifactCard({ asset, card, box, archived, hoverHandlers, onZoom }: {
+  asset: CardAsset; card: Card; box?: CSSProperties; archived: boolean; hoverHandlers?: HoverHandlers; onZoom: () => void;
 }) {
   const defect = card.evidence?.defect?.box;
   const src = asset.url ?? asset.thumbUrl;
@@ -751,7 +808,7 @@ function ArtifactCard({ asset, card, box, zone, onZone, onZoom }: {
   })() : undefined;
   return <button type="button" onClick={onZoom} className={`relative overflow-hidden border text-left ${box ? "max-w-full" : "min-h-0 flex-1"}`}
     style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", background: "var(--lm-surface-1)", boxShadow: "var(--lm-shadow-md)", ...box }}
-    aria-label="See the defect full size" data-izone-archived={zone.archived}>
+    aria-label="See the defect full size" data-archived={archived} {...hoverHandlers}>
     {/* The image and its box share one box sized to the image's aspect. */}
     <span className="absolute inset-0 grid place-items-center p-0">
       <span className="relative block max-h-full max-w-full" style={{ aspectRatio: String(aspect), width: "100%", maxHeight: "100%" }}>
@@ -759,7 +816,6 @@ function ArtifactCard({ asset, card, box, zone, onZone, onZoom }: {
         {defect && <span className="absolute" style={{ left: `${defect.x * 100}%`, top: `${defect.y * 100}%`, width: `${defect.w * 100}%`, height: `${defect.h * 100}%`, border: "2px solid var(--lm-coral)", boxShadow: "0 0 0 9999px rgba(0,0,0,0.22)" }} />}
       </span>
     </span>
-    <HoverZones {...zone} onAction={onZone} />
     <CornerChips asset={asset} />
     {crop && defect && <span className="absolute bottom-2 right-2 block w-[42%] max-w-[260px] border-2"
       style={{
@@ -794,9 +850,9 @@ function TileGrid({ cols, fit, children }: { cols: string; fit?: ReturnType<type
 
 // One image among several: tap to answer (A/B, choose one), or mark it for
 // deletion and pick the cover (duplicates). Zoom and a note on every tile.
-function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, tall, desktop, zone, onPick, onToggleMark, onCover, onZoom, onNote, onZone }: {
+function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, tall, desktop, archived, hoverHandlers, onPick, onToggleMark, onCover, onZoom, onNote }: {
   asset: CardAsset; notes?: ImageNote[]; hotkey?: number; badge?: string; chosen?: boolean; marked?: boolean; isCover?: boolean; deleted?: boolean; tall?: boolean;
-  desktop?: boolean; zone: ZoneProps; onPick?: () => void; onToggleMark?: () => void; onCover?: () => void; onZoom: () => void; onNote?: () => void; onZone: (zone: ZoneKind) => void;
+  desktop?: boolean; archived: boolean; hoverHandlers?: HoverHandlers; onPick?: () => void; onToggleMark?: () => void; onCover?: () => void; onZoom: () => void; onNote?: () => void;
 }) {
   const ownerNotes = notes?.filter((entry) => entry.author === "owner").length ?? 0;
   const action = onPick ?? onToggleMark ?? onZoom;
@@ -804,8 +860,9 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
   const toolButton = "grid h-7 w-7 place-items-center";
   const toolStyle = (on?: boolean): CSSProperties => ({ borderRadius: RADIUS, background: on ? "var(--lm-coral)" : SCRIM, color: on ? "var(--lm-paper)" : "var(--lm-text-primary)", border: "1px solid var(--lm-border-strong)" });
   return <div className={`group relative overflow-hidden border ${desktop ? "" : `min-h-[96px] ${tall ? "md:min-h-[260px]" : ""}`}`}
-    onPointerEnter={desktop ? () => setResting(true) : undefined} onPointerLeave={desktop ? () => setResting(false) : undefined}
-    data-izone-archived={zone.archived}
+    onPointerEnter={(event) => { if (desktop) setResting(true); hoverHandlers?.onPointerEnter(event); }}
+    onPointerLeave={(event) => { if (desktop) setResting(false); hoverHandlers?.onPointerLeave(event); }}
+    data-archived={archived}
     style={{
       borderRadius: RADIUS, borderWidth: chosen || marked ? 2 : 1, borderColor: chosen ? "var(--lm-coral)" : marked ? "var(--lm-status-error)" : isCover ? "var(--lm-ink)" : "var(--lm-border-strong)",
       background: "var(--lm-surface-1)", aspectRatio: desktop ? String(aspectOf(asset)) : undefined,
@@ -814,7 +871,6 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
       aria-label={onPick ? `Choose ${badge ?? hotkey ?? ""}` : onToggleMark ? (marked ? "Keep this image" : "Mark to delete") : "See it full size"}>
       {desktop ? <Media asset={asset} playing={resting} /> : <Picture asset={asset} />}
     </button>
-    {!deleted && !marked && <HoverZones {...zone} onAction={onZone} />}
     {marked && <span className="pointer-events-none absolute inset-0 grid place-items-center" style={{ background: "color-mix(in srgb, var(--lm-paper) 55%, transparent)" }}>
       <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em]" style={{ ...mono, borderRadius: RADIUS, background: "var(--lm-status-error)", color: "#fff" }}>
         <Trash2 size={11} aria-hidden /> Delete
@@ -826,7 +882,9 @@ function Tile({ asset, notes, hotkey, badge, chosen, marked, isCover, deleted, t
         {badge && <span className="px-1.5 py-[3px] text-[10px] font-black uppercase leading-none tracking-[0.1em]" style={{ ...mono, borderRadius: RADIUS, background: chosen ? "var(--lm-coral)" : "var(--lm-ink)", color: "var(--lm-paper)" }}>{badge}</span>}
         {isCover && !marked && <span className="px-1.5 py-[3px] text-[9px] font-black uppercase leading-none tracking-[0.12em]" style={{ ...mono, borderRadius: RADIUS, background: "var(--lm-ink)", color: "var(--lm-paper)" }}>Cover</span>}
       </span>
-      <span className={`pointer-events-auto flex gap-1 ${desktop && !ownerNotes ? "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" : ""}`}>
+      {/* With a mouse, 3 and 4 on the hovered image do these; the buttons stay for touch. */}
+      {ownerNotes > 0 && <span className="ikey-desk grid h-7 w-7 place-items-center" style={toolStyle(true)} title="Has a note"><MessageSquare size={12} aria-hidden /></span>}
+      <span className="ikey-touch pointer-events-auto flex gap-1">
         {onNote && !asset.missing && <button type="button" onClick={onNote} aria-label="Note on this image" className={toolButton} style={toolStyle(ownerNotes > 0)}>
           <MessageSquare size={12} aria-hidden />
         </button>}
@@ -980,10 +1038,10 @@ function Answers({ card, current, open, hover, zones, marks, kept, confirm, setC
 
 type DecisionMap = Map<string, Live>;
 
-function MiniTile({ card, live, active, onClick }: { card: Card; live?: Live; active?: boolean; onClick: () => void }) {
+function MiniTile({ card, live, active, hoverHandlers, onClick }: { card: Card; live?: Live; active?: boolean; hoverHandlers?: HoverHandlers; onClick: () => void }) {
   const first = card.assets.find((asset) => !asset.missing);
   const label = answerLabel(card, answerOf(live));
-  return <button type="button" onClick={onClick} className="group relative aspect-square overflow-hidden border text-left"
+  return <button type="button" onClick={onClick} {...hoverHandlers} className="group relative aspect-square overflow-hidden border text-left"
     style={{ borderRadius: RADIUS, borderColor: active ? "var(--lm-coral)" : "var(--lm-border)", borderWidth: active ? 2 : 1, background: "var(--lm-surface-2)" }}>
     {first ? <>
       {/* eslint-disable-next-line @next/next/no-img-element -- card thumbnail */}
@@ -998,7 +1056,9 @@ function MiniTile({ card, live, active, onClick }: { card: Card; live?: Live; ac
   </button>;
 }
 
-function CardGrid({ view, decisions, active, onOpen, onClose }: { view: View; decisions: DecisionMap; active: number; onOpen: (index: number) => void; onClose: () => void }) {
+function CardGrid({ view, decisions, active, hoverOf, onOpen, onClose }: {
+  view: View; decisions: DecisionMap; active: number; hoverOf: (card: Card) => HoverHandlers | undefined; onOpen: (index: number) => void; onClose: () => void;
+}) {
   return <div className="fixed inset-0 z-[70] flex flex-col animate-fade-in" style={{ background: "var(--lm-overlay-canvas)" }} role="dialog" aria-modal="true" aria-label="All cards">
     <div className="flex shrink-0 items-center justify-between px-4 py-3 md:px-6" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
       <p className="text-lg font-black uppercase tracking-tight" style={display}>All cards <Micro className="ml-2">{view.cards.length}</Micro></p>
@@ -1007,13 +1067,13 @@ function CardGrid({ view, decisions, active, onOpen, onClose }: { view: View; de
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 md:px-6">
       <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-        {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} active={index === active} onClick={() => onOpen(index)} />)}
+        {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} active={index === active} hoverHandlers={hoverOf(card)} onClick={() => onOpen(index)} />)}
       </div>
     </div>
   </div>;
 }
 
-function DoneView({ view, decisions, onOpen }: { view: View; decisions: DecisionMap; onOpen: (index: number) => void }) {
+function DoneView({ view, decisions, hoverOf, onOpen }: { view: View; decisions: DecisionMap; hoverOf: (card: Card) => HoverHandlers | undefined; onOpen: (index: number) => void }) {
   const later = view.cards.filter((card) => decisions.get(card._id)?.choice === "skip").length;
   return <div className="min-h-0 flex-1 overflow-y-auto border p-4" style={{ borderRadius: RADIUS, borderColor: "var(--lm-border)", background: "var(--lm-surface-1)" }}>
     <div className="flex items-center gap-2">
@@ -1024,7 +1084,7 @@ function DoneView({ view, decisions, onOpen }: { view: View; decisions: Decision
       Agents read your answers and notes from here.{later ? ` ${later} left for later.` : ""} Tap any card to change it.
     </p>
     <div className="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-      {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} onClick={() => onOpen(index)} />)}
+      {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} hoverHandlers={hoverOf(card)} onClick={() => onOpen(index)} />)}
     </div>
     <Link href={`/inbox/${view.stack.worldFolderId}`} className="mt-5 inline-flex"><ActionButton icon={<Layers size={13} aria-hidden />}>All stacks in {view.worldName}</ActionButton></Link>
   </div>;
