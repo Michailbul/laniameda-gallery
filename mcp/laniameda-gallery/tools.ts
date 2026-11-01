@@ -1,6 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { storyInputSchema, storyPatchSchema, presetFiltersSchema } from "../../lib/story-contract";
+import {
+  buildStyleLockBody, matchBoards, MISSING_BOARD_FLAG, stylePackageIngestKey, stylePackageSchema, type BoardRow, type StyleExample,
+} from "../../lib/style-package";
 import { createSkillInputSchema } from "../../lib/skill-contract";
 import { galleryAssetPageInputSchema } from "../../lib/gallery-pagination";
 import {
@@ -50,6 +53,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
   "Named people are characters: one record per person per world with a stable code (DA-CH-001), costumes as -C01/-C02, a canonical sheet and face, and typed asset links. list_characters and get_character read the cast; create_character, update_character, save_character_costume and link_character_assets maintain it. Cite the code in captions and storybook CAST blocks. Read references/characters.md.",
   "Moodboards are ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (a personalization code); each belongs to a collection. list_moodboards and get_moodboard read them (get_moodboard returns full image URLs, in order, to push into Midjourney); save_moodboard, add_moodboard_items and reorder_moodboard_items maintain them; record the Midjourney code after a sync with set_moodboard_midjourney. Read references/moodboards.md.",
+  "A look worth keeping is packaged with package_style: one style-lock Story with the recipe, a copy-ready prompt, the example frames and their full prompts, the moodboards behind its codes (linked, cited from another world, or flagged MOODBOARD NOT CREATED YET) and what raises or lowers it. Run it with dryRun first. Read references/styles.md.",
   "Each world has an Inbox (Decisions in the gallery, /inbox/<worldId>): stacks of cards where Michael decides and agents never judge taste. post_inbox_cards posts sort, duplicates, artifact, ab, choose or rule cards with facts as evidence; list_inbox_decisions reads his answers, comments and voice notes (transcribe them yourself) and his notes on single images; close_stack once you have applied and learned from a stack. Read references/inbox.md.",
   "Collections (folders) are one level deep. Resolve names from open_world's shelves or with list_collections filtered by world (or parentFolderId, rootsOnly, search) before filing; an unfiltered list_collections is the whole vault. A child collection can carry a display group (Styles, Places, Cast) and sortOrder.",
   "What a piece IS is a tag: character, location, scene or inspiration. The animation tag marks animated work; no tag means live action.",
@@ -380,6 +384,78 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
   server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
   server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("package_style", {
+    title: "Package Style",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Turn a found Midjourney recipe into a world style lock in one call: checks the example frames live in the world and reads their full prompts, matches each moodboard code to its gallery board (linked when it is in this world, cited when it lives in another world, flagged MOODBOARD NOT CREATED YET when no board has it), files the examples on the style shelf, and saves a kind style-lock Story with the recipe, a copy-ready prompt, the examples and what raises or lowers the look. Same ingestKey = same lock; changing it needs expectedRevision. dryRun returns the body and checks without writing. Never builds or edits a moodboard and never touches Midjourney. Read references/styles.md.",
+    inputSchema: { ...stylePackageSchema.shape, session: sessionShape },
+  }, async (raw) => {
+    const input = stylePackageSchema.parse(raw);
+    const opened = await apiFetch("/api/agent/worlds", { action: "open", world: input.world, journalLimit: 0 });
+    const world = opened.world as { id: string; key: string; name: string } | undefined;
+    if (!world) throw new Error(`No world matches "${input.world}". open_world with no arguments lists them.`);
+    const shelves = (opened.shelves ?? []) as { id: string; name: string; group?: string }[];
+    const worldFolderIds = new Set([world.id, ...shelves.map((shelf) => shelf.id)]);
+    const shelf = input.shelf
+      ? shelves.find((row) => row.id === input.shelf) ?? shelves.find((row) => row.name.toLowerCase() === input.shelf!.toLowerCase())
+      : undefined;
+    if (input.shelf && !shelf) throw new Error(`"${input.shelf}" is not a shelf of ${world.name}. Create it with world_shelf (group Styles) first.`);
+
+    const examples: StyleExample[] = [];
+    const outside: string[] = [];
+    for (const ref of input.exampleAssetIds) {
+      const id = ref.replace(/^asset:/, "");
+      const read = await apiFetch("/api/agent/gallery", { action: "getById", id: `asset:${id}` });
+      const asset = (read.asset ?? read) as { _id?: string; folderIds?: string[]; promptText?: string; agentDescription?: string; sourceUrl?: string; thumbUrl?: string };
+      if (!asset._id) throw new Error(`asset:${id} was not found.`);
+      if (!(asset.folderIds ?? []).some((folderId) => worldFolderIds.has(folderId))) outside.push(`asset:${id}`);
+      examples.push({ id, prompt: asset.promptText, description: asset.agentDescription, sourceUrl: asset.sourceUrl, thumbUrl: asset.thumbUrl });
+    }
+    if (outside.length) throw new Error(`Examples must live in ${world.name}: ${outside.join(", ")} do not. File them with world_file first (move: true only when Michael said so).`);
+
+    const codes = input.recipe.moodboardCodes;
+    const boards = codes.length
+      ? matchBoards(codes, ((await apiFetch("/api/agent/moodboards", { action: "list", includeArchived: true })).moodboards ?? []) as BoardRow[], worldFolderIds)
+      : [];
+    for (const match of boards) {
+      if (match.state !== "other-world") continue;
+      const read = await apiFetch("/api/agent/moodboards", { action: "get", moodboardId: match.board._id });
+      match.worldName = (read.parentFolderName ?? read.folderName) as string | undefined;
+    }
+
+    const ingestKey = input.ingestKey ?? stylePackageIngestKey(world.key, input.name);
+    const body = buildStyleLockBody({ input, worldName: world.name, worldKey: world.key, ingestKey, boards, examples, date: new Date().toISOString().slice(0, 10) });
+    const title = input.title ?? `${world.name} · ${input.name} · Midjourney recipe`;
+    const moodboards = boards.map((match) => match.state === "missing"
+      ? { code: match.code, state: match.state, flag: MISSING_BOARD_FLAG }
+      : { code: match.code, state: match.state, moodboardId: `moodboard:${match.board._id}`, name: match.board.name, url: match.board.url, ...(match.state === "other-world" ? { world: match.worldName } : {}) });
+    const toFile = shelf && input.fileExamples !== false ? examples.map((example) => example.id) : [];
+    const report = { world: world.key, ingestKey, title, styleTag: input.styleTag, shelf: shelf ? { id: shelf.id, name: shelf.name } : null, moodboards, examples: examples.map((example) => `asset:${example.id}`) };
+    if (input.dryRun) return jsonText({ ok: true, dryRun: true, ...report, wouldFile: toFile.length, body });
+
+    const filed = toFile.length
+      ? await apiFetch("/api/agent/worlds", { action: "file", world: world.key, assetIds: toFile, addTo: [shelf!.id], note: `Examples of the style ${input.name}`, session: input.session })
+      : null;
+    let saved: JsonRecord;
+    try {
+      saved = await apiFetch("/api/agent/stories", {
+        action: "save", ingestKey, title, body, kind: "style-lock", status: input.status ?? "draft", logline: input.logline,
+        folderId: shelf?.id ?? world.id, styleTag: input.styleTag, tagNames: ["style-lock", input.styleTag],
+        assetIds: examples.map((example) => example.id), expectedRevision: input.expectedRevision, session: input.session,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/revision|changed/i.test(message)) throw error;
+      const locks = ((await apiFetch("/api/agent/stories", { action: "list", world: world.key, kind: "style-lock", limit: 500 })).stories ?? []) as { _id: string; ingestKey?: string; revision: number }[];
+      const current = locks.find((lock) => lock.ingestKey === ingestKey);
+      throw new Error(current ? `${message} The lock is story:${current._id} at revision ${current.revision}; pass expectedRevision: ${current.revision} to update it.` : message);
+    }
+    const story = (saved.story ?? {}) as { _id?: string; url?: string; title?: string; status?: string; revision?: number; folderId?: string; assetIds?: string[] };
+    return jsonText({
+      ok: true, ...report, filed, created: saved.created, revision: saved.revision,
+      story: { id: story._id ? `story:${story._id}` : undefined, url: story.url, title: story.title, status: story.status, revision: story.revision, folderId: story.folderId, assetIds: story.assetIds },
+    });
+  });
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
