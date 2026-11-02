@@ -8,6 +8,19 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — Gallery full width everywhere, square tiles, one tag row (branch `fix/gallery-wide-tags`)
+
+Michael: the gallery must be wide on every screen, the tiles had turned round,
+and a tile's hover tags overlapped. Width caps lifted: the toolbar island and the
+storybook shelf (1180 px), the tasks wall (1216) and deck (1400), Decisions
+(max-w-5xl; its stack grid now goes to 4 and 5 columns on wide screens) and
+YouTube (1680). Grid tiles, their skeletons and shelf cards use `--lm-radius`
+(2 px) instead of 12–16 px. On a tile the badges (type, collections, model,
+public) and the removable tags were two absolute rows anchored bottom-left and
+bottom-right, so they collided. They are one wrapping row now, with tags that
+repeat a badge dropped and tags past three collapsed into +N. Public showcase
+pages keep their own 1200–1400 px layout.
+
 ### 2026-11-02 — /tasks opens on Decide: one call at a time, then All done (branch `feature/tasks-decide-flow`)
 
 Michael: the wall of ~50 frames (2 questions, 34 reports, 12 queued jobs) was

@@ -228,7 +228,7 @@ const CSS = `
 .lmw-undo{display:inline-flex;align-items:center;gap:5px;font:700 9.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary);padding:9px 6px;min-height:32px;background:none;border:0;cursor:pointer}
 .lmw-undo:disabled{opacity:.35;cursor:default}
 
-.lmw-wall{max-width:1216px;margin:0 auto;padding-top:2px}
+.lmw-wall{padding-top:2px}
 .lmw-row{margin-top:10px}
 .lmw-row-head{position:sticky;top:var(--lmw-bar);z-index:10;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding:11px 16px 9px;
   background:linear-gradient(180deg,var(--lm-sidebar-glass-fill-top),var(--lm-sidebar-glass-fill-bottom));
@@ -898,7 +898,7 @@ function FocusSheet({ card, stamp, field, showWorld, hasPrev, hasNext, onClose, 
 
 const DECK_CSS = `
 .lmw.deck{background-image:none}
-.lmd-prog{max-width:1400px;margin:0 auto;padding:14px 16px 0;display:flex;align-items:center;gap:14px}
+.lmd-prog{padding:14px 16px 0;display:flex;align-items:center;gap:14px}
 .lmd-prog .n{flex:0 0 auto;font:700 10px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary);font-variant-numeric:tabular-nums}
 .lmd-prog .n b{color:var(--lm-text-primary);font-weight:700}
 .lmd-segs{flex:1 1 auto;display:flex;gap:2px;height:4px;min-width:0}
@@ -908,7 +908,7 @@ const DECK_CSS = `
 .lmd-segs i.left{background:var(--lm-text-ghost)}
 .lmd-bar{flex:1 1 auto;height:4px;background:var(--lm-surface-3);border-radius:1px;overflow:hidden}
 .lmd-bar i{display:block;height:100%;background:var(--lm-coral);transition:width 300ms}
-.lmd{max-width:1400px;margin:0 auto;padding:16px 16px 24px;display:flex;flex-direction:column;gap:18px;animation:lmd-in 240ms cubic-bezier(.2,.8,.2,1)}
+.lmd{padding:16px 16px 24px;display:flex;flex-direction:column;gap:18px;animation:lmd-in 240ms cubic-bezier(.2,.8,.2,1)}
 @keyframes lmd-in{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
 .lmd-media{position:relative;min-width:0}
 .lmd-media .lmw-pics{background:none;gap:6px}
@@ -936,7 +936,7 @@ const DECK_CSS = `
 .lmd-nav .sp{flex:1 1 auto}
 .lmd-keys{font:600 9.5px/1.6 var(--lm-font);letter-spacing:.1em;text-transform:uppercase;color:var(--lm-text-ghost)}
 .lmd-keys kbd{font:inherit;color:var(--lm-text-tertiary);border:1px solid var(--lm-border-strong);border-radius:2px;padding:1px 4px;margin-right:4px}
-.lmd.bare{max-width:820px}
+.lmd.bare{max-width:820px;margin:0 auto}
 .lmd.bare .lmd-q{font-size:clamp(28px,7vw,52px)}
 .lmd.bare .lmd-side{position:relative;margin-top:4dvh;padding:26px 24px 20px;background:var(--lm-surface-1);border:1px solid var(--lm-border-strong);border-top:3px solid var(--lm-text-primary);border-radius:var(--lm-radius);box-shadow:var(--lm-shadow-md)}
 .lmd.bare.ask .lmd-side{border-top-color:var(--lm-coral)}

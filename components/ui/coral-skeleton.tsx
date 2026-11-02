@@ -155,7 +155,7 @@ export function SkeletonGrid({
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="mb-3 overflow-hidden rounded-xl"
+          className="mb-3 overflow-hidden rounded-[var(--lm-radius)]"
           style={{
             aspectRatio: SKELETON_ASPECT_RATIOS[i % SKELETON_ASPECT_RATIOS.length],
             breakInside: "avoid-column",

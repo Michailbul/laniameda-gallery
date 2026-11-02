@@ -17,7 +17,7 @@ function Shell({ back, title, subtitle, actions, children }: {
   back: { href: string; label: string }; title: string; subtitle: string; actions?: React.ReactNode; children: React.ReactNode;
 }) {
   return <main className="min-h-dvh px-4 pb-16 md:px-8" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)", paddingTop: "max(16px, env(safe-area-inset-top))" }}>
-    <div className="mx-auto max-w-5xl">
+    <div>
       <Link href={back.href} className="mb-6 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors hover:text-[var(--lm-text-primary)]"
         style={{ ...mono, color: "var(--lm-text-tertiary)" }}>
         <ArrowLeft size={13} aria-hidden /> {back.label}
@@ -108,7 +108,7 @@ export function InboxHome({ ownerUserId }: { ownerUserId: string }) {
     </div>}
     {stacks === undefined ? <Spinner /> : stacks.length === 0
       ? <Empty title={status === "open" ? "Nothing to decide" : "No closed stacks"}>Agents post stacks of cards into a world&rsquo;s Inbox with post_inbox_cards. You decide; they apply and learn.</Empty>
-      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{stacks.map((row) => <StackCard key={row._id} row={row} showWorld />)}</div>}
+      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 min-[2200px]:grid-cols-5">{stacks.map((row) => <StackCard key={row._id} row={row} showWorld />)}</div>}
   </Shell>;
 }
 
@@ -125,6 +125,6 @@ export function WorldInbox({ ownerUserId, worldId }: { ownerUserId: string; worl
     actions={<StatusChips status={status} setStatus={setStatus} />}>
     {stacks === undefined ? <Spinner /> : stacks.length === 0
       ? <Empty title={status === "open" ? "Inbox empty" : "No closed stacks"}>Nothing waits for you in this world.</Empty>
-      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{stacks.map((row) => <StackCard key={row._id} row={row} />)}</div>}
+      : <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 min-[2200px]:grid-cols-5">{stacks.map((row) => <StackCard key={row._id} row={row} />)}</div>}
   </Shell>;
 }
