@@ -4,19 +4,19 @@ import { v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
-import { jpegOf } from "./jevClassify";
+import { jpegOf } from "./tagClassify";
 import {
   SHELF_MODEL, SHELF_RULE_VERSION, buildShelfQuestions,
   type Shelf, type ShelfAnswers, type ShelfGroup,
 } from "../lib/shelf-rules";
 
-// Auto-shelving with OpenAI's Decisions API: after a picture is saved into a
-// world, it is put on the world's Places / World building / Moods shelves the
-// model is sure about. Runs after the Jev classification (convex/jevClassify.ts).
-// Off unless the deployment sets SHELF_CLASSIFY_ENABLED=true and OPENAI_API_KEY.
+// Auto-shelving with Jev (TypeSafe System One): after a picture is saved into
+// a world, it is put on the world's Places shelf and romance mood shelf when
+// Jev is sure (lib/shelf-rules.ts). Runs after the tagging (convex/tagClassify.ts).
+// Off unless the deployment sets SHELF_CLASSIFY_ENABLED=true and TYPESAFE_API_KEY.
 
-const API_URL = "https://api.openai.com/v1/decisions";
-const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const API_URL = "https://api.typesafe.ai/v1/systemone";
+const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
 const RETRY_DELAYS_MS = [60_000, 300_000] as const;
 
 const getShelfContextRef = makeFunctionReference<"query">("assetShelves:getShelfContext");
@@ -25,7 +25,7 @@ const getClassifySourceRef = makeFunctionReference<"query">("assetClassification
 const fileOnShelvesRef = makeFunctionReference<"action">("shelfClassify:fileOnShelves");
 
 export const shelvesEnabled = () =>
-  process.env.SHELF_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" && Boolean(process.env.OPENAI_API_KEY?.trim());
+  process.env.SHELF_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" && Boolean(process.env.TYPESAFE_API_KEY?.trim());
 
 class DecisionError extends Error {
   constructor(message: string, readonly retryable: boolean) {
@@ -33,39 +33,35 @@ class DecisionError extends Error {
   }
 }
 
-type RawAnswer = { choice?: string; probability?: number; probabilities?: { label?: string; value?: string; probability: number }[] };
+type RawAnswer = { type: string; choice?: string; confidence?: number; noul?: number };
 
-const askOpenAI = async (jpegBase64: string, shelves: Shelf[], skip: Set<ShelfGroup>, worldName: string): Promise<ShelfAnswers> => {
+const askJev = async (jpegBase64: string, assetId: string, shelves: Shelf[], skip: Set<ShelfGroup>, worldName: string): Promise<ShelfAnswers> => {
   const questions = buildShelfQuestions(shelves, skip, worldName);
   if (questions.length === 0) return {};
+  const ref = `img${assetId.slice(-12)}`;
   const response = await fetch(API_URL, {
     method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY?.trim()}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${process.env.TYPESAFE_API_KEY?.trim()}`,
+      "Content-Type": "application/json",
+      "TypeSafe-Danger-Zone-Images": "true",
+    },
     body: JSON.stringify({
       model: SHELF_MODEL,
-      input: [{ role: "user", content: [
-        { type: "input_text", text: `A picture saved into the story world "${worldName}".` },
-        { type: "input_image", image_url: `data:image/jpeg;base64,${jpegBase64}`, detail: "high" },
-      ] }],
-      questions: questions.map(({ key: _key, ...question }) => question),
+      state: { picture: ref },
+      assets: { [ref]: { type: "image", format: "jpg", data_base64: jpegBase64 } },
+      questions: Object.fromEntries(questions.map(({ key, ...question }) => [key, question])),
     }),
   });
   if (!response.ok) {
-    throw new DecisionError(`OpenAI HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`, RETRYABLE.has(response.status));
+    throw new DecisionError(`TypeSafe HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`, RETRYABLE.has(response.status));
   }
-  const body = await response.json() as { answers: RawAnswer[] };
+  const body = await response.json() as { answers: Record<string, RawAnswer> };
   const answers: ShelfAnswers = {};
-  questions.forEach((question, index) => {
-    const raw = body.answers[index];
-    if (!raw) return;
-    if (question.type === "predicate") {
-      answers[question.key] = { p: Math.round((raw.probability ?? 0) * 1000) / 1000 };
-      return;
-    }
-    const picked = raw.probabilities?.find((option) => (option.value ?? option.label) === raw.choice);
-    const confidence = picked?.probability ?? raw.probability ?? 0;
-    answers[question.key] = { choice: raw.choice, confidence: Math.round(confidence * 1000) / 1000 };
-  });
+  for (const [key, raw] of Object.entries(body.answers)) {
+    if (raw.type === "noul" && typeof raw.noul === "number") answers[key] = { p: Math.round(raw.noul * 1000) / 1000 };
+    else if (raw.choice) answers[key] = { choice: raw.choice, confidence: Math.round((raw.confidence ?? 0) * 1000) / 1000 };
+  }
   return answers;
 };
 
@@ -78,7 +74,7 @@ const fileOne = async (ctx: ActionCtx, assetId: Id<"assets">, opts: { force?: bo
   const source = await ctx.runQuery(getClassifySourceRef, { assetId }) as { imageUrl?: string; kind: string } | null;
   if (!source?.imageUrl) return { outcome: "no_image" as const, retryable: source?.kind === "video" };
   try {
-    const answers = await askOpenAI(await jpegOf(source.imageUrl), context.shelves, new Set(context.skipGroups as ShelfGroup[]), context.worldName);
+    const answers = await askJev(await jpegOf(source.imageUrl), assetId, context.shelves, new Set(context.skipGroups as ShelfGroup[]), context.worldName);
     const shelves = await ctx.runMutation(saveShelfFilingRef, {
       assetId, model: SHELF_MODEL, version: SHELF_RULE_VERSION, status: "done", answers, apply: opts.apply,
     }) as string[];

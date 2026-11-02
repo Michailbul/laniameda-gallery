@@ -8,6 +8,24 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — Tagging moves to OpenAI with a short tag list; Jev files places and romance (branch `feat/tags-luna-shelves-jev`)
+- Every new picture is tagged by OpenAI Decisions (`gpt-6-luna`) instead of
+  Jev: one request, 0.6 s, about $0.0004 a picture. On 173 pictures labelled
+  by eye it got 655 tags right and 10 wrong (Jev at live settings: 453 right).
+  `lib/facet-tags.ts`, `convex/tagClassify.ts` (was `jevClassify.ts`), switch
+  `TAG_CLASSIFY_ENABLED`.
+- The tag list is cut to what helps world building: piece type, medium,
+  interior/exterior, light, wide-shot/close-up, 3d-render, character-sheet,
+  romance, horror, plus design kind and car angle on designs and cars.
+  Couple, melancholy, glamour, world-detail, celebration, crowd, game-view,
+  macro and product are retired and taken off the pictures the classifier had
+  put them on (`assetClassifications:dropRetiredTags`).
+- Fashion now needs 0.95 and the field question names costume art for a story
+  world as story art; golden hour needs 0.9.
+- Auto-shelving runs on Jev and files only the Places shelf and romance moods
+  (`lib/shelf-rules.ts`, version 2); World building and the other moods were
+  right too rarely to file unattended.
+
 ### 2026-11-02 — Gallery full width everywhere, square tiles, one tag row (branch `fix/gallery-wide-tags`)
 
 Michael: the gallery must be wide on every screen, the tiles had turned round,

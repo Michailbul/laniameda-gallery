@@ -4,32 +4,32 @@ import { v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
-import { JEV_FACETS_VERSION, JEV_MODEL, buildJevRequest, compactAnswers } from "../lib/jev-facets";
+import { FACETS_VERSION, FACET_MODEL, buildFacetRequest, compactAnswers } from "../lib/facet-tags";
 
-// Auto-classification of every new picture with Jev (TypeSafe System One).
-// createAsset schedules classifyAsset before the asset's first index, so the
-// tags it adds are in the search text; whatever happens here, the describe or
-// index step it was handed runs afterwards. Off unless the deployment sets
-// JEV_CLASSIFY_ENABLED=true and TYPESAFE_API_KEY.
+// Auto-tagging of every new picture with OpenAI's Decisions API (gpt-6-luna;
+// Jev until 2 Nov 2026). createAsset schedules classifyAsset before the
+// asset's first index, so the tags it adds are in the search text; whatever
+// happens here, the describe or index step it was handed runs afterwards.
+// Off unless the deployment sets TAG_CLASSIFY_ENABLED=true and OPENAI_API_KEY.
 
-const API_URL = "https://api.typesafe.ai/v1/systemone";
+const API_URL = "https://api.openai.com/v1/decisions";
 const MAX_BYTES = 40 * 1024 * 1024;
 const LONG_SIDE = 1024;
 const MIN_SIDE = 280;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000] as const;
-const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 const getClassifySourceRef = makeFunctionReference<"query">("assetClassifications:getClassifySource");
 const saveClassificationRef = makeFunctionReference<"mutation">("assetClassifications:saveClassification");
 const listAssetsUnclassifiedRef = makeFunctionReference<"query">("assetClassifications:listAssetsUnclassified");
-const classifyAssetRef = makeFunctionReference<"action">("jevClassify:classifyAsset");
-const backfillRef = makeFunctionReference<"action">("jevClassify:backfillJevClassify");
+const classifyAssetRef = makeFunctionReference<"action">("tagClassify:classifyAsset");
+const backfillRef = makeFunctionReference<"action">("tagClassify:backfillTags");
 const describeAssetRef = makeFunctionReference<"action">("agentDescriptions:describeAsset");
 const reindexAssetRef = makeFunctionReference<"action">("semanticIndex:reindexAsset");
 const fileOnShelvesRef = makeFunctionReference<"action">("shelfClassify:fileOnShelves");
 
-export const jevEnabled = () =>
-  process.env.JEV_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" && Boolean(process.env.TYPESAFE_API_KEY?.trim());
+export const tagsEnabled = () =>
+  process.env.TAG_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" && Boolean(process.env.OPENAI_API_KEY?.trim());
 
 type Sharp = (typeof import("sharp"))["default"];
 let sharpLoader: Promise<Sharp> | undefined;
@@ -41,7 +41,7 @@ const loadSharp = () => {
   return sharpLoader;
 };
 
-/** Jev takes JPEG or PNG, 280–1568 px a side: the thumbnail (WebP) re-encoded at 1024 px. */
+/** Both classifiers take JPEG; Jev wants 280–1568 px a side: the thumbnail (WebP) re-encoded at 1024 px. */
 export const jpegOf = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`image HTTP ${response.status}`);
@@ -60,26 +60,22 @@ export const jpegOf = async (url: string) => {
   return out.toString("base64");
 };
 
-class JevError extends Error {
+class DecisionError extends Error {
   constructor(message: string, readonly retryable: boolean) {
     super(message);
   }
 }
 
-const askJev = async (jpegBase64: string, assetId: string) => {
+const askOpenAI = async (jpegBase64: string) => {
   const response = await fetch(API_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.TYPESAFE_API_KEY?.trim()}`,
-      "Content-Type": "application/json",
-      "TypeSafe-Danger-Zone-Images": "true",
-    },
-    body: JSON.stringify(buildJevRequest(jpegBase64, `img${assetId.slice(-12)}`)),
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY?.trim()}`, "Content-Type": "application/json" },
+    body: JSON.stringify(buildFacetRequest(jpegBase64)),
   });
   if (!response.ok) {
-    throw new JevError(`TypeSafe HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`, RETRYABLE.has(response.status));
+    throw new DecisionError(`OpenAI HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`, RETRYABLE.has(response.status));
   }
-  const body = await response.json() as { answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }> };
+  const body = await response.json() as { answers: Parameters<typeof compactAnswers>[0] };
   return compactAnswers(body.answers);
 };
 
@@ -92,21 +88,21 @@ const continueWith = async (ctx: ActionCtx, assetId: Id<"assets">, then: Then) =
 type Outcome = "classified" | "skipped" | "disabled" | "no_image" | "error";
 
 const classifyOne = async (ctx: ActionCtx, assetId: Id<"assets">, opts: { force?: boolean; apply?: boolean }): Promise<{ outcome: Outcome; retryable?: boolean; tags?: string[] }> => {
-  if (!jevEnabled()) return { outcome: "disabled" };
-  const source = await ctx.runQuery(getClassifySourceRef, { assetId }) as { imageUrl?: string; kind: string; classified: boolean } | null;
+  if (!tagsEnabled()) return { outcome: "disabled" };
+  const source = await ctx.runQuery(getClassifySourceRef, { assetId, version: FACETS_VERSION }) as { imageUrl?: string; kind: string; classified: boolean } | null;
   if (!source || (source.classified && !opts.force)) return { outcome: "skipped" };
   if (!source.imageUrl) return { outcome: "no_image", retryable: source.kind === "video" };
   try {
-    const answers = await askJev(await jpegOf(source.imageUrl), assetId);
+    const answers = await askOpenAI(await jpegOf(source.imageUrl));
     const tags = await ctx.runMutation(saveClassificationRef, {
-      assetId, model: JEV_MODEL, version: JEV_FACETS_VERSION, status: "done", answers, apply: opts.apply,
+      assetId, model: FACET_MODEL, version: FACETS_VERSION, status: "done", answers, apply: opts.apply,
     }) as string[];
     return { outcome: "classified", tags };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Jev classify failed for asset:${assetId}: ${message}`);
-    await ctx.runMutation(saveClassificationRef, { assetId, model: JEV_MODEL, version: JEV_FACETS_VERSION, status: "error", error: message.slice(0, 300) });
-    return { outcome: "error", retryable: !(error instanceof JevError) || error.retryable };
+    console.warn(`Tagging failed for asset:${assetId}: ${message}`);
+    await ctx.runMutation(saveClassificationRef, { assetId, model: FACET_MODEL, version: FACETS_VERSION, status: "error", error: message.slice(0, 300) });
+    return { outcome: "error", retryable: !(error instanceof DecisionError) || error.retryable };
   }
 };
 
@@ -144,9 +140,10 @@ export const classifyAsset = internalAction({
 });
 
 // Walks one owner's assets newest first, one page per action, ten pictures at
-// a time, classifying those without a finished classification. Run:
-//   convex run jevClassify:backfillJevClassify '{"ownerUserId":"…","batchSize":20}'
-export const backfillJevClassify = internalAction({
+// a time, tagging those without a finished classification of this version
+// (pictures Jev tagged are asked again; their tags stay, gaps get filled). Run:
+//   convex run tagClassify:backfillTags '{"ownerUserId":"…","batchSize":40}'
+export const backfillTags = internalAction({
   args: {
     ownerUserId: v.string(),
     cursor: v.optional(v.union(v.string(), v.null())),
@@ -156,9 +153,9 @@ export const backfillJevClassify = internalAction({
   },
   returns: v.object({ classified: v.number(), failed: v.number(), done: v.boolean() }),
   handler: async (ctx, args): Promise<{ classified: number; failed: number; done: boolean }> => {
-    if (!jevEnabled()) return { classified: 0, failed: 0, done: true };
+    if (!tagsEnabled()) return { classified: 0, failed: 0, done: true };
     const page = await ctx.runQuery(listAssetsUnclassifiedRef, {
-      ownerUserId: args.ownerUserId, cursor: args.cursor, batchSize: args.batchSize ?? 20,
+      ownerUserId: args.ownerUserId, cursor: args.cursor, batchSize: args.batchSize ?? 20, version: FACETS_VERSION,
     }) as { assetIds: Id<"assets">[]; nextCursor: string | null; isDone: boolean };
     let classified = 0;
     let failed = 0;
@@ -177,7 +174,7 @@ export const backfillJevClassify = internalAction({
         maxBatches: args.maxBatches === undefined ? undefined : batchesLeft,
       });
     }
-    console.log(`Jev backfill page: ${classified} classified, ${failed} failed${done ? "; done" : ""}.`);
+    console.log(`Tag backfill page: ${classified} classified, ${failed} failed${done ? "; done" : ""}.`);
     return { classified, failed, done };
   },
 });

@@ -3,10 +3,10 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { bumpTagUsage, canonicalTagKey, normalizeTagName } from "./helpers";
-import { decideFacetTags, type FacetTag, type JevAnswers } from "../lib/jev-facets";
+import { RETIRED_FACET_TAGS, decideFacetTags, type FacetAnswers, type FacetTag } from "../lib/facet-tags";
 
-// Storage side of the Jev auto-classification (the action is convex/jevClassify.ts,
-// the questions and the tag rule lib/jev-facets.ts). One row per asset keeps the
+// Storage side of the auto-tagging (the action is convex/tagClassify.ts,
+// the questions and the tag rule lib/facet-tags.ts). One row per asset keeps the
 // answers and exactly which tags they added, so a bad batch can be taken back.
 
 const answerValidator = v.object({ choice: v.optional(v.string()), confidence: v.optional(v.number()), p: v.optional(v.number()) });
@@ -15,9 +15,9 @@ const INSPIRATION_ROLES = new Set(["inspiration_capture", "bookmark"]);
 const rowOf = (ctx: { db: QueryCtx["db"] }, assetId: Id<"assets">) =>
   ctx.db.query("assetClassifications").withIndex("by_asset", (q) => q.eq("assetId", assetId)).first();
 
-/** For the action: which picture to read, and whether it was classified already. */
+/** For the action: which picture to read, and whether it was classified already (at this version or later). */
 export const getClassifySource = internalQuery({
-  args: { assetId: v.id("assets") },
+  args: { assetId: v.id("assets"), version: v.optional(v.number()) },
   returns: v.union(v.null(), v.object({
     imageUrl: v.optional(v.string()),
     kind: v.string(),
@@ -30,7 +30,7 @@ export const getClassifySource = internalQuery({
     // A video is read from its poster only; an image falls back to the original.
     const imageUrl = thumb ?? (asset.kind === "image" ? await resolveAssetUrl(ctx, asset) : undefined);
     const row = await ctx.db.query("assetClassifications").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).first();
-    return { imageUrl, kind: asset.kind, classified: row?.status === "done" };
+    return { imageUrl, kind: asset.kind, classified: row?.status === "done" && row.version >= (args.version ?? 0) };
   },
 });
 
@@ -47,7 +47,7 @@ const findOrCreateTag = async (ctx: MutationCtx, tag: FacetTag): Promise<Id<"tag
   return await ctx.db.insert("tags", { name: tag.name, normalized, canonicalKey: canonical, usageCount: 0, category: tag.category, source: "agent" });
 };
 
-/** Saves Jev's answers and adds the tags they earn (lib/jev-facets.ts decides). Returns the added tag names. */
+/** Saves the answers and adds the tags they earn (lib/facet-tags.ts decides). Returns the added tag names. */
 export const saveClassification = internalMutation({
   args: {
     assetId: v.id("assets"),
@@ -73,7 +73,7 @@ export const saveClassification = internalMutation({
     const added: Id<"tags">[] = [...(previous?.addedTagIds ?? [])];
     const addedNames: string[] = [];
     if (args.status === "done" && args.answers && args.apply !== false) {
-      const facets = decideFacetTags(args.answers as JevAnswers, {
+      const facets = decideFacetTags(args.answers as FacetAnswers, {
         tagNames,
         isInspiration: INSPIRATION_ROLES.has(asset.assetRole ?? ""),
       });
@@ -132,9 +132,9 @@ export const undoClassificationTags = internalMutation({
   },
 });
 
-/** One page of an owner's assets, oldest-first by createdAt, that have no finished classification (backfill). */
+/** One page of an owner's assets, newest first, with no finished classification at this version (backfill). */
 export const listAssetsUnclassified = internalQuery({
-  args: { ownerUserId: v.string(), cursor: v.optional(v.union(v.string(), v.null())), batchSize: v.optional(v.number()) },
+  args: { ownerUserId: v.string(), cursor: v.optional(v.union(v.string(), v.null())), batchSize: v.optional(v.number()), version: v.optional(v.number()) },
   returns: v.object({ assetIds: v.array(v.id("assets")), nextCursor: v.union(v.string(), v.null()), isDone: v.boolean() }),
   handler: async (ctx, args) => {
     const page = await ctx.db.query("assets")
@@ -145,9 +145,44 @@ export const listAssetsUnclassified = internalQuery({
     for (const asset of page.page) {
       if (asset.kind !== "image" && asset.kind !== "video") continue;
       const row = await rowOf(ctx, asset._id);
-      if (row?.status !== "done") assetIds.push(asset._id);
+      if (row?.status !== "done" || row.version < (args.version ?? 0)) assetIds.push(asset._id);
     }
     return { assetIds, nextCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+/**
+ * Takes the retired tags (lib/facet-tags.ts) off the pictures the classifier
+ * put them on; a tag a person or an agent added stays. Walks the rows a page
+ * at a time; run until done is true:
+ *   convex run assetClassifications:dropRetiredTags '{}'
+ */
+export const dropRetiredTags = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ removed: v.number(), nextCursor: v.union(v.string(), v.null()), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const retired = new Set<string>();
+    for (const name of RETIRED_FACET_TAGS) {
+      const tag = await ctx.db.query("tags").withIndex("by_normalized", (q) => q.eq("normalized", normalizeTagName(name))).first();
+      if (tag) retired.add(tag._id);
+    }
+    const page = await ctx.db.query("assetClassifications").paginate({ cursor: args.cursor ?? null, numItems: 200 });
+    let removed = 0;
+    for (const row of page.page) {
+      const drop = row.addedTagIds.filter((id) => retired.has(id));
+      if (drop.length === 0) continue;
+      const dropSet = new Set<string>(drop);
+      const asset = await ctx.db.get(row.assetId);
+      if (asset) {
+        const links = await ctx.db.query("assetTags").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).collect();
+        for (const link of links) if (dropSet.has(link.tagId)) await ctx.db.delete(link._id);
+        await ctx.db.patch(asset._id, { tagIds: asset.tagIds.filter((id) => !dropSet.has(id)) });
+        await bumpTagUsage(ctx, drop, -1);
+        removed += drop.length;
+      }
+      await ctx.db.patch(row._id, { addedTagIds: row.addedTagIds.filter((id) => !dropSet.has(id)) });
+    }
+    return { removed, nextCursor: page.isDone ? null : page.continueCursor, done: page.isDone };
   },
 });
 
