@@ -323,6 +323,26 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_owner", ["ownerUserId"]),
+  // What Jev (TypeSafe) answered about a picture and the tags that added.
+  // One row per asset; addedTagIds is exactly what undoClassificationTags
+  // takes back. See lib/jev-facets.ts and convex/jevClassify.ts.
+  assetClassifications: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    model: v.string(),
+    version: v.number(),
+    status: v.union(v.literal("done"), v.literal("error"), v.literal("no_image")),
+    answers: v.optional(v.record(v.string(), v.object({
+      choice: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      p: v.optional(v.number()),
+    }))),
+    addedTagIds: v.array(v.id("tags")),
+    error: v.optional(v.string()),
+    classifiedAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner_classifiedAt", ["ownerUserId", "classifiedAt"]),
   inboxDecisions: defineTable(inboxDecisionFields)
     .index("by_stack", ["stackId"])
     .index("by_card", ["cardId"]),

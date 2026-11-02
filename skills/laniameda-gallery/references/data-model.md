@@ -685,6 +685,21 @@ video poster), `createdAt`. Written a minute after ingest and by the backfill
 `perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
 asset, owner. Read by the grid's Similar view and `find_similar_groups`.
 
+`assetClassifications` holds what Jev (TypeSafe System One) answered about a
+picture: `ownerUserId`, `assetId`, `model`, `version`, `status`
+(done/error/no_image), `answers` (per question: `choice` + `confidence`, or a
+yes/no probability `p`), `addedTagIds` (exactly the tags it added),
+`classifiedAt`. Written about a second after ingest when the deployment sets
+`JEV_CLASSIFY_ENABLED=true` and `TYPESAFE_API_KEY`, before the first describe /
+index, and by `jevClassify:backfillJevClassify`; deleted with the asset.
+Indexes: asset, owner + classifiedAt. The questions and the tag rule are in
+`lib/jev-facets.ts`: it only fills an empty slot (piece type, medium, setting,
+light, shot) and adds facet tags (crowd, couple, romance, horror, melancholy,
+glamour, celebration, world-detail, character-sheet, game-view, 3d-render,
+design + its kind, vehicle + angle, fashion, architecture, product) when Jev is
+sure; it never removes a tag. `assetClassifications:undoClassificationTags`
+takes back exactly the added tags.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,

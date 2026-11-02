@@ -2,11 +2,30 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-01
+Last updated: 2026-11-02
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-02 — Every new picture tags itself with Jev (branch `feat/jev-autoclassify`)
+
+- `convex/jevClassify.ts` asks Jev (TypeSafe System One, `jev-latest`) 17 questions about each new
+  image or video poster: field (story art, design, vehicle, fashion, architecture, product), medium,
+  piece type, setting, light, shot, people, design kind, car angle, character sheet, game view, world
+  detail and five moods. One request per picture, about 2.5k input tokens ($0.0001).
+- `lib/jev-facets.ts` turns sure answers into the tags the menu tabs already filter on (Characters,
+  Locations, Scenes, Live action, Animation, Design, Character sheets, Game views) plus facet tags.
+  It only fills empty slots and never removes a tag. Thresholds from 180 Dear Annete frames: at 0.9
+  type agreed 89/96, setting 82/85, light 30/30; 3D only at 0.99 (Jev leans to "3D" on cinematic
+  Midjourney stills); glamour at 0.95; moods only on story and fashion pictures.
+- Runs before the asset's first describe/index (so the tags are in the search text) and hands that
+  step on; retries 1, 5 and 30 minutes later on a busy API or a missing video poster.
+- `assetClassifications` keeps the answers and the added tag ids; `undoClassificationTags` takes them
+  back. Backfill: `jevClassify:backfillJevClassify {ownerUserId}`.
+- Off unless `JEV_CLASSIFY_ENABLED=true` and `TYPESAFE_API_KEY` are set on the deployment.
+- Style detection by Jev is an experiment only (2 Nov: 25/28 right when sure on Art Deco, but the Ink
+  Noir shelf fooled it); nothing files into styles automatically.
 
 ### 2026-11-01 — Storybooks as a board (branch `feat/storybooks-masonry`)
 

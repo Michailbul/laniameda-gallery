@@ -125,7 +125,8 @@ Leave a piece uncategorized when no destination was requested or clearly fits.
   without that tag, including photoreal rendered output; it does not prove footage
   was photographed. Judge the actual visual rather than its filename.
 - Reuse existing tags; keep them lowercase, singular and hyphenated. Add about
-  up to 5 useful tags. Read the world's `docs/tags.md` (from `open_world`) first;
+  up to 5 useful tags (the facet tags the gallery adds itself with Jev at ingest,
+  such as interior, night, close-up, romance, do not count). Read the world's `docs/tags.md` (from `open_world`) first;
   saves fold case, `-`, `_` and punctuation into one tag and `add_tag_aliases`
   redirects spellings, so call `list_tags` only filtered (`search`, `category`,
   `minUsage`; slim rows, paged), never whole. Use typedTags and source: agent for
