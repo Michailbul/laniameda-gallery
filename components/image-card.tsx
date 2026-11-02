@@ -29,6 +29,20 @@ const CINEMA_PILLAR = "cinema-inspiration";
 // Two collection badges is the most a tile carries before the row eats the
 // image; the rest collapse into a +N.
 const MAX_COLLECTION_BADGES = 2;
+const MAX_TAG_CHIPS = 3;
+// The hover chips on a tile: one size, so a mixed row lines up.
+const CHIP = "px-2 py-0.5 text-[9px] font-mono font-medium uppercase leading-[14px] tracking-wider";
+const CHIP_NEUTRAL = {
+  backgroundColor: "var(--image-card-badge-bg)",
+  color: "var(--image-card-badge-text)",
+  border: "1px solid var(--image-card-badge-border)",
+} as const;
+const CHIP_CORAL = {
+  backgroundColor: "var(--image-card-badge-bg)",
+  color: "var(--coral)",
+  border: "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
+  fontWeight: 700,
+} as const;
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -316,6 +330,15 @@ export const ImageCard = memo(function ImageCard({
   const displayedTags = displayedMember.tagNames ?? [];
   const displayedCollections = displayedMember.collectionLabels ?? [];
   const displayedTypeLabel = displayedMember.typeLabel;
+  const hasBadges = Boolean(
+    image.modelName ||
+      displayedTypeLabel ||
+      displayedCollections.length > 0 ||
+      (showPublicBadge && displayedMember.isPublic),
+  );
+  // Removable tag chips (owner only), minus any that repeat a badge beside them.
+  const badgeWords = new Set([displayedTypeLabel, ...displayedCollections].filter(Boolean).map((label) => label!.toLowerCase()));
+  const chipTags = onRemoveTag ? displayedTags.filter((tag) => !badgeWords.has(tag.toLowerCase())) : [];
   const displayLabel = isPackDeck
     ? activePreview.agentDescription || activePreview.name || activePreview.prompt || "Gallery asset"
     : image.agentDescription || image.name || activePreview.prompt || "Gallery asset";
@@ -558,7 +581,7 @@ export const ImageCard = memo(function ImageCard({
 
   const shouldAnimateEntrance = index < ENTRANCE_ANIMATION_LIMIT;
   const cardClasses = [
-    "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-xl",
+    "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-[var(--lm-radius)]",
     shouldAnimateEntrance && "animate-card-entrance",
     isStarred && "card-starred",
     isSelected && "card-selected",
@@ -1184,117 +1207,57 @@ export const ImageCard = memo(function ImageCard({
         </div>
       )}
 
-      {/* Model + filing badges — bottom-left, revealed on hover so the tile
-          reads clean at rest. When a Prompt chip renders in the same corner
-          the row sits to its right. Suppressed on cinema-inspiration. */}
-      {!isCinema &&
-        (image.modelName ||
-          displayedTypeLabel ||
-          (displayedCollections?.length ?? 0) > 0 ||
-          (showPublicBadge && displayedMember.isPublic)) && (
+      {/* Hover badges and tags — one row along the bottom, revealed on hover
+          so the tile reads clean at rest. What the piece is (coral), where
+          it is filed, the model, then the owner's tags (a click removes one).
+          One wrapping row, so chips never sit on top of each other; tags that
+          repeat a badge are dropped and the rest past three collapse into +N.
+          When a Prompt chip renders in the corner the row starts to its right.
+          Suppressed on cinema-inspiration. */}
+      {!isCinema && (hasBadges || chipTags.length > 0) && (
         <div
-          className={`absolute bottom-2 z-10 flex max-w-[70%] flex-wrap items-center gap-1.5 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 ${
+          className={`pointer-events-none absolute bottom-2 right-2 z-30 flex flex-wrap items-center gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 ${
             hasPrompt && showPromptChip ? "left-[5.75rem]" : "left-2"
           }`}
         >
-          {/* What the piece IS — character / location / scene. Coral so it
-              reads apart from the neutral provenance badges beside it. */}
           {displayedTypeLabel && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--coral)",
-                border:
-                  "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
-              }}
-            >
+            <div className={CHIP} style={CHIP_CORAL}>
               {displayedTypeLabel}
             </div>
           )}
-          {/* Where it's filed. Two collections fit; the rest collapse into a
-              +N whose tooltip names them. */}
           {(displayedCollections ?? [])
             .slice(0, MAX_COLLECTION_BADGES)
             .map((label) => (
-              <div
-                key={label}
-                className="max-w-[140px] truncate px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-                style={{
-                  backgroundColor: "var(--image-card-badge-bg)",
-                  color: "var(--image-card-badge-text)",
-                  border: "1px solid var(--image-card-badge-border)",
-                }}
-                title={`In collection "${label}"`}
-              >
+              <div key={label} className={`${CHIP} max-w-[140px] truncate`} style={CHIP_NEUTRAL} title={`In collection "${label}"`}>
                 {label}
               </div>
             ))}
           {(displayedCollections?.length ?? 0) > MAX_COLLECTION_BADGES && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-              title={displayedCollections!.join(" · ")}
-            >
+            <div className={CHIP} style={CHIP_NEUTRAL} title={displayedCollections!.join(" · ")}>
               +{displayedCollections!.length - MAX_COLLECTION_BADGES}
             </div>
           )}
           {image.modelName && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
+            <div className={CHIP} style={CHIP_NEUTRAL}>
               {image.modelName}
             </div>
           )}
           {showPublicBadge && displayedMember.isPublic && (
-            <div
-              className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--coral)",
-                border: "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
-              }}
-              title="Already public"
-            >
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: "var(--coral)" }}
-              />
+            <div className={`${CHIP} flex items-center gap-1`} style={CHIP_CORAL} title="Already public">
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--coral)" }} />
               Public
             </div>
           )}
-        </div>
-      )}
-
-      {/* Tag chips — owner-only, bottom-right on hover. Clicking a chip
-          removes that tag from the asset (the reactive query refreshes the
-          row). The play chip fades out on hover, so the corner is free. */}
-      {!isCinema && onRemoveTag && (displayedTags?.length ?? 0) > 0 && (
-        <div className="pointer-events-none absolute bottom-2 right-2 z-30 flex max-w-[72%] flex-wrap justify-end gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100">
-          {displayedTags!.map((tag) => (
+          {chipTags.slice(0, MAX_TAG_CHIPS).map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onRemoveTag(displayedAssetId, tag);
+                onRemoveTag?.(displayedAssetId, tag);
               }}
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-                cursor: "pointer",
-              }}
+              className={`${CHIP} flex items-center gap-1 group-hover:pointer-events-auto`}
+              style={{ ...CHIP_NEUTRAL, cursor: "pointer" }}
               title={`Remove tag "${tag}"`}
               aria-label={`Remove tag ${tag} from this asset`}
             >
@@ -1302,9 +1265,13 @@ export const ImageCard = memo(function ImageCard({
               <X className="h-2 w-2" style={{ color: "var(--coral)" }} />
             </button>
           ))}
+          {chipTags.length > MAX_TAG_CHIPS && (
+            <div className={CHIP} style={CHIP_NEUTRAL} title={chipTags.slice(MAX_TAG_CHIPS).join(" · ")}>
+              +{chipTags.length - MAX_TAG_CHIPS}
+            </div>
+          )}
         </div>
       )}
-
       {/* Star note — the owner's line on why this piece is starred. Visible at
           rest (that's the whole point of writing it) and fades on hover so the
           prompt chip and tag chips get the bottom band back. Carries its own

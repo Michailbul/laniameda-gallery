@@ -7,7 +7,7 @@
   color: var(--lm-text-primary);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
-.yt-page { max-width: 1680px; margin: 0 auto; padding: 40px clamp(16px, 3vw, 40px) 96px; }
+.yt-page { padding: 40px clamp(16px, 3vw, 40px) 96px; }
 
 .yt-title {
   font-family: var(--lm-font-display);

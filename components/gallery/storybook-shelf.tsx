@@ -239,8 +239,6 @@ export function StorybookShelf({
       style={{ fontFamily: "var(--lm-font)" }}
     >
       <div
-        className="mx-auto"
-        style={{ maxWidth: "1180px" }}
       >
         {/* Header */}
         <div className="flex items-center gap-3 pb-3 pt-2">
@@ -685,7 +683,7 @@ function Tile({
         width: "clamp(240px, 24vw, 292px)",
         flex: "0 0 auto",
         scrollSnapAlign: "start",
-        borderRadius: "16px",
+        borderRadius: "var(--lm-radius)",
         border: over
           ? "2px solid var(--lm-coral)"
           : "2px solid var(--lm-border)",

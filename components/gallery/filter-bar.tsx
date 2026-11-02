@@ -225,7 +225,6 @@ export function GalleryFilterBar({
         style={{
           position: "relative",
           width: "100%",
-          maxWidth: "1180px",
           borderRadius: "28px",
           marginBottom: "12px",
         }}
