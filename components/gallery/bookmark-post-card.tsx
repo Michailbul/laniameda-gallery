@@ -163,7 +163,7 @@ export const BookmarkPostCard = memo(function BookmarkPostCard({
   const hasMedia = post.media.length > 0 && Boolean(mediaSrc);
   const extraMedia = post.media.length > 1 ? post.media.length - 1 : 0;
   const classes = [
-    "group relative flex h-full w-full cursor-pointer flex-col gap-2 overflow-hidden card-base rounded-xl p-3",
+    "group relative flex h-full w-full cursor-pointer flex-col gap-2 overflow-hidden card-base card-post rounded-[var(--lm-radius)] p-3",
     starred && "card-starred",
     selected && "card-selected",
     dimmed && "card-dimmed",
