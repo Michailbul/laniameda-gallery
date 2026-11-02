@@ -79,13 +79,14 @@ const describeAssetAction = makeFunctionReference<"action">(
 const DESCRIBE_DELAY_MS = 1_000;
 const autoDescriptionsEnabled = () =>
   process.env.AGENT_DESCRIPTIONS_ENABLED?.trim().toLowerCase() === "true";
-// Tags every new picture with Jev (TypeSafe): piece type, medium, setting,
-// light, shot, mood, design and vehicle facets. It runs before the first
-// describe/index and hands that step on. See convex/jevClassify.ts.
-const classifyAssetAction = makeFunctionReference<"action">("jevClassify:classifyAsset");
-const jevClassifyEnabled = () =>
-  process.env.JEV_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" &&
-  Boolean(process.env.TYPESAFE_API_KEY?.trim());
+// Tags every new picture with OpenAI's Decisions API: piece type, medium,
+// setting, light, shot, character sheet, romance, horror, design and vehicle
+// facets. It runs before the first describe/index and hands that step on.
+// See convex/tagClassify.ts.
+const classifyAssetAction = makeFunctionReference<"action">("tagClassify:classifyAsset");
+const tagClassifyEnabled = () =>
+  process.env.TAG_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" &&
+  Boolean(process.env.OPENAI_API_KEY?.trim());
 
 const nullableStringValidator = v.optional(v.union(v.null(), v.string()));
 const assetKindValidator = v.union(v.literal("image"), v.literal("video"));
@@ -792,7 +793,7 @@ const createAssetDefinition = {
     // With automatic descriptions on, describe first and index once after, so
     // a new asset costs one pass of embedding calls, not two.
     const describe = !agentDescription && autoDescriptionsEnabled();
-    if (jevClassifyEnabled() && (args.kind === "image" || args.kind === "video")) {
+    if (tagClassifyEnabled() && (args.kind === "image" || args.kind === "video")) {
       await ctx.scheduler.runAfter(DESCRIBE_DELAY_MS, classifyAssetAction, {
         assetId,
         then: describe ? "describe" : "reindex",

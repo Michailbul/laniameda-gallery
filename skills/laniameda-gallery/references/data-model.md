@@ -688,34 +688,40 @@ video poster), `createdAt`. Written a minute after ingest and by the backfill
 `perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
 asset, owner. Read by the grid's Similar view and `find_similar_groups`.
 
-`assetClassifications` holds what Jev (TypeSafe System One) answered about a
-picture: `ownerUserId`, `assetId`, `model`, `version`, `status`
+`assetClassifications` holds what the auto-tagger answered about a picture
+(Jev / TypeSafe at `version` 1, OpenAI Decisions `gpt-6-luna` from version 2,
+2 Nov 2026): `ownerUserId`, `assetId`, `model`, `version`, `status`
 (done/error/no_image), `answers` (per question: `choice` + `confidence`, or a
 yes/no probability `p`), `addedTagIds` (exactly the tags it added),
 `classifiedAt`. Written about a second after ingest when the deployment sets
-`JEV_CLASSIFY_ENABLED=true` and `TYPESAFE_API_KEY`, before the first describe /
-index, and by `jevClassify:backfillJevClassify`; deleted with the asset.
-Indexes: asset, owner + classifiedAt. The questions and the tag rule are in
-`lib/jev-facets.ts`: it only fills an empty slot (piece type, medium, setting,
-light, shot) and adds facet tags (crowd, couple, romance, horror, melancholy,
-glamour, celebration, world-detail, character-sheet, game-view, 3d-render,
-design + its kind, vehicle + angle, fashion, architecture, product) when Jev is
-sure; it never removes a tag. `assetClassifications:undoClassificationTags`
-takes back exactly the added tags.
+`TAG_CLASSIFY_ENABLED=true` and `OPENAI_API_KEY`, before the first describe /
+index, and by `tagClassify:backfillTags` (asks again any picture below the
+current version); deleted with the asset. Indexes: asset, owner +
+classifiedAt. The questions and the tag rule are in `lib/facet-tags.ts`: it
+only fills an empty slot (piece type, medium, setting, light, shot: wide-shot
+or close-up) and adds a short list of facet tags (3d-render, character-sheet,
+romance, horror, design + its kind, vehicle + angle, fashion, architecture)
+when the model is sure; it never removes a tag a person or agent added.
+Retired on 2 Nov 2026 because they did not help find world material: couple,
+melancholy, glamour, world-detail, celebration, crowd, game-view, macro,
+product (`assetClassifications:dropRetiredTags` took the classifier's copies
+off). `assetClassifications:undoClassificationTags` takes back exactly the
+added tags.
 
 `assetShelfFilings` records auto-shelving: when a new picture is saved into a
-world (or one of its children), OpenAI's Decisions API (`gpt-6-luna`) picks
-the world's Places shelf, World building shelf and any Moods shelves from
-their names and descriptions, and the picture is linked to the ones it is
-sure of (choice confidence or yes probability ≥ 0.8). Cast and Styles shelves
-are never auto-filed, and a group that already holds a shelf of the picture
-(picked by hand) is skipped. Fields: `ownerUserId`, `assetId`, `worldId`,
-`model`, `version`, `status` (done/error), `answers`, `addedFolderIds`
-(exactly the shelves it added), `error`, `filedAt`. Indexes: asset, owner +
-filedAt. Rule and questions: `lib/shelf-rules.ts`; action
-`shelfClassify:fileOnShelves`, run after the Jev step for new uploads only.
-Off unless `SHELF_CLASSIFY_ENABLED=true` and `OPENAI_API_KEY`.
-`assetShelves:undoShelfFilings {assetIds}` takes the added shelves back.
+world (or one of its children), Jev (TypeSafe System One, `jev-latest`) picks
+the world's Places shelf and answers yes/no for each romance or love Moods
+shelf, from their names and descriptions, and the picture is linked to the
+ones it is sure of (confidence or yes probability ≥ 0.8). World building,
+other Moods, Cast and Styles shelves are never auto-filed, and a group that
+already holds a shelf of the picture (picked by hand) is skipped. Fields:
+`ownerUserId`, `assetId`, `worldId`, `model`, `version`, `status`
+(done/error), `answers`, `addedFolderIds` (exactly the shelves it added),
+`error`, `filedAt`. Indexes: asset, owner + filedAt. Rule and questions:
+`lib/shelf-rules.ts`; action `shelfClassify:fileOnShelves`, run after the
+tagging step for new uploads only. Off unless `SHELF_CLASSIFY_ENABLED=true`
+and `TYPESAFE_API_KEY`. `assetShelves:undoShelfFilings {assetIds}` takes the
+added shelves back.
 
 # Text records and filter presets (6 October 2026)
 

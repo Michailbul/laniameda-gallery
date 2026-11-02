@@ -323,9 +323,10 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_owner", ["ownerUserId"]),
-  // What Jev (TypeSafe) answered about a picture and the tags that added.
-  // One row per asset; addedTagIds is exactly what undoClassificationTags
-  // takes back. See lib/jev-facets.ts and convex/jevClassify.ts.
+  // What the auto-tagger (Jev at version 1, gpt-6-luna from version 2)
+  // answered about a picture and the tags that added. One row per asset;
+  // addedTagIds is exactly what undoClassificationTags takes back.
+  // See lib/facet-tags.ts and convex/tagClassify.ts.
   assetClassifications: defineTable({
     ownerUserId: v.string(),
     assetId: v.id("assets"),
