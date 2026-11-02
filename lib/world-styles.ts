@@ -124,3 +124,22 @@ export function mjIdentityOf(asset: { sourceUrl?: string | null; fileName?: stri
 /** True when a saved frame is the one a query names (job prefix + tile when given). */
 export const mjMatches = (query: { job: string; index?: number }, identity: { job: string; index?: number } | null) =>
   Boolean(identity && identity.job.startsWith(query.job) && (query.index === undefined || identity.index === query.index));
+
+/* ── What a frame was made with ──────────────────────────────────────────── */
+
+/**
+ * The personalization codes a Midjourney prompt runs with, in order:
+ * every word after `--profile` / `--p` up to the next flag. Moodboards appear
+ * as their short code or as `m<id>`; profiles as their code.
+ */
+export function profileCodesIn(prompt: string | null | undefined): string[] {
+  if (!prompt) return [];
+  const codes: string[] = [];
+  for (const match of prompt.matchAll(/(?:^|\s)--(?:profile|p)\s+((?:(?!--)\S+\s*)+)/gi)) {
+    for (const word of match[1]!.trim().split(/\s+/)) {
+      const code = word.replace(/[,;.]+$/, "");
+      if (/^[a-z0-9]{3,40}$/i.test(code) && !codes.includes(code)) codes.push(code);
+    }
+  }
+  return codes;
+}

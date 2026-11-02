@@ -7,7 +7,10 @@ import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { assetFolderIds, worldsOfAsset } from "./worldCore";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { upsertLineageInternal } from "./generationLineage";
-import { MAX_EDIT_REFS, planEditSend, type EditProvider } from "../lib/edit-models";
+import { MAX_EDIT_REFS, editModelById, estimateEditUsd, planEditSend, type EditProvider } from "../lib/edit-models";
+
+const KREA = "krea-3";
+const KREA_FALLBACK = "gpt-flare";
 
 // In-place edits on an asset: Michael (detail panel, Inbox zoom) or an agent
 // sends a prompt to one or more models, one job per model per take. Each job
@@ -446,7 +449,26 @@ export const failJob = internalMutation({
     const job = await ctx.db.get(args.jobId);
     if (!job || job.status === "done") return null;
     const now = Date.now();
-    await ctx.db.patch(job._id, { status: "error", error: args.error.slice(0, 500), errorKind: args.errorKind, finishedAt: now, updatedAt: now });
+    // Krea 3 is the edit model; when it fails the same edit runs once on GPT
+    // Image 2.5 Flare (~/.claude/CLAUDE.md: "if it fails, GPT Image 2.5").
+    // A failed save of a landed result ("ingest") is not a model failure.
+    const fallback = job.model === KREA && args.errorKind !== "ingest" ? editModelById(KREA_FALLBACK) : undefined;
+    const note = fallback ? ` · sent to ${fallback.name} instead` : "";
+    await ctx.db.patch(job._id, { status: "error", error: `${args.error.slice(0, 460)}${note}`, errorKind: args.errorKind, finishedAt: now, updatedAt: now });
+    if (fallback) {
+      const route = fallback.routes[0]!;
+      const refs = Math.min(job.refAssetIds.length, fallback.maxRefs);
+      const jobId = await ctx.db.insert("editJobs", {
+        ownerUserId: job.ownerUserId, sourceAssetId: job.sourceAssetId, folderIds: job.folderIds, worldFolderId: job.worldFolderId,
+        prompt: job.prompt, model: fallback.id, modelName: fallback.name, provider: route.provider, endpoint: route.endpoint,
+        attempts: [], retries: 0, status: "queued",
+        estimateUsd: estimateEditUsd(route.endpoint, job.width, job.height, refs),
+        batch: job.batch, take: job.take, of: job.of,
+        refAssetIds: job.refAssetIds.slice(0, refs), refNames: job.refNames.slice(0, refs), refsDropped: job.refAssetIds.length - refs,
+        width: job.width, height: job.height, createdBy: job.createdBy, pollCount: 0, createdAt: now, updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(0, runEdit, { jobId });
+    }
     return null;
   },
 });

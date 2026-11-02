@@ -60,6 +60,9 @@ const frameValidator = v.object({
   height: v.optional(v.number()),
   // Agents only (withPrompts): the first 300 characters of its prompt.
   prompt: v.optional(v.string()),
+  // Set only when true: the page's LIKED / SUPER chips.
+  liked: v.optional(v.boolean()),
+  superLiked: v.optional(v.boolean()),
 });
 type Frame = Infer<typeof frameValidator>;
 
@@ -74,6 +77,8 @@ const frameOf = async (ctx: Ctx, asset: Doc<"assets">): Promise<Frame> => {
     thumbUrl: await resolveAssetThumbUrl(ctx, asset), url: await resolveAssetUrl(ctx, asset),
     ...(variants.length ? { variants } : {}),
     thumbWidth: asset.thumbWidth, width: asset.width, height: asset.height,
+    ...(asset.isLiked ? { liked: true } : {}),
+    ...(asset.superLikedAt ? { superLiked: true } : {}),
   };
 };
 

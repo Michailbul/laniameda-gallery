@@ -80,6 +80,7 @@ import type * as stacks from "../stacks.js";
 import type * as stories from "../stories.js";
 import type * as storyValidators from "../storyValidators.js";
 import type * as storybooks from "../storybooks.js";
+import type * as styleFrames from "../styleFrames.js";
 import type * as tagFilters from "../tagFilters.js";
 import type * as tags from "../tags.js";
 import type * as taskValidators from "../taskValidators.js";
@@ -176,6 +177,7 @@ declare const fullApi: ApiFromModules<{
   stories: typeof stories;
   storyValidators: typeof storyValidators;
   storybooks: typeof storybooks;
+  styleFrames: typeof styleFrames;
   tagFilters: typeof tagFilters;
   tags: typeof tags;
   taskValidators: typeof taskValidators;

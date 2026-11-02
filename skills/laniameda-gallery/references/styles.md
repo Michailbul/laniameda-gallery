@@ -21,12 +21,26 @@ Each style is one record (`style:<id>`) with:
 | lock | The style lock story (`package_style`) holding the long recipe text |
 
 The styles page shows it: `https://gallery.laniameda.space/w/<world>/styles[/<style slug>]`
-(`list_styles` and `get_style` return the `url`). Wide, no sidebar: every
-style of the universe across the top as cover cards, grouped by family; the
-chosen style's frames in big masonry; its recipe beside them. HUMAN view shows
-moodboard and profile **names** only; AGENT view adds codes, ids and a "Copy
-for agent" brief. The prompt template shows codes as names and copies as the
+(`list_styles` and `get_style` return the `url`). Full width, no sidebar: every
+style of the universe across the top as cover cards, grouped by family; under
+it one band with the style's name, its line and its moodboards and profiles by
+**name** (from the record, else read from the `--profile` codes of its newest
+frames); then its frames as big bare masonry (two columns on a desktop, chips
+on the frame). Storybook chips filter the masonry to the frames a book uses.
+Prompt, recipe, where the frame is filed, edit in place and comments appear
+only in the open view, beside the full-resolution frame. Codes stay off the
+surface (hover title only); the prompt reads codes as names and copies as the
 runnable text.
+
+Keys on the hovered or open frame: `1` like · `⇧1` super like (private, never
+publishes; the curator star does) · `2` off this style (grays in place, `2`
+brings it back) · `S` change style · `M` add to a collection · `B` add to a
+storybook and pick its beat · `E` edit in place (Krea 3; a failed Krea take
+reruns once on GPT Image 2.5 Flare) · `C` comment · `O` open · `I` copy id.
+Every filing is journaled under session `styles-page` (`world_undo`). A beat
+pick writes `asset:<id>` under BEATS TO REFERENCES in the book's record; when
+the book still placed frames by shelf order, those placements are written
+first so none moves.
 
 ## Universes
 

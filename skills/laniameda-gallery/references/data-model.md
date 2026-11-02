@@ -192,6 +192,9 @@ to him, and never creates or reorders them unless asked.
 - **`isPublic`** exposes a piece on public surfaces. Showcasing a collection
   publishes the set, never its private members.
 - **`isLiked`** is a separate private flag with its own mutation.
+- **`superLikedAt`** is Michael's super like (styles page, key ⇧1): private,
+  implies `isLiked`, never publishes or features. `setAssetLikeLevel {assetId,
+  level: none | like | super}` sets both together.
 - **`tasteCollection`**: at most one collection per owner carries this. The
   public home's inspiration grid shows exactly its members.
 

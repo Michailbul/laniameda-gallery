@@ -402,6 +402,14 @@ export const agentTokenScopeValidator = v.union(
   v.literal("gallery:delete"),
 );
 
+/** A stored grid rendition of an image (lib/card-thumbnail.ts ThumbVariant). */
+export const thumbVariantValidator = v.object({
+  width: v.number(),
+  height: v.number(),
+  size: v.number(),
+  r2Key: v.string(),
+});
+
 // Full raw asset document shape (schema.assets + system fields). Keep in sync
 // with convex/schema.ts. Return validators that hand back raw asset docs MUST
 // use this — hand-copied subsets have already rejected renamed/pinned assets
@@ -446,6 +454,7 @@ export const assetDocValidator = v.object({
   isLiked: v.optional(v.boolean()),
   starredAt: v.optional(v.number()),
   starNote: v.optional(v.string()),
+  superLikedAt: v.optional(v.number()),
   curatedByUserId: v.optional(v.string()),
   curatedAt: v.optional(v.number()),
   pillar: optionalPillarValidator,
@@ -456,13 +465,7 @@ export const assetDocValidator = v.object({
   packSlotIndex: v.optional(v.number()),
   cinemaMetadata: cinemaMetadataValidator,
   midjourneyMetadata: midjourneyMetadataValidator,
+  thumbVariants: v.optional(v.array(thumbVariantValidator)),
   createdAt: v.number(),
 });
 
-/** A stored grid rendition of an image (lib/card-thumbnail.ts ThumbVariant). */
-export const thumbVariantValidator = v.object({
-  width: v.number(),
-  height: v.number(),
-  size: v.number(),
-  r2Key: v.string(),
-});
