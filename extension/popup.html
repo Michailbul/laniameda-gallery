@@ -188,6 +188,35 @@
       grid-template-columns: minmax(0, 1fr);
     }
 
+    .auto-note {
+      margin: 10px 0 0;
+      font-size: 11px;
+      line-height: 1.45;
+      color: rgba(26, 20, 16, 0.55);
+    }
+
+    .auto-override {
+      margin-top: 6px;
+    }
+
+    .auto-override > summary {
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(26, 20, 16, 0.55);
+      list-style: none;
+    }
+
+    .auto-override > summary::before {
+      content: "+ ";
+    }
+
+    .auto-override[open] > summary::before {
+      content: "– ";
+    }
+
     .collection-type-hint {
       margin: 8px 0 0;
       font-family: var(--mono);
@@ -900,7 +929,7 @@
         <span class="logo-dot"></span>
         <span>meda</span>
       </div>
-      <span id="modeBadge" class="badge">add mode · v0.14.0</span>
+      <span id="modeBadge" class="badge">add mode · v0.18.0</span>
     </div>
 
     <div class="sep"></div>
@@ -934,7 +963,7 @@
         <button id="worldModeTab" class="mode-tab" type="button" role="tab" aria-selected="true">World</button>
         <button id="collectionsModeTab" class="mode-tab" type="button" role="tab" aria-selected="false">Collections</button>
       </div>
-      <p id="worldModeNote" class="collection-type-hint">Adds go straight into Dear Annete. ⌘⇧D world, ⌘⇧L location, ⌘⇧P scene, ⌘⇧M comment.</p>
+      <p id="worldModeNote" class="collection-type-hint">Adds go straight into Dear Annete and onto its shelves. ⌘⇧D world, ⌘⇧L location, ⌘⇧P scene, ⌘⇧M comment.</p>
 
       <div id="collectionBlock">
       <label class="upload-field-label" for="uploadCollection">collection · optional</label>
@@ -957,26 +986,30 @@
       </div>
       </div>
 
-      <div class="classification-toolbar">
-        <label id="uploadAssetTypeField">
-          <span class="upload-field-label">asset tag · optional</span>
-          <select id="uploadAssetTypeTag" class="field-select" aria-label="Asset type tag">
-            <option value="">No asset tag</option>
-            <option value="character">Character</option>
-            <option value="location">Location</option>
-            <option value="scene">Scene</option>
-          </select>
-        </label>
-        <label>
-          <span class="upload-field-label">style tag · optional</span>
-          <select id="uploadStyleTag" class="field-select" aria-label="Style tag">
-            <option value="">No style tag</option>
-            <option value="animation">Animation</option>
-            <option value="live-action">Live action</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-      </div>
+      <p class="auto-note">Pick the collection. Type, medium, interior or exterior, light, mood and the world's shelves (places, building blocks, moods) are filled in automatically.</p>
+      <details class="auto-override">
+        <summary>set type or medium by hand</summary>
+        <div class="classification-toolbar">
+          <label id="uploadAssetTypeField">
+            <span class="upload-field-label">type</span>
+            <select id="uploadAssetTypeTag" class="field-select" aria-label="Asset type tag">
+              <option value="">Automatic</option>
+              <option value="character">Character</option>
+              <option value="location">Location</option>
+              <option value="scene">Scene</option>
+            </select>
+          </label>
+          <label>
+            <span class="upload-field-label">medium</span>
+            <select id="uploadStyleTag" class="field-select" aria-label="Style tag">
+              <option value="">Automatic</option>
+              <option value="animation">Animation</option>
+              <option value="live-action">Live action</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        </div>
+      </details>
       <p id="collectionAssetTypeHint" class="collection-type-hint" hidden></p>
 
       <label class="upload-field-label" for="uploadTags">descriptive tags · optional</label>

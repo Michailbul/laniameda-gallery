@@ -703,6 +703,20 @@ design + its kind, vehicle + angle, fashion, architecture, product) when Jev is
 sure; it never removes a tag. `assetClassifications:undoClassificationTags`
 takes back exactly the added tags.
 
+`assetShelfFilings` records auto-shelving: when a new picture is saved into a
+world (or one of its children), OpenAI's Decisions API (`gpt-6-luna`) picks
+the world's Places shelf, World building shelf and any Moods shelves from
+their names and descriptions, and the picture is linked to the ones it is
+sure of (choice confidence or yes probability ≥ 0.8). Cast and Styles shelves
+are never auto-filed, and a group that already holds a shelf of the picture
+(picked by hand) is skipped. Fields: `ownerUserId`, `assetId`, `worldId`,
+`model`, `version`, `status` (done/error), `answers`, `addedFolderIds`
+(exactly the shelves it added), `error`, `filedAt`. Indexes: asset, owner +
+filedAt. Rule and questions: `lib/shelf-rules.ts`; action
+`shelfClassify:fileOnShelves`, run after the Jev step for new uploads only.
+Off unless `SHELF_CLASSIFY_ENABLED=true` and `OPENAI_API_KEY`.
+`assetShelves:undoShelfFilings {assetIds}` takes the added shelves back.
+
 # Text records and filter presets (6 October 2026)
 
 `stories` is the private native text table. Required fields: `ownerUserId`,

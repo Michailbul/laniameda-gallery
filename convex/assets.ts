@@ -4391,6 +4391,8 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   await detachAssetFromEditJobs(ctx, asset._id);
   await deleteHashForAsset(ctx, asset._id);
   await deleteClassificationForAsset(ctx, asset._id);
+  const shelfFiling = await ctx.db.query("assetShelfFilings").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).first();
+  if (shelfFiling) await ctx.db.delete(shelfFiling._id);
   // Tasks keep their text; only the link to this asset is dropped.
   await stripAssetFromTasks(ctx, asset.ownerUserId ?? "", asset._id);
 

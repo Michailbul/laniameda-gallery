@@ -26,6 +26,7 @@ const classifyAssetRef = makeFunctionReference<"action">("jevClassify:classifyAs
 const backfillRef = makeFunctionReference<"action">("jevClassify:backfillJevClassify");
 const describeAssetRef = makeFunctionReference<"action">("agentDescriptions:describeAsset");
 const reindexAssetRef = makeFunctionReference<"action">("semanticIndex:reindexAsset");
+const fileOnShelvesRef = makeFunctionReference<"action">("shelfClassify:fileOnShelves");
 
 export const jevEnabled = () =>
   process.env.JEV_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" && Boolean(process.env.TYPESAFE_API_KEY?.trim());
@@ -41,7 +42,7 @@ const loadSharp = () => {
 };
 
 /** Jev takes JPEG or PNG, 280–1568 px a side: the thumbnail (WebP) re-encoded at 1024 px. */
-const jpegOf = async (url: string) => {
+export const jpegOf = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`image HTTP ${response.status}`);
   if (Number(response.headers.get("content-length") ?? 0) > MAX_BYTES) throw new Error("image too large");
@@ -123,6 +124,11 @@ export const classifyAsset = internalAction({
   handler: async (ctx, args) => {
     const result = await classifyOne(ctx, args.assetId, { force: args.force, apply: args.apply });
     const attempt = args.attempt ?? 0;
+    // A new picture saved into a world also goes onto that world's shelves
+    // (convex/shelfClassify.ts); that step has its own retries.
+    if (attempt === 0 && args.then && process.env.SHELF_CLASSIFY_ENABLED?.trim().toLowerCase() === "true") {
+      await ctx.scheduler.runAfter(0, fileOnShelvesRef, { assetId: args.assetId });
+    }
     // A video's poster or a busy API can be late: index now without the tags,
     // try again later, and index once more when that later pass ends.
     if (result.retryable && attempt < RETRY_DELAYS_MS.length) {
