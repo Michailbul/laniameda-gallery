@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -521,95 +521,104 @@ const resolveShelf = (root: Folder, children: Folder[], ref: string) => {
   return hit;
 };
 
+const fileArgs = {
+  ownerUserId: v.string(), world: v.string(),
+  assetIds: v.array(v.id("assets")),
+  // Shelves of this world (name or id; "root" is the world collection itself).
+  addTo: v.optional(v.array(v.string())),
+  removeFrom: v.optional(v.array(v.string())),
+  addTags: v.optional(v.array(v.string())),
+  removeTags: v.optional(v.array(v.string())),
+  // Take the assets out of every other world first (journaled with the rest).
+  move: v.optional(v.boolean()),
+  // New tag names are refused unless this is set: reuse the vocabulary.
+  createTags: v.optional(v.boolean()),
+  note: v.optional(v.string()),
+  ...journalArgs,
+};
+
+/**
+ * Files assets into (or out of) shelves of one world, journaled as one
+ * change. The world_file route and the styles page's keys (styleFrames.ts)
+ * both go through it.
+ */
+export const fileAssetsInWorld = async (ctx: MutationCtx, args: ObjectType<typeof fileArgs>) => {
+  const owner = args.ownerUserId;
+  const ids = [...new Set(args.assetIds)];
+  if (ids.length === 0) throw new ConvexError("Send at least one asset.");
+  if (ids.length > MAX_FILE_ASSETS) throw new ConvexError(`File at most ${MAX_FILE_ASSETS} assets per call.`);
+  const root = await resolveWorld(ctx, owner, args.world);
+  const children = (await childrenOf(ctx, root._id)).filter((child) => owned(owner, child));
+  const addTo = (args.addTo ?? []).map((ref) => resolveShelf(root, children, ref)._id);
+  const removeFrom = new Set((args.removeFrom ?? []).map((ref) => resolveShelf(root, children, ref)._id));
+  if (!args.createTags) {
+    const unknown: string[] = [];
+    for (const name of args.addTags ?? []) if ((await existingTagIds(ctx, [name])).size === 0) unknown.push(name);
+    if (unknown.length > 0) throw new ConvexError(`Unknown tags: ${unknown.join(", ")}. Reuse existing tags (list_tags), or pass createTags: true when a new one is needed.`);
+  }
+  const addTagIds = await resolveTagIdsForNames(ctx, args.addTags ?? [], undefined);
+  const removeTagIds = await existingTagIds(ctx, args.removeTags ?? []);
+  if (addTo.length === 0 && removeFrom.size === 0 && addTagIds.length === 0 && removeTagIds.size === 0) {
+    throw new ConvexError("Nothing to do: give addTo, removeFrom, addTags or removeTags.");
+  }
+
+  const befores: FileState[] = [];
+  const afters: FileState[] = [];
+  const results = [];
+  const touched = new Set<Id<"folders">>();
+  const memo: WorldMemo = new Map();
+  for (const assetId of ids) {
+    const asset = await ctx.db.get(assetId);
+    if (!owned(owner, asset)) throw new ConvexError(`Asset not found: asset:${assetId}`);
+    const before = await stateOf(ctx, asset);
+    let folderIds = before.folderIds.filter((id) => !removeFrom.has(id));
+    if (args.move) {
+      const kept: Id<"folders">[] = [];
+      for (const id of folderIds) {
+        const world = await worldRootOfFolder(ctx, id, memo);
+        if (!world || world._id === root._id) kept.push(id);
+      }
+      folderIds = kept;
+    }
+    folderIds = [...new Set([...folderIds, ...addTo])];
+    await assertSingleWorld(ctx, asset, before.folderIds, folderIds, memo);
+    const tagIds = [...new Set([...before.tagIds.filter((id) => !removeTagIds.has(id)), ...addTagIds])];
+    const after: FileState = { assetId, folderIds, primary: folderIds.includes(before.primary as Id<"folders">) ? before.primary : folderIds[0] ?? null, tagIds };
+    const changed = !setsEqual(before.folderIds, after.folderIds) || !setsEqual(before.tagIds, after.tagIds);
+    if (changed) {
+      for (const id of await applyFileState(ctx, asset, after)) touched.add(id);
+      befores.push(before);
+      afters.push(after);
+    }
+    const names = folderIds.map((id) => (id === root._id ? root.name : children.find((child) => child._id === id)?.name ?? id));
+    results.push({ assetId, folders: names, tags: tagIds.length, changed });
+  }
+  await recountFolderMembers(ctx, touched);
+  for (const state of afters) await syncPublicCollectionMembership(ctx, state.assetId);
+  if (afters.length === 0) return { changeId: null, changed: 0, unchanged: results.length, results };
+  const parts = [
+    addTo.length ? `into ${addTo.map((id) => (id === root._id ? root.name : children.find((c) => c._id === id)?.name)).join(", ")}` : "",
+    removeFrom.size ? `out of ${[...removeFrom].map((id) => (id === root._id ? root.name : children.find((c) => c._id === id)?.name)).join(", ")}` : "",
+    args.move ? "moved out of other worlds" : "",
+    addTagIds.length ? `+tags ${(args.addTags ?? []).join(", ")}` : "",
+    removeTagIds.size ? `-tags ${(args.removeTags ?? []).join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+  const note = args.note?.trim().slice(0, 200);
+  const changeId = await recordWorldChange(ctx, {
+    ownerUserId: owner, worldFolderId: root._id, op: "assets.file", targetType: "assets", targetId: `${root._id}:assets`,
+    summary: `Filed ${afters.length} asset${afters.length === 1 ? "" : "s"} ${parts}${note ? ` (${note})` : ""}`,
+    before: befores, after: afters, ...meta(args),
+  });
+  return { changeId, changed: afters.length, unchanged: results.length - afters.length, results };
+};
+
 export const fileWorldAssets = ownerMutation({
-  args: {
-    ownerUserId: v.string(), world: v.string(),
-    assetIds: v.array(v.id("assets")),
-    // Shelves of this world (name or id; "root" is the world collection itself).
-    addTo: v.optional(v.array(v.string())),
-    removeFrom: v.optional(v.array(v.string())),
-    addTags: v.optional(v.array(v.string())),
-    removeTags: v.optional(v.array(v.string())),
-    // Take the assets out of every other world first (journaled with the rest).
-    move: v.optional(v.boolean()),
-    // New tag names are refused unless this is set: reuse the vocabulary.
-    createTags: v.optional(v.boolean()),
-    note: v.optional(v.string()),
-    ...journalArgs,
-  },
+  args: fileArgs,
   returns: v.object({
     changeId: v.union(v.null(), v.id("worldChanges")), changed: v.number(), unchanged: v.number(),
     results: v.array(v.object({ assetId: v.id("assets"), folders: v.array(v.string()), tags: v.number(), changed: v.boolean() })),
   }),
-  handler: async (ctx, args) => {
-    const owner = args.ownerUserId;
-    const ids = [...new Set(args.assetIds)];
-    if (ids.length === 0) throw new ConvexError("Send at least one asset.");
-    if (ids.length > MAX_FILE_ASSETS) throw new ConvexError(`File at most ${MAX_FILE_ASSETS} assets per call.`);
-    const root = await resolveWorld(ctx, owner, args.world);
-    const children = (await childrenOf(ctx, root._id)).filter((child) => owned(owner, child));
-    const addTo = (args.addTo ?? []).map((ref) => resolveShelf(root, children, ref)._id);
-    const removeFrom = new Set((args.removeFrom ?? []).map((ref) => resolveShelf(root, children, ref)._id));
-    if (!args.createTags) {
-      const unknown: string[] = [];
-      for (const name of args.addTags ?? []) if ((await existingTagIds(ctx, [name])).size === 0) unknown.push(name);
-      if (unknown.length > 0) throw new ConvexError(`Unknown tags: ${unknown.join(", ")}. Reuse existing tags (list_tags), or pass createTags: true when a new one is needed.`);
-    }
-    const addTagIds = await resolveTagIdsForNames(ctx, args.addTags ?? [], undefined);
-    const removeTagIds = await existingTagIds(ctx, args.removeTags ?? []);
-    if (addTo.length === 0 && removeFrom.size === 0 && addTagIds.length === 0 && removeTagIds.size === 0) {
-      throw new ConvexError("Nothing to do: give addTo, removeFrom, addTags or removeTags.");
-    }
-
-    const befores: FileState[] = [];
-    const afters: FileState[] = [];
-    const results = [];
-    const touched = new Set<Id<"folders">>();
-    const memo: WorldMemo = new Map();
-    for (const assetId of ids) {
-      const asset = await ctx.db.get(assetId);
-      if (!owned(owner, asset)) throw new ConvexError(`Asset not found: asset:${assetId}`);
-      const before = await stateOf(ctx, asset);
-      let folderIds = before.folderIds.filter((id) => !removeFrom.has(id));
-      if (args.move) {
-        const kept: Id<"folders">[] = [];
-        for (const id of folderIds) {
-          const world = await worldRootOfFolder(ctx, id, memo);
-          if (!world || world._id === root._id) kept.push(id);
-        }
-        folderIds = kept;
-      }
-      folderIds = [...new Set([...folderIds, ...addTo])];
-      await assertSingleWorld(ctx, asset, before.folderIds, folderIds, memo);
-      const tagIds = [...new Set([...before.tagIds.filter((id) => !removeTagIds.has(id)), ...addTagIds])];
-      const after: FileState = { assetId, folderIds, primary: folderIds.includes(before.primary as Id<"folders">) ? before.primary : folderIds[0] ?? null, tagIds };
-      const changed = !setsEqual(before.folderIds, after.folderIds) || !setsEqual(before.tagIds, after.tagIds);
-      if (changed) {
-        for (const id of await applyFileState(ctx, asset, after)) touched.add(id);
-        befores.push(before);
-        afters.push(after);
-      }
-      const names = folderIds.map((id) => (id === root._id ? root.name : children.find((child) => child._id === id)?.name ?? id));
-      results.push({ assetId, folders: names, tags: tagIds.length, changed });
-    }
-    await recountFolderMembers(ctx, touched);
-    for (const state of afters) await syncPublicCollectionMembership(ctx, state.assetId);
-    if (afters.length === 0) return { changeId: null, changed: 0, unchanged: results.length, results };
-    const parts = [
-      addTo.length ? `into ${addTo.map((id) => (id === root._id ? root.name : children.find((c) => c._id === id)?.name)).join(", ")}` : "",
-      removeFrom.size ? `out of ${[...removeFrom].map((id) => (id === root._id ? root.name : children.find((c) => c._id === id)?.name)).join(", ")}` : "",
-      args.move ? "moved out of other worlds" : "",
-      addTagIds.length ? `+tags ${(args.addTags ?? []).join(", ")}` : "",
-      removeTagIds.size ? `-tags ${(args.removeTags ?? []).join(", ")}` : "",
-    ].filter(Boolean).join("; ");
-    const note = args.note?.trim().slice(0, 200);
-    const changeId = await recordWorldChange(ctx, {
-      ownerUserId: owner, worldFolderId: root._id, op: "assets.file", targetType: "assets", targetId: `${root._id}:assets`,
-      summary: `Filed ${afters.length} asset${afters.length === 1 ? "" : "s"} ${parts}${note ? ` (${note})` : ""}`,
-      before: befores, after: afters, ...meta(args),
-    });
-    return { changeId, changed: afters.length, unchanged: results.length - afters.length, results };
-  },
+  handler: fileAssetsInWorld,
 });
 
 /* ── Shelves and storybooks ──────────────────────────────────────────────── */

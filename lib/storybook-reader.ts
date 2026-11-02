@@ -626,3 +626,33 @@ export function placeFrames<F extends ReaderFrame>(
   const strip = left.filter((frame) => !plateIds.has(frame.id));
   return { byBeat, plates, strip };
 }
+
+const REFS_HEADING = /^\s*BEATS TO REFERENCES\s*:?\s*$/i;
+
+/**
+ * The record with `asset:<id>` tied to beat `beat`: appended to that beat's
+ * line under BEATS TO REFERENCES (the line or the section is added when
+ * missing). The record comes back unchanged when the beat already cites it.
+ */
+export function addAssetToBeat(record: string, beat: number, assetId: string): string {
+  const ref = `asset:${assetId}`;
+  const lines = record.replace(/\s+$/, "").split("\n");
+  const head = lines.findIndex((line) => REFS_HEADING.test(line));
+  if (head === -1) return `${lines.join("\n")}${lines.join("").trim() ? "\n\n" : ""}BEATS TO REFERENCES\n${beat}. ${ref}`;
+  let end = lines.length;
+  for (let index = head + 1; index < lines.length; index += 1) {
+    const text = lines[index]!.trim();
+    if (text && SECTION_HEADING.test(text) && !BEAT_LINE.test(text)) { end = index; break; }
+  }
+  const own = new RegExp(`^\\s*${beat}[.)]\\s+`);
+  for (let index = head + 1; index < end; index += 1) {
+    if (!own.test(lines[index]!)) continue;
+    if (lines[index]!.includes(ref)) return record;
+    lines[index] = `${lines[index]!.replace(/[\s.;]+$/, "")}; ${ref}`;
+    return lines.join("\n");
+  }
+  let at = end;
+  while (at > head + 1 && !lines[at - 1]!.trim()) at -= 1;
+  lines.splice(at, 0, `${beat}. ${ref}`);
+  return lines.join("\n");
+}

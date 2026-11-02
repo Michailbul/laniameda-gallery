@@ -656,6 +656,10 @@ export default defineSchema({
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),
+    // Owner's SUPER LIKE (styles page, key ⇧1): a stronger like that stays
+    // private. Unlike the curator's star it never publishes or features the
+    // piece. Super liking also sets isLiked. Unset = not super liked.
+    superLikedAt: v.optional(v.number()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
     pillar: optionalPillarValidator,

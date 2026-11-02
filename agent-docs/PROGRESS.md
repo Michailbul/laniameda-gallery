@@ -8,6 +8,34 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — Styles page as full-width masonry, with keys on every frame (branch `feature/styles-masonry-redesign`)
+
+Michael on the first styles page: too much repetition, an Agent mode and sizes
+that did nothing, the recipe column in the way. Now `/w/<world>/styles`:
+- the carousel of style covers on top, one band under it (name, line, moodboards
+  and profiles by name with board thumbnails: `styleFrames:styleMadeWith`, from the
+  record or read from the frames' `--profile` codes), storybook chips that filter,
+  then the frames as bare masonry over the full width (shortest-column layout,
+  1 / 2 / 3 columns by width; pages load at the bottom).
+- the open view carries everything else beside the full-resolution frame:
+  like / super like pills, Style / Collection / Storybook / Off this style, where
+  the frame is filed, what it was made with by name, the prompt with codes read as
+  names, Edit in place (with before/after wipe), the style's prompt and what moves
+  it, comments (`styleFrames:getFrameView`).
+- keys on the hovered or open frame with a confirmation on it: 1 like, ⇧1 super
+  like, 2 off this style (grays in place, 2 restores), S style, M collection,
+  B storybook + beat, E edit, C comment, O open, I copy id. Moves go through
+  `worlds.fileAssetsInWorld` (journaled, session `styles-page`): `setFrameStyle`,
+  `placeFrame` (a target in a sibling world moves the frame there). A beat writes
+  `asset:<id>` under BEATS TO REFERENCES (`addAssetToBeat`), writing the book's
+  shelf-order placements first when it had none.
+- `assets.superLikedAt` + `setAssetLikeLevel`: a private super like (the curator
+  star publishes, so it is not used here).
+- Krea 3 edits that fail rerun once on GPT Image 2.5 Flare (`editJobs.failJob`).
+- `assetDocValidator` gained `thumbVariants` (getAsset threw on every image with
+  grid renditions) and `superLikedAt`; `tests/asset-return-validator.test.ts`
+  checks it covers the schema.
+
 ### 2026-11-02 — Every new picture tags itself with Jev (branch `feat/jev-autoclassify`)
 
 - `convex/jevClassify.ts` asks Jev (TypeSafe System One, `jev-latest`) 17 questions about each new

@@ -8,6 +8,13 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Convex
 
+- **Rebase onto origin/main right before every Convex push (2 Nov 2026).** The
+  cloud deployment takes whatever the branch has. A push from a branch cut
+  before #132/#133 deleted the Jev classifier's functions and indexes for 75
+  seconds and killed its running backfill chain (resumed by hand from the
+  failed call's cursor in `_scheduled_functions`). `git fetch && git rebase
+  origin/main` first; read the "Deleted" lines of the push output.
+
 - Adding new Convex tables/functions requires `bunx convex codegen` — otherwise `convex/_generated/*` drifts and breaks references.
 - Plain `convex codegen` (with or without `--typecheck disable`) loads the
   selected deployment's credentials and starts a push to analyse the bundle,

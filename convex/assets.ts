@@ -1027,6 +1027,28 @@ export const setAssetLiked = ownerMutation({
   },
 });
 
+// Like and super like as one level, so a frame is never super liked without
+// being liked (styles page keys 1 and ⇧1). Private: nothing here publishes.
+export const setAssetLikeLevel = ownerMutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    level: v.union(v.literal("none"), v.literal("like"), v.literal("super")),
+  },
+  returns: v.object({
+    assetId: v.id("assets"),
+    isLiked: v.boolean(),
+    superLikedAt: v.optional(v.number()),
+  }),
+  handler: async (ctx, args) => {
+    const asset = await requireOwnedAsset(ctx, args.ownerUserId, args.assetId);
+    const isLiked = args.level !== "none";
+    const superLikedAt = args.level === "super" ? (asset.superLikedAt ?? Date.now()) : undefined;
+    await ctx.db.patch(asset._id, { isLiked, superLikedAt });
+    return { assetId: asset._id, isLiked, superLikedAt };
+  },
+});
+
 const STAR_NOTE_MAX_LENGTH = 500;
 
 const requireOwnedAsset = async (
