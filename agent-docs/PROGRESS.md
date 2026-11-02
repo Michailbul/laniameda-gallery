@@ -8,6 +8,24 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — Stories tab: markdown first, Human / Agent view, clutter refused (branch `feat/stories-md-first`, backend pushed 2 Nov)
+- The tab was a form of eleven fields over a card grid, and 161 records mixed
+  stories with 64 agent tickets (`GAL-…`), test saves, `[replaced]` copies and
+  superseded versions. Now: an index on the left (Scripts / Ideas / Style
+  locks, world chips, search; archived under Archive) and a reader on the right.
+  Human renders the markdown with each picture the text names in a strip under
+  its line and agent codes left out; Agent shows a front-matter block of ids
+  above the raw markdown, with Copy md. Edit is one markdown box (first line is
+  the title). `components/gallery/stories-view.tsx`.
+- Backend (`convex/stories.ts`): `saveStory` refuses agent-ticket titles, test
+  saves and version-copy titles on create or title change; every newly linked
+  picture must be named in the body (`asset:<id>`); links to pictures deleted
+  since drop out on save instead of blocking it. New lean queries
+  `listStoryIndex` (no bodies) and `getStoryPictures`.
+- Data: 26 open `GAL-` tickets archived (85 archived in all, 76 stories
+  live); dead picture and storybook links removed from 9 records. Nothing
+  deleted.
+
 ### 2026-11-02 — Gallery tiles look like the board tiles (branch `fix/gallery-board-tiles`)
 - Michael pointed at the Dear Annete film board (Art Deco tab) as the look for
   the gallery. A tile is now a bare picture: no shadow, no hover zoom, no dark

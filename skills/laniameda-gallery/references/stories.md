@@ -24,6 +24,36 @@ Save the story, whatever its source and shape.
 Status: `idea` for a raw capture, `draft` while it is being shaped, `ready` when
 Michael calls it done, `archived` to shelve it. Keep the story's own wording.
 
+## What Stories refuses (2 Nov 2026)
+
+The Stories tab is Michael's to read, so the backend keeps clutter out:
+
+- **Agent tickets** (a title like `GAL-DA-WARD-N186 · …`, any `CODE-CODE ·`
+  prefix) are refused. Tickets are tasks: `create_task` on the tasks wall.
+- **Test saves** (`zz …`, `test …`, "undo test") are refused. Nothing is saved
+  in Stories to check a write.
+- **Version copies** (`[replaced] …`, `[history, superseded …]`, `ARCHIVED · …`,
+  `Copy of …`) are refused. Revise the story itself with `update_story`: every
+  earlier text stays in its revision history. Archive with `status: "archived"`.
+- **Pictures the text does not name.** Every picture you link in `assetIds`
+  must appear in `body` as `asset:<id>`, on the line about it (the cast line,
+  the beat, the example). The tab shows each picture under the line that names
+  it, so a dump of frames the text never mentions is refused. Links a story
+  already had stay; a link to a picture deleted since is dropped on the next save.
+
+These rules apply when a story is created or its title changes, so an old
+record can always be edited or archived.
+
+## How Michael reads it
+
+The tab is markdown first. **Human** renders the body as markdown, puts each
+named picture in a strip under its line and leaves out agent codes
+(DA-CH-001-C02). **Agent** shows a front-matter block (story id, kind, status,
+world and storybook folder ids, tags, revision, ingestKey) above the raw
+markdown, and Copy md copies both. So write the body as markdown: `##` headings
+for parts, `-` lists for cast and beats, one picture reference per line it
+belongs to. Archived records are out of the list, under Archive.
+
 ## Capture rules for found stories
 
 - Save the original wording as found, in `body`. Do not summarize it away, rewrite
