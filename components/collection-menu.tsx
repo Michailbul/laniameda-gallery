@@ -451,7 +451,7 @@ export function CardCollectionButton({
           cancelHoverOpen();
           scheduleHoverClose();
         }}
-        className={`${positionClassName} card-icon-btn flex h-8 w-8 items-center justify-center rounded-lg border ${
+        className={`${positionClassName} card-icon-btn ${
           open
             ? "opacity-100"
             : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -462,7 +462,7 @@ export function CardCollectionButton({
         aria-label="Add to collection"
         title="Add to, move to, or remove from a collection"
       >
-        <FolderPlus className="h-3.5 w-3.5" />
+        <FolderPlus className="h-3 w-3" />
       </button>
 
       {open &&

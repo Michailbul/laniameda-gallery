@@ -251,7 +251,7 @@ export function useColumnCount(compact: boolean): number {
 }
 
 /* ── Grid sizing ── */
-const DEFAULT_GAP_PX = 12;
+const DEFAULT_GAP_PX = 8; // the board gutter
 const PADDING_PX = 12;
 // Box-select auto-scroll: how close to the viewport edge the pointer has to
 // get before the page starts moving under it, and the fastest it may move.
@@ -779,7 +779,7 @@ export function MasonryGrid({
   return (
     // The gesture lives on the padded wrapper, not just the tile plane, so the
     // margin around the grid is draggable empty space too — otherwise the only
-    // no-modifier way in is the 12px gaps between tiles.
+    // no-modifier way in is the 8px gaps between tiles.
     <div
       ref={wrapperRef}
       style={{ padding: `${PADDING_PX}px` }}

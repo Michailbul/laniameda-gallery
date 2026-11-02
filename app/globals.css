@@ -179,6 +179,8 @@
     rgba(15, 12, 10, 0.5) 56%,
     rgba(15, 12, 10, 0.7) 100%
   );
+  /* The prompt sheet drops from the top bar: flat Obsidian, feathered below. */
+  --image-card-prompt-drop-bg: rgba(10, 8, 5, 0.86);
   --image-card-overlay-text: rgba(255, 255, 255, 0.85);
   --image-card-text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   --image-card-action-bg: rgba(255, 255, 255, 0.08);
@@ -1280,45 +1282,48 @@
     color: var(--text-inverse);
   }
 
-  /* ── Image card CSS-only hover system ── */
-  /* No transforms on column items — they break CSS multi-column distribution.
-     Hover effect is box-shadow + opacity only. Image zoom is handled by
-     the group-hover:scale on the <Image> element inside. */
+  /* ── Image card: the board tile ── */
+  /* A bare picture: no shadow, no zoom. State is an outline drawn inside the
+     edge (an ::after ring, so the masonry gaps stay exact): hovered = faint
+     linen, kept = coral, featured = ember, picked for a bulk action = coral. */
   .card-base {
-    transition: box-shadow var(--duration-normal) var(--ease-out), opacity var(--duration-normal);
-    box-shadow: var(--card-rest-shadow, 0 2px 8px rgba(32, 23, 16, 0.06), 0 0 0 1px rgba(32, 23, 16, 0.04));
+    transition: opacity var(--duration-normal);
     contain: layout paint style;
     content-visibility: auto;
     contain-intrinsic-size: 280px 360px;
+    background: rgba(21, 16, 13, 0.06);
   }
-  .card-base:hover {
-    box-shadow:
-      var(--shadow-md),
-      0 0 0 1px var(--card-hover-ring, rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.15));
-    opacity: 1;
+  .card-base::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 35;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 2px transparent;
+    transition: box-shadow var(--duration-fast);
   }
-  /* Starred: a standing coral ring so a promoted piece reads as promoted even
-     in a dense grid. Declared BEFORE .card-selected on purpose — same
-     specificity, so selection (a transient focus state) still wins the ring
-     when a starred card is the open one. */
-  .card-base.card-starred {
-    box-shadow:
-      0 0 0 2px var(--lm-coral),
-      0 6px 24px color-mix(in srgb, var(--lm-coral) 22%, transparent),
-      var(--shadow-sm);
+  .card-base:hover::after {
+    box-shadow: inset 0 0 0 2px rgba(255, 244, 234, 0.55);
   }
-  .card-base.card-starred:hover {
-    box-shadow:
-      0 0 0 2px var(--lm-coral),
-      var(--shadow-md),
-      0 8px 30px color-mix(in srgb, var(--lm-coral) 30%, transparent);
+  .card-base.card-starred::after {
+    box-shadow: inset 0 0 0 2px var(--lm-ember, #ff8c42);
   }
-  .card-base.card-selected {
-    box-shadow:
-      0 0 0 2px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.45),
-      0 8px 32px rgba(var(--pillar-r), var(--pillar-g), var(--pillar-b), 0.14),
-      var(--shadow-sm);
-    opacity: 1;
+  .card-base.card-kept::after,
+  .card-base.card-picked::after {
+    box-shadow: inset 0 0 0 2px var(--lm-coral);
+  }
+  .card-base.card-selected::after {
+    box-shadow: inset 0 0 0 2px rgba(255, 244, 234, 0.9);
+  }
+  /* A saved X post is text, not a picture: it keeps a hairline edge, and its
+     hover ring uses the page ink so it shows on both themes. */
+  .card-base.card-post {
+    background: var(--surface-1);
+    box-shadow: inset 0 0 0 1px var(--border-default);
+  }
+  .card-base.card-post:hover::after {
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text-primary) 35%, transparent);
   }
   .card-base.card-dimmed {
     opacity: 0.5;
@@ -1450,48 +1455,135 @@
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
 
-  /* ── Card action icons — shared hover treatment ── */
-  /* Default colors live here (not inline) so :hover can shift them; active
-     states (selected / liked / open) still win via inline styles. */
+  /* ── Tile controls, the board way ── */
+  /* Small dark squares and mono text chips on the picture (same on both
+     themes: they sit on the image, not the page), and the KEEP pill. */
+  .card-icon-btn,
+  .card-chip-btn,
+  .card-keep {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 22px;
+    background: rgba(10, 8, 5, 0.82);
+    color: rgba(255, 244, 234, 0.72);
+    border: 0;
+    border-radius: 2px;
+    font: 500 10.5px/1 var(--font-mono, ui-monospace, monospace);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--duration-fast), background-color var(--duration-fast),
+      box-shadow var(--duration-fast), opacity var(--duration-fast);
+  }
   .card-icon-btn {
-    background-color: var(--image-card-badge-bg);
-    color: var(--image-card-badge-text);
-    border-color: var(--image-card-badge-border);
-    transition:
-      transform var(--duration-fast) var(--ease-out),
-      box-shadow var(--duration-fast) var(--ease-out),
-      color var(--duration-fast),
-      background-color var(--duration-fast),
-      border-color var(--duration-fast),
-      opacity var(--duration-fast);
+    width: 22px;
   }
-  .card-icon-btn:hover {
-    color: var(--lm-coral);
-    border-color: color-mix(in srgb, var(--lm-coral) 70%, transparent);
-    transform: translateY(-1px) scale(1.06);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  .card-chip-btn {
+    padding: 0 7px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
-  .card-icon-btn:active {
-    transform: translateY(0) scale(0.94);
+  .card-chip-btn[data-active] {
+    color: #fff4ea;
   }
-  /* Active state (selected / liked / menu open): coral fill. "dark" gets
-     ink-on-coral, "light" keeps a white glyph (liked heart). */
+  .card-keep {
+    padding: 0 9px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #fff4ea;
+    box-shadow: inset 0 0 0 1px rgba(255, 244, 234, 0.22);
+  }
+  .card-icon-btn:hover,
+  .card-chip-btn:hover {
+    color: #fff4ea;
+    background: rgba(10, 8, 5, 0.95);
+  }
+  .card-keep:hover {
+    box-shadow: inset 0 0 0 1px #fff4ea;
+  }
+  .card-keep[data-on] {
+    background: var(--lm-coral);
+    color: #0a0805;
+    box-shadow: none;
+  }
   .card-icon-btn[data-active] {
-    background-color: var(--lm-coral);
-    border-color: var(--lm-coral);
+    background: var(--lm-coral);
+    color: #0a0805;
   }
-  .card-icon-btn[data-active]:hover {
-    border-color: var(--lm-coral);
+  .card-icon-btn[data-active="star"] {
+    background: var(--lm-ember, #ff8c42);
   }
-  .card-icon-btn[data-active="dark"],
-  .card-icon-btn[data-active="dark"]:hover {
-    color: rgba(0, 0, 0, 0.92);
+  .card-icon-btn[data-danger]:hover {
+    color: #fff4ea;
+    background: #b3161b;
   }
-  .card-icon-btn[data-active="light"],
-  .card-icon-btn[data-active="light"]:hover {
-    color: #fff;
+  .card-check {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
   }
 
+  /* Labels on the tile: one line of small dark chips, never wrapping; the
+     last one fades out at the edge instead of colliding with anything. */
+  .lm-chips {
+    display: flex;
+    gap: 3px;
+    overflow: hidden;
+    font: 500 9px/1 var(--font-mono, ui-monospace, monospace);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  }
+  .lm-chips > * {
+    flex-shrink: 0;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 4px 5px;
+    border-radius: 2px;
+    background: rgba(10, 8, 5, 0.84);
+    color: rgba(255, 244, 234, 0.62);
+  }
+  .lm-chips .g {
+    background: #fff4ea;
+    color: #0a0805;
+  }
+  .lm-chips .p {
+    color: #79b791;
+  }
+  .lm-chips .v,
+  .lm-chips .c {
+    color: #0a0805;
+    background: var(--lm-ember, #ff8c42);
+  }
+  .lm-chips .t {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    border: 0;
+    cursor: pointer;
+  }
+  .group:hover .lm-chips .t {
+    display: inline-flex;
+  }
+  .lm-chips button.t {
+    pointer-events: auto;
+  }
+  .lm-chips button.t svg {
+    color: var(--lm-coral);
+  }
+  .lm-chips button.t:hover {
+    color: #fff4ea;
+  }
 
   /* ── Skill card — a file you can open: cover, spine, step segments ── */
   .skill-card {
@@ -2043,62 +2135,18 @@
   box-shadow: none;
 }
 
-/* ── Compact card toolbar on narrow tiles ──
-   Each masonry tile is an inline-size container; when a tile is narrow
-   (portrait slots, compact mode) the hover toolbar scales down so the two
-   button clusters never collide or clip the card edge. Unlayered on purpose:
-   it must override Tailwind's h-8/w-8 utility layer. */
-/* A collection browse adds the exclude button, so the row carries one more
-   than it was sized for — crowded toolbars compact at a wider tile to stay on
-   a single row. Every other card keeps its full-size buttons down to 260px. */
-@container (max-width: 340px) {
-  .card-toolbar[data-crowded] {
-    gap: 4px;
-  }
-  .card-toolbar[data-crowded] .card-icon-btn {
-    height: 26px;
-    width: 26px;
-    border-radius: 8px;
-  }
-  .card-toolbar[data-crowded] .card-icon-btn svg {
-    height: 12px;
-    width: 12px;
-  }
-  .card-toolbar[data-crowded] .card-icon-btn > span {
-    height: 10px;
-    width: 10px;
-  }
-}
-@container (max-width: 260px) {
-  .card-toolbar {
-    gap: 4px;
+/* ── Narrow tiles ──
+   Each masonry tile is an inline-size container. On a narrow tile the
+   top-bar controls shrink a step so the two groups keep to one row. */
+@container (max-width: 220px) {
+  .card-toolbar .card-icon-btn,
+  .card-toolbar .card-chip-btn,
+  .card-toolbar .card-keep {
+    height: 19px;
+    font-size: 9.5px;
   }
   .card-toolbar .card-icon-btn {
-    height: 26px;
-    width: 26px;
-    border-radius: 8px;
-  }
-  .card-toolbar .card-icon-btn svg {
-    height: 12px;
-    width: 12px;
-  }
-  .card-toolbar .card-icon-btn > span {
-    height: 10px;
-    width: 10px;
-  }
-}
-@container (max-width: 190px) {
-  .card-toolbar {
-    gap: 3px;
-  }
-  .card-toolbar .card-icon-btn {
-    height: 22px;
-    width: 22px;
-    border-radius: 7px;
-  }
-  .card-toolbar .card-icon-btn svg {
-    height: 10px;
-    width: 10px;
+    width: 19px;
   }
 }
 

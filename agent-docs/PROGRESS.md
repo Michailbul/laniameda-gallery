@@ -8,6 +8,22 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — Gallery tiles look like the board tiles (branch `fix/gallery-board-tiles`)
+- Michael pointed at the Dear Annete film board (Art Deco tab) as the look for
+  the gallery. A tile is now a bare picture: no shadow, no hover zoom, no dark
+  gradient. State is an outline inside the edge: faint linen on hover, coral
+  when kept, ember when featured.
+- One line of small dark mono chips along the bottom, visible at rest: the
+  first collection in linen, the second, type, model, public; VIDEO and pack
+  frame counts in ember. The owner's tags join the line on hover (click
+  removes one). The line never wraps; the last chip fades at the edge.
+- The top bar on hover: an ID chip (copies the id), PROMPT (drops the prompt
+  sheet down from the top), download and collection as small squares on the
+  left; exclude, delete, star and the KEEP / KEPT pill on the right. The heart
+  is gone: the private like is the board's KEEP pill.
+- Grid gutter 8 px, as on the board. CSS in `app/globals.css` (`.card-base`,
+  `.card-icon-btn`, `.card-chip-btn`, `.card-keep`, `.lm-chips`).
+
 ### 2026-11-02 — Tagging moves to OpenAI with a short tag list; Jev files places and romance (branch `feat/tags-luna-shelves-jev`)
 - Every new picture is tagged by OpenAI Decisions (`gpt-6-luna`) instead of
   Jev: one request, 0.6 s, about $0.0004 a picture. On 173 pictures labelled
