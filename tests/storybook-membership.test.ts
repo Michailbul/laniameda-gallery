@@ -23,14 +23,14 @@ describe("storybook membership", () => {
     const { ctx, db, shelf, book, assetId, members } = await setup();
     const first = await callAsOwner(saveStory)(ctx, { ...base, storybookId: book, assetIds: [] });
     expect(await members(book)).toHaveLength(0);
-    await callAsOwner(saveStory)(ctx, { ...base, storybookId: book, assetIds: [assetId], expectedRevision: first.revision });
+    await callAsOwner(saveStory)(ctx, { ...base, body: `${base.body} asset:${assetId}`, storybookId: book, assetIds: [assetId], expectedRevision: first.revision });
     expect(await members(book)).toHaveLength(1);
     expect(await members(shelf)).toHaveLength(1);
     const asset = await db.get(assetId);
     expect(asset.folderId).toBe(shelf);
     expect(asset.isLiked).toBe(false);
     // exact retry stays at one link
-    await callAsOwner(saveStory)(ctx, { ...base, storybookId: book, assetIds: [assetId] });
+    await callAsOwner(saveStory)(ctx, { ...base, body: `${base.body} asset:${assetId}`, storybookId: book, assetIds: [assetId] });
     expect(await members(book)).toHaveLength(1);
   });
 

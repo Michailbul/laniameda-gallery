@@ -45,7 +45,7 @@ describe("private textual stories", () => {
     const folderId = await db.insert("folders", { ownerUserId: "intruder", name: "Private" });
     await expect(callAsOwner(saveStory)(ctx, { ...text, folderId })).rejects.toThrow("Collection not found");
     const assetId = await db.insert("assets", { ownerUserId: "intruder", kind: "image", tagIds: [], createdAt: 1 });
-    await expect(callAsOwner(saveStory)(ctx, { ...text, assetIds: [assetId] })).rejects.toThrow("Source asset not found");
+    await expect(callAsOwner(saveStory)(ctx, { ...text, body: `${text.body} asset:${assetId}`, assetIds: [assetId] })).rejects.toThrow("Source asset not found");
     await expect(callAsOwner(deleteStory)(ctx, { ownerUserId: "intruder", id: first.id })).rejects.toThrow("Story not found");
   });
   test("delete is idempotent and removes history as well", async () => {
@@ -77,12 +77,44 @@ describe("private textual stories", () => {
     const { ctx, db } = createMockConvexMutationCtx();
     const folderId = await db.insert("folders", { ownerUserId: "owner", name: "Gone world" });
     const assetId = await db.insert("assets", { ownerUserId: "owner", kind: "image", tagIds: [], createdAt: 1 });
-    const first = await callAsOwner(saveStory)(ctx, { ...text, folderId, assetIds: [assetId] });
+    const first = await callAsOwner(saveStory)(ctx, { ...text, body: `${text.body} asset:${assetId}`, folderId, assetIds: [assetId] });
     await db.delete(assetId); await db.delete(folderId);
     expect(await callAsOwner(getStoryLinkStatus)(ctx, { ownerUserId: "owner", id: first.id })).toEqual({ missingAssetIds: [assetId], missingFolder: true, missingStorybook: false });
     await callAsOwner(saveStory)(ctx, { ...text, expectedRevision: 1 });
     expect((await callAsOwner(getStory)(ctx, { ownerUserId: "owner", id: first.id })).body).toBe(text.body);
     expect((await callAsOwner(listStoryRevisions)(ctx, { ownerUserId: "owner", id: first.id }))[0].assetIds).toEqual([assetId]);
+  });
+});
+
+describe("what Stories refuses", () => {
+  test("agent tickets, test saves and version copies stay out; old ones can still be archived", async () => {
+    const { ctx, db } = createMockConvexMutationCtx();
+    for (const [title, message] of [
+      ["GAL-DA-WARD-N186 · Review active rebuild", "tasks wall"],
+      ["zz undo test 6", "Test saves"],
+      ["[replaced] HEEL direction", "revise the story itself"],
+      ["DEAR ANNETE — Dari style lock [history, superseded 29 Oct 2026]", "revise the story itself"],
+      ["ARCHIVED · The Top Button", "revise the story itself"],
+    ]) {
+      await expect(callAsOwner(saveStory)(ctx, { ...text, ingestKey: title, title })).rejects.toThrow(message);
+    }
+    // Research titles that merely start with a word like "History" are stories.
+    expect((await callAsOwner(saveStory)(ctx, { ...text, ingestKey: "h", title: "History channel — 13 script studies" })).created).toBe(true);
+    // A record saved before the rule can be archived under its old title.
+    const old = await db.insert("stories", { ownerUserId: "owner", ...text, ingestKey: "old", title: "GAL-LINK-004 · Repair links", revision: 1, searchText: "", createdAt: 1, updatedAt: 1 });
+    await callAsOwner(saveStory)(ctx, { ...text, ingestKey: "old", title: "GAL-LINK-004 · Repair links", status: "archived", expectedRevision: 1 });
+    expect((await db.get(old))?.status).toBe("archived");
+  });
+
+  test("a linked picture must be named in the text; a deleted one drops out on save", async () => {
+    const { ctx, db } = createMockConvexMutationCtx();
+    const a = await db.insert("assets", { ownerUserId: "owner", kind: "image", tagIds: [], createdAt: 1 });
+    const b = await db.insert("assets", { ownerUserId: "owner", kind: "image", tagIds: [], createdAt: 1 });
+    await expect(callAsOwner(saveStory)(ctx, { ...text, assetIds: [a] })).rejects.toThrow("Name each linked picture");
+    const first = await callAsOwner(saveStory)(ctx, { ...text, body: `Her sheet asset:${a}. His sheet asset:${b}.`, assetIds: [a, b] });
+    await db.delete(b);
+    await callAsOwner(saveStory)(ctx, { ...text, body: `Her sheet asset:${a}.`, assetIds: [a, b], expectedRevision: first.revision });
+    expect((await callAsOwner(getStory)(ctx, { ownerUserId: "owner", id: first.id })).assetIds).toEqual([a]);
   });
 });
 

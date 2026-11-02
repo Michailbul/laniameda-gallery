@@ -237,8 +237,9 @@ describe("worlds", () => {
     const foreign = await asset(daddyCast);
     const base = { ownerUserId: owner, title: "Two Pears", body: "Beat one.", kind: "script", status: "draft", tagNames: [] };
     await expect(callAsOwner(saveStory)(ctx, { ...base, ingestKey: "a", folderId: daddy, storybookId: book, assetIds: [] })).rejects.toThrow("same world");
-    await expect(callAsOwner(saveStory)(ctx, { ...base, ingestKey: "b", folderId: film, storybookId: book, assetIds: [foreign] })).rejects.toThrow("not to DEAR ANNETE");
-    const saved = await callAsOwner(saveStory)(ctx, { ...base, ingestKey: "c", folderId: film, storybookId: book, assetIds: [await asset(film)], session: "story" });
+    await expect(callAsOwner(saveStory)(ctx, { ...base, body: `Beat one. asset:${foreign}`, ingestKey: "b", folderId: film, storybookId: book, assetIds: [foreign] })).rejects.toThrow("not to DEAR ANNETE");
+    const filmFrame = await asset(film);
+    const saved = await callAsOwner(saveStory)(ctx, { ...base, body: `Beat one. asset:${filmFrame}`, ingestKey: "c", folderId: film, storybookId: book, assetIds: [filmFrame], session: "story" });
     expect(saved.created).toBe(true);
     const context = await callAsOwner(getWorldContext)(ctx, { ownerUserId: owner, world: dear });
     expect(context.storybooks[0].stories.map((story) => story.title)).toEqual(["Two Pears"]);

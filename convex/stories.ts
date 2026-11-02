@@ -4,6 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { addAssetFolderLink } from "./assets";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { storyFields, storyKindValidator, storyResultValidator, storyStatusValidator } from "./storyValidators";
 import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder } from "./worldCore";
 
@@ -84,6 +85,32 @@ const linkAssetsToStorybook = async (ctx: MutationCtx, owner: string, data: { st
   for (const assetId of data.assetIds) await addAssetFolderLink(ctx, owner, assetId, data.storybookId);
 };
 
+// Stories hold stories: ideas, scripts and style locks. Three kinds of record
+// filled the tab with clutter before 2 Nov 2026 and are refused at the door:
+// agent tickets (GAL-DA-WARD-N186 · …) belong on the tasks wall, test saves
+// belong nowhere, and a "[replaced]" or "[history]" copy duplicates what the
+// revision history already keeps. Checked on create and on a title change, so
+// old records can still be archived or edited.
+const TICKET_TITLE = /^[A-Z][A-Z0-9]{1,7}(?:-[A-Z0-9]+){1,6}\s*(?:·|—|:|-)/;
+const TEST_TITLE = /^(?:zz+|test|tmp|scratch)\b|\b(?:undo|smoke|dry[- ]run) test\b/i;
+const COPY_TITLE = /^\s*[[(](?:replaced|history|superseded|old|copy|backup|archived)\b|\[(?:history|replaced|superseded)\b|^\s*(?:copy of\b|archived\s*·)/i;
+const assertStoryTitle = (title: string) => {
+  if (TICKET_TITLE.test(title)) throw new ConvexError("That title is an agent ticket. Tickets go on the tasks wall (create_task), not in Stories.");
+  if (TEST_TITLE.test(title)) throw new ConvexError("Test saves do not go in Stories. Check a write with a dry run, or archive the test record you made.");
+  if (COPY_TITLE.test(title)) throw new ConvexError("Do not save a copy to keep an old version: revise the story itself (update_story keeps every earlier text in its history), and archive it with status archived.");
+};
+
+// A picture is linked to a story only where the text names it (asset:<id>), so
+// the reader shows each picture beside the words about it and nobody attaches a
+// pile of frames the story never mentions. Links a story already had stay.
+const ASSET_REF = /asset:([a-z0-9]{20,40})/gi;
+export const citedAssetIds = (body: string) => Array.from(new Set(Array.from(body.matchAll(ASSET_REF), (m) => m[1]!)));
+const assertAssetsCited = (body: string, assetIds: Id<"assets">[], previous: Id<"assets">[] = []) => {
+  const had = new Set(previous);
+  const loose = assetIds.filter((id) => !had.has(id) && !body.includes(id));
+  if (loose.length) throw new ConvexError(`Name each linked picture in the text as asset:<id>, on the line about it. Not in the text: ${loose.slice(0, 5).map((id) => `asset:${id}`).join(", ")}${loose.length > 5 ? ` and ${loose.length - 5} more` : ""}.`);
+};
+
 const words = (value: string | undefined) => value?.trim() || undefined;
 const normalize = (data: Omit<Doc<"stories">, "_id" | "_creationTime" | "ownerUserId" | "ingestKey" | "revision" | "searchText" | "createdAt" | "updatedAt">) => {
   const title = data.title.trim();
@@ -128,6 +155,56 @@ export const listStories = ownerQuery({
   },
 });
 
+const storyIndexRow = v.object({
+  _id: v.id("stories"), title: v.string(), kind: storyKindValidator, status: storyStatusValidator,
+  folderId: v.optional(v.id("folders")), storybookId: v.optional(v.id("folders")),
+  excerpt: v.string(), pictureCount: v.number(), updatedAt: v.number(),
+});
+
+/** The Stories tab's index: every story, newest first, without bodies. */
+export const listStoryIndex = ownerQuery({
+  args: { ownerUserId: v.string() },
+  returns: v.array(storyIndexRow),
+  handler: async (ctx, args) => {
+    const rows: Doc<"stories">[] = [];
+    for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+      rows.push(...await ctx.db.query("stories").withIndex("by_owner_updatedAt", (q) => q.eq("ownerUserId", owner)).order("desc").take(500));
+    }
+    const unique = [...new Map(rows.map((row) => [row._id, row])).values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    return unique.map((story) => {
+      const lead = (story.logline || story.hook || story.body).replace(ASSET_REF, "").replace(/[#*_>`|]+/g, " ").replace(/\s+/g, " ").trim();
+      return {
+        _id: story._id, title: story.title, kind: story.kind, status: story.status,
+        folderId: story.folderId, storybookId: story.storybookId,
+        excerpt: lead.length > 180 ? `${lead.slice(0, 179).trimEnd()}…` : lead,
+        pictureCount: story.assetIds.length, updatedAt: story.updatedAt,
+      };
+    });
+  },
+});
+
+/** Thumbnails for the pictures a story links, in the order the text names them. */
+export const getStoryPictures = ownerQuery({
+  args: { ownerUserId: v.string(), id: v.id("stories") },
+  returns: v.array(v.object({
+    id: v.id("assets"), kind: v.union(v.literal("image"), v.literal("video")), thumbUrl: v.optional(v.string()), url: v.optional(v.string()),
+    width: v.optional(v.number()), height: v.optional(v.number()), cited: v.boolean(),
+  })),
+  handler: async (ctx, args) => {
+    const story = await ownedStory(ctx, args.ownerUserId, args.id);
+    const cited = citedAssetIds(story.body);
+    const order = [...cited, ...story.assetIds.filter((id) => !cited.includes(id))].slice(0, 160);
+    const out = [];
+    for (const raw of order) {
+      const id = ctx.db.normalizeId("assets", raw);
+      const asset = id ? await ctx.db.get(id) : null;
+      if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) continue;
+      out.push({ id: asset._id, kind: asset.kind, thumbUrl: await resolveAssetThumbUrl(ctx, asset), url: await resolveAssetUrl(ctx, asset), width: asset.width, height: asset.height, cited: cited.includes(raw) });
+    }
+    return out;
+  },
+});
+
 export const getStory = ownerQuery({
   args: { ownerUserId: v.string(), id: v.id("stories") }, returns: storyResultValidator,
   handler: (ctx, args) => ownedStory(ctx, args.ownerUserId, args.id),
@@ -166,6 +243,19 @@ export const saveStory = ownerMutation({
       existing = await ctx.db.query("stories").withIndex("by_owner_ingestKey", (q) => q.eq("ownerUserId", owner).eq("ingestKey", ingestKey)).unique();
       if (existing) break;
     }
+    if (!existing || existing.title !== data.title) assertStoryTitle(data.title);
+    // A picture deleted since it was linked is a dead link, not an error: it
+    // drops out on the next save so an old story can always be edited or archived.
+    if (existing) {
+      const had = new Set(existing.assetIds);
+      const alive: Id<"assets">[] = [];
+      for (const id of data.assetIds) {
+        if (had.has(id) && !(await ctx.db.get(id))) continue;
+        alive.push(id);
+      }
+      data.assetIds = alive;
+    }
+    assertAssetsCited(data.body, data.assetIds, existing?.assetIds);
     await requireReferences(ctx, ownerUserId, data, existing?.assetIds);
     const now = Date.now();
     if (!existing) {
