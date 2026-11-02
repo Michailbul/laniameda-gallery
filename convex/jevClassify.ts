@@ -137,7 +137,7 @@ export const classifyAsset = internalAction({
   },
 });
 
-// Walks one owner's assets newest first, one page per action, five pictures at
+// Walks one owner's assets newest first, one page per action, ten pictures at
 // a time, classifying those without a finished classification. Run:
 //   convex run jevClassify:backfillJevClassify '{"ownerUserId":"…","batchSize":20}'
 export const backfillJevClassify = internalAction({
@@ -156,8 +156,8 @@ export const backfillJevClassify = internalAction({
     }) as { assetIds: Id<"assets">[]; nextCursor: string | null; isDone: boolean };
     let classified = 0;
     let failed = 0;
-    for (let index = 0; index < page.assetIds.length; index += 5) {
-      const results = await Promise.all(page.assetIds.slice(index, index + 5).map((assetId) => classifyOne(ctx, assetId, { apply: args.apply })));
+    for (let index = 0; index < page.assetIds.length; index += 10) {
+      const results = await Promise.all(page.assetIds.slice(index, index + 10).map((assetId) => classifyOne(ctx, assetId, { apply: args.apply })));
       for (const result of results) {
         if (result.outcome === "classified") classified += 1;
         else if (result.outcome === "error") failed += 1;
