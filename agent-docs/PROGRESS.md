@@ -85,6 +85,18 @@ that did nothing, the recipe column in the way. Now `/w/<world>/styles`:
 - Style detection by Jev is an experiment only (2 Nov: 25/28 right when sure on Art Deco, but the Ink
   Noir shelf fooled it); nothing files into styles automatically.
 
+### 2026-11-02 — Auto-shelving with OpenAI Decisions; extension asks only for the collection (branch `feat/extension-auto-shelf`)
+
+- A new picture saved into a world also lands on that world's Places, World building and Moods
+  shelves the model is sure of (`convex/shelfClassify.ts`, rule `lib/shelf-rules.ts`, rows in
+  `assetShelfFilings`, undo `assetShelves:undoShelfFilings`). Cast and Styles are never auto-filed;
+  a group already picked by hand is left alone. Off unless `SHELF_CLASSIFY_ENABLED=true`.
+- Model choice from four tests on 2 Nov (Jev vs OpenAI Decisions, `gpt-6-luna`): OpenAI wins or ties
+  on flaws (writing and bars only), intake crops (37/40 vs 32/40) and speed (~1 s vs 2-3.5 s); Jev is
+  cheaper and keeps the ingest tagging. Neither predicts taste or judges hands.
+- Extension 0.18.0: the type and medium pickers sit behind "set type or medium by hand"; the panel
+  says the rest is filled in automatically. The badge shows the manifest version.
+
 ### 2026-11-01 — Storybooks as a board (branch `feat/storybooks-masonry`)
 
 - /storybooks has the HEEL board's shape: one chip row of filters, a strip of

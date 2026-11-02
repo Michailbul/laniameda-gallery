@@ -343,6 +343,27 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_owner_classifiedAt", ["ownerUserId", "classifiedAt"]),
+  // Auto-shelving (convex/shelfClassify.ts, rule lib/shelf-rules.ts): which of
+  // its world's Places / World building / Moods shelves a new picture was put
+  // on, with the answers behind it, so a bad pick can be taken back.
+  assetShelfFilings: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    worldId: v.id("folders"),
+    model: v.string(),
+    version: v.number(),
+    status: v.union(v.literal("done"), v.literal("error")),
+    answers: v.optional(v.record(v.string(), v.object({
+      choice: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      p: v.optional(v.number()),
+    }))),
+    addedFolderIds: v.array(v.id("folders")),
+    error: v.optional(v.string()),
+    filedAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner_filedAt", ["ownerUserId", "filedAt"]),
   inboxDecisions: defineTable(inboxDecisionFields)
     .index("by_stack", ["stackId"])
     .index("by_card", ["cardId"]),
