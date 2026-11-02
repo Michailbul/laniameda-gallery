@@ -8,6 +8,23 @@ Last updated: 2026-11-02
 
 ## ✔ Shipped
 
+### 2026-11-02 — /tasks opens on Decide: one call at a time, then All done (branch `feature/tasks-decide-flow`)
+
+Michael: the wall of ~50 frames (2 questions, 34 reports, 12 queued jobs) was
+confusing, with no clear next step. `/tasks` now opens on **Decide**
+(`DecideDeck` in `components/tasks/review-wall.tsx`): a progress strip, then
+one card. Pictures sit large on the left, and the question and answers sit on
+the right (on the phone the question comes first). Questions come first: ask
+options as lettered rows (A–D keys, agent pick in ember), Other answer (↵),
+Not needed (2). Then finished work: Accept (1) and Send back (C). A decision
+stamps the card and the next slides in after 650 ms. → skips, ← steps back, and
+Z undoes and returns to that card. The end screen reads All done with a tally
+and thumbnails, plus Back to gallery (↵). If any were skipped it reads
+"N skipped" and offers to go through them. Picture piles still to sort link to
+their desks. **Everything** is the old wall, unchanged, and the world tabs keep
+the wall. Stamps, the 6 s pick delay, undo and ghosts are the wall's own `act`,
+shared.
+
 ### 2026-11-02 — Styles page as full-width masonry, with keys on every frame (branch `feature/styles-masonry-redesign`)
 
 Michael on the first styles page: too much repetition, an Agent mode and sizes

@@ -28,7 +28,12 @@ The loop:
 
 ## Two layers: what Michael reads, what agents read
 
-/tasks has a **Human view** (the wall Michael works in) and an **Agent view**
+/tasks opens on **Decide**: the calls Michael owes, one at a time (blocked
+questions first, then done work to accept or send back). Each answer moves to
+the next; the end is an All done screen that sends him back to the gallery.
+Your `title`, `summary`, ask and linked pictures are all he sees there, so a
+task he cannot answer from them alone stalls. **Everything** is the full wall
+(open and claimed tasks too), with a **Human view** and an **Agent view**
 (every task as markdown). Write each task twice:
 
 | Field | For | Rule |

@@ -5,9 +5,10 @@ import {
   type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowRight, Check, Copy, Loader2, Undo2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, Loader2, Undo2, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, Micro, errorText } from "@/components/inbox/inbox-ui";
@@ -45,7 +46,12 @@ type Counts = { total: number; needsYou: number; toAccept: number; waiting: numb
 type Focus = { id: string; field?: Kind };
 type Choice = { letter: string; text: string };
 
-export type WallHeaderContext = { counts: Counts; view: WallView; setView: (view: WallView) => void; viewSwitch: ReactNode; undo: ReactNode };
+export type WallMode = "decide" | "wall";
+export type WallHeaderContext = {
+  counts: Counts; view: WallView; setView: (view: WallView) => void; viewSwitch: ReactNode; undo: ReactNode;
+  /** Only with `decide`: one call at a time, or every frame on the wall. */
+  mode: WallMode; modeSwitch: ReactNode;
+};
 
 const HOLD_MS = 480;
 const SWIPE_PX = 96;
@@ -888,6 +894,307 @@ function FocusSheet({ card, stamp, field, showWorld, hasPrev, hasNext, onClose, 
   </>;
 }
 
+/* ── Decide: one call at a time, then All done ──────────────────────────── */
+
+const DECK_CSS = `
+.lmw.deck{background-image:none}
+.lmd-prog{max-width:1400px;margin:0 auto;padding:14px 16px 0;display:flex;align-items:center;gap:14px}
+.lmd-prog .n{flex:0 0 auto;font:700 10px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary);font-variant-numeric:tabular-nums}
+.lmd-prog .n b{color:var(--lm-text-primary);font-weight:700}
+.lmd-segs{flex:1 1 auto;display:flex;gap:2px;height:4px;min-width:0}
+.lmd-segs i{flex:1 1 0;min-width:2px;background:var(--lm-surface-3);border-radius:1px;transition:background var(--lmw-dur)}
+.lmd-segs i.done{background:var(--lm-coral)}
+.lmd-segs i.cur{background:var(--lm-text-primary)}
+.lmd-segs i.left{background:var(--lm-text-ghost)}
+.lmd-bar{flex:1 1 auto;height:4px;background:var(--lm-surface-3);border-radius:1px;overflow:hidden}
+.lmd-bar i{display:block;height:100%;background:var(--lm-coral);transition:width 300ms}
+.lmd{max-width:1400px;margin:0 auto;padding:16px 16px 24px;display:flex;flex-direction:column;gap:18px;animation:lmd-in 240ms cubic-bezier(.2,.8,.2,1)}
+@keyframes lmd-in{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.lmd-media{position:relative;min-width:0}
+.lmd-media .lmw-pics{background:none;gap:6px}
+.lmd-media .lmw-pics .cell{border-radius:var(--lm-radius)}
+.lmd-media .lmw-pics.one .cell,.lmd-media .lmw-pics.one .cell img{max-height:58dvh}
+.lmd-media .lmw-ask{padding:0}
+.lmd-media .lmw-ask-pics .cell{max-height:calc(64dvh / var(--rows,1))}
+.lmd-media .lmw-ask + .lmw-pics,.lmd-media .lmw-pics + .lmw-ask{margin-top:10px}
+.lmd.is-stamped .lmd-media > :not(.lmw-imp){opacity:.4;transition:opacity .4s}
+.lmd-media .lmw-imp{font-size:28px;padding:10px 14px 9px 18px}
+.lmd-side,.lmd-head,.lmd-foot{display:flex;flex-direction:column;gap:14px;min-width:0}
+.lmd-kick{display:flex;flex-wrap:wrap;gap:12px;font:700 9.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmd-kick .hot{color:var(--lm-coral)} .lmd-kick .warm{color:var(--lm-text-secondary)}
+.lmd-q{margin:0;font:800 clamp(24px,6vw,38px)/1.04 var(--lm-font-display);letter-spacing:-.025em;text-transform:uppercase;text-wrap:balance;overflow-wrap:anywhere}
+.lmd-sum{margin:0;font:500 15px/1.45 var(--lm-font-display);color:var(--lm-text-secondary);max-width:60ch;text-wrap:pretty}
+.lmd .lmw-said,.lmd .lmw-stitle{margin:0}
+.lmd-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.lmd-acts .lmw-choice{flex:1 1 100%;width:100%}
+.lmd-acts .lmw-choice.rec{border-color:var(--lmw-ember)}
+.lmd-acts .lmw-choice.rec b{background:var(--lmw-ember)}
+.lmd-acts .lmw-choice kbd,.lmd-acts .lmw-stamp kbd{margin-left:auto;font:600 10px/1 var(--lm-font);opacity:.45}
+.lmd-stamped{flex:1 1 100%;display:flex;align-items:center;gap:10px;min-height:46px;font:700 11px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-coral)}
+.lmd-nav{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid var(--lm-border)}
+.lmd-nav .lmw-stamp{flex:0 0 auto;min-height:38px}
+.lmd-nav .sp{flex:1 1 auto}
+.lmd-keys{font:600 9.5px/1.6 var(--lm-font);letter-spacing:.1em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmd-keys kbd{font:inherit;color:var(--lm-text-tertiary);border:1px solid var(--lm-border-strong);border-radius:2px;padding:1px 4px;margin-right:4px}
+.lmd.bare{max-width:820px}
+.lmd.bare .lmd-q{font-size:clamp(28px,7vw,52px)}
+.lmd.bare .lmd-side{position:relative;margin-top:4dvh;padding:26px 24px 20px;background:var(--lm-surface-1);border:1px solid var(--lm-border-strong);border-top:3px solid var(--lm-text-primary);border-radius:var(--lm-radius);box-shadow:var(--lm-shadow-md)}
+.lmd.bare.ask .lmd-side{border-top-color:var(--lm-coral)}
+.lmd.bare.is-stamped .lmd-q,.lmd.bare.is-stamped .lmd-sum{opacity:.4;transition:opacity .4s}
+.lmd-done{max-width:960px;margin:0 auto;padding:12dvh 16px 48px;display:flex;flex-direction:column;align-items:flex-start;gap:18px;animation:lmd-in 300ms cubic-bezier(.2,.8,.2,1)}
+.lmd-done .mark{width:14px;height:14px;background:var(--lm-coral);border-radius:2px}
+.lmd-done h1{margin:0;font:900 clamp(56px,15vw,148px)/.86 var(--lm-font-display);letter-spacing:-.045em;text-transform:uppercase}
+.lmd-tally{margin:0;display:flex;flex-wrap:wrap;gap:6px 16px;font:700 11px/1.4 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary)}
+.lmd-tally b{color:var(--lm-coral);font-weight:700}
+.lmd-mosaic{display:flex;flex-wrap:wrap;gap:4px;max-width:100%}
+.lmd-mosaic img{display:block;height:64px;width:auto;max-width:120px;object-fit:cover;border-radius:2px;opacity:.85}
+.lmd-done-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;width:100%}
+.lmd-done-acts .lmw-stamp{flex:0 1 auto;padding:0 22px;text-decoration:none}
+.lmd-also{margin:6px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font:600 10px/1.4 var(--lm-font);letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmd-also a{display:inline-flex;align-items:center;gap:8px;padding:4px 10px 4px 4px;border:1px solid var(--lm-border-strong);border-radius:var(--lm-radius);color:var(--lm-text-secondary);text-decoration:none}
+.lmd-also a:hover{border-color:var(--lm-coral);color:var(--lm-text-primary)}
+.lmd-also img{width:28px;height:28px;object-fit:cover;border-radius:2px}
+@media (max-width:899px){
+  /* The phone reads the question first, then the pictures, then the answers. */
+  .lmd:not(.bare) .lmd-side{display:contents}
+  .lmd-head{order:1} .lmd-media{order:2} .lmd-foot{order:3;padding-bottom:8px}
+  .lmd-acts .lmw-stamp{flex:1 1 auto}
+  .lmd-keys{display:none}
+}
+@media (min-width:900px){
+  .lmd-prog{padding:18px 24px 0}
+  .lmd{display:grid;grid-template-columns:minmax(0,1fr) clamp(360px,30vw,460px);gap:32px;align-items:start;padding:22px 24px 32px}
+  .lmd.bare{display:flex}
+  .lmd-media{position:sticky;top:calc(var(--lmw-bar) + 16px)}
+  .lmd-media .lmw-pics.one .cell,.lmd-media .lmw-pics.one .cell img{max-height:calc(100dvh - var(--lmw-bar) - 90px)}
+  .lmd-media .lmw-ask-pics .cell{max-height:calc((100dvh - var(--lmw-bar) - 140px) / var(--rows,1) - 4px)}
+  .lmd-side{padding-top:4px}
+  .lmd-done{padding-left:24px;padding-right:24px}
+}
+`;
+
+const decidable = (card: Card) => card.status === "blocked" || card.status === "done";
+const deckOrder = (a: Card, b: Card) => RANK[a.status] - RANK[b.status] || a.priority - b.priority || b.updatedAt - a.updatedAt;
+const STAMP_PAUSE_MS = 650;
+const TALLY: Array<{ kinds: Kind[]; word: string }> = [
+  { kinds: ["answer", "choice"], word: "answered" },
+  { kinds: ["accept"], word: "accepted" },
+  { kinds: ["rework"], word: "sent back" },
+  { kinds: ["discard"], word: "not needed" },
+];
+
+/**
+ * The calls Michael owes, one at a time: questions first, then finished work
+ * to accept. A decision stamps the frame, and the next one slides in. Skip
+ * moves on and comes back at the end; ← steps back to see or undo one. When
+ * nothing is left: All done, and the way back to the gallery.
+ */
+function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onEverything }: {
+  tasks: Card[]; stamps: Map<string, Stamp>; stacks: Stack[]; startId?: string;
+  act: (card: Card, kind: Kind, text?: string) => Promise<void>;
+  undo: () => Promise<string | undefined>;
+  agentsBusy: number; onEverything: () => void;
+}) {
+  const router = useRouter();
+  // The queue is fixed in the order it arrived; later arrivals join the end.
+  // Every card ever shown is remembered, so a stamped one can still be stepped back to.
+  const [synced, setSynced] = useState<Card[] | null>(null);
+  const [deck, setDeck] = useState<{ queue: string[]; known: Map<string, Card> }>(() => ({ queue: [], known: new Map() }));
+  if (synced !== tasks) {
+    setSynced(tasks);
+    setDeck((current) => {
+      const have = new Set(current.queue);
+      const fresh = tasks.filter((card) => decidable(card) && !have.has(card._id)).sort(deckOrder).map((card): string => card._id);
+      if (current.queue.length === 0 && startId) {
+        const at = fresh.indexOf(startId);
+        if (at > 0) fresh.unshift(...fresh.splice(at, 1));
+      }
+      const known = new Map(current.known);
+      for (const card of tasks) known.set(card._id, card);
+      return { queue: fresh.length ? [...current.queue, ...fresh] : current.queue, known };
+    });
+  }
+  const { queue, known } = deck;
+  const live = useMemo(() => new Map(tasks.map((card) => [card._id as string, card])), [tasks]);
+  const isPending = (id: string) => { const card = live.get(id); return Boolean(card && decidable(card) && !stamps.has(id)); };
+  const shown = (id: string) => isPending(id) || (stamps.has(id) && known.has(id));
+
+  const [index, setIndex] = useState(0);
+  const [field, setField] = useState<Kind | undefined>();
+  const [zoom, setZoom] = useState<Thumb | null>(null);
+  // Where the deck stands: the first card from the cursor still worth showing.
+  let at = index;
+  while (at < queue.length && !shown(queue[at]!)) at += 1;
+  const id = at < queue.length ? queue[at]! : null;
+  const card = id ? live.get(id) ?? known.get(id)! : null;
+  const stamp = id ? stamps.get(id) ?? null : null;
+
+  const nextAfter = (from: number) => {
+    let next = from + 1;
+    while (next < queue.length && !isPending(queue[next]!)) next += 1;
+    return next;
+  };
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  useEffect(() => clearTimer, []);
+  const go = (next: number) => { clearTimer(); setField(undefined); setIndex(next); };
+
+  const decide = (target: Card, kind: Kind, text?: string) => {
+    if (stamps.has(target._id)) return;
+    setField(undefined);
+    const from = at;
+    act(target, kind, text).catch(() => go(queue.indexOf(target._id)));
+    clearTimer();
+    timer.current = setTimeout(() => { timer.current = null; setIndex(nextAfter(from)); }, STAMP_PAUSE_MS);
+  };
+  const back = () => {
+    let previous = at - 1;
+    while (previous >= 0 && !shown(queue[previous]!)) previous -= 1;
+    if (previous >= 0) go(previous);
+  };
+  const undoLast = async () => {
+    clearTimer();
+    const undone = await undo();
+    if (undone && queue.includes(undone)) go(queue.indexOf(undone));
+  };
+
+  const ask = card?.status === "blocked" ? card.askView : undefined;
+  const question = card ? questionOf(card) : "";
+  const choices = card?.status === "blocked" && !ask ? parseChoices(question) ?? parseChoices(card.result?.slice(0, 300)) : null;
+  const options: Array<{ letter: string; text: string; recommended?: boolean; send: string }> = ask
+    ? ask.options.map((option, i) => ({ letter: ASK_LETTERS[i]!, text: option.label, recommended: option.recommended, send: `Picked ${ASK_LETTERS[i]}: ${option.label}` }))
+    : (choices ?? []).map((choice) => ({ letter: choice.letter, text: choice.text, send: `${choice.letter}: ${choice.text}` }));
+  const textKind: Kind | undefined = card ? (card.status === "blocked" ? "answer" : "rework") : undefined;
+
+  const left = queue.filter((qid, position) => position < at && isPending(qid));
+  const visible = queue.filter(shown);
+  const done = queue.filter((qid) => stamps.has(qid) && known.has(qid));
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || zoom || isTyping(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z") { event.preventDefault(); void undoLast(); return; }
+      if (!card) {
+        if (event.key === "Enter") { event.preventDefault(); if (left.length) go(queue.indexOf(left[0]!)); else router.push("/"); }
+        return;
+      }
+      if (event.key === "ArrowLeft") { event.preventDefault(); back(); return; }
+      if (event.key === "ArrowRight") { event.preventDefault(); go(stamp ? nextAfter(at) : at + 1); return; }
+      if (stamp) { if (event.key === "Enter") { event.preventDefault(); go(nextAfter(at)); } return; }
+      if (field) return;
+      const letter = options.find((option) => option.letter.toLowerCase() === key);
+      if (letter) { event.preventDefault(); decide(card, "choice", letter.send); return; }
+      if (card.status === "done" && key === "1") { event.preventDefault(); decide(card, "accept"); return; }
+      if (card.status === "blocked" && key === "2") { event.preventDefault(); decide(card, "discard"); return; }
+      if (event.key === "Enter" || (key === "c" && options.length === 0)) { event.preventDefault(); setField(textKind); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const progress = visible.length > 0 && <div className="lmd-prog">
+    <span className="n">{card ? <><b>{visible.indexOf(id!) + 1}</b> / {visible.length}</> : <><b>{done.length}</b> / {visible.length}</>}</span>
+    {visible.length <= 90
+      ? <div className="lmd-segs" aria-hidden>{visible.map((qid) => <i key={qid} className={qid === id ? "cur" : stamps.has(qid) ? "done" : left.includes(qid) ? "left" : ""} />)}</div>
+      : <div className="lmd-bar" aria-hidden><i style={{ width: `${(done.length / visible.length) * 100}%` }} /></div>}
+    <span className="n">{visible.length - done.length} left</span>
+  </div>;
+
+  if (!card) {
+    const tally = TALLY.map((row) => ({ ...row, n: done.filter((qid) => row.kinds.includes(stamps.get(qid)!.kind)).length })).filter((row) => row.n > 0);
+    const pictures = done.map((qid) => known.get(qid)!.thumbs[0]).filter(Boolean).slice(0, 16) as Thumb[];
+    const piles = stacks.filter((stack) => stack.cards === 0 || stack.decided < stack.cards);
+    return <>
+      {progress}
+      <section className="lmd-done" aria-label="All done">
+        <span className="mark" aria-hidden />
+        <h1>{left.length ? `${left.length} skipped` : done.length ? "All done" : "Nothing waits on you"}</h1>
+        {tally.length > 0 && <p className="lmd-tally">{tally.map((row) => <span key={row.word}><b>{row.n}</b> {row.word}</span>)}</p>}
+        {pictures.length > 0 && <div className="lmd-mosaic">{pictures.map((thumb) => (
+          // eslint-disable-next-line @next/next/no-img-element -- the gallery's own thumbnail
+          <img key={thumb.assetId} src={thumb.url} alt="" loading="lazy" decoding="async" />))}</div>}
+        <div className="lmd-done-acts">
+          {left.length > 0 && <button type="button" className="lmw-stamp primary" onClick={() => go(queue.indexOf(left[0]!))}>Go through {left.length === 1 ? "it" : `the ${left.length}`}<ArrowRight size={14} aria-hidden /><kbd>↵</kbd></button>}
+          <Link href="/" className={`lmw-stamp${left.length ? "" : " primary"}`}><ArrowLeft size={14} aria-hidden /> Back to gallery{!left.length && <kbd>↵</kbd>}</Link>
+          <button type="button" className="lmw-stamp ghost" onClick={onEverything}>{agentsBusy ? `See the ${agentsBusy} with agents` : "See everything"}</button>
+        </div>
+        {piles.length > 0 && <p className="lmd-also">Pictures still to sort
+          {piles.map((stack) => { const preview = stack.previewItems[0]; const url = preview?.thumbUrl ?? preview?.url; return <Link key={stack._id} href={`/inbox/${stack.worldFolderId}/${stack._id}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- the pile's own preview */}
+            {url && <img src={url} alt="" loading="lazy" />}{stack.title.replace(/\s*·\s*\d+\s*$/, "")} · {Math.max(0, stack.cards - stack.decided) || stack.cards} · {stack.worldName}
+          </Link>; })}
+        </p>}
+      </section>
+    </>;
+  }
+
+  const thumbs = ask ? ask.context : card.thumbs;
+  const pictured = thumbs.length > 0 || Boolean(ask?.options.some((option) => option.pics.length > 0));
+  const asking = card.status === "blocked";
+  const fieldAction = field ? findAction(card, field) : undefined;
+  return <>
+    {progress}
+    <article key={card._id} className={`lmd${pictured ? "" : " bare"}${asking ? " ask" : ""}${stamp ? " is-stamped" : ""}`} aria-label={card.title}>
+      {pictured && <div className="lmd-media" style={{ "--rows": Math.max(1, ...(ask?.options.map((option) => option.pics.length) ?? [1])) } as CSSProperties}>
+        {stamp && <Impression stamp={stamp} />}
+        {thumbs.length > 0 && <PictureSet thumbs={thumbs} onZoom={setZoom} />}
+        {ask && <AskBoard ask={ask} disabled={Boolean(stamp)} onPick={(i) => decide(card, "choice", options[i]!.send)} onZoom={setZoom} />}
+      </div>}
+      <div className="lmd-side">
+        <div className="lmd-head">
+        <div className="lmd-kick">
+          <span className={asking ? "hot" : "warm"}>{asking ? "A question for you" : "Finished · accept it?"}</span>
+          <span>{card.worldName ?? GALLERY}</span>
+          <span>{timeAgo(card.updatedAt)}</span>
+        </div>
+        <h2 className="lmd-q">{question}</h2>
+        {card.summary && <p className="lmd-sum">{card.summary}</p>}
+        {card.lastAnswer && !asking && <p className="lmw-said"><b>You said</b>{card.lastAnswer.body}</p>}
+        {question !== card.title && <p className="lmw-stitle">{card.title}</p>}
+        </div>
+        <div className="lmd-foot">
+        <div className="lmd-acts">
+          {stamp
+            ? <>
+              <span className="lmd-stamped"><Check size={15} aria-hidden /> {stamp.label}</span>
+              <button type="button" className="lmw-stamp" onClick={() => void undoLast()}><Undo2 size={13} aria-hidden /> Undo<kbd>Z</kbd></button>
+              <button type="button" className="lmw-stamp primary" onClick={() => go(nextAfter(at))}>Next<ArrowRight size={14} aria-hidden /><kbd>↵</kbd></button>
+            </>
+            : fieldAction
+              ? <ReplyField key={`${card._id}-${fieldAction.kind}`} action={fieldAction} onSend={(body) => decide(card, fieldAction.kind, body)} onBack={() => setField(undefined)} />
+              : options.length > 0
+                ? <>
+                  {options.map((option) => <button key={option.letter} type="button" className={`lmw-choice${option.recommended ? " rec" : ""}`} onClick={() => decide(card, "choice", option.send)}>
+                    <b>{option.letter}</b><span>{option.text}</span>{option.recommended && <em>Agent pick</em>}
+                  </button>)}
+                  <button type="button" className="lmw-stamp" onClick={() => setField("answer")}>Other answer<kbd>↵</kbd></button>
+                  <button type="button" className="lmw-stamp" onClick={() => decide(card, "discard")}>Not needed<kbd>2</kbd></button>
+                </>
+                : asking
+                  ? <>
+                    <button type="button" className="lmw-stamp primary" onClick={() => setField("answer")}>Answer<kbd>C</kbd></button>
+                    <button type="button" className="lmw-stamp" onClick={() => decide(card, "discard")}>Not needed<kbd>2</kbd></button>
+                  </>
+                  : <>
+                    <button type="button" className="lmw-stamp primary" onClick={() => decide(card, "accept")}><Check size={14} aria-hidden /> Accept<kbd>1</kbd></button>
+                    <button type="button" className="lmw-stamp" onClick={() => setField("rework")}>Send back<kbd>C</kbd></button>
+                  </>}
+        </div>
+        <div className="lmd-nav">
+          <button type="button" className="lmw-stamp ghost" disabled={at === 0} onClick={back}><ArrowLeft size={13} aria-hidden /> Back</button>
+          <span className="sp" />
+          <CopyChip value={taskRef(card._id)} label={shortTask(card._id)} />
+          {!stamp && <button type="button" className="lmw-stamp ghost" onClick={() => go(at + 1)}>Skip<ArrowRight size={13} aria-hidden /></button>}
+        </div>
+        <p className="lmd-keys"><kbd>←</kbd>back · <kbd>→</kbd>skip · <kbd>Z</kbd>undo</p>
+        </div>
+      </div>
+    </article>
+    {zoom && <ZoomViewer assetId={zoom.assetId} kind="image" url={zoom.url} thumbUrl={zoom.url} width={zoom.width} height={zoom.height} onClose={() => setZoom(null)} />}
+  </>;
+}
+
 /* ── AGENT view: the same wall as markdown ──────────────────────────────── */
 
 function AgentDoc({ card, stamp, copied, onCopy }: { card: Card; stamp: Stamp | null; copied: boolean; onCopy: () => void }) {
@@ -905,8 +1212,10 @@ function AgentDoc({ card, stamp, copied, onCopy }: { card: Card; stamp: Stamp | 
 
 type Row = { key: string; worldFolderId?: Id<"folders">; name: string; tasks: Card[]; stacks: Stack[]; needsYou: number; toAccept: number };
 
-export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, showWorlds, stickyHeader = true, initialTaskId, header }: {
+export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, showWorlds, stickyHeader = true, initialTaskId, decide = false, header }: {
   ownerUserId: string;
+  /** Open on Decide: the calls he owes, one at a time, ending on All done. */
+  decide?: boolean;
   /** Inside a world: only its tasks and stacks. */
   worldFolderId?: Id<"folders">;
   /** Only the tasks that belong to no world. */
@@ -924,6 +1233,8 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   const update = useMutation(api.tasks.updateTask);
   const comment = useMutation(api.tasks.commentTask);
 
+  const [mode, setMode] = useState<WallMode>(decide ? "decide" : "wall");
+  const deciding = decide && mode === "decide";
   const [view, setViewState] = useState<WallView>("human");
   useEffect(() => { try { if (window.localStorage.getItem(VIEW_KEY) === "agent") setViewState("agent"); } catch { /* storage refused */ } }, []);
   const setView = useCallback((next: WallView) => { setViewState(next); try { window.localStorage.setItem(VIEW_KEY, next); } catch { /* storage refused */ } }, []);
@@ -1004,8 +1315,13 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   useEffect(() => {
     if (opened.current || !initialTaskId || !cards) return;
     opened.current = true;
-    if (cards.some((card) => card._id === initialTaskId)) setFocus({ id: initialTaskId });
-  }, [cards, initialTaskId]);
+    const card = cards.find((row) => row._id === initialTaskId);
+    if (!card) return;
+    // A call he owes opens first in the deck; anything else on the wall.
+    if (deciding && (card.status === "blocked" || card.status === "done")) return;
+    setMode("wall");
+    setFocus({ id: initialTaskId });
+  }, [cards, initialTaskId, deciding]);
 
   // The header's height feeds the sticky world labels on the phone.
   const bar = useRef<HTMLDivElement>(null);
@@ -1097,16 +1413,18 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     }
   }, [ownerUserId, update, comment, say, setStamp, dropGhost]);
 
-  const undo = useCallback(async () => {
+  /** Undoes the last stamp; resolves to the task it put back. */
+  const undo = useCallback(async (): Promise<string | undefined> => {
     const entry = historyRef.current[historyRef.current.length - 1];
-    if (!entry || Date.now() - entry.at > UNDO_WINDOW_MS) { say({ what: "Nothing to undo", who: "Undo reaches back ten minutes.", tone: "ok", undo: false }); return; }
+    if (!entry || Date.now() - entry.at > UNDO_WINDOW_MS) { say({ what: "Nothing to undo", who: "Undo reaches back ten minutes.", tone: "ok", undo: false }); return undefined; }
     setHistory((current) => current.slice(0, -1));
     setStamp(entry.id, entry.prev);
     dropGhost(entry.id);
     try {
       await entry.revert?.();
       say({ what: "Undone", who: entry.title, tone: "ok", undo: false });
-    } catch (failure) { say({ what: "Undo failed", who: errorText(failure, "That did not go through."), tone: "error", undo: false }); }
+      return entry.id;
+    } catch (failure) { say({ what: "Undo failed", who: errorText(failure, "That did not go through."), tone: "error", undo: false }); return undefined; }
   }, [setStamp, dropGhost, say]);
 
   const copyText = useCallback(async (key: string, text: string) => {
@@ -1118,6 +1436,7 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (deciding) return; // the deck has its own keys
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTyping(event.target)) return;
       const key = event.key.toLowerCase();
@@ -1130,12 +1449,19 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focused, focusIndex, flat, stamps, undo]);
+  }, [focused, focusIndex, flat, stamps, undo, deciding]);
 
   const undoButton = <button type="button" className="lmw-undo" disabled={history.length === 0} onClick={() => void undo()} title="Undo the last stamp (Z)">
     <Undo2 size={12} aria-hidden /> Undo
   </button>;
   const viewSwitch = <WallViewSwitch view={view} onChange={setView} />;
+  const owed = counts.needsYou + counts.toAccept;
+  const modeSwitch = decide ? <div className="lmw-seg" role="tablist" aria-label="Mode">
+    <button type="button" role="tab" aria-selected={mode === "decide"} onClick={() => { setFocus(null); setMode("decide"); }} title="The calls you owe, one at a time">
+      Decide{owed ? ` ${owed}` : ""}
+    </button>
+    <button type="button" role="tab" aria-selected={mode === "wall"} onClick={() => setMode("wall")} title="Every task, with what agents are working on">Everything</button>
+  </div> : null;
   // The sheet's "Agent notes": the same task in the Agent view, scrolled to and flashed.
   const openInAgentView = (id: string) => {
     setFocus(null);
@@ -1195,10 +1521,16 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
           </Strip>
         </section>);
 
-  return <div ref={root} className="lmw">
+  const deck = cards === undefined
+    ? <div className="lmw-state"><Loader2 className="mx-auto animate-spin" size={18} style={{ color: "var(--lm-text-ghost)" }} aria-label="Loading" /></div>
+    : <DecideDeck tasks={tasks} stamps={stamps} stacks={stacks ?? []} startId={initialTaskId} act={act} undo={undo}
+      agentsBusy={counts.waiting + counts.working} onEverything={() => setMode("wall")} />;
+
+  return <div ref={root} className={`lmw${deciding ? " deck" : ""}`}>
     <style href="lm-review-wall" precedence="default">{CSS}</style>
-    <div ref={bar} className={`lmw-bar${stickyHeader ? "" : " flat"}`}>{header({ counts, view, setView, viewSwitch, undo: undoButton })}</div>
-    <main className="lmw-wall">{wall}</main>
+    {decide && <style href="lm-review-deck" precedence="default">{DECK_CSS}</style>}
+    <div ref={bar} className={`lmw-bar${stickyHeader ? "" : " flat"}`}>{header({ counts, view, setView, viewSwitch, undo: undoButton, mode, modeSwitch })}</div>
+    <main className={deciding ? "lmw-deck" : "lmw-wall"}>{deciding ? deck : wall}</main>
     {focused && <FocusSheet key={focused._id} ownerUserId={ownerUserId} card={focused} stamp={stamps.get(focused._id) ?? null} field={focus?.field}
       showWorld={showWorlds} hasPrev={focusIndex > 0} hasNext={focusIndex < flat.length - 1}
       onClose={() => setFocus(null)} onPrev={() => setFocus({ id: flat[focusIndex - 1]!._id })} onNext={() => setFocus({ id: flat[focusIndex + 1]!._id })}
@@ -1221,12 +1553,14 @@ export function ReviewWallHome({ ownerUserId }: { ownerUserId: string }) {
   const worldCounts = useQuery(api.tasks.countOpenTasks, isAuthenticated ? { ownerUserId } : "skip");
   const chips = (worldCounts ?? []).map((row) => ({ key: row.worldFolderId ?? ("gallery" as const), name: row.worldFolderId ? row.worldName : GALLERY, blocked: row.blocked }));
   return <ReviewWall ownerUserId={ownerUserId} worldFolderId={world && world !== "gallery" ? world : undefined} galleryOnly={world === "gallery"} showWorlds={world === null}
-    initialTaskId={initialTaskId}
-    header={({ counts, viewSwitch, undo }) => <>
+    initialTaskId={initialTaskId} decide
+    header={({ counts, viewSwitch, undo, mode, modeSwitch }) => <>
       <div className="lmw-bar-top">
+        <Link href="/" className="lmw-undo" title="Back to the gallery"><ArrowLeft size={13} aria-hidden /> Gallery</Link>
         <h1 className="lmw-wordmark"><i aria-hidden />Review</h1>
-        <div className="lmw-bar-right">{undo}{viewSwitch}</div>
+        <div className="lmw-bar-right">{mode === "wall" && undo}{mode === "wall" && viewSwitch}{modeSwitch}</div>
       </div>
+      {mode === "wall" && <>
       <p className="lmw-counts">
         {counts.needsYou ? <span className="hot">{counts.needsYou} need{counts.needsYou === 1 ? "s" : ""} you</span> : null}
         {counts.toAccept ? <span className="warm">{counts.toAccept} to accept</span> : null}
@@ -1239,6 +1573,7 @@ export function ReviewWallHome({ ownerUserId }: { ownerUserId: string }) {
           {chip.name}{chip.blocked ? <span className="ml-1 tabular-nums" style={{ color: "var(--lm-coral)" }}>{chip.blocked}</span> : null}
         </button>)}
       </div>}
+      </>}
     </>} />;
 }
 
