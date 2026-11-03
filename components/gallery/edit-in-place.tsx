@@ -28,6 +28,7 @@ const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 
 const short = (id: string) => id.slice(-6);
+const PROVIDER_NAMES = { magnific: "Magnific", fal: "fal", pika: "Pika" } as const;
 
 type Ref = { assetId: string; name: string };
 
@@ -205,7 +206,12 @@ export function EditInPlace({
     }
   };
 
-  const missing = priced.some((entry) => entry.blocked) || (providers ? !providers.magnific?.key : false);
+  // What stops a route now, in plain words: "Magnific not connected · fal out of credit".
+  const problems = providers
+    ? (Object.entries(providers) as [keyof typeof providers, { key: boolean; blocked?: string }][])
+        .filter(([, state]) => !state.key || state.blocked)
+        .map(([provider, state]) => `${PROVIDER_NAMES[provider]} ${!state.key ? (provider === "magnific" ? "not connected" : "has no key") : "out of credit"}`)
+    : [];
 
   const imageMap = refs.length
     ? ["<image-1> this frame", ...refs.map((ref, index) => `<image-${index + 2}> ${ref.name}`)].join(" · ")
@@ -262,10 +268,9 @@ export function EditInPlace({
           </button>
         ))}
       </div>
-      {missing && (
+      {problems.length > 0 && (
         <p className="lm-edit-map">
-          {providers && !providers.magnific?.key ? "Magnific is not connected, so edits take the fal and Pika routes. " : "A route has no key or credit. "}
-          <Link href="/settings" className="lm-edit-settings">Keys in Settings</Link>
+          {problems.join(" · ")}. <Link href="/settings" className="lm-edit-settings">Keys in Settings</Link>
         </p>
       )}
 

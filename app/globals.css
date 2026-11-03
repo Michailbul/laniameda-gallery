@@ -3737,3 +3737,10 @@
 .lm-edit-note-head { display: flex; align-items: center; gap: 8px; }
 .lm-edit-note-head .lm-edit-label { margin: 0; }
 .lm-edit-note-box { min-height: 48px; margin: 6px 0 4px; }
+/* --font-sans / --font-mono live in @theme inline (build time only), so the
+   tokens that point at them resolve to nothing at runtime: point these
+   surfaces straight at the Geist variables. */
+.lm-set, .lm-edit {
+  --lm-font: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+  --lm-font-display: var(--font-geist-sans), system-ui, sans-serif;
+}
