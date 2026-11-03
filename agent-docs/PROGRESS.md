@@ -719,3 +719,27 @@ checking current BACKLOG and authorization.
 bun run lint   # must be clean
 bun test       # all tests passing
 ```
+
+## Decide is one flow; Feedback from any page (3 Nov 2026)
+
+Michael: Tasks was full of "accept it?" confirmations, the Decisions screen
+felt outside the gallery, a card said "136 frames" but showed three, the
+"Stack decided" page meant nothing, and he wants to leave feedback for the
+agent from anywhere.
+
+- /tasks Decide holds only questions (blocked tasks with an ask). Done tasks
+  leave the wall (`listTaskCards` skips them unless `includeDone`, used for a
+  newspaper `?task=` link); the newspaper is where finished work is read.
+- One pass: the last question answered opens the next Decisions pile; a pile's
+  last answer opens the next pile, then the questions, then the gallery
+  (`Onward` in `components/inbox/stack-screen.tsx`). The "Stack decided"
+  summary is gone; a fully answered pile opens on its cards to change them.
+  The back arrow goes to the world in the gallery.
+- Cards take `group` (`assetIds` 1–24, `total`, `label`): the pictures a
+  question is about, shown as a strip above the options. Choose cards show
+  each option's `labels` entry.
+- `components/feedback/feedback-button.tsx`, mounted in the root layout:
+  a Feedback pill (and the ` key) on every page for the signed-in owner files a
+  task with `source: "feedback"`, the page URL, the open asset or pile linked.
+- Skill 1.27.0: inbox.md (group rule, one-pass flow), tasks.md (feedback
+  tasks, no progress-only blocks), data-model.md.

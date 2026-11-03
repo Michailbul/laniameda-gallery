@@ -5,10 +5,11 @@ import {
   type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
-  ArrowLeft, Check, ChevronLeft, ChevronRight, Layers, LayoutGrid, Loader2, Maximize2, MessageSquare, Mic, Redo2,
+  ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, LayoutGrid, Loader2, Maximize2, MessageSquare, Mic, Redo2,
   ScrollText, SkipForward, Star, Trash2, Undo2, X,
 } from "lucide-react";
 import { aspectOf, fitGrid, measured, useArea, useDesktop } from "./evidence";
@@ -114,28 +115,47 @@ class StackBoundary extends Component<{ children: ReactNode; backHref: string },
 
 export function InboxStackScreen({ ownerUserId, worldId, stackId }: { ownerUserId: string; worldId: string; stackId: string }) {
   return <StackBoundary backHref={`/inbox/${worldId}`}>
-    <StackLoader ownerUserId={ownerUserId} worldId={worldId} stackId={stackId as Id<"inboxStacks">} />
+    <StackLoader ownerUserId={ownerUserId} stackId={stackId as Id<"inboxStacks">} />
   </StackBoundary>;
 }
 
-function StackLoader({ ownerUserId, worldId, stackId }: { ownerUserId: string; worldId: string; stackId: Id<"inboxStacks"> }) {
+function StackLoader({ ownerUserId, stackId }: { ownerUserId: string; stackId: Id<"inboxStacks"> }) {
   const { isAuthenticated } = useConvexAuth();
   const args = isAuthenticated ? { ownerUserId, stackId } : "skip";
   const view = useQuery(api.inbox.getInboxStack, args);
   const rows = useQuery(api.inbox.listInboxDecisions, args);
   const notes = useQuery(api.inbox.listInboxNotes, args);
+  // Where the flow goes after this stack: the next pile still to decide, then
+  // the questions in Tasks, then the gallery.
+  const piles = useQuery(api.inbox.listInboxStacks, isAuthenticated ? { ownerUserId, status: "open", previewLimit: 0 } : "skip");
+  const taskCounts = useQuery(api.tasks.countOpenTasks, isAuthenticated ? { ownerUserId } : "skip");
   if (!view || !rows) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
       <Loader2 className="animate-spin" size={18} style={{ color: "var(--lm-text-ghost)" }} aria-label="Loading stack" />
     </main>;
   }
-  return <Stack ownerUserId={ownerUserId} worldId={worldId} view={view} rows={rows} notes={notes ?? []} />;
+  const blocked = (taskCounts ?? []).reduce((sum, row) => sum + row.blocked, 0);
+  const next = (piles ?? [])
+    .filter((pile) => pile._id !== stackId && (pile.cards === 0 || pile.decided < pile.cards))
+    .sort((a, b) => Number(b.worldFolderId === view.stack.worldFolderId) - Number(a.worldFolderId === view.stack.worldFolderId))[0];
+  const onward: Onward = next
+    ? { href: `/inbox/${next.worldFolderId}/${next._id}`, label: next.title.replace(/\s*·\s*\d+\s*$/, ""), what: "Next pile" }
+    : blocked > 0
+      ? { href: "/tasks", label: `${blocked} question${blocked === 1 ? "" : "s"} for you`, what: "Next" }
+      : { href: "/", label: "Back to the gallery", what: "All decided" };
+  return <Stack key={stackId} ownerUserId={ownerUserId} view={view} rows={rows} notes={notes ?? []} onward={onward} />;
 }
 
-function Stack({ ownerUserId, worldId, view, rows, notes }: {
-  ownerUserId: string; worldId: string; view: View; rows: DecisionRow[];
-  notes: FunctionReturnType<typeof api.inbox.listInboxNotes>;
+// Where the flow goes once every card is answered.
+type Onward = { href: string; label: string; what: string };
+// The last answer's toast stays this long before the next pile opens.
+const ONWARD_MS = 1100;
+
+function Stack({ ownerUserId, view, rows, notes, onward }: {
+  ownerUserId: string; view: View; rows: DecisionRow[];
+  notes: FunctionReturnType<typeof api.inbox.listInboxNotes>; onward: Onward;
 }) {
+  const router = useRouter();
   const { stack, cards } = view;
   const decide = useMutation(api.inbox.decideInboxCard);
   const clear = useMutation(api.inbox.clearInboxDecision);
@@ -156,7 +176,9 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   const ids = useMemo(() => cards.map((card) => card._id as string), [cards]);
   const progress = inboxProgress(ids, [...decisions.values()]);
   const [index, setIndex] = useState(() => Math.max(0, nextOpenIndex(ids, decisions, -1)));
-  const [reviewing, setReviewing] = useState(false);
+  // A stack opened with every card answered shows its cards with the answers
+  // on them, ready to change; there is no summary page.
+  const [reviewing, setReviewing] = useState(() => inboxProgress(cards.map((card) => card._id as string), rows).pending === 0);
   const [gridOpen, setGridOpen] = useState(false);
   const [zoom, setZoom] = useState<Zoom | null>(null);
   const [note, setNote] = useState<NoteTarget | null>(null);
@@ -193,6 +215,13 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   }, [card?._id]);
 
   const say = useCallback((next: Omit<Toast, "key">) => setToast({ ...next, key: Date.now() }), []);
+  // The last answer moves the flow on: the next pile, the questions, or the gallery.
+  const leave = useCallback(() => router.push(onward.href), [router, onward.href]);
+  useEffect(() => {
+    if (!done || pending.size > 0) return;
+    const timer = setTimeout(leave, ONWARD_MS);
+    return () => clearTimeout(timer);
+  }, [done, pending.size, leave]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), toast.tone === "error" ? 4200 : 2000);
@@ -525,7 +554,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
         onPick={open && !asset.missing ? () => void commit({ choice: "winner", pickedAssetId: asset.assetId }) : undefined} tall />)}
     </TileGrid>}
     {card.type === "choose" && <TileGrid cols={tileColumns(card.assets)} fit={fit}>
-      {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at < 9 ? at + 1 : undefined} badge={at >= 9 ? String(at + 1) : undefined}
+      {card.assets.map((asset, at) => <Tile key={asset.assetId} {...tileProps(asset)} hotkey={at < 9 ? at + 1 : undefined} badge={card.labels?.[at] || (at >= 9 ? String(at + 1) : undefined)}
         chosen={current?.choice === "pick" && current.pickedAssetId === asset.assetId}
         onPick={open && !asset.missing ? () => void commit({ choice: "pick", pickedAssetId: asset.assetId }) : undefined} />)}
     </TileGrid>}
@@ -568,7 +597,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
   return <main className="flex h-dvh flex-col overflow-hidden" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)", overscrollBehavior: "none" }}>
     <header className="shrink-0 px-4 pt-3 md:px-7" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
       <div className="flex items-center gap-3">
-        <Link href={`/inbox/${worldId}`} aria-label={`${view.worldName} Inbox`} className="grid h-9 w-9 shrink-0 place-items-center border"
+        <Link href={`/w/${view.stack.worldFolderId}`} aria-label={`Back to ${view.worldName}`} title={`Back to ${view.worldName}`} className="grid h-9 w-9 shrink-0 place-items-center border"
           style={{ borderRadius: RADIUS, borderColor: "var(--lm-border-strong)", color: "var(--lm-text-secondary)" }}>
           <ArrowLeft size={16} aria-hidden />
         </Link>
@@ -600,6 +629,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       {!desktop && !done && card && <>
         <p className="mt-3 text-[17px] font-bold leading-snug" style={display}>{question}</p>
         <Evidence card={card} />
+        {card.group && <GroupStrip group={card.group} onZoom={(asset) => setZoom({ asset })} />}
       </>}
       {done && stack.note && <p className="mt-3 text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>{stack.note}</p>}
     </header>
@@ -607,7 +637,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
     {desktop
       ? <div className={`grid min-h-0 flex-1 gap-8 px-7 pb-6 pt-5 ${done ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)]"}`}>
         <section className="relative flex min-h-0 flex-col" aria-label="Evidence">
-          {done ? <DoneView view={view} decisions={decisions} hoverOf={(entry) => hoverOf(entry, entry.assets.find((asset) => !asset.missing), false)} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+          {done ? <OnwardView onward={onward} decided={progress.decided} later={progress.skipped} onGo={leave} onStay={() => { setIndex(0); setReviewing(true); }} />
             : card && <>
               <div className="shrink-0 pb-5">
                 <h1 className="max-w-[40ch] text-[26px] font-bold leading-[1.15] tracking-tight" style={display}>{question}</h1>
@@ -616,6 +646,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
                   <p className="mt-1.5 text-[20px] font-black leading-snug" style={display}>{card.ruleText}</p>
                 </div>}
                 <Evidence card={card} desktop />
+                {card.group && <GroupStrip group={card.group} desktop onZoom={(asset) => setZoom({ asset })} />}
               </div>
               <div ref={cardRef} key={card._id} className="relative min-h-0 flex-1" style={cardStyle} aria-label={`Card ${position} of ${cards.length}`}>
                 <div ref={areaRef} className="absolute inset-0 overflow-y-auto">{body}</div>
@@ -637,6 +668,9 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
               {singleImage ? "Note" : "Comment"}<span className="opacity-60">↵</span>
             </ActionButton>
           </div>
+          {progress.pending === 0 && <ActionButton tone="coral" onClick={leave} className="mt-1 h-11" icon={<ArrowRight size={14} aria-hidden />} title={onward.label}>
+            {onward.what === "All decided" ? "Done · back to the gallery" : `${onward.what}: ${onward.label}`}
+          </ActionButton>}
           {comment?.commentText && <p className="mt-1 line-clamp-4 border-l-2 pl-3 text-[12px] leading-5" style={{ borderColor: "var(--lm-coral)", color: "var(--lm-text-secondary)" }}>{comment.commentText}</p>}
           <Micro color="var(--lm-text-ghost)" className="mt-auto block pt-4 leading-5 normal-case tracking-[0.04em]">
             ← → browse · ↵ comment · S later<br />Z undo · ⇧Z redo · F full size
@@ -645,7 +679,7 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
       </div>
       : <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] gap-3 px-4 pb-3 pt-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
         <section className="relative flex min-h-0 flex-col">
-          {done ? <DoneView view={view} decisions={decisions} hoverOf={(entry) => hoverOf(entry, entry.assets.find((asset) => !asset.missing), false)} onOpen={(at) => { setIndex(at); setReviewing(true); }} />
+          {done ? <OnwardView onward={onward} decided={progress.decided} later={progress.skipped} onGo={leave} onStay={() => { setIndex(0); setReviewing(true); }} />
             : card && <>
               <div ref={cardRef} key={card._id} className="relative flex min-h-0 flex-1 flex-col" style={cardStyle} aria-label={`Card ${position} of ${cards.length}`}>{body}</div>
               {toastNode}
@@ -660,7 +694,11 @@ function Stack({ ownerUserId, worldId, view, rows, notes }: {
             </ActionButton>
           </div>}
         </section>
-        <section aria-label="Answers" className="shrink-0">{answers}</section>
+        <section aria-label="Answers" className="shrink-0">{answers}
+          {!done && progress.pending === 0 && <ActionButton tone="coral" onClick={leave} className="mt-2 h-11 w-full" icon={<ArrowRight size={14} aria-hidden />}>
+            {onward.what === "All decided" ? "Done · back to the gallery" : `${onward.what}: ${onward.label}`}
+          </ActionButton>}
+        </section>
       </div>}
 
     {zoom && !zoom.asset.missing && <ZoomViewer assetId={zoom.asset.assetId} kind={zoom.asset.kind ?? "image"} url={zoom.asset.url} thumbUrl={zoom.asset.thumbUrl}
@@ -1082,19 +1120,37 @@ function CardGrid({ view, decisions, active, hoverOf, onOpen, onClose }: {
   </div>;
 }
 
-function DoneView({ view, decisions, hoverOf, onOpen }: { view: View; decisions: DecisionMap; hoverOf: (card: Card) => HoverHandlers | undefined; onOpen: (index: number) => void }) {
-  const later = view.cards.filter((card) => decisions.get(card._id)?.choice === "skip").length;
-  return <div className="min-h-0 flex-1 overflow-y-auto border p-4" style={{ borderRadius: RADIUS, borderColor: "var(--lm-border)", background: "var(--lm-surface-1)" }}>
-    <div className="flex items-center gap-2">
-      <span className="grid h-6 w-6 place-items-center" style={{ borderRadius: RADIUS, background: "var(--lm-coral)", color: "var(--lm-paper)" }}><Check size={14} aria-hidden /></span>
-      <p className="text-xl font-black uppercase tracking-tight" style={display}>Stack decided</p>
+/** Every card answered: a short beat, then the flow moves on by itself. */
+function OnwardView({ onward, decided, later, onGo, onStay }: { onward: Onward; decided: number; later: number; onGo: () => void; onStay: () => void }) {
+  return <div className="grid min-h-0 flex-1 place-items-center px-4 text-center animate-fade-in">
+    <div className="flex flex-col items-center gap-3">
+      <Micro color="var(--lm-coral)">{onward.what}{later ? ` · ${later} for later` : ""}</Micro>
+      <p className="text-[28px] font-black uppercase leading-none tracking-tight md:text-[40px]" style={display}>{onward.label}</p>
+      <Micro color="var(--lm-text-ghost)" className="inline-flex items-center gap-2"><Loader2 size={12} className="animate-spin" aria-hidden /> {decided} answered · moving on</Micro>
+      <div className="mt-2 flex gap-2">
+        <ActionButton onClick={onStay} className="h-10">See the answers</ActionButton>
+        <ActionButton tone="coral" onClick={onGo} className="h-10" icon={<ArrowRight size={14} aria-hidden />}>Go now</ActionButton>
+      </div>
     </div>
-    <p className="mt-1 text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>
-      Agents read your answers and notes from here.{later ? ` ${later} left for later.` : ""} Tap any card to change it.
-    </p>
-    <div className="mt-4 grid grid-cols-3 gap-1.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-      {view.cards.map((card, index) => <MiniTile key={card._id} card={card} live={decisions.get(card._id)} hoverHandlers={hoverOf(card)} onClick={() => onOpen(index)} />)}
+  </div>;
+}
+
+/** The pictures a card's question is about, when they are not its options. */
+function GroupStrip({ group, desktop, onZoom }: { group: NonNullable<Card["group"]>; desktop?: boolean; onZoom: (asset: CardAsset) => void }) {
+  const shown = group.assets.filter((asset) => !asset.missing);
+  if (shown.length === 0) return null;
+  const more = Math.max(0, group.total - shown.length);
+  return <div className={desktop ? "mt-4" : "mt-2"} aria-label="The pictures this is about">
+    <Micro color="var(--lm-text-secondary)" className="mb-1.5 block">
+      {group.label ? `${group.label} · ` : ""}{group.total} picture{group.total === 1 ? "" : "s"}{more ? ` · ${shown.length} shown` : ""}
+    </Micro>
+    <div className="flex gap-1 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin" }}>
+      {shown.map((asset) => <button key={asset.assetId} type="button" onClick={() => onZoom(asset)} title="See it full size"
+        className="relative shrink-0 overflow-hidden" style={{ borderRadius: RADIUS, height: desktop ? 84 : 60, aspectRatio: String(aspectOf(asset, 16 / 9)), background: "var(--lm-surface-2)" }}>
+        <Picture asset={asset} contain={false} />
+      </button>)}
+      {more > 0 && <span className="grid shrink-0 place-items-center px-3 text-[11px] font-bold uppercase tracking-[0.1em]"
+        style={{ ...mono, height: desktop ? 84 : 60, borderRadius: RADIUS, border: "1px solid var(--lm-border-strong)", color: "var(--lm-text-tertiary)" }}>+{more}</span>}
     </div>
-    <Link href={`/inbox/${view.stack.worldFolderId}`} className="mt-5 inline-flex"><ActionButton icon={<Layers size={13} aria-hidden />}>All stacks in {view.worldName}</ActionButton></Link>
   </div>;
 }

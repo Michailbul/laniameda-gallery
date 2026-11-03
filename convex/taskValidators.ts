@@ -15,6 +15,8 @@ export const taskPriorityValidator = v.union(v.literal(1), v.literal(2), v.liter
 // in sourceRef and dedupes on ingestKey ("comment:<id>", "inbox:<stackId>").
 export const taskSourceValidator = v.union(
   v.literal("manual"), v.literal("comment"), v.literal("inbox"), v.literal("newspaper"),
+  // A note Michael left from any page with the Feedback button: the page, and what is on it.
+  v.literal("feedback"),
 );
 
 export const taskLinkKindValidator = v.union(

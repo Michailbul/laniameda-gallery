@@ -14,6 +14,16 @@ apply and learn.
   takes" or boxes the six-fingered hand. It never says which image is better,
   ranks options or hints at an answer. No suggestion chips.
 - One decision per card. Put only what the decision needs on it.
+- **Show what the question is about.** A question about a group ("these 136
+  frames have no look yet: which look are they?") puts the frames in `group`
+  (up to 24 of them, `total` for the full count, a plain `label`), and the
+  options are only the answers, each with its `labels` entry ("Golden hour
+  interiors"). Never make an option double as the example, and never refer
+  to "the third picture": Michael sees the group as a strip above the options.
+  A count with no pictures is a card he cannot answer.
+- The Decisions flow is one pass: his last answer on a stack opens the next
+  stack still to decide, then the questions in Tasks, then the gallery. There
+  is no summary page, so a stack must make sense card by card.
 - Confident work never reaches him: file the unambiguous cases yourself and
   post only the ones that need his eye.
 - Read every answer with `list_inbox_decisions`, including his card comments
@@ -34,7 +44,7 @@ apply and learn.
 | `duplicates` | 2–8 | `matches`: same job, same prompt, hash distance, similarity | per image keep or delete; then **stack** (one stack under the cover he picks), **keep all**, or delete the marked and keep the rest |
 | `artifact` | 1 | `defect.box` (0–1 coordinates), `defect.note`, `priceUsd`, `priceNote` | fix · keep as is · out |
 | `ab` | 2 | optional; `labels` such as "Board v1" / "Board v2" | the winner · neither |
-| `choose` | 2–12 | optional | pick one |
+| `choose` | 2–12 options, each named in `labels` | optional; `group` for the pictures the question is about | pick one |
 | `rule` | 0–12 evidence images | `ruleText` (required), `evidence.text` | yes · no · not yet |
 
 Every card also takes **later** (skip, decide later), undo, a 100 % zoom on
@@ -75,7 +85,7 @@ recorded for you to act on: repair the image, update the board, write the rule.
 
 ```text
 post_inbox_cards { world, stackTitle | stackId, ingestKey?, note?, agent?, cards (1–100) }
-  card: { type, key?, question?, assetIds, labels?, targets?, evidence?, ruleText? }
+  card: { type, key?, question?, assetIds, labels?, targets?, evidence?, ruleText?, group?: { assetIds (1–24), total?, label? } }
   target: { kind: moodboard | collection | option | out, label?, moodboardId?, folderId? }
 list_inbox_stacks { world?, status? (open | closed), limit? }
 list_inbox_decisions { stackId }                     id is accepted as an alias

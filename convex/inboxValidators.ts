@@ -46,6 +46,16 @@ export const inboxEvidenceValidator = v.object({
   priceNote: v.optional(v.string()),
 });
 
+// The pictures a card's question is about when they are not its options:
+// "these 136 frames have no look yet; which look are they?" shows the frames
+// (up to INBOX_LIMITS.groupAssets of them) and says how many there are.
+export const inboxGroupValidator = v.object({
+  assetIds: v.array(v.id("assets")),
+  // How many pictures the question covers in all; at least assetIds.length.
+  total: v.number(),
+  label: v.optional(v.string()),
+});
+
 export const inboxChoiceValidator = v.union(
   v.literal("target"), v.literal("skip"), v.literal("keep"), v.literal("fix"), v.literal("out"),
   v.literal("winner"), v.literal("neither"), v.literal("pick"), v.literal("yes"), v.literal("no"),
@@ -121,6 +131,7 @@ export const inboxCardFields = {
   labels: v.optional(v.array(v.string())),
   targets: v.optional(v.array(inboxTargetValidator)),
   evidence: v.optional(inboxEvidenceValidator),
+  group: v.optional(inboxGroupValidator),
   ruleText: v.optional(v.string()),
   createdAt: v.number(),
 };

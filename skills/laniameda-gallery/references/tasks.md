@@ -9,10 +9,13 @@ concerns, and a timeline of claims, comments and status changes.
 The loop:
 
 1. Michael reviews. He comments on an asset in the detail panel, answers an
-   Inbox stack, or files a task by hand. **A task appears by itself**:
+   Inbox stack, leaves **Feedback** from any page (the button bottom right, or
+   the ` key), or files a task by hand. **A task appears by itself**:
    titled with the first line of his comment (source `comment`, the asset in
-   its links and brief) or `Apply your picks: <stack title>` (source `inbox`,
-   one per stack).
+   its links and brief), `Apply your picks: <stack title>` (source `inbox`,
+   one per stack), or the first line of his feedback (source `feedback`: the
+   page URL in `sourceRef` and links, the open picture or pile linked, his
+   words in the brief).
 2. An agent (a session, or a cron run) calls `list_tasks` and sees the queue.
    `open_world` also carries the world's counts and its five newest open tasks.
 3. The agent `claim_task`s one, works, leaves `comment_task` progress notes,
@@ -20,17 +23,23 @@ The loop:
    `stack:` ids it produced. A question for Michael is `complete_task` with
    `blocked: true` and an `ask` (below): the task moves under **Needs you**.
    Never stop silently.
-4. Michael reads the result in /tasks. He closes it, or comments: his comment
-   on a done task reopens it flagged **rework**; on a blocked task it is the
-   answer and the task is open again. On an ask he clicks an option (or presses
+4. Finished work goes to the **newspaper**, not to his desk: /tasks no longer
+   asks him to accept done tasks, and they leave the wall. He reads results in
+   the morning edition. If something is wrong he says so with Feedback (or a
+   comment on the task from the newspaper link): a comment on a done task
+   reopens it flagged **rework**; on a blocked task it is the answer and the
+   task is open again. On an ask he clicks an option (or presses
    its letter): his comment reads `Picked B: Subject first` and the task is open
    again.
 
 ## Two layers: what Michael reads, what agents read
 
-/tasks opens on **Decide**: the calls Michael owes, one at a time (blocked
-questions first, then done work to accept or send back). Each answer moves to
-the next; the end is an All done screen that sends him back to the gallery.
+/tasks opens on **Decide**: the questions Michael owes (blocked tasks with an
+ask), one at a time. Each answer moves to the next; after the last one the
+Decisions piles still to sort open one after another, and the flow ends back
+in the gallery. Never block a task just to report progress or ask "is this
+OK?": finish it, and the newspaper shows it. Block only for a call that is
+truly his (taste, $30 or more, deleting, publishing).
 Your `title`, `summary`, ask and linked pictures are all he sees there, so a
 task he cannot answer from them alone stalls. **Everything** is the full wall
 (open and claimed tasks too), with a **Human view** and an **Agent view**
@@ -112,6 +121,10 @@ complete_task {
   what changed and the ids produced. Blocked: an `ask` (one line, picture options);
   the reasoning goes in `result`.
   `release_task` with a note when you cannot do it this session.
+- A feedback task (`source: "feedback"`): open the page in its links, look at
+  what he saw, fix or deliver what he asked, and complete it with a plain
+  summary of what he will see now. The scheduled reviewer runs
+  `list_tasks {source: "feedback", status: "open"}` first on every round.
 - A comment task: act on the comment, reply on the asset with
   `add_asset_comment`, then complete the task. An inbox task: read
   `list_inbox_decisions`, apply what is his to apply, learn, `close_stack`,

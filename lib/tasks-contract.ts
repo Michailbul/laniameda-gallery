@@ -19,7 +19,7 @@ export const taskListSchema = z.object({
   status: z.union([taskStatusSchema, z.literal("active"), z.literal("all")]).optional()
     .describe("active (default) = open + claimed + blocked; or one status; or all."),
   assignee: z.string().min(1).max(TASK_LIMITS.assignee).optional().describe("Only tasks assigned to or claimed by this actor (agent:<name>)."),
-  source: z.enum(TASK_SOURCES).optional().describe("manual, comment (from Michael's asset comments), inbox (from his Inbox answers) or newspaper."),
+  source: z.enum(TASK_SOURCES).optional().describe("manual, comment (from Michael's asset comments), inbox (from his Inbox answers), newspaper, or feedback (a note he left from any page with the Feedback button)."),
   limit: z.number().int().min(1).max(TASK_LIMITS.list).optional().describe(`Default ${TASK_LIMITS.listDefault}.`),
 });
 

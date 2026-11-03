@@ -44,6 +44,10 @@ export async function POST(request: Request) {
         cards: input.cards.map((card) => ({
           ...card,
           assetIds: card.assetIds.map((assetId) => bareInboxRef(assetId) as Id<"assets">),
+          group: card.group && {
+            ...card.group, total: card.group.total ?? card.group.assetIds.length,
+            assetIds: card.group.assetIds.map((assetId) => bareInboxRef(assetId) as Id<"assets">),
+          },
           targets: card.targets?.map((target) => ({
             kind: target.kind, label: target.label,
             moodboardId: bareOptionalInboxRef(target.moodboardId) as Id<"moodboards"> | undefined,
@@ -89,6 +93,7 @@ export async function POST(request: Request) {
         return {
           id: inboxCardRef(card._id), position: card.position + 1, type: card.type, question: card.question,
           ruleText: card.ruleText, evidence: card.evidence, labels: card.labels,
+          group: card.group && { label: card.group.label, total: card.group.total, assets: card.group.assets.map((asset) => `asset:${asset.assetId}`) },
           targets: card.targets?.map(({ previewThumbUrl: _thumb, ...entry }) => entry),
           assets: card.assets.map((asset) => ({ id: `asset:${asset.assetId}`, ...asset, notes: notesOf.get(asset.assetId) ?? [] })),
           decision: row?.choice ? {
