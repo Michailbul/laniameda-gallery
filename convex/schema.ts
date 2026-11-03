@@ -300,6 +300,21 @@ export default defineSchema({
     .index("by_source_createdAt", ["sourceAssetId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_result", ["resultAssetId"]),
+  // Provider keys and sign-ins set in Settings (fal and Pika API keys, the
+  // Magnific connection). `sealed` is AES-GCM ciphertext (convex/providerVault.ts);
+  // nothing here is ever returned to a client except `hint` and `account`.
+  providerCredentials: defineTable({
+    ownerUserId: v.string(),
+    provider: v.union(v.literal("fal"), v.literal("pika"), v.literal("magnific")),
+    sealed: v.string(),
+    // Last four characters of a key, or nothing for a sign-in.
+    hint: v.optional(v.string()),
+    // Who a sign-in belongs to (Magnific account email or name).
+    account: v.optional(v.string()),
+    checkedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner_provider", ["ownerUserId", "provider"]),
   // The world Inbox ("Decisions"): stacks of cards agents post for Michael,
   // one decision per card. See convex/inbox.ts.
   inboxStacks: defineTable(inboxStackFields)

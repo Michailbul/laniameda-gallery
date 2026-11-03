@@ -33,6 +33,7 @@ import {
   Trash2,
   ListChecks,
   Newspaper,
+  SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -723,6 +724,9 @@ export function GallerySidebar({
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={Newspaper} label="Newspaper" href="/newspaper" active={false} collapsed={collapsed} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={SlidersHorizontal} label="Settings" href="/settings" active={false} collapsed={collapsed} />
         )}
         {showYouTubeTab && (
           <NavItem

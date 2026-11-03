@@ -1,9 +1,13 @@
 // In-place edits: which model runs where, what a take costs and what each
 // endpoint is sent. Ported from the reviewer kit (reviewer-kit/server.py,
 // MODELS / estimate / build_input), prices checked on fal and Pika 1 Nov 2026.
+// Magnific runs first where it has the model (Michael, 1 Nov: "use magnific"),
+// through its MCP server with his own sign-in (Settings → Connect Magnific);
+// fal and Pika stay as the fallbacks. Credits measured with simulate_cost.
 // Pure: the Convex runner, the detail panel and the agent route share it.
 
-export type EditProvider = "fal" | "pika";
+export type EditProvider = "magnific" | "fal" | "pika";
+export const EDIT_PROVIDERS: readonly EditProvider[] = ["magnific", "fal", "pika"];
 export type EditRoute = { provider: EditProvider; endpoint: string };
 export type EditModel = {
   id: string;
@@ -19,12 +23,18 @@ export const EDIT_MODELS: readonly EditModel[] = [
   {
     id: "krea-3", name: "Krea 3", maxRefs: 7, default: true,
     hint: "The edit model. Keeps the frame, changes what you name.",
-    routes: [{ provider: "fal", endpoint: "krea/v3/edit" }],
+    routes: [{ provider: "magnific", endpoint: "krea-3@1k" }, { provider: "fal", endpoint: "krea/v3/edit" }],
+  },
+  {
+    id: "ideogram-precise", name: "Ideogram 4.5 precise", maxRefs: 4,
+    hint: "Edits the whole frame and keeps its framing and geometry exactly.",
+    routes: [{ provider: "magnific", endpoint: "ideogram-4-5@precise" }],
   },
   {
     id: "seedream-5", name: "Seedream 5 Pro", maxRefs: 6,
     hint: "Edit and style transfer. Strong on texture and light.",
     routes: [
+      { provider: "magnific", endpoint: "seedream-5-pro" },
       { provider: "pika", endpoint: "bytedance/seedream-5.0-pro/image-to-image" },
       { provider: "fal", endpoint: "bytedance/seedream/v5/pro/edit" },
     ],
@@ -33,6 +43,7 @@ export const EDIT_MODELS: readonly EditModel[] = [
     id: "gpt-flare", name: "GPT Image 2.5 Flare", maxRefs: 7,
     hint: "Targeted edit of one thing. Never for composing scenes.",
     routes: [
+      { provider: "magnific", endpoint: "gpt-2-mini@flare-high-2k" },
       { provider: "fal", endpoint: "openai/gpt-image-2.5/flare/edit" },
       { provider: "pika", endpoint: "openai/gpt-image-2.5-flare/image-to-image" },
     ],
@@ -47,8 +58,11 @@ export const EDIT_MODELS: readonly EditModel[] = [
   },
   {
     id: "nano-21", name: "Nano Banana 2.1", maxRefs: 6,
-    hint: "Runs on Pika. Never on the Gemini key.",
-    routes: [{ provider: "pika", endpoint: "google/gemini-nano-banana-2.1/image-to-image" }],
+    hint: "Good at keeping a face from a reference. Never on the Gemini key.",
+    routes: [
+      { provider: "magnific", endpoint: "imagen-nano-banana-2-1@2k" },
+      { provider: "pika", endpoint: "google/gemini-nano-banana-2.1/image-to-image" },
+    ],
   },
   {
     id: "kontext-max", name: "Flux Kontext Max", maxRefs: 0,
@@ -85,6 +99,41 @@ export function editSize(w?: number, h?: number, capMp = 2) {
   };
 }
 
+/**
+ * Magnific routes: the images_generate arguments and the credits a take costs
+ * (simulate_cost, 1 Nov 2026; flat for any number of references).
+ */
+export const MAGNIFIC_SPECS: Record<string, { args: Record<string, unknown>; credits: number }> = {
+  "krea-3@1k": { args: { mode: "krea-3", resolution: "1k" }, credits: 90 },
+  "ideogram-4-5@precise": { args: { mode: "ideogram-4-5", preciseEdit: true }, credits: 80 },
+  "seedream-5-pro": { args: { mode: "seedream-5-pro" }, credits: 100 },
+  "gpt-2-mini@flare-high-2k": { args: { mode: "gpt-2-mini", variant: "flare", quality: "high", resolution: "2k" }, credits: 175 },
+  "imagen-nano-banana-2-1@2k": { args: { mode: "imagen-nano-banana-2-1", resolution: "2k" }, credits: 65 },
+};
+/** Pro plan, about €200 for 300,000 credits (Michael, 2 Nov 2026), in dollars. */
+export const MAGNIFIC_USD_PER_CREDIT = 0.00073;
+export const magnificUsd = (credits: number) => round4(credits * MAGNIFIC_USD_PER_CREDIT);
+
+const MAGNIFIC_ASPECTS = ["1:1", "4:3", "3:2", "16:9", "21:9", "2:1", "5:4", "4:5", "2:3", "9:16", "3:4", "1:2"];
+
+/** The images_generate call for a Magnific route; the references are creation identifiers, the frame first. */
+export function magnificGenerateArgs(endpoint: string, prompt: string, identifiers: string[], w?: number, h?: number, folderReference?: string) {
+  const spec = MAGNIFIC_SPECS[endpoint];
+  if (!spec) throw new Error(`Unknown Magnific route ${endpoint}.`);
+  const ratio = (w || 16) / (h || 9);
+  const aspectRatio = MAGNIFIC_ASPECTS.reduce((best, name) => {
+    const [a, b] = name.split(":").map(Number) as [number, number];
+    const [x, y] = best.split(":").map(Number) as [number, number];
+    return Math.abs(a / b - ratio) < Math.abs(x / y - ratio) ? name : best;
+  }, "16:9");
+  return {
+    prompt, count: 1, ...spec.args,
+    references: identifiers.map((identifier) => ({ type: "image", identifier })),
+    ...(spec.args.preciseEdit ? {} : { aspectRatio }),
+    ...(folderReference ? { folderReference } : {}),
+  };
+}
+
 const FLAT_USD: Record<string, number> = {
   "openai/gpt-image-2.5/flare/edit": 0.055,
   "openai/gpt-image-2.5/sunburst/edit": 0.055,
@@ -96,6 +145,8 @@ const FLAT_USD: Record<string, number> = {
 
 /** USD estimate for one take on one endpoint. */
 export function estimateEditUsd(endpoint: string, w?: number, h?: number, refs = 0) {
+  const magnific = MAGNIFIC_SPECS[endpoint];
+  if (magnific) return magnificUsd(magnific.credits);
   if (endpoint === "krea/v3/edit") {
     // $0.025 per MP of output plus each input image, inputs capped at the output size.
     const out = editSize(w, h);
@@ -240,6 +291,8 @@ export function planEditSend(input: {
   prompt: string; modelIds: string[]; takes: number; refs: number; width?: number; height?: number;
   /** The ask-first line; MAX_SEND_USD unless a test moves it. */
   limitUsd?: number;
+  /** Which providers can take a job now; each model is priced on the route it would take. */
+  providers?: Partial<ProviderState>;
 }): { ok: true; takes: PlannedTake[]; totalUsd: number } | { ok: false; error: string } {
   const prompt = input.prompt.trim();
   if (!prompt) return { ok: false, error: "Write what to change." };
@@ -257,7 +310,7 @@ export function planEditSend(input: {
   for (const id of ids) {
     const model = editModelById(id)!;
     const refs = Math.min(input.refs, model.maxRefs);
-    const estimateUsd = estimateEditUsd(model.routes[0]!.endpoint, input.width, input.height, refs);
+    const estimateUsd = estimateEditUsd(liveRoute(model, input.providers).route.endpoint, input.width, input.height, refs);
     for (let take = 1; take <= takes; take += 1) {
       planned.push({ model, take, of: takes, refs, refsDropped: input.refs - refs, estimateUsd });
     }

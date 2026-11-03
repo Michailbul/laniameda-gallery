@@ -7,7 +7,8 @@ import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { assetFolderIds, worldsOfAsset } from "./worldCore";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { upsertLineageInternal } from "./generationLineage";
-import { MAX_EDIT_REFS, editModelById, estimateEditUsd, planEditSend, type EditProvider } from "../lib/edit-models";
+import { MAX_EDIT_REFS, editModelById, estimateEditUsd, liveRoute, planEditSend, type EditProvider } from "../lib/edit-models";
+import { credentialPresence } from "./providerCredentials";
 
 const KREA = "krea-3";
 const KREA_FALLBACK = "gpt-flare";
@@ -130,14 +131,14 @@ const providerState = async (ctx: QueryCtx, owner: string) => {
     const seen = last.get(attempt.provider);
     if (!seen || attempt.at > seen.at) last.set(attempt.provider, attempt);
   }
-  const state = (provider: EditProvider, key: boolean) => {
+  const presence = await credentialPresence(ctx, owner);
+  const state = (provider: EditProvider) => {
     const attempt = last.get(provider);
-    return { key, ...(attempt?.outOfCredit && attempt.error ? { blocked: attempt.error } : {}) };
+    // A key saved after the refusal clears it: the new key gets its chance.
+    const stale = attempt && presence[provider].since !== undefined && attempt.at < presence[provider].since!;
+    return { key: presence[provider].key, ...(attempt?.outOfCredit && attempt.error && !stale ? { blocked: attempt.error } : {}) };
   };
-  return {
-    fal: state("fal", Boolean(process.env.FAL_KEY?.trim())),
-    pika: state("pika", Boolean(process.env.PIKA_API_KEY?.trim())),
-  };
+  return { magnific: state("magnific"), fal: state("fal"), pika: state("pika") };
 };
 
 /**
@@ -161,7 +162,7 @@ export const listAssetEdits = ownerQuery({
       name: v.string(),
       refs: v.array(v.object({ kind: v.union(v.literal("sheet"), v.literal("face")), assetId: v.id("assets"), thumbUrl: v.optional(v.string()) })),
     })),
-    providers: v.object({ fal: providerStateValidator, pika: providerStateValidator }),
+    providers: v.object({ magnific: providerStateValidator, fal: providerStateValidator, pika: providerStateValidator }),
   }),
   handler: async (ctx, args) => {
     const asset = await ownedAsset(ctx, args.ownerUserId, args.assetId);
@@ -271,9 +272,10 @@ export const startEdit = ownerMutation({
     }
     if (refs.length > MAX_EDIT_REFS) throw new ConvexError(`Up to ${MAX_EDIT_REFS} references.`);
 
+    const providers = await providerState(ctx, args.ownerUserId);
     const plan = planEditSend({
       prompt: args.prompt, modelIds: args.models, takes: args.takes ?? 1,
-      refs: refs.length, width: asset.width, height: asset.height,
+      refs: refs.length, width: asset.width, height: asset.height, providers,
     });
     if (!plan.ok) throw new ConvexError(plan.error);
 
@@ -284,7 +286,7 @@ export const startEdit = ownerMutation({
     const jobs = [];
     for (const [index, take] of plan.takes.entries()) {
       const used = refs.slice(0, take.refs);
-      const first = take.model.routes[0]!;
+      const first = liveRoute(take.model, providers).route;
       const jobId = await ctx.db.insert("editJobs", {
         ownerUserId: asset.ownerUserId ?? args.ownerUserId,
         sourceAssetId: asset._id,
@@ -368,6 +370,7 @@ export const jobForRun = internalQuery({
     sourceTagIds: v.array(v.id("tags")),
     sourceFolderId: v.optional(v.id("folders")),
     folderIds: v.array(v.id("folders")),
+    worldName: v.optional(v.string()),
   })),
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
@@ -381,8 +384,10 @@ export const jobForRun = internalQuery({
     }
     // Filed where the source lives now; the send-time list if it has moved out of everything.
     const current = source ? await assetFolderIds(ctx, source) : [];
+    const world = job.worldFolderId ? await ctx.db.get(job.worldFolderId) : null;
     return {
       job,
+      ...(world?.name ? { worldName: world.name } : {}),
       sourceUrl: source ? await resolveAssetUrl(ctx, source) : undefined,
       refUrls,
       sourceTagIds: source?.tagIds ?? [],
@@ -456,7 +461,7 @@ export const failJob = internalMutation({
     const note = fallback ? ` · sent to ${fallback.name} instead` : "";
     await ctx.db.patch(job._id, { status: "error", error: `${args.error.slice(0, 460)}${note}`, errorKind: args.errorKind, finishedAt: now, updatedAt: now });
     if (fallback) {
-      const route = fallback.routes[0]!;
+      const route = liveRoute(fallback, await providerState(ctx, job.ownerUserId)).route;
       const refs = Math.min(job.refAssetIds.length, fallback.maxRefs);
       const jobId = await ctx.db.insert("editJobs", {
         ownerUserId: job.ownerUserId, sourceAssetId: job.sourceAssetId, folderIds: job.folderIds, worldFolderId: job.worldFolderId,

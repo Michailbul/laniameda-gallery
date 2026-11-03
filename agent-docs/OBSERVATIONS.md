@@ -8,6 +8,16 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Convex
 
+- Provider secrets (3 Nov 2026): `providerCredentials.sealed` is opened only in
+  "use node" code (`convex/providerVault.ts`). The seal key derives from
+  PROVIDER_KEYS_SECRET, falling back to AGENT_TOKEN_ISSUER_SECRET; rotating
+  either makes saved keys unreadable (the runner then falls back to the env
+  key, and Magnific needs reconnecting). Magnific's Keycloak accepts dynamic
+  client registration and client-ID metadata documents; the gallery's public
+  client id is in `lib/magnific-mcp.ts`. `folders_list` answers in an indented
+  text list, not JSON. A fal key is checked with a status call on a made-up
+  request id (404 good, 401 bad); fal's billing API needs an admin key.
+
 - **Rebase onto origin/main right before every Convex push (2 Nov 2026).** The
   cloud deployment takes whatever the branch has. A push from a branch cut
   before #132/#133 deleted the Jev classifier's functions and indexes for 75

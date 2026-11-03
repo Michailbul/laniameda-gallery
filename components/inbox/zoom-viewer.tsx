@@ -45,6 +45,8 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
   const [focusSignal, setFocusSignal] = useState(startEditing ? 1 : 0);
   const [compare, setCompare] = useState<EditCompare | null>(null);
   const openEdit = useCallback(() => { setEditing(true); setFocusSignal((n) => n + 1); }, []);
+  // C while the edit panel is open: a note for the reviewer on the image in view.
+  const [noteSignal, setNoteSignal] = useState(0);
 
   useEffect(() => {
     const measure = () => {
@@ -89,6 +91,11 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
       if (canEdit && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "e") {
         event.preventDefault(); event.stopPropagation();
         if (editing) setEditing(false); else openEdit();
+        return;
+      }
+      if (editing && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "c") {
+        event.preventDefault(); event.stopPropagation();
+        setNoteSignal((n) => n + 1);
         return;
       }
       // Capture phase: these keys never reach the stack's own shortcuts
@@ -214,7 +221,7 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
       style={{ paddingTop: "max(64px, env(safe-area-inset-top))", background: "var(--lm-paper)", borderLeft: "1px solid var(--lm-border)" }}
       aria-label="Edit in place">
       <EditInPlace assetId={assetId} ownerUserId={ownerUserId} width={width} height={height} assetUrl={url}
-        compare={compare} onCompare={setCompare} focusSignal={focusSignal} listenForE={false} />
+        compare={compare} onCompare={setCompare} focusSignal={focusSignal} noteSignal={noteSignal} listenForE={false} />
     </aside>}
     </div>
   </div>;

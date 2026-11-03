@@ -156,6 +156,9 @@ export const addAssetComment = ownerMutation({
     // text may be empty.
     audio: v.optional(audioArg),
     source: v.optional(v.literal("inbox")),
+    // Where he wrote it, for the agent who picks up the task (e.g. the take he
+    // was comparing in Edit in place). Goes into the task brief, not the comment.
+    context: v.optional(v.string()),
   },
   returns: assetCommentValidator,
   handler: async (ctx, args) => {
@@ -177,7 +180,9 @@ export const addAssetComment = ownerMutation({
     // nothing he writes is missed. Notes left in the Inbox travel with the
     // stack's own task instead.
     if (doc.author === "owner" && doc.source !== "inbox") {
-      await taskFromOwnerComment(ctx, args.ownerUserId, asset, { _id, body: doc.body, hasAudio: Boolean(audio) });
+      await taskFromOwnerComment(ctx, args.ownerUserId, asset, {
+        _id, body: doc.body, hasAudio: Boolean(audio), context: args.context?.trim().slice(0, 1000) || undefined,
+      });
     }
     return await toResult(ctx, { _id, ...doc });
   },
@@ -185,7 +190,7 @@ export const addAssetComment = ownerMutation({
 
 const taskFromOwnerComment = async (
   ctx: MutationCtx, owner: string, asset: Doc<"assets">,
-  comment: { _id: Id<"assetComments">; body: string; hasAudio: boolean },
+  comment: { _id: Id<"assetComments">; body: string; hasAudio: boolean; context?: string },
 ) => {
   const worldFolderId = [...await worldsOfAsset(ctx, asset)][0];
   const what = comment.body ? titleFromText(comment.body, 100) : "Voice note";
@@ -195,6 +200,7 @@ const taskFromOwnerComment = async (
     brief: [
       comment.body || "_A voice note: read the thread with list_asset_comments and transcribe it._",
       "",
+      ...(comment.context ? [comment.context, ""] : []),
       `Michael's comment on asset:${asset._id}. Act on it, then reply on the asset with add_asset_comment and complete this task naming what changed.`,
     ].join("\n"),
     priority: 2,

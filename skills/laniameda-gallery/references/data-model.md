@@ -617,8 +617,8 @@ empty) and `source: "inbox"`. See `inbox.md`.
 `editJobs`: one row per model per take of a targeted edit on an image, sent
 from the detail panel or the Inbox zoom (key E) or by an agent (`edit_asset`).
 Fields: `sourceAssetId`, the source's `folderIds` and `worldFolderId` at send
-time, `prompt`, `model` / `modelName`, the route in use (`provider` fal or
-pika, `endpoint`), `requestId` with fal's `statusUrl` / `responseUrl`,
+time, `prompt`, `model` / `modelName`, the route in use (`provider` magnific,
+fal or pika, `endpoint`), `requestId` with fal's `statusUrl` / `responseUrl`,
 `attempts` (one per route tried, with `error` and `outOfCredit`), `retries`
 (each Retry that sends again bumps it, giving a fresh idempotency key),
 `status` queued / running / done / error with `error` and `errorKind`
@@ -628,8 +628,14 @@ pika, `endpoint`), `requestId` with fal's `statusUrl` / `responseUrl`,
 `refsDropped`, `resultAssetId` / `resultUrl`, `createdBy` owner or agent.
 
 Routes, prices and request bodies live in `lib/edit-models.ts` (the routing
-table: krea-3 fal; seedream-5 Pika then fal; gpt-flare and gpt-sunburst fal
-then Pika; nano-21 Pika; kontext-max fal). A billing or auth refusal falls
+table since 3 Nov 2026: Magnific first where it has the model, on Michael's own
+sign-in through its MCP server; krea-3 Magnific then fal; ideogram-precise
+Magnific; seedream-5 Magnific, Pika, fal; gpt-flare Magnific, fal, Pika;
+gpt-sunburst fal then Pika; nano-21 Magnific then Pika; kontext-max fal). A
+Magnific edit uploads the frame and references by URL into the Magnific
+project named like the world (else "laniameda.gallery") and its `requestId` is
+the creation identifier. A route whose provider has no key or sign-in is
+skipped. A billing or auth refusal falls
 through to the next route; a send of $30 or more is refused. A job with a
 `requestId` is only polled, never resubmitted; Retry polls it again after a
 timeout or a failed filing, otherwise sends a new request. The result is a new
@@ -831,3 +837,19 @@ explicitly approved contiguous pack-slot compaction is accepted. Its checkpoint
 retains the observed compact pack, while retired pack redirects archive the
 initial pack record. The final conservation verifier is read-only and checks the
 surviving effective graph alongside that immutable original archive.
+
+# Provider keys and connections (3 November 2026)
+
+`providerCredentials`: one row per owner and provider (`fal`, `pika`,
+`magnific`) set on the gallery's /settings page. `sealed` is AES-256-GCM
+ciphertext (convex/providerVault.ts, key derived from PROVIDER_KEYS_SECRET or
+AGENT_TOKEN_ISSUER_SECRET); `hint` is a key's last four characters, `account`
+the Magnific sign-in's email. A key saved here wins over the deployment's
+FAL_KEY / PIKA_API_KEY. Magnific is an OAuth connection (PKCE, public client)
+whose tokens refresh themselves. No tool reads or writes these; agents never see
+a secret, only whether a route can run (`list_asset_edits` → providers).
+
+Edit in place has a reviewer note (key C): an owner comment on the image in
+view (the take while its wipe is open) through `addAssetComment` with a
+`context` line that goes into the task brief. It lands in Tasks as a
+`source: comment` task for the reviewer agent.
