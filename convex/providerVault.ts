@@ -145,9 +145,12 @@ export const checkProvider = ownerAction({
         if (!token) return { ok: false, message: "Magnific is not connected." };
         const { account, credits } = await magnificAccount(token);
         await ctx.runMutation(internal.providerCredentials.markChecked, { ownerUserId: args.ownerUserId, provider: "magnific" });
+        // The cheapest Magnific edit is 65 credits; below that every edit falls through to fal / Pika.
+        const short = credits !== undefined && credits < 65;
         return {
-          ok: true,
-          message: `Connected${account ? ` as ${account}` : ""}${credits === undefined ? "" : ` · ${credits.toLocaleString("en")} credits`}.`,
+          ok: !short,
+          message: `Connected${account ? ` as ${account}` : ""}${credits === undefined ? "" : ` · ${credits.toLocaleString("en")} credits`}`
+            + (short ? " left, too few for an edit: edits run on fal and Pika until you top up." : "."),
           ...(account ? { account } : {}),
           ...(credits === undefined ? {} : { credits }),
         };

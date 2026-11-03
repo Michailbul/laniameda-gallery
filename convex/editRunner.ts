@@ -8,7 +8,7 @@ import { processMediaInput } from "./ingest";
 import { magnificAccessToken, resolveProviderKey } from "./providerVault";
 import {
   buildEditInput, classifyProviderRefusal, editIdempotencyKey, editModelById, estimateEditUsd,
-  magnificGenerateArgs, magnificUsd, pikaCharge, readFalResult, readFalStatus, readPikaJob,
+  MAGNIFIC_SPECS, magnificGenerateArgs, magnificUsd, pikaCharge, readFalResult, readFalStatus, readPikaJob,
   type EditPollResult, type EditProvider, type EditRoute,
 } from "../lib/edit-models";
 import {
@@ -87,6 +87,14 @@ const creationId = (out: Record<string, unknown>) => {
 const submitMagnific = async (ctx: ActionCtx, job: Job, endpoint: string, urls: string[], worldName?: string) => {
   const session = await magnificSession(ctx, job.ownerUserId);
   try {
+    // Out of credit: refuse before uploading anything, so nothing is left behind in Magnific.
+    const balance = await session.call("account_balance", {});
+    const credits = (balance.credits as { available?: number } | undefined)?.available;
+    const unlimited = (balance.plan as { unlimitedAppliesHere?: boolean } | undefined)?.unlimitedAppliesHere;
+    const needed = MAGNIFIC_SPECS[endpoint]?.credits ?? 0;
+    if (!unlimited && typeof credits === "number" && credits < needed) {
+      throw new Refused(`magnific: out of credits (${credits} left, ${needed} needed)`, true);
+    }
     const folderReference = await magnificProjectFor(session, worldName);
     const identifiers: string[] = [];
     for (const [index, url] of urls.entries()) {
