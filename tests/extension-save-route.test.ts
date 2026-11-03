@@ -132,10 +132,7 @@ describe("POST /api/extension/save", () => {
     expect(state.actionCalls).toHaveLength(1);
     expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
     expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
-    expect(state.actionCalls[0]?.tagNames).toEqual([
-      "midjourney",
-      "midjourney-web",
-    ]);
+    expect(state.actionCalls[0]?.tagNames).toEqual([]);
   });
 
   test("tags a collection pillar instead of creating a sub-collection", async () => {
@@ -163,7 +160,7 @@ describe("POST /api/extension/save", () => {
     expect(state.mutationCalls).toEqual([]);
   });
 
-  test("adds filterable Midjourney teach page tags", async () => {
+  test("drops Midjourney source tags and files teach pages as inspiration", async () => {
     const { POST } = await import(routePath);
 
     const response = await POST(
@@ -177,7 +174,7 @@ describe("POST /api/extension/save", () => {
           imageUrl: "https://cdn.midjourney.com/abc/0_1_1024_N.webp",
           sourceUrl: "https://www.midjourney.com/personalize/7466790784553975846/teach",
           modelName: "unknown",
-          tagNames: ["midjourney", "Midjourney"],
+          tagNames: ["midjourney", "Midjourney", "midjourney-teach", "personalize"],
         }),
       }),
     );
@@ -186,13 +183,7 @@ describe("POST /api/extension/save", () => {
     expect(state.actionCalls).toHaveLength(1);
     expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
     expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
-    expect(state.actionCalls[0]?.tagNames).toEqual([
-      "midjourney",
-      "midjourney-web",
-      "midjourney-teach",
-      "personalize",
-      "inspiration",
-    ]);
+    expect(state.actionCalls[0]?.tagNames).toEqual(["inspiration"]);
   });
 
   describe("Midjourney generation metadata", () => {
@@ -253,7 +244,7 @@ describe("POST /api/extension/save", () => {
       });
       // The page it was saved from still decides the tags and the prompt domain.
       expect(call?.domain).toBe("https://www.midjourney.com/explore?tab=top");
-      expect(call?.tagNames).toContain("midjourney-explore");
+      expect(call?.tagNames).toEqual([]);
     });
 
     test("cuts off-shape fields and never trusts a link from the client", async () => {
@@ -299,7 +290,7 @@ describe("POST /api/extension/save", () => {
     });
   });
 
-  test("adds filterable Midjourney explore page tags", async () => {
+  test("adds no tags for a Midjourney explore page save", async () => {
     const { POST } = await import(routePath);
 
     const response = await POST(
@@ -320,14 +311,10 @@ describe("POST /api/extension/save", () => {
     expect(state.actionCalls).toHaveLength(1);
     expect(state.actionCalls[0]?.modelName).toBe("Midjourney");
     expect(state.actionCalls[0]?.modelProvider).toBe("midjourney");
-    expect(state.actionCalls[0]?.tagNames).toEqual([
-      "midjourney",
-      "midjourney-web",
-      "midjourney-explore",
-    ]);
+    expect(state.actionCalls[0]?.tagNames).toEqual([]);
   });
 
-  test("adds a Midjourney profile source tag", async () => {
+  test("files a Midjourney profile save as inspiration with no source tags", async () => {
     const { POST } = await import(routePath);
 
     const response = await POST(
@@ -346,12 +333,7 @@ describe("POST /api/extension/save", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(state.actionCalls[0]?.tagNames).toEqual([
-      "midjourney",
-      "midjourney-web",
-      "midjourney-profile",
-      "inspiration",
-    ]);
+    expect(state.actionCalls[0]?.tagNames).toEqual(["inspiration"]);
     expect(state.actionCalls[0]?.folderId).toBe("folders:one");
     expect(state.mutationCalls).toEqual([]);
   });

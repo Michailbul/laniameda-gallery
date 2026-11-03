@@ -1266,7 +1266,7 @@
       normalizedTags.has("midjourney-teach") ||
       normalizedTags.has("midjourney-profile")
       ? "inspirations"
-      : "";
+      : midjourneyPagePillar();
   }
 
   function normalizeFolderIdList(values) {
@@ -2927,14 +2927,16 @@
     refreshViewerGallerySavedState(next, media);
   }
 
+  // Midjourney saves carry no source tags (midjourney, personalize, …): the
+  // model field records Midjourney. Teach and profile pages still file the
+  // piece under Inspirations.
   function getMidjourneyTagNames() {
-    const tags = ["midjourney"];
-    if (location.pathname.includes("/explore")) tags.push("midjourney-explore");
-    if (isMidjourneyProfilePage()) tags.push("midjourney-profile");
-    if (isMidjourneyTeachPage()) {
-      tags.push("midjourney-teach", "personalize");
-    }
-    return tags;
+    return [];
+  }
+
+  function midjourneyPagePillar() {
+    if (!isMidjourneyPage()) return "";
+    return isMidjourneyTeachPage() || isMidjourneyProfilePage() ? "inspirations" : "";
   }
 
   function getMidjourneyMediaUrl(target) {
@@ -4678,7 +4680,7 @@
     // in Inspirations) and outranks the remembered one.
     updateMidjourneyMenuPillar(
       menu,
-      inferCollectionPillar(getMidjourneyTagNames()) || collectionPillar,
+      midjourneyPagePillar() || collectionPillar,
     );
   }
 
@@ -4738,7 +4740,7 @@
           updateMidjourneyMenuSelection(menu, preset.folderIds);
           updateMidjourneyMenuPillar(
             menu,
-            inferCollectionPillar(getMidjourneyTagNames()) || preset.collectionPillar,
+            midjourneyPagePillar() || preset.collectionPillar,
           );
         },
       );
