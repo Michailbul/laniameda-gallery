@@ -6,6 +6,10 @@
   const DEFAULT_WORLD_KEY = "dear-annete";
   const REFRESH_INTERVAL_MS = 45000;
   const DOCK_GAP_PX = 6;
+  const CANONICAL_API_HOST = "gallery.laniameda.space";
+  const LEGACY_API_HOSTS = ["laniameda.gallery", "laniameda-galery.vercel.app"];
+  const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
+  const TRANSIENT_RUNTIME_ERROR = /message port closed|receiving end does not exist/i;
   const PROFILE_FLAG_PATTERN = /(^|\s)(--profile|--p|-p)((?:\s+[^\s-]\S*)+)/g;
 
   // Sets exactly one gallery moodboard code in the prompt's profile flag and
@@ -402,7 +406,7 @@
     snapshot = null;
   }
 
-  function send(world) {
+  function askBackground(world) {
     return new Promise((resolve) => {
       if (!extensionAlive()) {
         dropDock();
@@ -413,16 +417,77 @@
         chrome.runtime.sendMessage({ action: "listMoodboards", world }, (res) => {
           const message = chrome.runtime.lastError && chrome.runtime.lastError.message;
           if (message) {
-            if (/invalidated|context/i.test(message)) dropDock();
-            resolve({ ok: false, error: message });
+            if (/invalidated/i.test(message)) dropDock();
+            resolve({ ok: false, error: message, transient: TRANSIENT_RUNTIME_ERROR.test(message) });
             return;
           }
-          resolve(res || { ok: false, error: "No response." });
+          resolve(res || { ok: false, error: "No response.", transient: true });
         });
       } catch (err) {
         resolve({ ok: false, error: String(err?.message || err) });
       }
     });
+  }
+
+  function moodboardsUrl(rawApiUrl, world) {
+    let url;
+    try {
+      url = new URL(String(rawApiUrl || "").trim() || `https://${CANONICAL_API_HOST}`);
+    } catch {
+      url = new URL(`https://${CANONICAL_API_HOST}`);
+    }
+    if (LEGACY_API_HOSTS.includes(url.hostname)) {
+      url.protocol = "https:";
+      url.hostname = CANONICAL_API_HOST;
+    }
+    url.pathname = MOODBOARDS_ROUTE_PATH;
+    url.search = world ? `?world=${encodeURIComponent(world)}` : "";
+    url.hash = "";
+    return url.toString();
+  }
+
+  // The service worker can be mid-restart (Chrome stops it when idle, or the
+  // extension was reloaded under an open tab): then the message port closes
+  // with no answer. Ask the gallery directly; the route allows any origin.
+  async function fetchDirect(world) {
+    let config;
+    try {
+      config = await chrome.storage.sync.get(["apiUrl", "apiToken"]);
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+    const token = String(config?.apiToken || "").trim();
+    let response;
+    try {
+      response = await fetch(moodboardsUrl(config?.apiUrl, world), {
+        headers: token ? { "X-Extension-Token": token } : {},
+      });
+    } catch (err) {
+      return { ok: false, error: `Network error: ${err?.message || err}` };
+    }
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      // body wasn't JSON
+    }
+    if (!response.ok || !data) {
+      return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+    }
+    return data;
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function send(world) {
+    let res = await askBackground(world);
+    for (const delay of [250, 800]) {
+      if (res.ok || !res.transient) return res;
+      await wait(delay);
+      res = await askBackground(world);
+    }
+    if (res.ok || !res.transient || !extensionAlive()) return res;
+    return fetchDirect(world);
   }
 
   function isAuthFailure(res) {
@@ -436,7 +501,9 @@
     return keys[0] || "";
   }
 
-  async function refresh() {
+  // Timed and on-focus refreshes keep the codes already shown when one call
+  // fails; the error appears only when nothing is loaded or on a ↻ click.
+  async function refresh(options = {}) {
     const requestId = ++state.requestId;
     let key = state.worldKey || DEFAULT_WORLD_KEY;
     let res = await send(key);
@@ -452,6 +519,7 @@
     state.loading = false;
     if (!res.ok) {
       if (!extensionAlive()) return;
+      if (!options.manual && state.moodboards.length && !isAuthFailure(res)) return;
       const detail = String(res.error || "").replace(/^HTTP \d+\s*/, "").slice(0, 80);
       state.error = isAuthFailure(res)
         ? "Gallery token missing. Open the extension settings."
@@ -681,7 +749,7 @@
     refreshButton.type = "button";
     refreshButton.title = "Refresh moodboards";
     refreshButton.addEventListener("mousedown", (event) => event.preventDefault());
-    refreshButton.addEventListener("click", () => refresh());
+    refreshButton.addEventListener("click", () => refresh({ manual: true }));
     activeLabel = el("span", "stg-mb-active");
     top.append(worldSelect, refreshButton, activeLabel);
 

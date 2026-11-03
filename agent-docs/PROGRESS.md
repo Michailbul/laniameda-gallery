@@ -164,6 +164,9 @@ that did nothing, the recipe column in the way. Now `/w/<world>/styles`:
 - Model choice from four tests on 2 Nov (Jev vs OpenAI Decisions, `gpt-6-luna`): OpenAI wins or ties
   on flaws (writing and bars only), intake crops (37/40 vs 32/40) and speed (~1 s vs 2-3.5 s); Jev is
   cheaper and keeps the ingest tagging. Neither predicts taste or judges hands.
+- Extension 0.18.1: the Midjourney moodboard dock retries when Chrome closes the message port (service worker
+  mid-restart, or a worker older than the tab) and then asks the gallery directly, so "Could not refresh
+  moodboards. The message port closed…" no longer sticks. Timed refreshes keep the codes already shown.
 - Extension 0.18.0: the type and medium pickers sit behind "set type or medium by hand"; the panel
   says the rest is filled in automatically. The badge shows the manifest version.
 
