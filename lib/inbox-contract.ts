@@ -49,6 +49,11 @@ export const inboxCardInputSchema = z.object({
   targets: z.array(inboxTargetInputSchema).min(INBOX_LIMITS.minTargets).max(INBOX_LIMITS.maxTargets).optional().describe("Sort cards only: 2–9 targets; hotkeys 1–9 follow this order."),
   evidence: inboxEvidenceSchema.optional(),
   ruleText: z.string().trim().min(1).max(INBOX_LIMITS.ruleText).optional().describe("Rule cards: the proposed automatic rule."),
+  group: z.object({
+    assetIds: z.array(ref("asset:<id> or bare asset ID.")).min(1).max(INBOX_LIMITS.groupAssets).describe(`Up to ${INBOX_LIMITS.groupAssets} of the pictures, shown as a strip above the options.`),
+    total: z.number().int().min(1).optional().describe("How many pictures the question covers in all, e.g. 136. Defaults to the number of assetIds."),
+    label: z.string().trim().min(1).max(INBOX_LIMITS.label).optional().describe("What they are, in plain words, e.g. Golden film frames."),
+  }).optional().describe("The pictures the question is about when they are not the options. Required whenever the question talks about a group (\"these 136 frames…\"): Michael sees what he is deciding about, never only a count."),
 });
 
 export const inboxPostSchema = z.strictObject({

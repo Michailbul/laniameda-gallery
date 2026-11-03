@@ -663,21 +663,23 @@ const cardThumbs = async (ctx: QueryCtx, owner: string, ids: string[] | undefine
 const DECK_RANK: Record<TaskStatus, number> = { blocked: 0, done: 1, open: 2, claimed: 3, archived: 4 };
 
 /**
- * The review deck (/tasks, Human view): every task Michael can act on, as a
- * card with its pictures. Done tasks stay until he accepts (archives) them or
- * sends them back with a comment.
+ * The review deck (/tasks, Human view): every task still open, asking or in
+ * flight, as a card with its pictures. Finished work is not here: it is in the
+ * newspaper, and stays done unless he sends it back with a comment.
  */
 export const listTaskCards = ownerQuery({
   args: {
     ownerUserId: v.string(),
     worldFolderId: v.optional(v.id("folders")),
     limit: v.optional(v.number()),
+    // Finished work lives in the newspaper; the wall asks for it only to open one.
+    includeDone: v.optional(v.boolean()),
   },
   returns: v.array(taskCardValidator),
   handler: async (ctx, args) => {
     const owner = args.ownerUserId;
     const limit = Math.min(TASK_LIMITS.list, Math.max(1, Math.floor(args.limit ?? TASK_LIMITS.listDefault)));
-    const statuses: TaskStatus[] = ["blocked", "done", "open", "claimed"];
+    const statuses: TaskStatus[] = args.includeDone ? ["blocked", "done", "open", "claimed"] : ["blocked", "open", "claimed"];
     const rows: Task[] = [];
     if (args.worldFolderId) {
       await requireWorld(ctx, owner, args.worldFolderId);

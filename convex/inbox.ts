@@ -10,7 +10,7 @@ import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { upsertTask } from "./tasks";
 import {
-  inboxAppliedValidator, inboxCardTypeValidator, inboxChoiceValidator, inboxEvidenceValidator,
+  inboxAppliedValidator, inboxCardTypeValidator, inboxChoiceValidator, inboxEvidenceValidator, inboxGroupValidator,
   inboxStackDocValidator, inboxStackStatusValidator, inboxTargetKindValidator, inboxTargetValidator,
 } from "./inboxValidators";
 import {
@@ -375,6 +375,7 @@ const cardViewValidator = v.object({
   labels: v.optional(v.array(v.string())),
   targets: v.optional(v.array(resolvedTargetValidator)),
   evidence: v.optional(inboxEvidenceValidator),
+  group: v.optional(v.object({ assets: v.array(cardAssetValidator), total: v.number(), label: v.optional(v.string()) })),
   ruleText: v.optional(v.string()),
 });
 
@@ -432,9 +433,15 @@ export const getInboxStack = ownerQuery({
           }
         }
       }
+      let group: { assets: typeof assets; total: number; label?: string } | undefined;
+      if (card.group) {
+        const members = [];
+        for (const assetId of card.group.assetIds) members.push(await assetView(assetId));
+        group = { assets: members, total: card.group.total, ...(card.group.label ? { label: card.group.label } : {}) };
+      }
       cards.push({
         _id: card._id, position: card.position, type: card.type, question: card.question, assets,
-        labels: card.labels, targets, evidence: card.evidence, ruleText: card.ruleText,
+        labels: card.labels, targets, evidence: card.evidence, ruleText: card.ruleText, ...(group ? { group } : {}),
       });
     }
     return { stack, worldName: world?.name ?? "Unknown world", cards };
@@ -531,6 +538,7 @@ const cardInputValidator = v.object({
     folderId: v.optional(v.id("folders")),
   }))),
   evidence: v.optional(inboxEvidenceValidator),
+  group: v.optional(inboxGroupValidator),
   ruleText: v.optional(v.string()),
 });
 
@@ -656,10 +664,21 @@ export const postInboxCards = ownerMutation({
       if (input.type === "rule" && !ruleText) throw new ConvexError(`${where}: a rule card needs ruleText.`);
       const evidence = cleanEvidence(input.evidence, where);
       if (input.type === "artifact" && !evidence?.defect) throw new ConvexError(`${where}: an artifact card needs evidence.defect.box.`);
+      let group: { assetIds: Id<"assets">[]; total: number; label?: string } | undefined;
+      if (input.group) {
+        const members = [...new Set(input.group.assetIds)];
+        if (members.length === 0 || members.length > INBOX_LIMITS.groupAssets) throw new ConvexError(`${where}: a group shows 1 to ${INBOX_LIMITS.groupAssets} pictures.`);
+        for (const assetId of members) {
+          if (!await ownedAsset(ctx, owner, assetId)) throw new ConvexError(`${where}, group: asset not found: asset:${assetId}`);
+        }
+        const total = Math.max(members.length, Math.floor(input.group.total));
+        const label = text(input.group.label, INBOX_LIMITS.label, `${where}, group label`);
+        group = { assetIds: members, total, ...(label ? { label } : {}) };
+      }
       prepared.push({
         type: input.type, key: text(input.key, INBOX_LIMITS.cardKey, `${where}, key`),
         question: text(input.question, INBOX_LIMITS.question, `${where}, question`),
-        assetIds, labels, targets, evidence, ruleText,
+        assetIds, labels, targets, evidence, ruleText, group,
       });
     }
 
@@ -701,6 +720,7 @@ export const postInboxCards = ownerMutation({
         ...(card.key ? { key: card.key } : {}), ...(card.question ? { question: card.question } : {}),
         ...(card.labels ? { labels: card.labels } : {}), ...(card.targets ? { targets: card.targets } : {}),
         ...(card.evidence ? { evidence: card.evidence } : {}), ...(card.ruleText ? { ruleText: card.ruleText } : {}),
+        ...(card.group ? { group: card.group } : {}),
       }));
     }
     if (added.length > 0) {

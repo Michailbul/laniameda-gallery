@@ -17,7 +17,6 @@ export function WorldTasksTab({ ownerUserId, worldFolderId, worldKey, worldName 
             <h2 className="text-2xl font-black uppercase leading-none tracking-tight" style={display}>Review</h2>
             <p className="lmw-counts">
               {counts.needsYou ? <span className="hot">{counts.needsYou} need{counts.needsYou === 1 ? "s" : ""} you</span> : null}
-              {counts.toAccept ? <span className="warm">{counts.toAccept} to accept</span> : null}
               <span>{counts.total} in {worldName}</span>
             </p>
           </div>

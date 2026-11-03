@@ -23,6 +23,8 @@ export const INBOX_LIMITS = {
   audioMs: 10 * 60 * 1000,
   listStacks: 100,
   previews: 4,
+  // Pictures shown for a card's group (the frames its question is about).
+  groupAssets: 24,
 } as const;
 
 export const INBOX_CARD_TYPES = ["sort", "duplicates", "artifact", "ab", "choose", "rule"] as const;

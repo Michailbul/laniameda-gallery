@@ -595,7 +595,8 @@ createdAt, world/status/createdAt, owner/world/ingestKey.
 2–9 of `hotkey`, `label`, `kind` moodboard/collection/option/out, and the
 `moodboardId` or `folderId`), `evidence` (`text`, `matches` of kind/label/
 score, `defect.box` in 0–1 coordinates with `note`, `priceUsd`, `priceNote`),
-`ruleText`. Indexes: stack/position, stack/key.
+`ruleText`, `group` (the pictures the question is about when they are not the
+options: `assetIds` 1–24, `total`, `label`). Indexes: stack/position, stack/key.
 
 `inboxDecisions` is the latest answer on a card: `choice` (target, skip,
 keep, fix, out, winner, neither, pick, yes, no, not-yet, stack, keep-all,
@@ -651,8 +652,9 @@ context frames ≤8, `options: [{label` ≤60, `assetIds?` ≤6, `recommended?}]
 at least one frame, every frame his own asset; cleared when done), `links`
 (typed handles `{kind: asset | story | stack | moodboard | character |
 collection | doc | url, id, label?}`), `source` (manual, comment, inbox,
-newspaper), `sourceRef` (the comment or stack id), `ingestKey` (stable key:
-`comment:<commentId>`, `inbox:<stackId>`; creating again returns the existing
+newspaper, feedback: a note from the Feedback button on any page, sourceRef =
+the page URL), `sourceRef` (the comment or stack id), `ingestKey` (stable key:
+`comment:<commentId>`, `inbox:<stackId>`, `feedback:<ms>`; creating again returns the existing
 task), `needsRework` (Michael reopened a done task with a comment), `dueAt`,
 `createdAt`, `updatedAt`. Indexes: owner/status/createdAt,
 world/status/createdAt, owner/ingestKey, owner/updatedAt.

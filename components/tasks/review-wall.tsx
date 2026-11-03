@@ -104,7 +104,7 @@ const aspectOf = (thumb: { width?: number; height?: number }) => (thumb.width &&
 const frameTab = (card: Card): { word: string; tone: string } => {
   switch (card.status) {
     case "blocked": return { word: "Needs you", tone: "need" };
-    case "done": return { word: "Accept?", tone: "accept" };
+    case "done": return { word: "Done", tone: "quiet" };
     case "claimed": return { word: card.lastAnswer ? "Agent on your answer" : "Agent working", tone: "quiet" };
     default:
       if (card.needsRework) return { word: "Rework", tone: "said" };
@@ -973,7 +973,8 @@ const DECK_CSS = `
 }
 `;
 
-const decidable = (card: Card) => card.status === "blocked" || card.status === "done";
+// Only questions: finished work goes to the newspaper, not to Michael's desk.
+const decidable = (card: Card) => card.status === "blocked";
 const deckOrder = (a: Card, b: Card) => RANK[a.status] - RANK[b.status] || a.priority - b.priority || b.updatedAt - a.updatedAt;
 const STAMP_PAUSE_MS = 650;
 const TALLY: Array<{ kinds: Kind[]; word: string }> = [
@@ -1070,13 +1071,15 @@ function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onE
   const visible = queue.filter(shown);
   const done = queue.filter((qid) => stamps.has(qid) && known.has(qid));
 
+  const piles = stacks.filter((stack) => stack.cards === 0 || stack.decided < stack.cards);
+  const pileHref = (stack: Stack) => `/inbox/${stack.worldFolderId}/${stack._id}`;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || zoom || isTyping(event.target)) return;
       const key = event.key.toLowerCase();
       if (key === "z") { event.preventDefault(); void undoLast(); return; }
       if (!card) {
-        if (event.key === "Enter") { event.preventDefault(); if (left.length) go(queue.indexOf(left[0]!)); else router.push("/"); }
+        if (event.key === "Enter") { event.preventDefault(); if (left.length) go(queue.indexOf(left[0]!)); else if (piles[0]) router.push(pileHref(piles[0])); else router.push("/"); }
         return;
       }
       if (event.key === "ArrowLeft") { event.preventDefault(); back(); return; }
@@ -1101,10 +1104,26 @@ function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onE
     <span className="n">{visible.length - done.length} left</span>
   </div>;
 
+  // The last question answered here: the next pile of pictures opens by itself.
+  // Arriving with no questions waits on the page, so Everything stays in reach.
+  const onwardPile = !card && left.length === 0 && done.length > 0 ? piles[0] : undefined;
+  useEffect(() => {
+    if (!onwardPile) return;
+    const timer = setTimeout(() => router.push(pileHref(onwardPile)), 900);
+    return () => clearTimeout(timer);
+  }, [onwardPile, router]);
+
   if (!card) {
     const tally = TALLY.map((row) => ({ ...row, n: done.filter((qid) => row.kinds.includes(stamps.get(qid)!.kind)).length })).filter((row) => row.n > 0);
     const pictures = done.map((qid) => known.get(qid)!.thumbs[0]).filter(Boolean).slice(0, 16) as Thumb[];
-    const piles = stacks.filter((stack) => stack.cards === 0 || stack.decided < stack.cards);
+    if (onwardPile) {
+      return <section className="lmd-done" aria-label="Next pile">
+        <span className="mark" aria-hidden />
+        <p className="lmd-tally"><span>Next pile · {onwardPile.worldName}</span></p>
+        <h1 style={{ fontSize: "clamp(36px,8vw,84px)" }}>{onwardPile.title.replace(/\s*·\s*\d+\s*$/, "")}</h1>
+        <p className="lmd-tally"><Loader2 size={12} className="animate-spin" aria-hidden /> <span>{piles.length} pile{piles.length === 1 ? "" : "s"} to decide</span></p>
+      </section>;
+    }
     return <>
       {progress}
       <section className="lmd-done" aria-label="All done">
@@ -1116,7 +1135,9 @@ function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onE
           <img key={thumb.assetId} src={thumb.url} alt="" loading="lazy" decoding="async" />))}</div>}
         <div className="lmd-done-acts">
           {left.length > 0 && <button type="button" className="lmw-stamp primary" onClick={() => go(queue.indexOf(left[0]!))}>Go through {left.length === 1 ? "it" : `the ${left.length}`}<ArrowRight size={14} aria-hidden /><kbd>↵</kbd></button>}
-          <Link href="/" className={`lmw-stamp${left.length ? "" : " primary"}`}><ArrowLeft size={14} aria-hidden /> Back to gallery{!left.length && <kbd>↵</kbd>}</Link>
+          {!left.length && piles[0] && <Link href={pileHref(piles[0])} className="lmw-stamp primary">Sort the {piles.length === 1 ? "pile" : `${piles.length} piles`}<ArrowRight size={14} aria-hidden /><kbd>↵</kbd></Link>}
+          <Link href="/" className={`lmw-stamp${left.length || piles[0] ? "" : " primary"}`}><ArrowLeft size={14} aria-hidden /> Back to gallery{!left.length && !piles[0] && <kbd>↵</kbd>}</Link>
+          <Link href="/newspaper" className="lmw-stamp ghost">What got done: the newspaper</Link>
           <button type="button" className="lmw-stamp ghost" onClick={onEverything}>{agentsBusy ? `See the ${agentsBusy} with agents` : "See everything"}</button>
         </div>
         {piles.length > 0 && <p className="lmd-also">Pictures still to sort
@@ -1228,7 +1249,8 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   header: (context: WallHeaderContext) => ReactNode;
 }) {
   const { isAuthenticated } = useConvexAuth();
-  const cards = useQuery(api.tasks.listTaskCards, isAuthenticated ? { ownerUserId, worldFolderId, limit: TASK_LIMITS.list } : "skip");
+  // A newspaper link to finished work (?task=) is the one reason to load done tasks.
+  const cards = useQuery(api.tasks.listTaskCards, isAuthenticated ? { ownerUserId, worldFolderId, limit: TASK_LIMITS.list, includeDone: Boolean(initialTaskId) || undefined } : "skip");
   const stacks = useQuery(api.inbox.listInboxStacks, isAuthenticated && !galleryOnly ? { ownerUserId, worldFolderId, status: "open", previewLimit: 1 } : "skip");
   const update = useMutation(api.tasks.updateTask);
   const comment = useMutation(api.tasks.commentTask);
@@ -1265,10 +1287,10 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   }, [ghosts]);
 
   const tasks = useMemo(() => {
-    const live = (cards ?? []).filter((card) => !galleryOnly || !card.worldFolderId);
+    const live = (cards ?? []).filter((card) => (!galleryOnly || !card.worldFolderId) && (card.status !== "done" || card._id === initialTaskId));
     const seen = new Set(live.map((card) => card._id));
     return [...live, ...[...ghosts.values()].filter((ghost) => !seen.has(ghost.card._id)).map((ghost) => ghost.card)];
-  }, [cards, ghosts, galleryOnly]);
+  }, [cards, ghosts, galleryOnly, initialTaskId]);
 
   const rows = useMemo<Row[]>(() => {
     const byKey = new Map<string, Row>();
@@ -1318,7 +1340,7 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     const card = cards.find((row) => row._id === initialTaskId);
     if (!card) return;
     // A call he owes opens first in the deck; anything else on the wall.
-    if (deciding && (card.status === "blocked" || card.status === "done")) return;
+    if (deciding && card.status === "blocked") return;
     setMode("wall");
     setFocus({ id: initialTaskId });
   }, [cards, initialTaskId, deciding]);
@@ -1455,7 +1477,7 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
     <Undo2 size={12} aria-hidden /> Undo
   </button>;
   const viewSwitch = <WallViewSwitch view={view} onChange={setView} />;
-  const owed = counts.needsYou + counts.toAccept;
+  const owed = counts.needsYou;
   const modeSwitch = decide ? <div className="lmw-seg" role="tablist" aria-label="Mode">
     <button type="button" role="tab" aria-selected={mode === "decide"} onClick={() => { setFocus(null); setMode("decide"); }} title="The calls you owe, one at a time">
       Decide{owed ? ` ${owed}` : ""}
@@ -1478,7 +1500,6 @@ export function ReviewWall({ ownerUserId, worldFolderId, galleryOnly = false, sh
   const rowHead = (row: Row) => {
     const parts: ReactNode[] = [];
     if (row.needsYou) parts.push(<span key="n" className="hot">{row.needsYou} need{row.needsYou === 1 ? "s" : ""} you</span>);
-    if (row.toAccept) parts.push(<span key="a" className="warm">{row.toAccept} to accept</span>);
     const waiting = row.tasks.filter((card) => card.status === "open" && !stamps.has(card._id)).length;
     const working = row.tasks.filter((card) => card.status === "claimed" && !stamps.has(card._id)).length;
     if (waiting) parts.push(<span key="w">{waiting} waiting</span>);
@@ -1563,7 +1584,6 @@ export function ReviewWallHome({ ownerUserId }: { ownerUserId: string }) {
       {mode === "wall" && <>
       <p className="lmw-counts">
         {counts.needsYou ? <span className="hot">{counts.needsYou} need{counts.needsYou === 1 ? "s" : ""} you</span> : null}
-        {counts.toAccept ? <span className="warm">{counts.toAccept} to accept</span> : null}
         {counts.waiting ? <span>{counts.waiting} waiting</span> : null}
         {counts.working ? <span>{counts.working} being worked on</span> : null}
       </p>
