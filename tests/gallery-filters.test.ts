@@ -103,6 +103,7 @@ test("isHiddenFilterTag hides source/plumbing and duplicate-filter tags", () => 
   expect(isHiddenFilterTag("Midjourney")).toBeTrue();
   expect(isHiddenFilterTag("midjourney-web")).toBeTrue();
   expect(isHiddenFilterTag("midjourney-teach")).toBeTrue();
+  expect(isHiddenFilterTag("personalize")).toBeTrue();
   expect(isHiddenFilterTag("nano-banana-2")).toBeTrue();
   expect(isHiddenFilterTag("seedance-2")).toBeTrue();
   expect(isHiddenFilterTag("recraft")).toBeTrue();
@@ -115,7 +116,6 @@ test("isHiddenFilterTag keeps content-descriptive tags", () => {
   for (const name of [
     "animation",
     "live-action",
-    "personalize",
     "cinematic",
     "portrait",
     "fashion",
